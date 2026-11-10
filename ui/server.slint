@@ -5,7 +5,7 @@ import { Theme, Label, Middle, Popup } from "theme.slint";
 import { ActionButton, Avatar, IconButton, MenuItem, TextField, Motion, StatusText, ServerTagChip, PictureStore, StyledName, NameStyleRow } from "controls.slint";
 import { Choices, Picker, UnsavedBar } from "settings.slint";
 import { NameStyles } from "controls.slint";
-import { ProfileData, ProfileHeading, ProfileTitle, ActivityCard, ProfileBadge, ProfileBadgeRow, BoardCard, WishlistCard, ProfileTheme } from "people.slint";
+import { ProfileEditorPage, ProfileData, ProfileHeading, ProfileTitle, ActivityCard, ProfileBadge, ProfileBadgeRow, BoardCard, WishlistCard, ProfileTheme } from "people.slint";
 
 // What an invite dialog shows: whom it invites where, and the link once
 // Discord made it.
@@ -964,6 +964,13 @@ component ProfileTabs inherits Rectangle {
     callback open-link(string);
     callback open-wishlist;
     property <int> page: 0;
+    // Opened from one's own activity's View All Activity, it starts there.
+    init => {
+        if ProfileEditorPage.wanted != 0 {
+            root.page = ProfileEditorPage.wanted;
+            ProfileEditorPage.wanted = 0;
+        }
+    }
     // Long tabs scroll in what's under the headings, so they don't change the
     // card's size. They sit over the column rather than in it, to that end.
     property <length> list-y: headings.y + headings.height + 16px;

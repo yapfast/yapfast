@@ -198,7 +198,9 @@
 // file into an image embed.
 // Alice's custom status, "Testing Yapfast", is in her settings; PATCH
 // /users/@me/settings-proto/1 replaces each top-level field it sends, and GET
-// /_control/presence shows the presence her session last sent with op 3. POST /users/@me/relationships sends
+// /_control/presence shows the presence her session last sent with op 3.
+// POST /_control/other-session brings her phone online playing a song, with
+// SESSIONS_REPLACE. POST /users/@me/relationships sends
 // a friend request by username: Frank takes none, and unknown names fail.
 // Erin's request is a stranger's (`stranger_request`), which PUT accepts only
 // with `confirm_stranger_request`, as Discord's client confirms one; without it
@@ -2903,6 +2905,7 @@ function ready(ws: Socket) {
         session_id: ws.data.session,
         status: "online",
         activities: [],
+        active: true,
         client_info: { client: "web", os: "linux", version: 0 },
       },
     ],
@@ -8230,7 +8233,7 @@ const ENV_IDS = 1_450_000_000_000_000_000n;
 const GENERIC_CONTROLS = new Set([
   "media-requests", "history", "forwards", "gif-selects", "nitro", "profile", "profile-reset", "server-profile", "health", "presence", "logouts",
   "voice-identifies", "voice-changes", "call-audio", "call-video", "voice-link", "voice-drop", "voice-move", "voice-kick",
-  "stream-move", "sessions", "cookies", "list-requests", "audit-log", "slow", "gateway-reconnect", "qr-scan",
+  "stream-move", "sessions", "other-session", "cookies", "list-requests", "audit-log", "slow", "gateway-reconnect", "qr-scan",
   "qr-confirm", "qr-captcha", "qr-cancel", "qr-expire", "voice-audio", "video", "stream-codec", "reactor-pages",
   "reactor-removals", "thread-searches", "thread-creates", "thread-members", "typed", "acks", "invites",
   "invite-joins", "invite-captcha", "invite-form", "event-interest", "gift-redeems", "oauth-authorizations", "mfa", "soundboard-sends", "custom-call-sounds",
@@ -8807,6 +8810,25 @@ const server = Bun.serve<SocketData>({
     }
     if (path === "/_control/health") return new Response("ok\n");
     if (path === "/_control/presence") return Response.json(alicePresence);
+    if (req.method === "POST" && path === "/_control/other-session") {
+      // Alice's phone comes online playing a song, as SESSIONS_REPLACE
+      // lists every session of hers with what each shows.
+      const own = [...sockets].filter(ws => ws.data.identified).map(ws => ({
+        session_id: ws.data.session, status: "online", activities: [], active: true,
+        client_info: { client: "web", os: "linux", version: 0 },
+      }));
+      dispatch("SESSIONS_REPLACE", [...own, {
+        session_id: "fake-phone", status: "online", active: true,
+        client_info: { client: "mobile", os: "ios", version: 0 },
+        activities: [{
+          type: 2, name: "Spotify", id: "spotify:1", application_id: null, created_at: Date.now(),
+          details: "Song on the phone", state: "An artist", sync_id: "4uLU6hMCjMI75M1A2tKUQC",
+          timestamps: { start: Date.now() - 30_000, end: Date.now() + 150_000 },
+          assets: { large_image: "spotify:ab67616d0000b273", large_text: "An album" },
+        }],
+      }]);
+      return new Response("online\n");
+    }
     if (req.method === "POST" && path === "/_control/bob-away") {
       // Bob goes idle with a custom status, as his friends hear it.
       presences[users.bob.id] = {

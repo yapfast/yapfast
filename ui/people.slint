@@ -691,8 +691,22 @@ component ActivityTime inherits Rectangle {
     }
 }
 
+/// The tab the profile editor should open on, which it takes when it opens:
+/// 1 is Activity.
+export global ProfileEditorPage {
+    in-out property <int> wanted: 0;
+    /// What one's own activity's more menu asked for: 1 its tab in the
+    /// editor, 2 its privacy settings. The window acts on it once the
+    /// popups have closed.
+    in-out property <int> action: 0;
+}
+
 export component ActivityCard inherits VerticalLayout {
     in property <ActivityRow> activity;
+    /// One's own, which has Discord's more menu.
+    in property <bool> menu;
+    /// Its more button was clicked, with the button's top right corner.
+    callback more(length, length);
     /// Its text and what it lies on, which a profile's theme sets.
     in property <color> ink: Theme.text;
     in property <color> ink2: Theme.secondary;
@@ -713,7 +727,16 @@ export component ActivityCard inherits VerticalLayout {
         (hours > 0 ? hours + ":" + (minutes < 10 ? "0" : "") : "") + minutes + ":" + (rest < 10 ? "0" : "") + rest
     }
     spacing: 8px;
-    ProfileHeading { text: root.activity.heading; color: root.ink3; }
+    HorizontalLayout {
+        spacing: 6px; height: 16px;
+        ProfileHeading { text: root.activity.heading; color: root.ink3; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
+        if root.menu: Middle {
+            IconButton {
+                icon: @image-url("icons/ellipsis.svg"); label: "More"; size: 20px; glyph: 14px; tint: root.ink2;
+                clicked => { root.more(self.absolute-position.x + self.width, self.absolute-position.y); }
+            }
+        }
+    }
     HorizontalLayout {
         spacing: 12px;
         if root.activity.large-url != "": Rectangle {
@@ -753,20 +776,25 @@ export component ActivityCard inherits VerticalLayout {
                     : root.clock(max(0, root.activity.end - ActivityClock.now)) + " left";
                 ink: root.ink3;
             }
-        }
-    }
-    if root.bar: VerticalLayout {
-        spacing: 4px;
-        Rectangle {
-            height: 4px; border-radius: 2px; background: root.track;
-            Rectangle {
-                x: 0px; width: parent.width * root.played / max(1, root.length);
-                border-radius: 2px; background: root.ink;
+            // A song's bar sits under its words, as Discord's does, with how
+            // far it's got and how long it is either side. The time played
+            // takes the width of the length, which doesn't change, so the
+            // layout doesn't read its text each second.
+            if root.bar: HorizontalLayout {
+                spacing: 8px; height: 16px;
+                ActivityTime { width: song-length.preferred-width; text: root.clock(root.played); ink: root.ink2; }
+                Middle {
+                    horizontal-stretch: 1;
+                    Rectangle {
+                        height: 3px; border-radius: 1.5px; background: root.track;
+                        Rectangle {
+                            x: 0px; width: parent.width * root.played / max(1, root.length);
+                            border-radius: 1.5px; background: root.ink;
+                        }
+                    }
+                }
+                song-length := Text { text: root.clock(root.length); color: root.ink2; font-size: 12px; vertical-alignment: center; }
             }
-        }
-        HorizontalLayout {
-            ActivityTime { text: root.clock(root.played); ink: root.ink3; }
-            Text { text: root.clock(root.length); color: root.ink3; font-size: 12px; horizontal-alignment: right; }
         }
     }
     if root.activity.url != "": HorizontalLayout {
@@ -943,6 +971,8 @@ export component ProfileCard inherits Rectangle {
     callback send-message(string);
     /// Edit Profile, on one's own card.
     callback edit-profile;
+    /// One's own activity's more button was clicked, with where it is.
+    callback activity-more(length, length);
     property <length> banner-height: root.side ? 140px : root.large ? 210px : root.docked ? (ClientStyle.enabled ? 105px : 120px) : 105px;
     property <length> avatar-size: root.side ? 96px : root.large ? 120px : 80px;
     property <length> pad: root.side ? 20px : root.large ? 24px : 16px;
@@ -1182,10 +1212,17 @@ export component ProfileCard inherits Rectangle {
                                 }
                             }
                         }
-                        for activity in root.data.activities: ActivityCard {
-                            activity: activity; ink: root.ink; ink2: root.ink2; ink3: root.ink3;
-                            ground: root.themed ? root.theme-start : Theme.sidebar; track: root.themed ? root.ink.transparentize(0.8) : Theme.raised;
-                            open-link(url) => { root.open-link(url); }
+                        // The full profile has its Activity tab for them, as
+                        // Discord's does; the card leaves them out.
+                        if !root.large: VerticalLayout {
+                            spacing: 12px;
+                            for activity in root.data.activities: ActivityCard {
+                                menu: root.data.own && !root.preview && !root.docked;
+                                more(x, y) => { root.activity-more(x, y); }
+                                activity: activity; ink: root.ink; ink2: root.ink2; ink3: root.ink3;
+                                ground: root.themed ? root.theme-start : Theme.sidebar; track: root.themed ? root.ink.transparentize(0.8) : Theme.raised;
+                                open-link(url) => { root.open-link(url); }
+                            }
                         }
                         // The card names what is shared, with a few of the faces; the
                         // full profile lists it in its tabs. "5 mutual friends", a bullet,

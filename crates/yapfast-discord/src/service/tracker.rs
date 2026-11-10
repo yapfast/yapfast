@@ -168,6 +168,11 @@ pub(super) struct Tracker {
     nsfw_allowed: bool,
     nsfw_commands_in_dms: bool,
     pub(super) playing: Option<Arc<crate::own_activity::Playing>>,
+    /// What this session and another of this account's show it doing, and
+    /// the two together as its own profile shows them.
+    here: Vec<Value>,
+    elsewhere: Vec<Value>,
+    own_activities: crate::activity::Activities,
     /// The soundboard's volume and join sounds, from the settings.
     soundboard_volume: Option<f32>,
     join_sounds: Arc<[crate::soundboard::JoinSound]>,
@@ -243,6 +248,9 @@ impl Tracker {
             // As in Discord's apps, until the settings say otherwise.
             show_game: true,
             playing: None,
+            here: Vec::new(),
+            elsewhere: Vec::new(),
+            own_activities: Default::default(),
             soundboard_volume: None,
             join_sounds: Arc::from([]),
             requests: HashMap::new(),
@@ -252,6 +260,7 @@ impl Tracker {
             viewing: None,
             beside: None,
         };
+        tracker.sessions(&ready["sessions"]);
         tracker.sort_servers();
         if let Some(encoded) = ready["user_settings_proto"].as_str() {
             tracker.settings(encoded);
@@ -336,8 +345,32 @@ impl Tracker {
         self.apply_servers(event, data) || unreads
     }
 
+    /// Takes in the list of this account's sessions; returns whether what it
+    /// shows it doing changed.
+    fn sessions(&mut self, sessions: &Value) -> bool {
+        self.elsewhere = crate::activity::elsewhere(sessions, self.session.as_deref());
+        self.own_activities_changed()
+    }
+
+    /// Takes in what this session sends Discord it's doing; returns whether
+    /// what the account shows changed.
+    pub(super) fn shows_here(&mut self, activities: &Value) -> bool {
+        self.here = activities.as_array().cloned().unwrap_or_default();
+        self.own_activities_changed()
+    }
+
+    fn own_activities_changed(&mut self) -> bool {
+        let shown = crate::activity::own(&self.here, &self.elsewhere);
+        let changed = shown != self.own_activities;
+        if changed {
+            self.own_activities = shown;
+        }
+        changed
+    }
+
     fn apply_servers(&mut self, event: &Event, data: &Value) -> bool {
         match event {
+            Event::SessionsReplace => self.sessions(data),
             Event::ReadySupplemental => {
                 // The DMs left out of READY to make it smaller.
                 for channel in data["lazy_private_channels"]
@@ -1967,6 +2000,7 @@ impl Tracker {
             soundboard_volume: self.soundboard_volume,
             join_sounds: self.join_sounds.clone(),
             playing: self.playing.clone(),
+            own_activities: self.own_activities.clone(),
             friend_requests: people.friend_requests,
             voice,
             voice_started: self.voice_started.clone(),

@@ -517,6 +517,9 @@ pub struct AppState {
     /// it shows.
     pub discord_show_game: bool,
     pub discord_playing: Option<chat::Playing>,
+    /// What the Discord account shows it's doing, on this device and its
+    /// others, as its own profile shows it.
+    pub discord_activities: chat::Activities,
     /// How loud the Discord account's soundboard plays, as Discord keeps
     /// it: from 0 to 100, on its slider's curve.
     pub soundboard_volume: f32,

@@ -265,6 +265,16 @@ they're doing, sits in a thought bubble beside the picture, as in
 Discord's: two lines at most, and all of it while pointed at. One's
 own card, small or full, has Edit Profile in place of the friend and
 message buttons, which opens the [editor](#editing-ones-main-profile).
+The small card and the DM's panel list what they're doing in full; the full
+profile leaves that to its Activity tab. No presence comes for this account
+itself, so, as Discord's client does, its own profile shows what this session
+sends and what the first other active session of the account's shows, from
+READY's `sessions` and `SESSIONS_REPLACE`: custom statuses left out, each
+`type:application_id:name` once, sorted as anyone's are (this session's first
+among equals), with one game at most (`activity::own`,
+`Snapshot::own_activities`). On one's own small card each activity has a
+"..." menu, as Discord's: View All Activity opens the editor on its Activity
+tab, and Manage Privacy opens Settings' activity section.
 The More button of a card, a full profile and a DM's profile panel opens
 the person's menu, as a right click on them does: a member's in a server, a
 DM's in their DM, and elsewhere Message, the friend request, Block, or
@@ -296,7 +306,8 @@ their Hang status, headed by what it is ("LISTENING TO SPOTIFY"), with its
 large picture and the small one on its corner, its details and state, and their
 party's size as "(2 of 4)". A game with a start shows how long it has run,
 "42:10 elapsed"; one with only an end, how long is left; a song with both, a
-bar with how far it's got and how long it is. A Spotify song is titled by the
+bar under its words, as Discord's, with how far it's got on its left and how
+long it is on its right. A Spotify song is titled by the
 song, then "by" the artist and "on" the album, and its title opens the song's
 page, `https://open.spotify.com/track/{sync_id}` (or `/episode/` when the
 activity's metadata says so); a stream has "Watch stream". The line under the

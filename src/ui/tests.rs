@@ -204,6 +204,32 @@ fn equal_lists_stay_so_rows_count_as_unchanged() {
 }
 
 #[test]
+#[cfg(feature = "discord")]
+fn this_accounts_own_profile_shows_what_its_sessions_do() {
+    let view = |id: &str| yapfast_core::application::ProfileView {
+        profile: yapfast_core::chat::Profile {
+            id: id.into(),
+            name: "Sam".into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut state = yapfast_core::application::AppState::default();
+    state.discord_user = Some("42".into());
+    state.discord_activities = yapfast_core::yapfast_discord::activity::activities(
+        &serde_json::json!([{"type": 0, "name": "Chess", "details": "In a match"}]),
+    );
+    let mut pictures = HashMap::new();
+    // No presence comes for oneself; one's own profile shows what one's
+    // sessions say instead, and nobody else's does.
+    let own = profile_data(&mut pictures, &state, &view("42"));
+    assert_eq!(own.activities.row_count(), 1);
+    assert_eq!(own.activities.row_data(0).unwrap().details, "In a match");
+    let other = profile_data(&mut pictures, &state, &view("7"));
+    assert_eq!(other.activities.row_count(), 0);
+}
+
+#[test]
 fn this_accounts_own_profile_shows_no_mutuals() {
     use i_slint_core::{accessibility::AccessibleStringProperty, item_tree::ItemRc};
     i_slint_backend_testing::init_no_event_loop();

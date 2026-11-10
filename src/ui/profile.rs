@@ -609,7 +609,17 @@ pub(super) fn profile_data(
         presence: presence_name(profile.presence).into(),
         activity: activity.into(),
         activity_emoji: activity_emoji.unwrap_or_default().into(),
-        activities: activity_rows(&profile.activities),
+        // One's own shows what one's sessions say, as Discord's client does:
+        // no presence comes for oneself.
+        activities: activity_rows(
+            if profile.activities.is_empty()
+                && state.discord_user.as_deref() == Some(profile.id.as_str())
+            {
+                &state.discord_activities
+            } else {
+                &profile.activities
+            },
+        ),
         badges: ModelRc::new(VecModel::from(
             profile
                 .badges

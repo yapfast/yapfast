@@ -4143,6 +4143,28 @@ async fn shows_status_and_games() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn shows_the_accounts_own_activities_from_its_other_sessions() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        ..
+    } = Fixture::start("shows_the_accounts_own_activities_from_its_other_sessions").await;
+    // A custom status has its own line, so this session shows nothing yet.
+    let snapshot = snapshot_where(&discord, |snapshot| snapshot.custom_status.is_some()).await;
+    assert!(snapshot.own_activities.is_empty());
+    // Her phone plays a song, which her own profile shows, as Discord's
+    // client shows another session's activities.
+    post_control(server, "/_control/other-session", "");
+    let snapshot = snapshot_where(&discord, |snapshot| !snapshot.own_activities.is_empty()).await;
+    let song = &snapshot.own_activities[0];
+    assert_eq!(song.kind, yapfast_discord::activity::Kind::Listening);
+    assert_eq!(song.details.as_deref(), Some("Song on the phone"));
+    assert!(song.start.is_some() && song.end.is_some());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn blocks_and_unblocks_from_a_profile() {
     let Fixture {
         _fake,

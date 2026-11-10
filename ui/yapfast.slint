@@ -49,7 +49,7 @@ import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList, Voic
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, EmojiCardView, MessageStickerCard, MessageStickerCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, VoicePlayer, Polls } from "messages.slint";
 import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
-import { MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
+import { ProfileEditorPage, MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
 import { InvitePrompt, InviteDialog, JoinPrompt, JoinDialog, EventPrompt, EventDialog, GiftPrompt, GiftDialog, OAuthPrompt, OAuthDialog, ChannelPrompt, ChannelDialog, ProfileEditorPrompt, ProfileEditorDialog } from "server.slint";
@@ -2154,6 +2154,41 @@ export component YapfastWindow inherits Window {
                     text: "Create Poll"; icon: @image-url("icons/chart-bar.svg");
                     clicked => { root.open-poll(); plus-menu.close(); }
                 }
+            }
+        }
+    }
+    // One's own activity's more menu on one's card, as Discord's: the
+    // profile editor's Activity tab, or the activity privacy settings.
+    property <length> activity-menu-x;
+    property <length> activity-menu-y;
+    activity-menu := PopupWindow {
+        x: max(8px, min(root.width - self.width - 8px, root.activity-menu-x + 4px));
+        y: root.activity-menu-y - 8px;
+        width: 170px;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+        Rectangle {
+            background: Theme.raised; border-radius: 8px; border-width: 1px; border-color: Theme.edge;
+            drop-shadow-blur: 16px; drop-shadow-color: #00000060;
+            VerticalLayout {
+                padding: 6px; spacing: 2px;
+                MenuItem { text: "View All Activity"; clicked => { activity-menu.close(); ProfileEditorPage.action = 1; } }
+                MenuItem { text: "Manage Privacy"; clicked => { activity-menu.close(); ProfileEditorPage.action = 2; } }
+            }
+        }
+    }
+    Timer {
+        interval: 1ms; running: ProfileEditorPage.action != 0;
+        triggered => {
+            let action = ProfileEditorPage.action;
+            ProfileEditorPage.action = 0;
+            status-menu.close();
+            root.close-profile();
+            if action == 1 {
+                ProfileEditorPage.wanted = 1;
+                root.edit-profile();
+            } else {
+                root.settings-section = 8;
+                root.settings-open = true;
             }
         }
     }
@@ -4542,6 +4577,7 @@ export component YapfastWindow inherits Window {
             open-link(link) => { root.open-link(link); }
             send-message(text) => { root.message-from-profile(root.profile.id, text); }
             edit-profile => { root.close-profile(); root.edit-profile(); }
+            activity-more(x, y) => { root.activity-menu-x = x; root.activity-menu-y = y; activity-menu.show(); }
         }
     }
     // A full profile over the window, as the viewer shows images.
