@@ -151,6 +151,8 @@ pub(super) struct Tracker {
     ignored: Vec<String>,
     /// The nicknames this account gave its friends, by user id.
     nicknames: HashMap<String, String>,
+    /// When its friendships began, in Unix milliseconds, by user id.
+    friends_since: HashMap<String, u64>,
     /// The server list's order and folders, from the settings.
     order: Vec<String>,
     folders: Vec<settings::Folder>,
@@ -235,6 +237,7 @@ impl Tracker {
             blocked: Vec::new(),
             ignored: Vec::new(),
             nicknames: HashMap::new(),
+            friends_since: HashMap::new(),
             order: Vec::new(),
             folders: Vec::new(),
             status: "online".into(),
@@ -452,6 +455,7 @@ impl Tracker {
                 if let Some(id) = id {
                     self.requests.remove(id);
                     self.nicknames.remove(id);
+                    self.friends_since.remove(id);
                 }
                 true
             }
@@ -1445,6 +1449,12 @@ impl Tracker {
                 None => self.nicknames.remove(id),
             };
         }
+        if let Some(since) = relationship["since"]
+            .as_str()
+            .and_then(crate::message::iso_ms)
+        {
+            self.friends_since.insert(id.to_owned(), since);
+        }
         let Some(kind) = relationship["type"].as_u64() else {
             return;
         };
@@ -1487,7 +1497,12 @@ impl Tracker {
         let mut hasher = DefaultHasher::new();
         for user in &self.friends {
             shown(&mut hasher, user);
-            (self.nicknames.get(user), self.presences.get(user)).hash(&mut hasher);
+            (
+                self.nicknames.get(user),
+                self.friends_since.get(user),
+                self.presences.get(user),
+            )
+                .hash(&mut hasher);
         }
         let friend_list = shared(&mut kept.friend_list, hasher.finish(), || {
             self.friend_list(names).into()
@@ -1550,6 +1565,7 @@ impl Tracker {
                         names.user_name(user).unwrap_or("Discord user").to_owned()
                     }),
                     nickname,
+                    since: self.friends_since.get(user).copied(),
                     avatar: names.avatar(None, user),
                     presence: known.map(|known| known.presence),
                     activity: known.and_then(|known| known.activity.clone()),

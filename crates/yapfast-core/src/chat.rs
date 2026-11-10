@@ -289,6 +289,8 @@ pub struct Friend {
     pub presence: Option<Presence>,
     pub activity: Option<String>,
     pub activities: Activities,
+    /// When they became friends, as a date.
+    pub since: Option<String>,
 }
 
 /// A file waiting in the composer to go with the next message.

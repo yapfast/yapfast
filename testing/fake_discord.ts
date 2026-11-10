@@ -136,7 +136,8 @@
 // a MESSAGE_UPDATE and a "poll closed" notice (type 46).
 // GET /users/{id}/profile answers for everyone: Bob has a bio, pronouns, a
 // banner, a server bio and three badges, Carol a banner colour, and the rest
-// nothing more. GET /users/{id}/badges gives Bob's playing time its level,
+// nothing more; Status Bot's says it's a bot. Friendships began at JOINED_AT,
+// as `since` on each relationship says. GET /users/{id}/badges gives Bob's playing time its level,
 // GET /_control/badge-reads counts those requests, and /assets/content/ serves
 // the level's SVGs.
 // POST /_control/components makes Discord's own account write Alice a
@@ -6222,7 +6223,8 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   }
 
   if (method === "GET" && (m = path.match(/^\/users\/(\d+|@me)\/profile$/))) {
-    const user = userById.get(m[1] === "@me" ? ALICE : m[1]!);
+    const id = m[1] === "@me" ? ALICE : m[1]!;
+    const user = userById.get(id) ?? (id === statusBot.id ? statusBot : undefined);
     if (!user) return notFound("Unknown User", 10013);
     return json(wireProfile(user, url.searchParams.get("guild_id"), origin));
   }

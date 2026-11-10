@@ -203,8 +203,10 @@ fn equal_lists_stay_so_rows_count_as_unchanged() {
     assert!(changed.servers == shown.servers, "its lists stay");
 }
 
+// Knowing a bot takes Discord's names.
+#[cfg(feature = "discord")]
 #[test]
-fn this_accounts_own_profile_shows_no_mutuals() {
+fn the_full_profiles_tabs_and_dates_are_discords() {
     use i_slint_core::{accessibility::AccessibleStringProperty, item_tree::ItemRc};
     i_slint_backend_testing::init_no_event_loop();
     let view = |id: &str| yapfast_core::application::ProfileView {
@@ -231,19 +233,61 @@ fn this_accounts_own_profile_shows_no_mutuals() {
     };
     let mut state = yapfast_core::application::AppState::default();
     state.discord_user = Some("42".into());
+    // Sam, "7", is a friend since a day the friend list says; "9" is a bot.
+    let friend = |id: &str| yapfast_core::chat::Friend {
+        id: id.into(),
+        name: "Sam".into(),
+        nickname: None,
+        avatar: None,
+        presence: None,
+        activity: None,
+        activities: Default::default(),
+        since: Some("Mar 3, 2025".into()),
+    };
+    state.friends = vec![friend("7"), friend("42")];
+    let mut names = yapfast_core::yapfast_discord::message::Names::default();
+    names.learn_user(&serde_json::json!({"id": "9", "username": "helper", "bot": true}));
+    state.discord_names = Some(yapfast_core::yapfast_discord::service::SharedNames::new(
+        std::sync::Arc::new(std::sync::RwLock::new(names)),
+    ));
     let mut pictures = HashMap::new();
 
     // Anyone else's card and full profile name what the account shares with
-    // them.
+    // them, as the client words it, and when they became friends.
     let other = profile_data(&mut pictures, &state, &view("7"));
-    assert_eq!(other.mutual_friends_text, "1 mutual friend");
-    assert_eq!(other.mutual_servers_text, "1 mutual server");
+    assert_eq!(other.mutual_friends_text, "1 Mutual Friend");
+    assert_eq!(other.mutual_servers_text, "1 Mutual Server");
+    assert_eq!(other.friends_label, "1 Mutual Friend");
+    assert_eq!(other.servers_label, "1 Mutual Server");
+    assert!(other.mutuals_known && other.mutual_tabs);
+    assert_eq!(other.friends_since, "Mar 3, 2025");
     assert!(!other.own);
 
+    // The tabs say "Mutual Friends" till Discord has said, then "No Mutual
+    // Friends" for none.
+    let mut loading = view("7");
+    loading.loading = true;
+    let loading = profile_data(&mut pictures, &state, &loading);
+    assert!(!loading.mutuals_known);
+    assert_eq!(loading.friends_label, "Mutual Friends");
+    let mut none = view("7");
+    none.profile.friends.clear();
+    none.profile.servers.clear();
+    let none = profile_data(&mut pictures, &state, &none);
+    assert_eq!(none.friends_label, "No Mutual Friends");
+    assert_eq!(none.servers_label, "No Mutual Servers");
+
+    // A bot's full profile has no mutual tabs, as the client's has none.
+    let bot = profile_data(&mut pictures, &state, &view("9"));
+    assert!(!bot.mutual_tabs);
+    assert_eq!(bot.friends_since, "");
+
     // Its own shares them with nobody, so, as in Discord's client, its card
-    // has no mutual line and its full profile no mutual tabs.
+    // has no mutual line and its full profile no mutual tabs; nor is anyone
+    // their own friend, whatever a list says.
     let own = profile_data(&mut pictures, &state, &view("42"));
-    assert!(own.own);
+    assert!(own.own && !own.mutual_tabs);
+    assert_eq!(own.friends_since, "");
 
     let window = classic_window();
     window.show().unwrap();
@@ -272,7 +316,14 @@ fn this_accounts_own_profile_shows_no_mutuals() {
             })
             .is_some()
     };
-    for (data, mutuals) in [(other, true), (own, false)] {
+    // The full profile opens on its first tab: Activity, which says
+    // Discord's words when empty, or one's own Board.
+    let empty_activity = "Sam doesn't have any activity to share here";
+    for (data, mutuals, tabs, activity) in [
+        (other, true, true, true),
+        (bot, true, false, true),
+        (own, false, false, false),
+    ] {
         window.set_profile_large(false);
         window.set_profile(data);
         window.set_profile_open(true);
@@ -288,8 +339,10 @@ fn this_accounts_own_profile_shows_no_mutuals() {
         window.set_profile_large(true);
         settle(&window);
         assert!(shows(&window, "Activity"), "the full profile is open");
-        assert_eq!(shows(&window, "1 mutual friend"), mutuals, "Mutual Friends");
-        assert_eq!(shows(&window, "1 mutual server"), mutuals, "Mutual Servers");
+        assert_eq!(shows(&window, "1 Mutual Friend"), tabs, "Mutual Friends");
+        assert_eq!(shows(&window, "1 Mutual Server"), tabs, "Mutual Servers");
+        assert_eq!(shows(&window, empty_activity), activity, "on Activity");
+        assert!(!shows(&window, "You don't have any activity here"));
         window.set_profile_open(false);
         settle(&window);
     }

@@ -5,7 +5,7 @@ import { Theme, Label, Middle, Popup } from "theme.slint";
 import { ActionButton, Avatar, IconButton, MenuItem, TextField, Motion, StatusText, ServerTagChip, PictureStore, StyledName, NameStyleRow } from "controls.slint";
 import { Choices, Picker, UnsavedBar } from "settings.slint";
 import { NameStyles } from "controls.slint";
-import { ProfileData, ProfileHeading, ProfileTitle, ActivityCard, ProfileBadge, ProfileBadgeRow, BoardCard, WishlistCard, ProfileTheme } from "people.slint";
+import { ProfileData, ProfileHeading, ActivityCard, ProfileBadge, ProfileBadgeRow, BoardCard, WishlistCard, ProfileTheme } from "people.slint";
 
 // What an invite dialog shows: whom it invites where, and the link once
 // Discord made it.
@@ -2040,7 +2040,8 @@ export component ProfileEditorDialog inherits Rectangle {
                                 }
                                 if root.prompt.preview.created != "" || root.prompt.preview.joined != "": VerticalLayout {
                                     spacing: 6px;
-                                    ProfileTitle { text: "Member since"; color: root.ink; }
+                                    // The main profile's in its card's words, a server's as a heading.
+                                    ProfileHeading { text: root.prompt.main ? "Member Since" : "MEMBER SINCE"; color: root.prompt.main ? root.ink : root.ink3; font-size: root.prompt.main ? 13px : 12px; font-weight: root.prompt.main ? 500 : 700; letter-spacing: root.prompt.main ? 0px : 0.6px; }
                                     HorizontalLayout {
                                         spacing: 24px; alignment: start;
                                         if root.prompt.preview.created != "": VerticalLayout {

@@ -221,6 +221,10 @@ pub struct Friend {
     /// The nickname this account gave them.
     #[serde(default)]
     pub nickname: Option<String>,
+    /// When they became friends, in Unix milliseconds, from the
+    /// relationship's `since`.
+    #[serde(default)]
+    pub since: Option<u64>,
     /// Whether they're around and their custom status or what they're doing,
     /// when Discord says. Not saved, since it's stale by the next start.
     #[serde(skip)]

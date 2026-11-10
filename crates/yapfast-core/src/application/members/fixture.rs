@@ -94,6 +94,7 @@ pub fn member_server(alice: &[&str]) -> Application {
             name: "Dave".into(),
             avatar: String::new(),
             nickname: None,
+            since: None,
             presence: None,
             activity: None,
             activities: Default::default(),

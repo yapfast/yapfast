@@ -456,8 +456,18 @@ export struct ProfileData {
     note-editable: bool,
     /// Whether messaging them is offered.
     can-message: bool,
-    /// "5 mutual friends" and "2 mutual servers".
+    /// "5 Mutual Friends" and "2 Mutual Servers", as the card's line says
+    /// them.
     mutual-friends-text: string, mutual-servers-text: string,
+    /// The full profile's mutual tabs, as the client names them: "Mutual
+    /// Friends" till Discord has said, then "No Mutual Friends" or "3 Mutual
+    /// Friends".
+    friends-label: string, servers-label: string,
+    /// Discord has said who's mutual, so an empty list means none.
+    mutuals-known: bool,
+    /// Whether the full profile has its mutual tabs: not on one's own, nor
+    /// on a bot's, nor on Matrix, as Discord's client decides.
+    mutual-tabs: bool,
     /// Their Discord board and wishlist, each with a line about it: why it
     /// doesn't show, or that it's private.
     widgets: [ProfileWidgetRow], board-note: string,
@@ -470,6 +480,8 @@ export struct ProfileData {
     /// It's this account's own profile, which shows no mutual friends or
     /// servers, as Discord's doesn't.
     own: bool,
+    /// When they became friends, for a friend; never on one's own.
+    friends-since: string,
 }
 
 // A picture on the Board or Wishlist tab, asked for as it shows. What has none,
@@ -1251,17 +1263,28 @@ export component ProfileCard inherits Rectangle {
                             }
                         }
                         // The card leaves the dates to the full profile and the DM panel:
-                        // "Member since", then the account's creation date, a bullet and
-                        // the date of joining this server.
+                        // "Member Since", then each date over what it's of, side by side:
+                        // On Discord, In this server. Alone, the account's needs no line.
                         if root.full && (root.data.created != "" || root.data.joined != ""): VerticalLayout {
                             spacing: 6px;
-                            ProfileTitle { text: "Member since"; color: root.ink; }
+                            ProfileTitle { text: "Member Since"; color: root.ink; }
                             HorizontalLayout {
-                                spacing: 6px; alignment: start;
-                                if root.data.created != "": Text { text: root.data.created; color: root.ink2; font-size: 14px; vertical-alignment: center; }
-                                if root.data.created != "" && root.data.joined != "": Text { text: "\u{2022}"; color: root.ink2; font-size: 14px; vertical-alignment: center; }
-                                if root.data.joined != "": Text { text: root.data.joined; color: root.ink2; font-size: 14px; vertical-alignment: center; }
+                                spacing: 24px; alignment: start;
+                                if root.data.created != "": VerticalLayout {
+                                    Text { text: root.data.created; color: root.ink; font-size: 14px; }
+                                    if root.data.joined != "": Text { text: "On Discord"; color: root.ink3; font-size: 12px; }
+                                }
+                                if root.data.joined != "": VerticalLayout {
+                                    Text { text: root.data.joined; color: root.ink; font-size: 14px; }
+                                    Text { text: "In this server"; color: root.ink3; font-size: 12px; }
+                                }
                             }
+                        }
+                        // For a friend, as Discord's: when the friendship began.
+                        if root.full && root.data.friends-since != "": VerticalLayout {
+                            spacing: 6px;
+                            ProfileTitle { text: "Friends Since"; color: root.ink; }
+                            Text { text: root.data.friends-since; color: root.ink2; font-size: 14px; }
                         }
                         if (root.large && !root.side ? root.data.role-rows-large : root.data.role-rows).length > 0: VerticalLayout {
                             spacing: 6px;
@@ -1438,6 +1461,26 @@ export component ProfileCard inherits Rectangle {
     }
 }
 
+// What an empty tab of the full profile says, in the middle of it, as
+// Discord's: a heading, a line under it, and maybe a button.
+component ProfileTabEmpty inherits Rectangle {
+    in property <string> heading;
+    in property <string> body;
+    in property <string> action;
+    in property <color> ink: Theme.text;
+    in property <color> ink2: Theme.secondary;
+    callback act;
+    VerticalLayout {
+        alignment: center; padding-left: 32px; padding-right: 32px; spacing: 8px;
+        if root.heading != "": Text { text: root.heading; color: root.ink; font-size: 16px; font-weight: 700; horizontal-alignment: center; wrap: word-wrap; }
+        Text { text: root.body; color: root.ink2; font-size: 14px; horizontal-alignment: center; wrap: word-wrap; }
+        if root.action != "": HorizontalLayout {
+            alignment: center; padding-top: 12px;
+            ActionButton { text: root.action; icon: @image-url("icons/message-circle.svg"); clicked => { root.act(); } }
+        }
+    }
+}
+
 // A person's full profile, as Discord's modal shows it: their card on the
 // left, with its theme and effect, and on the right tabs for what they are
 // doing and what they share with this account.
@@ -1457,11 +1500,22 @@ export component ProfileModal inherits Rectangle {
     callback tab-opened(int);
     /// Edit Profile, on one's own.
     callback edit-profile;
+    /// The tab the person chose, by its page; -1 for the first.
+    in-out property <int> chosen: -1;
+    // A chosen tab that's gone falls back to the first, as Discord's does:
+    // the Board when there is one, else Activity.
+    property <bool> chosen-shows: root.chosen == 0
+        || (root.chosen == 3 && root.data.board-tab)
+        || (root.chosen == 4 && root.data.wishlist-tab)
+        || ((root.chosen == 1 || root.chosen == 2) && root.data.mutual-tabs);
     /// 0 activity, 1 mutual friends, 2 mutual servers, 3 board, 4 wishlist.
-    in-out property <int> page: 0;
-    // The tab asked for when it is empty falls back to the first.
+    out property <int> page: root.chosen-shows ? root.chosen : root.data.board-tab ? 3 : 0;
     property <string> person: root.data.id;
-    changed person => { root.page = 0; root.tab-opened(0); }
+    changed person => { root.chosen = -1; root.tab-opened(root.page); }
+    // An empty Activity or mutual tab says so in its middle, as Discord's.
+    property <bool> empty-tab: (root.page == 0 && root.data.activities.length == 0 && root.data.recent.length == 0)
+        || (root.page == 1 && root.data.friends.length == 0)
+        || (root.page == 2 && root.data.servers.length == 0);
     changed page => { root.tab-opened(root.page); }
     init => { root.tab-opened(root.page); }
     property <bool> themed: root.data.has-theme;
@@ -1503,27 +1557,27 @@ export component ProfileModal inherits Rectangle {
             HorizontalLayout {
                 height: 40px; spacing: 20px;
                 // Discord's order: Board, Activity, Wishlist, then what's mutual,
-                // which one's own doesn't have.
+                // which one's own and a bot's don't have.
                 for entry in [
                     { label: "Board", page: 3, shows: root.data.board-tab },
                     { label: "Activity", page: 0, shows: true },
                     { label: "Wishlist", page: 4, shows: root.data.wishlist-tab },
-                    { label: root.data.mutual-friends-text, page: 1, shows: !root.data.own },
-                    { label: root.data.mutual-servers-text, page: 2, shows: !root.data.own },
+                    { label: root.data.friends-label, page: 1, shows: root.data.mutual-tabs },
+                    { label: root.data.servers-label, page: 2, shows: root.data.mutual-tabs },
                 ]: Rectangle {
                     width: entry.shows ? tab-text.preferred-width : 0px; height: 40px; visible: entry.shows;
                     accessible-role: tab;
                     accessible-label: entry.label;
                     accessible-checkable: true;
                     accessible-checked: root.page == entry.page;
-                    accessible-action-default => { root.page = entry.page; }
+                    accessible-action-default => { root.chosen = entry.page; }
                     tab-text := Text {
                         text: entry.label;
                         color: root.page == entry.page || tab-touch.has-hover ? root.ink : root.ink3;
                         font-size: 14px; font-weight: root.page == entry.page ? 700 : 500; vertical-alignment: center;
                     }
                     Rectangle { y: parent.height - 2px; height: 2px; border-radius: 1px; background: root.ink; visible: root.page == entry.page; }
-                    tab-touch := TouchArea { enabled: entry.shows; mouse-cursor: MouseCursor.pointer; clicked => { root.page = entry.page; } }
+                    tab-touch := TouchArea { enabled: entry.shows; mouse-cursor: MouseCursor.pointer; clicked => { root.chosen = entry.page; } }
                 }
                 Rectangle { horizontal-stretch: 1; }
                 Rectangle {
@@ -1537,7 +1591,21 @@ export component ProfileModal inherits Rectangle {
                 }
             }
             Rectangle { height: 1px; background: root.themed ? root.ink.transparentize(0.88) : Theme.line; }
-            ScrollView {
+            // Discord's words for an empty tab: the mutual ones' once Discord
+            // has said, loading till then.
+            if root.empty-tab: ProfileTabEmpty {
+                vertical-stretch: 1;
+                ink: root.ink; ink2: root.ink2;
+                heading: root.page == 0 ? (root.data.own ? "You don't have any activity here" : root.data.name + " doesn't have any activity to share here")
+                    : !root.data.mutuals-known ? ""
+                    : root.page == 1 ? "You don't have any friends in common" : "You don't have any servers in common";
+                body: root.page == 0 ? (root.data.own ? "Connect your accounts to share your in-game status and activity. You're in control of what you share." : "Looks like this profile is still a work in progress - send them a message to say hi!")
+                    : !root.data.mutuals-known ? "Loading..."
+                    : root.page == 1 ? "No mutual friends yet - perfect time to make a new connection" : "Time to impress them with your taste...drop an invite link to your favorite server";
+                action: root.page == 0 && !root.data.own && root.data.can-message ? "Message" : "";
+                act => { root.message-person(root.data.id); }
+            }
+            if !root.empty-tab: ScrollView {
                 vertical-stretch: 1;
                 VerticalLayout {
                     alignment: start; spacing: 8px;
@@ -1547,9 +1615,6 @@ export component ProfileModal inherits Rectangle {
                             activity: activity; ink: root.ink; ink2: root.ink2; ink3: root.ink3;
                             ground: root.themed ? root.theme-start : Theme.sidebar; track: root.themed ? root.ink.transparentize(0.8) : Theme.raised;
                             open-link(url) => { root.open-link(url); }
-                        }
-                        if root.data.activities.length == 0 && root.data.recent.length == 0: Text {
-                            text: "Nothing to show here right now."; color: root.ink3; font-size: 14px; wrap: word-wrap;
                         }
                         // What they did lately, from Discord's outbox.
                         if root.data.recent.length > 0: Text { text: "Recent activity"; color: root.ink2; font-size: 12px; font-weight: 500; }
@@ -1608,9 +1673,6 @@ export component ProfileModal inherits Rectangle {
                             ink: root.ink; ink3: root.ink3; hover: root.hover; ground: root.themed ? root.theme-start : Theme.sidebar;
                             clicked => { root.open-friend(friend.id, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                         }
-                        if root.data.friends.length == 0: Text {
-                            text: "No friends in common."; color: root.ink3; font-size: 14px; wrap: word-wrap;
-                        }
                     }
                     if root.page == 2: VerticalLayout {
                         spacing: 0px;
@@ -1620,9 +1682,6 @@ export component ProfileModal inherits Rectangle {
                             label: "Open " + server.name + (server.nick != "" ? ", where they're " + server.nick : "");
                             ink: root.ink; ink3: root.ink3; hover: root.hover; ground: root.themed ? root.theme-start : Theme.sidebar;
                             clicked => { root.open-server(server, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
-                        }
-                        if root.data.servers.length == 0: Text {
-                            text: "No servers in common."; color: root.ink3; font-size: 14px; wrap: word-wrap;
                         }
                     }
                 }

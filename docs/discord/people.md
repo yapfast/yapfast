@@ -254,10 +254,15 @@ profile once each time the open DM changes to someone else. Yapfast fetches it
 from `GET /users/{id}/profile` with the open server's id, so the server's
 nickname, avatar, banner, bio and pronouns win over the person's own, and the
 profile lists their roles in role order, when they joined Discord and the server,
-and the servers and friends the account shares with them. Profiles are kept for
+and the servers and friends the account shares with them. The full profile
+and the DM's panel show the dates under "Member Since", each over what it's
+of, side by side: "On Discord" and "In this server". A friend's also show
+"Friends Since", from `since` on their relationship in READY and
+RELATIONSHIP_ADD, as the friend list keeps it. Profiles are kept for
 five minutes, at most 32 of them. This account's own profile shares its
 friends and servers with nobody, so, as in Discord's client, its card shows
-no mutual line and its full profile no mutual tabs. Presence and activity
+no mutual line, its full profile no mutual tabs, and it has no Friends
+Since. Presence and activity
 come from the member list, since the profile doesn't carry them. Their
 custom status, or what
 they're doing, sits in a thought bubble beside the picture, as in
@@ -422,9 +427,17 @@ rules:
 | Board | It's one's own, or they have widgets |
 | Activity | Always |
 | Wishlist | It's one's own, or it's public and they're a friend or share a server |
-| Mutual friends, mutual servers | It isn't one's own |
+| Mutual friends, mutual servers | It's someone else's on Discord, and not a bot's |
 
-It opens on Activity. Activity lists their activities, then, under "Recent
+It opens on its first tab, the Board when there is one, else Activity, and a
+chosen tab that goes falls back to the first. The mutual tabs read "Mutual
+Friends" and "Mutual Servers" while the profile loads, then "No Mutual
+Friends" or "3 Mutual Friends", and the card's line "1 Mutual Friend • 2
+Mutual Servers". An empty tab says what the client's does in its middle: on
+Activity, "You don't have any activity here" on one's own, and on someone
+else's "Name doesn't have any activity to share here" with a Message button;
+on a mutual tab, "You don't have any friends in common" or "servers in
+common", or "Loading..." till Discord has said. Activity lists their activities, then, under "Recent
 activity", from `GET /content-inventory/users/{id}/outbox` when the tab first
 opens, what they listened to (`extra.entries[0].media`: its `title`, first
 artist and `image_url`), watched (`extra.media_title`) and played
