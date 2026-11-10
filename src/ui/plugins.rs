@@ -123,7 +123,7 @@ impl Plugins {
     pub(super) fn enable(&mut self, app: &mut Application) {
         app.enable_plugins(self.names.clone());
         for output in self.previews.drain(..) {
-            app.apply(yapfast_core::chat::Event::Plugin(output));
+            app.apply(yapfast_core::chat::Event::PluginSlot(output));
         }
     }
 }
@@ -267,7 +267,8 @@ impl Adapter {
     /// Shows each slot whose trees changed since the window last showed
     /// it, and nothing else.
     pub(super) fn show_plugin_slots(&mut self, window: &YapfastWindow) {
-        let (Some(plugins), Some(slots)) = (&mut self.plugins, &mut self.app.state.plugins) else {
+        let (Some(plugins), Some(slots)) = (&mut self.plugins, &mut self.app.state.plugin_slots)
+        else {
             return;
         };
         // Only the rows of messages whose decorations changed.
@@ -330,7 +331,7 @@ impl Adapter {
             value: value.to_owned(),
             subject,
         };
-        self.action(window, Action::Plugin(input));
+        self.action(window, Action::PluginInput(input));
     }
 
     /// The person closed a plugin's notice or toast.
@@ -340,7 +341,7 @@ impl Adapter {
                 plugin: plugin.to_owned(),
                 slot,
             };
-            self.action(window, Action::Plugin(input));
+            self.action(window, Action::PluginInput(input));
         }
     }
 
@@ -529,7 +530,7 @@ pub(super) fn choose(
     };
     adapter.action(
         window,
-        Action::Plugin(plugins::Input::Menu {
+        Action::PluginInput(plugins::Input::Menu {
             plugin,
             action,
             target: target.to_owned(),
@@ -800,7 +801,7 @@ mod tests {
         let mut adapter = adapter.borrow_mut();
         plugins.enable(&mut adapter.app);
         adapter.plugins = Some(Box::new(plugins));
-        let event = yapfast_core::chat::Event::Plugin(Output::SetSlot {
+        let event = yapfast_core::chat::Event::PluginSlot(Output::SetSlot {
             plugin: "com.example.p0".into(),
             slot: Slot::Banner,
             tree: Tree::parse(

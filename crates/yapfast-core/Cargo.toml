@@ -17,12 +17,15 @@ default = ["discord"]
 matrix = ["dep:keyring", "dep:matrix-sdk", "dep:matrix-sdk-ui", "dep:matrix-sdk-crypto", "dep:matrix-rtc-livekit", "dep:matrix-rtc-core", "dep:matrix-rtc-media", "dep:mime", "dep:url"]
 # Discord through the account linked on this device; see docs/discord/README.md.
 discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "dep:deep_filter", "dep:ndarray", "dep:x264-src", "dep:ffmpeg-src", "dep:thorvg-sys"]
-# Plugins: manifests, and the changes they make to the interface; see
-# docs/plugins.md. Off until the plugin runtime is ready.
-plugins = ["dep:regex"]
 # Sample states other crates' tests start from, such as a Discord server
 # whose member menu they check.
 test-fixtures = []
+# The plugin system: manifests, the changes they make to the interface and
+# their settings (docs/plugins.md), and a bridge to the `yapfast-plugins`
+# helper, the registry of what is enabled, and the permissions and network
+# gate in front of it. Off by default; a build without it carries no plugin
+# state.
+plugins = ["dep:regex", "dep:yapfast-plugin-api", "dep:sha2"]
 
 [dependencies]
 anyhow.workspace = true
@@ -69,6 +72,10 @@ pulldown-cmark = { version = "0.13", default-features = false }
 regex = { version = "1", optional = true }
 rustls.workspace = true
 serde.workspace = true
+# The wire types the plugin helper speaks; see `plugins`.
+yapfast-plugin-api = { path = "../yapfast-plugin-api", optional = true }
+# The SHA-256 the lock file records, checked before a module is loaded.
+sha2 = { workspace = true, optional = true }
 serde_json.workspace = true
 yapfast-discord = { path = "../yapfast-discord", optional = true }
 # Go Live's and the camera's H264 encoder, built from source; see native/h264.c.

@@ -87,13 +87,15 @@ fn main() -> Result<()> {
     let handed = handed_link(&mut arguments);
     let renderer = renderer_argument(&mut arguments)?;
     let background = flag_argument(&mut arguments, "--background");
-    // Safe mode: no plugin changes the interface. A build without plugins
-    // takes the flag too, and starts without any as it always does.
-    let no_plugins = flag_argument(&mut arguments, NO_PLUGINS);
+    // Read before anything else is opened: a start that asked for no plugins
+    // must not read the plugin store or spawn a helper, and the flag has to be
+    // gone before the link arguments are parsed. Safe mode also keeps any
+    // plugin from changing the interface. A build without plugins takes the
+    // flag too, and starts without any as it always does.
     #[cfg(feature = "plugins")]
-    yapfast_core::plugins::set_safe_mode(no_plugins);
+    yapfast_core::cli::parse_no_plugins(&mut arguments);
     #[cfg(not(feature = "plugins"))]
-    let _ = no_plugins;
+    let _ = flag_argument(&mut arguments, NO_PLUGINS);
     let mut links: Vec<String> = handed.clone().ok().flatten().into_iter().collect();
     if !arguments
         .first()

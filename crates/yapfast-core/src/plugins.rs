@@ -1,19 +1,43 @@
-//! Plugins, as far as Yapfast knows them without running any: each one's
-//! manifest, what its `ui` section changes in the interface ([`ui`]), its
-//! own settings ([`settings`]), and what the Plugins page in settings shows
-//! ([`page`]). The points a manifest's `tweaks` set are in `crate::tweaks`. Nothing here starts a
-//! process or loads WebAssembly; a plugin that only changes the interface
-//! needs neither. See `docs/plugins.md` and `docs/plugin-settings.md`.
+//! Plugins. The manifest side, as far as Yapfast knows them without running
+//! any: each one's manifest, what its `ui` section changes in the interface
+//! ([`ui`]), its own settings ([`settings`]), and what the Plugins page in
+//! settings shows ([`page`]). The points a manifest's `tweaks` set are in
+//! `crate::tweaks`. None of those start a process or load WebAssembly; a
+//! plugin that only changes the interface needs neither. See
+//! `docs/plugins.md` and `docs/plugin-settings.md`.
+//!
+//! The runtime side: a bridge to the helper process, the registry of what is
+//! enabled, permissions, and the network gate. Nothing there runs while no
+//! plugin is enabled: [`state::PluginState`] is `None` in the application's
+//! state, and every tap point in the send path, the event path and the menus
+//! checks that before it looks at anything else.
+//!
+//! The parent holds the Discord token, the network stack and the consent
+//! dialogs; the helper holds only WebAssembly and its scheduler. A guest's host
+//! call therefore crosses the pipe to be answered here.
+//!
+//! ```text
+//! application  ──Action::Plugin──▶  PluginState  ──frames──▶  helper
+//!      ▲                                │                        │
+//!      └──────Effect::Plugin────────────┘◀───────frames───────────┘
+//! ```
 
+pub mod bridge;
+pub mod grants;
+pub mod network;
 pub mod page;
+pub mod permissions;
+pub mod registry;
 pub mod settings;
 pub mod slots;
+pub mod spawn;
+pub mod state;
+pub mod store;
 pub mod ui;
 
-use std::{
-    path::{Path, PathBuf},
-    sync::atomic::{AtomicBool, Ordering},
-};
+pub use state::PluginState;
+
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
@@ -27,17 +51,11 @@ pub const MANIFEST: &str = "yapfast-plugin.json";
 /// subfolder each, for writing and trying a plugin.
 pub const FOLDER_VARIABLE: &str = "YAPFAST_PLUGINS_DIR";
 
-/// Started with `--no-plugins`: no plugin's `ui` section applies.
-static SAFE_MODE: AtomicBool = AtomicBool::new(false);
-
-/// Starts without plugins, as `--no-plugins` asks: the way back from an
-/// interface a plugin made unusable. Which plugins are enabled stays.
-pub fn set_safe_mode(on: bool) {
-    SAFE_MODE.store(on, Ordering::Relaxed);
-}
-
+/// Started with `--no-plugins`, the way back from an interface a plugin
+/// made unusable: no plugin's `ui` section applies, and which plugins are
+/// enabled stays. [`crate::cli::parse_no_plugins`] reads the flag.
 pub fn safe_mode() -> bool {
-    SAFE_MODE.load(Ordering::Relaxed)
+    !crate::cli::plugins_allowed()
 }
 
 /// What the person did with something a plugin put in the interface, for

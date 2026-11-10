@@ -1,0 +1,23 @@
+[package]
+name = "{{crate_name}}"
+version = "0.1.0"
+edition = "2024"
+# Edition 2024's floor. The PDK asks for no more than this.
+rust-version = "1.85"
+description = "{{project-name}} for Yapfast"
+publish = false
+
+[lib]
+# A plugin is only ever a WebAssembly module, and a cdylib is the crate type
+# that produces one.
+crate-type = ["cdylib"]
+
+[dependencies]
+# The whole API: the exports, the host calls and the types between them.
+# Until `yapfast-pdk` is on crates.io, point this at a checkout of the PDK
+# instead: yapfast-pdk = { path = "/path/to/yapfast/pdk/rust" }
+yapfast-pdk = "0.1"
+
+# Its own workspace, so building a plugin is one `cargo build` in this folder
+# and never needs Yapfast's toolchain.
+[workspace]

@@ -54,7 +54,7 @@ impl Slot {
 }
 
 /// What the plugin runtime asks of the interface, which reaches the
-/// application as `Event::Plugin`. A plugin is named by its id.
+/// application as `Event::PluginSlot`. A plugin is named by its id.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Output {
     SetSlot {

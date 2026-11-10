@@ -2665,7 +2665,12 @@ impl Adapter {
                     }
                 }
                 #[cfg(feature = "plugins")]
-                Effect::Plugin(input) => self.plugin_input(input),
+                Effect::PluginInput(input) => self.plugin_input(input),
+                // The runtime's state for a plugin. The Plugins page still draws
+                // the manifests it found, not the runtime's store, so nothing
+                // shows it yet.
+                #[cfg(feature = "plugins")]
+                Effect::Plugin(_) => {}
                 Effect::PreviewCamera(filming) => {
                     self.preview_camera = None;
                     if let Some((camera, feed)) = filming {

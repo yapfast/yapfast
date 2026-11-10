@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Formatting, doc links, Clippy, tests and a smoke run of the default build,
-# Discord on the desktop; --matrix adds the builds with Matrix.
+# Discord on the desktop; then the plugin helper with Extism on, and the
+# measurement harness's tests. --matrix adds the builds with Matrix.
 # Usage: scripts/check [--fast] [--matrix]
 # --fast builds with the `fast` profile, which local work uses. Each step
 # prints `=== step` and `rc=N` when it ends; its full output is in
@@ -71,6 +72,21 @@ if [[ "$(cat "$logs/build.rc")" == 0 ]]; then
 else
   echo "=== smoke: skipped, as the build failed"
 fi
+
+# The plugin helper and the wire types it shares with Yapfast. The helper is a
+# binary of its own, linking Extism and wasmtime, so no step above builds it and
+# everyday builds stay without both. Its tests drive the framed protocol against
+# the guest fixtures in testing/plugins. The application's half of the plugin
+# system is behind yapfast-core's `plugins` feature, off by default, so it has
+# steps of its own; the executable itself needs the interface's side of that
+# feature before a build with it on compiles, which is why only the core crate
+# is checked here. See docs/plugins/.
+plugins=(-p yapfast-plugin-api -p yapfast-plugin-host)
+run clippy-plugins "${clippy[@]}" "${plugins[@]}" -- -D warnings
+run test-plugins cargo test --locked "${profile[@]}" "${plugins[@]}"
+run clippy-plugins-core "${clippy[@]}" -p yapfast-core --features plugins -- -D warnings
+run test-plugins-core cargo test --locked "${profile[@]}" -p yapfast-core --features plugins
+steps+=(clippy-plugins test-plugins clippy-plugins-core test-plugins-core)
 
 # The builds with Matrix: Matrix beside Discord, with its tests; Matrix
 # alone, in the desktop and in the shared core with its tests; and the

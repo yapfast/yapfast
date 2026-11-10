@@ -86,7 +86,7 @@ impl Reach {
                 ..Self::default()
             },
             #[cfg(feature = "plugins")]
-            Event::Plugin(_) => Self {
+            Event::PluginSlot(_) => Self {
                 plugins: true,
                 ..Self::default()
             },
@@ -3827,7 +3827,7 @@ impl Adapter {
                     // In a server, an author's name shows its style's font alone.
                     row.name_style = name_style::font_only_in(in_server, row.name_style);
                     #[cfg(feature = "plugins")]
-                    if let Some(slots) = &state.plugins {
+                    if let Some(slots) = &state.plugin_slots {
                         row.plugin = super::plugins::decorations(slots, &message.id);
                     }
                     row

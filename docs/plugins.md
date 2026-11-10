@@ -147,8 +147,8 @@ exists for them. Each change applies where Yapfast already builds that part:
   group DM's is `group_dm`, a thread's `thread`, and any other channel's
   `channel`. The message menu is drawn in Slint and takes no changes yet.
 - **Choosing a plugin's row.** `choose` checks for the `plugin/` prefix
-  before anything else, and sends `Action::Plugin(Input::Menu)`, which the
-  application returns as `Effect::Plugin`. The adapter hands it to the
+  before anything else, and sends `Action::PluginInput(Input::Menu)`, which the
+  application returns as `Effect::PluginInput`. The adapter hands it to the
   `Runtime` it holds, which is `None` until the runtime exists.
 - **Parts.** The `UiParts` global in
   [`ui/yapfast/parts.slint`](../ui/yapfast/parts.slint) holds one switch per
@@ -202,7 +202,7 @@ together, or an interactive cell without a plain `id`, and cuts text to
 
 [`plugins/slots.rs`](../crates/yapfast-core/src/plugins/slots.rs) keeps what
 plugins draw, in `AppState::plugins`, which is `None` with no plugin enabled.
-The plugin runtime changes it by sending `Event::Plugin` with an `Output`:
+The plugin runtime changes it by sending `Event::PluginSlot` with an `Output`:
 `SetSlot` and `ClearSlot` for a slot, and `Decorate` for what a plugin draws
 under a message. The same tree again changes nothing. `Reach::of` sends that
 event to `show_plugin_slots` alone, which builds again only the slots whose
@@ -237,7 +237,7 @@ or `false` for a toggle, the option, the text, the number; nothing for a
 button) and its subject, the message a widget is drawn on, or the open
 conversation for a composer button. Closing a notice or toast sends
 `Input::Dismissed` and takes it away at once. Both reach the `Runtime` as
-`Effect::Plugin`.
+`Effect::PluginInput`.
 
 `slots.json` beside a manifest in `YAPFAST_PLUGINS_DIR` stands in for the
 runtime: an object from a slot's id, or `message:` and a message's id, to a

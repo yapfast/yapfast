@@ -3818,6 +3818,12 @@ pub enum Event {
     /// Discord's servers, voice channels and who is in them.
     #[cfg(feature = "discord")]
     Discord(Arc<yapfast_discord::service::Snapshot>),
+    /// The plugin system: a hook's answer or a plugin's state change from the
+    /// bridge, or something a tap saw that a plugin subscribed to. It arrives
+    /// by the same path as every other event, which is how a held send
+    /// completes without anything polling for it.
+    #[cfg(feature = "plugins")]
+    Plugin(crate::application::plugins::News),
     /// The video [`Command::PlayVideo`] plays, as it changes; none once it stops.
     Video(Option<Video>),
     /// An image [`Command::ViewImage`] asked for, or why it can't show.
@@ -4316,7 +4322,7 @@ pub enum Event {
     LoggedOut,
     /// The plugin runtime changed what a plugin draws.
     #[cfg(feature = "plugins")]
-    Plugin(crate::plugins::slots::Output),
+    PluginSlot(crate::plugins::slots::Output),
 }
 
 pub fn sort_members(members: &mut [ChatMember]) {

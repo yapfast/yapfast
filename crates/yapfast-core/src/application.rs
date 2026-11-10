@@ -38,6 +38,8 @@ mod new_post;
 mod oauth;
 mod place_search;
 mod places;
+#[cfg(feature = "plugins")]
+pub(crate) mod plugins;
 mod polls;
 mod preview;
 mod profile_editor;
@@ -531,6 +533,12 @@ pub struct AppState {
     pub activity_cards_hidden: bool,
     /// Which of the cosmetics people wear show, and are fetched.
     pub cosmetics: Cosmetics,
+    /// The plugin system, while it is on: `None` in a build without the
+    /// feature, in a run started with `--no-plugins`, and until startup has
+    /// read the store. Every tap in the send path, the event path and the
+    /// menus checks it before it looks at anything else.
+    #[cfg(feature = "plugins")]
+    pub plugins: Option<Box<crate::plugins::PluginState>>,
     pub switch_voice: Option<String>,
     /// A stream to watch once its call connects and they show sharing in
     /// it, as clicking them in the channel list asks: the voice channel and
@@ -712,7 +720,7 @@ pub struct AppState {
     /// What plugins draw in the interface's slots; `None` with no plugin
     /// enabled.
     #[cfg(feature = "plugins")]
-    pub plugins: Option<Box<crate::plugins::slots::Slots>>,
+    pub plugin_slots: Option<Box<crate::plugins::slots::Slots>>,
 }
 
 impl AppState {
@@ -2174,7 +2182,10 @@ pub enum Action {
     CloseRole,
     /// The person used a plugin's menu row or widget.
     #[cfg(feature = "plugins")]
-    Plugin(crate::plugins::Input),
+    PluginInput(crate::plugins::Input),
+    /// Something asked of the plugin system; see [`plugins::Action`].
+    #[cfg(feature = "plugins")]
+    Plugin(plugins::Action),
 }
 
 /// An adapter executes these effects with the shared backend, then applies its events.
@@ -2203,7 +2214,11 @@ pub enum Effect {
     PreviewCamera(Option<(Option<String>, crate::picture::Feed)>),
     /// Hand what the person did to the plugin runtime.
     #[cfg(feature = "plugins")]
-    Plugin(crate::plugins::Input),
+    PluginInput(crate::plugins::Input),
+    /// Something the plugin system did, for the interface to show; see
+    /// [`plugins::Effect`].
+    #[cfg(feature = "plugins")]
+    Plugin(plugins::Effect),
 }
 
 /// A timeline as the app state holds it, sharing its messages.
@@ -2711,7 +2726,7 @@ impl Application {
     /// drops it all.
     #[cfg(feature = "plugins")]
     pub fn enable_plugins(&mut self, names: Vec<crate::plugins::ui::PluginName>) {
-        self.state.plugins =
+        self.state.plugin_slots =
             (!names.is_empty()).then(|| Box::new(crate::plugins::slots::Slots::new(names)));
     }
 
@@ -2720,11 +2735,11 @@ impl Application {
     #[cfg(feature = "plugins")]
     fn plugin_input(&mut self, input: crate::plugins::Input) -> Vec<Effect> {
         if let crate::plugins::Input::Dismissed { plugin, slot } = &input
-            && let Some(slots) = &mut self.state.plugins
+            && let Some(slots) = &mut self.state.plugin_slots
         {
             slots.clear(plugin, *slot);
         }
-        vec![Effect::Plugin(input)]
+        vec![Effect::PluginInput(input)]
     }
 
     pub fn dispatch(&mut self, action: Action) -> Vec<Effect> {
@@ -3058,7 +3073,7 @@ impl Application {
             }
             Action::Navigate(navigation) => self.navigate(navigation),
             #[cfg(feature = "plugins")]
-            Action::Plugin(input) => self.plugin_input(input),
+            Action::PluginInput(input) => self.plugin_input(input),
             Action::OpenDmScreen(screen) => self.open_dm_screen(screen),
             Action::BrowseChannels => self.open_browse(),
             Action::BrowseFollow { room, follow } => self.browse_follow(room, follow),
@@ -3099,7 +3114,13 @@ impl Application {
                 Some(aside) => self.toggle_spoiler_in(aside.room.clone(), index),
                 None => vec![],
             },
-            Action::SelectRoom(id) => self.select_room(id),
+            Action::SelectRoom(id) => {
+                // Before it changes, so a plugin hears the conversation that
+                // opened rather than every room drawn again.
+                #[cfg(feature = "plugins")]
+                self.plugins_room_selected(&id);
+                self.select_room(id)
+            }
             Action::MarkRead(id) => self.mark_read(id),
             Action::EditLast => self.edit_last(),
             Action::OpenNewDm => self.open_new_dm(),
@@ -3751,7 +3772,11 @@ impl Application {
                 self.state.cosmetics = cosmetics;
                 vec![]
             }
-            Action::WindowFocused(focused) => self.window_focused(focused),
+            Action::WindowFocused(focused) => {
+                #[cfg(feature = "plugins")]
+                self.plugins_focus(focused);
+                self.window_focused(focused)
+            }
             Action::ActivityCardsHidden(hidden) => self.set_activity_cards_hidden(hidden),
             Action::SkipCallPrompt(skip) => {
                 self.state.skip_call_prompt = skip;
@@ -3804,6 +3829,8 @@ impl Application {
             Action::Voice(command) => self.voice_command(command),
             Action::UnmuteOnJoin => self.voice_command_quietly(voice::Command::Mute(false)),
             Action::DeafenOnJoin => self.voice_command_quietly(voice::Command::Deafen(true)),
+            #[cfg(feature = "plugins")]
+            Action::Plugin(action) => self.plugins_action(action),
         }
     }
 
@@ -3864,8 +3891,8 @@ impl Application {
     fn apply_event(&mut self, event: Event) -> Vec<Effect> {
         match event {
             #[cfg(feature = "plugins")]
-            Event::Plugin(output) => {
-                if let Some(slots) = &mut self.state.plugins {
+            Event::PluginSlot(output) => {
+                if let Some(slots) = &mut self.state.plugin_slots {
                     slots.apply(output);
                 }
             }
@@ -3894,6 +3921,12 @@ impl Application {
                 {
                     self.state.pending_camera = None;
                 }
+                // What the call is now, before the state takes it: a plugin is
+                // told when the call, its mute or its people change.
+                #[cfg(feature = "plugins")]
+                let before = std::mem::take(&mut self.state.voice);
+                #[cfg(feature = "plugins")]
+                self.plugins_voice(&before, &state);
                 self.state.voice = state;
                 let mut effects = sounds;
                 effects.extend(self.watch_when_connected());
@@ -3905,6 +3938,8 @@ impl Application {
                 trusted,
                 storage,
             } => {
+                #[cfg(feature = "plugins")]
+                self.plugins_account_ready(&user, trusted);
                 self.state.account = Some(user);
                 self.state.trusted = trusted;
                 self.state.storage = Some(storage);
@@ -4443,7 +4478,20 @@ impl Application {
                 self.state.busy = false;
                 self.state.notice = Some(error);
             }
-            Event::LoggedOut => self.reset(),
+            // The plugin system tells the application what a hook answered and
+            // what a tap saw here, on the path every other event takes.
+            #[cfg(feature = "plugins")]
+            Event::Plugin(news) => return self.plugins_news(news),
+            Event::LoggedOut => {
+                // Signing out stops the helper too: what it was granted names
+                // the account, and the state reset takes the plugin system
+                // with it. A plugin runs again once Yapfast reopens plugins.
+                #[cfg(feature = "plugins")]
+                if let Some(mut plugins) = self.state.plugins.take() {
+                    plugins.shutdown();
+                }
+                self.reset()
+            }
         }
         vec![]
     }
