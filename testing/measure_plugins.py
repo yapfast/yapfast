@@ -36,7 +36,6 @@ import argparse
 import contextlib
 import json
 import os
-from pathlib import Path
 import select
 import shutil
 import signal
@@ -44,6 +43,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 import time
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -97,7 +97,9 @@ class Helper:
         try:
             return kind, id, json.loads(payload)
         except ValueError as error:
-            raise Failed(f'the helper sent a {kind} frame that is not JSON: {error}')
+            raise Failed(
+                f'the helper sent a {kind} frame that is not JSON: {error}'
+            ) from error
 
     def wait(self, wanted, timeout, what):
         """The first message `wanted` accepts, skipping what it doesn't."""
@@ -168,7 +170,7 @@ def anonymous_mib(pid):
     try:
         status = Path(f'/proc/{pid}/status').read_text().splitlines()
     except OSError as error:
-        raise Failed(f'the process {pid} went away: {error}')
+        raise Failed(f'the process {pid} went away: {error}') from error
     for line in status:
         if line.startswith('RssAnon:'):
             try:
@@ -182,7 +184,7 @@ def threads(pid):
     try:
         return len(os.listdir(f'/proc/{pid}/task'))
     except OSError as error:
-        raise Failed(f'the process {pid} went away: {error}')
+        raise Failed(f'the process {pid} went away: {error}') from error
 
 
 def helper_run(args, run, cache, log_path):

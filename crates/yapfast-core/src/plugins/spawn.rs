@@ -148,16 +148,14 @@ pub enum Next {
 ///
 /// Only crashes that the parent didn't ask for are recorded: a helper that exits
 /// because nothing is left to run is doing its job.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Restarts {
     crashes: Vec<Instant>,
 }
 
 impl Restarts {
     pub fn new() -> Self {
-        Restarts {
-            crashes: Vec::new(),
-        }
+        Restarts::default()
     }
 
     /// Records that the helper ended on its own, and says what happens next.

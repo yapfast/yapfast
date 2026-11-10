@@ -649,8 +649,8 @@ mod tests {
         },
         "commands": [
             { "name": "filter", "description": "Add a word", "options": [
-                { "name": "word", "type": "string", "required": true } ] },
-            { "name": "mode", "type": "choice", "choices": ["hide", "replace"] }
+                { "name": "word", "type": "string", "required": true },
+                { "name": "mode", "type": "choice", "choices": ["hide", "replace"] } ] }
         ],
         "menus": [
             { "target": "message", "label": "Filter this word", "action": "filter_selected",

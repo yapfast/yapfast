@@ -187,7 +187,7 @@ impl Bridge {
         if plugins.is_empty() {
             return;
         }
-        self.send(Command::Activate { plugins });
+        self.send(Request::Activate { plugins });
     }
 
     /// Hands one event to the plugins subscribed to it.
@@ -207,7 +207,7 @@ impl Bridge {
             return;
         };
         for plugin in targets {
-            self.send(Command::Event {
+            self.send(Request::Event {
                 plugin,
                 event: shared.clone(),
             });
@@ -235,7 +235,7 @@ impl Bridge {
             hook: HookKind::MessagePreSend,
             subject: HookSubject::Draft(draft.clone()),
         };
-        if !self.send(Command::Hook { held, request }) {
+        if !self.send(Request::Hook { held, request }) {
             // Nothing can run the chain, so the send goes as it was: the same
             // answer a plugin that traps gets, and the person isn't left with a
             // message that will never leave.
@@ -258,11 +258,11 @@ impl Bridge {
             // The person is asking for it to work: a helper that gave up
             // deserves another try.
             self.shared.clear_off();
-            self.send(Command::Activate {
+            self.send(Request::Activate {
                 plugins: vec![plugin.clone()],
             });
         } else {
-            self.send(Command::Deactivate {
+            self.send(Request::Deactivate {
                 plugin: plugin.clone(),
             });
             if !self.enabled() {
@@ -281,7 +281,7 @@ impl Bridge {
     /// shows; a command that doesn't answer within two seconds is reported as
     /// failed rather than left hanging.
     pub fn run_command(&mut self, plugin: &PluginId, invocation: CommandInvocation) {
-        self.send(Command::Command {
+        self.send(Request::Command {
             plugin: plugin.clone(),
             invocation,
         });
@@ -302,7 +302,7 @@ impl Bridge {
             .map(|(plugin, _)| plugin)
             .collect();
         if !plugins.is_empty() {
-            self.send(Command::Evict { plugins });
+            self.send(Request::Evict { plugins });
         }
     }
 
@@ -327,7 +327,7 @@ impl Bridge {
     ///
     /// `false` means there is nobody to run it: no plugin is enabled, or the
     /// helper was given up on, and the caller has to answer for itself.
-    fn send(&mut self, command: Command) -> bool {
+    fn send(&mut self, command: Request) -> bool {
         let Some(supervisor) = self.supervisor() else {
             return false;
         };
@@ -387,7 +387,7 @@ impl Bridge {
             // is enough, and it holds only a channel.
             return;
         }
-        let _ = commands.send(Command::Shutdown);
+        let _ = commands.send(Request::Shutdown);
         let mut task = task;
         runtime.block_on(async {
             match tokio::time::timeout(CLOSE_WAIT, &mut task).await {
@@ -424,7 +424,7 @@ impl Drop for Bridge {
 
 /// A running supervisor task and the channel into it.
 struct Supervisor {
-    commands: tokio::sync::mpsc::UnboundedSender<Command>,
+    commands: tokio::sync::mpsc::UnboundedSender<Request>,
     /// Aborted when this value goes, which also drops the session and with it
     /// the helper's process.
     task: crate::runtime::BackgroundTask<()>,
@@ -624,7 +624,7 @@ fn event_payload(plugin: &PluginId, events: &[Arc<SharedEvent>]) -> Vec<u8> {
 }
 
 /// What the application's calls hand the supervisor.
-enum Command {
+enum Request {
     /// Load and activate these plugins.
     Activate { plugins: Vec<PluginId> },
     /// Drop one plugin's instance, keeping what it handed over.
@@ -678,7 +678,7 @@ enum Ending {
 /// this task holds a channel and no process at all.
 async fn supervise(
     shared: Arc<Shared>,
-    mut commands: tokio::sync::mpsc::UnboundedReceiver<Command>,
+    mut commands: tokio::sync::mpsc::UnboundedReceiver<Request>,
     data_dir: PathBuf,
 ) {
     let mut restarts = Restarts::new();
@@ -688,7 +688,7 @@ async fn supervise(
             // The bridge is gone, which only happens as the application exits.
             None => return,
         };
-        if matches!(first, Command::Shutdown) {
+        if matches!(first, Request::Shutdown) {
             return;
         }
         let mut session = match Session::start(&data_dir) {
@@ -735,9 +735,9 @@ async fn supervise(
 /// this task when the helper gave up: without an answer the composer would wait
 /// for a chain that no longer exists, so it goes out as the person wrote it. The
 /// task then holds nothing but a channel, and ends when the bridge does.
-async fn stand_down(shared: &Shared, commands: &mut tokio::sync::mpsc::UnboundedReceiver<Command>) {
+async fn stand_down(shared: &Shared, commands: &mut tokio::sync::mpsc::UnboundedReceiver<Request>) {
     while let Some(command) = commands.recv().await {
-        if let Command::Hook { held, .. } = command {
+        if let Request::Hook { held, .. } = command {
             shared.announce(Notice::SendReady {
                 id: held.id,
                 draft: held.draft,
@@ -770,7 +770,7 @@ struct Session {
     /// memory in the helper with them.
     timers: BTreeMap<TimerKey, Timer>,
     /// Commands that arrived before the hello was answered.
-    queued: VecDeque<Command>,
+    queued: VecDeque<Request>,
     /// Whether the parent asked the helper to stop, which makes its exit planned.
     asked: bool,
     /// What the helper said as it left, if it said anything.
@@ -790,7 +790,7 @@ enum Waking {
     /// The helper sent a frame, or its pipe closed.
     Helper(Option<Inbound>),
     /// The application sent a command, or went away.
-    Application(Option<Command>),
+    Application(Option<Request>),
     /// A deadline came due: a timer, a batch, a request's budget or a save.
     Clock,
 }
@@ -896,7 +896,7 @@ impl Session {
 
     /// Adds a command to the front of the queue, for one that arrived before the
     /// process did.
-    fn queue(&mut self, command: Command) {
+    fn queue(&mut self, command: Request) {
         self.queued.push_back(command);
     }
 
@@ -921,7 +921,7 @@ impl Session {
     async fn run(
         &mut self,
         shared: &Arc<Shared>,
-        commands: &mut tokio::sync::mpsc::UnboundedReceiver<Command>,
+        commands: &mut tokio::sync::mpsc::UnboundedReceiver<Request>,
     ) -> Ending {
         // Nothing else is sent before the helper has said which protocol it
         // speaks: a mismatch would otherwise show up as a timeout per request.
@@ -969,7 +969,7 @@ impl Session {
 
     /// Waits for the helper's `Ready`, which is the answer to the hello.
     async fn await_ready(&mut self) -> Result<(), String> {
-        while let Some(incoming) = self.inbound.recv().await {
+        if let Some(incoming) = self.inbound.recv().await {
             let frame = match incoming {
                 Inbound::Frame(frame) => frame,
                 Inbound::Closed(reason) => {
@@ -1023,37 +1023,37 @@ impl Session {
     }
 
     /// Handles one command from the application.
-    async fn on_command(&mut self, shared: &Arc<Shared>, command: Command) -> Option<Ending> {
+    async fn on_command(&mut self, shared: &Arc<Shared>, command: Request) -> Option<Ending> {
         match command {
-            Command::Activate { plugins } => {
+            Request::Activate { plugins } => {
                 for plugin in plugins {
                     self.activate(shared, &plugin);
                 }
                 None
             }
-            Command::Deactivate { plugin } => {
+            Request::Deactivate { plugin } => {
                 self.deactivate(&plugin);
                 None
             }
-            Command::Event { plugin, event } => {
+            Request::Event { plugin, event } => {
                 self.deliver(shared, plugin, event);
                 None
             }
-            Command::Hook { held, request } => {
+            Request::Hook { held, request } => {
                 self.hold(shared, held, request);
                 None
             }
-            Command::Command { plugin, invocation } => {
+            Request::Command { plugin, invocation } => {
                 self.command(shared, &plugin, invocation);
                 None
             }
-            Command::Evict { plugins } => {
+            Request::Evict { plugins } => {
                 for plugin in plugins {
                     self.evict(&plugin);
                 }
                 None
             }
-            Command::Shutdown => Some(self.stop().await),
+            Request::Shutdown => Some(self.stop().await),
         }
     }
 
@@ -2124,7 +2124,7 @@ mod tests {
             hook: HookKind::MessagePreSend,
             subject: HookSubject::Draft(draft("hi")),
         };
-        runtime().block_on(session.on_command(&shared, Command::Hook { held, request }));
+        runtime().block_on(session.on_command(&shared, Request::Hook { held, request }));
 
         // The module is handed over first, then the instance is started, and
         // only then does the chain see the draft: frames are handled in order.
@@ -2182,7 +2182,7 @@ mod tests {
             hook: HookKind::MessagePreSend,
             subject: HookSubject::Draft(draft("hi")),
         };
-        runtime().block_on(session.on_command(&shared, Command::Hook { held, request }));
+        runtime().block_on(session.on_command(&shared, Request::Hook { held, request }));
         let _load = next_frame(&written);
         let _activate = next_frame(&written);
         let hook = next_frame(&written);
@@ -2227,7 +2227,7 @@ mod tests {
             hook: HookKind::MessagePreSend,
             subject: HookSubject::Draft(draft("hi")),
         };
-        runtime().block_on(session.on_command(&shared, Command::Hook { held, request }));
+        runtime().block_on(session.on_command(&shared, Request::Hook { held, request }));
         let _load = next_frame(&written);
         let _activate = next_frame(&written);
         let _hook = next_frame(&written);
@@ -2342,7 +2342,7 @@ mod tests {
             let event = SharedEvent::new(event(EventKind::Typing, body)).expect("it serializes");
             runtime.block_on(session.on_command(
                 &shared,
-                Command::Event {
+                Request::Event {
                     plugin: plugin.clone(),
                     event,
                 },
@@ -2378,7 +2378,7 @@ mod tests {
         let event = SharedEvent::new(event(EventKind::MessageCreate, "hi")).expect("it serializes");
         runtime().block_on(session.on_command(
             &shared,
-            Command::Event {
+            Request::Event {
                 plugin: plugin.clone(),
                 event,
             },

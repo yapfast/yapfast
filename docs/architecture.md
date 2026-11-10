@@ -1,8 +1,9 @@
 # Application core and client UI
 
-Yapfast's Cargo workspace has seven packages. Six of them are one process. The
-root `yapfast` package is the executable: the Slint adapter and the command-line
-entry point.
+Yapfast's Cargo workspace has seven packages: the executable and the crates that
+build into its process, plus the two that make up the plugin helper, a binary of
+its own. The root `yapfast` package is the executable: the Slint adapter and the
+command-line entry point.
 [`crates/yapfast-core`](../crates/yapfast-core) holds application behavior and the
 native Matrix, Discord and voice backend.
 [`crates/yapfast-discord`](../crates/yapfast-discord) holds the Discord protocol:
@@ -258,6 +259,34 @@ depend on Tokio, SQLite, OS credential storage and libwebrtc. A browser client
 will need platform implementations for those services. This split shares app
 behavior without claiming the native backend already runs on the web or Android.
 
+## The plugin helper
+
+`yapfast-plugins` is a second executable, built from
+[`crates/yapfast-plugin-host`](../crates/yapfast-plugin-host). Plugins run in it
+rather than in Yapfast's process, so wasmtime, Cranelift and a guest's memory are
+not Yapfast's to carry; [the helper](plugin-host.md) has its flags and the
+reasoning behind the split.
+
+It has three layers, one per module: `protocol` is the loop over the framed
+protocol and knows no WebAssembly, `module` holds the checks a file passes before
+Extism sees it (absolute path, 8 MiB, `\0asm` magic, version 1), and `runtime`
+is Extism behind them. The frames and their JSON envelopes are in
+[`crates/yapfast-plugin-api`](../crates/yapfast-plugin-api), which the helper
+depends on and nothing in `yapfast` does yet; [the protocol](plugin-protocol.md)
+describes them.
+
+Extism and wasmtime sit behind the host crate's `host` feature, which is off by
+default and required by the binary, so an everyday workspace build links
+neither. `scripts/check` turns the feature on in steps of its own, and those
+also assemble the checked-in WAT fixtures and run the measurement harness's
+tests.
+
+Nothing in the app uses the helper yet: M0 is the helper, its protocol and its
+numbers. No code in `src/` or `crates/yapfast-core` spawns it, no settings page
+lists plugins, and nothing installs or activates one. The helper is exercised by
+its own tests and by `testing/measure_plugins.py`, which measures it on its own;
+see [plugin measurements](plugin-measurements.md).
+
 ## Adding another native UI
 
 1. Depend on `yapfast-core` and render its `AppState`.
@@ -276,9 +305,11 @@ implement their own drafts, send handling or voice lifecycle.
 ## Checks and packaging
 
 `scripts/check` checks the whole workspace, including the headless build
-(`--no-default-features --features matrix,discord`); see
-[building](building.md#checks). Ignored chat and voice tests belong to
-`yapfast-core`, so select them with `cargo test -p yapfast-core`.
+(`--no-default-features --features matrix,discord`), and then builds and tests
+the plugin helper with Extism on, assembles its fixtures and runs the
+measurement harness's tests; see [building](building.md#checks). Ignored chat
+and voice tests belong to `yapfast-core`, so select them with
+`cargo test -p yapfast-core`.
 
 Library tests keep disposable fixtures under the workspace's
 ignored `.local` directory even though Cargo runs them from the crate directory.

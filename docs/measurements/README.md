@@ -116,3 +116,19 @@ one build. Keep the hardware, workload, warm-up, window state and memory
 metric with every result. Dated records of past measurements are in the
 private `records.md` beside this file.
 
+### The plugin helper
+
+`testing/measure_plugins.py` measures `yapfast-plugins`, the plugin helper,
+alone: it spawns the helper and speaks its framed protocol, with no Yapfast
+process, Slint or display in the way. Build the helper with its `host` feature
+and assemble its fixtures first, as [the helper](../plugin-host.md#building)
+and `scripts/check` do. [Plugin measurements](../plugin-measurements.md) has
+the fields, arguments and record format.
+
+Its memory figure is the helper process's own, not the app's, and each OS names
+it differently: Linux reads `RssAnon` from `/proc/<pid>/status`, and Windows
+`GetProcessMemoryInfo`'s private usage. Both count memory that process alone
+owns. `RssAnon` counts resident pages only, while Windows' private usage also
+counts private pages the system has paged out, so a Windows record reads a
+little above the private working set Task Manager shows. Compare plugin records
+only with records from the same OS.

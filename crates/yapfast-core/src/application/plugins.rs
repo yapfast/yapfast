@@ -656,7 +656,7 @@ fn typed(value: &str, kind: OptionKind) -> Option<Value> {
             "false" | "no" | "off" => Some(Value::Bool(false)),
             _ => None,
         },
-        OptionKind::Integer => value.parse::<i64>().ok().map(|number| Value::from(number)),
+        OptionKind::Integer => value.parse::<i64>().ok().map(Value::from),
         OptionKind::Number => value
             .parse::<f64>()
             .ok()
