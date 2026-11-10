@@ -309,7 +309,10 @@ anything but plain characters show no picture. A game Discord detected has no
 pictures, so its card shows the game's icon, which Yapfast asks for once per
 game with `GET /applications/public?application_ids={id}` and downloads from
 `/app-icons/`. Application pictures stay in the picture cache. The timers tick
-once a second, and only while a profile with one shows. Matrix members and
+once a second, and only while a profile with one shows; the same clock ticks
+every 15 seconds for
+[busy voice channels' times](voice.md#how-long-a-channels-call-has-gone-on)
+otherwise. Matrix members and
 one-to-one Matrix DMs get the same card with their name, Matrix ID, avatar and
 room role.
 

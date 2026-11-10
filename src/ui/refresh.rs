@@ -1313,6 +1313,9 @@ impl Adapter {
                             .collect();
                         ModelRc::new(VecModel::from(people))
                     },
+                    voice_started: room
+                        .voice_started
+                        .map_or(0, super::profile::activity_seconds),
                     call: room.direct && !room.people.is_empty(),
                     // Discord sends the presence of friends and of those
                     // sharing a server; anyone else in a one-to-one DM shows
@@ -1402,8 +1405,11 @@ impl Adapter {
                 }
                 row
             })
-            .collect();
+            .collect::<Vec<_>>();
+        // A busy voice channel's row counts its call's time on ActivityClock.
+        self.voice_timed = rows.iter().any(|row| row.voice_started > 0 && !row.hidden);
         update_model(&self.models.rooms, rows);
+        self.tick_activities(window);
         self.places = places;
         // What's being dragged keeps going, at its new place.
         if self.arranging.is_some() {

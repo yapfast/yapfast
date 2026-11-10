@@ -1,7 +1,7 @@
 import { ClientStyle } from "yapfast/style.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, BadgeTip } from "theme.slint";
-import { ActionButton, IconButton, Avatar, Nameplate, StatusText, StyledName, NameStyleRow, EffectLayer, ProfileEffect, PictureStore, TextField, ServerTagChip, TipIcon } from "controls.slint";
+import { ActionButton, IconButton, Avatar, Nameplate, StatusText, StyledName, NameStyleRow, EffectLayer, ProfileEffect, PictureStore, TextField, ServerTagChip, TipIcon, ActivityClock } from "controls.slint";
 import { StatusDot } from "rail.slint";
 import { BotTag } from "messages.slint";
 
@@ -361,12 +361,6 @@ export struct ActivityRow {
     /// A stream's address, and what the title opens, such as a Spotify
     /// song's page.
     url: string, link: string,
-}
-
-/// Now, for activities' timers: seconds since 2020 began, kept current
-/// once a second while a profile with a timed activity shows.
-export global ActivityClock {
-    in property <int> now;
 }
 
 /// How a profile's theme colours what shows it, as Discord's client works it

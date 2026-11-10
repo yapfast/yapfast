@@ -89,6 +89,31 @@ Opus comes from the libopus inside Yapfast's libwebrtc archive, called directly
 libopus of its own: two copies of the same symbols risk a clash when
 linking, particularly with MSVC on Windows.
 
+## How long a channel's call has gone on
+
+As in Discord's client, a voice channel with people in it says in the
+channel list how long its call has gone on, counted from when its first
+person joined: `<1m`, `42m`, `1h 05m`, `2d 3h`. Discord keeps that time,
+not Yapfast. Opening a server asks for its voice channels' start times with
+op 43 (Request Channel Info, `fields: ["status", "voice_start_time"]`, the
+web client's own request, whose statuses Yapfast doesn't use), once a
+session, and again when the server comes back from an outage or is joined
+again; a new session asks again only for the server on screen, and the
+others as they're opened. Discord answers with CHANNEL_INFO, which lists the
+server's channels with a time on each busy one; a voice channel without one
+is quiet. Then it sends VOICE_CHANNEL_START_TIME_UPDATE when a channel's
+call starts or ends.
+CHANNEL_INFO is documented with an ISO 8601 time and the update with Unix
+seconds, so the tracker reads either. A channel that empties stops showing
+its time at once, though Discord's word that its call ended may come after.
+
+The time is to the minute, and may run a little over a minute behind, so
+the list redraws once a minute rather than each second. It reads
+`ActivityClock`, the window's one clock, which ticks every 15 seconds while
+a busy channel's row shows one and nothing else needs it, once a second
+while a profile times an activity, and not at all otherwise; the rows read
+its minute, which changes only as the minute turns.
+
 ## The call's channel line
 
 As in Discord's voice panel, the dock's line under the status ("gen ·

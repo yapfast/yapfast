@@ -2,7 +2,7 @@ import { DmHeading } from "yapfast/dm-heading.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ListView } from "scrollview.slint";
 import { Theme, Tip, Middle, Label } from "theme.slint";
-import { Avatar, Nameplate, PictureStore, StatusText, StyledName, NameStyleRow, VoiceSpot, ServerTagChip } from "controls.slint";
+import { Avatar, Nameplate, PictureStore, StatusText, StyledName, NameStyleRow, VoiceSpot, ServerTagChip, ActivityClock } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { PersonRow, LivePill } from "voice.slint";
 
@@ -50,8 +50,10 @@ export struct RoomRow {
     locked: bool,
     /// A one-to-one DM, whose other person has a profile.
     person: bool,
-    /// Who is in a Discord voice channel, shown without joining it.
+    /// Who is in a Discord voice channel, shown without joining it, and when
+    /// its session started, in ActivityClock's seconds; 0 when unknown.
     people: [PersonRow],
+    voice-started: int,
     /// A DM with a call going on.
     call: bool,
     /// The server tag a one-to-one DM's person wears, and its badge's address.
@@ -432,6 +434,9 @@ export component ChannelRow inherits Rectangle {
     in property <bool> thread;
     /// A voice channel with a chat, which a button on the row opens.
     in property <bool> chat;
+    /// When a busy voice channel's session started, in ActivityClock's
+    /// seconds, which the row counts from; 0 for none.
+    in property <int> voice-started;
     /// It may be dragged: once the pointer has moved a few pixels with the
     /// button down, `start-drag` asks whether it may, given how far down
     /// the row it was pressed, `dragged` says where the pointer is in the
@@ -617,6 +622,13 @@ export component ChannelRow inherits Rectangle {
                 }
                 if root.pinned: Image {
                     source: @image-url("icons/pin.svg"); width: 14px; image-fit: contain; colorize: Theme.faint;
+                }
+                // How long a busy voice channel's call has gone on, as
+                // Discord's client counts it from its first person in.
+                if root.voice-started > 0: Text {
+                    text: ActivityClock.lasted(root.voice-started, ActivityClock.minute * 60);
+                    color: Theme.muted; font-size: 12px; vertical-alignment: center;
+                    accessible-role: none;
                 }
                 if root.badge != "": Middle {
                     Rectangle {
@@ -1298,9 +1310,11 @@ export component RoomList inherits Rectangle {
                         + (room.voice-room != "" ? ", in " + room.voice-channel + " in " + room.voice-server : "")
                         + (room.detail != "" ? ", " + room.detail : "")
                         + (room.pinned ? ", pinned" : "") + (room.muted ? ", muted" : "")
-                        + (room.locked ? ", locked" : "") + (room.call ? ", in a call" : "") + (room.badge != "" ? ", " + room.badge + " mentions" : room.unread ? ", unread" : "");
+                        + (room.locked ? ", locked" : "") + (room.call ? ", in a call" : "")
+                        + (room.voice-started > 0 ? ", call going for " + ActivityClock.lasted(room.voice-started, ActivityClock.minute * 60) : "")
+                        + (room.badge != "" ? ", " + room.badge + " mentions" : room.unread ? ", unread" : "");
                     icon: room.icon; person: room.direct; initial: room.initial; tint: room.tint;
-                    chat: room.chat;
+                    chat: room.chat; voice-started: room.voice-started;
                     open-chat => { root.open-chat(room.id); }
                     picture: room.picture; picture-url: room.picture-url; discord: room.discord;
                     decoration-url: room.decoration-url; nameplate-url: room.nameplate-url;

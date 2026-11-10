@@ -629,6 +629,17 @@ impl Session<'_> {
             self.publisher.changed();
             self.ask_previews();
         }
+        // A server on screen, back from an outage or joined again, says
+        // afresh when its busy voice channels' calls started.
+        if *event == Event::GuildCreate
+            && data["unavailable"].as_bool() != Some(true)
+            && let Some(guild) = data["id"].as_str()
+        {
+            self.shared
+                .lists
+                .server_back(&mut self.gateway, guild)
+                .await?;
+        }
         // Names took the change in, so what shows the member follows; and
         // this account's messages its new display name and avatar.
         if matches!(event, Event::GuildMemberUpdate | Event::GuildMemberRemove) {

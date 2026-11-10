@@ -642,6 +642,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     window
         .global::<PictureStore>()
         .on_plays(|url, _revision| picture_plays(url.as_str()));
+    window
+        .global::<ActivityClock>()
+        .on_lasted(super::profile::activity_lasted);
     window.global::<PictureStore>().on_request(move |url| {
         if url.is_empty() {
             return;
