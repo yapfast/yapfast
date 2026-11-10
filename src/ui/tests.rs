@@ -13,6 +13,47 @@ fn message_row_plain(message: &ChatMessage) -> MessageRow {
 }
 
 #[test]
+fn a_message_still_sending_is_only_faint() {
+    use yapfast_core::chat::Delivery;
+    let sending = message_row_plain(&ChatMessage {
+        item: "d:1".into(),
+        body: "Hi".into(),
+        delivery: Delivery::Sending,
+        ..Default::default()
+    });
+    assert!(sending.sending);
+    // Files uploading keep the line and its Cancel.
+    let uploading = message_row_plain(&ChatMessage {
+        item: "n:2".into(),
+        delivery: Delivery::Sending,
+        attachments: vec![yapfast_core::chat::Attachment {
+            name: "clip.mp4".into(),
+            size: Some(40_000_000),
+            image: false,
+            dimensions: None,
+            preview: None,
+            preview_failed: false,
+            placement: Placement::Message,
+            gif: None,
+            spoiler: false,
+            video: true,
+            url: None,
+        }],
+        ..Default::default()
+    });
+    assert!(!uploading.sending);
+    assert!(uploading.can_cancel && uploading.delivery == "Sending...");
+    let waiting = message_row_plain(&ChatMessage {
+        item: "d:2".into(),
+        body: "Hi".into(),
+        delivery: Delivery::Waiting,
+        ..Default::default()
+    });
+    assert!(!waiting.sending);
+    assert!(!waiting.delivery.is_empty());
+}
+
+#[test]
 fn a_server_without_a_picture_shows_its_initials_in_capitals() {
     assert_eq!(initials("Co-op crew"), "CC");
     assert_eq!(initials("the secret empire"), "TSE");
