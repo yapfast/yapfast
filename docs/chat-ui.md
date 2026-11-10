@@ -394,8 +394,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   the message's other images, a counter shows which one it is, and Escape, the
   close button or a click outside the image closes it. It can save the image
   too.
-- Send through the SDK's persistent send queue. A message appears at once with
-  "Sending...". After a connection problem it shows "Not sent yet" and goes out
+- Send through the SDK's persistent send queue. A message appears at once,
+  faint until the server has it, with nothing under it. After a connection
+  problem it shows "Not sent yet" and goes out
   by itself when sync recovers. Sync uses the SDK's offline mode, which keeps
   probing the homeserver. A refused message shows "Not sent" with Retry. Queued
   messages can be cancelled, and they survive closing Yapfast.

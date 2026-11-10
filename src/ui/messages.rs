@@ -787,6 +787,7 @@ pub(super) fn message_row_within(
         delivery_failed: message.delivery == Delivery::Failed,
         can_retry,
         can_cancel,
+        sending: message.delivery == Delivery::Sending,
         can_reply: message.can_reply,
         can_edit: message.can_edit,
         can_delete: message.can_delete,

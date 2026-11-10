@@ -817,6 +817,8 @@ export struct MessageRow {
     /// Says a card is hidden, for a message that is only one, with link previews off.
     hidden-card: string,
     delivery: string, delivery-failed: bool, can-retry: bool, can-cancel: bool,
+    /// Still going out: drawn faint, with no line under it.
+    sending: bool,
     can-reply: bool, can-edit: bool, can-delete: bool, can-react: bool, can-forward: bool,
     /// Among the conversation's pinned messages, and whether this account
     /// may pin it or unpin it.
@@ -2908,7 +2910,7 @@ export component MessageContent inherits VerticalLayout {
                     clicked => { root.react(message.item, reaction.key); }
                 }
             }
-            if message.delivery != "": HorizontalLayout {
+            if message.delivery != "" && !message.sending: HorizontalLayout {
                 spacing: 4px; alignment: start;
                 Text { text: message.delivery; color: message.delivery-failed ? Theme.danger : Theme.muted; font-size: 13px; vertical-alignment: center; wrap: word-wrap; }
                 if message.can-retry: ActionButton { text: "Retry"; ghost: true; small: true; clicked => { root.retry(message.item); } }
