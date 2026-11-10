@@ -2275,6 +2275,34 @@ fn someones_menu_blocks_and_unblocks_them_but_never_this_account() {
 
 #[test]
 #[cfg(feature = "discord")]
+fn a_group_dms_creator_is_its_owner_and_a_dm_has_none() {
+    use yapfast_discord::service::{Conversation, Snapshot, Status};
+    let mut app = connected();
+    app.apply(discord_event(Snapshot {
+        status: Status::Online,
+        conversations: vec![
+            Arc::new(Conversation {
+                id: "30".into(),
+                person: Some("2".into()),
+                people: 2,
+                ..Default::default()
+            }),
+            Arc::new(Conversation {
+                id: "31".into(),
+                group: true,
+                people: 3,
+                owner: Some("2".into()),
+                ..Default::default()
+            }),
+        ],
+        ..Default::default()
+    }));
+    assert_eq!(app.server_owner("discord:@me:31").as_deref(), Some("2"));
+    assert_eq!(app.server_owner("discord:@me:30"), None);
+}
+
+#[test]
+#[cfg(feature = "discord")]
 fn a_discord_dms_menu_manages_its_person_and_notifications() {
     use MenuChoice::*;
     use chat::{Muting, RelationshipChange};

@@ -143,6 +143,9 @@ pub struct Conversation {
     pub empty: bool,
     /// Everyone in it, this account included.
     pub people: usize,
+    /// Who made a group DM; its member list crowns them.
+    #[serde(default)]
+    pub owner: Option<String>,
     /// A message request, waiting to be accepted or ignored. Requests count
     /// no mentions, and spam isn't unread either.
     pub request: bool,

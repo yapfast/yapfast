@@ -1743,6 +1743,7 @@ impl Tracker {
                 && self.unreads.last_message(&private.id) == 0,
             group: private.group,
             people: private.recipients.len() + 1,
+            owner: private.owner.clone(),
             request: private.request,
             spam: private.spam,
             person: (!private.group)
