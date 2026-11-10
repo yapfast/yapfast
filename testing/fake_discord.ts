@@ -252,7 +252,11 @@
 // thinking…" message (flag LOADING, 128, no content) that a MESSAGE_UPDATE
 // fills in a second later with text repeated times, "upload" the name and
 // size of the file its option names (INTERACTION_FAILURE without it),
-// "secret" an ephemeral answer, and any other "Ran /name.". Her
+// "secret" an ephemeral answer, and any other "Ran /name.". Her message
+// command Quote (data.type 3) answers with a type 23 message replying to its
+// target_id, quoting it, and her user command Wave (data.type 2) with a type
+// 23 message waving at its target_id; either without a target_id, or with a
+// message that isn't in the channel, gets INTERACTION_FAILURE. Her
 // autocompletes (type 4) get APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE with
 // the choices that start with the focused value, a second late for "sl".
 // GET /_control/interactions lists each body Alice sent, oldest first, with
@@ -1329,9 +1333,10 @@ type Message = {
   pollResult?: string;
   /** A pin's notice (type 6): the message pinned. */
   pinned?: string;
-  /** An app's answer to a command (type 20): the interaction, the command's
-   *  name and its application, sent as `interaction_metadata`. */
-  interaction?: { id: string; name: string; application: string };
+  /** An app's answer to a command (type 20, or 23 for a context-menu one):
+   *  the interaction, the command's name, type and application, and what a
+   *  context-menu command ran on, sent as `interaction_metadata`. */
+  interaction?: { id: string; name: string; application: string; type?: number; targetUser?: string; targetMessage?: string };
 };
 const messages = new Map<string, Message[]>([
   [GENERAL, []],
@@ -1415,11 +1420,14 @@ function wireMessage(message: Message, origin: string, nested = false): Record<s
       id: message.interaction.id,
       type: 2,
       name: message.interaction.name,
-      command_type: 1,
+      command_type: message.interaction.type ?? 1,
       user: wireUser(users.alice),
       // A server install's owner is its server; "0" outside one.
       authorizing_integration_owners: { "0": guildOf(message.channel).guild_id ?? "0" },
     };
+    const target = Object.values(users).find((user) => user.id === message.interaction?.targetUser);
+    if (target) (wire.interaction_metadata as Record<string, unknown>).target_user = wireUser(target);
+    if (message.interaction.targetMessage) (wire.interaction_metadata as Record<string, unknown>).target_message_id = message.interaction.targetMessage;
   }
   if (message.stickers) wire.sticker_items = message.stickers;
   if (message.call) {
@@ -5071,6 +5079,11 @@ function answerCommand(body: any, id: string, origin: string, files: Map<string,
     }
     return message;
   };
+  const kind: number = body.data?.type ?? 1;
+  if (kind !== 1) {
+    answerMenuCommand(body, id, origin, reply);
+    return;
+  }
   switch (name) {
     case "echo": {
       // Deferred: "is thinking…" first, then the answer.
@@ -5112,6 +5125,29 @@ function answerCommand(body: any, id: string, origin: string, files: Map<string,
       dispatch("INTERACTION_SUCCESS", { id, nonce });
       dispatch("MESSAGE_CREATE", dispatched(reply(`Ran /${name}.`), origin));
   }
+}
+
+/** Status Bot's answer to Alice's message command Quote or user command
+ *  Wave, a type 23 message: see the header. `reply` makes its message. */
+function answerMenuCommand(body: any, id: string, origin: string, reply: (content: string) => Message) {
+  const nonce = body.nonce;
+  const kind: number = body.data.type;
+  const target: string | undefined = body.data.target_id;
+  // A context-menu command has its target and no options.
+  const quoted = kind === 3 && target ? byId.get(target) : undefined;
+  const person = kind === 2 && target ? Object.values(users).find((user) => user.id === target) : undefined;
+  if (body.data.options !== undefined || (kind === 3 && quoted?.channel !== body.channel_id) || (kind === 2 && !person)) {
+    dispatch("INTERACTION_FAILURE", { id, nonce, reason_code: 1 });
+    return;
+  }
+  dispatch("INTERACTION_SUCCESS", { id, nonce });
+  const message = quoted
+    ? reply(`> ${quoted.content}\n— <@${quoted.author.id}>`)
+    : reply(`👋 <@${target}>`);
+  message.type = 23;
+  message.interaction = { ...message.interaction!, type: kind, ...(quoted ? { targetMessage: quoted.id } : { targetUser: target }) };
+  if (quoted) message.reply = quoted.id;
+  dispatch("MESSAGE_CREATE", dispatched(message, origin));
 }
 
 /** Status Bot's choices for the option Alice is typing, which start with

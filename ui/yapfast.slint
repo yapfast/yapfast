@@ -486,8 +486,14 @@ export component YapfastWindow inherits Window {
     callback focus-command-option(int);
     callback command-file(int);
     callback close-command(bool);
-    /// The commands an open message's or person's "Apps" submenu offers.
+    /// The message commands a message's "Apps" submenu offers.
     in property <[CommandChoice]> app-menu-commands;
+    /// The open room's command index came, so an open person's menu is
+    /// built again with its "Apps".
+    in property <bool> app-commands-ready;
+    /// A message's or a person's menu opened: their "Apps" needs the open
+    /// room's command index.
+    callback ask-app-commands();
     /// The draft is `/` and this after it; a command picked by its place;
     /// what was entered for an option; a command, by its id, run on a
     /// message item or user, or as written with none; an ephemeral message
@@ -2054,8 +2060,14 @@ export component YapfastWindow inherits Window {
         root.anchor(x, y, 0px, 0px, true);
         root.menu-target = id;
         root.menu-person = person;
+        if person { root.ask-app-commands(); }
         root.prepare-menu(id, person);
         if root.menu-rows.length > 0 { context-menu.show(); }
+    }
+    changed app-commands-ready => {
+        if root.app-commands-ready && root.menu-person && context-menu.is-open {
+            root.prepare-menu(root.menu-target, true);
+        }
     }
     // The popup spans the menu and room for its submenus, which open to the
     // menu's right, or its left near the window's right edge. The menu opens
@@ -2171,6 +2183,7 @@ export component YapfastWindow inherits Window {
         root.menu-media = media;
         root.menu-video = video;
         root.menu-link = media >= 0 ? root.attachment-link(message.item, media) : root.link-at(root.anchor-x, root.anchor-y);
+        root.ask-app-commands();
         message-menu.show();
     }
     property <bool> picker-open: emoji-picker.is-open;
@@ -2413,17 +2426,24 @@ export component YapfastWindow inherits Window {
     }
     // From a button, the menu opens left of it, level with its top, or right of
     // it when there isn't room.
+    // An Apps submenu opens on the menu's right, or its left near the
+    // window's right edge; the menu stays where it would be without.
     message-menu := PopupWindow {
-        width: 224px; height: menu-content.content-height;
-        x: root.anchor-pointer ? max(8px, min(root.width - self.width - 8px, root.anchor-x))
-            : root.anchor-x - self.width - 8px >= 8px ? root.anchor-x - self.width - 8px
-            : max(8px, min(root.width - self.width - 8px, root.anchor-x + root.anchor-width + 8px));
+        property <length> menu-width: 224px;
+        property <length> left: root.anchor-pointer ? max(8px, min(root.width - self.menu-width - 8px, root.anchor-x))
+            : root.anchor-x - self.menu-width - 8px >= 8px ? root.anchor-x - self.menu-width - 8px
+            : max(8px, min(root.width - self.menu-width - 8px, root.anchor-x + root.anchor-width + 8px));
+        property <bool> flip: self.left + menu-content.content-width > root.width - 8px;
+        width: menu-content.content-width; height: menu-content.content-height;
+        x: self.flip ? self.left - (menu-content.content-width - self.menu-width) : self.left;
         y: !root.anchor-pointer ? max(8px, min(root.height - self.height - 8px, root.anchor-y))
             : root.anchor-y + 4px + self.height <= root.height - 8px ? root.anchor-y : max(8px, root.anchor-y - self.height - 4px);
         close-policy: PopupClosePolicy.close-on-click-outside;
         menu-content := MessageMenu {
             menu-message: root.menu-message; selection: root.menu-selection; menu-can-react: root.menu-can-react; menu-reactions: root.menu-reactions;
             can-start-thread: root.can-start-threads && !root.menu-aside;
+            app-commands: root.app-menu-commands; flip: message-menu.flip;
+            run-app-command(command, item) => { root.run-app-command(command, item); message-menu.close(); }
             start-thread(item) => { root.new-thread(item, "message"); message-menu.close(); }
             view-thread(room) => { root.open-aside(room); message-menu.close(); }
             view-reactions(item) => { root.view-reactions(item, ""); message-menu.close(); }

@@ -44,6 +44,9 @@ pub enum MenuChoice {
     /// Mute a Discord DM for one of [`MUTE_TIMES`], or unmute it.
     Mute,
     Unmute,
+    /// Run an app's user command on them, from a submenu of those the open
+    /// room's command index offers; see `commands.rs`.
+    Apps,
     /// Copy a link to it that its network's apps open.
     CopyLink,
     /// Copy its id as its network knows it.

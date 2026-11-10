@@ -2046,6 +2046,126 @@ fn menus_offer_what_fits_their_conversation_or_server() {
     assert!(app.state.menu_choices("friends").is_empty());
     app.dispatch(Action::RequestJoinVoice("lounge".into()));
     assert!(app.state.menu_choices("lounge").is_empty(), "already in it");
+
+    // A Discord channel's people and messages offer its apps' user and
+    // message commands under Apps, once a menu opening asked for its index.
+    #[cfg(feature = "discord")]
+    {
+        use yapfast_discord::commands::CommandIndex;
+        const GENERAL: &str = "discord:10:11";
+        let mut app = discord_server();
+        app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+        app.dispatch(Action::SelectRoom(GENERAL.into()));
+        assert!(!app.person_choices("2").contains(&Apps), "no index yet");
+        let asked = app.dispatch(Action::AskAppCommands);
+        assert!(asked.iter().any(|effect| matches!(effect,
+            Effect::Backend(Command::Discord(DiscordCommand::CommandIndex { room })) if room == GENERAL)));
+        // Status Bot's Wave needs Use Application Commands, which Alice
+        // lacks in "Test"; Notes is installed for her, so its work anywhere.
+        let server = CommandIndex::parse(
+            &serde_json::json!({
+                "applications": [{"id": "7", "name": "Status Bot", "bot_id": "7", "flags": "0"}],
+                "application_commands": [
+                    {"id": "6", "type": 2, "application_id": "7", "name": "Wave", "description": "", "version": "1"}],
+            }),
+            false,
+        );
+        let own = CommandIndex::parse(
+            &serde_json::json!({
+                "applications": [{"id": "8", "name": "Notes", "flags": "0"}],
+                "application_commands": [
+                    {"id": "1", "type": 1, "application_id": "8", "name": "note", "description": "Keeps a note",
+                     "integration_types": [1], "contexts": [0, 1, 2], "version": "1"},
+                    {"id": "4", "type": 3, "application_id": "8", "name": "Save note", "description": "",
+                     "integration_types": [1], "contexts": [0, 1, 2], "version": "1"},
+                    {"id": "5", "type": 2, "application_id": "8", "name": "Note about", "description": "",
+                     "integration_types": [1], "contexts": [0, 1, 2], "version": "1"}],
+            }),
+            true,
+        );
+        app.apply(Event::CommandIndex {
+            room: GENERAL.into(),
+            index: Ok(Arc::new(server.merged(&own))),
+        });
+        let names = |target| -> Vec<String> {
+            app.commands_for_target(GENERAL, target)
+                .into_iter()
+                .map(|command| command.name)
+                .collect()
+        };
+        assert_eq!(names(CommandTarget::Message), ["Save note"]);
+        assert_eq!(names(CommandTarget::User), ["Note about"]);
+        let choices = app.person_choices("2");
+        assert!(choices.contains(&Apps));
+        // Before how this account stands with them, as Discord's has it.
+        if let Some(befriend) = choices.iter().position(|choice| *choice == AddFriend) {
+            assert!(choices.iter().position(|choice| *choice == Apps) < Some(befriend));
+        }
+        assert!(
+            !app.person_choices("@bob:matrix.org").contains(&Apps),
+            "not on Discord"
+        );
+
+        let ran = |effects: Vec<Effect>| -> Vec<(String, Option<String>, serde_json::Value)> {
+            effects
+                .into_iter()
+                .filter_map(|effect| match effect {
+                    Effect::Backend(Command::Discord(DiscordCommand::RunCommand(run))) => Some((
+                        run.command["name"].as_str().unwrap_or_default().to_owned(),
+                        run.target,
+                        run.options,
+                    )),
+                    _ => None,
+                })
+                .collect()
+        };
+        let message = |item: &str, flags: u64| {
+            Arc::new(ChatMessage {
+                id: item.into(),
+                item: item.into(),
+                flags,
+                ..Default::default()
+            })
+        };
+        app.state.messages = Arc::new(vec![message("d:5", 0), message("d:6", 1 << 6)]);
+        let run = |app: &mut Application, command: &str, target: &str| {
+            ran(app.dispatch(Action::RunAppCommand {
+                command: command.into(),
+                target: Some(target.into()),
+            }))
+        };
+        // On the message by its Discord id, and on the person, with no
+        // options; each shows as sending.
+        assert_eq!(
+            run(&mut app, "4", "d:5"),
+            [(
+                "Save note".to_owned(),
+                Some("5".to_owned()),
+                serde_json::json!([])
+            )]
+        );
+        assert_eq!(
+            run(&mut app, "5", "2"),
+            [(
+                "Note about".to_owned(),
+                Some("2".to_owned()),
+                serde_json::json!([])
+            )]
+        );
+        let sending = app
+            .state
+            .messages
+            .iter()
+            .filter(|message| message.item.starts_with("c:"))
+            .count();
+        assert_eq!(sending, 2);
+        // Not on an answer only Alice sees, not a user command on a
+        // message or a message command on a person, nor one she can't use.
+        assert!(run(&mut app, "4", "d:6").is_empty());
+        assert!(run(&mut app, "5", "d:5").is_empty());
+        assert!(run(&mut app, "4", "2").is_empty());
+        assert!(run(&mut app, "6", "2").is_empty());
+    }
 }
 
 #[test]

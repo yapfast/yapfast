@@ -642,7 +642,11 @@ pub fn parse(value: &Value) -> Option<Message> {
         _ => value,
     };
     // `null` says the original was deleted; no field at all says nothing.
-    let reply = (kind == REPLY).then(|| match value.get("referenced_message") {
+    // An app's answer to a message command replies to that message when it
+    // names it (docs.discord.food gives `referenced_message` for type 23).
+    let replies = kind == REPLY
+        || (kind == CONTEXT_MENU_COMMAND && value["message_reference"]["message_id"].is_string());
+    let reply = replies.then(|| match value.get("referenced_message") {
         Some(original @ Value::Object(_)) => Reply::of(original),
         Some(_) => Reply::Deleted,
         None => Reply::Unknown {

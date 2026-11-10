@@ -1,16 +1,17 @@
 // Apps' commands: the `/` picker over the composer, the options of the
 // command being written, and what an option may take. The composer shows
-// the options as pills (see Composer in composer.slint); the "Apps" submenu
-// of a message's or a person's menu is phase 2's. See
-// docs/discord/messages.md, "Apps' commands".
+// the options as pills (see Composer in composer.slint); a message's menu
+// lists its "Apps" from CommandChoice rows too (see MessageMenu in
+// messages.slint). See docs/discord/messages.md, "Apps' commands".
 
 import { Theme } from "theme.slint";
 
 /// A row of the list over the composer: a command the picker offers, with
 /// its app's name and icon and the command's name ("config set" for a
 /// subcommand) and description; or a value an option may take, with a
-/// person's avatar for an icon and nothing for an app.
-export struct CommandChoice { app: string, icon: image, name: string, description: string }
+/// person's avatar for an icon and nothing for an app; or a message command
+/// in a message's "Apps", by its `id`.
+export struct CommandChoice { id: string, app: string, icon: image, name: string, description: string }
 
 /// An option of the command being written, as a pill in the composer: its
 /// name and description, what was entered, whether it's required, why it's
@@ -104,23 +105,27 @@ export component CommandList inherits CommandFrame {
 }
 
 // The command being written, over the composer's text: its name, then a
-// pill for each option. The focused one, which the text below writes, is
-// outlined; one that's wrong says why in red. A click takes the composer to
-// a pill, or opens the file picker for a file's.
-export component CommandPills inherits HorizontalLayout {
+// pill for each option. A pill is as wide as its name, value and error, up
+// to the row's width, past which its value and error are cut short; pills
+// that don't fit on a row go on to the next. The focused one, which the
+// text below writes, is outlined; one that's wrong says why in red. A click
+// takes the composer to a pill, or opens the file picker for a file's.
+export component CommandPills inherits FlexboxLayout {
     in property <string> name;
     in property <[CommandOptionPill]> options;
     in property <int> focused-index;
     callback clicked(int);
     spacing: 6px; alignment: start;
     Rectangle {
+        height: 26px; max-width: root.width;
         border-radius: 4px; background: Theme.accent-soft;
         HorizontalLayout {
             padding-left: 6px; padding-right: 6px;
-            Text { text: "/" + root.name; color: Theme.accent; font-size: 14px; font-weight: 700; vertical-alignment: center; }
+            Text { text: "/" + root.name; color: Theme.accent; font-size: 14px; font-weight: 700; vertical-alignment: center; overflow: elide; }
         }
     }
     for pill[index] in root.options: Rectangle {
+        height: 26px; max-width: root.width;
         border-radius: 4px; border-width: 1px;
         border-color: pill.error != "" ? Theme.danger : index == root.focused-index ? Theme.accent : Theme.line;
         background: index == root.focused-index ? Theme.active : Theme.raised;
@@ -138,8 +143,8 @@ export component CommandPills inherits HorizontalLayout {
                 Image { source: @image-url("icons/file.svg"); width: 14px; height: 14px; colorize: Theme.muted; }
             }
             Text { text: pill.name + ":"; color: Theme.muted; font-size: 13px; font-weight: 600; vertical-alignment: center; }
-            Text { text: pill.value; color: Theme.text; font-size: 13px; vertical-alignment: center; overflow: elide; max-width: 160px; }
-            if pill.error != "": Text { text: pill.error; color: Theme.danger-text; font-size: 12px; vertical-alignment: center; overflow: elide; max-width: 180px; }
+            if pill.value != "": Text { text: pill.value; color: Theme.text; font-size: 13px; vertical-alignment: center; overflow: elide; }
+            if pill.error != "": Text { text: pill.error; color: Theme.danger-text; font-size: 12px; vertical-alignment: center; overflow: elide; }
         }
     }
 }
