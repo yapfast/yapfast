@@ -38,6 +38,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use yapfast_discord::{
+    congestion,
     rtp::Codec,
     stream::StreamServer,
     stream_connection::{self, Link, ReceivedFrame, StreamReceiver, StreamSender},
@@ -153,6 +154,12 @@ pub enum Job {
         /// Encoding on the GPU's encoder, where it has one.
         #[serde(default)]
         hardware: bool,
+        /// Whether the stream may declare more than 9 Mbit/s for its picture,
+        /// Settings' experimental switch. It travels with the job for the same
+        /// reason the capture's preference does: the worker is a process of its
+        /// own, and it is where the stream is declared.
+        #[serde(default)]
+        high_bitrate: bool,
         /// How a screen is captured — the setting's choice, or Auto; see
         /// [`crate::capture`]. It travels with the job because the worker is a
         /// process of its own: a choice made in Yapfast's process means nothing
@@ -515,9 +522,14 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
             fps,
             effort,
             hardware,
+            high_bitrate,
             capture: preference,
         } => {
             crate::capture::set(preference);
+            // The stream is declared from here, so the ceiling comes with the
+            // job: op 12 goes out once, with the rate this process was told to
+            // allow, and the controller is seeded from it.
+            stream_connection::set_high_bitrate(high_bitrate);
             // The interface offers 15, 30 and 60; a measurement may ask for
             // more, and a stream of its own is the only thing that suffers.
             let fps = fps.clamp(1, 240);
@@ -1184,15 +1196,12 @@ fn log_encoder(encoder: &Encoding) {
     );
 }
 
-/// The kbit/s to aim for: what a `width` by `height` picture at `fps` is worth
-/// (see [`stream_connection::max_bitrate`]), or what Discord's server estimates
-/// the path carries when that's less, but never below the 500 kbit/s a screen
-/// keeps rather than losing its picture.
-fn kbps(width: u32, height: u32, fps: u32, estimate: Option<u64>) -> u32 {
-    let cap = stream_connection::max_bitrate(width, height, fps) / 1000;
-    estimate.map_or(cap, |estimate| {
-        (estimate / 1000).clamp(500, u64::from(cap)) as u32
-    })
+/// The kbit/s a stream of `width` by `height` at `fps` declares it is worth,
+/// which is what an encoder is opened at before the stream has a target of its
+/// own: a card's encoder opened to capture with, and the preview's, run for
+/// nothing but a picture and a thumbnail. See [`stream_connection::max_bitrate`].
+fn kbps(width: u32, height: u32, fps: u32) -> u32 {
+    stream_connection::max_bitrate(width, height, fps) / 1000
 }
 
 impl Sink {
@@ -1614,20 +1623,18 @@ impl Sink {
             return Ok(None);
         };
         let aimed = video.encoder.as_ref().expect("opened above").bitrate();
-        // A rate a tenth below the aim is followed at once, and one a quarter
-        // above it to climb; between the two is a wobble, and an estimate that
-        // stopped coming says nothing at all.
-        if let Some(wanted) = video
-            .sender
-            .bitrate(kbps(width, height, self.fps, None), aimed)
-        {
+        // The encoder follows the stream's target, which the controller moves
+        // a report at a time. Not on every wobble: a tenth is the width of a
+        // change worth telling the rate control about.
+        let wanted = (video.sender.target() / 1000) as u32;
+        if wanted.abs_diff(aimed) > aimed / 10 {
             match video
                 .encoder
                 .as_mut()
                 .expect("opened above")
                 .set_bitrate(wanted)
             {
-                Ok(()) => tracing::debug!(kbps = wanted, "following Discord's bandwidth estimate"),
+                Ok(()) => tracing::debug!(kbps = wanted, "the encoder follows the stream's target"),
                 Err(error) => {
                     tracing::warn!(error = format!("{error:#}"), "could not change the bitrate")
                 }
@@ -1804,10 +1811,10 @@ impl Sink {
         Ok(encoder)
     }
 
-    /// An encoder in `codec`, at the bitrate Discord's cap for its height
-    /// allows, reading the frames where this share's capture puts them: on the
-    /// card, a session opens on the device the capture fills its textures on,
-    /// which the stream hands over as `device`.
+    /// An encoder in `codec`, at the stream's target, or what a stream of this
+    /// size opens at before it has one, reading the frames where this share's
+    /// capture puts them: on the card, a session opens on the device the
+    /// capture fills its textures on, which the stream hands over as `device`.
     fn open(
         &self,
         codec: Codec,
@@ -1815,7 +1822,15 @@ impl Sink {
         height: u32,
         _device: Option<*mut c_void>,
     ) -> Result<Encoding> {
-        let aimed = kbps(width, height, self.fps, None);
+        // Where the controller has got to, so an encoder opened mid-stream
+        // starts at the rate the stream sends at rather than at the declared
+        // ceiling a path may not carry; a stream's first encoder, opened
+        // before the stream has a target, starts where the controller would
+        // open it.
+        let aimed = self.video.as_ref().map_or_else(
+            || congestion::start(u64::from(kbps(width, height, self.fps)) * 1000) / 1000,
+            |video| video.sender.target() / 1000,
+        ) as u32;
         match self.footage {
             // The card's session reads a texture only on the device it opened
             // on, so it opens on the capture's own, which is the whole of what
@@ -3333,7 +3348,7 @@ fn graphics_capture(
         sent_width,
         sent_height,
         sink.fps,
-        kbps(sent_width, sent_height, sink.fps, None),
+        kbps(sent_width, sent_height, sink.fps),
         d3d11::Surfaces::Ring,
     )
     .context("the card won't open an encoder on the device it captures with")?;
@@ -3367,7 +3382,7 @@ fn duplication(source: &Source, sink: &Sink, (max_width, max_height): (u32, u32)
         sent_width,
         sent_height,
         sink.fps,
-        kbps(sent_width, sent_height, sink.fps, None),
+        kbps(sent_width, sent_height, sink.fps),
         d3d11::Surfaces::Ring,
     )
     .context(
@@ -3785,7 +3800,7 @@ fn capture_textures(
                     preview.0,
                     preview.1,
                     fps,
-                    kbps(preview.0, preview.1, fps, None),
+                    kbps(preview.0, preview.1, fps),
                     d3d11::Surfaces::One,
                 ) {
                     Ok(opened) => {
@@ -5096,6 +5111,19 @@ mod base64_pixels {
     }
 }
 
+/// Whether a stream may declare more than the safe cap for its picture:
+/// Settings' switch, off until the UI says. It travels with the job because the
+/// worker is a process of its own, and it is the worker that declares the
+/// stream: op 12 carries the ceiling once, when a share starts, so a share
+/// already running keeps the ceiling it declared.
+static HIGH_BITRATE: AtomicBool = AtomicBool::new(false);
+
+/// Raises the ceiling the next share declares, from 9 Mbit/s to 35; see
+/// [`stream_connection::set_high_bitrate`].
+pub fn set_high_bitrate(on: bool) {
+    HIGH_BITRATE.store(on, Ordering::Relaxed);
+}
+
 /// Whether streams encode on the GPU where it has an encoder: Settings'
 /// choice, on until the UI says.
 static HARDWARE: AtomicBool = AtomicBool::new(true);
@@ -5197,6 +5225,7 @@ impl Worker {
                 Effort::Light
             },
             hardware: HARDWARE.load(Ordering::Relaxed),
+            high_bitrate: HIGH_BITRATE.load(Ordering::Relaxed),
             capture: crate::capture::preference(),
         };
         let (worker, reports) = Self::start(&job, Some(&frames))?;
@@ -5946,6 +5975,7 @@ mod tests {
             fps: 30,
             effort: Effort::Light,
             hardware: false,
+            high_bitrate: false,
             capture: crate::capture::Preference::Auto,
         };
         assert!(!shared.decodes(), "a shared screen only encodes");
@@ -6182,37 +6212,24 @@ mod tests {
     }
 
     /// A share is declared what its picture needs: bits per pixel per frame,
-    /// so the same quality at every size, under a ceiling that is 4K60's.
+    /// so the same quality at every size, under the safe ceiling.
     #[test]
     fn aims_for_what_the_picture_needs() {
-        // 0.07 bits a pixel a frame.
-        assert_eq!(kbps(1920, 1080, 60, None), 8_709);
-        assert_eq!(kbps(3440, 1440, 60, None), 20_805);
-        assert_eq!(kbps(3840, 2160, 60, None), 34_836);
-        // The ceiling is that 4K60, and the floor is a small picture's.
-        assert_eq!(kbps(7680, 4320, 60, None), 35_000, "never past 4K60's");
-        assert_eq!(kbps(640, 360, 30, None), 3_500, "never below a screen's");
-        // A frame rate a person picks takes its share of the bits with it.
-        assert_eq!(kbps(3840, 2160, 30, None), 17_418);
-        assert_eq!(kbps(3440, 1440, 30, None), 10_402);
-        // What the server estimates the path carries decides below the cap.
-        assert_eq!(
-            kbps(3440, 1440, 60, Some(4_000_000)),
-            4_000,
-            "what the path carries"
-        );
-        assert_eq!(
-            kbps(1920, 1080, 60, Some(9_000_000)),
-            8_709,
-            "never past the cap"
-        );
-        assert_eq!(
-            kbps(1920, 1080, 60, Some(100_000)),
-            500,
-            "nor below a screen's floor"
-        );
+        // 0.07 bits a pixel a frame, under the 9 Mbit/s a share declares by
+        // default: a 1080p60 share asks for less than that and gets it.
+        assert_eq!(kbps(1920, 1080, 60), 8_709);
+        assert_eq!(kbps(1280, 720, 30), 3_500, "the floor a screen is given");
+        // Above that the declaration is cut to the ceiling, which is what
+        // Settings' experimental switch raises.
+        assert_eq!(kbps(3440, 1440, 60), 9_000, "cut to the safe cap");
+        assert_eq!(kbps(3840, 2160, 60), 9_000);
+        assert_eq!(kbps(7680, 4320, 60), 9_000, "whatever the size");
+        // A frame rate a person picks takes its share of the bits with it,
+        // under the cap either way.
+        assert_eq!(kbps(3840, 2160, 30), 9_000);
+        assert_eq!(kbps(1920, 1080, 30), 4_354);
         // A screen on its side is the same picture, so it is worth the same.
-        assert_eq!(kbps(1080, 1920, 30, None), kbps(1920, 1080, 30, None));
+        assert_eq!(kbps(1080, 1920, 30), kbps(1920, 1080, 30));
     }
 
     /// With the GPU, AV1 and H265 before H264 where they open, and an
@@ -6547,7 +6564,7 @@ mod tests {
             sent_width,
             sent_height,
             30,
-            kbps(sent_width, sent_height, 30, None),
+            kbps(sent_width, sent_height, 30),
             d3d11::Surfaces::Ring,
         ) else {
             eprintln!(
@@ -6664,6 +6681,7 @@ mod tests {
             fps: 30,
             effort: Effort::Light,
             hardware,
+            high_bitrate: false,
             capture: crate::capture::Preference::Auto,
         };
         writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
@@ -7362,6 +7380,7 @@ root.mainloop()
             fps: 60,
             effort: Effort::Light,
             hardware: false,
+            high_bitrate: false,
             capture: crate::capture::Preference::Auto,
         };
         let (input, mut feed) = std::io::pipe().unwrap();
@@ -7419,6 +7438,7 @@ root.mainloop()
             fps: 30,
             effort: Effort::Light,
             hardware: false,
+            high_bitrate: false,
             capture: crate::capture::Preference::Auto,
         };
         let (input, mut feed) = std::io::pipe().unwrap();
@@ -7562,6 +7582,7 @@ root.mainloop()
                 fps: 30,
                 effort: Effort::Light,
                 hardware: false,
+                high_bitrate: false,
                 capture: crate::capture::Preference::Auto,
             };
             let (input, mut feed) = std::io::pipe().unwrap();
@@ -7616,6 +7637,7 @@ root.mainloop()
             fps: 30,
             effort: Effort::Light,
             hardware: false,
+            high_bitrate: false,
             capture: crate::capture::Preference::Auto,
         };
         let (input, mut feed) = std::io::pipe().unwrap();
@@ -7652,6 +7674,7 @@ root.mainloop()
             fps: 1,
             effort: Effort::Light,
             hardware: false,
+            high_bitrate: false,
             capture: crate::capture::Preference::Auto,
         };
         let mut reports = Vec::new();

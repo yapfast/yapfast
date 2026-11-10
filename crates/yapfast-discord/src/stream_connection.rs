@@ -23,6 +23,7 @@ use tokio::{
 };
 
 use crate::{
+    congestion::{self, Controller},
     rtp::{self, Assembler, Codec, Packetizer},
     stream::{self, StreamServer},
     voice_connection::{Connection, Identity, lock, receive, send_json},
@@ -43,6 +44,11 @@ const RESENDS: usize = 128;
 const SOUND_BUFFERS: usize = 8;
 /// The most video SSRCs a watched stream puts frames together for.
 const MAX_SSRCS: usize = 4;
+/// The sender reports the last round trips are measured against, by the
+/// middle of their NTP time, which a viewer's receiver report echoes: more
+/// than one report can wait unanswered, and fewer than a report a second over
+/// a few seconds.
+const ECHOED: usize = 4;
 /// A frame's packets past the first `BURST` go out `PACE` every `STEP`,
 /// about 37 Mbit/s: a 1080p keyframe sent at once can overflow buffers on
 /// the way.
@@ -59,10 +65,11 @@ const STEP: Duration = Duration::from_millis(1);
 /// A share's quality is bits per pixel per frame and nothing else, so the
 /// declaration follows the picture rather than a step at 720 lines:
 /// [`BITS_PER_PIXEL`] times the pixels times the frames a second, floored at
-/// what a small picture is worth and capped at what the largest share the
-/// interface offers needs — 3840x2160 at 60. A 3440x1440 share at 60 then
-/// declares 20.8 Mbit/s and 1080p60 8.7, which are the rates the measurements
-/// below put at the same quality.
+/// what a small picture is worth and capped at [`MOST_SAFE`] — or at
+/// [`MOST_EXPERIMENTAL`], which is what 3840x2160 at 60 is worth, with
+/// Settings' switch on. 1080p60 declares 8.7 Mbit/s, which the measurements
+/// below put at the same quality; a 3440x1440 share at 60 asks for 20.8 and is
+/// declared 9 unless the switch raises the cap.
 ///
 /// Measured here, four-second clips at the p4 low-latency setting the stream
 /// uses, VMAF against the source: busy 3840x2160@60 through AV1 scores 92.9 at
@@ -70,7 +77,8 @@ const STEP: Duration = Duration::from_millis(1);
 /// and H.264 91.8/94.1/94.9/96.2 at the same rates. Busy 3440x1440@60 through
 /// AV1 scores 93.7 at 9 Mbit/s, 95.3 at 20 and 96.9 at 35. So 0.07 is where
 /// busy content reaches VMAF 95 at every size, and it declares 20.8 Mbit/s for
-/// the 3440x1440 case the measurement agrees with.
+/// the 3440x1440 case the measurement agrees with — a rate only the switch
+/// below lets a stream ask for.
 ///
 /// A screen share is far cheaper than that: a desktop at 3840x2160@60 scores
 /// VMAF 98 on 2.4 Mbit/s and one at 3440x1440@60 scores 98 on 5.9, so a share
@@ -79,7 +87,8 @@ const STEP: Duration = Duration::from_millis(1);
 /// Discord's server takes the declaration on trust: a probe through a real
 /// stream accepted 3840x2160 at 60, 120 and even 200 Mbit/s declared, and
 /// 7680x4320@60, without refusing any of it. The declaration is therefore ours
-/// to choose, and REMB is what lowers the rate a path can't carry.
+/// to choose. It's the ceiling the controller in [`congestion`] works under:
+/// the rate a stream actually sends at is that controller's to say.
 ///
 /// Neither number is a limit Discord states. The reference documents
 /// `max_bitrate` only as an optional integer, "the maximum bitrate to send in
@@ -87,23 +96,46 @@ const STEP: Duration = Duration::from_millis(1);
 /// default or tiers; its one value is the example Video (Send) payload's
 /// `9000000` at 60 fps (docs.discord.food, Voice Connections, Stream
 /// Structure). So op 12 announces a cap and the voice server takes it on trust:
-/// a path that can't carry it is held back by the server's bandwidth estimate
-/// (REMB) instead, which is what this file follows below.
+/// a path that can't carry it is held back by the sender's own congestion
+/// control instead, which reads the round trip and the loss back out of the
+/// server's receiver reports (see [`congestion`]).
 ///
 /// Discord's own web client is far more modest than this: its screen-share
 /// ladder is `desktopBitrate {min: 500_000, max: 3_500_000, target: 600_000}`,
 /// a Go Live stream opens at 1280x720 with those bounds, and the overrides it
 /// computes per resolution are 3.5 or 5 Mbit/s at 1080p30 (the
 /// `2026-05-frontier-tuning` guild trial) and 9 Mbit/s for 720p60 in a tier-1
-/// guild under `2026-06-server-ladder`. So above 720 lines this is two and a
-/// half times what the client it copies would use, and that is the direction to
-/// err in: a 1080p share at 3.5 Mbit/s is soft, and the estimate still caps it.
+/// guild under `2026-06-server-ladder`. So even [`MOST_SAFE`] is above what the
+/// client it copies would use, and that is the direction to err in: a 1080p
+/// share at 3.5 Mbit/s is soft, and the congestion control holds the rate below
+/// whatever is declared anyway.
 pub fn max_bitrate(width: u32, height: u32, fps: u32) -> u32 {
     if let Some(bits) = declared() {
         return bits;
     }
     let pixels = f64::from(width) * f64::from(height) * f64::from(fps);
-    ((pixels * BITS_PER_PIXEL) as u64).clamp(u64::from(LEAST), u64::from(MOST)) as u32
+    let most = if HIGH_BITRATE.load(Ordering::Relaxed) {
+        MOST_EXPERIMENTAL
+    } else {
+        MOST_SAFE
+    };
+    ((pixels * BITS_PER_PIXEL) as u64).clamp(u64::from(LEAST), u64::from(most)) as u32
+}
+
+/// Whether a stream may declare more than [`MOST_SAFE`]: Settings' switch, off
+/// until the UI says otherwise. It's read on every declaration rather than kept,
+/// so a share started after the switch is flipped declares the new ceiling.
+static HIGH_BITRATE: AtomicBool = AtomicBool::new(false);
+
+/// Raises what a stream declares its picture worth to 35 Mbit/s, from 9.
+///
+/// The worker is a process of its own and op 12 carries the ceiling once, when
+/// a share starts, so this has to be set in the process that declares the
+/// stream: a choice made in Yapfast's own means nothing where the stream is
+/// actually sent from. A stream already running declared its own ceiling when it
+/// started and keeps it; the next one declares this.
+pub fn set_high_bitrate(on: bool) {
+    HIGH_BITRATE.store(on, Ordering::Relaxed);
 }
 
 /// Bits per pixel per frame a share is worth: measured, see [`max_bitrate`].
@@ -111,9 +143,18 @@ const BITS_PER_PIXEL: f64 = 0.07;
 /// The least a share is declared, so a small or still picture isn't starved by
 /// a formula: a screen's own floor is 500 kbit/s, and this is above it.
 const LEAST: u32 = 3_500_000;
-/// The most, which is 3840x2160 at 60 through [`BITS_PER_PIXEL`]: the largest
-/// share the interface offers, and the ceiling everything else scales under.
-const MOST: u32 = 35_000_000;
+/// The most a stream declares by default, which is above 1080p60's 8.7
+/// Mbit/s: Discord's own web client asks for far less — 5 Mbit/s at 1080p30
+/// and 9 at 720p60 — and what lies past this is unmeasured against a real
+/// viewer's machine and shared with everything else on the uplink, which is why
+/// raising it is a setting rather than the default.
+const MOST_SAFE: u32 = 9_000_000;
+/// And the most a stream may declare with Settings' switch on: 3840x2160 at 60
+/// through [`BITS_PER_PIXEL`], the largest share the interface offers, which is
+/// far past what Discord Web declares. A probe accepted more than this from
+/// Discord's server, so it's the path's to carry or not, and the measurement
+/// that makes it worth asking for is above.
+const MOST_EXPERIMENTAL: u32 = 35_000_000;
 
 /// The bit/s a stream declares when a measurement overrides the cap, from
 /// `YAPFAST_STREAM_MAX_BITRATE` in kbit/s: the only way to try a declaration
@@ -131,45 +172,6 @@ fn declared() -> Option<u32> {
             }
         }
     })
-}
-
-/// The least kbit/s a shared screen is given, as Discord's client gives it: a
-/// path that estimates it carries less than this still gets a picture, poorer
-/// rather than gone.
-const FLOOR: u32 = 500;
-
-/// How long what Discord's server estimated the path carries speaks for it.
-/// Its estimates come as often as its viewers' receivers send them, so a
-/// stream somebody is watching never sees its estimate lapse; one that does
-/// lapse is not news about the path now, and the rate holds where it is
-/// rather than leaping to the cap that silence doesn't measure.
-const ESTIMATE_LIFE: Duration = Duration::from_secs(5);
-
-/// The kbit/s to aim for now, given the kbit/s `aimed` the encoder already
-/// holds and the bit/s Discord's server last estimated the path carries, or
-/// None to leave the encoder's rate as it is.
-///
-/// It aims for what Discord's client aims for: the estimate, though never
-/// below the floor a screen is given nor above `cap`, the kbit/s the stream's
-/// picture was declared to be worth (see [`max_bitrate`]). What it takes to move the rate is not the same both ways. A
-/// tenth below is a path that has just lost packets, and it is obeyed at once.
-/// A quarter above is a path that has got better, and a quarter is what it
-/// takes to climb, because an estimate wandering a few percent either way
-/// would otherwise change the encoder's rate control every report it
-/// wandered. So a stream that recovers climbs again once its estimate is a
-/// quarter above the rate it holds, never waiting for a report that undoes the
-/// whole cut, and never going past what the estimate says the path carries.
-pub fn bitrate(cap: u32, aimed: u32, estimate: Option<u64>) -> Option<u32> {
-    // Nothing said about the path is not the same as a path that carries
-    // everything: with no estimate to go on, the rate stays where it is.
-    let estimate = estimate?;
-    let wanted = (estimate / 1000).clamp(u64::from(FLOOR), u64::from(cap)) as u32;
-    let margin = if wanted > aimed {
-        aimed / 4
-    } else {
-        aimed / 10
-    };
-    (wanted.abs_diff(aimed) > margin).then_some(wanted)
 }
 
 /// Op 5's speaking flags for a stream's sound: shared sound, not a
@@ -590,9 +592,9 @@ struct Shared {
     /// Receiving: where the streamer's sender reports put its sound and
     /// picture clocks, written by the receive thread and read by the player.
     clock: Arc<StreamClock>,
-    /// Sending: what Discord's server last estimated the path carries, in
-    /// bit/s, and when it said so.
-    estimate: Mutex<Option<(u64, std::time::Instant)>>,
+    /// Sending: the bit/s to encode at, as the send thread's [`Controller`]
+    /// decides. Receiving: nothing reads one.
+    target: AtomicU64,
     /// Sending: the codecs offered, most wanted first, and whether that
     /// changed since Discord was told. Receiving: the codecs decoded.
     offers: Mutex<Vec<Codec>>,
@@ -608,13 +610,18 @@ struct Shared {
 }
 
 impl Shared {
-    fn new(size: (u32, u32)) -> Arc<Self> {
+    /// The state a stream of `size` at `fps` shares between threads. A
+    /// sender's target starts at what the controller opens a stream of that
+    /// size at, under the ceiling [`max_bitrate`] declares for it: it's the
+    /// encoder's rate before the first frame goes, and again after an encoder
+    /// is opened mid-stream.
+    fn new(size: (u32, u32), fps: u32) -> Arc<Self> {
         Arc::new(Self {
             link: Mutex::new(Link::Connecting),
             keyframe: AtomicBool::new(true),
             size: Mutex::new(size),
             clock: Arc::new(StreamClock::default()),
-            estimate: Mutex::new(None),
+            target: AtomicU64::new(congestion::start(max_bitrate(size.0, size.1, fps).into())),
             offers: Mutex::new(vec![SEND_CODEC]),
             offers_changed: AtomicBool::new(false),
             chosen: Mutex::new(None),
@@ -684,7 +691,7 @@ impl StreamSender {
         offers: Vec<Codec>,
     ) -> Result<Self> {
         let (user, channel, _) = ids(&server)?;
-        let shared = Shared::new((width, height));
+        let shared = Shared::new((width, height), fps);
         *lock(&shared.offers) = offers;
         // A few frames of slack; beyond that the network can't keep up.
         let (frames, receiver) = mpsc::channel(4);
@@ -769,23 +776,10 @@ impl StreamSender {
         self.shared.keyframe.store(true, Ordering::Relaxed);
     }
 
-    /// The bit/s Discord's server last estimated the path carries, once it
-    /// said, however long ago that was.
-    pub fn bandwidth_estimate(&self) -> Option<u64> {
-        lock(&self.shared.estimate).map(|(estimate, _)| estimate)
-    }
-
-    /// The kbit/s the encoder should aim for now, or None to leave its rate
-    /// as it is; see [`bitrate`]. What Discord's server last estimated the
-    /// path carries is what moves it, as long as the server is still saying
-    /// so: a report that stopped coming is not news about the path now, and a
-    /// rate held where it is beats one thrown back to the cap on nothing.
-    pub fn bitrate(&self, cap: u32, aimed: u32) -> Option<u32> {
-        let estimate = *lock(&self.shared.estimate);
-        let said = estimate
-            .filter(|(_, said)| said.elapsed() <= ESTIMATE_LIFE)
-            .map(|(estimate, _)| estimate);
-        bitrate(cap, aimed, said)
+    /// The bit/s to encode at: what keeps the uplink's queue short under the
+    /// stream's declared ceiling. See [`congestion`].
+    pub fn target(&self) -> u64 {
+        self.shared.target.load(Ordering::Relaxed)
     }
 
     pub fn link(&self) -> Link {
@@ -849,7 +843,7 @@ impl StreamReceiver {
     /// most wanted first.
     pub fn start(server: StreamServer, decodes: Vec<Codec>) -> Result<Self> {
         let (user, channel, streamer) = ids(&server)?;
-        let shared = Shared::new((0, 0));
+        let shared = Shared::new((0, 0), 0);
         *lock(&shared.offers) = decodes;
         // Frames waiting to be decoded; more means decoding can't keep up.
         let (frames, receiver) = channel::sync_channel(4);
@@ -1033,6 +1027,11 @@ async fn send(
     let mut connection = open(server, user, channel, Role::Send, shared).await?;
     let (ssrc, video, rtx) = (connection.ssrc, connection.video, connection.rtx);
     let mut size = *lock(&shared.size);
+    // What says how fast the stream sends: its ceiling is the rate op 12
+    // declares for the picture, and it starts below it, at what the controller
+    // opens a stream of that size at.
+    let mut pacing = Controller::new(max_bitrate(size.0, size.1, fps).into());
+    shared.target.store(pacing.target(), Ordering::Relaxed);
     send_json(
         &mut connection.ws,
         12,
@@ -1073,6 +1072,11 @@ async fn send(
     // For RTCP sender reports: packets and payload bytes sent so far.
     let (mut packets, mut octets) = (0u32, 0u32);
     let mut reported = Instant::now() - SENDER_REPORTS;
+    // The sender reports a viewer's receiver report can echo, by the middle of
+    // their NTP time and when each went: the round trip is measured from the
+    // one a report names. Video only, so sound's reports aren't kept.
+    let mut echoed = [(0u32, std::time::Instant::now()); ECHOED];
+    let mut reports_sent = 0usize;
     // When a keyframe was last made for a viewer, which is how often one may
     // be made; see `keyframe_due`.
     let mut answered: Option<std::time::Instant> = None;
@@ -1192,6 +1196,9 @@ async fn send(
                     connection.transport.seal(&mut out, clear)?;
                     connection.udp.send(&out).await?;
                     shared.video_bytes.fetch_add(out.len() as u64, Ordering::Relaxed);
+                    // What the controller reads to know what the stream is
+                    // sending, and doesn't rise far past it.
+                    pacing.sent(now, out.len());
                     if last {
                         done = true;
                         break;
@@ -1209,6 +1216,14 @@ async fn send(
                             packets,
                             octets,
                         );
+                        // A viewer's receiver report echoes this report's
+                        // middle NTP word, which is what times the round
+                        // trip: the newest `ECHOED` are kept, since a report
+                        // about an older one measures the wrong path.
+                        if let Some(&(_, middle, _)) = rtp::sender_reports(&report).first() {
+                            echoed[reports_sent % ECHOED] = (middle, std::time::Instant::now());
+                            reports_sent += 1;
+                        }
                         connection.transport.seal(&mut report, rtp::RTCP_CLEAR)?;
                         connection.udp.send(&report).await?;
                     }
@@ -1244,8 +1259,22 @@ async fn send(
                         shared.keyframe.store(true, Ordering::Relaxed);
                     }
                 }
-                if let Some(estimate) = rtp::bandwidth_estimate(rtcp, video) {
-                    *lock(&shared.estimate) = Some((estimate, now));
+                if let Some(estimate) = rtp::bandwidth_estimate(rtcp, video)
+                    && let Some(reason) = pacing.set_estimate(estimate)
+                {
+                    retarget(shared, &pacing, reason, None);
+                }
+                if let Some(reception) = rtp::reception(rtcp, video) {
+                    // The round trip the report measured, from the sender
+                    // report it echoes: one this end sent, if the report is
+                    // about this stream rather than one before it.
+                    let trip = echoed
+                        .iter()
+                        .find(|&&(middle, _)| reception.last_report != 0 && middle == reception.last_report)
+                        .and_then(|&(_, sent)| rtp::round_trip(sent, now, reception.delay));
+                    if let Some(reason) = pacing.report(now, trip, &reception) {
+                        retarget(shared, &pacing, reason, Some((trip, reception.fraction_lost)));
+                    }
                 }
                 for lost in rtp::nacked(rtcp, video).into_iter().take(RESENDS) {
                     let Some(mut again) = history.get(lost, now).and_then(|original| packetizer.retransmit(original, rtx)) else {
@@ -1256,6 +1285,9 @@ async fn send(
                     connection.transport.seal(&mut again, clear)?;
                     connection.udp.send(&again).await?;
                     shared.video_bytes.fetch_add(again.len() as u64, Ordering::Relaxed);
+                    // A resend is the stream's traffic as much as a first
+                    // send, so the rate the controller reads includes it.
+                    pacing.sent(now, again.len());
                     shared.resent.fetch_add(1, Ordering::Relaxed);
                     sent.resent += 1;
                 }
@@ -1272,6 +1304,12 @@ async fn send(
                 if wanted != size {
                     size = wanted;
                     send_json(&mut connection.ws, 12, video_attributes(ssrc, video, rtx, size, fps)).await?;
+                    // The picture changed size, so what it's worth changed: a
+                    // bigger one declares more, and the controller takes that
+                    // as its ceiling from here on.
+                    if let Some(reason) = pacing.set_cap(max_bitrate(size.0, size.1, fps).into()) {
+                        retarget(shared, &pacing, reason, None);
+                    }
                 }
                 let encrypting = connection.dave.encrypting();
                 if encrypted != Some(encrypting) {
@@ -1305,11 +1343,35 @@ async fn send(
                 flying = Some(Sending::new(payload, frame.timestamp));
             }
             _ = log.tick() => {
-                tracing::debug!(?sent, packets, octets, "stream sent");
+                let target_kbps = pacing.target() / 1000;
+                let sending_kbps = pacing.sending(std::time::Instant::now()).map(|sending| sending / 1000);
+                let received_kbps = pacing.received().map(|received| received / 1000);
+                tracing::debug!(?sent, packets, octets, target_kbps, sending_kbps, received_kbps, "stream sent");
                 sent = Sent::default();
             }
         }
     }
+}
+
+/// Hands the encoder the controller's new target, and logs why it changed,
+/// with what the receiver report that changed it said: the round trip it
+/// measured, and the packets lost out of 256. The encoder is told on the next
+/// frame, if the target moved a tenth of its rate.
+fn retarget(
+    shared: &Shared,
+    pacing: &Controller,
+    reason: congestion::Reason,
+    report: Option<(Option<Duration>, u8)>,
+) {
+    shared.target.store(pacing.target(), Ordering::Relaxed);
+    tracing::debug!(
+        kbps = pacing.target() / 1000,
+        %reason,
+        round_trip_ms = report.and_then(|(trip, _)| trip).map(|trip| trip.as_millis() as u64),
+        lowest_ms = pacing.baseline().map(|trip| trip.as_millis() as u64),
+        lost = report.map(|(_, lost)| lost),
+        "changing the stream's bitrate"
+    );
 }
 
 /// A frame partway out, a batch of its packets a turn of the send loop.
@@ -1870,7 +1932,7 @@ mod tests {
         // reference a picture no viewer received.
         let (frames, mut queued) = mpsc::channel(4);
         let (sounds, _heard) = mpsc::channel(8);
-        let shared = Shared::new((320, 180));
+        let shared = Shared::new((320, 180), 30);
         shared.keyframe.store(false, Ordering::Relaxed);
         let sender = StreamSender {
             frames,
@@ -1913,155 +1975,39 @@ mod tests {
     }
 
     #[test]
-    fn aims_for_the_estimate_within_a_screen_s_floor_and_cap() {
-        // What the estimate does within a declaration: a 1080p share declares
-        // 9 Mbit/s and a 720p one 3.5, and a screen is given at least 500 even
-        // when the path says it carries less.
-        assert_eq!(
-            bitrate(9000, 9000, Some(4_000_000)),
-            Some(4000),
-            "what the path carries"
-        );
-        assert_eq!(
-            bitrate(3500, 9000, Some(9_000_000)),
-            Some(3500),
-            "never past the cap for the height"
-        );
-        assert_eq!(
-            bitrate(9000, 9000, Some(100_000)),
-            Some(500),
-            "nor below a screen's floor"
-        );
-        assert_eq!(
-            bitrate(3500, 500, Some(0)),
-            None,
-            "a path that says it carries nothing leaves the floor alone"
-        );
-        assert_eq!(
-            bitrate(9000, 9000, None),
-            None,
-            "nothing said about the path is no reason to move"
-        );
-    }
-
-    #[test]
-    fn follows_the_estimate_a_tenth_down_and_a_quarter_up() {
-        // A fall is obeyed as soon as it is a tenth of the rate, since a path
-        // that just lost packets is not one to keep trying; a rise waits for a
-        // quarter, since an estimate wanders by a few percent every report and
-        // following that would churn the encoder's rate control every second.
-        assert_eq!(bitrate(9000, 1000, Some(1_000_000)), None, "what it holds");
-        assert_eq!(
-            bitrate(9000, 1000, Some(900_000)),
-            None,
-            "a tenth exactly is no reason to cut"
-        );
-        assert_eq!(
-            bitrate(9000, 1000, Some(899_000)),
-            Some(899),
-            "and a tenth and a kbit/s is"
-        );
-        assert_eq!(
-            bitrate(9000, 1000, Some(1_250_000)),
-            None,
-            "a quarter exactly is no reason to climb"
-        );
-        assert_eq!(
-            bitrate(9000, 1000, Some(1_251_000)),
-            Some(1251),
-            "and a quarter and a kbit/s is"
-        );
-    }
-
-    #[test]
-    fn a_wobbling_estimate_leaves_the_encoder_alone() {
-        // An estimate that wanders either side of the rate it steered it to
-        // changes nothing: a stream nobody is hurting gets no rate changes.
-        let mut held = 2000;
-        let mut changes = 0;
-        for estimate in (1_850_000..=2_150_000).step_by(25_000) {
-            if let Some(next) = bitrate(9000, held, Some(estimate)) {
-                held = next;
-                changes += 1;
-            }
-        }
-        assert_eq!(
-            (held, changes),
-            (2000, 0),
-            "seven and a half percent either way"
-        );
-    }
-
-    #[test]
-    fn climbs_back_after_a_burst_of_loss() {
-        // A burst makes the estimate say a path carries a fraction of what it
-        // did, and the rate drops at once. The path recovers and the estimate
-        // climbs a report at a time: the rate follows it up, and does not wait
-        // for one report to come all the way back to the cap it was cut from.
-        let mut held = 9000;
-        let mut changes = vec![];
-        for estimate in [
-            300_000, 400_000, 500_000, 600_000, 700_000, 800_000, 1_000_000, 1_500_000, 2_000_000,
-        ] {
-            if let Some(next) = bitrate(9000, held, Some(estimate)) {
-                held = next;
-                changes.push(next);
-            }
-        }
-        assert_eq!(
-            changes,
-            [500, 700, 1000, 1500, 2000],
-            "the floor at once, then a quarter of the rate at a time, and the estimate never back at the cap"
-        );
-    }
-
-    #[test]
-    fn an_estimate_that_stopped_coming_holds_the_rate() {
-        // The server's estimate is what moves the rate, while the server is
-        // saying it. One low report and then silence is a share that has
-        // outlived what it measured: the encoder keeps the rate it has rather
-        // than being cut back to a number about a path nobody measured since.
+    fn a_stream_starts_below_its_declared_ceiling() {
+        // The declaration is the picture's worth, 0.07 bit/pixel/frame between
+        // 3.5 and 9 Mbit/s, and the controller opens a stream under it at
+        // congestion::start's rate: that is what an encoder is opened at
+        // mid-stream, and what the first frame is encoded at before a report
+        // has said anything about the path.
         let (frames, _queued) = mpsc::channel(4);
         let (sounds, _heard) = mpsc::channel(8);
-        let shared = Shared::new((1920, 1080));
-        let sender = StreamSender {
-            frames,
-            sounds,
+        let sender = |(width, height), fps| StreamSender {
+            frames: frames.clone(),
+            sounds: sounds.clone(),
             buffers: Arc::default(),
-            shared: shared.clone(),
+            shared: Shared::new((width, height), fps),
         };
-        assert_eq!(sender.bitrate(9000, 9000), None, "nothing said yet");
-
-        *lock(&shared.estimate) = Some((4_000_000, std::time::Instant::now()));
-        assert_eq!(
-            sender.bitrate(9000, 9000),
-            Some(4000),
-            "what the path carries"
-        );
-
-        let before = std::time::Instant::now() - ESTIMATE_LIFE - Duration::from_secs(1);
-        // The same report, while it is news, cuts the rate at once.
-        *lock(&shared.estimate) = Some((800_000, std::time::Instant::now()));
-        assert_eq!(
-            sender.bitrate(9000, 9000),
-            Some(800),
-            "what the path carries"
-        );
-        // And once it has stopped coming it is not news about the path now:
-        // the encoder keeps the rate it has, and one reopened since the report
-        // keeps the rate it opened at instead of being cut back to it.
-        *lock(&shared.estimate) = Some((800_000, before));
-        assert_eq!(
-            sender.bitrate(1080, 800),
-            None,
-            "the rate it holds is the rate it keeps"
-        );
-        assert_eq!(sender.bitrate(9000, 9000), None, "nothing said lately");
-        assert_eq!(
-            sender.bandwidth_estimate(),
-            Some(800_000),
-            "what it said, however long ago"
-        );
+        assert_eq!(max_bitrate(1920, 1080, 60), 8_709_120, "under the cap");
+        assert_eq!(max_bitrate(3840, 2160, 60), MOST_SAFE, "4K60 is cut to it");
+        assert_eq!(max_bitrate(3440, 1440, 60), MOST_SAFE, "and so is 1440p60");
+        assert_eq!(max_bitrate(640, 360, 30), 3_500_000, "the floor");
+        for (size, fps) in [((1920, 1080), 60), ((1280, 720), 30), ((3840, 2160), 30)] {
+            let ceiling = u64::from(max_bitrate(size.0, size.1, fps));
+            let sender = sender(size, fps);
+            assert_eq!(sender.target(), congestion::start(ceiling));
+            assert!(sender.target() < ceiling, "a stream opens under its cap");
+            assert!(
+                sender.target() >= congestion::FLOOR,
+                "and not under the floor a screen is given"
+            );
+        }
+        // The experimental cap is what the formula gives 4K60, and the safe one
+        // is under it, so the switch is the only thing that spends the rest.
+        let four_k = (3840.0 * 2160.0 * 60.0 * BITS_PER_PIXEL) as u32;
+        assert!(MOST_EXPERIMENTAL >= four_k);
+        assert!(MOST_SAFE < four_k);
     }
 
     /// Growing the pool gives back the idle buffers of the size it leaves.

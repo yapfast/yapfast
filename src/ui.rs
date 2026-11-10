@@ -1388,6 +1388,10 @@ struct Layout {
     /// Screen sharing encodes on the GPU where it has an encoder; on unless
     /// turned off.
     gpu_encoding: Option<bool>,
+    /// Whether a share declares the experimental ceiling instead of the safe
+    /// one; see `AdvancedSettings::high-bitrate`.
+    #[serde(default)]
+    high_bitrate: Option<bool>,
     /// Which way a share captures its screen, and in what order the ways are
     /// tried; whichever can be borderless here unless changed. See
     /// [`yapfast_core::capture`].
@@ -1712,6 +1716,7 @@ impl Layout {
         window.set_adjust_each_sound(self.adjust_each_sound);
         window.set_gpu_rendering(self.gpu_rendering);
         window.set_gpu_encoding(self.gpu_encoding.unwrap_or(true));
+        window.set_high_bitrate(self.high_bitrate.unwrap_or(false));
         #[cfg(feature = "discord")]
         yapfast_core::stream_worker::set_hardware_encoding(self.gpu_encoding.unwrap_or(true));
         // Before any share opens, which is what asks: a capture already

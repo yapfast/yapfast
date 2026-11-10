@@ -169,13 +169,21 @@ picture, so a 1080x1920 display shared at 1080p goes at 1080x1920 rather than
 the 606x1080 a box left standing would leave it. Nothing is padded with black —
 the black around a share is the viewer's client's, drawn around a picture of the
 wrong shape — and nothing is cropped. Yapfast declares what the picture is
-worth: 0.07 bits per pixel per frame, floored at 3.5 Mbit/s and capped at 35
-Mbit/s (what 3840x2160 at 60 is worth), announced as op 12's `max_bitrate`
-(bps) with the frame rate and size as its `max_framerate` and `max_resolution`.
-A 1080p60 share declares 8.7 Mbit/s, a 3440x1440@60 share 20.8, and a 4K30
-share 17.4. The frame rate is the one the interface asked for, whatever the
-picture's size: a screen above 1080 lines offered 60 sends 60, and declares what
-that is worth — for 4K60, the 35 Mbit/s cap.
+worth: 0.07 bits per pixel per frame, floored at 3.5 Mbit/s and capped at 9
+Mbit/s, announced as op 12's `max_bitrate` (bps) with the frame rate and size
+as its `max_framerate` and `max_resolution`. A 1080p60 share declares 8.7
+Mbit/s, under the cap; a 3440x1440@60 share asks for 20.8 and a 4K30 one for
+17.4, and both are declared 9. The frame rate is the one the interface asked
+for, whatever the picture's size: a screen above 1080 lines offered 60 sends 60,
+and declares what that is worth up to the cap.
+
+9 Mbit/s is the safe cap because it is already well above what Discord's own
+web client asks for: its screen-share ladder is `desktopBitrate {min: 500_000,
+max: 3_500_000, target: 600_000}`, its 1080p30 overrides are 3.5 or 5 Mbit/s
+and its tier-1 720p60 one is 9. Settings, Advanced's "Raise the stream's
+bitrate cap (experimental)" lifts the cap to 35 Mbit/s, what 3840x2160 at 60 is
+worth and far past anything Discord Web declares, for the next share started: a
+stream already running declared its ceiling when it began, and keeps it.
 
 Those numbers are measured here rather than copied: four-second clips at the p4
 low-latency setting a stream opens with, VMAF against the source. Busy
@@ -183,20 +191,40 @@ low-latency setting a stream opens with, VMAF against the source. Busy
 Mbit/s, 91.8 / 93.8 / 95.0 / 96.5 through HEVC and 91.8 / 94.1 / 94.9 / 96.2
 through H.264 at the same rates; busy 3440x1440@60 scores 93.7 / 95.3 / 96.9
 through AV1 at 9 / 20 / 35. 0.07 is where busy content reaches VMAF 95 at every
-size. A screen share is far cheaper: a 4K60 desktop scored 98 on 2.4 Mbit/s and
-a 3440x1440@60 one 98 on 5.9, so a share of a screen leaves most of its cap
-unspent.
+size, so it is the rate a stream asks for and the safe cap is where most
+pictures meet it: a 1080p60 share declares it whole, and a larger one is cut to
+the cap unless the switch is on. A screen share is far cheaper: a 4K60 desktop
+scored 98 on 2.4 Mbit/s and a 3440x1440@60 one 98 on 5.9, so a share of a screen
+leaves most of its cap unspent.
 
 `max_bitrate` is a declaration and the voice server sends no such field back:
 Discord's reference documents no maximum, default or tier. A probe through a
 real stream had 3840x2160 declared at 60, 120 and even 200 Mbit/s, and
-7680x4320@60, and Discord refused none of it. Like Discord's client it also
-follows the server's bandwidth
-estimate (REMB): when that drops below the cap, the encoder aims for the
-estimate instead, though never below 500 kbit/s. A fall is obeyed once the
-estimate is a tenth below the rate, a rise once a quarter above it, so a wobble
-changes nothing and a recovered path is climbed again; an estimate that stops
-coming is not followed, and the rate holds rather than leaping to the cap. The worker converts
+7680x4320@60, and Discord refused none of it. So the declaration is a ceiling
+and not the rate: what a stream sends at is decided by a congestion controller
+of its own (`crates/yapfast-discord/src/congestion.rs`), the way Discord's
+client runs libwebrtc's. It starts below the ceiling, at 2.5 Mbit/s, and raises
+the target a little each report while the round trip stays near the lowest it
+has measured; when the round trip climbs well over that, or packets are lost,
+it cuts the target below what the server received — what the uplink carried
+while the queue built — then holds. Discord's client reads this from
+transport-wide feedback; Yapfast reads the receiver reports the stream server
+sends about the video, which a queue at the sender's router lengthens too.
+
+A round trip 60 ms over the lowest, on two reports in a row, or more than about
+10% of the packets lost, cuts the target at once to 85% of what the server got,
+and it doesn't rise again for three seconds; above 2% lost it doesn't rise
+either. A round trip within 25 ms of the lowest raises it 8% a report, and near
+the rate it last backed off from 1%, so the climb back is slow where the queue
+built before. It never rises past half again as fast as the encoder is really
+sending, so a calm picture can't take the target to a rate the uplink has never
+carried. The server's bandwidth estimate (REMB), where it sends one, caps the
+target as either declared ceiling does — a path that says it carries 4 Mbit/s
+sends 4, whichever cap was declared — and a frame of another size declares a new
+ceiling. The encoder follows the target once it has moved a tenth of its rate.
+None of this raises the declared ceiling: 0.07 bits per pixel per frame is what
+a picture is worth, the safe cap is where a larger one is declared instead, and
+the controller decides where under either the stream really sends. The worker converts
 captured frames to I420 with libyuv, scales them with libyuv's filtering
 scaler, and encodes those. The preview — the same picture written for the
 share's tile and the corner — is made only while the UI shows one: the window

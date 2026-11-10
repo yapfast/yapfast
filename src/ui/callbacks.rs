@@ -2243,6 +2243,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.adjust_each_sound = window.get_adjust_each_sound();
         layout.gpu_rendering = window.get_gpu_rendering();
         layout.gpu_encoding = Some(window.get_gpu_encoding());
+        layout.high_bitrate = Some(window.get_high_bitrate());
+        yapfast_core::stream_worker::set_high_bitrate(window.get_high_bitrate());
         #[cfg(feature = "discord")]
         yapfast_core::stream_worker::set_hardware_encoding(window.get_gpu_encoding());
         layout.capture = chosen(&CAPTURES, window.get_capture_preference());

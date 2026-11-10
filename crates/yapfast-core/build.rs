@@ -75,6 +75,7 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(vaapidec)");
     println!("cargo::rustc-check-cfg=cfg(vaapivpp)");
     println!("cargo::rustc-check-cfg=cfg(nvcuda)");
+    println!("cargo::rustc-check-cfg=cfg(nvdec)");
     println!("cargo::rustc-check-cfg=cfg(d3d11enc)");
     println!("cargo::rustc-check-cfg=cfg(d3d11dec)");
     println!("cargo::rustc-check-cfg=cfg(wgc)");
@@ -390,6 +391,23 @@ fn main() {
         "macos" => "mac",
         _ => "linux",
     };
+    // NVIDIA's card decoding a watched stream on Linux: native/hwdec_cuda.c asks
+    // the driver's own NVDEC API directly — libnvcuvid and libcuda, both
+    // dlopened, with the ffnvcodec headers vendored beside FFmpeg's — and exports
+    // each decoded surface as a DMA-BUF for the tile. FFmpeg's own nvdec isn't in
+    // this build, and its hwcontext_cuda could only hand a picture back through
+    // system memory anyway, so this is the driver's API and not FFmpeg's. No CUDA
+    // toolkit is needed to build it or to run it; a machine whose driver refuses
+    // says so and the stream falls to the software decoder.
+    if target_os == "linux" && std::env::var_os("CARGO_FEATURE_DISCORD").is_some() {
+        let mut nvdec = cc::Build::new();
+        nvdec
+            .file("native/hwdec_cuda.c")
+            .std("gnu17")
+            .warnings(true);
+        nvdec.compile("yapfast_hwdec_cuda");
+        println!("cargo::rustc-cfg=nvdec");
+    }
     let arch = match std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
         Ok("aarch64") => "arm64",
         _ => "x64",
