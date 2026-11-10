@@ -1236,7 +1236,7 @@ fn emoji_prompt(page: &EmojiPage, rules: &ExpressionRules) -> EmojiPrompt {
             heading: heading.into(),
             slots: match free {
                 0 => tr("no slots available").to_owned(),
-                free => trn("{n} slot available", "{n} slots available", free as usize),
+                free => trn("{n} slot available", "{n} slots available", free),
             }
             .into(),
             ..Default::default()

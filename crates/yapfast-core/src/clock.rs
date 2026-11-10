@@ -149,7 +149,8 @@ fn month_name(month: u32, language: Language) -> &'static str {
 /// (`20/10/2026`) or with the month named (`20 October 2026`).
 fn date_text<Tz: TimeZone>(then: &DateTime<Tz>, dates: DateFormat, in_words: bool) -> String {
     let language = language();
-    if in_words {
+    // Year first stays in digits, as ISO writes it, even where the others use words.
+    if in_words && dates != DateFormat::YearMonthDay {
         dates
             .words(language)
             .replace("{day}", &then.day().to_string())

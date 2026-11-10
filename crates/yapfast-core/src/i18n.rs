@@ -659,7 +659,7 @@ mod tests {
             .into();
         assert_eq!(lt, [0, 1, 2, 2, 0]);
         let ro: Vec<usize> = [1, 0, 7, 20, 21].map(|n| Plural::Romanian.index(n)).into();
-        assert_eq!(ro, [0, 1, 1, 2, 1]);
+        assert_eq!(ro, [0, 1, 1, 2, 2]);
     }
 
     #[test]
