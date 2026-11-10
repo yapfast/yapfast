@@ -223,8 +223,11 @@ threads do, so a game using every core doesn't hold them up past the 40 ms
 the speakers have queued. On Linux they ask for `SCHED_FIFO` at priority 10,
 below PipeWire's, which works where the user's limits allow real-time
 priority, as PipeWire's set them for its group; otherwise they stay as they
-were. The microphone's thread, which runs the noise suppressor, stays at
-normal priority.
+were. Each logs at info level, once as it starts, whether it was raised
+("an audio thread raised its priority", with `thread` `call` or `speakers`)
+or why not. `YAPFAST_VOICE_NO_PRIORITY` leaves them at normal priority (see
+[Troubleshooting](#troubleshooting)). The microphone's thread, which runs
+the noise suppressor, stays at normal priority.
 
 Before it selects the protocol, a connection, a call's or a stream's, learns
 its public address and port with UDP address discovery: a 74-byte ask, which
@@ -621,3 +624,22 @@ the network runtime. The ignored tests above, and
 `push_to_talk_sends_only_while_the_key_is_held` against the fake Discord, which
 checks that beeps with the key up send nothing and with it held do, run by
 hand; see their comments for what each needs.
+
+## Troubleshooting
+
+`YAPFAST_VOICE_NO_PRIORITY` leaves audio threads at the priority they start
+with, to tell without another build whether raising them is what makes a
+machine's calls worse: `1` or `all` for every one, or a comma-separated list
+of `call` (the call's thread, which sends the microphone and decodes and
+mixes everyone) and `speakers` (the thread that plays the mix). It's read as
+each thread starts, so it applies from the next call. On Windows, for a run
+from a command prompt:
+
+```
+set YAPFAST_VOICE_NO_PRIORITY=call
+yapfast.exe
+```
+
+The log says for each thread whether it was raised: "an audio thread raised
+its priority" or "an audio thread stays at normal priority", with the
+reason.

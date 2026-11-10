@@ -20,7 +20,8 @@ use crate::voice::NAMED;
 /// thread, and below PipeWire's own, which run at 88 or more.
 const REALTIME: i32 = 10;
 
-pub fn raise_priority() {
+/// Says how it raised the calling thread, or why it couldn't.
+pub fn raise_priority() -> Result<&'static str, String> {
     let param = libc::sched_param {
         sched_priority: REALTIME,
     };
@@ -30,11 +31,9 @@ pub fn raise_priority() {
         libc::sched_setscheduler(0, libc::SCHED_FIFO | libc::SCHED_RESET_ON_FORK, &param)
     };
     if raised != 0 {
-        tracing::debug!(
-            error = %std::io::Error::last_os_error(),
-            "an audio thread stays at normal priority"
-        );
+        return Err(std::io::Error::last_os_error().to_string());
     }
+    Ok("SCHED_FIFO 10")
 }
 
 pub struct Output(Simple);
