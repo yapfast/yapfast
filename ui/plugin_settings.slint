@@ -1,7 +1,8 @@
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label } from "theme.slint";
-import { ActionButton, Avatar, IconButton, TextField } from "controls.slint";
+import { ActionButton, Avatar, IconButton, TextField, VolumeSlider } from "controls.slint";
 import { SettingsTitle, SettingsHeading, SettingsSwitch, Choices, Picker } from "settings.slint";
+import { PluginPart, PluginWidgets } from "plugins.slint";
 
 // Settings → Plugins: the marketplace, the installed plugins and installing
 // from a git URL, each a choice at the top; a plugin's own page; and the
@@ -29,8 +30,53 @@ export struct InstalledRow {
     update: string,
 }
 
-/// A setting from a plugin's manifest: a switch, or a line of text.
-export struct PluginSettingRow { key: string, label: string, toggle: bool, checked: bool, value: string }
+/// One control of a plugin's settings form: a setting's own, or one field
+/// of a list's row.
+export struct PluginControl {
+    /// The setting's key, or the field's.
+    key: string,
+    label: string,
+    /// 0 switch, 1 text, 2 select, 3 slider, 4 number, 5 whole number.
+    kind: int,
+    enabled: bool,
+    checked: bool,
+    /// Its value as text, or what was typed and refused.
+    text: string,
+    placeholder: string,
+    options: [string],
+    selected: int,
+    /// A slider's last position, where it is, its low end and its step.
+    steps: int,
+    position: int,
+    minimum: float,
+    step: float,
+    /// Why what was typed was refused, in plain words; empty when it wasn't.
+    error: string,
+}
+
+/// A line of a plugin's settings form, which Rust keeps in one model and
+/// changes row by row, so a field keeps its focus as the form changes.
+export struct PluginFormRow {
+    /// 0 a setting, 1 a list's heading, 2 a list's row, 3 a list's foot,
+    /// 4 a setting the plugin draws.
+    shape: int,
+    /// The setting's key.
+    key: string,
+    label: string,
+    description: string,
+    enabled: bool,
+    /// A setting's control.
+    control: PluginControl,
+    /// A list's row: its index, how many there are, and its fields; a
+    /// heading's fields name its columns.
+    row: int,
+    rows: int,
+    cells: [PluginControl],
+    /// A list's foot: whether another row fits.
+    can-add: bool,
+    /// What the plugin draws; no rows until the runtime gives some.
+    widget: PluginPart,
+}
 
 export struct PluginLogRow { at: string, text: string, error: bool }
 
@@ -57,7 +103,6 @@ export struct PluginDetail {
     /// Requests denied without asking, in words; empty for none.
     quiet: string,
     permissions: [PluginLine],
-    settings: [PluginSettingRow],
     log: [PluginLogRow],
 }
 
@@ -105,6 +150,8 @@ export global PluginPage {
     in property <string> memory;
     in property <bool> detail-open;
     in property <PluginDetail> detail;
+    /// The open plugin's settings form; empty while no plugin's page is.
+    in property <[PluginFormRow]> form;
     in-out property <string> query;
     in property <[ListingRow]> listings;
     in property <[string]> categories;
@@ -140,9 +187,21 @@ export global PluginPage {
     callback revoke(string, string);
     callback update(string);
     callback roll-back(string);
-    /// A setting changed: the plugin, the key, and the text or "true" or
-    /// "false".
-    callback setting(string, string, string);
+    /// A setting of the open plugin changed: its key, and "true" or
+    /// "false" for a switch, the option's index for a select, the
+    /// position for a slider, and the text for the rest.
+    callback setting(string, string);
+    /// A field of a list's row changed: the list's key, the row, the
+    /// field's key and its value, as for `setting`.
+    callback field(string, int, string, string);
+    callback add-row(string);
+    callback remove-row(string, int);
+    /// Moves a list's row: the key, from, to.
+    callback move-row(string, int, int);
+    callback reset-settings();
+    /// A widget a setting draws was used: the setting's key, the widget's
+    /// id and its value.
+    callback setting-widget(string, string, string);
     callback load-folder();
     callback budget-chosen(int);
     callback idle-chosen(int);
@@ -360,10 +419,162 @@ component InstalledRow inherits Rectangle {
     }
 }
 
+// Why a field refused what was typed, under it.
+component FormError inherits Rectangle {
+    in property <string> text;
+    accessible-role: AccessibleRole.text; accessible-label: "Error: " + root.text;
+    HorizontalLayout {
+        spacing: 6px;
+        VerticalLayout {
+            alignment: start; padding-top: 2px;
+            Image { source: @image-url("icons/triangle-alert.svg"); width: 14px; height: 14px; colorize: Theme.danger-text; }
+        }
+        Text { text: root.text; color: Theme.danger-text; font-size: 13px; wrap: word-wrap; horizontal-stretch: 1; }
+    }
+}
+
+// A control of a plugin's settings form, by its kind. A field Rust changes,
+// as Reset to defaults does, shows the new value even after it was typed in.
+component FormControl inherits VerticalLayout {
+    in property <PluginControl> control;
+    /// What a screen reader calls it.
+    in property <string> label: root.control.label;
+    /// In a list's row, where the column names it: a switch alone.
+    in property <bool> compact;
+    callback edited(string);
+    if root.control.kind == 0: SettingsSwitch {
+        text: root.compact ? "" : root.control.label; label: root.label;
+        checked: root.control.checked; enabled: root.control.enabled; controlled: true;
+        toggled(on) => { root.edited(on ? "true" : "false"); }
+    }
+    if root.control.kind == 1 || root.control.kind == 4 || root.control.kind == 5: TextField {
+        property <string> stored: root.control.text;
+        changed stored => { self.text = self.stored; }
+        text: root.control.text; label: root.label; placeholder: root.control.placeholder;
+        enabled: root.control.enabled; text-size: 14px; pad: 8px; min-height: 36px;
+        accepted => { root.edited(self.text); }
+        // A field left with a change keeps it, as Enter would.
+        changed focused => {
+            if !self.focused && self.text != root.control.text { root.edited(self.text); }
+        }
+    }
+    if root.control.kind == 2: Picker {
+        model: root.control.options; chosen: root.control.selected; enabled: root.control.enabled;
+        accessible-label: root.label;
+        selected => { root.edited("" + self.current-index); }
+    }
+    if root.control.kind == 3: VolumeSlider {
+        property <int> stored: root.control.position;
+        changed stored => { self.value = self.stored; }
+        label: root.label; maximum: root.control.steps; value: root.control.position; step: 1; full-mark: false;
+        shown: round((root.control.minimum + self.value * root.control.step) * 100) / 100;
+        opacity: root.control.enabled ? 1 : 0.5;
+        committed(position) => {
+            if root.control.enabled { root.edited("" + position); } else { self.value = root.control.position; }
+        }
+    }
+}
+
+// A line of a plugin's settings form: a setting with its label, what it
+// does and why it refused a value; a list's heading, row or foot; or what
+// the plugin draws.
+component FormRow inherits VerticalLayout {
+    in property <PluginFormRow> item;
+    // The width of a list row's buttons, which its heading leaves free.
+    property <length> buttons: 3 * 32px + 2 * 4px;
+    spacing: 6px;
+    padding-top: root.item.shape == 2 || root.item.shape == 3 ? 6px : 14px;
+    if root.item.shape == 0 && root.item.control.kind == 0: SettingsSwitch {
+        text: root.item.label; description: root.item.description;
+        checked: root.item.control.checked; enabled: root.item.enabled; controlled: true;
+        toggled(on) => { PluginPage.setting(root.item.key, on ? "true" : "false"); }
+    }
+    if (root.item.shape == 0 && root.item.control.kind != 0) || root.item.shape == 1 || root.item.shape == 4: VerticalLayout {
+        spacing: 2px;
+        Text { text: root.item.label; color: root.item.enabled ? Theme.text : Theme.muted; font-size: 15px; wrap: word-wrap; }
+        if root.item.description != "": Label { text: root.item.description; }
+    }
+    if root.item.shape == 0 && root.item.control.kind != 0: FormControl {
+        control: root.item.control;
+        edited(value) => { PluginPage.setting(root.item.key, value); }
+    }
+    if root.item.shape == 0 && root.item.control.error != "": FormError { text: root.item.control.error; }
+    if root.item.shape == 1: HorizontalLayout {
+        spacing: 8px;
+        for cell in root.item.cells: Text {
+            horizontal-stretch: cell.kind == 0 ? 0 : 1;
+            min-width: cell.kind == 0 ? 104px : 60px; max-width: cell.kind == 0 ? 104px : 4000px;
+            text: cell.label; color: Theme.muted; font-size: 12px; font-weight: 700; overflow: elide;
+            accessible-role: none;
+        }
+        Rectangle { width: root.buttons; horizontal-stretch: 0; }
+    }
+    if root.item.shape == 2: HorizontalLayout {
+        spacing: 8px;
+        for cell in root.item.cells: FormControl {
+            horizontal-stretch: cell.kind == 0 ? 0 : 1;
+            min-width: cell.kind == 0 ? 104px : 60px; max-width: cell.kind == 0 ? 104px : 4000px;
+            control: cell; compact: true; label: cell.label + ", row " + (root.item.row + 1);
+            edited(value) => { PluginPage.field(root.item.key, root.item.row, cell.key, value); }
+        }
+        HorizontalLayout {
+            spacing: 4px; horizontal-stretch: 0; width: root.buttons;
+            IconButton {
+                icon: @image-url("icons/arrow-up.svg"); glyph: 16px; label: "Move row " + (root.item.row + 1) + " up";
+                enabled: root.item.enabled && root.item.row > 0;
+                clicked => { PluginPage.move-row(root.item.key, root.item.row, root.item.row - 1); }
+            }
+            IconButton {
+                icon: @image-url("icons/arrow-down.svg"); glyph: 16px; label: "Move row " + (root.item.row + 1) + " down";
+                enabled: root.item.enabled && root.item.row < root.item.rows - 1;
+                clicked => { PluginPage.move-row(root.item.key, root.item.row, root.item.row + 1); }
+            }
+            IconButton {
+                icon: @image-url("icons/x.svg"); glyph: 16px; label: "Remove row " + (root.item.row + 1); danger: true;
+                enabled: root.item.enabled;
+                clicked => { PluginPage.remove-row(root.item.key, root.item.row); }
+            }
+        }
+    }
+    if root.item.shape == 2 && root.item.description != "": FormError { text: root.item.description; }
+    if root.item.shape == 3: HorizontalLayout {
+        spacing: 12px; alignment: start;
+        ActionButton {
+            text: "Add"; label: "Add a row to " + root.item.label; icon: @image-url("icons/plus.svg"); small: true;
+            enabled: root.item.enabled && root.item.can-add;
+            clicked => { PluginPage.add-row(root.item.key); }
+        }
+        if root.item.description != "": Middle { Label { text: root.item.description; } }
+    }
+    if root.item.shape == 4 && root.item.widget.rows.length > 0: PluginWidgets {
+        part: root.item.widget;
+        acted(plugin, slot, id, value, subject) => { PluginPage.setting-widget(root.item.key, id, value); }
+    }
+    if root.item.shape == 4 && root.item.widget.rows.length == 0: Rectangle {
+        border-radius: 8px; border-width: 1px; border-color: Theme.edge; min-height: 48px;
+        Label { text: "The plugin draws this while it runs."; }
+    }
+}
+
+// Reset to defaults, which asks first: a list's rows go with it.
+component ResetDialog inherits PageDialog {
+    callback done;
+    label: "Reset " + PluginPage.detail.name + "'s settings";
+    cancel => { root.done(); }
+    Text { text: "Reset " + PluginPage.detail.name + "'s settings?"; color: Theme.text; font-size: 18px; font-weight: 700; wrap: word-wrap; }
+    Label { text: "Each goes back to what the plugin starts with, and its lists lose the rows you added."; color: Theme.secondary; }
+    HorizontalLayout {
+        spacing: 8px; alignment: end;
+        ActionButton { text: "Cancel"; ghost: true; clicked => { root.done(); } }
+        ActionButton { text: "Reset"; danger: true; clicked => { PluginPage.reset-settings(); root.done(); } }
+    }
+}
+
 // A plugin's own page: its settings, what it can do, where it came from,
 // and its log.
 component PluginDetailView inherits VerticalLayout {
     callback uninstall;
+    callback reset;
     spacing: 16px; alignment: start;
     HorizontalLayout {
         alignment: start;
@@ -391,24 +602,15 @@ component PluginDetailView inherits VerticalLayout {
     }
     if PluginPage.detail.description != "": Label { text: PluginPage.detail.description; color: Theme.secondary; font-size: 14px; }
 
-    if PluginPage.detail.settings.length > 0: SettingsHeading { text: "SETTINGS"; }
-    for setting in PluginPage.detail.settings: VerticalLayout {
-        if setting.toggle: SettingsSwitch {
-            text: setting.label; checked: setting.checked; controlled: true;
-            toggled(on) => { PluginPage.setting(PluginPage.detail.id, setting.key, on ? "true" : "false"); }
-        }
-        if !setting.toggle: VerticalLayout {
-            spacing: 6px;
-            Text { text: setting.label; color: Theme.text; font-size: 15px; }
-            TextField {
-                text: setting.value; label: setting.label; text-size: 14px;
-                accepted => { PluginPage.setting(PluginPage.detail.id, setting.key, self.text); }
-                // A field left with a change keeps it, as Enter would.
-                changed focused => {
-                    if !self.focused && self.text != setting.value {
-                        PluginPage.setting(PluginPage.detail.id, setting.key, self.text);
-                    }
-                }
+    if PluginPage.form.length > 0: SettingsHeading { text: "SETTINGS"; }
+    if PluginPage.form.length > 0: VerticalLayout {
+        for item in PluginPage.form: FormRow { item: item; }
+        HorizontalLayout {
+            alignment: start; padding-top: 12px;
+            ActionButton {
+                text: "Reset to defaults"; label: "Reset " + PluginPage.detail.name + "'s settings to their defaults";
+                icon: @image-url("icons/history.svg"); small: true; ghost: true;
+                clicked => { root.reset(); }
             }
         }
     }
@@ -579,6 +781,7 @@ export component PluginSettings inherits Rectangle {
     property <string> uninstalling;
     property <string> uninstalling-name;
     property <bool> advanced;
+    property <bool> resetting;
     changed open => { if !self.open { PluginPage.closed(); } }
     init => { PluginPage.opened(); }
     vertical-stretch: 1;
@@ -641,6 +844,7 @@ export component PluginSettings inherits Rectangle {
                     root.uninstalling = PluginPage.detail.id;
                     root.uninstalling-name = PluginPage.detail.name;
                 }
+                reset => { root.resetting = true; }
             }
         }
 
@@ -681,6 +885,7 @@ export component PluginSettings inherits Rectangle {
         AdvancedFooter { open => { root.advanced = true; } }
     }
     if root.advanced: AdvancedDialog { done => { root.advanced = false; } }
+    if root.resetting && PluginPage.detail-open: ResetDialog { done => { root.resetting = false; } }
     if PluginPage.review.shown: ReviewDialog { }
     if root.uninstalling != "": UninstallDialog {
         plugin: root.uninstalling; name: root.uninstalling-name;

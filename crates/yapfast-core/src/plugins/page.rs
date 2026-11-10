@@ -7,7 +7,9 @@
 //! exists, [`Fixture`] stands in for it in `--preview` and in tests, and
 //! [`Unavailable`] everywhere else.
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
+
+use super::settings::{Edit, Form};
 
 /// The default memory cap of one plugin instance, in 64 KiB WebAssembly
 /// pages: 16 MiB.
@@ -81,8 +83,9 @@ pub struct Installed {
     /// How many of its requests for undeclared hosts were denied without
     /// asking, after three denials this session.
     pub quiet_denials: u32,
-    /// Settings generated from its manifest's `settings`.
-    pub settings: Vec<Setting>,
+    /// Its own settings, from its manifest's `settings`: the form its page
+    /// draws, with the values chosen.
+    pub settings: Form,
     /// Its recent log lines, oldest first.
     pub log: Vec<LogLine>,
 }
@@ -170,20 +173,6 @@ pub struct Grant {
     pub allowed: bool,
     /// Stored in `grants.json`, rather than kept for this session.
     pub remembered: bool,
-}
-
-/// A setting a plugin's manifest declares.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Setting {
-    pub key: String,
-    pub label: String,
-    pub value: SettingValue,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SettingValue {
-    Bool(bool),
-    Text(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -422,10 +411,20 @@ pub enum Request {
     RollBack {
         plugin: String,
     },
-    SetSetting {
+    /// Changes one of its settings, which takes effect at once: the
+    /// runtime applies it with [`Form::edit`], stores what changed, and
+    /// tells the plugin through `settings.on_change`.
+    Setting {
+        plugin: String,
+        edit: Edit,
+    },
+    /// The person used a widget a widget setting draws: for the plugin,
+    /// as `Input::Widget` is for a slot's.
+    SettingWidget {
         plugin: String,
         key: String,
-        value: SettingValue,
+        id: String,
+        value: String,
     },
     /// Load a plugin from a folder, and reload it when its files change.
     LoadFolder(PathBuf),
@@ -750,18 +749,7 @@ impl Fixture {
                 ],
                 memory_pages: 128,
                 quiet_denials: 0,
-                settings: vec![
-                    Setting {
-                        key: "replacement".into(),
-                        label: "Replacement text".into(),
-                        value: SettingValue::Text("***".into()),
-                    },
-                    Setting {
-                        key: "strict".into(),
-                        label: "Match inside words".into(),
-                        value: SettingValue::Bool(false),
-                    },
-                ],
+                settings: Fixture::word_filter_settings(),
                 log: vec![
                     LogLine {
                         at: "14:02:11".into(),
@@ -913,6 +901,30 @@ impl Fixture {
             },
             listings,
         }
+    }
+
+    /// Word Filter's settings, which use every type a setting can have.
+    fn word_filter_settings() -> Form {
+        let manifest = super::Manifest::parse(include_str!(
+            "../../../../testing/plugins/word-filter/yapfast-plugin.json"
+        ))
+        .expect("the sample's manifest is valid");
+        let schema = Arc::clone(&manifest.settings);
+        let mut form = Form::new(Arc::clone(&schema), schema.defaults());
+        let tree: super::ui::Tree = serde_json::from_str(
+            r#"{ "rows": [{ "framed": true, "cells": [
+                { "kind": "muted", "text": "Oh h*ck, I forgot the" },
+                { "kind": "badge", "text": "d***", "tone": "warning" }
+            ] }] }"#,
+        )
+        .expect("the sample's tree is valid");
+        form.widgets.insert("preview".into(), Arc::new(tree));
+        // Shows a refusal as a form does once a field takes a bad value.
+        form.edit(Edit::Set {
+            key: "shortest".into(),
+            value: super::settings::Input::Text("0".into()),
+        });
+        form
     }
 
     fn plugin_mut(&mut self, id: &str) -> Option<&mut Installed> {
@@ -1100,16 +1112,12 @@ impl Source for Fixture {
                     });
                 }
             }
-            Request::SetSetting { plugin, key, value } => {
-                if let Some(plugin) = self.plugin_mut(&plugin)
-                    && let Some(setting) = plugin
-                        .settings
-                        .iter_mut()
-                        .find(|setting| setting.key == key)
-                {
-                    setting.value = value;
+            Request::Setting { plugin, edit } => {
+                if let Some(plugin) = self.plugin_mut(&plugin) {
+                    plugin.settings.edit(edit);
                 }
             }
+            Request::SettingWidget { .. } => {}
             Request::LoadFolder(folder) => {
                 let name = folder
                     .file_name()

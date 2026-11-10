@@ -7,11 +7,15 @@
 //! view moves. Until it exists, the page shows [`Fixture`] in `--preview`,
 //! and says plugins can't run anywhere else. See `docs/plugin-settings.md`.
 
-use std::cell::RefCell;
+use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
-use yapfast_core::plugins::page::{
-    self, Catalog, Find, Fixture, Helper, IDLE_MINUTES, Installed, Line, Listing, MEMORY_BUDGETS,
-    Origin, Permission, Request, Review, SettingValue, Source, Tone, Unavailable, View,
+use yapfast_core::plugins::{
+    page::{
+        self, Catalog, Find, Fixture, Helper, IDLE_MINUTES, Installed, Line, Listing,
+        MEMORY_BUDGETS, Origin, Permission, Request, Review, Source, Tone, Unavailable, View,
+    },
+    settings::{self, Edit, Input, Kind, Value},
+    ui::Tree,
 };
 
 use super::*;
@@ -26,6 +30,22 @@ struct Page {
     /// The category chosen, 0 for all.
     category: usize,
     tab: i32,
+    /// The open plugin's settings form, while its page shows.
+    form: Option<FormModel>,
+}
+
+/// A plugin's settings form, in one model whose rows Rust changes in
+/// place, so a field keeps its focus and its text while the form changes.
+struct FormModel {
+    plugin: String,
+    rows: Rc<VecModel<PluginFormRow>>,
+    /// Each row's fields, kept while the row is there for the same reason.
+    cells: Vec<Rc<VecModel<PluginControl>>>,
+    /// A select's options, which don't change, by the setting's or field's
+    /// key.
+    options: HashMap<String, ModelRc<SharedString>>,
+    /// What each widget setting draws, while its tree is the same.
+    widgets: HashMap<String, (Arc<Tree>, PluginPart)>,
 }
 
 thread_local! {
@@ -48,8 +68,8 @@ pub(super) fn attach(window: &YapfastWindow, source: Box<dyn Source>) {
 /// view moves.
 #[allow(dead_code)]
 pub(super) fn changed(window: &YapfastWindow) {
-    PAGE.with_borrow(|page| {
-        if let Some(page) = page.as_ref().filter(|page| page.open) {
+    PAGE.with_borrow_mut(|page| {
+        if let Some(page) = page.as_mut().filter(|page| page.open) {
             show(window, page);
         }
     });
@@ -74,6 +94,7 @@ impl Page {
             query: String::new(),
             category: 0,
             tab: 1,
+            form: None,
         }
     }
 }
@@ -166,6 +187,7 @@ fn bind_page(window: &YapfastWindow) {
                 if let Some(page) = page.as_mut().filter(|page| page.open) {
                     page.open = false;
                     page.plugin = None;
+                    page.form = None;
                     page.source.request(Request::Close);
                     clear(&window);
                 }
@@ -218,19 +240,51 @@ fn bind_page(window: &YapfastWindow) {
     });
     on!(on_update(plugin) => |page| page.source.request(Request::Update { plugin: plugin.into() }));
     on!(on_roll_back(plugin) => |page| page.source.request(Request::RollBack { plugin: plugin.into() }));
-    on!(on_setting(plugin, key, value) => |page| {
-        let toggle = page
-            .source
-            .view()
-            .plugin(&plugin)
-            .and_then(|installed| installed.settings.iter().find(|setting| setting.key == key.as_str()))
-            .is_some_and(|setting| matches!(setting.value, SettingValue::Bool(_)));
-        let value = if toggle {
-            SettingValue::Bool(value == "true")
-        } else {
-            SettingValue::Text(value.into())
-        };
-        page.source.request(Request::SetSetting { plugin: plugin.into(), key: key.into(), value });
+    on!(on_setting(key, value) => |page| {
+        let edit = schema_of(page).and_then(|schema| {
+            let kind = &schema.setting(&key)?.kind;
+            Some(Edit::Set { key: key.into(), value: input(kind, &value) })
+        });
+        if let Some(edit) = edit {
+            request_edit(page, edit);
+        }
+    });
+    on!(on_field(key, row, field, value) => |page| {
+        let edit = schema_of(page).and_then(|schema| {
+            let Kind::List { fields, .. } = &schema.setting(&key)?.kind else { return None };
+            let kind = &fields.iter().find(|spec| spec.key == field.as_str())?.kind;
+            Some(Edit::SetField {
+                key: key.into(),
+                row: usize::try_from(row).ok()?,
+                field: field.into(),
+                value: input(kind, &value),
+            })
+        });
+        if let Some(edit) = edit {
+            request_edit(page, edit);
+        }
+    });
+    on!(on_add_row(key) => |page| request_edit(page, Edit::AddRow { key: key.into() }));
+    on!(on_remove_row(key, row) => |page| {
+        if let Ok(row) = usize::try_from(row) {
+            request_edit(page, Edit::RemoveRow { key: key.into(), row });
+        }
+    });
+    on!(on_move_row(key, row, to) => |page| {
+        if let (Ok(row), Ok(to)) = (usize::try_from(row), usize::try_from(to)) {
+            request_edit(page, Edit::MoveRow { key: key.into(), row, to });
+        }
+    });
+    on!(on_reset_settings() => |page| request_edit(page, Edit::Reset));
+    on!(on_setting_widget(key, id, value) => |page| {
+        if let Some(plugin) = page.plugin.clone() {
+            page.source.request(Request::SettingWidget {
+                plugin,
+                key: key.into(),
+                id: id.into(),
+                value: value.into(),
+            });
+        }
     });
     on!(on_budget_chosen(index) => |page| {
         if let Some(&mib) = usize::try_from(index).ok().and_then(|index| MEMORY_BUDGETS.get(index)) {
@@ -242,6 +296,41 @@ fn bind_page(window: &YapfastWindow) {
             page.source.request(Request::SetIdleMinutes(minutes));
         }
     });
+}
+
+/// The open plugin's settings.
+fn schema_of(page: &Page) -> Option<Arc<settings::Schema>> {
+    let plugin = page.source.view().plugin(page.plugin.as_deref()?)?;
+    Some(Arc::clone(&plugin.settings.schema))
+}
+
+fn request_edit(page: &mut Page, edit: Edit) {
+    if let Some(plugin) = page.plugin.clone() {
+        page.source.request(Request::Setting { plugin, edit });
+    }
+}
+
+/// What a control gave, as the setting takes it: a select's index as its
+/// option's value, a slider's position as its number.
+fn input(kind: &Kind, value: &str) -> Input {
+    let index = || value.parse::<usize>().ok();
+    match kind {
+        Kind::Bool { .. } => Input::Bool(value == "true"),
+        Kind::Select { options, .. } => Input::Text(
+            index()
+                .and_then(|index| options.get(index))
+                .map(|option| option.value.clone())
+                .unwrap_or_default(),
+        ),
+        Kind::Slider(range) => {
+            let low = range.min.unwrap_or(0.0);
+            let step = range.step.unwrap_or(1.0);
+            let number = index().map_or(low, |index| low + index as f64 * step);
+            // Rounded, so 0.1 * 3 is 0.3.
+            Input::Text(settings::number_text((number * 1e9).round() / 1e9))
+        }
+        _ => Input::Text(value.to_owned()),
+    }
 }
 
 /// Asks for the catalog once the marketplace shows, unless it's there.
@@ -358,23 +447,6 @@ fn row(plugin: &Installed) -> InstalledRow {
 }
 
 fn detail(plugin: &Installed) -> PluginDetail {
-    let settings: Vec<PluginSettingRow> = plugin
-        .settings
-        .iter()
-        .map(|setting| {
-            let (toggle, checked, value) = match &setting.value {
-                SettingValue::Bool(on) => (true, *on, String::new()),
-                SettingValue::Text(text) => (false, false, text.clone()),
-            };
-            PluginSettingRow {
-                key: setting.key.as_str().into(),
-                label: setting.label.as_str().into(),
-                toggle,
-                checked,
-                value: value.into(),
-            }
-        })
-        .collect();
     let log: Vec<PluginLogRow> = plugin
         .log
         .iter()
@@ -421,7 +493,6 @@ fn detail(plugin: &Installed) -> PluginDetail {
         }
         .into(),
         permissions: lines(&plugin.permission_lines()),
-        settings: ModelRc::new(VecModel::from(settings)),
         log: ModelRc::new(VecModel::from(log)),
     }
 }
@@ -499,7 +570,7 @@ fn categories(listings: &[Listing]) -> Vec<String> {
     found
 }
 
-fn show(window: &YapfastWindow, page: &Page) {
+fn show(window: &YapfastWindow, page: &mut Page) {
     let global = window.global::<PluginPage>();
     let view: &View = page.source.view();
     global.set_tab(page.tab);
@@ -537,6 +608,11 @@ fn show(window: &YapfastWindow, page: &Page) {
     global.set_detail_open(open.is_some());
     if let Some(plugin) = open {
         global.set_detail(detail(plugin));
+    }
+    match open {
+        Some(plugin) => show_form(&global, &mut page.form, plugin),
+        None if page.form.take().is_some() => global.set_form(ModelRc::default()),
+        None => {}
     }
 
     let (listings, all_categories, note) = match &view.catalog {
@@ -604,6 +680,283 @@ fn show(window: &YapfastWindow, page: &Page) {
     );
 }
 
+/// Shows the open plugin's settings form, changing only the rows that
+/// changed.
+fn show_form(global: &PluginPage, form: &mut Option<FormModel>, plugin: &Installed) {
+    if form.as_ref().is_none_or(|form| form.plugin != plugin.id) {
+        let model = FormModel {
+            plugin: plugin.id.clone(),
+            rows: Rc::new(VecModel::default()),
+            cells: Vec::new(),
+            options: HashMap::new(),
+            widgets: HashMap::new(),
+        };
+        global.set_form(ModelRc::from(Rc::clone(&model.rows)));
+        *form = Some(model);
+    }
+    let Some(form) = form.as_mut() else { return };
+    let rows = form_rows(form, plugin);
+    let count = rows.len();
+    form.cells.truncate(count);
+    for (index, (mut row, cells)) in rows.into_iter().enumerate() {
+        if !cells.is_empty() {
+            if form.cells.len() <= index {
+                form.cells
+                    .resize_with(index + 1, || Rc::new(VecModel::default()));
+            }
+            let model = &form.cells[index];
+            sync(model, cells);
+            row.cells = ModelRc::from(Rc::clone(model));
+        }
+        if index < form.rows.row_count() {
+            if form.rows.row_data(index).as_ref() != Some(&row) {
+                form.rows.set_row_data(index, row);
+            }
+        } else {
+            form.rows.push(row);
+        }
+    }
+    while form.rows.row_count() > count {
+        form.rows.remove(form.rows.row_count() - 1);
+    }
+}
+
+/// Puts `rows` in `model`, changing only those that differ.
+fn sync<T: Clone + PartialEq + 'static>(model: &VecModel<T>, rows: Vec<T>) {
+    let len = rows.len();
+    for (index, row) in rows.into_iter().enumerate() {
+        if index < model.row_count() {
+            if model.row_data(index).as_ref() != Some(&row) {
+                model.set_row_data(index, row);
+            }
+        } else {
+            model.push(row);
+        }
+    }
+    while model.row_count() > len {
+        model.remove(model.row_count() - 1);
+    }
+}
+
+/// The form's rows: each setting that shows, a list as its heading, its
+/// rows and its foot, with the fields of each list's row beside it.
+fn form_rows(form: &mut FormModel, plugin: &Installed) -> Vec<(PluginFormRow, Vec<PluginControl>)> {
+    let settings = &plugin.settings;
+    let states = settings.schema.states(&settings.values);
+    let mut rows = Vec::new();
+    for (setting, state) in settings.schema.settings.iter().zip(states) {
+        if !state.shown {
+            continue;
+        }
+        let base = PluginFormRow {
+            key: setting.key.as_str().into(),
+            label: setting.label.as_str().into(),
+            description: setting.description.as_str().into(),
+            enabled: state.enabled,
+            ..PluginFormRow::default()
+        };
+        let value = settings.values.get(&setting.key);
+        match &setting.kind {
+            Kind::List {
+                fields, max_rows, ..
+            } => {
+                let heads = fields
+                    .iter()
+                    .map(|field| PluginControl {
+                        label: field.label.as_str().into(),
+                        kind: control_kind(&field.kind),
+                        ..PluginControl::default()
+                    })
+                    .collect();
+                rows.push((
+                    PluginFormRow {
+                        shape: 1,
+                        ..base.clone()
+                    },
+                    heads,
+                ));
+                let records = match value {
+                    Some(Value::List(records)) => records.as_slice(),
+                    _ => &[],
+                };
+                for (index, record) in records.iter().enumerate() {
+                    let mut errors = Vec::new();
+                    let cells = fields
+                        .iter()
+                        .map(|field| {
+                            let place = settings::address(&setting.key, Some((index, &field.key)));
+                            let refused = settings.refused.get(&place);
+                            if let Some(refused) = refused {
+                                errors.push(format!("{}: {}", field.label, refused.message));
+                            }
+                            let options = &mut form.options;
+                            control(
+                                &field.key,
+                                &field.label,
+                                &field.kind,
+                                record.get(&field.key),
+                                refused,
+                                state.enabled,
+                                options,
+                            )
+                        })
+                        .collect();
+                    rows.push((
+                        PluginFormRow {
+                            shape: 2,
+                            row: i32::try_from(index).unwrap_or(0),
+                            rows: i32::try_from(records.len()).unwrap_or(0),
+                            description: errors.join(" ").into(),
+                            ..base.clone()
+                        },
+                        cells,
+                    ));
+                }
+                let full = records.len() >= *max_rows;
+                rows.push((
+                    PluginFormRow {
+                        shape: 3,
+                        can_add: !full,
+                        description: if full {
+                            format!("It holds up to {max_rows} rows.").into()
+                        } else {
+                            SharedString::new()
+                        },
+                        ..base
+                    },
+                    Vec::new(),
+                ));
+            }
+            Kind::Widget => {
+                let widget = match settings.widgets.get(&setting.key) {
+                    Some(tree) => match form.widgets.get(&setting.key) {
+                        Some((shown, part)) if Arc::ptr_eq(shown, tree) => part.clone(),
+                        _ => {
+                            let part = super::plugins::tree_part(
+                                &plugin.id,
+                                &plugin.name,
+                                "settings",
+                                tree,
+                            );
+                            form.widgets
+                                .insert(setting.key.clone(), (Arc::clone(tree), part.clone()));
+                            part
+                        }
+                    },
+                    None => PluginPart::default(),
+                };
+                rows.push((
+                    PluginFormRow {
+                        shape: 4,
+                        widget,
+                        ..base
+                    },
+                    Vec::new(),
+                ));
+            }
+            kind => {
+                let refused = settings.refused.get(&settings::address(&setting.key, None));
+                let control = control(
+                    &setting.key,
+                    &setting.label,
+                    kind,
+                    value,
+                    refused,
+                    state.enabled,
+                    &mut form.options,
+                );
+                rows.push((
+                    PluginFormRow {
+                        shape: 0,
+                        control,
+                        ..base
+                    },
+                    Vec::new(),
+                ));
+            }
+        }
+    }
+    rows
+}
+
+/// A control's kind, as `PluginControl.kind` numbers it.
+fn control_kind(kind: &Kind) -> i32 {
+    match kind {
+        Kind::Bool { .. } => 0,
+        Kind::String(_) => 1,
+        Kind::Select { .. } => 2,
+        Kind::Slider(_) => 3,
+        Kind::Number(_) => 4,
+        Kind::Integer { .. } => 5,
+        Kind::List { .. } | Kind::Widget => -1,
+    }
+}
+
+fn control(
+    key: &str,
+    label: &str,
+    kind: &Kind,
+    value: Option<&Value>,
+    refused: Option<&settings::Refused>,
+    enabled: bool,
+    options: &mut HashMap<String, ModelRc<SharedString>>,
+) -> PluginControl {
+    let mut control = PluginControl {
+        key: key.into(),
+        label: label.into(),
+        kind: control_kind(kind),
+        enabled,
+        error: refused
+            .map(|refused| refused.message.as_str())
+            .unwrap_or_default()
+            .into(),
+        ..PluginControl::default()
+    };
+    let text = match value {
+        Some(Value::Text(text)) => text.clone(),
+        Some(Value::Number(number)) => settings::number_text(*number),
+        Some(Value::Integer(number)) => number.to_string(),
+        _ => String::new(),
+    };
+    control.text = refused.map_or(text, |refused| refused.input.clone()).into();
+    match (kind, value) {
+        (Kind::Bool { .. }, Some(Value::Bool(on))) => control.checked = *on,
+        (Kind::String(text), _) => control.placeholder = text.placeholder.as_str().into(),
+        (
+            Kind::Select {
+                options: choices, ..
+            },
+            Some(Value::Text(chosen)),
+        ) => {
+            control.options = options
+                .entry(key.to_owned())
+                .or_insert_with(|| strings(choices.iter().map(|choice| choice.label.clone())))
+                .clone();
+            control.selected = choices
+                .iter()
+                .position(|choice| choice.value == *chosen)
+                .map_or(0, |index| i32::try_from(index).unwrap_or(0));
+        }
+        (Kind::Slider(range), Some(Value::Number(number))) => {
+            let low = range.min.unwrap_or(0.0);
+            let high = range.max.unwrap_or(low);
+            let step = range.step.unwrap_or(1.0);
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                control.steps = ((high - low) / step).round() as i32;
+                control.position = ((number - low) / step).round() as i32;
+            }
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                control.minimum = low as f32;
+                control.step = step as f32;
+            }
+        }
+        _ => {}
+    }
+    control
+}
+
 /// The index of the choice closest to `value`.
 fn nearest(choices: &[u32], value: u32) -> i32 {
     choices
@@ -621,6 +974,7 @@ fn clear(window: &YapfastWindow) {
     global.set_categories(ModelRc::default());
     global.set_detail_open(false);
     global.set_detail(PluginDetail::default());
+    global.set_form(ModelRc::default());
     global.set_review(PluginReview::default());
 }
 
@@ -689,13 +1043,9 @@ mod tests {
         assert_eq!(lines, ["Reads your messages"]);
 
         page.invoke_open_plugin("com.example.word-filter".into());
-        page.invoke_setting(
-            "com.example.word-filter".into(),
-            "strict".into(),
-            "true".into(),
-        );
-        let strict = page.get_detail().settings.row_data(1).unwrap();
-        assert!(strict.toggle && strict.checked);
+        page.invoke_setting("strict".into(), "true".into());
+        let strict = page.get_form().row_data(0).unwrap();
+        assert!(strict.control.kind == 0 && strict.control.checked);
         page.invoke_update("com.example.word-filter".into());
         assert_eq!(page.get_detail().update, "");
         assert_eq!(page.get_detail().previous, "1.4.0");
@@ -784,6 +1134,117 @@ mod tests {
         // Opening it again on the marketplace fetches the catalog again.
         page.invoke_opened();
         assert!(page.get_listings().row_count() > 0);
+    }
+
+    /// The form's rows, as `shape:label`.
+    fn shapes(page: &PluginPage) -> Vec<String> {
+        page.get_form()
+            .iter()
+            .map(|row| format!("{}:{}", row.shape, row.label))
+            .collect()
+    }
+
+    #[test]
+    fn the_form_draws_every_type_and_changes_in_place() {
+        let window = open_page(true);
+        let page = window.global::<PluginPage>();
+        assert_eq!(page.get_form().row_count(), 0, "no plugin's page is open");
+        page.invoke_open_plugin("com.example.word-filter".into());
+        assert_eq!(
+            shapes(&page),
+            [
+                "0:Match inside words",
+                "0:When a word matches",
+                "0:Replacement text",
+                "0:Seconds before a word shows on hover",
+                "0:Shortest word to match",
+                "1:Words",
+                "2:Words",
+                "2:Words",
+                "3:Words",
+                "4:Preview",
+            ]
+        );
+        let form = page.get_form();
+        let kinds: Vec<i32> = form.iter().map(|row| row.control.kind).collect();
+        assert_eq!(&kinds[..5], [0, 2, 1, 4, 5]);
+        let mode = form.row_data(1).unwrap().control;
+        assert_eq!(mode.options.row_count(), 3);
+        assert_eq!(mode.selected, 1);
+        // The sample shows a refusal, with what was typed.
+        let shortest = form.row_data(4).unwrap().control;
+        assert_eq!(shortest.text, "0");
+        assert_eq!(shortest.error, "Enter a whole number from 1 to 20.");
+        let row = form.row_data(6).unwrap();
+        let cells: Vec<_> = row
+            .cells
+            .iter()
+            .map(|cell| (cell.kind, cell.text))
+            .collect();
+        assert_eq!(
+            cells,
+            [(1, "heck".into()), (1, "h*ck".into()), (0, "".into())]
+        );
+        assert_eq!(form.row_data(9).unwrap().widget.rows.row_count(), 1);
+
+        // Blur shows the slider instead of the replacement, in the same
+        // model, and Hide disables the delay.
+        page.invoke_setting("mode".into(), "2".into());
+        assert!(page.get_form() == form, "the model stays, its rows change");
+        let blur = form.row_data(2).unwrap();
+        assert_eq!(
+            (blur.label.as_str(), blur.control.kind),
+            ("Blur strength", 3)
+        );
+        assert_eq!((blur.control.steps, blur.control.position), (20, 12));
+        page.invoke_setting("blur".into(), "13".into());
+        assert_eq!(form.row_data(2).unwrap().control.position, 13);
+        page.invoke_setting("mode".into(), "0".into());
+        assert!(!form.row_data(2).unwrap().enabled);
+        page.invoke_setting("mode".into(), "1".into());
+
+        // Typing in a list's row, then moving, adding and removing rows.
+        let cells = form.row_data(6).unwrap().cells;
+        page.invoke_field("words".into(), 0, "word".into(), "two words".into());
+        let row = form.row_data(6).unwrap();
+        assert!(row.cells == cells, "a row's fields keep their model");
+        assert_eq!(row.cells.row_data(0).unwrap().text, "two words");
+        assert_eq!(row.description, "Word: One word, without spaces.");
+        page.invoke_field("words".into(), 0, "word".into(), "drat".into());
+        page.invoke_field("words".into(), 1, "whole".into(), "true".into());
+        page.invoke_move_row("words".into(), 1, 0);
+        let first = form.row_data(6).unwrap();
+        assert_eq!(first.cells.row_data(0).unwrap().text, "darn");
+        assert!(first.cells.row_data(2).unwrap().checked);
+        page.invoke_add_row("words".into());
+        assert_eq!(form.row_count(), 11);
+        page.invoke_remove_row("words".into(), 0);
+        page.invoke_remove_row("words".into(), 0);
+        page.invoke_remove_row("words".into(), 0);
+        assert!(
+            !shapes(&page).contains(&"4:Preview".to_owned()),
+            "shown only with words"
+        );
+
+        page.invoke_reset_settings();
+        assert_eq!(shapes(&page).len(), 10);
+        assert_eq!(form.row_data(4).unwrap().control.text, "3");
+        assert_eq!(form.row_data(4).unwrap().control.error, "");
+
+        page.invoke_close_plugin();
+        assert_eq!(page.get_form().row_count(), 0);
+    }
+
+    #[test]
+    fn controls_give_what_their_setting_takes() {
+        let schema = yapfast_core::plugins::settings::Schema::parse(&serde_json::json!([
+            { "key": "a", "type": "select", "label": "A", "options": ["x", "y"] },
+            { "key": "b", "type": "slider", "label": "B", "min": 0, "max": 1, "step": 0.1 }
+        ]))
+        .unwrap();
+        let kind = |key: &str| &schema.setting(key).unwrap().kind;
+        assert_eq!(input(kind("a"), "1"), Input::Text("y".into()));
+        assert_eq!(input(kind("b"), "3"), Input::Text("0.3".into()));
     }
 
     #[test]

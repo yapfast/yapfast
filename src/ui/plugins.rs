@@ -19,6 +19,10 @@ use super::*;
 /// The enabled plugins as the window uses them.
 pub(super) struct Plugins {
     pub(super) overrides: Option<Arc<UiOverrides>>,
+    /// The setting points the plugins set, read where each applies; `None`
+    /// while none sets one. Yapfast lists no point yet.
+    #[allow(dead_code)]
+    pub(super) tweaks: Option<Arc<yapfast_core::tweaks::Tweaks>>,
     /// Where what the person does with plugins' rows and widgets goes: the
     /// plugin runtime, once one is attached.
     pub(super) runtime: Option<Box<dyn plugins::Runtime>>,
@@ -54,6 +58,21 @@ impl Plugins {
         for conflict in conflicts {
             tracing::warn!(kept = %conflict.kept, lost = %conflict.lost, key = ?conflict.key, "two plugins change the same thing");
         }
+        let tweaks: Vec<_> = found
+            .iter()
+            .map(|found| {
+                yapfast_core::tweaks::check::<yapfast_core::tweaks::Tweaks>(&found.manifest)
+            })
+            .collect();
+        for plugin in &tweaks {
+            for (point, why) in &plugin.refused {
+                tracing::warn!(plugin = %plugin.id, point, why, "a plugin's setting point was refused");
+            }
+        }
+        let (tweaks, conflicts) = yapfast_core::tweaks::derive(&tweaks, &BTreeMap::new());
+        for conflict in conflicts {
+            tracing::warn!(kept = %conflict.kept, lost = %conflict.lost, point = conflict.point, "two plugins set a point differently");
+        }
         let colours = overrides.as_ref().map_or_else(Vec::new, |overrides| {
             overrides
                 .colours
@@ -73,6 +92,7 @@ impl Plugins {
             .collect();
         Some(Box::new(Self {
             overrides,
+            tweaks,
             runtime: None,
             names,
             previews,
@@ -90,6 +110,7 @@ impl Plugins {
             .map_or_else(Vec::new, |overrides| overrides.plugins.clone());
         Self {
             overrides,
+            tweaks: None,
             runtime,
             names,
             previews: Vec::new(),
@@ -123,6 +144,11 @@ pub(super) fn decorations(slots: &plugins::slots::Slots, message: &str) -> Model
 
 /// A widget tree as the window draws it, under its plugin's name.
 fn part(name: &PluginName, slot: Slot, tree: &Tree) -> PluginPart {
+    tree_part(&name.id, &name.name, slot.id(), tree)
+}
+
+/// A widget tree, drawn in `slot`, or the Plugins page's `settings`.
+pub(super) fn tree_part(plugin: &str, name: &str, slot: &str, tree: &Tree) -> PluginPart {
     let kind = |kind: Kind| match kind {
         Kind::Text => PluginKind::Text,
         Kind::Heading => PluginKind::Heading,
@@ -204,9 +230,9 @@ fn part(name: &PluginName, slot: Slot, tree: &Tree) -> PluginPart {
         })
         .collect();
     PluginPart {
-        plugin: name.id.as_str().into(),
-        name: name.name.as_str().into(),
-        slot: slot.id().into(),
+        plugin: plugin.into(),
+        name: name.into(),
+        slot: slot.into(),
         rows: ModelRc::new(VecModel::from(rows)),
     }
 }

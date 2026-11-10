@@ -19,7 +19,7 @@ matrix = ["dep:keyring", "dep:matrix-sdk", "dep:matrix-sdk-ui", "dep:matrix-sdk-
 discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "dep:deep_filter", "dep:ndarray", "dep:x264-src", "dep:ffmpeg-src", "dep:thorvg-sys"]
 # Plugins: manifests, and the changes they make to the interface; see
 # docs/plugins.md. Off until the plugin runtime is ready.
-plugins = []
+plugins = ["dep:regex"]
 # Sample states other crates' tests start from, such as a Discord server
 # whose member menu they check.
 test-fixtures = []
@@ -64,6 +64,9 @@ matrix-rtc-media = { workspace = true, optional = true }
 mime = { version = "0.3", optional = true }
 # Plain-text reply snippets from Markdown; the SDK already uses it to format messages.
 pulldown-cmark = { version = "0.13", default-features = false }
+# A plugin setting's `pattern`, matched in linear time whatever the
+# pattern; Yapfast's dependencies already build it.
+regex = { version = "1", optional = true }
 rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true

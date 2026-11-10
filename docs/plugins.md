@@ -31,9 +31,12 @@ keeps it.
 [`crates/yapfast-core/src/plugins.rs`](../crates/yapfast-core/src/plugins.rs)
 reads a manifest, `yapfast-plugin.json`. It's strict JSON, and must name
 `"api": 1`, a reverse-DNS `id` and a `name` of up to 64 characters. The
-interface reads only `id`, `name`, `wasm`, `permissions`, `menus` and `ui`,
-and leaves the rest of the manifest to the runtime. Inside `menus` and `ui`
-a field Yapfast doesn't know is an error, so a misspelt change fails loudly.
+interface reads only `id`, `name`, `wasm`, `permissions`, `menus`, `ui`,
+`settings` and `tweaks`, and leaves the rest of the manifest to the runtime.
+Inside `menus`, `ui` and each setting a field Yapfast doesn't know is an
+error, so a misspelt change fails loudly. `wasm` is optional: a plugin
+without it only changes what its manifest names. Its own settings, the
+`settings` array, are in [`plugin-settings.md`](plugin-settings.md#a-plugins-own-settings).
 
 ```json
 {
@@ -100,6 +103,30 @@ hiding the same part, or setting a colour or size to the same value, agree.
 Any other overlap is a `Conflict`: the first plugin keeps the change unless
 the choices passed in name the other, and the plugin that loses keeps its
 other changes. Nothing stores those choices yet; `grants.json` will.
+
+## Setting points
+
+A setting point is a behaviour of Yapfast a manifest switches by name, in
+`tweaks`, with no code: `{ "tweaks": { "messages.attachments.mosaic": false } }`.
+[`tweaks.rs`](../crates/yapfast-core/src/tweaks.rs) is their registry: the
+`points!` list in it declares each point once, as a field of `Tweaks` with
+its type (`bool`, or a whole number in a range), its default and a doc
+line, and the point's name. Code reads the field where the behaviour
+applies.
+
+`check` keeps a manifest's points that the registry lists with a value of
+their type, up to 64, and refuses the rest with the reason: a point this
+Yapfast doesn't have, perhaps one a newer one does, or a value of the wrong
+type. `derive` lays the enabled plugins' points over the defaults, in their
+order, into one `Option<Arc<Tweaks>>`, `None` while no plugin sets a point,
+so nothing is held for them otherwise. Two plugins setting a point to the
+same value agree; to different values they're a `Conflict` naming both
+plugins, and the first keeps it unless the choices passed in name the
+other. The window logs refusals and conflicts as it loads plugins.
+
+Points are added one at a time, as a behaviour is worth exposing, and
+Yapfast lists none yet, so every point a manifest sets is refused as
+unknown.
 
 ## In the window
 

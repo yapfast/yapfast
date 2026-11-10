@@ -1,10 +1,12 @@
 //! Plugins, as far as Yapfast knows them without running any: each one's
-//! manifest, what its `ui` section changes in the interface ([`ui`]), and
-//! what the Plugins page in settings shows ([`page`]). Nothing here starts a
+//! manifest, what its `ui` section changes in the interface ([`ui`]), its
+//! own settings ([`settings`]), and what the Plugins page in settings shows
+//! ([`page`]). The points a manifest's `tweaks` set are in `crate::tweaks`. Nothing here starts a
 //! process or loads WebAssembly; a plugin that only changes the interface
 //! needs neither. See `docs/plugins.md` and `docs/plugin-settings.md`.
 
 pub mod page;
+pub mod settings;
 pub mod slots;
 pub mod ui;
 
@@ -74,8 +76,8 @@ pub trait Runtime {
 
 /// The parts of a plugin's manifest the interface reads. The file is strict
 /// JSON; fields this struct doesn't name belong to the runtime and are
-/// skipped here, but the `ui` section and its menu rows take no field they
-/// don't know.
+/// skipped here, but the `ui` section, its menu rows and each setting take
+/// no field they don't know.
 #[derive(Clone, Debug, Deserialize)]
 pub struct Manifest {
     pub api: u32,
@@ -96,6 +98,13 @@ pub struct Manifest {
     /// Changes to Yapfast's own interface.
     #[serde(default)]
     pub ui: Option<ui::Ui>,
+    /// The plugin's own settings, checked as the manifest is read: one that
+    /// can't be used refuses the manifest.
+    #[serde(default)]
+    pub settings: std::sync::Arc<settings::Schema>,
+    /// Setting points it sets, by name; see `crate::tweaks`.
+    #[serde(default)]
+    pub tweaks: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
