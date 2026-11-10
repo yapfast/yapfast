@@ -1172,6 +1172,51 @@ fn call_volumes_play_while_dragged_and_are_remembered() {
 }
 
 #[test]
+fn the_share_menu_fits_a_short_window_and_keeps_its_button() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    i_slint_backend_testing::init_no_event_loop();
+    let window = classic_window();
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(800., 560.));
+    // More than the window is tall: a screen, twelve windows and four cameras.
+    let titles = |kind: &str, count: usize| {
+        let titles: Vec<SharedString> = (0..count)
+            .map(|index| format!("{kind} {index}").into())
+            .collect();
+        ModelRc::new(VecModel::from(titles))
+    };
+    window.set_share_lists(true);
+    window.set_share_screens(ModelRc::new(VecModel::from(vec![ShareScreen {
+        title: "Entire screen".into(),
+        picture: Default::default(),
+    }])));
+    window.set_share_windows(titles("Window", 12));
+    window.set_share_cameras(titles("Camera", 4));
+    let went = Rc::new(Cell::new(None));
+    let seen = went.clone();
+    window.on_go_live(move |source, _, _, _| seen.set(Some(source)));
+    window.invoke_show_share_menu();
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(50));
+    // The menu ends 8px above the window's bottom, and Go Live is its last
+    // row, in view without scrolling.
+    let position = slint::LogicalPosition::new(176., 530.);
+    let button = PointerEventButton::Left;
+    window
+        .window()
+        .dispatch_event(WindowEvent::PointerMoved { position });
+    window
+        .window()
+        .dispatch_event(WindowEvent::PointerPressed { position, button });
+    window
+        .window()
+        .dispatch_event(WindowEvent::PointerReleased { position, button });
+    assert_eq!(went.get(), Some(0), "Go Live is in the window");
+    window.hide().unwrap();
+}
+
+#[test]
 fn sound_settings_are_remembered() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();

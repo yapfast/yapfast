@@ -1910,8 +1910,11 @@ export component YapfastWindow inherits Window {
         y: max(8px, root.menu-y - self.height - 6px);
         // Wider for the screens' pictures.
         width: root.share-screens.length > 0 ? 336px : 240px;
+        // No taller than the window has room for: with many windows and
+        // cameras listed, or the window short or zoomed, its choices scroll.
+        height: min(share-content.full-height, root.height - 16px);
         close-policy: PopupClosePolicy.close-on-click-outside;
-        ShareMenu {
+        share-content := ShareMenu {
             screens: root.share-screens; windows: root.share-windows; cameras: root.share-cameras;
             dialog: !root.share-lists; switching: root.pick-switch;
             pick-source <=> root.pick-source; pick-resolution <=> root.pick-resolution; pick-fps <=> root.pick-fps;
