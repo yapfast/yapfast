@@ -1570,9 +1570,15 @@ impl Adapter {
             } else if let Some(playing) = playing {
                 &playing.name
             } else if let Some(status) = &state.account_status {
-                status
+                // Core writes these two in English; the rest is a reason
+                // from the network.
+                match status.as_str() {
+                    "Online" => tr("Online"),
+                    "Connecting to Discord..." => tr("Connecting to Discord..."),
+                    status => status,
+                }
             } else if state.online {
-                "Online"
+                tr("Online")
             } else {
                 tr("Offline, sync paused")
             }
@@ -1583,7 +1589,13 @@ impl Adapter {
         let playing = state.discord_playing.as_ref();
         window.set_game_activity_name(playing.map_or("", |playing| &playing.name).into());
         window.set_discord_status(state.discord_presence.as_deref().unwrap_or("online").into());
-        window.set_storage(state.storage.unwrap_or_default().into());
+        let storage = match state.storage {
+            Some(storage) if storage == yapfast_core::chat::DISCORD_STORAGE => {
+                tr("The Discord token is stored in the OS credential store.")
+            }
+            other => other.unwrap_or_default(),
+        };
+        window.set_storage(storage.into());
         window.set_notice(state.notice.as_deref().unwrap_or_default().into());
     }
 

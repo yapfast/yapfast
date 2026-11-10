@@ -1197,6 +1197,10 @@ msgstr "Couleurs"
 msgid "Colours and effects don't show in servers, and may look different across Discord."
 msgstr "Les couleurs et les effets ne s'affichent pas sur les serveurs et peuvent différer dans Discord."
 
+#: src/ui/profile.rs
+msgid "Competing in"
+msgstr "En compétition dans"
+
 #: ui/mfa.slint
 msgid "Confirm"
 msgstr "Confirmer"
@@ -1212,6 +1216,10 @@ msgstr "Confirmation..."
 #: ui/rail.slint
 msgid "Connected on another client"
 msgstr "Connecté sur un autre client"
+
+#: src/ui/refresh.rs
+msgid "Connecting to Discord..."
+msgstr "Connexion à Discord..."
 
 #: src/ui/refresh.rs
 msgid "Connecting to {}'s stream..."
@@ -2245,6 +2253,10 @@ msgstr "Dégradé"
 msgid "Gummy"
 msgstr "Gummy"
 
+#: src/ui/profile.rs
+msgid "Hanging out"
+msgstr "Se détend"
+
 #: src/ui/menus.rs
 msgid "Happening now"
 msgstr "En ce moment"
@@ -2740,6 +2752,10 @@ msgstr "Liaison de {}. Touchez Se connecter sur votre téléphone pour terminer.
 #: ui/voice.slint
 msgid "Listening"
 msgstr "Écoute"
+
+#: src/ui/profile.rs
+msgid "Listening to {}"
+msgstr "Écoute {}"
 
 #: ui/voice.slint
 msgid "LIVE"
@@ -3629,7 +3645,7 @@ msgstr "Sur votre téléphone, ouvrez Discord, allez dans les Paramètres, touch
 msgid "Once moderators begin moderating, you can moderate the moderation here."
 msgstr "Quand les modérateurs commenceront à modérer, vous pourrez modérer la modération ici."
 
-#: ui/dialogs.slint ui/friends.slint ui/rail.slint ui/yapfast/account-popover.slint ui/yapfast.slint
+#: ui/dialogs.slint ui/friends.slint ui/rail.slint ui/yapfast/account-popover.slint ui/yapfast.slint src/ui/refresh.rs
 msgid "Online"
 msgstr "En ligne"
 
@@ -3849,6 +3865,10 @@ msgstr "Choisissez un émoji pour réagir."
 msgid "Picked in the system's dialog"
 msgstr "Choisi dans la boîte de dialogue du système"
 
+#: src/ui/callbacks.rs src/ui/server_settings.rs
+msgid "Pictures"
+msgstr "Images"
+
 #: ui/thread.slint ui/yapfast.slint
 msgid "Pin"
 msgstr "Épingler"
@@ -3913,7 +3933,7 @@ msgstr "Vitesse de lecture"
 msgid "Played"
 msgstr "Joué"
 
-#: ui/yapfast/account-popover.slint
+#: ui/yapfast/account-popover.slint src/ui/profile.rs
 msgid "Playing"
 msgstr "Joue à"
 
@@ -5125,6 +5145,10 @@ msgstr "Stream"
 msgid "Stream volume"
 msgstr "Volume du stream"
 
+#: src/ui/profile.rs
+msgid "Streaming"
+msgstr "En direct"
+
 #: ui/voice.slint
 msgid "Streaming to {0} · {1} watching"
 msgstr "Diffuse pour {0} · {1} spectateurs"
@@ -5280,6 +5304,10 @@ msgstr "Le débit suit ce que Discord estime que votre connexion supporte. Un mo
 #: src/ui/refresh.rs
 msgid "The call stays connected while you browse other conversations."
 msgstr "L'appel reste connecté pendant que vous parcourez d'autres conversations."
+
+#: src/ui/refresh.rs
+msgid "The Discord token is stored in the OS credential store."
+msgstr "Le jeton Discord est conservé dans le magasin d’identifiants du système."
 
 #: ui/settings.slint
 msgid "The fonts and colours people give their display names."
@@ -6052,6 +6080,10 @@ msgstr "Regarder le stream ?"
 #: ui/rail.slint ui/voice.slint
 msgid "Watch {}'s stream"
 msgstr "Regarder le stream de {}"
+
+#: src/ui/profile.rs
+msgid "Watching"
+msgstr "Regarde"
 
 #: src/ui/refresh.rs
 msgid "Watching: {}"

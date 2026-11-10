@@ -1736,7 +1736,7 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     ServerPicture::Sticker => tr("Upload Sticker"),
                 })
                 .add_filter(
-                    "Pictures",
+                    tr("Pictures"),
                     // Discord's stickers are PNG, APNG, JPEG or GIF.
                     if kind == ServerPicture::Sticker {
                         &["png", "apng", "jpg", "jpeg", "gif"][..]

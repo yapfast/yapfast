@@ -1485,7 +1485,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                         ProfilePicture::Avatar => tr("Change Avatar"),
                         ProfilePicture::Banner => tr("Change Banner"),
                     })
-                    .add_filter("Pictures", &["png", "jpg", "jpeg", "gif", "webp"])
+                    .add_filter(tr("Pictures"), &["png", "jpg", "jpeg", "gif", "webp"])
                     .pick_file()
                     .await;
                 if let (Some(file), Some(adapter)) = (file, weak.upgrade()) {

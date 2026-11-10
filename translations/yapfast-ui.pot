@@ -1198,6 +1198,10 @@ msgstr ""
 msgid "Colours and effects don't show in servers, and may look different across Discord."
 msgstr ""
 
+#: src/ui/profile.rs
+msgid "Competing in"
+msgstr ""
+
 #: ui/mfa.slint
 msgid "Confirm"
 msgstr ""
@@ -1212,6 +1216,10 @@ msgstr ""
 
 #: ui/rail.slint
 msgid "Connected on another client"
+msgstr ""
+
+#: src/ui/refresh.rs
+msgid "Connecting to Discord..."
 msgstr ""
 
 #: src/ui/refresh.rs
@@ -2246,6 +2254,10 @@ msgstr ""
 msgid "Gummy"
 msgstr ""
 
+#: src/ui/profile.rs
+msgid "Hanging out"
+msgstr ""
+
 #: src/ui/menus.rs
 msgid "Happening now"
 msgstr ""
@@ -2740,6 +2752,10 @@ msgstr ""
 
 #: ui/voice.slint
 msgid "Listening"
+msgstr ""
+
+#: src/ui/profile.rs
+msgid "Listening to {}"
 msgstr ""
 
 #: ui/voice.slint
@@ -3630,7 +3646,7 @@ msgstr ""
 msgid "Once moderators begin moderating, you can moderate the moderation here."
 msgstr ""
 
-#: ui/dialogs.slint ui/friends.slint ui/rail.slint ui/yapfast/account-popover.slint ui/yapfast.slint
+#: ui/dialogs.slint ui/friends.slint ui/rail.slint ui/yapfast/account-popover.slint ui/yapfast.slint src/ui/refresh.rs
 msgid "Online"
 msgstr ""
 
@@ -3850,6 +3866,10 @@ msgstr ""
 msgid "Picked in the system's dialog"
 msgstr ""
 
+#: src/ui/callbacks.rs src/ui/server_settings.rs
+msgid "Pictures"
+msgstr ""
+
 #: ui/thread.slint ui/yapfast.slint
 msgid "Pin"
 msgstr ""
@@ -3914,7 +3934,7 @@ msgstr ""
 msgid "Played"
 msgstr ""
 
-#: ui/yapfast/account-popover.slint
+#: ui/yapfast/account-popover.slint src/ui/profile.rs
 msgid "Playing"
 msgstr ""
 
@@ -5126,6 +5146,10 @@ msgstr ""
 msgid "Stream volume"
 msgstr ""
 
+#: src/ui/profile.rs
+msgid "Streaming"
+msgstr ""
+
 #: ui/voice.slint
 msgid "Streaming to {0} · {1} watching"
 msgstr ""
@@ -5280,6 +5304,10 @@ msgstr ""
 
 #: src/ui/refresh.rs
 msgid "The call stays connected while you browse other conversations."
+msgstr ""
+
+#: src/ui/refresh.rs
+msgid "The Discord token is stored in the OS credential store."
 msgstr ""
 
 #: ui/settings.slint
@@ -6052,6 +6080,10 @@ msgstr ""
 
 #: ui/rail.slint ui/voice.slint
 msgid "Watch {}'s stream"
+msgstr ""
+
+#: src/ui/profile.rs
+msgid "Watching"
 msgstr ""
 
 #: src/ui/refresh.rs

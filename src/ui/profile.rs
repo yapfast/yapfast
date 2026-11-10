@@ -242,6 +242,21 @@ pub(super) fn activity_rows(activities: &yapfast_core::chat::Activities) -> Mode
     ModelRc::new(VecModel::from(rows))
 }
 
+/// What heads an activity's card, in the interface language: the wording of
+/// `Activity::heading`.
+#[cfg(feature = "discord")]
+fn activity_heading(activity: &yapfast_core::chat::Activity) -> String {
+    use yapfast_core::chat::ActivityKind as Kind;
+    match activity.kind {
+        Kind::Playing => tr("Playing").to_owned(),
+        Kind::Streaming => tr("Streaming").to_owned(),
+        Kind::Listening => fill(tr("Listening to {}"), &[&activity.name]),
+        Kind::Watching => tr("Watching").to_owned(),
+        Kind::Competing => tr("Competing in").to_owned(),
+        Kind::Hang => tr("Hanging out").to_owned(),
+    }
+}
+
 #[cfg(feature = "discord")]
 fn activity_row(activity: &yapfast_core::chat::Activity) -> ActivityRow {
     let seconds = |ms: Option<u64>| {
@@ -280,7 +295,7 @@ fn activity_row(activity: &yapfast_core::chat::Activity) -> ActivityRow {
         )
     };
     ActivityRow {
-        heading: activity.heading().to_uppercase().into(),
+        heading: activity_heading(activity).to_uppercase().into(),
         name: name.into(),
         name_emoji: name_emoji.unwrap_or_default().into(),
         details: details.into(),
