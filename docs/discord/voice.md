@@ -135,8 +135,8 @@ the loss are measured.
 While this account's screen is live, a Stream tab says how it goes out:
 the encoder and where it runs ("NVENC on the GPU", "x264 on the CPU"), the
 codec Discord chose, the size and frame rate sent, the bitrate sent over
-the last second beside the one aimed for, which follows Discord's bandwidth
-estimate, and the keyframes viewers asked for and the packets resent to
+the last second beside the one aimed for, which follows what the uplink
+carries ([Go Live](go-live.md)), and the keyframes viewers asked for and the packets resent to
 them. Discord's client shows its stream's numbers only in developer mode.
 The stream worker reports them once a second while live
 (`Report::Sending`), counting what `StreamSender` sends; the call keeps
