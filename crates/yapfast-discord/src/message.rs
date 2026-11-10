@@ -44,6 +44,12 @@ const USER_INSTALL: &str = "1";
 
 /// The message flag that hides its embeds.
 const SUPPRESS_EMBEDS: u64 = 1 << 2;
+/// The message flag of an app's answer only the person who used the app
+/// sees, which Discord keeps out of the channel's history.
+pub const EPHEMERAL: u64 = 1 << 6;
+/// The message flag of an app's answer still to come: the app is
+/// "thinking".
+pub const LOADING: u64 = 1 << 7;
 /// The message flags Discord's client forwards a message with: crossposts,
 /// hidden embeds, threads, @silent, voice messages, forwards and the like,
 /// but not ephemeral or loading messages, or flags it doesn't know.
@@ -168,6 +174,14 @@ pub struct Message {
     /// The poll it asks, if it's one.
     #[serde(default)]
     pub poll: Option<Poll>,
+    /// An app's answer only this account sees ([`EPHEMERAL`]): it isn't in
+    /// the channel's history, and it's never kept on disk.
+    #[serde(default)]
+    pub ephemeral: bool,
+    /// An app's answer still to come ([`LOADING`]), shown as the app
+    /// thinking until Discord updates it.
+    #[serde(default)]
+    pub loading: bool,
 }
 
 /// A message's poll, its votes as Discord counted them when the message
@@ -805,6 +819,8 @@ pub fn parse(value: &Value) -> Option<Message> {
         undeletable: kind == CALL,
         invoker: invoker(&value["interaction_metadata"]),
         poll: Poll::of(&shown["poll"]),
+        ephemeral: value["flags"].as_u64().unwrap_or_default() & EPHEMERAL != 0,
+        loading: value["flags"].as_u64().unwrap_or_default() & LOADING != 0,
     })
 }
 
@@ -2368,6 +2384,26 @@ mod tests {
         .unwrap();
         assert!(!reply.forwarded);
         assert_eq!(reply.content, "mine");
+    }
+
+    #[test]
+    fn tells_an_answer_only_this_account_sees_and_one_still_to_come() {
+        let answer = |flags: u64| {
+            parse(&json!({
+                "id": "5", "channel_id": "2", "type": 20, "content": "", "flags": flags,
+                "author": {"id": "9", "username": "Status Bot", "bot": true},
+                "interaction_metadata": {"id": "7", "type": 2, "user": {"id": "1"}},
+            }))
+            .unwrap()
+        };
+        let thinking = answer(EPHEMERAL | LOADING);
+        assert!(thinking.ephemeral && thinking.loading);
+        let answered = answer(EPHEMERAL);
+        assert!(answered.ephemeral && !answered.loading);
+        let public = answer(LOADING);
+        assert!(!public.ephemeral && public.loading);
+        let plain = answer(0);
+        assert!(!plain.ephemeral && !plain.loading);
     }
 
     #[test]

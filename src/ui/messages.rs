@@ -459,6 +459,11 @@ pub(super) fn show_message(window: &YapfastWindow, index: usize, item: &str, lit
     });
 }
 
+/// The message flag of a Discord app's answer only this account sees.
+const EPHEMERAL: u64 = 1 << 6;
+/// The message flag of a Discord app's answer still to come.
+const LOADING: u64 = 1 << 7;
+
 /// A message as the timeline shows it. `revealed` holds the spoilers clicked, as
 /// `{item}/{index}` for text and `{item}/a{index}` for attachments, and what
 /// was picked or shown on polls; see `polls`.
@@ -806,6 +811,8 @@ pub(super) fn message_row_within(
             })
             .unwrap_or_default(),
         has_poll: message.poll.is_some(),
+        ephemeral: message.flags & EPHEMERAL != 0,
+        thinking: message.flags & LOADING != 0,
     };
     if collapsed(message, revealed) {
         // Discord shows nothing of a blocked message until asked.

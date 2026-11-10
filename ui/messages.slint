@@ -797,6 +797,12 @@ export struct MessageRow {
     thread-room: string, thread-name: string, thread-detail: string,
     /// The Discord poll it asks.
     poll: PollCard, has-poll: bool,
+    /// An app's answer only this account sees, with "Only you can see this ·
+    /// Dismiss message" under it.
+    ephemeral: bool,
+    /// An app's answer still to come: "{author} is thinking…" shows in its
+    /// place until Discord updates it.
+    thinking: bool,
 }
 
 // The card a click on an emoji in a message's text opens, as Discord's shows
@@ -2376,6 +2382,8 @@ export component MessageContent inherits VerticalLayout {
     callback react(string, string);
     callback retry(string);
     callback cancel-send(string);
+    /// "Dismiss message" under an answer only this account sees.
+    callback dismiss-ephemeral(string);
     callback reveal-attachment(string, int);
     callback view-image(string, int);
     callback save-attachment(string, int);
@@ -2571,6 +2579,10 @@ export component MessageContent inherits VerticalLayout {
                     }
                 }
             }
+            // An app's answer still to come, as Discord's client words it.
+            if message.thinking: Text {
+                text: message.author + " is thinking…"; color: Theme.muted; font-size: root.message-font-size; font-italic: true; wrap: word-wrap;
+            }
             if message.edited && !message.deleted: Text { text: "(edited)"; color: Theme.muted; font-size: 12px; }
             // Fixed-size children sit beside a spacer, so they do not cap the column's width.
             if message.images.length > 0: MessageGallery {
@@ -2628,6 +2640,23 @@ export component MessageContent inherits VerticalLayout {
                 Text { text: message.delivery; color: message.delivery-failed ? Theme.danger : Theme.muted; font-size: 13px; vertical-alignment: center; wrap: word-wrap; }
                 if message.can-retry: ActionButton { text: "Retry"; ghost: true; small: true; clicked => { root.retry(message.item); } }
                 if message.can-cancel: ActionButton { text: "Cancel"; ghost: true; small: true; clicked => { root.cancel-send(message.item); } }
+            }
+            // As Discord's client marks an answer only this account sees.
+            if message.ephemeral: HorizontalLayout {
+                spacing: 4px; alignment: start;
+                Image { source: @image-url("icons/eye.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
+                Text { text: "Only you can see this ·"; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+                Text {
+                    text: "Dismiss message"; font-size: 12px; vertical-alignment: center;
+                    color: root.preview ? Theme.muted : dismiss-touch.has-hover ? Theme.text : Theme.link;
+                    accessible-role: button; accessible-label: self.text; accessible-enabled: !root.preview;
+                    accessible-action-default => { root.dismiss-ephemeral(message.item); }
+                    dismiss-touch := TouchArea {
+                        enabled: !root.preview;
+                        mouse-cursor: self.enabled ? MouseCursor.pointer : MouseCursor.default;
+                        clicked => { root.dismiss-ephemeral(message.item); }
+                    }
+                }
             }
         }
     }

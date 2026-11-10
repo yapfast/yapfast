@@ -997,6 +997,26 @@ fn pinning_a_message_takes_leave_and_unpins_a_pinned_one() {
 }
 
 #[test]
+fn only_an_answer_only_this_account_sees_is_dismissed() {
+    let mut app = connected();
+    let mut ephemeral = message("d:5", false);
+    ephemeral.flags = 1 << 6;
+    app.apply(Event::Timeline {
+        room: "dm".into(),
+        messages: timeline(vec![message("d:4", false), ephemeral]),
+    });
+    assert!(
+        app.dispatch(Action::DismissEphemeral("d:4".into()))
+            .is_empty()
+    );
+    assert!(matches!(
+        app.dispatch(Action::DismissEphemeral("d:5".into())).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::DismissEphemeral { room, item }))]
+            if room == "dm" && item == "d:5"
+    ));
+}
+
+#[test]
 fn deletion_needs_confirmation_and_queue_actions_need_a_pending_message() {
     let mut app = connected();
     let mut pending = message("t:txn", true);

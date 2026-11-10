@@ -594,6 +594,44 @@ fn channels_go_to_disk_once_they_change() {
 }
 
 #[test]
+fn an_answer_only_this_account_sees_stays_off_disk_and_goes_when_dismissed() {
+    let mut open = OpenChannel::new("discord:10:11").unwrap();
+    open.loaded(Load::Latest, shown(page(1..=3)));
+    open.take_changes();
+    let ephemeral = |id: &str, loading: bool| Message {
+        ephemeral: true,
+        loading,
+        content: if loading {
+            String::new()
+        } else {
+            "Noted".into()
+        },
+        ..message(id, None)
+    };
+    // The app thinks, then answers, only to this account.
+    assert!(open.live(&Live::Created(ephemeral("4", true))));
+    assert!(open.live(&Live::Updated(ephemeral("4", false))));
+    let (_, saved) = open.take_changes().unwrap();
+    assert_eq!(
+        saved
+            .iter()
+            .map(|message| message.id.as_str())
+            .collect::<Vec<_>>(),
+        ["1", "2", "3"],
+        "never on disk"
+    );
+    // Discord's history never lists it; it stays till dismissed.
+    open.loaded(Load::Latest, shown(page([1, 2, 3, 5])));
+    assert!(open.message(4).is_some_and(|kept| kept.content == "Noted"));
+    assert!(!open.dismiss("d:3"), "only an ephemeral one is dismissed");
+    assert!(open.dismiss("d:4"));
+    assert!(open.message(4).is_none());
+    // An update the app sends after doesn't bring it back.
+    assert!(!open.live(&Live::Updated(ephemeral("4", false))));
+    assert!(open.message(4).is_none());
+}
+
+#[test]
 fn a_page_asked_for_before_a_delete_doesnt_bring_the_message_back() {
     let mut open = OpenChannel::new("discord:10:11").unwrap();
     open.loaded(Load::Latest, shown(page(1..=3)));

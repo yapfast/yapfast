@@ -2592,6 +2592,12 @@ pub enum DiscordCommand {
     /// [`Event::AutocompleteChoices`] follows for the newest alone; an
     /// older one, or one the app didn't answer, gets nothing.
     Autocomplete(Box<CommandRun>),
+    /// Hides the ephemeral message `item` in `room`, as Discord's "Dismiss
+    /// message" does: only here, with no request, for good.
+    DismissEphemeral {
+        room: String,
+        item: String,
+    },
     /// The GIF picker's home: trending terms with a GIF each, and a GIF for
     /// "Trending GIFs"; [`Event::GifCategories`] follows.
     GifCategories,

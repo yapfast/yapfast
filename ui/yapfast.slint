@@ -3425,6 +3425,7 @@ export component YapfastWindow inherits Window {
                                                         react(item, key) => { root.react(item, key); }
                                                         retry(item) => { root.retry(item); }
                                                         cancel-send(item) => { root.cancel-send(item); }
+                                                        dismiss-ephemeral(item) => { root.dismiss-ephemeral(item); }
                                                         reveal-attachment(id, index) => { root.reveal-attachment(id, index); }
                                                         view-image(id, index) => { root.view-image(id, index); }
                                                         open-sticker(item, index, x, y, width, height) => {
@@ -3910,6 +3911,7 @@ export component YapfastWindow inherits Window {
                         open-thread(room) => { root.open-aside(room); }
                         retry(item) => { root.retry(item); }
                         cancel-send(item) => { root.cancel-send(item); }
+                        dismiss-ephemeral(item) => { root.dismiss-ephemeral(item); }
                         reveal-attachment(id, index) => { root.reveal-attachment(id, index); }
                         view-image(id, index) => { root.view-image(id, index); }
                         open-sticker(item, index, x, y, width, height) => {
