@@ -149,11 +149,11 @@ does, and names games Yapfast doesn't know. See
 Server Settings with roles, emoji, stickers, bans, the audit log and the rest of
 the pages your roles let you use, and channel settings with their permissions.
 Make and edit channels and categories, invite people, hand out roles, change
-nicknames, time out, kick and ban. In voice, server mute, deafen and move
-people to another channel. Edit your server profile, and leave. Join a server
-by invite, from the + under your servers or a link in chat, and open a
-scheduled event from its link to mark yourself interested. Folders show up as
-they do in Discord.
+nicknames, time out, kick and ban. In voice, server mute, deafen and move people
+to another channel, from their menu or by dragging them there. Edit your server
+profile, and leave. Join a server by invite, from the + under your servers or a
+link in chat, and open a scheduled event from its link to mark yourself
+interested. Folders show up as they do in Discord.
 
 <p align="center">
   <img src="docs/images/features/server-settings.webp" width="640" alt="Server Settings on a role's Display page: its name, a gold color picked, and its icon.">
@@ -170,11 +170,13 @@ they do in Discord.
   Yapfast, including one handed to it by the desktop.
 - **Threads**: start one from a message, browse a channel's threads, join or
   leave one, and read it beside its channel.
+- **Bots' buttons, menus and forms**: click a bot's buttons, choose from its
+  menus and fill in the forms it opens.
 - **Search** a whole server with Discord's filters, and browse a channel's pins.
 - **Friends**: requests, adding by username, nicknames, notes, profile cards,
   your status and custom status (custom emoji included). Block and ignore
-  people from their menu, hide what blocked people write, and unblock them from
-  a list in Settings.
+  people from their menu, block and unblock them from their profile, hide what
+  blocked people write, and unblock them from a list in Settings.
 - **Notifications** that follow your Discord settings, muting for channels,
   categories and servers, and unread markers.
 - **Soft sounds** for joining, leaving, muting and messages, in six sets.

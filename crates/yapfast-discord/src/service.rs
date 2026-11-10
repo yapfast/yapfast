@@ -386,6 +386,18 @@ impl std::fmt::Debug for SharedNames {
 /// A message event from the gateway, for any channel.
 #[derive(Clone, Debug)]
 pub enum Live {
+    /// An app answered this session's interaction with a form, as
+    /// INTERACTION_MODAL_CREATE has it.
+    InteractionModal(Value),
+    /// An interaction of this session failed, by its nonce.
+    InteractionFailure {
+        nonce: String,
+        reason: u64,
+    },
+    /// An app handled an interaction of this session, by its nonce.
+    InteractionSuccess {
+        nonce: String,
+    },
     /// The Activity panel's feed has something new, to fetch after this long.
     ActivityFeedStale {
         refresh_after_ms: Option<u64>,
@@ -996,6 +1008,23 @@ impl Discord {
         self.api.vote(channel, id, answers).await
     }
 
+    /// Uses a message component or submits a modal, `body` being what
+    /// Discord's client sends, its session added: the gateway's
+    /// INTERACTION_SUCCESS or INTERACTION_FAILURE then tells how it went.
+    pub async fn interact(&self, mut body: Value) -> Result<()> {
+        let (reply, answer) = oneshot::channel();
+        self.requests
+            .send(Request::Session(reply))
+            .map_err(|_| anyhow!("Discord isn't connected. Restart Yapfast and try again."))?;
+        let session = answer
+            .await
+            .ok()
+            .flatten()
+            .context("Discord isn't connected yet. Try again in a moment.")?;
+        body["session_id"] = session.into();
+        self.api.interact(&body).await
+    }
+
     /// Closes this account's poll now.
     pub async fn end_poll(&self, channel: &str, id: &str) -> Result<()> {
         self.api.end_poll(channel, id).await
@@ -1373,7 +1402,24 @@ impl Discord {
             kept(earlier);
         }
         let value = self.api.profile(user, server(guild)).await?;
-        self.write_names().learn_user(&value["user"]);
+        let learned = {
+            let mut names = self.write_names();
+            let before = names.version();
+            names.learn_user(&value["user"]);
+            // The profile carries the member's roles, which messages colour
+            // names by: messages fetched over HTTP left them unknown.
+            if let Some(guild) = server(guild)
+                && let Value::Object(member) = &value["guild_member"]
+            {
+                let mut member = member.clone();
+                member.insert("user_id".into(), user.into());
+                names.learn_member(guild, &Value::Object(member));
+            }
+            names.version() != before
+        };
+        if learned {
+            let _ = self.live.send(Live::Names);
+        }
         let profile = profile::parse(&value, server(guild))
             .ok_or_else(|| anyhow!("could not understand Discord's answer"))?;
         {
@@ -2079,6 +2125,34 @@ impl Discord {
         self.api.gif_select(id, query).await
     }
 
+    /// Discord's default sticker packs as Yapfast last saw them, to show
+    /// until [`Self::sticker_packs`] answers.
+    pub async fn kept_sticker_packs(&self) -> Option<cache::KeptStickerPacks> {
+        tokio::task::spawn_blocking(cache::sticker_packs)
+            .await
+            .ok()
+            .flatten()
+    }
+
+    /// Discord's default sticker packs, kept on disk too, for the picker's
+    /// pictures to be fetched ahead of it opening.
+    pub async fn sticker_packs(&self) -> Result<Vec<crate::stickers::Collection>> {
+        let answer = self.api.sticker_packs().await?;
+        let packs = crate::stickers::packs(&answer);
+        let kept = packs.clone();
+        let _ = tokio::task::spawn_blocking(move || cache::keep_sticker_packs(kept)).await;
+        Ok(packs)
+    }
+
+    /// Posts sticker `id` in `channel`, as Discord's client does when one is
+    /// clicked in the picker. The gateway shows the message.
+    pub async fn send_sticker(&self, guild: &str, channel: &str, id: &str) -> Result<()> {
+        let nonce = crate::message::nonce();
+        let sent = self.api.send_sticker(channel, id, &nonce).await?;
+        self.write_names().learn_message(server(guild), &sent);
+        Ok(())
+    }
+
     /// The account's favourite GIFs as Yapfast last saw them, to show until
     /// [`Self::favorite_gifs`] answers.
     pub async fn kept_favorite_gifs(&self) -> Option<Vec<crate::gifs::Favorite>> {
@@ -2123,6 +2197,15 @@ impl Discord {
         Ok(())
     }
 
+    /// Puts the account's favourite emoji in Discord's settings, as its
+    /// client's star in the picker does: each a custom emoji's id or a
+    /// Unicode emoji's Discord name, in the order they were starred.
+    pub async fn set_favorite_emojis(&self, favorites: &[String]) -> Result<()> {
+        self.api
+            .set_frecency_settings(&crate::frecency::write_favorite_emojis(favorites))
+            .await
+    }
+
     /// Sends someone a friend request from their profile, or accepts theirs.
     /// The lists change when Discord confirms it.
     pub async fn befriend(&self, user: &str) -> Result<()> {
@@ -2146,16 +2229,18 @@ impl Discord {
     }
 
     /// Ends a friendship. The lists change when Discord confirms it.
-    pub async fn unfriend(&self, user: &str) -> Result<()> {
-        self.api.remove_relationship(user, "ContextMenu").await
+    /// `location` is where in Discord's client it happens, such as
+    /// "ContextMenu".
+    pub async fn unfriend(&self, user: &str, location: &str) -> Result<()> {
+        self.api.remove_relationship(user, location).await
     }
 
-    /// Blocks someone, or unblocks them.
-    pub async fn block(&self, user: &str, block: bool) -> Result<()> {
+    /// Blocks someone, or unblocks them, from `location` in Discord's client.
+    pub async fn block(&self, user: &str, block: bool, location: &str) -> Result<()> {
         if block {
-            self.api.block(user, "ContextMenu").await
+            self.api.block(user, location).await
         } else {
-            self.api.remove_relationship(user, "ContextMenu").await
+            self.api.remove_relationship(user, location).await
         }
     }
 
@@ -3108,8 +3193,10 @@ impl Discord {
             None => url,
         };
         if let Some(kept) = cache::picture(url).await.filter(|kept| kept.len() <= limit) {
+            tracing::trace!(%url, bytes = kept.len(), "read a Discord picture from cache");
             return Ok(kept);
         }
+        tracing::trace!(%url, queued, "fetching a Discord picture from network");
         let data = if queued {
             self.api.download(url, limit).await?
         } else {

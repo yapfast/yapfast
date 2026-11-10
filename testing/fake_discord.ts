@@ -30,6 +30,10 @@
 // `--channels N` adds text channels room-1 to room-N to "Server", each with 60
 // messages, every third with a picture, written in turn by `--authors N`
 // people of their own (Bob without it), for a long session across channels.
+// `--members N` adds N people, online, to Server's member list, as a busy
+// server's first hundred rows are. POST /_control/churn-start takes one of
+// them offline or back online ten times a second, each a member list update,
+// and /_control/churn-stop stops it.
 // POST /_control/crowd-start makes someone new post in the last of them, or
 // in #general, 50 times a second, and /_control/crowd-stop stops them.
 // POST /_control/burst?count=N posts N messages, 150 every 10 ms, for
@@ -142,6 +146,14 @@
 // buttons and a menu under its text, and one of components outside a
 // container, with a gallery of its attachments and a file. It answers with
 // the notice's id.
+// POST /interactions takes Alice's use of Status Bot's controls, as
+// Discord's client sends it (its user's id is its app's), and answers 204;
+// the session named answers over the gateway with INTERACTION_CREATE, then:
+// "approve" succeeds and Status Bot says so, "rollback" opens a form with a
+// text display and a reason (INTERACTION_MODAL_CREATE), whose submission
+// succeeds with a reply, and choosing "production" in its menu fails
+// (INTERACTION_FAILURE); "staging" succeeds. GET /_control/interactions
+// lists what was sent, oldest first.
 // POST /_control/unlooked-reply?channel=ID&to=ID makes Bob reply to a message
 // in a channel, live and in its history without `referenced_message`, as when
 // Discord didn't look the original up, and answers with the reply's id.
@@ -168,7 +180,10 @@
 // the others there; GET /_control/custom-call-sounds lists those she asked
 // for.
 // The server has two custom emoji, :talk: and the animated :party:, served
-// from /emojis/, and a sticker from /stickers/. `--nitro` gives Alice Nitro,
+// from /emojis/, and three stickers from /stickers/: Wave, the GIF Bounce and
+// Lottie. GET /sticker-packs lists Discord's default packs, whose stickers
+// come from /stickers/ too, so the sticker picker has both. `--nitro` gives
+// Alice Nitro,
 // so every server's emoji are hers to use, and `--cdn-delay MS` makes each
 // emoji and sticker take that long, as a round trip to the real CDN does. POST /_control/showcase makes
 // Bob post a spoiler, custom emoji, stickers, a GIF, a spoilered picture and a reply
@@ -192,8 +207,11 @@
 // it answers 80013.
 // From a DM's menu, PUT /users/@me/relationships/{id} with type 2 blocks,
 // DELETE ends a friendship or block, PUT and DELETE .../{id}/ignore ignore and
-// stop, and PATCH gives a friend a nickname. GET and PUT /users/@me/notes/{id}
-// read and write Alice's note on someone, GET /_control/note-reads counts the
+// stop, and PATCH gives a friend a nickname. GET
+// /_control/relationship-changes lists each PUT and DELETE on
+// /users/@me/relationships/{id}, oldest first: its method, the user, the
+// body's type or null, and the location its X-Context-Properties named.
+// GET and PUT /users/@me/notes/{id} read and write Alice's note on someone, GET /_control/note-reads counts the
 // reads, POST /_control/note-elsewhere?user=ID&note=TEXT changes a note as
 // another of her clients does, DELETE /channels/{id} closes a DM
 // or leaves a group, and GET /_control/group-leaves lists each group left
@@ -323,6 +341,7 @@ const { values: args } = parseArgs({
     images: { type: "string", default: "0" },
     channels: { type: "string", default: "0" },
     authors: { type: "string", default: "0" },
+    members: { type: "string", default: "0" },
     "name-styles": { type: "boolean", default: false },
     nitro: { type: "boolean", default: false },
     folders: { type: "boolean", default: false },
@@ -376,6 +395,11 @@ const EMOJI_PARTY = "1400000000000000301";
 const STICKER_WAVE = "1400000000000000310";
 const STICKER_BOUNCE = "1400000000000000311";
 const STICKER_LOTTIE = "1400000000000000312";
+// Discord's default packs' stickers, which the picker offers beside the
+// server's own.
+const STICKER_WUMPUS = "1400000000000000330";
+const STICKER_PARTY = "1400000000000000331";
+const STICKER_PUFF = "1400000000000000332";
 const ALICE = "1400000000000000001";
 
 /** The profile effect Bob equips: an intro layer and a looping one over the card. */
@@ -1643,6 +1667,7 @@ const rooms = Array.from({ length: Number(args.channels) }, (_, n) => {
   return id;
 });
 let crowd: ReturnType<typeof setInterval> | undefined;
+let churn: ReturnType<typeof setInterval> | undefined;
 let crowdCount = 0;
 let burst: ReturnType<typeof setInterval> | undefined;
 let burstPosted = 0;
@@ -2266,6 +2291,11 @@ const deletedChannels = new Set<string>();
 // Each body of PATCH /guilds/{id}/channels, for GET /_control/channel-moves.
 const channelMoves: unknown[] = [];
 
+// Each PUT and DELETE on /users/@me/relationships/{id}, with the type its
+// body gave and the location its X-Context-Properties named, for GET
+// /_control/relationship-changes.
+const relationshipChanges: { method: string; user: string; type: number | null; location: string }[] = [];
+
 // Each group DM Alice left, with the `silent` query DELETE /channels/{id}
 // sent, or null, for GET /_control/group-leaves.
 const groupLeaves: { channel: string; silent: string | null }[] = [];
@@ -2361,12 +2391,51 @@ const SERVER_EMOJIS = (): ServerEmoji[] => [
   { id: EMOJI_TALK, name: "talk", animated: false, user: users.bob.id },
   { id: EMOJI_PARTY, name: "party", animated: true, user: users.bob.id },
 ];
+/** "Server"'s own stickers, as its members' picker lists them. */
+const SERVER_STICKERS = (): ServerSticker[] => [
+  { id: STICKER_WAVE, name: "Wave", tags: "👋", description: "", format_type: 1, user: users.bob.id },
+  { id: STICKER_BOUNCE, name: "Bounce", tags: "🏀", description: "", format_type: 4, user: users.bob.id },
+  { id: STICKER_LOTTIE, name: "Lottie", tags: "✨", description: "", format_type: 3, user: users.bob.id },
+];
 const expressions = {
   emojis: SERVER_EMOJIS(),
-  stickers: [] as ServerSticker[],
+  stickers: SERVER_STICKERS(),
   made: 0,
   pictures: new Map<string, { type: string; data: Uint8Array }>(),
 };
+
+// Discord's default sticker packs, as GET /sticker-packs lists them: PNG, GIF
+// and Lottie stickers, all served from the CDN like the server's own.
+const STICKER_PACKS = {
+  sticker_packs: [
+    {
+      id: "1400000000000000400", name: "Wumpus", description: "Wumpus everywhere", sku_id: "1400000000000000500",
+      cover_sticker_id: STICKER_WUMPUS, banner_asset_id: null,
+      stickers: [
+        { id: STICKER_WUMPUS, name: "Wumpus Wave", tags: "wave", description: null, type: 1, format_type: 1, available: true },
+        { id: STICKER_PARTY, name: "Wumpus Party", tags: "party", description: null, type: 1, format_type: 4, available: true },
+      ],
+    },
+    {
+      id: "1400000000000000401", name: "Animated", description: "The ones that move", sku_id: "1400000000000000501",
+      cover_sticker_id: STICKER_PUFF, banner_asset_id: null,
+      stickers: [
+        { id: STICKER_PUFF, name: "Puff", tags: "puff", description: null, type: 1, format_type: 3, available: true },
+      ],
+    },
+  ],
+};
+
+/** A sticker's id, name and format, by id: a server's own or a default pack's. */
+function stickerById(id: string): { id: string; name: string; format_type: number } | undefined {
+  const own = expressions.stickers.find((sticker) => sticker.id === id);
+  if (own) return { id: own.id, name: own.name, format_type: own.format_type };
+  for (const pack of STICKER_PACKS.sticker_packs) {
+    const found = pack.stickers.find((sticker) => sticker.id === id);
+    if (found) return found;
+  }
+  return undefined;
+}
 
 function wireEmoji(emoji: ServerEmoji, uploader = false) {
   const user = Object.values(users).find((known) => known.id === emoji.user);
@@ -2409,7 +2478,7 @@ const mfa = {
 function resetGuild() {
   Object.assign(serverSettings, SERVER_SETTINGS);
   expressions.emojis = SERVER_EMOJIS();
-  expressions.stickers = [];
+  expressions.stickers = SERVER_STICKERS();
   expressions.pictures.clear();
   revokedInvites.clear();
   Object.assign(mfa, { on: false, methods: ["totp"], code: "123456" });
@@ -2835,6 +2904,18 @@ const presences: Record<string, { status: string; activities: unknown[]; client_
   [users.dave.id]: { status: "offline", activities: [] },
 };
 
+// The people of `--members`, in Server's member list alone.
+const listed: User[] = Array.from({ length: Number(args.members) }, (_, n) => ({
+  id: (1_750_000_000_000_000_000n + BigInt(n)).toString(),
+  username: `member${n}`,
+  global_name: `Member ${n}`,
+  avatar: `m${n}`,
+}));
+for (const person of listed) {
+  userById.set(person.id, person);
+  presences[person.id] = { status: "online", activities: [] };
+}
+
 // The member list's Activity feed, as /content-inventory/users/@me answers:
 // Bob and Carol now, Dave's game earlier, this week's top ones, then what no
 // panel here shows: someone in no server, and a custom status.
@@ -2905,7 +2986,7 @@ function listId(channelId: string): string {
 
 function memberList(id = "everyone") {
   const offline = (user: User) => presences[user.id]!.status === "offline";
-  const present = Object.values(users).filter((user) => !removed.has(user.id));
+  const present = [...Object.values(users), ...listed].filter((user) => !removed.has(user.id));
   const mods = present.filter((user) => memberRoles.get(user.id)?.includes(MODS));
   const others = present.filter((user) => !mods.includes(user));
   const groups = [
@@ -3445,6 +3526,9 @@ let discoveryOff = false;
 const voiceEndpoint = (ws: Socket) => `${ws.data.origin.replace(/^http/, "ws")}/voice`;
 let ssrcs = 100;
 
+/** A stream's own socket, as op 14 answers it with its codec. */
+type StreamSocket = { send(text: string): void };
+
 /** What a stream connection sent, by its video SSRC. */
 type Received = {
   stream: string;
@@ -3456,7 +3540,7 @@ type Received = {
   /** The video codecs the streamer offered, most wanted first, and whether
    * it can encode each; and its stream socket, for op 14. */
   offers: { name: string; payloadType: number; encode: boolean }[];
-  socket?: { send(text: string): unknown };
+  socket?: StreamSocket;
   announced: unknown;
   packets: number;
   undecryptable: number;
@@ -4962,6 +5046,42 @@ function linkedGifEmbed(content: string, origin: string) {
 }
 let frecencySettings: string | null = null;
 
+/** A protobuf's top-level fields, each its number and its bytes as written. */
+function writtenFields(bytes: Uint8Array): { number: number; bytes: Uint8Array }[] {
+  const fields: { number: number; bytes: Uint8Array }[] = [];
+  let at = 0;
+  const varint = () => {
+    let value = 0n;
+    for (let shift = 0n; ; shift += 7n) {
+      const byte = bytes[at++]!;
+      value |= BigInt(byte & 0x7f) << shift;
+      if (byte < 0x80) return value;
+    }
+  };
+  while (at < bytes.length) {
+    const start = at;
+    const tag = Number(varint());
+    switch (tag & 7) {
+      case 0: varint(); break;
+      case 1: at += 8; break;
+      // The length first: `at += …` would read `at` before it moved past it.
+      case 2: { const length = Number(varint()); at += length; break; }
+      case 5: at += 4; break;
+      default: throw new Error(`wire type ${tag & 7}`);
+    }
+    fields.push({ number: tag >> 3, bytes: bytes.slice(start, at) });
+  }
+  return fields;
+}
+
+/** `kept` with each top-level field `patch` has replaced by the patch's. */
+function mergeProto(kept: string, patch: string): string {
+  const patched = writtenFields(Buffer.from(patch, "base64"));
+  const replaced = new Set(patched.map((field) => field.number));
+  const merged = [...writtenFields(Buffer.from(kept, "base64")).filter((field) => !replaced.has(field.number)), ...patched];
+  return Buffer.concat(merged.map((field) => field.bytes)).toString("base64");
+}
+
 const DETECTABLE_GAMES = [{ id: "123456789012345680", name: "Detected Fixture",
   description: "Discard this unrelated catalogue metadata when caching",
   executables: [
@@ -4971,6 +5091,7 @@ const DETECTABLE_GAMES = [{ id: "123456789012345680", name: "Detected Fixture",
   ], third_party_skus: [] }];
 
 async function api(req: Request, path: string, origin: string): Promise<Response> {
+  if (req.method === "POST" && path === "/interactions") return interact(await req.json(), origin);
   // A Rich Presence application and its images. Games leave out their name
   // and name images by key, which the client turns into the application's
   // name and image ids before the presence goes to the gateway.
@@ -5291,6 +5412,10 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     return json(incidents() ?? {});
   }
 
+  // Discord's default sticker packs, which its client offers beside a
+  // server's own; the CDN serves their stickers like any other.
+  if (method === "GET" && path === "/sticker-packs") return json(STICKER_PACKS);
+
   // Emoji and Stickers in Server Settings. GET /guilds/{id}/emojis lists
   // "Server"'s emoji with who uploaded each; POST adds one from `{name,
   // image}`, a data URI under 256 KB; PATCH renames one and DELETE removes
@@ -5305,7 +5430,10 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     if (m[1] !== GUILD) return notFound("Unknown Guild", 10004);
     const manage = aliceMay(30);
     const create = manage || aliceMay(43);
-    if (!create) return json({ message: "Missing Permissions", code: 50013 }, 403);
+    // Listing takes no permission, as any member may list a server's emoji and
+    // stickers; adding and changing them do. Who uploaded each comes only to
+    // those who may.
+    if (!create && method !== "GET") return json({ message: "Missing Permissions", code: 50013 }, 403);
     const emojis = m[2] === "emojis";
     const id = m[3];
     const invalid = (field: string, code: string, message: string) =>
@@ -5322,8 +5450,8 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       typeof name === "string" && name.length >= low && name.length <= high;
     if (method === "GET" && !id) {
       return json(emojis
-        ? expressions.emojis.map((emoji) => wireEmoji(emoji, true))
-        : expressions.stickers.map((sticker) => wireSticker(sticker, true)));
+        ? expressions.emojis.map((emoji) => wireEmoji(emoji, create))
+        : expressions.stickers.map((sticker) => wireSticker(sticker, create)));
     }
     if (method === "DELETE" && found) {
       if (emojis) expressions.emojis = expressions.emojis.filter((emoji) => emoji.id !== id);
@@ -5768,6 +5896,21 @@ async function api(req: Request, path: string, origin: string): Promise<Response
         };
         polls.push(asked);
       }
+      // A sticker, as Discord's client sends one: a message of the stickers
+      // alone, one to three of them.
+      let stickers: { id: string; name: string; format_type: number }[] | undefined;
+      if (body.sticker_ids) {
+        const ids: string[] = Array.isArray(body.sticker_ids) ? body.sticker_ids.map(String) : [];
+        if (ids.length < 1 || ids.length > 3 || body.content) {
+          return json({ message: "Invalid Form Body", code: 50035 }, 400);
+        }
+        stickers = [];
+        for (const id of ids) {
+          const sticker = stickerById(id);
+          if (!sticker) return notFound("Unknown Sticker", 10060);
+          stickers.push(sticker);
+        }
+      }
       const reply = body.message_reference?.message_id;
       const attached = takeUploads(body.attachments, m[1]!);
       if (!attached) return json({ message: "Invalid Form Body", code: 50035 }, 400);
@@ -5775,6 +5918,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
         nonce: body.nonce ? String(body.nonce) : undefined,
         reply: reply && byId.has(reply) ? reply : undefined,
         files: attached,
+        stickers,
         poll,
       });
       // An env's favourite GIF comes with its embed, so a recording doesn't
@@ -6058,7 +6202,8 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   // message points back at the message, which gains it, and its channel
   // hears of it if the message wasn't among its ten newest.
   if (method === "POST" && (m = path.match(/^\/channels\/(\d+)\/messages\/(\d+)\/threads$/))) {
-    const [, parent, id] = m as unknown as [string, string, string];
+    const parent = m[1]!;
+    const id = m[2]!;
     if (!messages.has(parent) || privates.has(parent) || threads.has(parent)) return notFound("Unknown Channel", 10003);
     const original = byId.get(id);
     if (!original || original.channel !== parent) return notFound("Unknown Message", 10008);
@@ -6310,8 +6455,10 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   if (method === "PATCH" && path === "/users/@me/settings-proto/2") {
     const body: any = await req.json().catch(() => ({}));
     if (typeof body.settings !== "string") return json({ message: "Invalid Form Body", code: 50035 }, 400);
-    frecencySettings = body.settings;
-    dispatch("USER_SETTINGS_PROTO_UPDATE", { settings: { type: 2, proto: frecencySettings }, partial: true });
+    // Each field the PATCH carries takes the place of the one kept; the rest
+    // stay, as a save of the favourite emoji leaves the GIFs.
+    frecencySettings = mergeProto(frecencySettings ??= favoriteGifs(origin), body.settings);
+    dispatch("USER_SETTINGS_PROTO_UPDATE", { settings: { type: 2, proto: body.settings }, partial: true });
     return json({ settings: frecencySettings });
   }
 
@@ -6382,9 +6529,11 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     const id = m[1]!;
     const user = userById.get(id);
     if (!user || id === ALICE) return notFound("Unknown User", 10013);
-    if (!where()) return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    const location = where();
+    if (!location) return json({ message: "Invalid Form Body", code: 50035 }, 400);
     const before = relationships.get(id);
     if (method === "DELETE") {
+      relationshipChanges.push({ method, user: id, type: null, location });
       if (before === undefined) return notFound("Unknown Relationship", 10011);
       relationships.delete(id);
       nicknames.delete(id);
@@ -6392,6 +6541,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       return empty();
     }
     const body: any = await req.json().catch(() => ({}));
+    relationshipChanges.push({ method, user: id, type: typeof body.type === "number" ? body.type : null, location });
     if (body.type === 2) {
       nicknames.delete(id);
       befriend(user, 2);
@@ -7501,6 +7651,55 @@ function postComponents(origin: string): string {
   return notice.id;
 }
 
+/** What Alice's client sent to POST /interactions, oldest first. */
+const interactions: unknown[] = [];
+
+/** Status Bot answers its controls and forms, to the session that used them. */
+function interact(body: any, origin: string): Response {
+  interactions.push(body);
+  const session = [...sockets].find((ws) => ws.data.identified && ws.data.session === body.session_id);
+  if (!session) return json({ message: "Invalid Form Body", code: 50035 }, 400);
+  const message = (messages.get(body.channel_id) ?? []).find((each) => each.id === body.message_id);
+  const known = body.application_id === statusBot.id
+    && (body.type === 5 || (body.type === 3 && message?.author.id === statusBot.id));
+  if (!known) return json({ message: "Unknown Application", code: 10002 }, 404);
+  const now = Date.now();
+  const id = snowflake(now, interactions.length);
+  const nonce = body.nonce;
+  const reply = (content: string) => {
+    const said = post(body.channel_id, statusBot, content, now + 1);
+    dispatch("MESSAGE_CREATE", dispatched(said, origin));
+  };
+  queueMicrotask(() => {
+    send(session, 0, { id, nonce }, "INTERACTION_CREATE");
+    const data = body.data ?? {};
+    if (body.type === 5 && data.custom_id === "rollback") {
+      const why = data.components?.find((row: any) => row.type === 18)?.component?.value;
+      send(session, 0, { id, nonce }, "INTERACTION_SUCCESS");
+      reply(`Rolled back to **v2.3**: ${why}`);
+    } else if (data.custom_id === "approve") {
+      send(session, 0, { id, nonce }, "INTERACTION_SUCCESS");
+      reply("Approved by Alice.");
+    } else if (data.custom_id === "rollback") {
+      send(session, 0, {
+        id, nonce, channel_id: body.channel_id, custom_id: "rollback", title: "Roll back v2.4",
+        application: { id: statusBot.id, name: "Status Bot", icon: null, description: "", bot_public: true },
+        components: [
+          { type: 10, id: 1, content: "**This redeploys v2.3** to everyone." },
+          { type: 18, id: 2, label: "Why", component: { type: 4, id: 3, custom_id: "why", style: 2, required: true } },
+        ],
+      }, "INTERACTION_MODAL_CREATE");
+      send(session, 0, { id, nonce }, "INTERACTION_SUCCESS");
+    } else if (data.custom_id === "environment" && data.values?.[0] === "staging") {
+      send(session, 0, { id, nonce }, "INTERACTION_SUCCESS");
+      reply("Deploying to staging.");
+    } else {
+      send(session, 0, { id, nonce, reason_code: 1 }, "INTERACTION_FAILURE");
+    }
+  });
+  return new Response(null, { status: 204 });
+}
+
 // --- Environments -------------------------------------------------------------
 // With --env, the fixture made above is emptied and the env's content fills
 // the same stores: people in userById, history through post(), DMs in
@@ -8124,6 +8323,23 @@ const server = Bun.serve<SocketData>({
       dispatch("PRESENCE_UPDATE", { user: { id: users.bob.id }, ...presences[users.bob.id] });
       return new Response("Bob is on his phone\n");
     }
+    if (req.method === "POST" && path === "/_control/churn-start") {
+      let turn = 0;
+      clearInterval(churn);
+      churn = setInterval(() => {
+        const person = listed[(turn++ * 7) % listed.length]!;
+        changeMembers(() => {
+          const status = presences[person.id]!.status === "offline" ? "online" : "offline";
+          presences[person.id] = { status, activities: [] };
+          dispatch("PRESENCE_UPDATE", { user: { id: person.id }, client_status: {}, ...presences[person.id] });
+        });
+      }, 100);
+      return new Response("churn\n");
+    }
+    if (req.method === "POST" && path === "/_control/churn-stop") {
+      clearInterval(churn);
+      return new Response("no churn\n");
+    }
     if (req.method === "POST" && path === "/_control/bob-offline") {
       presences[users.bob.id] = { status: "offline", activities: [] };
       dispatch("PRESENCE_UPDATE", { user: { id: users.bob.id }, client_status: {}, ...presences[users.bob.id] });
@@ -8168,6 +8384,7 @@ const server = Bun.serve<SocketData>({
       return new Response(`${name}'s camera is ${state.self_video ? "on" : "off"} in ${calls.length} call(s)\n`);
     }
     if (path === "/_control/soundboard-sends") return Response.json(soundboardSends);
+    if (path === "/_control/interactions") return Response.json(interactions);
     if (path === "/_control/custom-call-sounds") return Response.json(customCallSounds);
     if (req.method === "POST" && path === "/_control/soundboard-play") {
       const who = url.searchParams.get("user") ?? "bob";
@@ -8746,6 +8963,9 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/group-leaves") {
       return Response.json(groupLeaves);
+    }
+    if (req.method === "GET" && path === "/_control/relationship-changes") {
+      return Response.json(relationshipChanges);
     }
     if (req.method === "GET" && path === "/_control/invite-joins") {
       return Response.json(inviteJoins);

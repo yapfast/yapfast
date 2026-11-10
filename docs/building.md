@@ -171,15 +171,17 @@ is. Compare it with the Fluent style's when upgrading Slint.
 The Matrix SDK revision follows the pinned MatrixRTC revision. Keep those two
 sources together when upgrading.
 
-The picker's, the reaction buttons' and the emoji suggestions' emoji are drawn
-from Twemoji's pictures, the artwork Discord's client uses: `vendor/twemoji` is
+Every emoji Yapfast draws, in the picker, reactions, suggestions, names and
+message text, is drawn from Twemoji's pictures, the artwork Discord's client uses: `vendor/twemoji` is
 `assets/72x72` from https://github.com/discord/twemoji at the revision
 `vendor/twemoji/REVISION` names, under CC-BY 4.0, which asks for the attribution
 `vendor/twemoji/README.yapfast.md` gives. `build.rs` makes them one font the program
 carries, which message text draws and maps rather than copies, and
-`src/twemoji.rs` finds a picture in it by the emoji's code points; a code point it has
-no picture for stays a glyph from the system's emoji font (`src/emoji_glyphs.rs`
-draws that once into a picture). `scripts/release_package.py` copies the
+`src/twemoji.rs` finds a picture in it by the emoji's code points. The font also
+maps each single emoji's own code point and joins each sequence of several, such as
+a flag or a skin tone, into its picture with GSUB ligatures, so text that keeps an
+emoji as typed draws Twemoji's picture too; no system emoji font is used, and the
+picker lists only the emoji Twemoji has a picture for. `scripts/release_package.py` copies the
 licences and attribution into each package and `THIRD-PARTY.json`. Update by
 taking the new commit's files over these, as `vendor/twemoji/README.yapfast.md`
 says.

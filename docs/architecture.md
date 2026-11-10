@@ -115,7 +115,10 @@ images outside the cache budget.
 Virtualized server, DM, member, friend and message rows carry avatar URLs.
 `PictureStore` resolves them only when Slint instantiates their components,
 queues missing pictures for one batch, and updates visible bindings when
-pictures arrive. Its source registry holds weak pointers. The UI has
+pictures arrive. Each binding reads the revision of one of 32 slots, by a
+hash of its address, and a picture that comes, changes or goes moves only
+its slot's revision: the rest of the window's pictures keep their drawn
+images and aren't painted again. Its source registry holds weak pointers. The UI has
 yapfast-core decode pictures into Slint's pixel buffers (`set_pixel_buffers`), so
 a Slint image of a picture shares its pixels rather than copying them.
 Converted avatars and gallery previews share an 8 MiB Slint image cache;

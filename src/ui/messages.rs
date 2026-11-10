@@ -551,8 +551,10 @@ pub(super) fn message_row_within(
                 ImageCell {
                     index: index as i32,
                     name: attachment.name.clone().into(),
-                    width: preview.width as i32,
-                    height: preview.height as i32,
+                    // Discord draws a message's sticker 160px square, whatever
+                    // its picture came at.
+                    width: STICKER_SIZE,
+                    height: STICKER_SIZE,
                     frames,
                     delays,
                     ..Default::default()
@@ -694,6 +696,17 @@ pub(super) fn message_row_within(
         color: role_color(message.color),
         has_color: message.color.is_some(),
         bot: message.bot,
+        app_id: message
+            .application_id
+            .as_deref()
+            .or_else(|| {
+                message
+                    .bot
+                    .then(|| discord::sender_user(&message.sender))
+                    .flatten()
+            })
+            .unwrap_or_default()
+            .into(),
         initial: initial(&message.author),
         tint: tint(&message.author),
         // Virtualized avatars resolve their URLs when their components are built.
@@ -932,9 +945,16 @@ fn card_row<'a>(
             )),
             ..Default::default()
         },
-        Row::Select { text, .. } => CardRow {
+        Row::Select {
+            text,
+            disabled,
+            custom_id,
+            ..
+        } => CardRow {
             kind: CardRowKind::Select,
             select: text.as_str().into(),
+            select_id: custom_id.as_str().into(),
+            select_enabled: !disabled && !custom_id.is_empty(),
             ..Default::default()
         },
         Row::Unknown => CardRow {
@@ -965,9 +985,13 @@ fn card_button(
             ButtonStyle::Success => CardButtonStyle::Success,
             ButtonStyle::Danger => CardButtonStyle::Danger,
             ButtonStyle::Link => CardButtonStyle::Link,
+            ButtonStyle::Premium => CardButtonStyle::Premium,
         },
         url: button.url.clone().unwrap_or_default().into(),
-        enabled: button.url.is_some() && !button.disabled,
+        custom_id: button.custom_id.clone().unwrap_or_default().into(),
+        sku_id: button.sku_id.clone().unwrap_or_default().into(),
+        enabled: !button.disabled
+            && (button.url.is_some() || button.custom_id.is_some() || button.sku_id.is_some()),
     }
 }
 
@@ -1369,6 +1393,101 @@ pub(super) fn emoji_card(
         }
         .into(),
         ..Default::default()
+    }
+}
+
+/// A default sticker's card: Discord's own packs are usable anywhere.
+const DEFAULT_STICKER: &str = "This is a default sticker. It can be used anywhere.";
+
+/// A server's sticker's card, when the server is one this account can reach.
+const SERVER_STICKER: &str = "This sticker is from one of your servers.";
+
+/// The id of the sticker a message's attachment is, from its picture's
+/// address: `/stickers/{id}.png?size=160`, `.gif` or `.json`.
+fn sticker_id(url: &str) -> Option<&str> {
+    let name = url.rsplit('/').next()?;
+    name.split(['.', '?']).next().filter(|id| !id.is_empty())
+}
+
+/// The card a click on a sticker in a message opens: the sticker, its name as
+/// the message names it, and the server it is from when one of this account's
+/// lists it.
+pub(super) fn sticker_card(app: &Application, item: &str, index: usize) -> MessageStickerCard {
+    let Some(attachment) = app
+        .state
+        .message(item)
+        .and_then(|message| message.attachments.get(index))
+    else {
+        return MessageStickerCard::default();
+    };
+    let url = attachment.url.as_deref().unwrap_or_default();
+    // Which server lists it: Discord's packs are nobody's, and a message's
+    // sticker names no server itself.
+    let server = sticker_id(url)
+        .and_then(|id| {
+            app.state
+                .stickers
+                .servers
+                .iter()
+                .find(|server| server.stickers.iter().any(|sticker| sticker.id == id))
+        })
+        .and_then(|server| {
+            let id = yapfast_core::discord::server_id(&server.id);
+            app.state.servers.iter().find(|known| known.id == id)
+        });
+    // Its frames as the message plays them, and the still it shows until they
+    // come, or for a still sticker.
+    let still = attachment
+        .preview
+        .as_ref()
+        .map(|picture| pictures::picture(picture));
+    let (frames, delays) = attachment
+        .preview
+        .as_ref()
+        .map_or_else(Default::default, pictures::animation);
+    // What Discord said of the server, as the emoji card has it.
+    let preview = server.and_then(|server| app.state.server_previews.get(&server.id));
+    let discoverable = preview.map_or_else(
+        || server.is_some_and(|server| server.community),
+        |preview| preview.discoverable,
+    );
+    MessageStickerCard {
+        name: attachment.name.as_str().into(),
+        picture_url: url.into(),
+        picture: still.unwrap_or_default(),
+        frames,
+        delays,
+        server_online: preview
+            .and_then(|preview| preview.online)
+            .map_or_else(String::new, |online| format!("{} Online", grouped(online)))
+            .into(),
+        server_note: if discoverable {
+            "Discoverable Server"
+        } else {
+            ""
+        }
+        .into(),
+        description: if server.is_some() {
+            SERVER_STICKER
+        } else {
+            DEFAULT_STICKER
+        }
+        .into(),
+        server: server
+            .map(|server| server.id.clone())
+            .unwrap_or_default()
+            .into(),
+        server_name: server
+            .map(|server| server.name.clone())
+            .unwrap_or_default()
+            .into(),
+        server_picture_url: server
+            .and_then(|server| server.icon.clone())
+            .unwrap_or_default()
+            .into(),
+        server_initial: server
+            .map(|server| initial(&server.name))
+            .unwrap_or_default(),
     }
 }
 

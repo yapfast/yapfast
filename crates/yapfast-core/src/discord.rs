@@ -5,14 +5,19 @@
 //! The ids are known in every build; listing needs the `discord` feature.
 #[cfg(feature = "discord")]
 use std::{
-    collections::{HashMap, HashSet},
-    sync::{Arc, Mutex},
+    collections::{HashMap, HashSet, VecDeque},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 
 #[cfg(feature = "discord")]
+use futures_util::future::{AbortHandle, AbortRegistration, Abortable};
+#[cfg(feature = "discord")]
 use tokio::{
-    sync::{Semaphore, mpsc::UnboundedSender},
+    sync::{Notify, mpsc::UnboundedSender},
     task::JoinSet,
 };
 #[cfg(feature = "discord")]
@@ -85,6 +90,15 @@ const PARALLEL_DOWNLOADS: usize = 8;
 /// Pictures decoding at once, from disk or the network.
 #[cfg(feature = "discord")]
 const PARALLEL_DECODES: usize = 4;
+/// Encoded pictures held while downloading or decoding. Keeping room for
+/// both preserves the eight network slots without reading an unbounded
+/// number of cached pictures ahead of the four decoders.
+#[cfg(feature = "discord")]
+const PARALLEL_BUFFERS: usize = PARALLEL_DOWNLOADS + PARALLEL_DECODES;
+/// Background cache-fill workers, shared across every prefetch call, enough
+/// to use all network slots when no foreground picture is waiting.
+#[cfg(feature = "discord")]
+const PREFETCH_WORKERS: usize = PARALLEL_DOWNLOADS;
 /// Tries per picture whose download may work later, before its initial
 /// shows for good.
 #[cfg(feature = "discord")]
@@ -934,6 +948,7 @@ fn server_rooms(
         pinned,
         banner: server.banner.clone(),
         verified: server.verified,
+        boosts: server.boost_bar.then_some(server.boosts),
         events: server
             .events
             .iter()
@@ -1063,12 +1078,61 @@ fn thread_room(
 /// Dropping it cancels the downloads.
 #[cfg(feature = "discord")]
 pub(crate) struct Pictures {
-    turns: Arc<Turns>,
     /// Counts the batches asked for, which take turns newest first.
     batches: u64,
-    decodes: Arc<Semaphore>,
-    backoff: Arc<Mutex<Backoff>>,
+    loads: Arc<PictureLoads>,
+    prefetch: Arc<Prefetch>,
+    prefetch_started: bool,
     tasks: JoinSet<()>,
+}
+
+/// Foreground and background share jobs by URL, as well as all their limits.
+#[cfg(feature = "discord")]
+struct PictureLoads {
+    turns: Arc<Turns>,
+    /// Both queues take the newest batch first, before reading any encoded
+    /// bytes and before decoding them respectively.
+    buffers: Arc<Turns>,
+    decodes: Arc<Turns>,
+    backoff: Mutex<Backoff>,
+    pending: Arc<Mutex<HashMap<String, Waiting>>>,
+    /// The pictures that failed for good, which aren't tried again: Discord
+    /// said there is none, or what came doesn't decode. One that failed only
+    /// while Discord or the network was down is tried again when asked for.
+    failed: Mutex<HashSet<String>>,
+}
+
+/// A picture on its way: the batch it goes in, what calls it off, and where
+/// to show it. A prefetch promoted to the foreground gains an event sender
+/// and a newer batch without starting a second download.
+#[cfg(feature = "discord")]
+struct Waiting {
+    batch: Arc<AtomicU64>,
+    cancel: AbortHandle,
+    events: Option<UnboundedSender<Event>>,
+}
+
+/// Only URLs are queued; a fixed number of workers owns the active jobs.
+#[cfg(feature = "discord")]
+#[derive(Default)]
+struct Prefetch {
+    queue: Mutex<PrefetchQueue>,
+    ready: Notify,
+}
+
+#[cfg(feature = "discord")]
+#[derive(Default)]
+struct PrefetchQueue {
+    urls: VecDeque<Arc<str>>,
+    queued: HashSet<Arc<str>>,
+}
+
+/// Locks `mutex`, through a poisoning: what it guards stays whole.
+#[cfg(feature = "discord")]
+fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Turns to download, the newest batch asked for going first, in its own
@@ -1082,13 +1146,42 @@ struct Turns {
 #[cfg(feature = "discord")]
 struct TurnState {
     free: usize,
-    /// With their batch, in the order they came.
-    waiting: Vec<(u64, tokio::sync::oneshot::Sender<Turn>)>,
+    /// With their batch, which can move to a newer one while it waits, in
+    /// the order they came.
+    waiting: Vec<TurnWaiter>,
+}
+
+#[cfg(feature = "discord")]
+struct TurnWaiter {
+    /// A batch can be shared by several waits; cancellation names this wait
+    /// alone, even if another for the same batch has since been registered.
+    identity: Arc<()>,
+    batch: Arc<AtomicU64>,
+    ready: tokio::sync::oneshot::Sender<Turn>,
+}
+
+/// Removes a queued wait as soon as its future is cancelled.
+#[cfg(feature = "discord")]
+struct QueuedTurn {
+    turns: Arc<Turns>,
+    identity: Arc<()>,
+}
+
+#[cfg(feature = "discord")]
+impl Drop for QueuedTurn {
+    fn drop(&mut self) {
+        self.turns
+            .state()
+            .waiting
+            .retain(|wait| !Arc::ptr_eq(&wait.identity, &self.identity));
+    }
 }
 
 /// A turn to download, passed on to the newest waiting when dropped.
+/// An undelivered handoff can be disarmed without forgetting its Arc or
+/// recursively returning the turn while its scheduler is locked.
 #[cfg(feature = "discord")]
-struct Turn(Arc<Turns>);
+struct Turn(Option<Arc<Turns>>);
 
 #[cfg(feature = "discord")]
 impl Turns {
@@ -1107,39 +1200,58 @@ impl Turns {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    async fn take(self: &Arc<Self>, batch: u64) -> Option<Turn> {
-        let waiting = {
+    async fn take(self: &Arc<Self>, batch: &Arc<AtomicU64>) -> Option<Turn> {
+        let (queued, waiting) = {
             let mut state = self.state();
             if state.free > 0 {
                 state.free -= 1;
-                return Some(Turn(self.clone()));
+                return Some(Turn(Some(self.clone())));
             }
-            let (sender, waiting) = tokio::sync::oneshot::channel();
-            state.waiting.push((batch, sender));
-            waiting
+            let (ready, waiting) = tokio::sync::oneshot::channel();
+            let identity = Arc::new(());
+            state.waiting.push(TurnWaiter {
+                identity: identity.clone(),
+                batch: batch.clone(),
+                ready,
+            });
+            (
+                QueuedTurn {
+                    turns: self.clone(),
+                    identity,
+                },
+                waiting,
+            )
         };
-        // A turn passed to a wait that was dropped meanwhile drops with it,
-        // and so passes on.
-        waiting.await.ok()
+        // Keep the registration across the await, including cancellation.
+        // If a granted turn has not yet been read, dropping the receiver
+        // returns it after this registration releases the state lock.
+        let turn = waiting.await.ok();
+        drop(queued);
+        turn
     }
 }
 
 #[cfg(feature = "discord")]
 impl Drop for Turn {
     fn drop(&mut self) {
-        let turns = &self.0;
+        let Some(turns) = self.0.take() else { return };
         let mut state = turns.state();
-        while let Some(newest) = state.waiting.iter().map(|(batch, _)| *batch).max() {
+        let batch = |waiting: &TurnWaiter| waiting.batch.load(Ordering::Relaxed);
+        while let Some(newest) = state.waiting.iter().map(batch).max() {
             let next = state
                 .waiting
                 .iter()
-                .position(|(batch, _)| *batch == newest)
+                .position(|waiting| batch(waiting) == newest)
                 .expect("the newest batch waits");
-            let (_, waiting) = state.waiting.remove(next);
-            match waiting.send(Turn(turns.clone())) {
+            let waiting = state.waiting.remove(next);
+            match waiting.ready.send(Turn(Some(turns.clone()))) {
                 Ok(()) => return,
-                // That wait was dropped; this turn is still in hand.
-                Err(turn) => std::mem::forget(turn),
+                // Cancellation raced the handoff. This drop still owns the
+                // turn: disarm the undelivered copy, releasing its Arc, and
+                // try the next wait without re-locking the scheduler.
+                Err(mut turn) => {
+                    drop(turn.0.take());
+                }
             }
         }
         state.free += 1;
@@ -1185,42 +1297,46 @@ impl Backoff {
 impl Pictures {
     pub(crate) fn new() -> Self {
         Self {
-            turns: Turns::new(PARALLEL_DOWNLOADS),
             batches: 0,
-            decodes: Arc::new(Semaphore::new(PARALLEL_DECODES)),
-            backoff: Arc::default(),
+            loads: PictureLoads::new(),
+            prefetch: Arc::default(),
+            prefetch_started: false,
             tasks: JoinSet::new(),
         }
     }
 
-    /// Downloads `urls` to the disk cache alone: nothing is decoded, nothing is
-    /// sent to show, and nothing is held, so a start that has never kept a
-    /// picture can fetch a whole account's custom emoji in the background at
-    /// no memory cost. The downloads keep the fetcher's turns and backoff, so
-    /// whatever is on screen goes first, and Discord's limits hold.
+    /// Fills the disk cache using a fixed worker pool and a deduplicated URL
+    /// queue, without decoding or retaining pictures. Its batch goes behind
+    /// everything shown. A foreground request promotes the same active job
+    /// rather than downloading that URL twice.
     pub(crate) fn prefetch(&mut self, discord: &Discord, urls: Vec<String>) {
         while self.tasks.try_join_next().is_some() {}
-        self.batches += 1;
-        let batch = self.batches;
-        for url in urls {
-            let (discord, turns, backoff) =
-                (discord.clone(), self.turns.clone(), self.backoff.clone());
-            self.tasks.spawn(async move {
-                // The download checks the disk first and keeps what it gets;
-                // the bytes themselves are dropped here.
-                match download(&discord, &url, &turns, batch, &backoff).await {
-                    Some(data) => tracing::debug!(bytes = data.len(), "prefetched a picture"),
-                    None => tracing::debug!("a prefetched picture failed"),
-                }
-            });
+        self.prefetch.enqueue(&self.loads, urls);
+        self.start_prefetch(discord);
+    }
+
+    /// Cancellation can leave a foreground emoji to warm in the background
+    /// even before an explicit prefetch call arrives.
+    fn start_prefetch(&mut self, discord: &Discord) {
+        if !self.prefetch_started {
+            self.prefetch_started = true;
+            for _ in 0..PREFETCH_WORKERS {
+                let (discord, loads, prefetch) =
+                    (discord.clone(), self.loads.clone(), self.prefetch.clone());
+                self.tasks.spawn(async move {
+                    prefetch.run(&discord, &loads).await;
+                });
+            }
         }
     }
 
     /// Shows `urls`: those kept on disk at once, the rest as they download,
-    /// a few at a time, the newest batch asked for first. A picture whose
-    /// download may work later is tried again, after a wait every download
-    /// keeps to; one that fails for good is logged and left out, and its
-    /// initial shows instead.
+    /// a few at a time, the newest batch asked for first, each in the order
+    /// given. One already on its way moves into this batch rather than going
+    /// twice, so what a picker shows now goes ahead of what it asked for as it
+    /// scrolled past. A picture whose download may work later is tried again,
+    /// after a wait every download keeps to; one that fails for good is logged
+    /// and left out, and its initial shows instead.
     pub(crate) fn fetch(
         &mut self,
         discord: &Discord,
@@ -1229,104 +1345,370 @@ impl Pictures {
     ) {
         while self.tasks.try_join_next().is_some() {}
         self.batches += 1;
-        let batch = self.batches;
         for url in urls {
-            let (discord, events, turns, decodes, backoff) = (
-                discord.clone(),
-                events.clone(),
-                self.turns.clone(),
-                self.decodes.clone(),
-                self.backoff.clone(),
-            );
+            if url.contains("/emojis/") {
+                self.start_prefetch(discord);
+            }
+            let Some((pending, registration)) =
+                self.loads.register(url, self.batches, Some(events.clone()))
+            else {
+                continue;
+            };
+            let (discord, loads) = (discord.clone(), self.loads.clone());
+            // The registration is captured before the task's first poll, so
+            // even an immediate abort removes it from the pending map.
             self.tasks.spawn(async move {
-                let data = match discord.kept_picture(&url, MAX_PICTURE_BYTES).await {
-                    Some(kept) => kept,
-                    None => match download(&discord, &url, &turns, batch, &backoff).await {
-                        Some(data) => data,
-                        None => return,
-                    },
-                };
-                let (width, height) = if url.contains("/banners/") {
-                    BANNER_SIZE
-                } else if url.ends_with(chat::EFFECT_PICTURE) {
-                    EFFECT_SIZE
-                } else if url.contains("/collectibles-shop/") {
-                    COLLECTIBLE_SIZE
-                } else if url.contains("/badge-icons/") {
-                    (BADGE_SIZE, BADGE_SIZE)
-                } else {
-                    (PICTURE_SIZE, PICTURE_SIZE)
-                };
-                let Ok(_decoding) = decodes.acquire().await else {
-                    return;
-                };
-                let address = url.clone();
-                let decoded = tokio::task::spawn_blocking(move || {
-                    let decode = if yapfast_discord::ready::is_asset_svg(&address) {
-                        chat::decode_svg
-                    } else {
-                        chat::decode_picture
-                    };
-                    decode(&data, width, height).map(|picture| read_kept(&address, picture))
-                })
-                .await;
-                match decoded {
-                    Ok(Some(picture)) => {
-                        let _ = events.send(Event::Picture {
-                            url,
-                            picture: Arc::new(picture),
-                        });
-                    }
-                    _ => tracing::debug!(%url, "could not decode a Discord picture"),
-                }
+                let _ = Abortable::new(loads.fetch(&discord, pending), registration).await;
             });
+        }
+    }
+
+    /// Calls off foreground jobs for `urls`, including promoted prefetches.
+    /// Emoji still warm the disk cache through the bounded background queue;
+    /// an already cache-only job stays there, even on duplicate cancellation.
+    /// A blocking decode finishes with its slots held but its result discarded.
+    pub(crate) fn cancel(&mut self, urls: &[String]) {
+        // A finished job keeps its place in the set until one is reaped, and
+        // the next fetch may be long after a close: reap here, so what the
+        // picker's burst ran keeps nothing once it has.
+        while self.tasks.try_join_next().is_some() {}
+        for url in urls {
+            let waiting = {
+                let mut pending = locked(&self.loads.pending);
+                if pending
+                    .get(url)
+                    .is_some_and(|waiting| waiting.events.is_some())
+                {
+                    pending.remove(url)
+                } else {
+                    None
+                }
+            };
+            if let Some(waiting) = waiting {
+                waiting.cancel.abort();
+                if url.contains("/emojis/") {
+                    // Release pending before enqueue: the queue takes its lock
+                    // first. The old Pending can only remove its own identity,
+                    // not a worker or foreground replacement for the same URL.
+                    self.prefetch.enqueue(&self.loads, vec![url.clone()]);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "discord")]
+impl PictureLoads {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            turns: Turns::new(PARALLEL_DOWNLOADS),
+            buffers: Turns::new(PARALLEL_BUFFERS),
+            decodes: Turns::new(PARALLEL_DECODES),
+            backoff: Mutex::default(),
+            pending: Arc::default(),
+            failed: Mutex::default(),
+        })
+    }
+
+    /// Registers a single job or promotes the one already doing this URL.
+    /// Its guard is made before spawning, not inside the spawned future.
+    fn register(
+        &self,
+        url: String,
+        batch: u64,
+        events: Option<UnboundedSender<Event>>,
+    ) -> Option<(Pending, AbortRegistration)> {
+        let mut pending = locked(&self.pending);
+        if let Some(waiting) = pending.get_mut(&url) {
+            if events.is_some() {
+                waiting.batch.store(batch, Ordering::Relaxed);
+                waiting.events = events;
+            }
+            return None;
+        }
+        if locked(&self.failed).contains(&url) {
+            return None;
+        }
+        let batch = Arc::new(AtomicU64::new(batch));
+        let (cancel, registration) = AbortHandle::new_pair();
+        pending.insert(
+            url.clone(),
+            Waiting {
+                batch: batch.clone(),
+                cancel,
+                events,
+            },
+        );
+        Some((
+            Pending {
+                url,
+                batch,
+                pending: self.pending.clone(),
+            },
+            registration,
+        ))
+    }
+
+    async fn fetch(&self, discord: &Discord, pending: Pending) {
+        // Bound encoded data before reading the disk cache, and before
+        // decoding what came, so the disk isn't read far ahead of the four
+        // decoders. A picture the disk doesn't hold lets its turn go while it
+        // downloads, which has turns of its own: downloads waiting out a
+        // backoff held every turn, and kept the pictures the disk has from
+        // showing until the network came back.
+        let Some(reading) = self.buffers.take(&pending.batch).await else {
+            return;
+        };
+        let (data, buffer) = match discord.kept_picture(&pending.url, MAX_PICTURE_BYTES).await {
+            Some(kept) => {
+                tracing::trace!(url = %pending.url, bytes = kept.len(), "read a Discord picture from cache");
+                (kept, Some(reading))
+            }
+            None => {
+                drop(reading);
+                match download(
+                    discord,
+                    &pending.url,
+                    &self.turns,
+                    &pending.batch,
+                    &self.backoff,
+                )
+                .await
+                {
+                    Ok(data) => (data, None),
+                    Err(for_good) => {
+                        // Cache-only failures must not blacklist a picture
+                        // before the foreground has ever tried to show it.
+                        if for_good && pending.events().is_some() {
+                            locked(&self.failed).insert(pending.url.clone());
+                        }
+                        return;
+                    }
+                }
+            }
+        };
+        if pending.events().is_none() {
+            tracing::debug!(url = %pending.url, bytes = data.len(), "prefetched a picture");
+            return;
+        }
+        let buffer = match buffer {
+            Some(buffer) => buffer,
+            None => match self.buffers.take(&pending.batch).await {
+                Some(buffer) => buffer,
+                None => return,
+            },
+        };
+        let (width, height) = if pending.url.contains("/banners/") {
+            BANNER_SIZE
+        } else if pending.url.ends_with(chat::EFFECT_PICTURE) {
+            EFFECT_SIZE
+        } else if pending.url.contains("/collectibles-shop/") {
+            COLLECTIBLE_SIZE
+        } else if pending.url.contains("/badge-icons/") {
+            (BADGE_SIZE, BADGE_SIZE)
+        } else {
+            (PICTURE_SIZE, PICTURE_SIZE)
+        };
+        let Some(decoding) = self.decodes.take(&pending.batch).await else {
+            return;
+        };
+        let address = pending.url.clone();
+        let decoded = tokio::task::spawn_blocking(move || {
+            // Blocking work cannot be stopped by aborting the async task.
+            // Keep both bounds in force until that work actually finishes.
+            let (_buffer, _decoding) = (buffer, decoding);
+            let decode = if yapfast_discord::ready::is_asset_svg(&address) {
+                chat::decode_svg
+            } else {
+                chat::decode_picture
+            };
+            decode(&data, width, height).map(|picture| read_kept(&address, picture))
+        })
+        .await;
+        match decoded {
+            Ok(Some(picture)) => pending.show(picture),
+            _ => {
+                tracing::debug!(url = %pending.url, "could not decode a Discord picture");
+                locked(&self.failed).insert(pending.url.clone());
+            }
+        }
+    }
+}
+
+#[cfg(feature = "discord")]
+impl Prefetch {
+    fn enqueue(&self, loads: &PictureLoads, urls: Vec<String>) {
+        {
+            // Queue before pending is the only nested lock order here and
+            // in `next`; foreground jobs never need the queue lock.
+            let mut queue = locked(&self.queue);
+            let pending = locked(&loads.pending);
+            let failed = locked(&loads.failed);
+            for url in urls {
+                if !pending.contains_key(&url) && !failed.contains(&url) {
+                    // The queue and its membership set share the URL bytes.
+                    let url: Arc<str> = url.into();
+                    if queue.queued.insert(url.clone()) {
+                        queue.urls.push_back(url);
+                    }
+                }
+            }
+        }
+        self.ready.notify_waiters();
+    }
+
+    fn next(&self, loads: &PictureLoads) -> Option<(Pending, AbortRegistration)> {
+        let mut queue = locked(&self.queue);
+        while let Some(url) = queue.urls.pop_front() {
+            queue.queued.remove(&url);
+            // Register while still holding the queue lock: overlapping
+            // prefetch calls cannot slip this URL between the two maps.
+            if let Some(job) = loads.register(url.to_string(), 0, None) {
+                return Some(job);
+            }
+        }
+        None
+    }
+
+    async fn run(&self, discord: &Discord, loads: &PictureLoads) {
+        loop {
+            let ready = self.ready.notified();
+            tokio::pin!(ready);
+            // Register the wake before checking the queue, so an enqueue
+            // between that check and the await cannot strand work.
+            ready.as_mut().enable();
+            if let Some((pending, registration)) = self.next(loads) {
+                let _ = Abortable::new(loads.fetch(discord, pending), registration).await;
+            } else {
+                ready.await;
+            }
+        }
+    }
+}
+
+/// A picture on its way, which [`PictureLoads::pending`] lists until it ends.
+#[cfg(feature = "discord")]
+struct Pending {
+    url: String,
+    /// Its own batch, so it ends its own wait rather than a later one for
+    /// the same picture, asked for after this one was called off.
+    batch: Arc<AtomicU64>,
+    pending: Arc<Mutex<HashMap<String, Waiting>>>,
+}
+
+#[cfg(feature = "discord")]
+impl Pending {
+    /// Finishes a cache-only job atomically with checking for promotion.
+    /// A foreground request arriving afterwards creates a new cache read;
+    /// one arriving before this check uses the bytes already in hand.
+    fn events(&self) -> Option<UnboundedSender<Event>> {
+        let mut pending = locked(&self.pending);
+        let waiting = pending.get(&self.url)?;
+        if !Arc::ptr_eq(&waiting.batch, &self.batch) {
+            return None;
+        }
+        let events = waiting.events.clone();
+        if events.is_none() {
+            pending.remove(&self.url);
+        }
+        events
+    }
+
+    /// Cancellation and replacement may happen while a blocking decode runs.
+    /// Keep the identity check and send under the same lock as cancellation.
+    fn show(&self, picture: chat::Picture) {
+        let pending = locked(&self.pending);
+        if let Some(waiting) = pending.get(&self.url)
+            && Arc::ptr_eq(&waiting.batch, &self.batch)
+            && let Some(events) = &waiting.events
+        {
+            let _ = events.send(Event::Picture {
+                url: self.url.clone(),
+                picture: Arc::new(picture),
+            });
+        }
+    }
+}
+
+#[cfg(feature = "discord")]
+impl Drop for Pending {
+    fn drop(&mut self) {
+        let mut pending = locked(&self.pending);
+        if pending
+            .get(&self.url)
+            .is_some_and(|waiting| Arc::ptr_eq(&waiting.batch, &self.batch))
+        {
+            pending.remove(&self.url);
+        }
+    }
+}
+
+/// Waits out the shared backoff without holding a network turn. A request
+/// may have queued before another download failed, so it must check again
+/// after getting its turn, not just before joining the queue.
+#[cfg(feature = "discord")]
+async fn download_turn(
+    turns: &Arc<Turns>,
+    batch: &Arc<AtomicU64>,
+    backoff: &Mutex<Backoff>,
+) -> Option<Turn> {
+    loop {
+        let until = locked(backoff).until(Instant::now());
+        if let Some(until) = until {
+            tokio::time::sleep_until(until.into()).await;
+            continue;
+        }
+        let turn = turns.take(batch).await?;
+        let until = locked(backoff).until(Instant::now());
+        if let Some(until) = until {
+            drop(turn);
+            tokio::time::sleep_until(until.into()).await;
+        } else {
+            return Some(turn);
         }
     }
 }
 
 /// Downloads a picture in its turn, trying again after the wait every
 /// download keeps to while it may work later. The turn is held only while
-/// downloading.
+/// downloading. A failure says whether it was for good, as an answer that
+/// there is no such picture is, rather than one that may work later or a
+/// download called off.
 #[cfg(feature = "discord")]
 async fn download(
     discord: &Discord,
     url: &str,
     turns: &Arc<Turns>,
-    batch: u64,
+    batch: &Arc<AtomicU64>,
     backoff: &Mutex<Backoff>,
-) -> Option<Vec<u8>> {
-    let lock = || {
-        backoff
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    };
+) -> Result<Vec<u8>, bool> {
     let mut tries = 0;
     loop {
-        // Another download may push the wait further meanwhile.
-        loop {
-            let until = lock().until(Instant::now());
-            let Some(until) = until else { break };
-            tokio::time::sleep_until(until.into()).await;
-        }
-        let turn = turns.take(batch).await?;
+        let turn = download_turn(turns, batch, backoff).await.ok_or(false)?;
         tries += 1;
         let started = Instant::now();
         let result = discord.download_now(url, MAX_PICTURE_BYTES).await;
-        drop(turn);
         match result {
             Ok(data) => {
-                lock().succeeded();
-                return Some(data);
-            }
-            Err(error) if tries < PICTURE_TRIES && yapfast_discord::api::may_work_later(&error) => {
-                tracing::debug!(%error, %url, tries, "will download a Discord picture again");
-                lock().failed(started, Instant::now());
+                locked(backoff).succeeded();
+                return Ok(data);
             }
             Err(error) => {
-                tracing::debug!(%error, %url, "could not download a Discord picture");
-                return None;
+                let retryable = yapfast_discord::api::may_work_later(&error);
+                if retryable {
+                    // Publish the wait before handing the turn to a queued
+                    // request, including when this URL used its last try.
+                    locked(backoff).failed(started, Instant::now());
+                }
+                if retryable && tries < PICTURE_TRIES {
+                    tracing::debug!(%error, %url, tries, "will download a Discord picture again");
+                } else {
+                    tracing::debug!(%error, %url, "could not download a Discord picture");
+                    return Err(!retryable);
+                }
             }
         }
+        drop(turn);
     }
 }
 
@@ -1340,16 +1722,404 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn cancelled_turn_waits_are_removed_independently_in_the_same_batch() {
+        let turns = Turns::new(1);
+        let batch = Arc::new(AtomicU64::new(1));
+        let held = turns.take(&batch).await.unwrap();
+        let mut first = Box::pin(turns.take(&batch));
+        let mut second = Box::pin(turns.take(&batch));
+        assert!(futures_util::poll!(&mut first).is_pending());
+        assert!(futures_util::poll!(&mut second).is_pending());
+        assert_eq!(turns.state().waiting.len(), 2);
+
+        drop(first);
+        assert_eq!(
+            turns.state().waiting.len(),
+            1,
+            "cancellation removes its wait now"
+        );
+        let mut replacement = Box::pin(turns.take(&batch));
+        assert!(futures_util::poll!(&mut replacement).is_pending());
+        drop(second);
+        assert_eq!(
+            turns.state().waiting.len(),
+            1,
+            "the new wait has its own identity"
+        );
+
+        drop(held);
+        drop(replacement.await.unwrap());
+        assert!(turns.state().waiting.is_empty());
+        assert_eq!(turns.state().free, 1);
+        assert_eq!(Arc::strong_count(&turns), 1);
+    }
+
+    #[tokio::test]
+    async fn cancelling_an_unread_granted_turn_returns_it() {
+        let turns = Turns::new(1);
+        let batch = Arc::new(AtomicU64::new(1));
+        let held = turns.take(&batch).await.unwrap();
+        let mut waiting = Box::pin(turns.take(&batch));
+        assert!(futures_util::poll!(&mut waiting).is_pending());
+        drop(held);
+        assert!(
+            turns.state().waiting.is_empty(),
+            "the receiver now owns the turn"
+        );
+        assert_eq!(turns.state().free, 0);
+
+        drop(waiting);
+        assert_eq!(turns.state().free, 1);
+        drop(turns.take(&batch).await.unwrap());
+        assert_eq!(Arc::strong_count(&turns), 1);
+    }
+
+    #[tokio::test]
+    async fn failed_turn_handoffs_do_not_leak_the_scheduler() {
+        let turns = Turns::new(1);
+        let batch = Arc::new(AtomicU64::new(1));
+        let held = turns.take(&batch).await.unwrap();
+        // Model cancellation racing a handoff, after the sender was chosen
+        // but before it can deliver. Normal cancellations remove themselves.
+        for _ in 0..256 {
+            let (ready, receiver) = tokio::sync::oneshot::channel();
+            drop(receiver);
+            turns.state().waiting.push(TurnWaiter {
+                identity: Arc::new(()),
+                batch: batch.clone(),
+                ready,
+            });
+        }
+        let mut live = Box::pin(turns.take(&batch));
+        assert!(futures_util::poll!(&mut live).is_pending());
+        drop(held);
+        drop(live.await.unwrap());
+        assert!(turns.state().waiting.is_empty());
+        assert_eq!(turns.state().free, 1);
+        assert_eq!(Arc::strong_count(&turns), 1, "no forgotten handoff Arcs");
+        let weak = Arc::downgrade(&turns);
+        drop(turns);
+        assert!(weak.upgrade().is_none(), "the scheduler can be destroyed");
+    }
+
+    #[tokio::test]
+    async fn queued_downloads_recheck_backoff_without_holding_a_turn_asleep() {
+        let turns = Turns::new(1);
+        let batch = Arc::new(AtomicU64::new(1));
+        let backoff = Mutex::new(Backoff::default());
+        let held = turns.take(&batch).await.unwrap();
+        let mut downloading = Box::pin(download_turn(&turns, &batch, &backoff));
+        assert!(futures_util::poll!(&mut downloading).is_pending());
+        assert_eq!(turns.state().waiting.len(), 1);
+
+        // A sibling fails after this request already passed its first check.
+        locked(&backoff).until = Some(Instant::now() + Duration::from_secs(3600));
+        drop(held);
+        assert!(futures_util::poll!(&mut downloading).is_pending());
+        assert!(turns.state().waiting.is_empty());
+        assert_eq!(
+            turns.state().free,
+            1,
+            "sleeping must release the network slot"
+        );
+        drop(turns.take(&batch).await.unwrap());
+        drop(downloading);
+        assert_eq!(Arc::strong_count(&turns), 1);
+    }
+
+    #[test]
+    fn dropping_an_unpolled_picture_job_removes_its_registration() {
+        let loads = PictureLoads::new();
+        let (pending, registration) = loads.register("picture".into(), 1, None).unwrap();
+        let job = Abortable::new(
+            async move {
+                let _pending = pending;
+                std::future::pending::<()>().await;
+            },
+            registration,
+        );
+        assert_eq!(locked(&loads.pending).len(), 1);
+        drop(job);
+        assert!(locked(&loads.pending).is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancelling_before_first_poll_does_not_remove_a_replacement_picture() {
+        let mut pictures = Pictures::new();
+        let url = "picture".to_owned();
+        let (events, _receiver) = tokio::sync::mpsc::unbounded_channel();
+        let (pending, registration) = pictures
+            .loads
+            .register(url.clone(), 1, Some(events.clone()))
+            .unwrap();
+        let old = Abortable::new(
+            async move {
+                let _pending = pending;
+                panic!("a job cancelled before its first poll must not run");
+            },
+            registration,
+        );
+        pictures.cancel(std::slice::from_ref(&url));
+        assert!(locked(&pictures.prefetch.queue).urls.is_empty());
+        let (replacement, _registration) = pictures
+            .loads
+            .register(url.clone(), 2, Some(events))
+            .unwrap();
+        assert!(old.await.is_err());
+        assert!(Arc::ptr_eq(
+            &locked(&pictures.loads.pending)[&url].batch,
+            &replacement.batch,
+        ));
+        drop(replacement);
+        assert!(locked(&pictures.loads.pending).is_empty());
+    }
+
+    #[test]
+    fn prefetch_deduplicates_queued_active_and_foreground_urls() {
+        let loads = PictureLoads::new();
+        let prefetch = Prefetch::default();
+        let urls: Vec<_> = (0..1000).map(|n| format!("picture-{n}")).collect();
+        prefetch.enqueue(&loads, urls.clone());
+        prefetch.enqueue(&loads, urls.clone());
+        assert_eq!(locked(&prefetch.queue).urls.len(), urls.len());
+        assert!(
+            locked(&loads.pending).is_empty(),
+            "queued URLs are not tasks"
+        );
+
+        let mut active = Vec::new();
+        for _ in 0..PREFETCH_WORKERS {
+            active.push(prefetch.next(&loads).unwrap());
+        }
+        prefetch.enqueue(&loads, urls.clone());
+        assert_eq!(locked(&loads.pending).len(), PREFETCH_WORKERS);
+        assert_eq!(
+            locked(&prefetch.queue).urls.len(),
+            urls.len() - PREFETCH_WORKERS
+        );
+        assert!(
+            active
+                .iter()
+                .all(|(job, _)| job.batch.load(Ordering::Relaxed) == 0)
+        );
+
+        let (events, _receiver) = tokio::sync::mpsc::unbounded_channel();
+        // Foreground work takes over a queued URL before any worker gets it.
+        let (foreground, _registration) = loads
+            .register(urls[PREFETCH_WORKERS].clone(), 1, Some(events))
+            .unwrap();
+        let (next, _registration) = prefetch.next(&loads).unwrap();
+        assert_eq!(next.url, urls[PREFETCH_WORKERS + 1]);
+        assert_eq!(foreground.batch.load(Ordering::Relaxed), 1);
+        drop((active, foreground, next));
+        assert!(locked(&loads.pending).is_empty());
+    }
+
+    #[test]
+    fn foreground_promotes_active_prefetch_without_a_second_job() {
+        let loads = PictureLoads::new();
+        let prefetch = Prefetch::default();
+        let url = "picture".to_owned();
+        prefetch.enqueue(&loads, vec![url.clone()]);
+        let (active, _registration) = prefetch.next(&loads).unwrap();
+        let (events, _receiver) = tokio::sync::mpsc::unbounded_channel();
+        assert!(
+            loads
+                .register(url.clone(), 7, Some(events.clone()))
+                .is_none()
+        );
+        assert_eq!(active.batch.load(Ordering::Relaxed), 7);
+        assert_eq!(locked(&loads.pending).len(), 1);
+        assert!(active.events().unwrap().same_channel(&events));
+
+        // More background work must not demote or duplicate this job.
+        prefetch.enqueue(&loads, vec![url.clone(), url.clone()]);
+        assert!(prefetch.next(&loads).is_none());
+        assert!(loads.register(url, 0, None).is_none());
+        assert_eq!(active.batch.load(Ordering::Relaxed), 7);
+        drop(active);
+        assert!(locked(&loads.pending).is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancelled_promoted_prefetch_requeues_and_can_be_promoted_again() {
+        let mut pictures = Pictures::new();
+        let url = "https://cdn.discordapp.com/emojis/5.png?size=64".to_owned();
+        pictures
+            .prefetch
+            .enqueue(&pictures.loads, vec![url.clone()]);
+        let (obsolete, registration) = pictures.prefetch.next(&pictures.loads).unwrap();
+        let (events, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        assert!(
+            pictures
+                .loads
+                .register(url.clone(), 7, Some(events.clone()))
+                .is_none()
+        );
+        assert_eq!(obsolete.batch.load(Ordering::Relaxed), 7);
+
+        pictures.cancel(&[url.clone(), url.clone()]);
+        assert!(locked(&pictures.loads.pending).is_empty());
+        assert_eq!(locked(&pictures.prefetch.queue).urls.len(), 1);
+        assert_eq!(locked(&pictures.prefetch.queue).queued.len(), 1);
+        let (warming, _registration) = pictures.prefetch.next(&pictures.loads).unwrap();
+        assert_eq!(warming.batch.load(Ordering::Relaxed), 0);
+        let warming_cancel = locked(&pictures.loads.pending)[&url].cancel.clone();
+
+        // A repeated cancellation or prefetch intent cannot abort or duplicate
+        // the cache-only replacement, even if a worker already picked it up.
+        pictures.cancel(&[url.clone(), url.clone()]);
+        pictures
+            .prefetch
+            .enqueue(&pictures.loads, vec![url.clone(), url.clone()]);
+        assert!(!warming_cancel.is_aborted());
+        assert!(pictures.prefetch.next(&pictures.loads).is_none());
+        assert_eq!(locked(&pictures.loads.pending).len(), 1);
+        assert!(
+            pictures
+                .loads
+                .register(url.clone(), 8, Some(events.clone()))
+                .is_none()
+        );
+        assert_eq!(warming.batch.load(Ordering::Relaxed), 8);
+        assert!(warming.events().unwrap().same_channel(&events));
+
+        // An old decoder or guard finishing after the new promotion must not
+        // send an obsolete result or remove the replacement's registration.
+        obsolete.show(chat::Picture::default());
+        assert!(receiver.try_recv().is_err());
+        assert!(obsolete.events().is_none());
+        let old = Abortable::new(
+            async move {
+                let _pending = obsolete;
+                panic!("the cancelled job must not run");
+            },
+            registration,
+        );
+        assert!(old.await.is_err());
+        assert!(Arc::ptr_eq(
+            &locked(&pictures.loads.pending)[&url].batch,
+            &warming.batch,
+        ));
+        assert_eq!(locked(&pictures.loads.pending).len(), 1);
+        warming.show(chat::Picture::default());
+        assert!(
+            matches!(receiver.try_recv(), Ok(Event::Picture { url: shown, .. }) if shown == url)
+        );
+        drop(warming);
+        assert!(locked(&pictures.loads.pending).is_empty());
+    }
+
+    #[test]
+    fn cancelled_foreground_requeues_prefetch_skipped_while_it_owned_the_url() {
+        let mut pictures = Pictures::new();
+        let url = "https://cdn.discordapp.com/emojis/6.png?size=64".to_owned();
+        pictures
+            .prefetch
+            .enqueue(&pictures.loads, vec![url.clone()]);
+        let (events, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        let (obsolete, _registration) = pictures
+            .loads
+            .register(url.clone(), 1, Some(events))
+            .unwrap();
+        assert!(pictures.prefetch.next(&pictures.loads).is_none());
+        assert!(locked(&pictures.prefetch.queue).urls.is_empty());
+        assert!(locked(&pictures.prefetch.queue).queued.is_empty());
+        pictures
+            .prefetch
+            .enqueue(&pictures.loads, vec![url.clone(), url.clone()]);
+        assert!(locked(&pictures.prefetch.queue).urls.is_empty());
+
+        pictures.cancel(&[url.clone(), url.clone()]);
+        assert!(locked(&pictures.loads.pending).is_empty());
+        assert_eq!(locked(&pictures.prefetch.queue).urls.len(), 1);
+        let (warming, _registration) = pictures.prefetch.next(&pictures.loads).unwrap();
+        assert_eq!(warming.batch.load(Ordering::Relaxed), 0);
+        assert_eq!(locked(&pictures.loads.pending).len(), 1);
+        obsolete.show(chat::Picture::default());
+        assert!(receiver.try_recv().is_err());
+        drop(obsolete);
+        assert!(Arc::ptr_eq(
+            &locked(&pictures.loads.pending)[&url].batch,
+            &warming.batch,
+        ));
+
+        let warming_cancel = locked(&pictures.loads.pending)[&url].cancel.clone();
+        pictures.cancel(&[url.clone(), url.clone()]);
+        pictures
+            .prefetch
+            .enqueue(&pictures.loads, vec![url.clone(), url.clone()]);
+        assert!(!warming_cancel.is_aborted());
+        assert!(pictures.prefetch.next(&pictures.loads).is_none());
+        assert_eq!(locked(&pictures.loads.pending).len(), 1);
+        // A worker can finish cache-only: there is no foreground sender to
+        // decode for, and completion removes this job rather than its intent
+        // being silently lost when the queue first met the foreground job.
+        warming.show(chat::Picture::default());
+        assert!(receiver.try_recv().is_err());
+        assert!(warming.events().is_none());
+        drop(warming);
+        assert!(locked(&pictures.loads.pending).is_empty());
+        assert!(locked(&pictures.prefetch.queue).urls.is_empty());
+    }
+
+    #[test]
+    fn foreground_arriving_as_prefetch_finishes_gets_a_new_cache_read() {
+        let loads = PictureLoads::new();
+        let url = "picture".to_owned();
+        let (finished, _registration) = loads.register(url.clone(), 0, None).unwrap();
+        assert!(finished.events().is_none());
+        assert!(locked(&loads.pending).is_empty());
+
+        let (events, _receiver) = tokio::sync::mpsc::unbounded_channel();
+        let (foreground, _registration) = loads.register(url.clone(), 1, Some(events)).unwrap();
+        drop(finished);
+        assert!(Arc::ptr_eq(
+            &locked(&loads.pending)[&url].batch,
+            &foreground.batch
+        ));
+        assert!(
+            foreground.events().is_some(),
+            "foreground was not lost at completion"
+        );
+        drop(foreground);
+        assert!(locked(&loads.pending).is_empty());
+    }
+
+    #[tokio::test]
+    async fn encoded_buffer_budget_is_separate_from_download_and_decode_slots() {
+        assert_eq!(PREFETCH_WORKERS, 8);
+        assert_eq!(PARALLEL_BUFFERS, 12);
+        let loads = PictureLoads::new();
+        let batch = Arc::new(AtomicU64::new(1));
+        let mut buffers = Vec::new();
+        for _ in 0..PARALLEL_BUFFERS {
+            buffers.push(loads.buffers.take(&batch).await.unwrap());
+        }
+        let mut queued = Box::pin(loads.buffers.take(&batch));
+        assert!(futures_util::poll!(&mut queued).is_pending());
+        assert_eq!(loads.turns.state().free, PARALLEL_DOWNLOADS);
+        assert_eq!(loads.decodes.state().free, PARALLEL_DECODES);
+        drop(buffers.pop());
+        drop(queued.await.unwrap());
+        drop(buffers);
+        assert_eq!(loads.buffers.state().free, PARALLEL_BUFFERS);
+    }
+
+    #[tokio::test]
     async fn download_turns_go_to_the_newest_batch_in_its_order() {
         let turns = Turns::new(1);
-        let held = turns.take(0).await.expect("one is free");
+        let held = turns
+            .take(&Arc::new(AtomicU64::new(0)))
+            .await
+            .expect("one is free");
         let order = Arc::new(Mutex::new(Vec::new()));
         let mut waits = Vec::new();
         // Two batches: the first of two pictures, the second of three.
         for (n, batch) in [(0, 1), (1, 1), (2, 2), (3, 2), (4, 2)] {
             let (taking, order) = (turns.clone(), order.clone());
             waits.push(tokio::spawn(async move {
-                let turn = taking.take(batch).await;
+                let turn = taking.take(&Arc::new(AtomicU64::new(batch))).await;
                 order.lock().unwrap().push(n);
                 drop(turn);
             }));
@@ -1372,6 +2142,40 @@ mod tests {
             "the newer batch first, each in its order, past the one gone"
         );
         assert_eq!(turns.state().free, 1, "the turn is back");
+    }
+
+    #[tokio::test]
+    async fn a_wait_moved_to_a_newer_batch_goes_with_it() {
+        let turns = Turns::new(1);
+        let held = turns
+            .take(&Arc::new(AtomicU64::new(0)))
+            .await
+            .expect("one is free");
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let batches: Vec<_> = [1, 2, 2]
+            .into_iter()
+            .map(|batch| Arc::new(AtomicU64::new(batch)))
+            .collect();
+        let mut waits = Vec::new();
+        for (n, batch) in batches.iter().enumerate() {
+            let (taking, order, batch) = (turns.clone(), order.clone(), batch.clone());
+            waits.push(tokio::spawn(async move {
+                let turn = taking.take(&batch).await;
+                order.lock().unwrap().push(n);
+                drop(turn);
+            }));
+            while turns.state().waiting.len() <= n {
+                tokio::task::yield_now().await;
+            }
+        }
+        // The first, asked for again in a third batch, as a picker that
+        // scrolled back to it asks.
+        batches[0].store(3, Ordering::Relaxed);
+        drop(held);
+        for wait in waits {
+            wait.await.unwrap();
+        }
+        assert_eq!(*order.lock().unwrap(), [0, 1, 2]);
     }
 
     /// `server` with the marks `marks` names for its channels by id, and

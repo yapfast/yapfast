@@ -1636,12 +1636,20 @@ fn change_person(
                     return;
                 }
             }
-            DiscordCommand::Relationship { user, change } => match change {
+            DiscordCommand::Relationship {
+                user,
+                change,
+                location,
+            } => match change {
                 RelationshipChange::Unfriend => {
-                    (discord.unfriend(&user).await, "remove the friend")
+                    (discord.unfriend(&user, location).await, "remove the friend")
                 }
-                RelationshipChange::Block => (discord.block(&user, true).await, "block them"),
-                RelationshipChange::Unblock => (discord.block(&user, false).await, "unblock them"),
+                RelationshipChange::Block => {
+                    (discord.block(&user, true, location).await, "block them")
+                }
+                RelationshipChange::Unblock => {
+                    (discord.block(&user, false, location).await, "unblock them")
+                }
                 RelationshipChange::Ignore => (discord.ignore(&user, true).await, "ignore them"),
                 RelationshipChange::Unignore => {
                     (discord.ignore(&user, false).await, "stop ignoring them")

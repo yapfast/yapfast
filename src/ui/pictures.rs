@@ -93,17 +93,59 @@ pub(super) fn cached_picture(
     image
 }
 
+/// How many revisions `PictureStore` keeps; see [`picture_slot`].
+const PICTURE_SLOTS: u32 = 32;
+
+/// The `PictureStore` slot whose revision a picture's binding reads: a
+/// picture that comes, changes or goes draws again only those that share its
+/// slot, not every picture in the window.
+pub(super) fn picture_slot(url: &str) -> u32 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::hash::DefaultHasher::new();
+    url.hash(&mut hasher);
+    (hasher.finish() % u64::from(PICTURE_SLOTS)) as u32
+}
+
 /// The UI asks for avatars only as virtualized components use them. Weak
 /// sources do not pin decoded core pictures; conversions share the bounded
-/// preview cache rather than living in every off-screen row.
-pub(super) fn refresh_avatar_sources(state: &AppState) {
+/// preview cache rather than living in every off-screen row. Returns the
+/// slots of the pictures that came, changed or went, a bit for each.
+pub(super) fn refresh_avatar_sources(state: &AppState) -> u32 {
     AVATAR_SOURCES.with_borrow_mut(|sources| {
-        *sources = state
-            .pictures
-            .iter()
-            .map(|(url, picture)| (url.clone(), Arc::downgrade(picture)))
-            .collect();
-    });
+        let mut changed = 0;
+        sources.retain(|url, _| {
+            let kept = state.pictures.contains_key(url);
+            if !kept {
+                changed |= 1 << picture_slot(url);
+            }
+            kept
+        });
+        for (url, picture) in &state.pictures {
+            match sources.get_mut(url) {
+                Some(source) if std::ptr::eq(source.as_ptr(), Arc::as_ptr(picture)) => {}
+                Some(source) => {
+                    *source = Arc::downgrade(picture);
+                    changed |= 1 << picture_slot(url);
+                }
+                None => {
+                    sources.insert(url.clone(), Arc::downgrade(picture));
+                    changed |= 1 << picture_slot(url);
+                }
+            }
+        }
+        changed
+    })
+}
+
+/// Moves the revisions of the slots in `changed`, from
+/// [`refresh_avatar_sources`].
+pub(super) fn bump_picture_slots(window: &YapfastWindow, changed: u32) {
+    let store = window.global::<PictureStore>();
+    for slot in 0..PICTURE_SLOTS {
+        if changed & (1 << slot) != 0 {
+            store.invoke_bump(slot as i32);
+        }
+    }
 }
 
 pub(super) fn avatar_picture(url: &str) -> slint::Image {
@@ -952,6 +994,29 @@ mod tests {
         );
         AVATAR_SOURCES.with_borrow_mut(HashMap::clear);
         PREVIEWS.set(Previews::default());
+    }
+
+    #[test]
+    fn a_picture_that_comes_changes_or_goes_moves_only_its_own_slot() {
+        AVATAR_SOURCES.with_borrow_mut(HashMap::clear);
+        let picture = || {
+            Arc::new(Picture {
+                width: 1,
+                height: 1,
+                rgba: yapfast_core::chat::Pixels::new(1, 1, vec![255; 4]),
+                ..Default::default()
+            })
+        };
+        let slot = 1 << picture_slot("avatar");
+        let mut state = AppState::default();
+        state.pictures.insert("avatar".into(), picture());
+        assert_eq!(refresh_avatar_sources(&state), slot, "it came");
+        assert_eq!(refresh_avatar_sources(&state), 0, "nothing changed");
+        state.pictures.insert("avatar".into(), picture());
+        assert_eq!(refresh_avatar_sources(&state), slot, "it changed");
+        state.pictures.clear();
+        assert_eq!(refresh_avatar_sources(&state), slot, "it went");
+        AVATAR_SOURCES.with_borrow_mut(HashMap::clear);
     }
 
     #[test]

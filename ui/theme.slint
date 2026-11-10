@@ -118,6 +118,14 @@ export component Label inherits Text {
     vertical-stretch: 0;
 }
 
+// Twemoji, as Discord's client draws emoji: `text` gives back a text with each
+// emoji in it as the glyph of Twemoji's font that draws its picture, so a
+// reaction, a poll's answer or an emoji shown by itself draws Twemoji's picture
+// whole, a flag or a skin tone included, and never the system's emoji.
+export global Twemoji {
+    pure callback text(string) -> string;
+}
+
 // Whether Discord's things carry its badge. A build without Matrix shows
 // nothing else, so it leaves them off.
 // The profile switches in Settings → Appearance. The Rust side keeps them in

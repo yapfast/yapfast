@@ -13,6 +13,7 @@ pub use yapfast_discord;
 
 pub mod application;
 mod audio_io;
+pub use audio_io::set_windows_effects;
 pub mod backend;
 pub mod blocks;
 #[cfg(feature = "matrix")]

@@ -494,6 +494,18 @@ impl Tracker {
                 server.emojis = std::sync::Arc::new(ready::emojis(&data["emojis"]));
                 true
             }
+            // The sticker picker lists the server's own stickers from here.
+            Event::GuildStickersUpdate => {
+                let Some(server) = data["guild_id"]
+                    .as_str()
+                    .and_then(|guild| self.server_mut(guild))
+                else {
+                    return false;
+                };
+                server.stickers =
+                    std::sync::Arc::new(crate::stickers::parse_all(&data["stickers"]));
+                true
+            }
             // Carries the server's own fields, without its channels or members.
             Event::GuildUpdate => {
                 let (Some(update), Some(known)) = (
@@ -517,6 +529,13 @@ impl Tracker {
                 known.verified = update.verified;
                 known.community = update.community;
                 known.rules_channel = update.rules_channel;
+                // A GUILD_UPDATE may leave these out; that isn't zero boosts.
+                if !data["premium_subscription_count"].is_null() {
+                    known.boosts = update.boosts;
+                }
+                if !data["premium_progress_bar_enabled"].is_null() {
+                    known.boost_bar = update.boost_bar;
+                }
                 self.sort_servers();
                 true
             }

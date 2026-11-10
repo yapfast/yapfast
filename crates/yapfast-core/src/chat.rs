@@ -516,6 +516,9 @@ pub struct ChatServer {
     /// Its scheduled events that haven't ended, soonest first, which its
     /// channel list counts in an "N Events" row.
     pub events: Vec<ServerEvent>,
+    /// How many boosts it has, when its owner shows the boost progress bar
+    /// above its channels.
+    pub boosts: Option<u32>,
 }
 
 /// A Discord server's scheduled event, as its events list shows it.
@@ -600,6 +603,10 @@ pub enum Permission {
     /// them and change one's own.
     ManageExpressions,
     CreateExpressions,
+    /// Using another server's emoji here, in a message or a reaction.
+    UseExternalEmojis,
+    /// Sending another server's stickers here.
+    UseExternalStickers,
 }
 
 /// Which messages notify, in a Discord server or channel.
@@ -1783,6 +1790,13 @@ pub enum CardRow {
     Select {
         text: String,
         disabled: bool,
+        kind: u64,
+        custom_id: String,
+        options: Vec<CardOption>,
+        defaults: Vec<String>,
+        channel_types: Vec<u64>,
+        min_values: u64,
+        max_values: u64,
     },
     /// Components of a kind Yapfast can't show.
     Unknown,
@@ -1805,7 +1819,20 @@ pub struct CardButton {
     pub style: ButtonStyle,
     /// Where a link button leads.
     pub url: Option<String>,
+    /// What its app knows it by, when using it asks the app.
+    pub custom_id: Option<String>,
+    /// What a premium button offers in its app's store.
+    pub sku_id: Option<String>,
     pub disabled: bool,
+}
+
+/// An option of a select menu in an app's message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CardOption {
+    pub label: String,
+    pub value: String,
+    pub description: Option<String>,
+    pub default: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1815,6 +1842,7 @@ pub enum ButtonStyle {
     Success,
     Danger,
     Link,
+    Premium,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1823,6 +1851,9 @@ pub struct ChatMessage {
     pub id: String,
     /// The timeline item that actions apply to: `e:` event ID or `t:` transaction ID.
     pub item: String,
+    /// The Discord app that owns interactive components, when one is known.
+    pub application_id: Option<String>,
+    pub flags: u64,
     pub author: String,
     /// The author's Matrix user ID, which tells apart people sharing a display name.
     pub sender: String,
@@ -2286,6 +2317,30 @@ pub struct GifCategory {
     pub src: String,
 }
 
+/// A sticker the sticker picker offers.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Sticker {
+    pub id: String,
+    pub name: String,
+    /// Discord's `format_type`: 1 PNG, 2 APNG, 3 Lottie, 4 GIF.
+    pub format: u64,
+    /// Its picture's address, at the size the picker's tiles show it.
+    pub picture: String,
+    /// This account may use it where it is looking: another server's sticker
+    /// or Discord's own needs Nitro, which the picker marks with a lock.
+    pub usable: bool,
+}
+
+/// Stickers the picker lists under one heading: a server's own, or one of
+/// Discord's default packs.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StickerCollection {
+    /// The pack's id, or a server's for its own stickers.
+    pub id: String,
+    pub name: String,
+    pub stickers: Vec<Sticker>,
+}
+
 /// How often a Discord server or channel was used: in all, and when lately,
 /// in Unix milliseconds, oldest first.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -2498,6 +2553,8 @@ pub enum DiscordCommand {
     /// holding none in memory: what a start prefetches so that the picker's
     /// first look finds its emoji kept. See [`Pictures::prefetch`].
     PrefetchPictures(Vec<String>),
+    /// Use a bot's message component or submit a modal as this account.
+    Interact(serde_json::Value),
     /// The GIF picker's home: trending terms with a GIF each, and a GIF for
     /// "Trending GIFs"; [`Event::GifCategories`] follows.
     GifCategories,
@@ -2524,6 +2581,9 @@ pub enum DiscordCommand {
     PlacesUsed,
     /// Keep these as the account's favourite GIFs, in place of the old.
     SetFavoriteGifs(Vec<FavoriteGif>),
+    /// Keep these as the account's favourite emoji, in place of the old: each
+    /// a custom emoji's id or a Unicode emoji's Discord name.
+    SetFavoriteEmojis(Vec<String>),
     /// Download a GIF's picture and decode it to fit `width` by `height`;
     /// [`Event::GifPicture`] follows. A favourite's comes from a thumbnail
     /// kept on disk, made the first time.
@@ -2532,6 +2592,21 @@ pub enum DiscordCommand {
         width: u32,
         height: u32,
         favorite: bool,
+    },
+    /// Discord's default sticker packs, as its own client offers them;
+    /// [`Event::StickerPacks`] follows, and [`Event::KeptStickerPacks`] first
+    /// when Yapfast kept them.
+    StickerPacks,
+    /// Download a sticker's picture and decode it for the picker's tile, a
+    /// Lottie one drawn as it animates; [`Event::StickerPicture`] follows.
+    StickerPicture {
+        url: String,
+    },
+    /// Post sticker `id` in `room` as a message of its own, as Discord's
+    /// client does; the gateway shows it.
+    SendSticker {
+        room: String,
+        id: String,
     },
     /// The members of a Discord role in the room's server, as far as they're known;
     /// [`Event::RoleMembers`] follows.
@@ -2565,11 +2640,14 @@ pub enum DiscordCommand {
     AddFriend {
         username: String,
     },
-    /// Change how this account stands with a Discord user. The lists change
-    /// when Discord confirms it; a failure comes back as [`Event::Error`].
+    /// Change how this account stands with a Discord user, from `location`
+    /// in Discord's client, such as "ContextMenu"; ignoring sends none. The
+    /// lists change when Discord confirms it; a failure comes back as
+    /// [`Event::Error`].
     Relationship {
         user: String,
         change: RelationshipChange,
+        location: &'static str,
     },
     /// Fetch this account's note on a Discord user; [`Event::Note`] follows.
     Note {
@@ -2909,6 +2987,10 @@ pub enum DiscordCommand {
     /// Download server icons and avatars by address. Each that arrives comes
     /// back as [`Event::Picture`]; one that fails doesn't.
     Pictures(Vec<String>),
+    /// Calls off the downloads of these pictures, asked for with
+    /// [`DiscordCommand::Pictures`], that haven't come yet: nothing will show
+    /// them.
+    CancelPictures(Vec<String>),
     /// A Discord wishlist by its id; [`Event::Wishlist`] follows.
     Wishlist {
         id: String,
@@ -3741,6 +3823,19 @@ pub enum ForwardFailure {
 }
 
 pub enum Event {
+    /// A bot answered an interaction of this session with a form, as
+    /// Discord's INTERACTION_MODAL_CREATE has it.
+    InteractionModal(serde_json::Value),
+    /// An interaction, by its nonce, failed, and what its message says.
+    InteractionFailed {
+        nonce: String,
+        reason: String,
+    },
+    /// The bot answered an interaction, by its nonce.
+    InteractionSucceeded(String),
+    /// An interaction was sent a while ago: if nothing answered it, the bot
+    /// didn't respond.
+    InteractionSettled(String),
     /// The GIF picker's home, or why it couldn't load.
     GifCategories(Result<(Vec<GifCategory>, Option<Gif>), String>),
     /// GIFs for a search, or with `None` those trending, or why not.
@@ -3768,6 +3863,20 @@ pub enum Event {
     GifPicture {
         url: String,
         picture: Option<Arc<Picture>>,
+    },
+    /// Discord's default sticker packs, or why they couldn't be fetched.
+    StickerPacks(Result<Vec<StickerCollection>, String>),
+    /// The default sticker packs Yapfast kept, to show until Discord's come.
+    KeptStickerPacks(Vec<StickerCollection>),
+    /// A sticker's picture for the picker's tile, or none when it failed.
+    StickerPicture {
+        url: String,
+        picture: Option<Arc<Picture>>,
+    },
+    /// A sticker was sent, or why it couldn't be.
+    StickerSent {
+        room: String,
+        result: Result<(), String>,
     },
     Voice(voice::State),
     /// A profile [`DiscordCommand::Profile`] asked for, or why Discord didn't give it.

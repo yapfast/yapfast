@@ -47,6 +47,14 @@ pub(super) fn live_events(
         })
     };
     match event {
+        Event::InteractionModalCreate => vec![Live::InteractionModal(data.clone())],
+        Event::InteractionFailure => vec![Live::InteractionFailure {
+            nonce: data["nonce"].as_str().unwrap_or_default().to_owned(),
+            reason: data["reason_code"].as_u64().unwrap_or_default(),
+        }],
+        Event::InteractionSuccess => vec![Live::InteractionSuccess {
+            nonce: data["nonce"].as_str().unwrap_or_default().to_owned(),
+        }],
         // Few and small: an open page of the server's settings follows it.
         Event::GuildUpdate => data["id"]
             .as_str()
