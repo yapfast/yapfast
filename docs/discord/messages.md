@@ -521,18 +521,35 @@ click or a submit sends one, and none is sent again on its own.
   message that named one or from the bot's profile once someone opened it,
   or else with the bot's own id, as an app's bot user has its application's.
   Yapfast asks Discord for neither just to send a click.
-- A form shows its text inputs, select menus and text (TEXT_DISPLAY, shown
-  and left out of what it sends). A part Yapfast can't fill, such as a file
-  upload or a checkbox, shows as such, and the form can't be sent from
-  Yapfast; a form Yapfast can't read at all says so. A failed submit keeps
-  the form and its answers to send again.
+- A select menu opens as a dropdown under itself, above when there's no room
+  below, with each option's emoji and description. A menu of one option
+  sends the option clicked at once, and closes; clicking the one it already
+  has only closes it. A menu of several sends when it closes, by a click
+  outside or Escape, and only if what's picked changed and is as many as it
+  takes. Menus of people, roles and channels have a search field.
+- A form shows its text (TEXT_DISPLAY, as Markdown, as a message's, and left
+  out of what it sends), text inputs, select menus (the same dropdown,
+  taking what's picked rather than sending it), radio groups (RADIO_GROUP,
+  sent as `value`), checkbox groups (CHECKBOX_GROUP, as `values`), checkboxes
+  (CHECKBOX, a `value` of true or false) and file uploads (FILE_UPLOAD), each
+  with its label's description. A file upload's files go in the submit's own
+  request, as a command's do: `multipart/form-data` with `payload_json` and
+  `files[n]`, `data.attachments` naming each by its place, and the upload's
+  `values` holding those places. A part Yapfast can't fill shows as such,
+  and the form can't be sent from Yapfast; a form Yapfast can't read at all
+  says so. A failed submit keeps the form and its answers to send again.
 - The people, role, mentionable and channel menus offer the people, roles and
   channels Yapfast knows, and searching people asks Discord for the server's
   members who match. Channel menus keep to the bot's channel types, visible
   categories included, and a default pick shows its name, or its id when the
   name isn't known. An optional single pick can be cleared.
-- Link buttons open their address. A premium button opens the app's store
-  page in the browser; nothing is bought through Yapfast.
+- Link buttons open their address. A premium button says "Open in Discord"
+  and opens the SKU's store page in the browser,
+  `discord.com/application-directory/{app}/store/{sku}` (Discord's own docs,
+  "Managing SKUs"); nothing is bought through Yapfast, and the SKU's name and
+  price aren't asked for.
+- Pictures in a gallery or beside a section are read by a screen reader by
+  their alt text (`description`), as an attached picture's is.
 - An app that answers with a web page in a window
   (INTERACTION_IFRAME_MODAL_CREATE) says to use Discord for it.
 - An app's answer only this account sees (message flag EPHEMERAL, `1 << 6`)

@@ -136,6 +136,7 @@ pub(super) fn found(
                         .clone()
                         .unwrap_or_else(|| attachment.url.clone()),
                 ),
+                description: attachment.description.clone(),
             })
             .collect(),
         mentions,
@@ -721,9 +722,15 @@ pub(super) fn chat_profile(
     }
 }
 
-/// The emoji of a row's buttons, in Discord's markup.
+/// The emoji of a row's buttons and menu options, in Discord's markup.
 fn button_emoji(row: &yapfast_discord::components::Row) -> Vec<&str> {
     use yapfast_discord::components::{Beside, Row};
+    if let Row::Select { options, .. } = row {
+        return options
+            .iter()
+            .filter_map(|option| option.emoji.as_deref())
+            .collect();
+    }
     let buttons = match row {
         Row::Buttons(buttons) => buttons.iter().collect(),
         Row::Text {
@@ -797,7 +804,7 @@ pub(super) fn chat_card(
                     min_values,
                     max_values,
                 } => CardRow::Select {
-                    text: text.clone(),
+                    text: discord.render(server, text),
                     disabled: *disabled,
                     kind: *kind,
                     custom_id: custom_id.clone(),
@@ -808,6 +815,10 @@ pub(super) fn chat_card(
                             value: option.value.clone(),
                             description: option.description.clone(),
                             default: option.default,
+                            emoji: option
+                                .emoji
+                                .as_ref()
+                                .map(|emoji| discord.render(server, emoji)),
                         })
                         .collect(),
                     defaults: defaults.clone(),

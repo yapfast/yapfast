@@ -71,7 +71,11 @@ pub enum Interaction {
         id: String,
         custom_id: String,
         /// The form's components with what was entered, as Discord takes them.
+        /// A file upload's `values` are its files' places in `files`, as
+        /// `"0"` for the first.
         components: Value,
+        /// The names of the files its file uploads carry, sent as `files[n]`.
+        files: Vec<String>,
     },
     /// An app's command sent, as typed in the composer or chosen from a
     /// message's or a person's menu.
@@ -161,6 +165,7 @@ impl Interaction {
                 id,
                 custom_id,
                 components,
+                files,
             } => {
                 let mut body = json!({
                     "type": 5,
@@ -170,6 +175,10 @@ impl Interaction {
                     "session_id": session,
                     "data": {"id": id, "custom_id": custom_id, "components": components},
                 });
+                // As a command's: each file named by its place among them.
+                if !files.is_empty() {
+                    body["data"]["attachments"] = attachments(files);
+                }
                 if let Some(guild) = guild {
                     body["guild_id"] = json!(guild);
                 }
@@ -188,12 +197,7 @@ impl CommandUse {
     pub fn command_body(&self, session: &str) -> Value {
         let mut body = self.body(2, session, self.options.clone());
         if !self.files.is_empty() {
-            body["data"]["attachments"] = self
-                .files
-                .iter()
-                .enumerate()
-                .map(|(index, name)| json!({"id": index.to_string(), "filename": name}))
-                .collect();
+            body["data"]["attachments"] = attachments(&self.files);
         }
         // A command typed in the composer; what Discord's client says for
         // one from a context menu isn't known, so it says nothing.
@@ -246,6 +250,16 @@ impl CommandUse {
         }
         body
     }
+}
+
+/// The partial attachments of `files` sent as `files[n]`: each by its
+/// place, `"0"` for the first, which an option or a file upload names.
+fn attachments(files: &[String]) -> Value {
+    files
+        .iter()
+        .enumerate()
+        .map(|(index, name)| json!({"id": index.to_string(), "filename": name}))
+        .collect()
 }
 
 /// Options as an autocomplete sends them: without files, and with the
@@ -398,12 +412,33 @@ mod tests {
             id: "11".into(),
             custom_id: "notes".into(),
             components: json!([{"type": 18, "component": {"type": 4, "custom_id": "a", "value": "hi"}}]),
+            files: Vec::new(),
         };
         let body = form.body("s", &AppIds::default());
         assert_eq!(body["type"], 5);
         assert!(body.get("guild_id").is_none());
         assert_eq!(body["data"]["id"], "11");
         assert_eq!(body["data"]["components"][0]["component"]["value"], "hi");
+        assert!(body["data"].get("attachments").is_none());
+    }
+
+    #[test]
+    fn a_forms_files_are_named_by_their_place() {
+        let form = Interaction::Modal {
+            nonce: "5".into(),
+            guild: Some("1".into()),
+            channel: "2".into(),
+            application: "9".into(),
+            id: "11".into(),
+            custom_id: "proof".into(),
+            components: json!([{"type": 18, "component": {"type": 19, "custom_id": "shots", "values": ["0", "1"]}}]),
+            files: vec!["a.png".into(), "b.txt".into()],
+        };
+        let body = form.body("s", &AppIds::default());
+        assert_eq!(
+            body["data"]["attachments"],
+            json!([{"id": "0", "filename": "a.png"}, {"id": "1", "filename": "b.txt"}])
+        );
     }
 
     fn echo(options: Value, files: &[&str]) -> CommandUse {

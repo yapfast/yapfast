@@ -61,7 +61,7 @@ import { ChannelSettingsPrompt, ChannelSettingsScreen, OverwriteRow, ThreeStateR
 import { MfaChoice, MfaPrompt, MfaDialog } from "mfa.slint";
 import { FoundRow, PickRow, ThreadRow, HeaderSearch, PinsPopover, ThreadsPopover, AddPeoplePopover, SearchPanel, TopicPopover } from "header.slint";
 import { ThreadPanel, NewThreadPanel } from "thread.slint";
-import { BotSelectDialog, BotModalDialog, SelectChoice, ModalField } from "interactions.slint";
+import { BotSelectDropdown, BotModalDialog, SelectChoice, ModalField } from "interactions.slint";
 import { CommandChoice, CommandOptionPill, CommandList } from "app_commands.slint";
 import { PostTag, PostRow, PostTagChoice, ForumPanel } from "forum.slint";
 import { BrowseRow, BrowseScreen } from "browse.slint";
@@ -452,9 +452,10 @@ export component YapfastWindow inherits Window {
     in property <string> bot-select-query;
     in property <int> bot-select-min;
     in property <int> bot-select-max;
+    /// A menu of members, roles or channels, which typing searches.
+    in property <bool> bot-select-searchable;
     callback bot-select-toggle(int);
     callback bot-select-search(string);
-    callback bot-select-submit;
     callback bot-select-close;
     in property <bool> bot-modal-open;
     in property <string> bot-modal-heading;
@@ -464,6 +465,9 @@ export component YapfastWindow inherits Window {
     in property <string> bot-modal-error;
     callback bot-modal-field-edited(int, string);
     callback bot-modal-open-select(int);
+    /// A form's file upload, by its place, asks for files, or lets go of one.
+    callback bot-modal-choose-files(int);
+    callback bot-modal-remove-file(int, int);
     callback bot-modal-submit;
     callback bot-modal-close;
     // Apps' commands (see app_commands.slint and src/ui/app_commands.rs).
@@ -4931,16 +4935,19 @@ export component YapfastWindow inherits Window {
         saving: root.bot-modal-saving; error: root.bot-modal-error;
         field-edited(index, value) => { root.bot-modal-field-edited(index, value); }
         open-select(index) => { root.bot-modal-open-select(index); }
+        choose-files(index) => { root.bot-modal-choose-files(index); }
+        remove-file(index, file) => { root.bot-modal-remove-file(index, file); }
+        open-link(link) => { root.open-link(link); }
         submit => { root.bot-modal-submit(); }
         close => { root.bot-modal-close(); }
     }
-    if root.bot-select-open: BotSelectDialog {
+    // Under the menu that opened it, in a message or a form.
+    if root.bot-select-open: BotSelectDropdown {
         heading: root.bot-select-heading; choices: root.bot-select-choices;
-        query: root.bot-select-query;
+        query: root.bot-select-query; searchable: root.bot-select-searchable;
         min-values: root.bot-select-min; max-values: root.bot-select-max;
         toggle(index) => { root.bot-select-toggle(index); }
         search(query) => { root.bot-select-search(query); }
-        submit => { root.bot-select-submit(); }
         close => { root.bot-select-close(); }
     }
     mfa-motion := PopupMotion { open: root.mfa-open; }

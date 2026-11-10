@@ -1443,6 +1443,7 @@ fn pictures_on_their_way_hold_their_place_as_skeletons() {
         spoiler: false,
         video: false,
         url: None,
+        description: None,
     };
     let row = message_row_plain(&ChatMessage {
         attachments: vec![attachment("wide.png", false)],
@@ -1720,6 +1721,7 @@ fn a_messages_sticker_is_160px_square() {
             spoiler: false,
             video: false,
             url: None,
+            description: None,
         }],
         ..Default::default()
     });
@@ -1752,6 +1754,7 @@ fn a_selection_copies_the_pictures_it_runs_through() {
                 spoiler: false,
                 video: false,
                 url: None,
+                description: None,
             }],
             ..Default::default()
         },
@@ -5314,6 +5317,7 @@ fn closing_the_viewer_lets_go_of_its_picture() {
             spoiler: false,
             video: false,
             url: None,
+            description: None,
         }],
         ..Default::default()
     })]);
@@ -5354,6 +5358,7 @@ fn a_pictures_menu_links_to_it_when_it_has_an_address() {
         spoiler: false,
         video: false,
         url: url.map(Into::into),
+        description: None,
     };
     adapter.borrow_mut().app.state.messages = Arc::new(vec![Arc::new(ChatMessage {
         item: "i0".into(),
@@ -8181,6 +8186,7 @@ fn a_card_of_components_shows_headings_files_and_only_link_buttons_working() {
             video: false,
             gif: None,
             url: None,
+            description: None,
         }],
         cards: vec![Card {
             framed: true,
@@ -9826,9 +9832,8 @@ fn bot_select_keeps_its_model_and_filters_original_choice_indices() {
     assert!(std::ptr::eq(original.as_any(), filtered.as_any()));
     assert_eq!(filtered.row_count(), 1);
     assert_eq!(filtered.row_data(0).unwrap().index, 1);
+    // A menu of one option takes the one clicked, and closes.
     window.invoke_bot_select_toggle(1);
-    assert!(filtered.row_data(0).unwrap().selected);
-    window.invoke_bot_select_submit();
     assert_eq!(
         adapter
             .borrow()
@@ -9843,6 +9848,74 @@ fn bot_select_keeps_its_model_and_filters_original_choice_indices() {
     );
     assert!(!window.get_bot_select_open());
     assert_eq!(window.get_bot_select_choices().row_count(), 0);
+}
+
+#[test]
+fn a_bot_forms_text_choices_and_files_show_as_they_are_filled() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    {
+        let mut adapter = adapter.borrow_mut();
+        adapter.app.state.interactions.pretend_sent("click", None);
+        adapter.apply(Event::InteractionModal(serde_json::json!({
+            "id": "42", "channel_id": "7", "custom_id": "survey",
+            "application": {"id": "3"}, "title": "Survey", "nonce": "click",
+            "components": [
+                {"type": 10, "content": "## Heads up\nThis is **bold**."},
+                {"type": 18, "label": "Rating", "description": "How was it?", "component": {
+                    "type": 21, "custom_id": "rating",
+                    "options": [{"label": "Good", "value": "good"}, {"label": "Bad", "value": "bad"}]}},
+                {"type": 18, "label": "Agree", "component": {"type": 23, "custom_id": "agree"}},
+                {"type": 18, "label": "Proof", "component": {"type": 19, "custom_id": "proof", "max_values": 3}},
+            ]
+        })));
+        adapter.refresh(&window);
+    }
+    let fields = window.get_bot_modal_fields();
+    let text = fields.row_data(0).unwrap();
+    assert_eq!(text.kind, 10);
+    assert_eq!(text.blocks.row_count(), 2, "a heading and its text");
+    let rating = fields.row_data(1).unwrap();
+    assert_eq!(rating.description, "How was it?");
+    assert_eq!(rating.choices.row_count(), 2);
+    assert_eq!(fields.row_data(3).unwrap().max_files, 3);
+    window.invoke_bot_modal_field_edited(1, "bad".into());
+    window.invoke_bot_modal_field_edited(2, "".into());
+    adapter.borrow_mut().action(
+        &window,
+        Action::AddModalFiles {
+            index: 3,
+            files: vec!["/tmp/shot one.png".into()],
+        },
+    );
+    let current = window.get_bot_modal_fields();
+    assert!(std::ptr::eq(fields.as_any(), current.as_any()));
+    // The text laid out stays the same as the rest change.
+    assert!(current.row_data(0).unwrap().blocks == text.blocks);
+    let rating = current.row_data(1).unwrap();
+    assert!(!rating.choices.row_data(0).unwrap().selected);
+    assert!(rating.choices.row_data(1).unwrap().selected);
+    assert!(current.row_data(2).unwrap().checked);
+    let proof = current.row_data(3).unwrap();
+    assert_eq!(proof.files.row_data(0).unwrap(), "shot one.png");
+    window.invoke_bot_modal_remove_file(3, 0);
+    assert_eq!(
+        window
+            .get_bot_modal_fields()
+            .row_data(3)
+            .unwrap()
+            .files
+            .row_count(),
+        0
+    );
 }
 
 #[test]

@@ -1498,10 +1498,25 @@ pub enum Action {
     ToggleSelect(usize),
     SearchSelect(String),
     SubmitSelect,
+    /// Closes the open menu: a menu of several options sends what changed,
+    /// as Discord's does when its dropdown closes.
     CloseSelect,
+    /// The form's field at `index` takes `value`: a text input's text, the
+    /// option a radio group picks, the option a checkbox group checks or
+    /// unchecks; a checkbox is checked or unchecked whatever it is.
     SetModalField {
         index: usize,
         value: String,
+    },
+    /// Files for the form's file upload at `index`, after those it has.
+    AddModalFiles {
+        index: usize,
+        files: Vec<PathBuf>,
+    },
+    /// The form's file upload at `index` leaves out its `file`th file.
+    RemoveModalFile {
+        index: usize,
+        file: usize,
     },
     SubmitModal,
     CloseModal,
@@ -3135,11 +3150,10 @@ impl Application {
             Action::ToggleSelect(index) => self.toggle_select(index),
             Action::SearchSelect(query) => self.search_select(query),
             Action::SubmitSelect => self.submit_select(),
-            Action::CloseSelect => {
-                self.state.select_menu = None;
-                vec![]
-            }
+            Action::CloseSelect => self.close_select(),
             Action::SetModalField { index, value } => self.set_modal_field(index, value),
+            Action::AddModalFiles { index, files } => self.add_modal_files(index, files),
+            Action::RemoveModalFile { index, file } => self.remove_modal_file(index, file),
             Action::SubmitModal => self.submit_modal(),
             Action::SlashQuery(_)
             | Action::PickCommand(_)

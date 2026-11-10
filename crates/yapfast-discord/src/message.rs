@@ -432,6 +432,9 @@ pub struct Attachment {
     pub shown: Shown,
     /// Marked as a spoiler: by a name starting `SPOILER_`, or by its flags.
     pub spoiler: bool,
+    /// Its alt text, which a screen reader reads in place of the picture.
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 /// Where a message's picture shows.
@@ -770,6 +773,7 @@ pub fn parse(value: &Value) -> Option<Message> {
                 shown: Shown::Message,
                 spoiler: name.starts_with("SPOILER_")
                     || attachment["flags"].as_u64().unwrap_or_default() & IS_SPOILER != 0,
+                description: alt_text(&attachment["description"]),
             })
         })
         .collect::<Vec<_>>();
@@ -832,6 +836,7 @@ pub fn parse(value: &Value) -> Option<Message> {
             animated: false,
             shown: Shown::Sticker,
             spoiler: false,
+            description: None,
         });
     }
     attachments.extend(components.media);
@@ -1023,6 +1028,15 @@ pub const VIEW_HEIGHT: u64 = 1200;
 /// so it moves. With `animated`, as Discord's client asks, an animated
 /// picture, such as an AVIF, comes as an animated WebP rather than its first
 /// frame; a video's poster asks without, for its first frame alone.
+/// Alt text Discord gave a picture or file, when it has any.
+pub(crate) fn alt_text(description: &Value) -> Option<String> {
+    description
+        .as_str()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_owned)
+}
+
 pub(crate) fn scaled_url(
     attachment: &Value,
     max_width: u64,

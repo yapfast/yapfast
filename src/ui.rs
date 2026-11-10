@@ -2901,7 +2901,10 @@ impl Adapter {
         let composing = matches!(action, Action::SetDraft(_) | Action::MentionQuery(_));
         let bot_input = matches!(
             action,
-            Action::SetModalField { .. } | Action::SearchSelect(_) | Action::ToggleSelect(_)
+            Action::SetModalField { .. }
+                | Action::SearchSelect(_)
+                | Action::ToggleSelect(_)
+                | Action::RemoveModalFile { .. }
         );
         let profiling = matches!(action, Action::WriteProfile { .. });
         // Typing on Roles changes only the settings, too.

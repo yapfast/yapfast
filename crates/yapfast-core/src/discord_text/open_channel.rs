@@ -1634,6 +1634,7 @@ impl OpenChannel {
                         url: None,
                         spoiler: file.spoiler,
                         video: false,
+                        description: None,
                     })
                     .collect(),
                 ..Default::default()
@@ -1723,6 +1724,7 @@ impl OpenChannel {
                             .clone()
                             .unwrap_or_else(|| attachment.url.clone()),
                     ),
+                    description: attachment.description.clone(),
                 }
             })
             .collect();

@@ -34,8 +34,9 @@ pub(super) fn command(
     }
 }
 
-/// Sends `interaction`, then says if Discord refused it, or if the gateway
-/// never answered it. The answer itself comes as a live event; see [`live`].
+/// Sends `interaction`, with the files a form carries read in, then says if
+/// Discord refused it, or if the gateway never answered it. The answer
+/// itself comes as a live event; see [`live`].
 fn interact(
     interaction: Box<Interaction>,
     discord: Result<&Discord, &str>,
@@ -53,8 +54,32 @@ fn interact(
         }
     };
     let events = events.clone();
+    let paths = match interaction.as_ref() {
+        Interaction::Modal { files, .. } => files.clone(),
+        Interaction::Component { .. } => Vec::new(),
+    };
     tokio::spawn(async move {
-        match discord.interact(&for_discord(*interaction)).await {
+        let interaction = for_discord(*interaction);
+        let sent = if paths.is_empty() {
+            discord.interact(&interaction).await
+        } else {
+            let mut files = Vec::with_capacity(paths.len());
+            for path in &paths {
+                match tokio::fs::read(path).await {
+                    Ok(data) => files.push(data),
+                    Err(_) => {
+                        let name = path.file_name().unwrap_or_default().to_string_lossy();
+                        let _ = events.send(Event::InteractionFailed {
+                            nonce,
+                            reason: format!("Yapfast could not read {name}."),
+                        });
+                        return;
+                    }
+                }
+            }
+            discord.submit_form(&interaction, files).await
+        };
+        match sent {
             Ok(true) => {}
             Ok(false) => {
                 let _ = events.send(Event::InteractionSettled(nonce));
@@ -221,6 +246,7 @@ fn for_discord(interaction: Interaction) -> DiscordInteraction {
             id,
             custom_id,
             components,
+            files,
         } => DiscordInteraction::Modal {
             nonce,
             guild,
@@ -229,6 +255,14 @@ fn for_discord(interaction: Interaction) -> DiscordInteraction {
             id,
             custom_id,
             components,
+            files: files
+                .iter()
+                .map(|path| {
+                    path.file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| "file".into())
+                })
+                .collect(),
         },
     }
 }
