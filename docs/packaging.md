@@ -144,7 +144,7 @@ says whether a newer release is out. A line under the sections tells too:
 "Update available" with the release's tag, and a click opens About. About
 shows what's new in that release (see below) and offers Update and restart
 (when this copy can replace itself), View release, which opens the release's
-page in the browser, and Skip this update, which hides that release until a
+page in the browser, and Skip this version, which hides that release until a
 newer one comes. It also links to the website, the GitHub project and the
 Discord server, each button with its mark.
 

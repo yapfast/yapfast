@@ -1388,13 +1388,13 @@ export component AboutSettings inherits VerticalLayout {
     callback copy-text(string);
     property <bool> copied;
     property <string> status-text:
-        Updates.status == UpdateStatus.checking ? "Checking..."
+        Updates.status == UpdateStatus.checking ? "Checking for updates…"
         : Updates.status == UpdateStatus.current ? "You're up to date."
-        : Updates.status == UpdateStatus.available ? "Yapfast " + Updates.latest + " is out."
-        : Updates.status == UpdateStatus.skipped ? "You skipped " + Updates.latest + "."
-        : Updates.status == UpdateStatus.failed ? "Couldn't check: " + Updates.error
-        : Updates.status == UpdateStatus.source ? "This is a build from source, so there's nothing to compare it with."
-        : Updates.check ? "" : "Update checks are off.";
+        : Updates.status == UpdateStatus.available ? "Yapfast " + Updates.latest + " is available."
+        : Updates.status == UpdateStatus.skipped ? "You skipped " + Updates.latest + ". We'll tell you about the next one."
+        : Updates.status == UpdateStatus.failed ? "Couldn't check for updates: " + Updates.error
+        : Updates.status == UpdateStatus.source ? "You're running a build from source, so there's nothing to update."
+        : Updates.check ? "" : "Update checks are turned off.";
     spacing: 16px;
     SettingsTitle { text: "About"; }
     Rectangle {
@@ -1424,7 +1424,7 @@ export component AboutSettings inherits VerticalLayout {
     Timer { interval: 2s; running: root.copied; triggered => { root.copied = false; } }
     SettingsHeading { text: "UPDATES"; }
     if Updates.manager != "": Label {
-        text: "Installed with " + Updates.manager + ". Update it there.";
+        text: "You installed Yapfast with " + Updates.manager + ", so update it there.";
     }
     if root.status-text != "": Label {
         text: root.status-text;
@@ -1446,7 +1446,7 @@ export component AboutSettings inherits VerticalLayout {
         }
     }
     if !Updates.installing && Updates.install-error != "": Label {
-        text: "The update failed: " + Updates.install-error; color: Theme.danger-text;
+        text: "Couldn't update: " + Updates.install-error; color: Theme.danger-text;
     }
     if !Updates.installing && Updates.status == UpdateStatus.available && Updates.install-note != "": Label {
         text: Updates.install-note;
@@ -1476,7 +1476,7 @@ export component AboutSettings inherits VerticalLayout {
             clicked => { Updates.view(); }
         }
         if Updates.status == UpdateStatus.available: ActionButton {
-            text: "Skip this update";
+            text: "Skip this version";
             clicked => { Updates.skip(); }
         }
         ActionButton {
@@ -1486,14 +1486,14 @@ export component AboutSettings inherits VerticalLayout {
     }
     SettingsSwitch {
         text: "Check for updates";
-        description: "Looks for a new version when Yapfast starts and every few hours after. Only the version number goes to GitHub.";
+        description: "Checks for new versions every 6 hours.";
         new-key: "check-updates";
         checked <=> Updates.check;
         toggled => { Updates.preferences-changed(); }
     }
     SettingsSwitch {
         text: "Include nightly builds";
-        description: "Early builds that may be rough. Off, you only hear about releases.";
+        description: "Get the newest features before release. Expect some bugs.";
         new-key: "update-nightlies";
         checked <=> Updates.nightlies;
         enabled: Updates.check;
@@ -1503,7 +1503,7 @@ export component AboutSettings inherits VerticalLayout {
     // being asked, and until it does, nothing turns this on.
     SettingsSwitch {
         text: "Install updates automatically";
-        description: "Off. Yapfast installs a release only when you press Update and restart.";
+        description: "Not available yet.";
         checked: false;
         enabled: false;
     }

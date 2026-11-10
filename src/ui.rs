@@ -1293,7 +1293,7 @@ struct Layout {
     check_for_updates: bool,
     /// Nightly builds count as newer releases; off unless turned on.
     update_nightlies: bool,
-    /// The tag of the release that Skip this update hid.
+    /// The tag of the release that Skip this version hid.
     skipped_update: Option<String>,
     /// The tag of the release a notification last told of, so each release is
     /// announced once.

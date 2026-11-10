@@ -75,12 +75,12 @@ pub fn target_for(
         Source::AppImage if cfg!(target_arch = "x86_64") => "-x86_64.AppImage",
         Source::Installer if cfg!(target_arch = "x86_64") => "-windows-x64-setup.exe",
         Source::AppImage | Source::Installer => {
-            return Err("Releases carry no file for this kind of computer.".into());
+            return Err("There's no download for your system yet.".into());
         }
         Source::Manager(name) => return Err(format!("{name} updates this copy.")),
         Source::Other => {
             return Err(
-                "This copy isn't one Yapfast installed, so it can't replace itself.".into(),
+                "This copy can't update itself. Get the new version from the release page.".into(),
             );
         }
     };
@@ -89,8 +89,8 @@ pub fn target_for(
         .iter()
         .find(|asset| asset.name.ends_with(suffix))
         .ok_or_else(|| match source {
-            Source::Installer => "This release has no Windows installer.".to_owned(),
-            _ => "This release has no AppImage.".to_owned(),
+            Source::Installer => "There's no Windows installer for this version yet.".to_owned(),
+            _ => "There's no AppImage for this version yet.".to_owned(),
         })?
         .clone();
     sums_of(release).ok_or("This release doesn't publish SHA256SUMS.txt.")?;
@@ -101,7 +101,7 @@ pub fn target_for(
                 .to_path_buf();
             let folder = current.parent().ok_or("The AppImage has no folder.")?;
             if !writable(folder) {
-                return Err("The AppImage's folder can't be written to.".into());
+                return Err("Yapfast can't write to the AppImage's folder.".into());
             }
             Ok(Target::AppImage { asset, current })
         }
@@ -111,11 +111,11 @@ pub fn target_for(
             // was unpacked by hand or installed by something else.
             if !folder.join("unins000.exe").is_file() {
                 return Err(
-                    "Only a copy installed by Yapfast's installer can be updated here.".into(),
+                    "This copy can't update itself. Get the new version from the release page.".into(),
                 );
             }
             if !writable(folder) {
-                return Err("Yapfast's folder can't be written to.".into());
+                return Err("Yapfast can't write to its own folder.".into());
             }
             Ok(Target::Installer {
                 asset,
@@ -354,7 +354,7 @@ async fn prepare_in(
     let sums = fetch_sums(client, &sums.url).await?;
     let expected = sums
         .get(&asset.name)
-        .ok_or_else(|| format!("The release publishes no sum for {}.", asset.name))?;
+        .ok_or_else(|| format!("The download of {} couldn't be verified, so it wasn't installed.", asset.name))?;
     progress.stage(Stage::Downloading);
     let actual = download(client, &asset.url, part, asset.size, progress).await?;
     if &actual != expected {
@@ -377,7 +377,7 @@ async fn prepare_in(
                         std::fs::rename(&new, &to).map_err(|error| error.to_string())
                     })
                     .await
-                    .map_err(|_| "The update was cut short.".to_owned())??;
+                    .map_err(|_| "The update stopped partway.".to_owned())??;
                 progress.stage(Stage::Installing);
                 Ok(Prepared::Replaced(current.clone()))
             }
@@ -489,7 +489,7 @@ mod tests {
             target_for(&release, source, &program, Some(&app)).expect_err("not updated here")
         };
         assert!(reason(Source::Manager("Scoop")).contains("Scoop"));
-        assert!(reason(Source::Other).contains("can't replace itself"));
+        assert!(reason(Source::Other).contains("can't update itself"));
         if !cfg!(target_arch = "x86_64") {
             return;
         }
@@ -739,7 +739,7 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert!(error.contains("publishes no sum"), "{error}");
+        assert!(error.contains("couldn't be verified"), "{error}");
     }
 
     #[cfg(unix)]
