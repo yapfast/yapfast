@@ -2475,28 +2475,48 @@ impl Adapter {
     /// The reactions offered on messages, the most used first.
     fn show_reactions_offered(&self, window: &YapfastWindow) {
         let scale = window.window().scale_factor();
+        let keys = self.app.frequent_reactions(4);
+        // A custom emoji's picture comes from the pictures the application
+        // keeps, not the picker's, which it lets go of when it closes; one
+        // not there yet is asked for, and shows once it comes.
+        let ids: HashSet<&str> = keys
+            .iter()
+            .filter_map(|key| key.split_once(':').map(|(_, id)| id))
+            .collect();
+        let custom = self.app.emoji_by_id(&ids);
+        let cells: Vec<EmojiCell> = keys
+            .iter()
+            .map(|key| {
+                let cell = emoji::cell(key);
+                if cell.picture.size().width > 0 {
+                    return cell;
+                }
+                let Some(emoji) = key
+                    .split_once(':')
+                    .and_then(|(_, id)| custom.iter().find(|emoji| emoji.id == id))
+                else {
+                    return cell;
+                };
+                match self.app.state.pictures.get(&emoji.picture) {
+                    Some(arrived) => EmojiCell {
+                        picture: picture(arrived),
+                        ..cell
+                    },
+                    None => {
+                        window
+                            .global::<PictureStore>()
+                            .invoke_request(emoji.picture.as_str().into());
+                        cell
+                    }
+                }
+            })
+            .collect();
+        let cells = emoji::with_pictures(cells, scale);
         update_model(
             &self.models.bar_reactions,
-            emoji::with_pictures(
-                self.app
-                    .frequent_reactions(3)
-                    .iter()
-                    .map(|key| emoji::cell(key))
-                    .collect(),
-                scale,
-            ),
+            cells[..cells.len().min(3)].to_vec(),
         );
-        update_model(
-            &self.models.menu_reactions,
-            emoji::with_pictures(
-                self.app
-                    .frequent_reactions(4)
-                    .iter()
-                    .map(|key| emoji::cell(key))
-                    .collect(),
-                scale,
-            ),
-        );
+        update_model(&self.models.menu_reactions, cells);
     }
 
     /// A role's card, with the members known to have it.

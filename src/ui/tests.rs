@@ -3721,6 +3721,62 @@ fn the_member_list_shows_for_text_channels_and_remembers_being_closed() {
 }
 
 #[test]
+#[cfg(feature = "discord")]
+fn a_custom_emoji_among_the_quick_reactions_shows_its_picture() {
+    let (window, adapter, _folder) = discord_server_window_changed(0, |server, _| {
+        server.emojis = Arc::new(vec![yapfast_core::yapfast_discord::ready::Emoji {
+            id: "300".into(),
+            name: "talk".into(),
+            animated: false,
+            available: true,
+        }]);
+    });
+    let url = yapfast_core::yapfast_discord::ready::custom_emoji(
+        "300",
+        false,
+        yapfast_core::chat::EMOJI_PICTURE_SIZE,
+    );
+    let first = |window: &YapfastWindow| window.get_bar_reactions().row_data(0).unwrap();
+    // Reacted with most on an earlier run, its picture not yet fetched: the
+    // row asks for it.
+    let asked = Rc::new(RefCell::new(Vec::new()));
+    let seen = asked.clone();
+    window
+        .global::<PictureStore>()
+        .on_request(move |url| seen.borrow_mut().push(url.to_string()));
+    {
+        let mut adapter = adapter.borrow_mut();
+        adapter
+            .app
+            .remember_reaction_uses(HashMap::from([("talk:300".to_owned(), 5)]));
+        adapter.refresh(&window);
+    }
+    assert_eq!(first(&window).key, "talk:300");
+    assert_eq!(first(&window).picture.size().width, 0);
+    assert!(asked.borrow().contains(&url));
+    // Once the application has it, the row draws it, though no picker
+    // opened to keep a picture of its own.
+    {
+        let mut adapter = adapter.borrow_mut();
+        adapter.app.state.pictures.insert(
+            url,
+            Arc::new(Picture {
+                width: 64,
+                height: 64,
+                rgba: yapfast_core::chat::Pixels::new(64, 64, vec![255; 64 * 64 * 4]),
+                ..Default::default()
+            }),
+        );
+        adapter.refresh(&window);
+    }
+    assert!(first(&window).picture.size().width > 0);
+    assert_eq!(
+        window.get_menu_reactions().row_data(0).unwrap().key,
+        "talk:300"
+    );
+}
+
+#[test]
 fn forwarding_and_frequent_reactions_reach_the_window() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();

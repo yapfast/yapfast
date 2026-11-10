@@ -175,7 +175,10 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   Delete appears on your own messages, and on anyone's for a Discord moderator
   with Manage Messages. Until you have reacted, the most used reactions are 👍,
   ❤️, 😂 and 🎉. Yapfast counts the reactions you add, not the ones you remove,
-  in `layout.json` on this computer. The icons have tooltips and accessible
+  in `layout.json` on this computer. A custom emoji among them shows the
+  picture the application keeps of it, fetched for the toolbar when it isn't
+  there yet, as after a restart, rather than the picker's own, which goes when
+  the picker closes. The icons have tooltips and accessible
   names. Add reaction opens a picker with a search field, favourite emoji,
   frequently used emoji and every category of the `emojis` crate up to
   Unicode 15.0, which Noto Color
