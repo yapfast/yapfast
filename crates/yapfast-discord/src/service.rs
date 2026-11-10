@@ -16,7 +16,7 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use crate::{
     activity, activity_feed,
     api::{self, Api, PAGE, Span},
-    cache, forum, gift, guild, interactions, invite, limits,
+    cache, commands, forum, gift, guild, interactions, invite, limits,
     marked::MarkedServer,
     member_list::{ListedMember, Presence},
     message::{self, Message, Names, Page, Reply},
@@ -418,7 +418,7 @@ pub enum Live {
     },
     /// GUILD_APPLICATION_COMMAND_INDEX_UPDATE, or with no server
     /// APPLICATION_COMMAND_PERMISSIONS_UPDATE's: a kept command index is out
-    /// of date. Nothing keeps one yet.
+    /// of date, which [`Discord::command_index`] then fetches again.
     CommandIndexChanged {
         guild: Option<String>,
     },
@@ -753,6 +753,9 @@ pub struct Discord {
     /// The application of each bot whose controls were used or whose
     /// profile was opened; see [`interactions::AppIds`].
     app_ids: interactions::AppIds,
+    /// The command indexes fetched, until Discord says they changed; see
+    /// [`Self::command_index`].
+    commands: commands::Kept,
 }
 
 /// Discord allows starting 10 new DMs with people in 10 minutes, and treats
@@ -856,6 +859,7 @@ impl Discord {
                 beside: None,
             },
         ));
+        let kept_commands = commands::Kept::watching(live.subscribe());
         Ok(Self {
             requests,
             snapshots: watcher,
@@ -872,6 +876,7 @@ impl Discord {
             mfa: Arc::default(),
             default_sounds: Arc::default(),
             app_ids: interactions::AppIds::default(),
+            commands: kept_commands,
         })
     }
 
@@ -882,6 +887,38 @@ impl Discord {
     /// Message events for every channel, from now on.
     pub fn live(&self) -> broadcast::Receiver<Live> {
         self.live.subscribe()
+    }
+
+    /// The apps' commands for a channel: its server's index, or with no
+    /// server the DM's or group DM's, merged with this account's own. Each
+    /// index is fetched once, when first asked for, which the person typing
+    /// `/` does, and kept until the gateway says it changed. A DM's that
+    /// can't be had leaves the account's own.
+    pub async fn command_index(
+        &self,
+        guild: Option<&str>,
+        channel: &str,
+    ) -> Result<Arc<commands::CommandIndex>> {
+        let fetch = async |owner: &commands::Owner| self.api.command_index(&owner.resource()).await;
+        let place = match guild {
+            Some(guild) => {
+                let owner = commands::Owner::Guild(guild.to_owned());
+                Some(self.commands.get(owner, fetch).await?)
+            }
+            None => {
+                let owner = commands::Owner::Channel(channel.to_owned());
+                self.commands
+                    .get(owner, fetch)
+                    .await
+                    .inspect_err(|error| tracing::debug!(%error, "no command index for a DM"))
+                    .ok()
+            }
+        };
+        let own = self.commands.get(commands::Owner::User, fetch).await?;
+        Ok(match place {
+            Some(place) => Arc::new(place.merged(&own)),
+            None => own,
+        })
     }
 
     /// Tells Discord a server's channel is on screen, so its messages arrive

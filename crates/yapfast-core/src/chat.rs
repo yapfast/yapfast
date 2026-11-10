@@ -49,6 +49,16 @@ pub enum FeedEntry {}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FeedPerson {}
 
+/// The apps' commands a place offers, as Discord's command indexes list
+/// them; see `yapfast_discord::commands`.
+#[cfg(feature = "discord")]
+pub use yapfast_discord::commands::CommandIndex;
+
+/// Only Discord has apps' commands.
+#[cfg(not(feature = "discord"))]
+#[derive(Clone, Debug, PartialEq)]
+pub enum CommandIndex {}
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ChatRoom {
     pub id: String,
@@ -2554,11 +2564,11 @@ pub enum DiscordCommand {
     /// word from Discord, [`Event::InteractionSettled`] follows, by its nonce.
     /// See `discord_text/interactions.rs`.
     Interact(Box<Interaction>),
-    /// The commands the person may use in `room`: its server's command
-    /// index with the user-installed apps'. Sent only once the person types
-    /// `/`, never ahead. [`Event::CommandIndex`] follows. Phase 1a of the bot
-    /// commands (docs: bots-gap-analysis.md) fills it in, in
-    /// `discord_text/app_commands.rs`; until then it answers nothing.
+    /// The commands of `room`: its server's command index, or its DM's,
+    /// with the user-installed apps'. Sent only once the person types `/`,
+    /// never ahead; the service keeps each index until Discord says it
+    /// changed. [`Event::CommandIndex`] follows. See
+    /// `discord_text/app_commands.rs`.
     CommandIndex {
         room: String,
     },
@@ -3851,12 +3861,12 @@ pub enum Event {
         nonce: String,
         id: String,
     },
-    /// The commands the person may use in `room`, as Discord's index gives
-    /// them, or why they couldn't be fetched. Phase 1a may give it a typed
-    /// index in place of Discord's JSON.
+    /// The commands of `room`'s indexes, its server's or DM's merged with
+    /// the account's own, or why they couldn't be fetched. Which of them
+    /// the person may use there is `Application::slash_commands`'s to say.
     CommandIndex {
         room: String,
-        index: Result<Arc<serde_json::Value>, String>,
+        index: Result<Arc<CommandIndex>, String>,
     },
     /// A server's command index changed, or with none who may use commands:
     /// a kept index is out of date.

@@ -712,6 +712,14 @@ impl Api {
         self.json(self.request(Method::GET, &path)).await
     }
 
+    /// The apps' commands under `resource`, `guilds/{id}`, `channels/{id}`
+    /// or `users/@me`: `{applications, application_commands, version}`. See
+    /// [`crate::commands`].
+    pub async fn command_index(&self, resource: &str) -> Result<Value> {
+        let path = format!("/{resource}/application-command-index");
+        self.json(self.request(Method::GET, &path)).await
+    }
+
     /// The message that each of up to 25 message requests is waiting with,
     /// as Discord's requests list shows it: `[{channel_id, message_preview}]`.
     pub async fn request_previews(&self, channels: &[String]) -> Result<Value> {

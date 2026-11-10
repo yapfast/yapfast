@@ -60,6 +60,7 @@ pub use channel_settings::{
     ChannelInput, ChannelSection, ChannelSettingsScreen, OverwriteConfirm, OverwriteRules,
     OverwriteState, Overwrites, channel_groups, channel_permission,
 };
+pub use commands::{AppCommands, SlashCommand};
 pub use cosmetics::Cosmetics;
 pub use forum::{ForumInfo, ForumPost, ForumPosts, ForumView};
 pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
@@ -438,6 +439,8 @@ pub enum Compose {
 pub struct AppState {
     /// Bots' controls and forms used, waiting for Discord's word.
     pub interactions: Interactions,
+    /// The open room's apps' commands, once the person typed `/`.
+    pub app_commands: AppCommands,
     /// A bot's form, open.
     pub interaction_modal: Option<InteractionModal>,
     pub select_menu: Option<SelectMenu>,
