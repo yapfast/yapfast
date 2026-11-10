@@ -1168,6 +1168,28 @@ pub struct InternalKeyEvent {
     pub anchor_position: Option<i32>,
 }
 
+/// Yapfast: the Latin letter on the key that types `text` on the Russian or
+/// Ukrainian layout (ЙЦУКЕН), keeping its case; none for anything else.
+pub(crate) fn latin_on_same_key(text: &str) -> Option<&'static str> {
+    const KEYS: [(char, &str, &str); 37] = [
+        ('й', "q", "Q"), ('ц', "w", "W"), ('у', "e", "E"), ('к', "r", "R"),
+        ('е', "t", "T"), ('н', "y", "Y"), ('г', "u", "U"), ('ш', "i", "I"),
+        ('щ', "o", "O"), ('з', "p", "P"), ('ф', "a", "A"), ('ы', "s", "S"),
+        ('і', "s", "S"), ('в', "d", "D"), ('а', "f", "F"), ('п', "g", "G"),
+        ('р', "h", "H"), ('о', "j", "J"), ('л', "k", "K"), ('д', "l", "L"),
+        ('я', "z", "Z"), ('ч', "x", "X"), ('с', "c", "C"), ('м', "v", "V"),
+        ('и', "b", "B"), ('т', "n", "N"), ('ь', "m", "M"), ('х', "[", "{"),
+        ('ї', "]", "}"), ('ъ', "]", "}"), ('ж', ";", ":"), ('э', "'", "\""),
+        ('є', "'", "\""), ('б', ",", "<"), ('ю', ".", ">"), ('ё', "`", "~"),
+        ('ґ', "\\", "|"),
+    ];
+    let mut chars = text.chars();
+    let (Some(typed), None) = (chars.next(), chars.next()) else { return None };
+    let lower = typed.to_lowercase().next()?;
+    let &(_, latin, upper) = KEYS.iter().find(|(key, _, _)| *key == lower)?;
+    Some(if typed == lower { latin } else { upper })
+}
+
 impl InternalKeyEvent {
     /// If a shortcut was pressed, this function returns `Some(StandardShortcut)`.
     /// Otherwise it returns None.
@@ -3188,6 +3210,19 @@ mod touch_tests {
 mod tests {
     use super::*;
     extern crate alloc;
+
+    // Yapfast
+    #[test]
+    fn cyrillic_letters_map_to_the_latin_key() {
+        assert_eq!(latin_on_same_key("ф"), Some("a"));
+        assert_eq!(latin_on_same_key("Ф"), Some("A"));
+        assert_eq!(latin_on_same_key("с"), Some("c"));
+        assert_eq!(latin_on_same_key("м"), Some("v"));
+        assert_eq!(latin_on_same_key("і"), Some("s"));
+        assert_eq!(latin_on_same_key("a"), None);
+        assert_eq!(latin_on_same_key("фы"), None);
+        assert_eq!(latin_on_same_key(""), None);
+    }
 
     #[test]
     fn test_to_string() {

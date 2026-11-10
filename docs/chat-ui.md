@@ -71,6 +71,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   feed of what people there are doing and did lately; see
   [the Activity panel](discord/people.md#the-activity-panel). Yapfast subscribes to the list's
   first 100 rows while the channel is open, and Discord keeps them current.
+  The list shows a change at once, then holds for half a second and shows
+  the changes from that time together, so a busy server's list draws at most
+  twice a second.
 - Read live text messages. Earlier history loads once the timeline has
   stayed within a screen of its top for 50 ms, a page at a time (30 events
   for Matrix, 50 messages for Discord), until the conversation's first
@@ -182,8 +185,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   client: the reactions give way to Pin or Unpin, Create Thread, and on your
   own message Reply, before Add reaction and Edit or Reply; Forward follows;
   and More gives way to Delete where you may delete, which deletes at once
-  without asking. The thread beside a channel does the same, without Create
-  Thread. Shift is read from the window's modifier keys wherever the focus
+  without asking. Shift and a click on Delete message in the message's menu
+  deletes at once too, where a plain click asks. The thread beside a channel
+  does the same, without Create Thread. Shift is read from the window's modifier keys wherever the focus
   is, and counts as let go when the window loses the focus, so it can't stick
   on after being let go elsewhere. It leaves a bar alone while its picker or
   menu is open. A pointer that stays put is told what's under it as the
@@ -203,24 +207,102 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   keep their size and their spacing as it widens, so what the width has over
   stays at the row's end. Each emoji is drawn from Twemoji's picture of it,
   which is the artwork Discord's client uses and which the program carries
-  (`vendor/twemoji`, CC-BY 4.0), decoded at the size the grid draws as its row
-  shows; drawing the system emoji font instead cost a colour font's paint graph
+  (`vendor/twemoji`, CC-BY 4.0), decoded once and shrunk to the pixels a cell
+  draws, averaging the part of the 72px picture each covers, alpha
+  premultiplied as Skia draws it, so a frame copies it: drawn at 72px into the
+  cell, Skia scaled every picture again on every frame of a scroll. Drawing
+  the system emoji font instead cost a colour font's paint graph
   for every emoji on screen, every frame, and made a stretched picker scroll
-  slowly. A row more than eight past those shown lets go of its pictures, and
-  a picker that closes lets go of its grid, so the list costs what is near the
-  view. A code point Twemoji has no picture for is still drawn by the
-  system font. A cell whose custom emoji is animated keeps that still as its
+  slowly. It lists only the emoji Twemoji has a picture for. A screen of rows either side of those shown is drawn with them, and
+  the custom emoji's pictures of three screens either side are asked for,
+  nearest first, the ones this account may not use too. A cold cache or a
+  scroll beyond that margin can still show placeholders until downloads finish. A
+  picture asked for again moves ahead of those asked for since, so what shows
+  now downloads and decodes before what a scroll passed, and one that arrives
+  shows within a few frames without laying the rest of the window out again;
+  asking changes nothing on screen, so a scroll lays nothing out either. A
+  section's rail button and heading are a quiet square until its server's
+  icon, or for a server without one its first emoji, comes, which every
+  section asks for as the picker opens. A row further than those three
+  screens lets go of its custom emoji's pictures and the application's copies
+  and pending requests at the same time, even when none has arrived yet, so
+  scrolling through every server's emoji holds a few screens of them however far it goes; a
+  row scrolled back to reads them from the disk cache again. Downloads of
+  pictures let go of before they came are called off, and one that comes all
+  the same isn't kept. Startup queues the account's custom emoji pictures for
+  the disk cache, even when avatars or some emoji were cached already. Later
+  snapshots queue newly added emoji too; opening the picker shares that URL
+  tracking rather than repeating startup's requests. Background downloads run
+  behind visible pictures and decode nothing. Up to eight background workers
+  drain a deduplicated URL queue; a visible request promotes an active background
+  job instead of downloading the same picture twice. Cancelling a foreground
+  request returns its URL to background warming instead of abandoning it. At most twelve encoded
+  pictures read from the disk or downloaded are held waiting for the four
+  decode turns, and eight downloads run at once; a picture the disk doesn't
+  hold lets its turn go while it downloads, so one the disk holds never waits
+  behind downloads waiting out a backoff. Cancelling a queued request
+  releases its turn waiter, and a blocking decode keeps its permits until it
+  actually finishes. A picture Discord says isn't there, or that doesn't
+  decode, isn't asked for again that session; one that failed only while
+  Discord or the network was down is tried again when next asked for. Once
+  cached, emoji load from disk rather than waiting for the CDN. A second after
+  the emoji or the sticker picker closes, Skia lets go of the textures and
+  copies it kept to draw their pictures, and the heap gives back what that
+  freed (`let_go_after_picker`). On Windows that is `HeapOptimizeResources`,
+  which returns the low-fragmentation heaps a burst of pictures grew; `HeapCompact`
+  joins freed blocks but gives none of their memory back. What the close
+  called off frees more as it finishes, so the heap is asked again half a
+  second later and twice more after, and a fast scroll over hundreds of
+  emoji leaves no more behind than it found. An
+  animated one starts as soon as its picture arrives. A row a screen past
+  those shown lets go of its Twemoji pictures, and a picker that closes lets
+  go of its grid and of every custom emoji's picture but those the messages
+  on screen, the topic and the hover bar's reactions show; the disk cache
+  keeps them, and the next look reads them from there. The grid itself holds buttons
+  for the rows in sight and two either side, placed where each row starts, as
+  the sticker picker's tiles are: a button whose emoji scrolls out shows one
+  that scrolls in, so a scroll sets a few buttons' data and makes none, however
+  wide the picker. A cell whose custom emoji is animated keeps that still as its
   placeholder until the emoji's frames arrive, which decode at 48px times the
-  screen's scale factor, up to 96px, off the thread that draws, so a grid of
-  animated emoji scrolls as fast as one of stills. Every server's emoji show,
-  as Discord's picker shows them: the ones this account may not use where it
-  is looking — another server's, or an animated one without Nitro — are
+  screen's scale factor, up to 96px, off the thread that draws. The 6 MiB frame
+  budget covers the renderer's registry too: eviction unregisters the animation,
+  and closing the picker unregisters all its unpinned frames. Queued work for
+  rows left behind is discarded, and late decodes cannot register them again;
+  message animations keep their own pins. Every server's emoji show,
+  as Discord's picker shows them: the sections down its left jump to each of
+  them, a server's button drawing its icon as its heading draws it beside the
+  server's name, Frequently Used's a clock and Favorites' a star, each heading
+  in a row of its own, tighter than a row of emoji and at the grid's top as the
+  rail's buttons are, and the ones
+  this account may not use where it
+  is looking — another server's without Nitro, or in a channel that denies
+  Use External Emojis even with it, or an animated one without Nitro — are
   greyed with a lock in their corner, and pressing one opens Discord's Nitro
-  page. A start whose picture cache is empty fetches all of them into it in
-  the background, off the thread that draws, decoding none and holding none,
-  so the first look finds them. A drag that changed the width keeps it in
-  `layout.json` (`picker_width`), and it comes back at the next start. See
+  page. A cell's star, in both pickers, adds the emoji to the Discord
+  account's favourites or takes it out, as Discord's client's does: they are
+  `favorite_emojis` in the second settings protobuf, a custom emoji by its id
+  and a Unicode one by its Discord name without a skin tone, at most 250, which
+  every client of the account shares, and Favorites lists them. The grid is
+  built as a picker opens, not at a start. Cache warming runs off the thread that draws and does not decode
+  pictures; a section reached before warming finishes can still show placeholders.
+  A drag that changed the width keeps it in
+  `layout.json` (`picker_width`), written once the drags have stopped for a
+  second, and it comes back at the next start. See
   [Discord](discord/messages.md#gifs).
+- A Stickers tab in the same picker, and a sticker button of its own, on
+  Discord: a search field, then the collections down the left to jump between
+  — Frequently Used with a clock's own icon, the open server's, whose icon
+  leads its name, then Discord's default packs — and their stickers as 96px
+  tiles in the picker's columns under the collection's name, as the emoji's
+  own are. A click sends the sticker as a message of its own. Discord's packs
+  and the open server's stickers are anyone's; another server's need Nitro,
+  as Discord's client has them. Its pictures are
+  kept on disk and fetched ahead, so the tab shows them at once. The left edge
+  drags it wider as it does for the GIFs and the emoji, and the grid takes
+  another 96px column for every 104px. Its tiles are those in sight and a
+  screen either side, and a scroll that brings one in hands it the element of
+  one that went out. See
+  [Discord](discord/messages.md#stickers).
 - GIFs, animated emoji, stickers and the picker's tiles play only while
   Yapfast's window has the focus, as in Discord: on another screen they hold
   still on the frame they were showing, and go on from there when the
@@ -228,7 +310,10 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   touched the window for 15 seconds and while it is minimised, and go on
   from the frame they stopped on. Settings' "Play GIFs, emoji and stickers",
   at Always, plays them unfocused, but not while minimised, and at Never
-  keeps them all still.
+  keeps them all still. The clock they share ticks at the pace of the
+  fastest, and only a tick that shows some animation a new frame draws
+  again; in the emoji picker only an animated emoji's button follows it, so
+  a frame redraws that button, not the grid.
 - Who reacted, as in Discord's client: half a second on a reaction shows a
   tooltip, ":tada: reacted by Ann, Bo, Cy, and 2 others", naming the first
   three by their name there, once they come (`Command::Reactors`, three at a
@@ -375,9 +460,13 @@ in place of the desktop's, as Discord does (`src/ui/title_bar.rs`,
 `ui/title_bar.slint`): a 32px bar on the rail's ground across the top, with
 the server's name, "Direct messages" or "Yapfast" in the middle and
 minimize, maximize or restore, and close at the right. Signed in, it also has
-back and forward arrows at the left, which walk the conversations visited as
-Alt+Left and Alt+Right do, up to 50 of them and past any that are gone, and
-Inbox and Help before the window's buttons. Help opens Discord's support site.
+back and forward arrows at the left, which walk the places visited as
+Alt+Left and Alt+Right and a mouse's back and forward buttons do, up to 50 of
+them and past any that are gone, and Inbox and Help before the window's
+buttons. A place is a conversation, a screen of the direct messages (Friends,
+or the requests) or a server's Browse Channels, as in Discord's client; the
+settings open over the window and are not one. A thread beside a channel isn't
+one either. Help opens Discord's support site.
 Inbox opens a popout with Discord's first two tabs: Unreads, the channels and
 conversations with unread messages, muted ones only for a mention, and
 Mentions, those that mention this account, each with its count; Discord's own
@@ -457,7 +546,8 @@ The window follows Discord's arrangement:
   "Connected on another client". Every row takes the hover tone, and clicking
   someone opens their profile card beside the row, as Discord's popout does;
   someone listed only in a voice channel gets one from the name and avatar the
-  channel gives, which their Discord profile fills in. Clicking someone's LIVE
+  channel gives, which their Discord profile fills in. A profile's name and
+  username select, to copy; its picture opens the full profile. Clicking someone's LIVE
   tag opens their channel's call and watches them. Outside that call it asks
   first, "Join <channel> to watch <name>'s stream?", or in another call the
   switch prompt asks, and the stream opens once the call connects and shows
@@ -600,22 +690,24 @@ To check the window by hand, see [Seeing the app](building.md#seeing-the-app).
 The native file dialogs need an XDG portal, which `scripts/ui-session` doesn't
 run, so Attach and Save are checked only through the integration test.
 
-On Linux Yapfast finds an installed emoji font with CBDT or sbix bitmaps and
-no COLR table, or failing that a COLR one, maps it and registers it with Slint
-as "Yapfast Color Emoji" (`src/emoji.rs`); fontconfig alone can prefer the
-COLRv1 build of Noto Color Emoji when both are installed. That font also leads
-the sans-serif and UI fallback lists, ahead of display fonts that carry a few
-monochrome emoji, so emoji in message text draw in color too; symbols the UI
-typeface lacks that have an emoji form, such as ♥, then show as emoji. Linux
-uses the prebuilt Skia with Skia's own FreeType, which draws COLRv1, the only
-build Fedora installs (issue #32), as `skia_draws_colrv1_glyphs_in_colour`
-checks. Windows uses "Segoe UI Emoji".
+Every emoji is Twemoji's, on every platform, as Discord's client draws them:
+the font `build.rs` makes of Twemoji's pictures is registered as "Yapfast
+Twemoji" (`emoji_text::register`), and is the generic emoji family alone and
+the first of the sans-serif and UI fallback lists, from which the system's
+emoji fonts are taken out (`emoji_font::register_emoji`). So an emoji in any
+text, a name, a status or the composer's draft, draws Twemoji's picture, a
+flag, a keycap or a skin tone joined into its one picture by the font's
+ligatures; symbols the UI typeface lacks that have an emoji form, such as ♥,
+show as Twemoji's. Reactions, poll answers and an emoji shown on its own pass
+their text through `Twemoji.text` (`ui/theme.slint`), which rewrites each emoji
+to its picture's glyph as message text is. Linux uses the prebuilt Skia with
+Skia's own FreeType, which draws COLRv1 (issue #32), as
+`skia_draws_colrv1_glyphs_in_colour` checks; custom emoji fonts are CBDT.
 
 On Windows, fontique falls back by script, with a sample of each script, and
 its sans-serif and UI lists are only Arial and Segoe UI. Emoji, most symbols
 and the styled letters of Unicode's mathematical alphabets that Discord names
 use, such as 𝓯𝓪𝓷𝓬𝔂, are all of the Common script, so they would show as boxes.
-Yapfast puts Segoe UI Emoji, Segoe UI, Segoe UI Symbol, Cambria Math and Segoe
-UI Historic at the front of both lists (`emoji::WINDOWS_FALLBACK`). Wine draws
-no emoji from a bitmap font standing in for Segoe UI Emoji, so color emoji in
-message text need a check on real Windows.
+Yapfast puts Segoe UI, Segoe UI Symbol, Cambria Math and Segoe UI Historic at
+the front of both lists (`emoji::WINDOWS_FALLBACK`), after Twemoji's font, and
+not Segoe UI Emoji.

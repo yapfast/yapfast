@@ -125,7 +125,7 @@ export struct RolesPrompt {
 // A role's colour dot, or its icon or emoji in its place.
 component RoleMark inherits Rectangle {
     in property <RoleRow> role;
-    property <image> icon: root.role.icon-url != "" ? PictureStore.picture(root.role.icon-url, PictureStore.revision) : @image-url("");
+    property <image> icon: root.role.icon-url != "" ? PictureStore.picture(root.role.icon-url, PictureStore.revision(root.role.icon-url)) : @image-url("");
     // Only while it isn't loaded: a request refreshes the list, which
     // makes the row again.
     init => { if root.role.icon-url != "" && root.icon.width == 0 { PictureStore.request(root.role.icon-url); } }
@@ -513,7 +513,7 @@ export component RolesSection inherits VerticalLayout {
                     spacing: 16px; alignment: start;
                     Rectangle {
                         width: 64px; height: 64px; border-radius: 8px; background: Theme.sunken;
-                        property <image> shown: root.page.icon-url != "" ? PictureStore.picture(root.page.icon-url, PictureStore.revision) : root.page.icon-new;
+                        property <image> shown: root.page.icon-url != "" ? PictureStore.picture(root.page.icon-url, PictureStore.revision(root.page.icon-url)) : root.page.icon-new;
                         init => { if root.page.icon-url != "" && self.shown.width == 0 { PictureStore.request(root.page.icon-url); } }
                         if self.shown.width > 0: Image { width: 48px; height: 48px; source: parent.shown; image-fit: contain; }
                         if self.shown.width == 0 && root.page.emoji != "": Text { text: root.page.emoji; font-size: 36px; }
