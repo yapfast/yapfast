@@ -166,7 +166,8 @@ they do in Discord.
   message requests.
 - **Messages** you can send, reply to, edit, react to, pin, forward and attach
   files to, with Markdown, embeds, custom emoji, stickers and spoilers. Bots'
-  buttons, menus and forms work too, and so do apps' slash commands: type `/`,
+  buttons, dropdown menus and forms work too, radio buttons, checkboxes and
+  file uploads included, and so do apps' slash commands: type `/`,
   pick one and fill in its options, files and autocomplete included.
   Discord's own links to servers, channels, messages and profiles open in
   Yapfast, including one handed to it by the desktop.

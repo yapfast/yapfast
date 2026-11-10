@@ -800,7 +800,6 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             }
         });
     }
-    bind!(on_bot_select_submit, Action::SubmitSelect);
     bind!(on_bot_select_close, Action::CloseSelect);
     {
         let state = adapter.clone();
@@ -814,6 +813,45 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         });
     }
     bind!(on_bot_modal_submit, Action::SubmitModal);
+    // A form's file upload takes files from the same dialog as the
+    // composer's.
+    {
+        let state = adapter.clone();
+        window.on_bot_modal_choose_files(move |index| {
+            let index = index.max(0) as usize;
+            let weak = Rc::downgrade(&state);
+            state.borrow_mut().dialog(async move {
+                let files = rfd::AsyncFileDialog::new()
+                    .set_title("Choose files")
+                    .pick_files()
+                    .await;
+                if let (Some(files), Some(adapter)) = (files, weak.upgrade()) {
+                    let window = adapter.borrow().window.upgrade();
+                    if let Some(window) = window {
+                        let files = files.iter().map(|file| file.path().to_owned()).collect();
+                        adapter
+                            .borrow_mut()
+                            .action(&window, Action::AddModalFiles { index, files });
+                    }
+                }
+            });
+        });
+    }
+    {
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        window.on_bot_modal_remove_file(move |index, file| {
+            if let Some(window) = weak.upgrade() {
+                state.borrow_mut().action(
+                    &window,
+                    Action::RemoveModalFile {
+                        index: index.max(0) as usize,
+                        file: file.max(0) as usize,
+                    },
+                );
+            }
+        });
+    }
     bind!(on_bot_modal_close, Action::CloseModal);
     {
         let state = adapter.clone();

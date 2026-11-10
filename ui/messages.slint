@@ -3,6 +3,7 @@ import { ListView, ScrollView } from "scrollview.slint";
 import { Theme, Tip, ReactionHover, Middle, Label, Twemoji } from "theme.slint";
 import { ActionButton, IconButton, Avatar, Picture, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField, ContextMenu, MenuRow, StyledName, NameStyleRow, ServerTagChip } from "controls.slint";
 import { FavoriteStar, GifFavorites } from "gifs.slint";
+import { BotSelectBox } from "bot_select.slint";
 
 /// An emoji: what shows, its name, and the reaction it adds, which for a custom
 /// emoji is Discord's `name:id`. A custom emoji shows its `picture` once it has
@@ -310,6 +311,8 @@ export struct ImageCell {
     /// A GIF's page, by which it's kept among the favourites; empty for any
     /// other picture.
     gif: string,
+    /// Its alt text, which a screen reader reads in place of its name.
+    description: string,
 }
 
 // The video playing. The cell showing it binds to this, so its pictures
@@ -554,17 +557,21 @@ export enum CardRowKind { text, media, separator, buttons, select, unknown }
 /// A row of a Discord app's card, of one `kind`, with the fields it uses:
 /// text and what a section shows beside it; pictures in a gallery and file
 /// cards; a gap, `large`, with or without a `divider`; buttons; or a menu
-/// by what it shows, which doesn't open; or a note that Yapfast can't show
+/// by what it shows, which opens its dropdown; or a note that Yapfast can't show
 /// some components.
 export struct CardRow {
     kind: CardRowKind,
     blocks: [TextBlock],
     thumbnail: image, thumbnail-index: int, has-thumbnail: bool, thumbnail-loading: bool, thumbnail-spoiler: bool,
+    /// The thumbnail's alt text, which a screen reader reads.
+    thumbnail-description: string,
     button: CardButton, has-button: bool,
     images: [ImageCell], gallery-width: int, gallery-height: int, files: [FileCell],
     divider: bool, large: bool,
     buttons: [CardButton],
-    select: string, select-id: string, select-enabled: bool,
+    /// What the menu shows: what it picked by default when `select-picked`,
+    /// its placeholder otherwise.
+    select: string, select-id: string, select-enabled: bool, select-picked: bool,
 }
 /// A container of a Discord message's components, framed with a bar of its
 /// colour, or the components outside one.
@@ -1443,7 +1450,7 @@ export component MessageGallery inherits HorizontalLayout {
             // Discord draws a transparent picture straight on the message background.
             background: ClientStyle.enabled && !cell.loading ? transparent : Theme.sunken;
             if cell.loading: Skeleton { width: parent.width; height: parent.height; }
-            if !cell.loading: Picture { still: cell.image; frames: cell.frames; delays: cell.delays; width: parent.width; height: parent.height; image-fit: cover; accessible-role: image; accessible-label: cell.spoiler ? "Spoiler" : cell.name; }
+            if !cell.loading: Picture { still: cell.image; frames: cell.frames; delays: cell.delays; width: parent.width; height: parent.height; image-fit: cover; accessible-role: image; accessible-label: cell.spoiler ? "Spoiler" : cell.description != "" ? cell.description : cell.name; }
             if cell.spoiler: SpoilerCover {}
             cell-touch := TouchArea {
                 mouse-cursor: MouseCursor.pointer;
@@ -1778,8 +1785,10 @@ component CardButtonView inherits ActionButton {
     // It waits for Discord's word on its last use: see `CardView`.
     property <bool> busy: root.button.custom-id != "" && root.busy-controls != ""
         && root.busy-controls.replace-all("\u{1f}" + root.item + "\u{1e}" + root.button.custom-id + "\u{1f}", "") != root.busy-controls;
-    text: root.button.style == CardButtonStyle.premium ? "View offer" : root.button.label;
-    icon: root.button.style == CardButtonStyle.link ? @image-url("icons/external-link.svg") : root.no-icon;
+    // A purchase is made in Discord, which its store page opens.
+    text: root.button.style == CardButtonStyle.premium ? "Open in Discord" : root.button.label;
+    icon: root.button.style == CardButtonStyle.link ? @image-url("icons/external-link.svg")
+        : root.button.style == CardButtonStyle.premium ? @image-url("icons/shop.svg") : root.no-icon;
     primary: root.button.style == CardButtonStyle.primary;
     success: root.button.style == CardButtonStyle.success;
     danger: root.button.style == CardButtonStyle.danger;
@@ -1842,7 +1851,7 @@ export component CardView inherits HorizontalLayout {
                             if row.thumbnail-loading: Skeleton { width: parent.width; height: parent.height; }
                             if !row.thumbnail-spoiler: Image {
                                 source: row.thumbnail; width: parent.width; height: parent.height; image-fit: cover;
-                                accessible-role: image; accessible-label: "Thumbnail";
+                                accessible-role: image; accessible-label: row.thumbnail-description != "" ? row.thumbnail-description : "Thumbnail";
                             }
                             if row.thumbnail-spoiler: SpoilerCover {}
                             TouchArea {
@@ -1887,23 +1896,14 @@ export component CardView inherits HorizontalLayout {
                     spacing: 8px; alignment: start;
                     for button in row.buttons: CardButtonView { button: button; item: root.item; app-id: root.app-id; busy-controls: root.busy-controls; open-link(link) => { root.open-link(link); } use-button(item, id) => { root.use-button(item, id); } }
                 }
-                if row.kind == CardRowKind.select: select-row := HorizontalLayout {
-                    property <bool> busy: root.busy-controls != ""
-                        && root.busy-controls.replace-all("\u{1f}" + root.item + "\u{1e}" + row.select-id + "\u{1f}", "") != root.busy-controls;
-                    Rectangle {
-                        max-width: 400px; horizontal-stretch: 100; height: 40px; border-radius: 8px; opacity: row.select-enabled && !select-row.busy ? 1 : 0.5;
-                        background: Theme.field; border-width: 1px; border-color: Theme.edge;
-                        accessible-role: combobox; accessible-label: row.select; accessible-enabled: row.select-enabled && !select-row.busy;
-                        accessible-action-default => { if row.select-enabled && !select-row.busy { root.open-select(root.item, row.select-id); } }
-                        HorizontalLayout {
-                            padding-left: 12px; padding-right: 12px; spacing: 8px;
-                            Text { text: row.select; color: Theme.secondary; font-weight: 500; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
-                            Image { source: @image-url("icons/chevron-down.svg"); width: 18px; image-fit: contain; colorize: Theme.secondary; }
-                        }
-                        TouchArea {
-                            enabled: row.select-enabled && !select-row.busy; mouse-cursor: MouseCursor.pointer;
-                            clicked => { root.open-select(root.item, row.select-id); }
-                        }
+                // Its dropdown opens under it: see interactions.slint.
+                if row.kind == CardRowKind.select: HorizontalLayout {
+                    BotSelectBox {
+                        max-width: 400px; horizontal-stretch: 100;
+                        text: row.select; picked: row.select-picked; enabled: row.select-enabled;
+                        busy: root.busy-controls != ""
+                            && root.busy-controls.replace-all("\u{1f}" + root.item + "\u{1e}" + row.select-id + "\u{1f}", "") != root.busy-controls;
+                        clicked => { root.open-select(root.item, row.select-id); }
                     }
                     Rectangle { horizontal-stretch: 1; }
                 }

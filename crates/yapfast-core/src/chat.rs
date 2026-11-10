@@ -1634,6 +1634,8 @@ pub struct Attachment {
     /// which [`Command::CopyAttachment`] copies its picture. Only Discord's
     /// attachments have one.
     pub url: Option<Arc<str>>,
+    /// Its alt text, which a screen reader reads in place of the picture.
+    pub description: Option<String>,
 }
 
 /// What [`Command::Video`] tells the video playing.
@@ -1798,6 +1800,9 @@ pub struct CardOption {
     pub value: String,
     pub description: Option<String>,
     pub default: bool,
+    /// Shown before its label: the emoji itself, or a custom one by
+    /// `:name:`.
+    pub emoji: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2518,7 +2523,11 @@ pub enum Interaction {
         application: String,
         id: String,
         custom_id: String,
+        /// A file upload's `values` are its files' places in `files`, as
+        /// `"0"` for the first.
         components: serde_json::Value,
+        /// The files its file uploads carry, which go in the same request.
+        files: Vec<PathBuf>,
     },
 }
 

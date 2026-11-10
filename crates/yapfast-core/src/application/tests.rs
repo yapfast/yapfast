@@ -2801,6 +2801,7 @@ fn videos_play_in_the_open_room_until_it_closes() {
         spoiler: false,
         video,
         url: None,
+        description: None,
     };
     app.apply(Event::Timeline {
         room: "dm".into(),
@@ -2880,6 +2881,7 @@ fn the_viewer_steps_through_a_messages_images() {
         spoiler: false,
         video: false,
         url: None,
+        description: None,
     };
     app.apply(Event::Timeline {
         room: "dm".into(),
@@ -2961,6 +2963,7 @@ fn a_picture_with_an_address_is_copied_to_the_clipboard() {
         spoiler: false,
         video: false,
         url: url.map(Into::into),
+        description: None,
     };
     app.apply(Event::Timeline {
         room: "dm".into(),
@@ -3607,6 +3610,7 @@ fn discord_threads_show_beside_their_channel() {
                 spoiler: false,
                 video: false,
                 url: None,
+                description: None,
             }],
             can_react: true,
             can_reply: true,
@@ -5354,6 +5358,7 @@ fn closed_channels_keep_metadata_without_pinning_previews() {
             spoiler: false,
             video: false,
             url: None,
+            description: None,
         }],
         ..message(&format!("e:${index}"), false)
     };
@@ -9667,6 +9672,7 @@ fn favourite_gifs_show_from_disk_and_stars_wait_for_discords() {
             spoiler: false,
             video: false,
             url: None,
+            description: None,
         }],
         ..message("e:$1", false)
     };

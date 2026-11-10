@@ -144,12 +144,15 @@ impl Interactions {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct SelectChoice {
     pub label: String,
     pub value: String,
     pub description: String,
     pub selected: bool,
+    /// Shown before its label: the emoji itself, or a custom one by
+    /// `:name:`; empty for none.
+    pub emoji: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -164,14 +167,31 @@ pub struct SelectMenu {
     pub choices: Vec<SelectChoice>,
     pub query: String,
     pub modal_field: Option<usize>,
+    /// The values picked when it opened: a menu of several options sends
+    /// when it closes only if they changed.
+    pub initial: Vec<String>,
+}
+
+impl SelectMenu {
+    fn picked(&self) -> Vec<String> {
+        self.choices
+            .iter()
+            .filter(|choice| choice.selected)
+            .map(|choice| choice.value.clone())
+            .collect()
+    }
 }
 
 /// A field of a bot's form: a text input ([`TEXT_INPUT`]), a select menu
-/// (3, 5-8), text to read ([`TEXT_DISPLAY`]), or a part Yapfast can't fill
+/// (3, 5-8), text to read ([`TEXT_DISPLAY`], Markdown in `value`), files
+/// ([`FILE_UPLOAD`]), options to pick one of ([`RADIO_GROUP`]) or some of
+/// ([`CHECKBOX_GROUP`]), a [`CHECKBOX`], or a part Yapfast can't fill
 /// ([`UNSUPPORTED`]), which shows as such and keeps the form from being sent.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ModalField {
     pub label: String,
+    /// Its label's description, said under the label.
+    pub description: String,
     pub custom_id: String,
     pub value: String,
     pub placeholder: String,
@@ -185,15 +205,33 @@ pub struct ModalField {
     pub min_values: usize,
     pub max_values: usize,
     pub channel_types: Vec<u64>,
+    /// A checkbox's state.
+    pub checked: bool,
+    /// A file upload's files, in the order chosen.
+    pub files: Vec<PathBuf>,
 }
 
 pub const TEXT_INPUT: u64 = 4;
 pub const TEXT_DISPLAY: u64 = 10;
+pub const FILE_UPLOAD: u64 = 19;
+pub const RADIO_GROUP: u64 = 21;
+pub const CHECKBOX_GROUP: u64 = 22;
+pub const CHECKBOX: u64 = 23;
 pub const UNSUPPORTED: u64 = 0;
 
 /// Whether a field of this kind is a select menu.
 fn select_kind(kind: u64) -> bool {
     matches!(kind, 3 | 5..=8)
+}
+
+/// Whether a field of this kind is filled by picking some of its `values`.
+fn picked_kind(kind: u64) -> bool {
+    select_kind(kind) || matches!(kind, RADIO_GROUP | CHECKBOX_GROUP)
+}
+
+/// Whether a form field of this kind is one Yapfast fills.
+fn fillable(kind: u64) -> bool {
+    picked_kind(kind) || matches!(kind, TEXT_INPUT | FILE_UPLOAD | CHECKBOX)
 }
 
 #[derive(Clone, Debug)]
@@ -231,7 +269,7 @@ impl InteractionModal {
         for row in value["components"].as_array().into_iter().flatten() {
             let (outer_label, inner) = match row["type"].as_u64() {
                 Some(1) => (None, &row["components"][0]),
-                Some(18) => (row["label"].as_str(), &row["component"]),
+                Some(LABEL) => (row["label"].as_str(), &row["component"]),
                 Some(TEXT_DISPLAY) => {
                     parsed.push(ModalField {
                         kind: TEXT_DISPLAY,
@@ -248,10 +286,7 @@ impl InteractionModal {
                 }
             };
             let kind = inner["type"].as_u64().unwrap_or_default();
-            let Some(custom_id) = inner["custom_id"]
-                .as_str()
-                .filter(|_| kind == TEXT_INPUT || select_kind(kind))
-            else {
+            let Some(custom_id) = inner["custom_id"].as_str().filter(|_| fillable(kind)) else {
                 supported = false;
                 parsed.push(unsupported(outer_label.or_else(|| inner["label"].as_str())));
                 continue;
@@ -269,6 +304,7 @@ impl InteractionModal {
                             .unwrap_or_default()
                             .to_owned(),
                         selected: option["default"].as_bool().unwrap_or(false),
+                        emoji: emoji(&option["emoji"]),
                     })
                 })
                 .collect();
@@ -284,23 +320,41 @@ impl InteractionModal {
                         .filter_map(|value| value["id"].as_str().map(str::to_owned)),
                 )
                 .collect();
+            // As docs.discord.food gives each kind's defaults: a file upload
+            // and a checkbox may be left alone, a checkbox group takes up to
+            // all of its options, a file upload up to ten files.
+            let (required, min_values, max_values) = match kind {
+                FILE_UPLOAD => (false, 0, 10),
+                CHECKBOX => (false, 0, 1),
+                RADIO_GROUP => (true, 1, 1),
+                CHECKBOX_GROUP => (true, 1, options.len().max(1) as u64),
+                _ => (true, 1, 1),
+            };
+            let required = inner["required"].as_bool().unwrap_or(required);
+            let mut min_values = inner["min_values"].as_u64().unwrap_or(min_values) as usize;
+            if kind == FILE_UPLOAD && required {
+                min_values = min_values.max(1);
+            }
             parsed.push(ModalField {
                 label: outer_label
                     .or_else(|| inner["label"].as_str())
                     .unwrap_or("Answer")
                     .to_owned(),
+                description: row["description"].as_str().unwrap_or_default().to_owned(),
                 custom_id: custom_id.to_owned(),
                 value: inner["value"].as_str().unwrap_or_default().to_owned(),
                 placeholder: inner["placeholder"].as_str().unwrap_or_default().to_owned(),
-                required: inner["required"].as_bool().unwrap_or(true),
+                required,
                 min_length: inner["min_length"].as_u64().unwrap_or_default() as usize,
                 max_length: inner["max_length"].as_u64().unwrap_or(4000) as usize,
                 paragraph: inner["style"].as_u64() == Some(2),
                 kind,
                 options,
                 values,
-                min_values: inner["min_values"].as_u64().unwrap_or(1) as usize,
-                max_values: inner["max_values"].as_u64().unwrap_or(1) as usize,
+                min_values,
+                max_values: inner["max_values"].as_u64().unwrap_or(max_values) as usize,
+                checked: kind == CHECKBOX && inner["default"].as_bool().unwrap_or(false),
+                files: Vec::new(),
                 channel_types: inner["channel_types"]
                     .as_array()
                     .into_iter()
@@ -329,14 +383,18 @@ impl InteractionModal {
     }
 
     fn valid(&self) -> bool {
+        let count = |found: usize, field: &ModalField| {
+            (!field.required && found == 0)
+                || (found >= field.min_values.max(1) && found <= field.max_values)
+        };
         self.supported
             && self.fields.iter().all(|field| {
-                if field.kind == TEXT_DISPLAY {
+                if matches!(field.kind, TEXT_DISPLAY | CHECKBOX) {
                     true
-                } else if select_kind(field.kind) {
-                    (!field.required && field.values.is_empty())
-                        || (field.values.len() >= field.min_values
-                            && field.values.len() <= field.max_values)
+                } else if picked_kind(field.kind) {
+                    count(field.values.len(), field)
+                } else if field.kind == FILE_UPLOAD {
+                    count(field.files.len(), field)
                 } else {
                     let length = field.value.chars().count();
                     (!field.required && field.value.is_empty())
@@ -347,11 +405,16 @@ impl InteractionModal {
             })
     }
 
-    fn submitted(&self) -> Value {
+    /// What was entered, as Discord takes it, and the files its file
+    /// uploads carry, which their `values` name by place.
+    fn submitted(&self) -> (Value, Vec<PathBuf>) {
         let mut rows = self.shape.clone();
-        rows.as_array_mut().unwrap().retain(|row| row["type"] != 10);
+        let mut files = Vec::new();
+        if let Some(rows) = rows.as_array_mut() {
+            rows.retain(|row| row["type"] != TEXT_DISPLAY);
+        }
         for row in rows.as_array_mut().into_iter().flatten() {
-            let label = row["type"] == 18;
+            let label = row["type"] == LABEL;
             let inner = if label {
                 &mut row["component"]
             } else {
@@ -359,22 +422,54 @@ impl InteractionModal {
             };
             let id = inner["custom_id"].as_str().unwrap_or_default();
             if let Some(field) = self.fields.iter().find(|field| field.custom_id == id) {
-                *inner = if select_kind(field.kind) {
-                    json!({"type": field.kind, "custom_id": id, "values": field.values})
-                } else {
-                    json!({"type": 4, "custom_id": id, "value": field.value})
+                *inner = match field.kind {
+                    kind if select_kind(kind) || kind == CHECKBOX_GROUP => {
+                        json!({"type": kind, "custom_id": id, "values": field.values})
+                    }
+                    // A radio group left alone, when it may be, says nothing.
+                    RADIO_GROUP => match field.values.first() {
+                        Some(value) => {
+                            json!({"type": RADIO_GROUP, "custom_id": id, "value": value})
+                        }
+                        None => json!({"type": RADIO_GROUP, "custom_id": id}),
+                    },
+                    CHECKBOX => json!({"type": CHECKBOX, "custom_id": id, "value": field.checked}),
+                    FILE_UPLOAD => {
+                        let start = files.len();
+                        files.extend(field.files.iter().cloned());
+                        let ids: Vec<String> =
+                            (start..files.len()).map(|at| at.to_string()).collect();
+                        json!({"type": FILE_UPLOAD, "custom_id": id, "values": ids})
+                    }
+                    _ => json!({"type": TEXT_INPUT, "custom_id": id, "value": field.value}),
                 };
             }
             let submitted = inner.clone();
             // The submit payload contains the input shape and values, not
             // labels, placeholders or validation metadata.
             if label {
-                *row = json!({"type": 18, "component": submitted});
+                *row = json!({"type": LABEL, "component": submitted});
             } else {
                 *row = json!({"type": 1, "components": [submitted]});
             }
         }
-        rows
+        (rows, files)
+    }
+}
+
+/// The component that labels a form's field.
+const LABEL: u64 = 18;
+
+/// The most files a form carries, as an interaction's attachments.
+const MOST_FILES: usize = 25;
+
+/// A partial emoji object as an option shows it: the emoji itself, or a
+/// custom one by `:name:`.
+fn emoji(emoji: &Value) -> String {
+    match (emoji["id"].as_str(), emoji["name"].as_str()) {
+        (Some(_), Some(name)) => format!(":{name}:"),
+        (None, Some(name)) => name.to_owned(),
+        _ => String::new(),
     }
 }
 
@@ -447,6 +542,7 @@ impl Application {
                 value: option.value,
                 description: option.description.unwrap_or_default(),
                 selected: option.default,
+                emoji: option.emoji.unwrap_or_default(),
             })
             .collect();
         choices.extend(self.entity_choices(kind, &room, &channel_types));
@@ -457,6 +553,7 @@ impl Application {
                     value: value.clone(),
                     description: String::new(),
                     selected: true,
+                    ..Default::default()
                 });
             }
         }
@@ -465,7 +562,7 @@ impl Application {
         }
         let mut seen = std::collections::HashSet::new();
         choices.retain(|choice| seen.insert(choice.value.clone()));
-        self.state.select_menu = Some(SelectMenu {
+        let mut menu = SelectMenu {
             item,
             room,
             custom_id,
@@ -476,7 +573,10 @@ impl Application {
             choices,
             query: String::new(),
             modal_field: None,
-        });
+            initial: Vec::new(),
+        };
+        menu.initial = menu.picked();
+        self.state.select_menu = Some(menu);
         vec![]
     }
 
@@ -489,6 +589,7 @@ impl Application {
                     value: member.id.clone(),
                     description: member.username.clone().unwrap_or_default(),
                     selected: false,
+                    ..Default::default()
                 }));
             }
             choices.extend(self.state.messages.iter().filter_map(|message| {
@@ -498,6 +599,7 @@ impl Application {
                     value: id.to_owned(),
                     description: String::new(),
                     selected: false,
+                    ..Default::default()
                 })
             }));
             choices.extend(self.state.found_members.iter().map(|member| SelectChoice {
@@ -505,6 +607,7 @@ impl Application {
                 value: member.id.clone(),
                 description: member.username.clone().unwrap_or_default(),
                 selected: false,
+                ..Default::default()
             }));
         }
         if matches!(kind, 6 | 7) {
@@ -516,6 +619,7 @@ impl Application {
                         value: role.id,
                         description: "Role".into(),
                         selected: false,
+                        ..Default::default()
                     }),
             );
         }
@@ -532,6 +636,7 @@ impl Application {
                         value: id.to_owned(),
                         description: String::new(),
                         selected: false,
+                        ..Default::default()
                     }
                 })
             }));
@@ -545,6 +650,7 @@ impl Application {
                                 label: category.name,
                                 description: "Category".into(),
                                 selected: false,
+                                ..Default::default()
                             })
                         }),
                 );
@@ -623,11 +729,15 @@ impl Application {
                     value: member.id.clone(),
                     description: member.username.clone().unwrap_or_default(),
                     selected: false,
+                    ..Default::default()
                 });
             }
         }
     }
 
+    /// Picks or unpicks the choice at `index` of the open menu. A menu of
+    /// one option takes it at once, as Discord's does: under a message it
+    /// is sent, in a form it is the field's.
     pub(super) fn toggle_select(&mut self, index: usize) -> Vec<Effect> {
         if let Some(menu) = &mut self.state.select_menu {
             if index >= menu.choices.len() {
@@ -638,7 +748,11 @@ impl Application {
                 for (position, choice) in menu.choices.iter_mut().enumerate() {
                     choice.selected = !clear && position == index;
                 }
-                return vec![];
+                if menu.picked() == menu.initial {
+                    self.state.select_menu = None;
+                    return vec![];
+                }
+                return self.submit_select();
             }
             let chosen = menu.choices.iter().filter(|choice| choice.selected).count();
             if let Some(choice) = menu.choices.get_mut(index)
@@ -647,6 +761,24 @@ impl Application {
                 choice.selected = !choice.selected;
             }
         }
+        vec![]
+    }
+
+    /// Closes the open menu. One of several options takes what changed, as
+    /// Discord's dropdown does when it closes; otherwise nothing is sent.
+    pub(super) fn close_select(&mut self) -> Vec<Effect> {
+        let Some(menu) = &self.state.select_menu else {
+            return vec![];
+        };
+        let picked = menu.picked();
+        if menu.max > 1
+            && picked != menu.initial
+            && picked.len() >= menu.min
+            && picked.len() <= menu.max
+        {
+            return self.submit_select();
+        }
+        self.state.select_menu = None;
         vec![]
     }
 
@@ -725,6 +857,7 @@ impl Application {
                     value: value.clone(),
                     description: String::new(),
                     selected: true,
+                    ..Default::default()
                 });
             }
         }
@@ -742,6 +875,7 @@ impl Application {
             choices,
             query: String::new(),
             modal_field: Some(index),
+            initial: field.values.clone(),
         });
         vec![]
     }
@@ -885,15 +1019,76 @@ impl Application {
         }
     }
 
-    pub(super) fn set_modal_field(&mut self, index: usize, value: String) -> Vec<Effect> {
-        if let Some(field) = self
-            .state
+    /// The form's field at `index`, while it can be changed.
+    fn modal_field(&mut self, index: usize) -> Option<&mut ModalField> {
+        self.state
             .interaction_modal
             .as_mut()
             .filter(|modal| !modal.saving)
             .and_then(|modal| modal.fields.get_mut(index))
+    }
+
+    /// [`Action::SetModalField`].
+    pub(super) fn set_modal_field(&mut self, index: usize, value: String) -> Vec<Effect> {
+        let Some(field) = self.modal_field(index) else {
+            return vec![];
+        };
+        let known = field.options.iter().any(|option| option.value == value);
+        match field.kind {
+            RADIO_GROUP if known => field.values = vec![value],
+            CHECKBOX_GROUP if known => {
+                if let Some(at) = field.values.iter().position(|picked| picked == &value) {
+                    field.values.remove(at);
+                } else if field.values.len() < field.max_values {
+                    field.values.push(value);
+                }
+            }
+            CHECKBOX => field.checked = !field.checked,
+            TEXT_INPUT => field.value = value,
+            _ => {}
+        }
+        vec![]
+    }
+
+    /// [`Action::AddModalFiles`]: up to as many as the upload takes, and
+    /// the form's attachments may carry.
+    pub(super) fn add_modal_files(&mut self, index: usize, files: Vec<PathBuf>) -> Vec<Effect> {
+        let carried: usize = self
+            .state
+            .interaction_modal
+            .as_ref()
+            .map(|modal| modal.fields.iter().map(|field| field.files.len()).sum())
+            .unwrap_or_default();
+        let Some(field) = self
+            .modal_field(index)
+            .filter(|field| field.kind == FILE_UPLOAD)
+        else {
+            return vec![];
+        };
+        let room = field
+            .max_values
+            .saturating_sub(field.files.len())
+            .min(MOST_FILES.saturating_sub(carried));
+        if files.len() > room {
+            let notice = format!(
+                "{} takes up to {} files.",
+                field.label,
+                field.max_values.min(MOST_FILES)
+            );
+            field.files.extend(files.into_iter().take(room));
+            self.state.notice = Some(notice);
+        } else {
+            field.files.extend(files);
+        }
+        vec![]
+    }
+
+    /// [`Action::RemoveModalFile`].
+    pub(super) fn remove_modal_file(&mut self, index: usize, file: usize) -> Vec<Effect> {
+        if let Some(field) = self.modal_field(index)
+            && file < field.files.len()
         {
-            field.value = value;
+            field.files.remove(file);
         }
         vec![]
     }
@@ -910,6 +1105,7 @@ impl Application {
             return vec![];
         }
         let nonce = self.state.interactions.nonce();
+        let (components, files) = modal.submitted();
         let interaction = Interaction::Modal {
             nonce: nonce.clone(),
             guild: modal.guild_id.clone(),
@@ -917,7 +1113,8 @@ impl Application {
             application: modal.application_id.clone(),
             id: modal.id.clone(),
             custom_id: modal.custom_id.clone(),
-            components: modal.submitted(),
+            components,
+            files,
         };
         modal.saving = true;
         modal.error = None;
@@ -1011,7 +1208,10 @@ mod tests {
         })));
         app.dispatch(Action::OpenModalSelect(0));
         app.dispatch(Action::ToggleSelect(0));
-        assert!(app.state.select_menu.as_ref().unwrap().choices[0].selected);
+        // Picking it again closes the menu, the pick unchanged.
+        assert!(app.state.select_menu.is_none());
+        let modal = app.state.interaction_modal.as_ref().unwrap();
+        assert_eq!(modal.fields[0].values, ["a"]);
     }
 
     #[test]
@@ -1098,7 +1298,7 @@ mod tests {
         assert_eq!(modal.fields[0].value, "Warning: this action is permanent.");
         assert!(modal.valid());
         assert_eq!(
-            modal.submitted(),
+            modal.submitted().0,
             json!([{"type": 1, "components": [{"type": 4, "custom_id": "answer", "value": "Ready"}]}])
         );
     }
@@ -1110,7 +1310,7 @@ mod tests {
             "application": {"id": "3"}, "title": "Edit",
             "components": [
                 {"type": 18, "label": "Name", "component": {"type": 4, "custom_id": "name"}},
-                {"type": 18, "label": "Proof", "component": {"type": 19, "custom_id": "file"}},
+                {"type": 18, "label": "Proof", "component": {"type": 99, "custom_id": "file"}},
                 {"type": 1, "components": []},
                 {"type": 99}
             ]
@@ -1326,7 +1526,7 @@ mod tests {
         app.dispatch(Action::SubmitSelect);
         let modal = app.state.interaction_modal.as_ref().unwrap();
         assert!(modal.valid());
-        assert_eq!(modal.submitted()[0]["component"]["values"], json!(["4"]));
+        assert_eq!(modal.submitted().0[0]["component"]["values"], json!(["4"]));
         assert!(
             app.entity_choices(8, "discord:10:0", &[])
                 .iter()
@@ -1445,7 +1645,7 @@ mod tests {
         modal.fields[1].value = "Because".into();
         assert!(modal.valid());
         assert_eq!(
-            modal.submitted(),
+            modal.submitted().0,
             json!([
                 {"type": 1, "components": [{"type": 4, "custom_id": "short", "value": "Updated"}]},
                 {"type": 18, "component": {"type": 4, "custom_id": "long", "value": "Because"}}
@@ -1468,12 +1668,226 @@ mod tests {
         .unwrap();
         assert!(modal.valid());
         assert_eq!(
-            modal.submitted(),
+            modal.submitted().0,
             json!([
                 {"type": 18, "component": {"type": 6, "custom_id": "role", "values": ["11"]}}
             ])
         );
         modal.fields[0].values.clear();
         assert!(!modal.valid());
+    }
+
+    /// A bot's message in #7 of server 10 with a menu `id` of options a, b
+    /// and c, which picks `max` of them.
+    fn with_menu(app: &mut Application, id: &str, max: u64) {
+        app.state.selected = Some("discord:10:7".into());
+        let option = |value: &str| chat::CardOption {
+            label: value.to_uppercase(),
+            value: value.into(),
+            description: None,
+            default: value == "a",
+            emoji: (value == "b").then(|| ":party:".into()),
+        };
+        app.state.messages = Arc::new(vec![Arc::new(ChatMessage {
+            item: "d:1".into(),
+            sender: "discord:3".into(),
+            bot: true,
+            cards: vec![chat::Card {
+                rows: vec![chat::CardRow::Select {
+                    text: "A".into(),
+                    disabled: false,
+                    kind: 3,
+                    custom_id: id.into(),
+                    options: ["a", "b", "c"].into_iter().map(option).collect(),
+                    defaults: vec![],
+                    channel_types: vec![],
+                    min_values: 1,
+                    max_values: max,
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        })]);
+    }
+
+    /// The values the one interaction sent picks.
+    fn sent_values(effects: &[Effect]) -> Vec<String> {
+        let [Effect::Backend(Command::Discord(DiscordCommand::Interact(interaction)))] = effects
+        else {
+            panic!("one interaction is sent");
+        };
+        let Interaction::Component {
+            values: Some(values),
+            ..
+        } = interaction.as_ref()
+        else {
+            panic!("a menu's pick");
+        };
+        values.clone()
+    }
+
+    #[test]
+    fn a_single_menu_sends_its_pick_at_once() {
+        let mut app = Application::default();
+        with_menu(&mut app, "env", 1);
+        app.dispatch(Action::OpenSelect {
+            item: "d:1".into(),
+            custom_id: "env".into(),
+        });
+        let menu = app.state.select_menu.as_ref().unwrap();
+        assert_eq!(menu.choices[1].emoji, ":party:");
+        assert_eq!(menu.initial, ["a"]);
+        // The option already picked closes it, sending nothing.
+        assert!(app.dispatch(Action::ToggleSelect(0)).is_empty());
+        assert!(app.state.select_menu.is_none());
+        app.dispatch(Action::OpenSelect {
+            item: "d:1".into(),
+            custom_id: "env".into(),
+        });
+        let effects = app.dispatch(Action::ToggleSelect(1));
+        assert_eq!(sent_values(&effects), ["b"]);
+        assert!(app.state.select_menu.is_none());
+        assert!(app.state.interactions.busy("d:1", "env"));
+    }
+
+    #[test]
+    fn a_menu_of_several_sends_when_it_closes_if_its_picks_changed() {
+        let mut app = Application::default();
+        with_menu(&mut app, "checks", 3);
+        let open = |app: &mut Application| {
+            app.dispatch(Action::OpenSelect {
+                item: "d:1".into(),
+                custom_id: "checks".into(),
+            })
+        };
+        open(&mut app);
+        // Unchanged: nothing goes.
+        assert!(app.dispatch(Action::CloseSelect).is_empty());
+        open(&mut app);
+        // Fewer than it takes: nothing goes either.
+        app.dispatch(Action::ToggleSelect(0));
+        assert!(app.state.select_menu.is_some());
+        assert!(app.dispatch(Action::CloseSelect).is_empty());
+        assert!(app.state.select_menu.is_none());
+        open(&mut app);
+        app.dispatch(Action::ToggleSelect(2));
+        let effects = app.dispatch(Action::CloseSelect);
+        assert_eq!(sent_values(&effects), ["a", "c"]);
+    }
+
+    #[test]
+    fn a_forms_single_menu_takes_its_pick_and_closes() {
+        let mut app = Application::default();
+        app.state.interaction_modal = Some(modal_with(json!({
+            "type": 3, "custom_id": "pick",
+            "options": [{"label": "A", "value": "a"}, {"label": "B", "value": "b", "emoji": {"name": "🅱️"}}]
+        })));
+        app.dispatch(Action::OpenModalSelect(0));
+        assert_eq!(
+            app.state.select_menu.as_ref().unwrap().choices[1].emoji,
+            "🅱️"
+        );
+        assert!(app.dispatch(Action::ToggleSelect(1)).is_empty());
+        assert!(app.state.select_menu.is_none());
+        let modal = app.state.interaction_modal.as_ref().unwrap();
+        assert_eq!(modal.fields[0].values, ["b"]);
+    }
+
+    #[test]
+    fn radio_checkbox_and_file_fields_fill_and_submit_as_discord_takes_them() {
+        let mut app = Application::default();
+        let modal = InteractionModal::parse(json!({
+            "id": "42", "channel_id": "7", "guild_id": "10", "custom_id": "survey",
+            "application": {"id": "3"}, "title": "Survey",
+            "components": [
+                {"type": 10, "content": "## Before you start\n**Read** this."},
+                {"type": 18, "label": "Size", "description": "Pick one", "component": {
+                    "type": 21, "custom_id": "size", "options": [
+                        {"label": "Small", "value": "s"}, {"label": "Large", "value": "l", "default": true}]}},
+                {"type": 18, "label": "Areas", "component": {
+                    "type": 22, "custom_id": "areas", "max_values": 2, "options": [
+                        {"label": "Chat", "value": "chat"}, {"label": "Calls", "value": "calls"},
+                        {"label": "Bots", "value": "bots"}]}},
+                {"type": 18, "label": "Agree", "component": {"type": 23, "custom_id": "agree"}},
+                {"type": 18, "label": "Screenshots", "component": {
+                    "type": 19, "custom_id": "shots", "max_values": 2, "required": true}},
+                {"type": 18, "label": "Logs", "component": {"type": 19, "custom_id": "logs"}},
+            ]
+        }))
+        .unwrap();
+        assert!(modal.supported);
+        let kinds: Vec<_> = modal.fields.iter().map(|field| field.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                TEXT_DISPLAY,
+                RADIO_GROUP,
+                CHECKBOX_GROUP,
+                CHECKBOX,
+                FILE_UPLOAD,
+                FILE_UPLOAD
+            ]
+        );
+        assert_eq!(modal.fields[1].description, "Pick one");
+        assert_eq!(modal.fields[1].values, ["l"]);
+        assert!(!modal.fields[5].required);
+        // A required upload and a checkbox group without a pick hold it back.
+        assert!(!modal.valid());
+        app.state.interaction_modal = Some(modal);
+        let set = |app: &mut Application, index: usize, value: &str| {
+            app.dispatch(Action::SetModalField {
+                index,
+                value: value.into(),
+            });
+        };
+        set(&mut app, 1, "s");
+        set(&mut app, 1, "nothing offered");
+        for value in ["chat", "calls", "bots", "chat"] {
+            set(&mut app, 2, value);
+        }
+        set(&mut app, 3, "");
+        app.dispatch(Action::AddModalFiles {
+            index: 4,
+            files: vec![
+                "/tmp/a.png".into(),
+                "/tmp/b.png".into(),
+                "/tmp/c.png".into(),
+            ],
+        });
+        assert_eq!(
+            app.state.notice.as_deref(),
+            Some("Screenshots takes up to 2 files.")
+        );
+        app.dispatch(Action::RemoveModalFile { index: 4, file: 0 });
+        app.dispatch(Action::AddModalFiles {
+            index: 5,
+            files: vec!["/tmp/log.txt".into()],
+        });
+        let modal = app.state.interaction_modal.as_ref().unwrap();
+        assert!(modal.valid());
+        let (components, files) = modal.submitted();
+        assert_eq!(
+            components,
+            json!([
+                {"type": 18, "component": {"type": 21, "custom_id": "size", "value": "s"}},
+                {"type": 18, "component": {"type": 22, "custom_id": "areas", "values": ["calls"]}},
+                {"type": 18, "component": {"type": 23, "custom_id": "agree", "value": true}},
+                {"type": 18, "component": {"type": 19, "custom_id": "shots", "values": ["0"]}},
+                {"type": 18, "component": {"type": 19, "custom_id": "logs", "values": ["1"]}},
+            ])
+        );
+        assert_eq!(
+            files,
+            [PathBuf::from("/tmp/b.png"), PathBuf::from("/tmp/log.txt")]
+        );
+        let effects = app.dispatch(Action::SubmitModal);
+        let [Effect::Backend(Command::Discord(DiscordCommand::Interact(interaction)))] =
+            effects.as_slice()
+        else {
+            panic!("the form is sent");
+        };
+        assert!(
+            matches!(interaction.as_ref(), Interaction::Modal { files, .. } if files.len() == 2)
+        );
     }
 }

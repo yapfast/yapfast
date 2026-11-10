@@ -1106,6 +1106,25 @@ impl Discord {
             .await
     }
 
+    /// Submits a bot's form as the person just did, with the contents of
+    /// the files its file uploads carry, in the order its `files` names
+    /// them, in the same request. Like [`Self::interact`], this waits for
+    /// the app's answer and is never sent again.
+    pub async fn submit_form(
+        &self,
+        form: &interactions::Interaction,
+        files: Vec<Vec<u8>>,
+    ) -> Result<bool> {
+        let interactions::Interaction::Modal { files: names, .. } = form else {
+            bail!("Only a form carries files.");
+        };
+        if files.len() != names.len() {
+            bail!("Yapfast lost a file of this form. Choose it again.");
+        }
+        let files = names.iter().cloned().zip(files).collect();
+        self.interact_with_files(form, files).await
+    }
+
     /// Asks an app for its choices for the option being typed, once typing
     /// pauses for [`interactions::AUTOCOMPLETE_PAUSE`]. Only the newest
     /// autocomplete is sent and answered: this gives `None` for one a newer

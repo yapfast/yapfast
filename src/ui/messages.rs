@@ -893,6 +893,10 @@ fn card_row<'a>(
                 thumbnail_index: thumbnail.map_or(-1, |(index, _, _)| index as i32),
                 thumbnail_spoiler: thumbnail
                     .is_some_and(|(index, attachment, _)| attachment.spoiler && covered(index)),
+                thumbnail_description: thumbnail
+                    .and_then(|(_, attachment, _)| attachment.description.as_deref())
+                    .unwrap_or_default()
+                    .into(),
                 has_thumbnail: thumbnail.is_some(),
                 has_button: button.is_some(),
                 button: button.unwrap_or_default(),
@@ -932,12 +936,14 @@ fn card_row<'a>(
             text,
             disabled,
             custom_id,
+            options,
             ..
         } => CardRow {
             kind: CardRowKind::Select,
-            select: text.as_str().into(),
+            select: custom_emoji::text(text, &message.emoji).into(),
             select_id: custom_id.as_str().into(),
             select_enabled: !disabled && !custom_id.is_empty(),
+            select_picked: options.iter().any(|option| option.default),
             ..Default::default()
         },
         Row::Unknown => CardRow {

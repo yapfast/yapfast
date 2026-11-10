@@ -290,6 +290,7 @@ async fn a_modal_opens_and_submits_its_values() {
             {"type": 18, "component": {"type": 4, "custom_id": "summary", "value": "Faster start"}},
             {"type": 18, "component": {"type": 3, "custom_id": "environment", "values": ["production"]}},
         ]),
+        files: Vec::new(),
     };
     assert!(fixture.discord.interact(&submit).await.unwrap());
     let body = &fixture.sent()[1];
@@ -315,6 +316,7 @@ async fn a_modal_opens_and_submits_its_values() {
         id: "1".into(),
         custom_id: "deploy-notes".into(),
         components: json!([]),
+        files: Vec::new(),
     };
     assert!(fixture.discord.interact(&stale).await.is_err());
     assert_eq!(fixture.sent().len(), 2);
@@ -650,6 +652,7 @@ async fn an_ephemeral_answer_never_comes_back_after_a_reconnect_or_history() {
             {"type": 18, "component": {"type": 4, "custom_id": "summary", "value": "Quiet"}},
             {"type": 18, "component": {"type": 3, "custom_id": "environment", "values": ["staging"]}},
         ]),
+        files: Vec::new(),
     };
     assert!(discord.interact(&submit).await.unwrap());
     // Discord sends it without its server, to Alice alone.
@@ -713,4 +716,135 @@ async fn an_ephemeral_answer_never_comes_back_after_a_reconnect_or_history() {
         .await
         .unwrap();
     assert!(!in_history(latest));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn a_menu_of_several_options_sends_its_picks_and_shows_their_emoji() {
+    use yapfast_discord::components::Row;
+    let fixture =
+        Fixture::start("a_menu_of_several_options_sends_its_picks_and_shows_their_emoji").await;
+    let mut live = fixture.discord.live();
+    let menus: Vec<_> = fixture
+        .deploy
+        .components
+        .iter()
+        .flat_map(|card| &card.rows)
+        .filter_map(|row| match row {
+            Row::Select {
+                custom_id,
+                options,
+                max_values,
+                text,
+                ..
+            } => Some((custom_id.as_str(), options, *max_values, text.as_str())),
+            _ => None,
+        })
+        .collect();
+    let [(_, environments, 1, _), ("checks", checks, 3, picked)] = menus.as_slice() else {
+        panic!("the deploy message's two menus: {menus:?}");
+    };
+    assert_eq!(environments[0].emoji.as_deref(), Some("🧪"));
+    assert_eq!(*picked, "🧩 Unit tests");
+    assert_eq!(checks[2].description.as_deref(), Some("Takes ten minutes"));
+    let mut pick = fixture.click("9000", 3, "checks");
+    if let Interaction::Component { values, .. } = &mut pick {
+        *values = Some(vec!["unit".into(), "load".into()]);
+    }
+    assert!(fixture.discord.interact(&pick).await.unwrap());
+    assert_eq!(
+        fixture.sent()[0]["data"],
+        json!({"component_type": 3, "custom_id": "checks", "values": ["unit", "load"]})
+    );
+    let updated = live_where(&mut live, |live| match live {
+        Live::Updated(message) if message.id == fixture.deploy.id => Some(message),
+        _ => None,
+    })
+    .await;
+    assert!(
+        updated.content.ends_with("for unit, load"),
+        "{}",
+        updated.content
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn a_form_of_choices_checkboxes_and_files_submits_them_in_one_request() {
+    let fixture =
+        Fixture::start("a_form_of_choices_checkboxes_and_files_submits_them_in_one_request").await;
+    let mut live = fixture.discord.live();
+    assert!(
+        fixture
+            .discord
+            .interact(&fixture.click("9100", 2, "survey"))
+            .await
+            .unwrap()
+    );
+    let form = live_where(&mut live, |live| match live {
+        Live::InteractionModal(form) if form["nonce"] == "9100" => Some(form),
+        _ => None,
+    })
+    .await;
+    let kinds: Vec<_> = form["components"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["component"]["type"].as_u64().or(row["type"].as_u64()))
+        .collect();
+    assert_eq!(kinds, [Some(10), Some(21), Some(22), Some(19), Some(23)]);
+    assert_eq!(form["components"][1]["description"], "How smooth was it?");
+    let submit = Interaction::Modal {
+        nonce: "9101".into(),
+        guild: Some(fixture.guild.clone()),
+        channel: form["channel_id"].as_str().unwrap().into(),
+        application: form["application"]["id"].as_str().unwrap().into(),
+        id: form["id"].as_str().unwrap().into(),
+        custom_id: form["custom_id"].as_str().unwrap().into(),
+        components: json!([
+            {"type": 18, "component": {"type": 21, "custom_id": "rating", "value": "smooth"}},
+            {"type": 18, "component": {"type": 22, "custom_id": "areas", "values": ["calls"]}},
+            {"type": 18, "component": {"type": 19, "custom_id": "shots", "values": ["0", "1"]}},
+            {"type": 18, "component": {"type": 23, "custom_id": "follow", "value": false}},
+        ]),
+        files: vec!["before.png".into(), "after.png".into()],
+    };
+    // A file named but not read never goes.
+    assert!(
+        fixture
+            .discord
+            .submit_form(&submit, vec![vec![1; 10]])
+            .await
+            .is_err()
+    );
+    assert_eq!(fixture.sent().len(), 1);
+    assert!(
+        fixture
+            .discord
+            .submit_form(&submit, vec![vec![1; 10], vec![2; 20]])
+            .await
+            .unwrap()
+    );
+    let body = &fixture.sent()[1];
+    assert_eq!(body["type"], 5);
+    assert_eq!(
+        body["data"]["attachments"],
+        json!([{"id": "0", "filename": "before.png"}, {"id": "1", "filename": "after.png"}])
+    );
+    assert_eq!(
+        body["files"],
+        json!([
+            {"index": "0", "name": "before.png", "size": 10},
+            {"index": "1", "name": "after.png", "size": 20},
+        ])
+    );
+    let reply = live_where(&mut live, |live| match live {
+        Live::Created(message) if message.content.starts_with("Noted") => Some(message),
+        _ => None,
+    })
+    .await;
+    assert_eq!(
+        reply.content,
+        "Noted: smooth; calls; before.png, after.png; false"
+    );
 }

@@ -242,10 +242,14 @@
 // "ok" (Approve) and the "environment" menu INTERACTION_SUCCESS and a
 // MESSAGE_UPDATE of the message (callback 7), "form" (Write notes)
 // INTERACTION_MODAL_CREATE with a text display, a text input and a select
-// menu, "fail" (Roll back) INTERACTION_FAILURE with reason 1, and "slow"
+// menu, "survey" (Take survey) one with Markdown text, a radio group, a
+// checkbox group, a file upload and a checkbox, each label described, and
+// "checks", a menu of up to three options with emoji, as "environment"
+// does, "fail" (Roll back) INTERACTION_FAILURE with reason 1, and "slow"
 // (Check later) nothing, as an app that never answers. Submitting the form
 // gives INTERACTION_SUCCESS and an ephemeral MESSAGE_CREATE (flag 64, no
-// guild_id), which history leaves out. Alice's commands to Status Bot
+// guild_id) of what was entered, a file upload's files by name, which
+// history leaves out. Alice's commands to Status Bot
 // (type 2, by data.name; files as multipart payload_json and files[n],
 // which data.attachments must each name) answer as an app does, each answer
 // a type 20 message with interaction_metadata: "ping" "Pong!", "echo" an "is
@@ -4895,10 +4899,14 @@ function answerInteraction(body: any, id: string, origin: string, files: Map<str
   }
   if (body.type === 5) {
     dispatch("INTERACTION_SUCCESS", { id, nonce });
+    // A file upload's values name the attachments sent with it.
+    const named = new Map<string, string>((body.data?.attachments ?? []).map((file: any) => [file.id, file.filename]));
     const entered = (body.data?.components ?? [])
       .map((row: any) => row.component ?? row.components?.[0])
       .filter((field: any) => field && field.type !== 10)
-      .map((field: any) => field.value ?? (field.values ?? []).join(", "));
+      .map((field: any) => field.type === 19
+        ? (field.values ?? []).map((id: string) => named.get(id) ?? "?").join(", ")
+        : String(field.value ?? (field.values ?? []).join(", ")));
     // Only Alice sees it: sent to her session alone, without the server, and
     // never in the channel's history.
     const reply: Message = {
@@ -4914,6 +4922,34 @@ function answerInteraction(body: any, id: string, origin: string, files: Map<str
       return;
     case "slow":
       return;
+    case "survey": {
+      const form = nextId(Date.now());
+      formsOpened.add(form);
+      dispatch("INTERACTION_MODAL_CREATE", {
+        id: form, nonce, channel_id: body.channel_id, custom_id: "deploy-survey", title: "How did the deploy go?",
+        application: { id: statusBot.id, name: "Status Bot", icon: null },
+        components: [
+          { type: 10, id: 1, content: "## Deploy **v2.4**\nTell us how it went. Answers go to the *release team* only." },
+          {
+            type: 18, id: 2, label: "Rating", description: "How smooth was it?",
+            component: { type: 21, id: 3, custom_id: "rating", options: [
+              { label: "Smooth", value: "smooth", description: "Nothing to report" },
+              { label: "Bumpy", value: "bumpy", default: true },
+              { label: "Broken", value: "broken" },
+            ] },
+          },
+          {
+            type: 18, id: 4, label: "What broke", description: "Pick any that apply",
+            component: { type: 22, id: 5, custom_id: "areas", required: false, min_values: 0, max_values: 2, options: [
+              { label: "Chat", value: "chat" }, { label: "Calls", value: "calls" }, { label: "Bots", value: "bots" },
+            ] },
+          },
+          { type: 18, id: 6, label: "Screenshots", description: "Up to two", component: { type: 19, id: 7, custom_id: "shots", max_values: 2 } },
+          { type: 18, id: 8, label: "Follow up with me", component: { type: 23, id: 9, custom_id: "follow", default: true } },
+        ],
+      });
+      return;
+    }
     case "form": {
       const form = nextId(Date.now());
       formsOpened.add(form);
@@ -7954,7 +7990,10 @@ function postComponents(origin: string): string {
         type: 1, id: 6,
         components: [{
           type: 3, id: 7, custom_id: "environment", placeholder: "Pick an environment",
-          options: [{ label: "Staging", value: "staging" }, { label: "Production", value: "production" }],
+          options: [
+            { label: "Staging", value: "staging", description: "staging.example.com", emoji: { name: "🧪" } },
+            { label: "Production", value: "production", description: "example.com", emoji: { name: "🚀" } },
+          ],
         }],
       },
       {
@@ -7962,7 +8001,19 @@ function postComponents(origin: string): string {
         components: [
           { type: 2, id: 9, style: 1, label: "Write notes", custom_id: "form" },
           { type: 2, id: 10, style: 2, label: "Check later", custom_id: "slow" },
+          { type: 2, id: 11, style: 2, label: "Take survey", custom_id: "survey" },
         ],
+      },
+      {
+        type: 1, id: 12,
+        components: [{
+          type: 3, id: 13, custom_id: "checks", placeholder: "Checks to run", min_values: 1, max_values: 3,
+          options: [
+            { label: "Unit tests", value: "unit", emoji: { name: "🧩" }, default: true },
+            { label: "Screenshots", value: "screenshots", emoji: { name: "📸" } },
+            { label: "Load test", value: "load", description: "Takes ten minutes", emoji: { name: "🏋️" } },
+          ],
+        }],
       },
     ],
   });
