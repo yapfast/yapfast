@@ -31,8 +31,16 @@ struct Tag {
 }
 
 const NEW: [Tag; 2] = [
-    Tag { key: "check-updates", section: 9, since: "0.4.0" },
-    Tag { key: "update-nightlies", section: 9, since: "0.4.0" },
+    Tag {
+        key: "check-updates",
+        section: 9,
+        since: "0.4.0",
+    },
+    Tag {
+        key: "update-nightlies",
+        section: 9,
+        since: "0.4.0",
+    },
 ];
 
 /// The release before NEW tags: what a layout that predates them has met.
@@ -46,7 +54,12 @@ pub(super) fn first_version(fresh: bool) -> String {
     // A fresh install has met every tagged setting, also those of a release
     // that isn't out yet, which a development build runs ahead of.
     let running = crate::build_info::current();
-    let mut first = running.version().split('-').next().unwrap_or(BEFORE_TAGS).to_owned();
+    let mut first = running
+        .version()
+        .split('-')
+        .next()
+        .unwrap_or(BEFORE_TAGS)
+        .to_owned();
     for tag in &NEW {
         if Version::parse(tag.since) > Version::parse(&first) {
             first = tag.since.to_owned();
@@ -118,7 +131,11 @@ mod tests {
     use super::*;
 
     fn tag(since: &'static str) -> Tag {
-        Tag { key: "check-updates", section: 9, since }
+        Tag {
+            key: "check-updates",
+            section: 9,
+            since,
+        }
     }
 
     #[test]
@@ -171,7 +188,10 @@ mod tests {
                 let path = entry.unwrap().path();
                 if path.is_dir() {
                     collect(&path, found);
-                } else if path.extension().is_some_and(|extension| extension == "slint") {
+                } else if path
+                    .extension()
+                    .is_some_and(|extension| extension == "slint")
+                {
                     let text = std::fs::read_to_string(&path).unwrap();
                     for part in text.split("new-key: \"").skip(1) {
                         found.push(part.split('"').next().unwrap().to_owned());
@@ -180,7 +200,10 @@ mod tests {
             }
         }
         let mut found = Vec::new();
-        collect(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("ui"), &mut found);
+        collect(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("ui"),
+            &mut found,
+        );
         found.sort();
         let mut listed: Vec<String> = NEW.iter().map(|tag| tag.key.to_owned()).collect();
         listed.sort();
