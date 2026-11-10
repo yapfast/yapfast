@@ -114,6 +114,23 @@ a busy channel's row shows one and nothing else needs it, once a second
 while a profile times an activity, and not at all otherwise; the rows read
 its minute, which changes only as the minute turns.
 
+## Who is in a voice channel
+
+Discord reports who is in every voice channel, and the channel list shows
+them under each one without joining it. As in Discord's client, pointing at
+a busy voice channel's row also opens a card beside it: a line summing the
+channel up, "3 people · 1 live · 1 camera", then each person with their
+camera and LIVE marks, the first eight and how many more. It comes from the
+voice states the gateway already sent (`self_stream`, `self_video`), so it
+asks Discord nothing; `voice_roster` in yapfast-core counts them. This
+account on another client is dimmed there without its marks, as under the
+row. The card follows the channel while it shows, moving with its row as
+people above join or leave. It goes as the pointer leaves the row, and stays
+away after a click, a drag or the row's menu until the pointer comes back; it goes too as
+the list scrolls or shows another server, as a dialog, the quick switcher
+or a ringing call covers the window, and as its channel empties, is deleted
+or is filtered out by the channel search.
+
 ## The call's channel line
 
 As in Discord's voice panel, the dock's line under the status ("gen ·

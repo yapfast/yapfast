@@ -1316,6 +1316,13 @@ impl Adapter {
                     voice_started: room
                         .voice_started
                         .map_or(0, super::profile::activity_seconds),
+                    voice_summary: if room.voice && !room.direct {
+                        yapfast_core::voice_roster::Roster::of(&room.people)
+                            .summary()
+                            .into()
+                    } else {
+                        SharedString::default()
+                    },
                     call: room.direct && !room.people.is_empty(),
                     // Discord sends the presence of friends and of those
                     // sharing a server; anyone else in a one-to-one DM shows
@@ -1408,6 +1415,17 @@ impl Adapter {
             .collect::<Vec<_>>();
         // A busy voice channel's row counts its call's time on ActivityClock.
         self.voice_timed = rows.iter().any(|row| row.voice_started > 0 && !row.hidden);
+        // The voice card goes with its row, which can go without the
+        // pointer leaving it: its channel deleted, emptied or filtered out
+        // by the channel search.
+        let card = window.global::<VoiceCard>();
+        if card.get_people().row_count() > 0
+            && !rows.iter().any(|row| {
+                row.id == card.get_channel() && !row.hidden && row.people.row_count() > 0
+            })
+        {
+            card.set_people(ModelRc::default());
+        }
         update_model(&self.models.rooms, rows);
         self.tick_activities(window);
         self.places = places;

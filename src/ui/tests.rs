@@ -10639,3 +10639,95 @@ fn a_voice_channels_time_reads_on_the_activity_clock() {
     );
     assert_eq!(profile::clock_interval(false, false), None);
 }
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_busy_voice_channel_sums_up_who_is_in_it_and_its_card_goes_with_it() {
+    use yapfast_core::yapfast_discord::{
+        marked::MarkedServer,
+        ready,
+        service::{Snapshot, Status, VoiceMember},
+    };
+    let (window, adapter, _directory) = discord_server_window();
+    let server = |lounge: bool| {
+        let mut channels = vec![serde_json::json!(
+            {"id": "11", "type": 0, "name": "general", "position": 0}
+        )];
+        if lounge {
+            channels.push(serde_json::json!(
+                {"id": "14", "type": 2, "name": "Lounge", "position": 1}
+            ));
+        }
+        let server = ready::server(&serde_json::json!({
+            "id": "10", "owner_id": "99", "properties": {"name": "Test"},
+            "roles": [{"id": "10", "name": "@everyone", "position": 0, "permissions": "1024"}],
+            "channels": channels,
+        }))
+        .unwrap();
+        MarkedServer::marked(server, Default::default(), |_| Default::default())
+    };
+    let member = |id: &str, streaming: bool, video: bool| VoiceMember {
+        user_id: id.into(),
+        name: id.into(),
+        avatar: String::new(),
+        muted: false,
+        deafened: false,
+        server_muted: false,
+        server_deafened: false,
+        streaming,
+        video,
+        elsewhere: false,
+    };
+    let show = |lounge: bool, people: Vec<VoiceMember>| {
+        adapter
+            .borrow_mut()
+            .app
+            .apply(Event::Discord(Arc::new(Snapshot {
+                status: Status::Online,
+                user_id: Some("1".into()),
+                servers: vec![server(lounge)],
+                voice: [("14".to_owned(), people)].into(),
+                ..Default::default()
+            })));
+        adapter.borrow_mut().refresh(&window);
+        settle(&window);
+    };
+    show(
+        true,
+        vec![member("ann", true, false), member("bob", false, true)],
+    );
+    window.invoke_navigate_server("discord:10".into());
+    settle(&window);
+    let rows: Vec<RoomRow> = adapter.borrow().models.rooms.iter().collect();
+    let summary = |id: &str| {
+        rows.iter()
+            .find(|row| row.id == id)
+            .map(|row| row.voice_summary.to_string())
+    };
+    assert_eq!(
+        summary("discord:10:14").as_deref(),
+        Some("2 people · 1 live · 1 camera")
+    );
+    assert_eq!(summary("discord:10:11").as_deref(), Some(""));
+
+    // The card, open beside the Lounge's row, goes with the channel when
+    // it's deleted with people still in it: the row goes without a
+    // hover-leave, and no row is left to say so. (Slint's test backend
+    // doesn't hover rows; the card opening under the pointer is checked in
+    // the app.)
+    let card = window.global::<VoiceCard>();
+    let people = rows
+        .iter()
+        .find(|row| row.id == "discord:10:14")
+        .unwrap()
+        .people
+        .clone();
+    card.set_channel("discord:10:14".into());
+    card.set_people(people);
+    show(false, vec![member("ann", true, false)]);
+    assert_eq!(
+        card.get_people().row_count(),
+        0,
+        "a deleted channel's card goes"
+    );
+}

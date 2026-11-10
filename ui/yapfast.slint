@@ -44,8 +44,8 @@ import { InboxRow, InboxPopout } from "yapfast/inbox.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { StickerPicker, StickerGridTile } from "stickers.slint";
 import { ActionButton, IconButton, Motion, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, QuickDeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
-import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
-import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
+import { PersonRow, VoiceCard, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
+import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList, VoiceCardView } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, EmojiCardView, MessageStickerCard, MessageStickerCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, VoicePlayer, Polls } from "messages.slint";
 import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
@@ -71,7 +71,7 @@ export { BuildInfo } from "yapfast/build-info.slint";
 export { InboxRow } from "yapfast/inbox.slint";
 export { Theme, Badges, Popup, Twemoji, Looks } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
-export { PersonRow, CallLink, ShareScreen } from "voice.slint";
+export { PersonRow, CallLink, ShareScreen, VoiceCard } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
 export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer, NameStyles, ActivityClock } from "controls.slint";
 export { ServerTagRow } from "server.slint";
@@ -1775,8 +1775,14 @@ export component YapfastWindow inherits Window {
     // of its member list.
     property <bool> aside-docked: (root.aside-open || root.new-thread-open) && !root.search-open;
     // Rows remade under the pointer show their tooltip again; it goes with the screen.
-    changed friends-open => { Tip.text = ""; }
-    changed browse-open => { Tip.text = ""; }
+    changed friends-open => { Tip.text = ""; VoiceCard.people = []; }
+    changed browse-open => { Tip.text = ""; VoiceCard.people = []; }
+    // Another server's channels take the place of the row a voice card was
+    // beside, and a dialog or screen over the window covers it.
+    changed sidebar-title => { VoiceCard.people = []; }
+    changed composer-covered => {
+        if self.composer-covered { VoiceCard.people = []; }
+    }
     property <bool> profile-docked: root.profile-available && root.profile-panel && root.panel-profile-shown && !root.search-open && !root.aside-docked;
     // Search results take the place of the member list or the profile.
     property <length> docked-width: root.search-open ? 420px : root.aside-docked ? root.aside-shown : (root.members-docked ? ClientStyle.members-width : 0px) + (root.profile-docked ? ClientStyle.profile-width : 0px);
@@ -4958,6 +4964,7 @@ export component YapfastWindow inherits Window {
         drop-shadow-blur: 12px; drop-shadow-color: #00000080; drop-shadow-offset-y: 3px;
         tip-text := Text { text: Tip.text; color: Theme.text; font-size: 14px; font-weight: 700; }
     }
+    if VoiceCard.people.length > 0: VoiceCardView { bounds: root.height; bounds-width: root.width; }
     if BadgeTip.title != "": BadgeTipCard {
         x: max(8px, min(root.width - self.width - 8px, BadgeTip.x - self.width / 2));
         y: max(4px, BadgeTip.y - self.height - 10px);

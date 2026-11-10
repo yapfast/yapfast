@@ -21,6 +21,18 @@ export struct PersonRow {
     person: string,
 }
 
+/// The busy voice channel under the pointer in the channel list, whose card
+/// names who is there, as Discord's client shows it: its room id, its
+/// people, the line summing them up, and where its row is in the window, its
+/// right edge and middle. No people hides the card.
+export global VoiceCard {
+    in-out property <string> channel;
+    in-out property <[PersonRow]> people;
+    in-out property <string> summary;
+    in-out property <length> x;
+    in-out property <length> y;
+}
+
 // Marks someone sharing their screen, as Discord's red LIVE tag does.
 // Clickable when it opens the stream.
 export component LivePill inherits Rectangle {
