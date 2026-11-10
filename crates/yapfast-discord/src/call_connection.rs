@@ -798,10 +798,13 @@ impl Speaker {
         }
         self.waiting.insert(at, (sequence, opus));
         // Skipped packets don't count, as they hold nothing to wait for,
-        // but a run of them is bounded too.
+        // but a run of them is bounded too. A stopped speaker stays
+        // stopped: dropped packets piling up mustn't start it.
         while self.queued() > MOST || self.waiting.len() > MOST * 4 {
             self.waiting.pop_front();
-            self.next = self.waiting.front().map(|(sequence, _)| *sequence);
+            if self.next.is_some() {
+                self.next = self.waiting.front().map(|(sequence, _)| *sequence);
+            }
         }
     }
 
@@ -1213,6 +1216,35 @@ mod tests {
             quiet.skip(sequence);
         }
         assert!(quiet.next().is_none());
+    }
+
+    /// A sender whose frames all stop decrypting, as when their key for a
+    /// new epoch hasn't come, stops after 100 ms and stays silent: the
+    /// dropped packets that pile up while it's stopped don't start it again
+    /// to conceal frames that never were.
+    #[test]
+    fn dropped_packets_alone_dont_start_a_stopped_speaker() {
+        let mut encoder = opus::Encoder::new(1, opus::Application::Voice, BITRATE).unwrap();
+        let mut speaker = Speaker::new(7).unwrap();
+        for sequence in 0..10u16 {
+            speaker.push(sequence, tone(&mut encoder, usize::from(sequence)));
+        }
+        let mut sounding = 0;
+        for tick in 0..400u16 {
+            if tick >= 10 {
+                speaker.skip(tick);
+            }
+            sounding += usize::from(speaker.next().is_some());
+        }
+        // Ten frames, then concealed until it's gone.
+        assert_eq!(sounding, 10 + usize::from(GONE) - 1);
+        assert!(speaker.next.is_none());
+        // Speech that decrypts again plays at once.
+        for sequence in 400..403u16 {
+            speaker.push(sequence, tone(&mut encoder, usize::from(sequence)));
+        }
+        assert!(speaker.next().is_some());
+        assert_eq!(speaker.next, Some(401));
     }
 
     #[test]

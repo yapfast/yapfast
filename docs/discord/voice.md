@@ -192,7 +192,9 @@ outside a transition, plays as nothing rather than as a lost frame to
 conceal. NetEq plays by timestamp, so Discord's clients never conceal those
 frames. Some senders' streams carry such packets between their sealed frames,
 one for every frame or bursts of 50 at once, and counting each one as lost
-played those speakers at half speed or cut them out. The log line "dropping a
+played those speakers at half speed or cut them out. Dropped packets alone
+never start a speaker who has stopped, however many pile up, as from someone
+whose frames stopped decrypting. The log line "dropping a
 speaker's audio" gives the first such packet's size and Opus TOC byte. After
 an upgrade from transport-only encryption, unencrypted frames pass for 10 s,
 libdave's transition expiry, and all along a pending downgrade.
