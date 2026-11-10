@@ -83,6 +83,18 @@ impl Share {
         }
     }
 
+    /// Tells the worker the size in pixels of the tile showing the preview, so
+    /// the preview is written at the size it shows at rather than at a fixed
+    /// box.
+    fn size(&mut self, width: u32, height: u32) {
+        if let Err(error) = self.worker.size(width, height) {
+            tracing::warn!(
+                error = format!("{error:#}"),
+                "could not tell the stream worker"
+            );
+        }
+    }
+
     /// Uploads a preview of the stream, in place of one still uploading.
     /// A failed upload is tried again a minute later, as Discord's client
     /// does, up to three times.
@@ -781,6 +793,11 @@ pub(crate) async fn call(
                         Some(Command::Preview(shown)) => {
                             if let Some(going) = share.as_mut() {
                                 going.preview_shown(shown);
+                            }
+                        }
+                        Some(Command::ShareSize { width, height }) => {
+                            if let Some(going) = share.as_mut() {
+                                going.size(width, height);
                             }
                         }
                         Some(Command::StopLive) => {

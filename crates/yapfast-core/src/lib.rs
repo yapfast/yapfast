@@ -30,6 +30,8 @@ pub mod cli;
 #[cfg(feature = "discord")]
 pub mod clip;
 pub mod clock;
+#[cfg(all(feature = "discord", nvcuda))]
+pub mod cuda;
 #[cfg(all(feature = "discord", d3d11enc))]
 pub mod d3d11;
 #[cfg(feature = "discord")]

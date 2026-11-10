@@ -51,6 +51,8 @@ use livekit::webrtc::{
 use crate::capture;
 #[cfg(target_os = "linux")]
 use crate::capture::linear::{self, Order};
+#[cfg(nvcuda)]
+use crate::cuda;
 #[cfg(any(wgc, dup))]
 use crate::d3d11;
 #[cfg(target_os = "linux")]
@@ -522,6 +524,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
             let sink = Sink {
                 writer: Writer::open(&frames)?,
                 preview: vec![],
+                preview_tile: None,
                 capture: String::new(),
                 preview_shown: false,
                 controls: received,
@@ -619,6 +622,9 @@ struct Sink {
     /// Whether the UI shows the preview, which it says as that changes: one
     /// isn't made while nothing displays it.
     preview_shown: bool,
+    /// The size in pixels of the tile showing the preview, once the UI has
+    /// said it: what the preview is written at, rather than a fixed box.
+    preview_tile: Option<(u32, u32)>,
     controls: channel::Receiver<Control>,
     /// The server to send to from the next frame, which gives the stream its size.
     server: Option<StreamServer>,
@@ -699,10 +705,11 @@ enum Footage {
 
 /// What turns a frame into a packet.
 ///
-/// The two are the same stream from the packetizer's side: the bytes, their
+/// All three are the same stream from the packetizer's side: the bytes, their
 /// time on the stream clock and whether the frame is whole all come out of
-/// [`Encoding::encode_i420`] or [`d3d11::D3d11Encoder::encode_texture`] in
-/// [`encode::Frame`], and go on to the sender as one shape.
+/// [`Encoding::encode_i420`], [`Encoding::encode_dmabuf`] or
+/// [`d3d11::D3d11Encoder::encode_texture`] in [`encode::Frame`], and go on to
+/// the sender as one shape.
 enum Encoding {
     /// FFmpeg's encoder on the processor — x264, libvpx, or one of FFmpeg's
     /// hardware encoders — reading an I420 picture the capture converted.
@@ -712,6 +719,131 @@ enum Encoding {
     /// the driver, which [`d3d11::D3d11Encoder::copied`] says is the only one.
     #[cfg(any(wgc, dup))]
     Texture(d3d11::D3d11Encoder),
+    /// NVENC on the card, reading the compositor's picture after the card has
+    /// imported and converted it in its own memory: the Linux counterpart of
+    /// [`Self::Texture`], for a capture whose frames are DMA-BUFs rather than
+    /// textures. No pixel of a frame crosses to the processor here either.
+    #[cfg(nvcuda)]
+    Cuda(Cuda),
+    /// A capture's own texture, encoded where it lies by an FFmpeg session that
+    /// reads surfaces — Quick Sync and AMF on Windows. The session was opened on
+    /// the capture's device and is handed the same texture the window draws, so
+    /// no frame is converted or uploaded first; [`Self::Texture`] is NVENC's own
+    /// session, which FFmpeg has no path for.
+    #[cfg(all(target_os = "windows", hwenc))]
+    QsvTextures(encode::Encoder),
+}
+
+/// NVIDIA's card as the way a captured picture reaches its encoder: the
+/// compositor's DMA-BUF is imported through EGL, scaled and converted to NV12
+/// by [`cuda::Convert`]'s kernels on the card, and read there by
+/// [`cuda::Encoder`]. What crosses the bus is the access unit the session
+/// answers with, and nothing else.
+#[cfg(nvcuda)]
+struct Cuda {
+    /// The import, the kernels and the one buffer they write frame after frame.
+    convert: cuda::Convert,
+    /// The session opened on that buffer, which reads it where it lies.
+    encoder: cuda::Encoder,
+    codec: Codec,
+    size: (u32, u32),
+    /// The kbit/s the session aims for now, which moves with Discord's estimate
+    /// as the one fed from memory does.
+    kbps: u32,
+    /// The line the log and the Stream tab show: which backend runs, the card it
+    /// runs on, and that its pictures never come back to the processor.
+    engine: String,
+}
+
+/// Why the card's own path isn't there, said once: a share opens an encoder for
+/// each codec it could send, and every one of those asks for the path before
+/// settling for the processor's copy of a picture.
+#[cfg(nvcuda)]
+static NO_CARD_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+#[cfg(nvcuda)]
+impl Cuda {
+    /// The card's own path for a stream of this size in `codec`, or `None` with
+    /// the reason in the log: the share then encodes through the encoder it
+    /// opened either way, and a machine without the path says why once rather
+    /// than once for each codec a share offers.
+    fn open(codec: Codec, width: u32, height: u32, fps: u32, kbps: u32) -> Option<Self> {
+        let opened = cuda::Convert::open(width, height).and_then(|convert| {
+            let encoder = cuda::Encoder::open(codec, width, height, fps, kbps, &convert)?;
+            Ok((convert, encoder))
+        });
+        let (convert, encoder) = match opened {
+            Ok(opened) => opened,
+            Err(error) => {
+                if NO_CARD_PATH.get().is_none() {
+                    let why = format!("{error:#}");
+                    tracing::info!(
+                        why = why.as_str(),
+                        "converting every picture: the card can't take them where they lie"
+                    );
+                    let _ = NO_CARD_PATH.set(why);
+                }
+                return None;
+            }
+        };
+        // The line the report carries from here on: the backend, the card and
+        // its driver, and where its pictures come from. Said once, at the open,
+        // with what the session actually took, as the VA-API path says its own.
+        let engine = format!("{}, encoding DMA-BUFs where they lie", convert.describe());
+        let (config, tuning) = (encoder.config(), encoder.tuning());
+        tracing::info!(
+            engine = engine.as_str(),
+            config = config.as_str(),
+            tuning = tuning.as_str(),
+            "encoding the card's own pictures: the compositor's DMA-BUF is imported through EGL \
+             and scaled and converted to NV12 on the card, and the session reads it there"
+        );
+        Some(Self {
+            convert,
+            encoder,
+            codec,
+            size: (width, height),
+            kbps,
+            engine,
+        })
+    }
+
+    /// The captured picture, imported and converted on the card and then
+    /// submitted to the session that reads it there, at `pts` on the stream
+    /// clock. `keyframe` asks for an IDR, and the session makes one.
+    ///
+    /// `Err` is a picture the card can't take — a tiled buffer its driver only
+    /// gives back as an array, a picture on a device that isn't the one the
+    /// import opened — which is the path's reason to be given up rather than
+    /// the frame's failure. An encode that fails after the convert is the
+    /// session's own failure, and is the frame's.
+    fn encode_dmabuf(
+        &mut self,
+        shot: &Shot,
+        pts: u64,
+        keyframe: bool,
+    ) -> Result<std::result::Result<Option<encode::Frame>, String>> {
+        if let Err(error) = self.convert.convert(&shot.descriptor()) {
+            return Ok(Err(format!("{error:#}")));
+        }
+        let packet = self.encoder.encode(pts, keyframe)?;
+        // The picture was encoded where it lies, so a frame the session says it
+        // copied would be one the processor paid for, which is the thing this
+        // path is here to keep out of the stream.
+        debug_assert_eq!(
+            self.encoder.copied(),
+            0,
+            "the card copied a picture's pixels"
+        );
+        Ok(Ok(packet.map(|packet| encode::Frame {
+            // The unit is moved into the buffer the sender takes, not copied.
+            data: stream_connection::Encoded::from(packet.data),
+            keyframe: packet.keyframe,
+            // The one picture this submission made, at the time it was made: as
+            // the encoder fed from memory stamps each of its own.
+            timestamp: pts as u32,
+        })))
+    }
 }
 
 impl Encoding {
@@ -720,6 +852,10 @@ impl Encoding {
             Self::Picture(encoder) => encoder.codec(),
             #[cfg(any(wgc, dup))]
             Self::Texture(encoder) => encoder.codec(),
+            #[cfg(nvcuda)]
+            Self::Cuda(cuda) => cuda.codec,
+            #[cfg(all(target_os = "windows", hwenc))]
+            Self::QsvTextures(encoder) => encoder.codec(),
         }
     }
 
@@ -728,6 +864,10 @@ impl Encoding {
             Self::Picture(encoder) => encoder.size(),
             #[cfg(any(wgc, dup))]
             Self::Texture(encoder) => encoder.size(),
+            #[cfg(nvcuda)]
+            Self::Cuda(cuda) => cuda.size,
+            #[cfg(all(target_os = "windows", hwenc))]
+            Self::QsvTextures(encoder) => encoder.size(),
         }
     }
 
@@ -736,6 +876,10 @@ impl Encoding {
             Self::Picture(encoder) => encoder.bitrate(),
             #[cfg(any(wgc, dup))]
             Self::Texture(encoder) => encoder.bitrate(),
+            #[cfg(nvcuda)]
+            Self::Cuda(cuda) => cuda.kbps,
+            #[cfg(all(target_os = "windows", hwenc))]
+            Self::QsvTextures(encoder) => encoder.bitrate(),
         }
     }
 
@@ -744,6 +888,14 @@ impl Encoding {
             Self::Picture(encoder) => encoder.set_bitrate(kbps),
             #[cfg(any(wgc, dup))]
             Self::Texture(encoder) => encoder.set_bitrate(kbps),
+            #[cfg(nvcuda)]
+            Self::Cuda(cuda) => {
+                cuda.encoder.set_bitrate(kbps)?;
+                cuda.kbps = kbps;
+                Ok(())
+            }
+            #[cfg(all(target_os = "windows", hwenc))]
+            Self::QsvTextures(encoder) => encoder.set_bitrate(kbps),
         }
     }
 
@@ -756,6 +908,13 @@ impl Encoding {
             // made them, and gives them up with it rather than here.
             #[cfg(any(wgc, dup))]
             Self::Texture(_) => {}
+            // The convert's buffer and the session's output buffer are the
+            // card's and the convert's own, and go with the share rather than
+            // back to anything here.
+            #[cfg(nvcuda)]
+            Self::Cuda(_) => {}
+            #[cfg(all(target_os = "windows", hwenc))]
+            Self::QsvTextures(encoder) => encoder.trim_pool(),
         }
     }
 
@@ -765,6 +924,10 @@ impl Encoding {
             Self::Picture(encoder) => encoder.engine(),
             #[cfg(any(wgc, dup))]
             Self::Texture(encoder) => encoder.engine(),
+            #[cfg(nvcuda)]
+            Self::Cuda(cuda) => cuda.engine.as_str(),
+            #[cfg(all(target_os = "windows", hwenc))]
+            Self::QsvTextures(encoder) => encoder.engine(),
         }
     }
 
@@ -773,6 +936,8 @@ impl Encoding {
     fn report(&self) -> StreamStats {
         match self {
             Self::Picture(encoder) => encoder_report(encoder),
+            #[cfg(all(target_os = "windows", hwenc))]
+            Self::QsvTextures(encoder) => encoder_report(encoder),
             #[cfg(any(wgc, dup))]
             Self::Texture(encoder) => {
                 let (width, height) = encoder.size();
@@ -787,6 +952,17 @@ impl Encoding {
                     ..StreamStats::default()
                 }
             }
+            #[cfg(nvcuda)]
+            Self::Cuda(cuda) => StreamStats {
+                engine: cuda.engine.clone(),
+                codec: cuda.codec.name().to_owned(),
+                width: cuda.size.0,
+                height: cuda.size.1,
+                // As above: what this session asks for it gets, or it doesn't
+                // open at all.
+                settings_dropped: String::new(),
+                ..StreamStats::default()
+            },
         }
     }
 
@@ -803,6 +979,14 @@ impl Encoding {
             Self::Picture(encoder) => Some(encoder.encode_i420(picture, pts, keyframe)),
             #[cfg(any(wgc, dup))]
             Self::Texture(_) => None,
+            // This stream's frames are the card's, made from a descriptor; a
+            // picture in memory is the UI's preview and nothing this sends.
+            #[cfg(nvcuda)]
+            Self::Cuda(_) => None,
+            // Read where the capture drew it: a picture in memory is the UI's
+            // preview, not something this stream sends.
+            #[cfg(all(target_os = "windows", hwenc))]
+            Self::QsvTextures(_) => None,
         }
     }
 
@@ -817,6 +1001,11 @@ impl Encoding {
     /// and is then given the same picture converted into `scratch`. That copy is
     /// this path's one cost of a frame, it is the reason the share reports, and
     /// it lasts until an encoder here reads a compositor's picture where it lies.
+    ///
+    /// Where [`Self::Cuda`] carries the stream, the card has already imported and
+    /// converted the picture in its own memory, and no pixel of it comes back to
+    /// the processor: the conversion on the processor is what a picture that path
+    /// can't take gets, from the frame it can't on.
     #[cfg(target_os = "linux")]
     fn encode_dmabuf(
         &mut self,
@@ -829,23 +1018,52 @@ impl Encoding {
     ) -> Result<Sent> {
         match self {
             Self::Picture(encoder) => {
-                match encoder.encode_dmabuf(&shot.descriptor(), keyframe, time_ms) {
-                    Ok(frame) => Ok(Sent::Frame {
-                        frame: frame?,
-                        converted: None,
-                    }),
-                    Err(refused) => match shot.converted(scratch, sent) {
-                        Ok(picture) => Ok(Sent::Frame {
-                            frame: encoder.encode_i420(picture, pts, keyframe)?,
-                            converted: Some(refused),
-                        }),
-                        Err(why) => Ok(Sent::Unreadable(format!("{why:#}"))),
-                    },
-                }
+                pictured(encoder, shot, scratch, sent, pts, keyframe, time_ms)
             }
             #[cfg(any(wgc, dup))]
             Self::Texture(_) => bail!("the card's encoder reads textures, not a desktop's DMA-BUF"),
+            // The picture is imported and converted on the card, and the session
+            // reads it there: what a frame costs is its bitstream. A picture this
+            // path can't take gives the path up rather than the frame, and the
+            // caller hands the same picture to the processor's copy.
+            #[cfg(nvcuda)]
+            Self::Cuda(cuda) => match cuda.encode_dmabuf(shot, pts, keyframe)? {
+                Ok(frame) => Ok(Sent::Frame {
+                    frame,
+                    converted: None,
+                }),
+                Err(why) => Ok(Sent::Card(why)),
+            },
         }
+    }
+}
+
+/// A picture handed to the encoder FFmpeg opened, at `sent`: read where it lies
+/// where that encoder takes a descriptor, and converted into `scratch` where it
+/// doesn't — which is the one copy a picture of that path costs, and
+/// [`Sent::Frame::converted`] says why it was made.
+#[cfg(target_os = "linux")]
+fn pictured(
+    encoder: &mut Encoder,
+    shot: &Shot,
+    scratch: &mut Scratch,
+    sent: (u32, u32),
+    pts: u64,
+    keyframe: bool,
+    time_ms: u64,
+) -> Result<Sent> {
+    match encoder.encode_dmabuf(&shot.descriptor(), keyframe, time_ms) {
+        Ok(frame) => Ok(Sent::Frame {
+            frame: frame?,
+            converted: None,
+        }),
+        Err(refused) => match shot.converted(scratch, sent) {
+            Ok(picture) => Ok(Sent::Frame {
+                frame: encoder.encode_i420(picture, pts, keyframe)?,
+                converted: Some(refused),
+            }),
+            Err(why) => Ok(Sent::Unreadable(format!("{why:#}"))),
+        },
     }
 }
 
@@ -862,6 +1080,13 @@ enum Sent {
         /// descriptor where the compositor drew it, which is this path's point.
         converted: Option<encode::Refused>,
     },
+    /// The card's own path couldn't take the picture — a tiled buffer the driver
+    /// only gives back as an array, a picture on another device — in its
+    /// driver's words. No driver that can't take one takes the next, so the path
+    /// is given up for the rest of the stream: this picture, like the ones after
+    /// it, goes the processor's way.
+    #[cfg(nvcuda)]
+    Card(String),
     /// Nothing here can send it: the picture isn't one the encoder takes where it
     /// lies, and it can't be read back on the processor either, which `why` says
     /// in the read's own words. A share of such pictures belongs on the capturer
@@ -1004,33 +1229,77 @@ impl Sink {
     /// Takes a picture the desktop captured as the DMA-BUF the compositor drew
     /// it in, `shot`, at the size the stream sends, `sent`.
     ///
-    /// The encoder is handed the descriptor itself where it reads one: a VA-API
-    /// session imports the picture on the card and no pixel of it comes back to
-    /// the processor. Every other encoder reads memory — and so does a VA-API
-    /// session handed a screen, which is BGRA where a VA-API surface is made of
-    /// NV12 — and for those the picture is read back into the buffer kept for it
-    /// and converted, once, with the reason in the share's report. That copy is
-    /// the one this path makes of a frame, and [`Taken::Sent`] says which of the
-    /// two sent it.
+    /// On NVIDIA's card the picture goes to the encoder where it lies: the card
+    /// imports it, scales and converts it there, and the session reads it in its
+    /// own memory, so no pixel of it comes back to the processor. A picture that
+    /// path can't take gives the path up and is converted on the processor, as
+    /// every picture of the share is from then on.
+    ///
+    /// The encoder is otherwise handed the descriptor itself where it reads one: a
+    /// VA-API session imports the picture on the card and no pixel of it comes
+    /// back to the processor. Every other encoder reads memory — and so does a
+    /// VA-API session handed a screen, which is BGRA where a VA-API surface is
+    /// made of NV12 — and for those the picture is read back into the buffer kept
+    /// for it and converted, once, with the reason in the share's report. That
+    /// copy is the one this path makes of a frame, and [`Taken::Sent`] says which
+    /// of the ways sent it.
     #[cfg(target_os = "linux")]
     fn dmabuf(&mut self, shot: &Shot, sent: (u32, u32), scratch: &mut Scratch) -> Result<Taken> {
         let Some((pts, keyframe)) = self.ready(sent, None)? else {
             return Ok(Taken::Held);
         };
         let time_ms = u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX);
-        let made = {
+        let (codec, kbps, made) = {
             let video = self.video.as_mut().expect("ready has opened the stream");
             let Some(encoder) = video.encoder.as_mut() else {
                 return Ok(Taken::Held);
             };
-            let codec = encoder.codec();
             (
-                codec,
+                encoder.codec(),
+                encoder.bitrate(),
                 encoder.encode_dmabuf(shot, scratch, sent, pts, keyframe, time_ms)?,
             )
         };
-        let (codec, sent) = made;
-        match sent {
+        let made = match made {
+            // The card's own path can't take this picture, so it is given up for
+            // the rest of the stream and the encoder FFmpeg opens takes the
+            // share over: this picture is converted on the processor and encoded
+            // here, exactly as every picture of a share without the rung is, and
+            // the ones after it follow the same way.
+            #[cfg(nvcuda)]
+            Sent::Card(why) => {
+                if self.diagnosis.fallback.is_none() {
+                    tracing::info!(
+                        why = why.as_str(),
+                        "converting every picture: the card can't take them where they lie"
+                    );
+                    self.diagnosis.fallback = Some(format!(
+                        "the card can't take a picture where it lies: {why}"
+                    ));
+                }
+                // No encoder at all for this codec is the answer a picture
+                // nothing here can read gets, which moves the share to the
+                // capturer that has pixels rather than failing it.
+                let mut encoder = match Encoder::new(
+                    codec,
+                    sent.0,
+                    sent.1,
+                    self.fps,
+                    kbps,
+                    self.effort,
+                    self.hardware,
+                ) {
+                    Ok(encoder) => encoder,
+                    Err(error) => return Ok(Taken::Processor(format!("{error:#}"))),
+                };
+                let made = pictured(&mut encoder, shot, scratch, sent, pts, keyframe, time_ms)?;
+                let video = self.video.as_mut().expect("ready has opened the stream");
+                video.encoder = Some(Encoding::Picture(encoder));
+                made
+            }
+            made => made,
+        };
+        match made {
             Sent::Frame { frame, converted } => {
                 // Which encoder opened doesn't change under a stream, so the
                 // answer to "does it read a descriptor" would be the same for
@@ -1051,6 +1320,12 @@ impl Sink {
                 Ok(Taken::Sent)
             }
             Sent::Unreadable(why) => Ok(Taken::Processor(why)),
+            // The card's own path answered this one where it was given up,
+            // above: a picture either comes back from it ready to send or the
+            // path is gone. Were one to reach here, it is one nothing here can
+            // send.
+            #[cfg(nvcuda)]
+            Sent::Card(why) => Ok(Taken::Processor(why)),
         }
     }
 
@@ -1073,26 +1348,39 @@ impl Sink {
             return Ok(());
         };
         let video = self.video.as_mut().expect("ready has opened the stream");
-        let made = {
-            let Some(Encoding::Texture(encoder)) = video.encoder.as_mut() else {
-                return Ok(());
-            };
-            let codec = encoder.codec();
-            // A screen the stream's size is read where it lies, and one of
-            // another size is scaled to the stream's on the card: the size a
-            // capture comes at is the screen's, and the size a stream goes at
-            // is Discord's to choose.
-            let texture = if content == size {
-                texture
-            } else {
-                encoder.scale(texture, size.0, size.1, d3d11::Resize::Shrink)?
-            };
-            // A failure here is the session's own, and a session the card took
-            // away is one to open again rather than something to withdraw a
-            // codec over: the capture that feeds it is the caller's to rebuild
-            // with it, so this says nothing to Discord and leaves the codecs it
-            // offers alone.
-            (codec, encoder.encode_texture(texture, pts, keyframe))
+        // A card whose FFmpeg encoder reads a surface takes the texture itself;
+        // NVENC's own session scales it on the card first and reads that. Both
+        // hand back an access unit, so what comes after is the same either way.
+        let made = match video.encoder.as_mut() {
+            // A card whose FFmpeg encoder reads a surface takes the texture the
+            // capture filled, as it is.
+            #[cfg(all(target_os = "windows", hwenc))]
+            Some(Encoding::QsvTextures(encoder)) => {
+                let codec = encoder.codec();
+                (
+                    codec,
+                    encoder.encode_texture(texture.handle, texture.subresource, pts, keyframe),
+                )
+            }
+            Some(Encoding::Texture(encoder)) => {
+                let codec = encoder.codec();
+                // A screen the stream's size is read where it lies, and one of
+                // another size is scaled to the stream's on the card: the size a
+                // capture comes at is the screen's, and the size a stream goes at
+                // is Discord's to choose.
+                let texture = if content == size {
+                    texture
+                } else {
+                    encoder.scale(texture, size.0, size.1, d3d11::Resize::Shrink)?
+                };
+                // A failure here is the session's own, and a session the card took
+                // away is one to open again rather than something to withdraw a
+                // codec over: the capture that feeds it is the caller's to rebuild
+                // with it, so this says nothing to Discord and leaves the codecs it
+                // offers alone.
+                (codec, encoder.encode_texture(texture, pts, keyframe))
+            }
+            _ => return Ok(()),
         };
         let (codec, made) = made;
         match made? {
@@ -1207,7 +1495,15 @@ impl Sink {
         let (width, height) = (picture.width(), picture.height());
         let due = self.preview_due.is_some_and(|due| due <= Instant::now());
         if self.preview_shown || due {
-            let preview = fit(width, height, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+            // The tile's own size while only the preview needs the picture, so a
+            // small tile costs a small frame and a large one grows the frames
+            // file once. Discord's still is made from the wider box, since a
+            // tile smaller than the still would cost it its detail.
+            let box_size = match (self.preview_tile, due) {
+                (Some(tile), false) => tile,
+                _ => (PREVIEW_WIDTH, PREVIEW_HEIGHT),
+            };
+            let preview = fit(width, height, box_size.0, box_size.1);
             let shown = planes(picture);
             let Sink {
                 writer,
@@ -1526,15 +1822,38 @@ impl Sink {
             // lets a frame reach it without being copied first. It reads the
             // ring the capture fills, so it keeps the surfaces of one.
             #[cfg(any(wgc, dup))]
-            Footage::OnTheCard => Ok(Encoding::Texture(d3d11::D3d11Encoder::open_on(
-                _device.context("the card's encoder needs the capture's device")?,
-                codec,
-                width,
-                height,
-                self.fps,
-                aimed,
-                d3d11::Surfaces::Ring,
-            )?)),
+            Footage::OnTheCard => {
+                let device = _device.context("the card's encoder needs the capture's device")?;
+                // A card whose FFmpeg encoder reads a capture's own texture —
+                // Quick Sync and AMF — is opened on the capture's device and
+                // handed the texture itself. NVENC has no such path in FFmpeg,
+                // so it keeps the native session that scales on the card.
+                #[cfg(all(target_os = "windows", hwenc))]
+                if !encode::planned(codec).is_some_and(|name| name.ends_with("_nvenc"))
+                    && let Ok(encoder) = encode::Encoder::on_device(
+                        codec,
+                        width,
+                        height,
+                        self.fps,
+                        aimed,
+                        self.effort,
+                        self.hardware,
+                        device,
+                    )
+                    && encoder.took_surfaces()
+                {
+                    return Ok(Encoding::QsvTextures(encoder));
+                }
+                Ok(Encoding::Texture(d3d11::D3d11Encoder::open_on(
+                    device,
+                    codec,
+                    width,
+                    height,
+                    self.fps,
+                    aimed,
+                    d3d11::Surfaces::Ring,
+                )?))
+            }
             // A picture the desktop's compositor drew is a descriptor the encoder
             // is handed itself, which an encoder that reads memories or an
             // import it doesn't carry answers with a refusal: the session that
@@ -1550,18 +1869,35 @@ impl Sink {
                 self.effort,
                 self.hardware,
             )?)),
-            // The same session, and the same answer: this path's frames are
-            // pictures converted on the processor while the encoder reads one.
+            // The encoder that reads pictures, opened first whichever rung ends
+            // up encoding: an encoder FFmpeg has for this codec is what says
+            // which card the stream is on, and NVENC's is the one NVIDIA's own
+            // import can feed. It is the one [`Sink::dmabuf`] falls back to.
             #[cfg(target_os = "linux")]
-            Footage::Dmabuf => Ok(Encoding::Picture(Encoder::new(
-                codec,
-                width,
-                height,
-                self.fps,
-                aimed,
-                self.effort,
-                self.hardware,
-            )?)),
+            Footage::Dmabuf => {
+                let encoder = Encoder::new(
+                    codec,
+                    width,
+                    height,
+                    self.fps,
+                    aimed,
+                    self.effort,
+                    self.hardware,
+                )?;
+                // NVENC is on the card the picture is already on, so the driver
+                // imports it where the compositor drew it and converts it there,
+                // and the session that reads it needs no copy of any pixel. The
+                // encoder opened above is given up for it rather than kept as a
+                // second session on the same card; a card that can't take the
+                // path says why once, and every picture goes the processor's way.
+                #[cfg(nvcuda)]
+                if encoder.engine().ends_with("_nvenc")
+                    && let Some(cuda) = Cuda::open(codec, width, height, self.fps, aimed)
+                {
+                    return Ok(Encoding::Cuda(cuda));
+                }
+                Ok(Encoding::Picture(encoder))
+            }
         }
     }
 
@@ -1598,6 +1934,13 @@ impl Sink {
                 Control::Send(server) => self.server = Some(server),
                 Control::Switch(source) => switch = Some(source),
                 Control::Preview(shown) => self.preview_shown = shown,
+                // The tile showing this share's preview says how large it is
+                // when that changes, not with every frame: the preview is
+                // written at the size it shows at from then on, and a larger
+                // tile grows the frames file once.
+                Control::Size { width, height } => {
+                    self.preview_tile = tile_size((width, height));
+                }
                 _ => {}
             }
         }
@@ -2398,24 +2741,6 @@ const CONSTRAINED_WIDTH: u32 = 640;
 #[cfg(any(wgc, dup))]
 const CONSTRAINED_HEIGHT: u32 = 360;
 
-/// The frame rate a share of `width` by `height` runs at: the one asked for, or
-/// 30 above 1080 lines, where the same bits a second buy twice the picture at
-/// half the frames. A share of a screen is the one reaching 4K, and 4K at 60 is
-/// 0.018 bits a pixel at what the cap declares — the rate a 4K share is worth is
-/// its 30-frame one, so the frame rate is where the interface's 60 goes.
-pub fn sharing_fps(width: u32, height: u32, asked: u32) -> u32 {
-    // A measurement asks for the frame rate itself: see
-    // `YAPFAST_STREAM_MAX_BITRATE`.
-    if std::env::var_os("YAPFAST_STREAM_MAX_BITRATE").is_some() {
-        return asked;
-    }
-    if width > SHARE_WIDTH || height > SHARE_HEIGHT {
-        asked.min(30)
-    } else {
-        asked
-    }
-}
-
 // libwebrtc asks the screen sharing portal over D-Bus through GIO, but
 // webrtc-sys only compiles against its headers.
 #[cfg(target_os = "linux")]
@@ -2548,7 +2873,7 @@ fn capture_screen(
     // the processor wrote, and the window is shown those pixels, whichever
     // process wrote them.
     sink.diagnosis.presentation = Some(Presentation::Copy);
-    let mut fps = sink.fps;
+    let fps = sink.fps;
     let sink = Arc::new(Mutex::new(sink));
     let mut capture = Capture::start(source, &sink, max_width, max_height)?;
     // A screen, window or camera to share in its place, until it gives a
@@ -2581,14 +2906,11 @@ fn capture_screen(
                 failure
             });
         }
-        if let Some((width, height)) = size {
-            if size != reported {
-                reported = size;
-                report(Report::Sharing { width, height });
-            }
-            // A screen larger than 1080 lines is shared at 30 frames a second
-            // at most: see [`sharing_fps`].
-            fps = sharing_fps(width, height, fps);
+        if let Some((width, height)) = size
+            && size != reported
+        {
+            reported = size;
+            report(Report::Sharing { width, height });
         }
         if let Some(next) = &switching {
             let seen = next.seen();
@@ -3213,9 +3535,6 @@ fn capture_textures(
         stream = format!("{sent_width}x{sent_height}"),
         "sharing from the card"
     );
-    // A share of a screen larger than 1080 lines runs at 30 frames a second at
-    // most: see [`sharing_fps`].
-    sink.fps = sharing_fps(sent_width, sent_height, sink.fps);
     let fps = sink.fps;
     sink.footage = Footage::OnTheCard;
     sink.capture = format!(
@@ -3397,7 +3716,6 @@ fn capture_textures(
                         );
                         sink.capture =
                             format!("{} · {width}×{height} screen", next.card.rung().name());
-                        sink.fps = sharing_fps(sent_width, sent_height, sink.fps);
                         capture = next.card;
                         // The next frame says what is shared now, even at the
                         // size the screen before it was.
@@ -4131,7 +4449,6 @@ fn capture_dmabufs(
     // What the stream is sent at, and what the window has been told: both change
     // when the shared thing does.
     let mut size: Option<(u32, u32)> = None;
-    let mut paced = false;
     let mut sampler = pressure::Sampler::new();
     // The picture the capture last handed over, which a still desktop is answered
     // from when a viewer asks for one, and which is dropped when the size changes
@@ -4243,13 +4560,6 @@ fn capture_dmabufs(
             continue;
         };
         let sent = fit(shot.width, shot.height, max_width, max_height);
-        if !paced {
-            // A screen larger than 1080 lines is shared at 30 frames a second at
-            // most: see [`sharing_fps`]. It is settled with the first picture,
-            // which is when the size is known, and before the stream opens at it.
-            paced = true;
-            sink.fps = sharing_fps(sent.0, sent.1, sink.fps);
-        }
         if size != Some(sent) {
             size = Some(sent);
             sink.capture = format!("{} · {}×{}", rung.name(), sent.0, sent.1);
@@ -4979,8 +5289,9 @@ impl Worker {
         self.control(&Control::Shown(shown))
     }
 
-    /// Tells a watching worker the size in pixels of the tile showing its
-    /// pictures, which it scales them to; see [`Control::Size`].
+    /// Tell a watching worker the size in pixels of the tile showing its
+    /// pictures, and a sharing one the size of the tile showing its preview:
+    /// each scales what it writes to it; see [`Control::Size`].
     pub fn size(&mut self, width: u32, height: u32) -> Result<()> {
         self.control(&Control::Size { width, height })
     }
@@ -5913,6 +6224,7 @@ mod tests {
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            preview_tile: None,
             capture: String::new(),
             preview_shown: false,
             controls: received,
@@ -5956,6 +6268,7 @@ mod tests {
         let sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            preview_tile: None,
             capture: String::new(),
             preview_shown: false,
             controls: received,
@@ -6012,6 +6325,7 @@ mod tests {
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            preview_tile: None,
             capture: String::new(),
             preview_shown: false,
             controls: received,
@@ -6597,6 +6911,7 @@ root.mainloop()
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            preview_tile: None,
             capture: String::new(),
             preview_shown: true,
             controls: received,
@@ -6630,6 +6945,13 @@ root.mainloop()
             "{first:?}"
         );
         assert_eq!(first[3], 255);
+        // A tile's size, once the window says which tile shows it, is what the
+        // preview is written at: this picture in a 480x270 tile is 480x270, not
+        // the box above.
+        sink.preview_tile = Some((480, 270));
+        sink.frame(&picture).unwrap();
+        let shown = frames.take(|width, height, _| (width, height)).unwrap();
+        assert_eq!(shown, (480, 270));
     }
 
     /// A frame is scaled and converted for the UI only while the UI shows the
@@ -6641,6 +6963,7 @@ root.mainloop()
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            preview_tile: None,
             capture: String::new(),
             preview_shown: false,
             controls: received,
@@ -6696,6 +7019,7 @@ root.mainloop()
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            preview_tile: None,
             capture: String::new(),
             preview_shown: false,
             controls: received,
@@ -6733,6 +7057,7 @@ root.mainloop()
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            preview_tile: None,
             capture: String::new(),
             preview_shown: false,
             controls: received,
@@ -6777,6 +7102,7 @@ root.mainloop()
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            preview_tile: None,
             capture: String::new(),
             preview_shown: false,
             controls: received,
@@ -6926,6 +7252,7 @@ root.mainloop()
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            preview_tile: None,
             capture: String::new(),
             preview_shown: true,
             controls: received,
@@ -6974,6 +7301,7 @@ root.mainloop()
         let sink = Arc::new(Mutex::new(Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             preview: vec![],
+            preview_tile: None,
             capture: String::new(),
             preview_shown: true,
             controls: received,
@@ -7520,6 +7848,7 @@ root.mainloop()
         Sink {
             writer,
             preview: vec![],
+            preview_tile: None,
             capture: String::new(),
             preview_shown: false,
             controls,

@@ -6,6 +6,13 @@
  * Annex B access units out, each NAL unit after a start code. Opening tries
  * each encoder in turn and says which one opened, or why none did.
  *
+ * Every encoder here reads a frame that reached the processor, except Quick
+ * Sync on Windows: a stream whose capture hands over Direct3D 11 textures has
+ * the encoder read those textures as they are, through
+ * `yapfast_hwenc_encode_texture`, so a frame does not make the round trip to
+ * memory and back. That path is offered first, and a driver or a device that
+ * refuses it leaves the upload below exactly as it was.
+ *
  * Settings, as measured on screen recordings and games
  * (docs/discord/go-live.md):
  * low-latency tuning, no B-frames, a frame out for each frame in, the
@@ -31,8 +38,46 @@
 #include "libavutil/pixdesc.h"
 #include "libavutil/time.h"
 
+/* Quick Sync's shared surfaces are Direct3D 11's: the device context here is
+ * only what tells the derived device which child to be made from, and what
+ * reads a texture's own description. Linux's capture arrives as a DMA-BUF,
+ * which VA-API's encoder in hwenc_dmabuf.c reads where it lies already, so the
+ * shared path is the desktop's that has a Direct3D 11 device, and nothing else
+ * here names a platform. */
+#ifdef _WIN32
+#define YAPFAST_D3D11 1
+#include "libavutil/hwcontext_d3d11va.h"
+#include "libavutil/hwcontext_qsv.h"
+#endif
+/* oneVPL's own types, for the surface a Quick Sync session is handed and the
+ * pairing a driver reads a texture out of, whether or not this build has the
+ * path that makes them. */
+#include <mfxvideo.h>
+
 /* The codecs, as Rust numbers them. */
 enum { CODEC_H264, CODEC_HEVC, CODEC_AV1 };
+
+/* The most of a capture's surfaces a Quick Sync session remembers, by
+ * (texture, subresource): a capture hands back a few surfaces in rotation, and
+ * a description of a surface made per frame would be the per-frame allocation
+ * this path exists to avoid. Four covers the ring a desktop duplicator keeps,
+ * as native/d3d11enc.c's slots allow. */
+#define QSV_SURFACES 4
+
+/* One of the caller's textures as Quick Sync reads it: the surface the encoder
+ * is handed, and the pairing the driver turns into its own resource out of,
+ * in one allocation whose owner is the last frame that references it. The
+ * texture is held here rather than borrowed, so a capture that lets go of a
+ * surface can't pull it out from under an encode. */
+struct qsv_slot {
+  void *texture;
+  unsigned subresource;
+  /* The surface and the pairing beside it, freed — and the texture released —
+   * when the last frame reading it is done with it. */
+  AVBufferRef *ref;
+  mfxFrameSurface1 *surface;
+  unsigned long long used;
+};
 
 struct yapfast_hwenc {
   AVCodecContext *codec;
@@ -44,6 +89,24 @@ struct yapfast_hwenc {
    * on the GPU. */
   AVBufferRef *device;
   AVFrame *surface;
+  /* Quick Sync's frames context when its encoder reads the capture's own
+   * surfaces: a pool of none, so a frame is a surface with nothing allocated
+   * behind it, and `qsv_slots` describes the surfaces handed in. NULL for
+   * every other session, which is how the two encodes are told apart. */
+  AVBufferRef *qsv_frames;
+  struct qsv_slot qsv_slots[QSV_SURFACES];
+  /* The clock the least-recently-used of those surfaces is chosen by. */
+  unsigned long long qsv_used;
+  /* Why Quick Sync's shared surfaces didn't open, when the stream asked for
+   * them and the driver or the device refused: the encoder reads an upload
+   * instead, and the open's report says what the frame lost. Empty when the
+   * path opened, or when nothing asked for it. */
+  char shared_why[112];
+  /* Why the last frame wasn't encoded, when one wasn't and the reason isn't
+   * one of the numbers this returns: the surface handed over wasn't one this
+   * session could read, and a capture told that once fixes it rather than
+   * losing every frame to a reason nobody can see. */
+  char error[112];
   /* The frame handed over, in memory: I420 for NVENC, NV12 for VA-API, AMF
    * and Quick Sync. */
   AVFrame *frame;
@@ -113,7 +176,7 @@ static void keep_error(void *context, int level, const char *format, va_list arg
 
 /* What a setting is worth to the stream: one it can't do without, or one
  * that only improves the picture or the latency. */
-enum { OPTIONAL, REQUIRED };
+enum { OPTIONAL_SETTING, REQUIRED_SETTING };
 
 /* One of an encoder's settings, for setting several in turn. */
 struct setting {
@@ -130,7 +193,7 @@ struct setting {
 static int set_option(struct yapfast_hwenc *h, int worth, const char *name, const char *value) {
   int ret = av_opt_set(h->codec->priv_data, name, value, 0);
   if (ret >= 0) return 0;
-  if (worth == REQUIRED) {
+  if (worth == REQUIRED_SETTING) {
     /* FFmpeg's option handling logs nothing, so the setting that the
      * stream needed has to be named here to say why it didn't open. */
     if (!first_error[0])
@@ -234,12 +297,12 @@ static const struct nvenc_tuning *nvenc_tuning(const char *name) {
  * needed in one of them and droppable in the other. */
 static size_t nvenc_settings(const struct nvenc_tuning *tuning, struct setting *settings) {
   const struct setting wanted[] = {
-      {OPTIONAL, "preset", tuning->preset},
-      {REQUIRED, "tune", tuning->tune},
-      {OPTIONAL, "rc", tuning->rc},
-      {OPTIONAL, "zerolatency", tuning->zerolatency},
-      {REQUIRED, "delay", tuning->delay},
-      {REQUIRED, "forced-idr", tuning->forced_idr},
+      {OPTIONAL_SETTING, "preset", tuning->preset},
+      {REQUIRED_SETTING, "tune", tuning->tune},
+      {OPTIONAL_SETTING, "rc", tuning->rc},
+      {OPTIONAL_SETTING, "zerolatency", tuning->zerolatency},
+      {REQUIRED_SETTING, "delay", tuning->delay},
+      {REQUIRED_SETTING, "forced-idr", tuning->forced_idr},
   };
   memcpy(settings, wanted, sizeof wanted);
   return sizeof wanted / sizeof *wanted;
@@ -255,7 +318,32 @@ static int set_nvenc(struct yapfast_hwenc *h, const struct nvenc_tuning *tuning,
   struct setting settings[8];
   size_t count = nvenc_settings(tuning, settings);
   int ret = set_options(h, settings, count);
-  if (ret >= 0 && codec_id == CODEC_H264) ret = set_option(h, REQUIRED, "profile", "main");
+  if (ret >= 0 && codec_id == CODEC_H264) ret = set_option(h, REQUIRED_SETTING, "profile", "main");
+  return ret;
+}
+
+/* Opens Quick Sync with the settings it is tuned by, wherever it is opened
+ * from: the upload below and the capture's own surfaces are the same session
+ * on the same card, and what makes their picture is the same list. One frame in
+ * flight, so a frame doesn't wait for the next; an IDR when one is asked for;
+ * and the average obeyed frame by frame rather than banked. The stream needs
+ * the first two, so a driver that can't do either fails the open; the medium
+ * preset and the per-frame average only improve the picture and the latency. */
+static int set_qsv(struct yapfast_hwenc *h, unsigned codec_id) {
+  const struct setting qsv_settings[] = {
+      {REQUIRED_SETTING, "async_depth", "1"},
+      {REQUIRED_SETTING, "forced_idr", "1"},
+      {OPTIONAL_SETTING, "preset", "medium"},
+      {OPTIONAL_SETTING, "low_delay_brc", "1"},
+  };
+  int ret = set_options(h, qsv_settings, sizeof qsv_settings / sizeof *qsv_settings);
+  /* Look-ahead is off in FFmpeg's default and is asked for by name where the
+   * encoder has the switch, so a default that changed can't add a frame of
+   * delay to the stream. AV1 has only a depth, which does nothing without
+   * extended rate control. */
+  if (ret >= 0 && codec_id != CODEC_AV1) ret = set_option(h, OPTIONAL_SETTING, "look_ahead", "0");
+  /* AV1 encodes in Quick Sync's low-power engine, the only one it has. */
+  if (ret >= 0 && codec_id == CODEC_AV1) ret = set_option(h, OPTIONAL_SETTING, "low_power", "1");
   return ret;
 }
 
@@ -265,6 +353,14 @@ static void close_encoder(struct yapfast_hwenc *h) {
   av_frame_free(&h->frame);
   av_packet_free(&h->packet);
   av_buffer_unref(&h->device);
+  /* The surfaces the capture's textures were read through, each holding its
+   * texture until the last frame reading it is done: giving up the reference
+   * here is all the release a surface needs. */
+  for (size_t i = 0; i < QSV_SURFACES; i++) {
+    av_buffer_unref(&h->qsv_slots[i].ref);
+    memset(&h->qsv_slots[i], 0, sizeof h->qsv_slots[i]);
+  }
+  av_buffer_unref(&h->qsv_frames);
   free(h->staged);
   h->staged = NULL;
   h->staged_capacity = h->staged_size = 0;
@@ -298,6 +394,188 @@ static int open_vaapi(struct yapfast_hwenc *h, AVCodecContext *codec, struct va_
   return h->surface ? 0 : AVERROR(ENOMEM);
 }
 
+/* Quick Sync's own device and frames context when its encoder reads the
+ * capture's surfaces instead of an upload: the session is derived from the
+ * device a capture's textures live on, and its frame pool is a pool of none,
+ * so a surface carries nothing but the pairing the driver reads the texture
+ * out of. Returns 0, or a failure whose reason is in `first_error`.
+ *
+ * The frames context's `frame_type` is what makes the encoder ask the driver
+ * for video memory rather than system memory (`MFX_IOPATTERN_IN_VIDEO_MEMORY`,
+ * from its own reading of this field), and Quick Sync's `info` is FFmpeg's to
+ * make: a dynamic pool is given the one surface description every surface here
+ * copies, so it is read back from the frames context rather than written here.
+ * Linux has no texture to hand in — its capture is a DMA-BUF, and VA-API's
+ * encoder reads that where it lies — so this is the Windows' path and says so. */
+static int open_qsv_shared(struct yapfast_hwenc *h, AVCodecContext *codec, void *device) {
+#if YAPFAST_D3D11
+  AVBufferRef *child = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_D3D11VA);
+  if (!child) return AVERROR(ENOMEM);
+  AVD3D11VADeviceContext *child_hwctx = ((AVHWDeviceContext *)child->data)->hwctx;
+  /* Held for as long as the session can read a surface from the device: the
+   * device context releases the reference added here, and the Quick Sync device
+   * below holds that context for as long as it lives. */
+  ((ID3D11Device *)device)->lpVtbl->AddRef((ID3D11Device *)device);
+  child_hwctx->device = device;
+  int ret = av_hwdevice_ctx_init(child);
+  if (ret >= 0) ret = av_hwdevice_ctx_create_derived(&h->device, AV_HWDEVICE_TYPE_QSV, child, 0);
+  av_buffer_unref(&child);
+  if (ret < 0) return ret;
+  AVBufferRef *frames = av_hwframe_ctx_alloc(h->device);
+  if (!frames) return AVERROR(ENOMEM);
+  AVHWFramesContext *pool = (AVHWFramesContext *)frames->data;
+  AVQSVFramesContext *qsv = pool->hwctx;
+  pool->format = AV_PIX_FMT_QSV;
+  pool->sw_format = AV_PIX_FMT_NV12;
+  pool->width = codec->width;
+  pool->height = codec->height;
+  /* No surface is pre-allocated, which is what makes the encoder take the one
+   * in the frame it is given: a fixed pool would have FFmpeg look the surface
+   * up in it and hand the driver one of its own instead. */
+  pool->initial_pool_size = 0;
+  /* A capture's texture is a processor's render target, and the driver is told
+   * so before the frames context is made, since that is where the flag is read
+   * for what kind of surface the surfaces are. */
+  qsv->frame_type = MFX_MEMTYPE_VIDEO_MEMORY_PROCESSOR_TARGET | MFX_MEMTYPE_SHARED_RESOURCE;
+  ret = av_hwframe_ctx_init(frames);
+  if (ret >= 0) codec->hw_frames_ctx = av_buffer_ref(frames);
+  av_buffer_unref(&frames);
+  if (ret < 0 || !codec->hw_frames_ctx) return ret < 0 ? ret : AVERROR(ENOMEM);
+  /* The encoder is told what the frames context says, which is what it checks
+   * against on the way in: the surfaces are Quick Sync's, and the picture in
+   * them is NV12. */
+  codec->pix_fmt = AV_PIX_FMT_QSV;
+  h->qsv_frames = av_buffer_ref(codec->hw_frames_ctx);
+  return h->qsv_frames ? 0 : AVERROR(ENOMEM);
+#else
+  (void)h;
+  (void)codec;
+  (void)device;
+  snprintf(first_error, sizeof first_error,
+           "Quick Sync's shared surfaces are Direct3D 11's, and this machine's capture is a "
+           "DMA-BUF, which VA-API's encoder reads where it lies");
+  return AVERROR(ENOSYS);
+#endif
+}
+
+/* Gives back one of the capture's surfaces and the texture behind it: the
+ * surface and its pairing are one allocation, and the reference the slot took
+ * on the texture is the one released here, so a capture that dropped a surface
+ * while a frame was still reading it is safe. Only a session with a texture to
+ * describe makes one of these, so only that build has the callback. */
+#if YAPFAST_D3D11
+static void qsv_surface_free(void *opaque, uint8_t *data) {
+  (void)opaque;
+  mfxFrameSurface1 *surface = (mfxFrameSurface1 *)data;
+  ID3D11Texture2D *texture = (ID3D11Texture2D *)((mfxHDLPair *)surface->Data.MemId)->first;
+  if (texture) texture->lpVtbl->Release(texture);
+  av_free(data);
+}
+#endif
+
+/* The surface the encoder reads `texture` through: made the first time that
+ * texture is offered and kept while it keeps coming back, since a capture hands
+ * back a few surfaces in rotation and a description of one per frame would be
+ * the per-frame allocation this path is here to avoid. NULL when the texture
+ * isn't one this session can read, with the reason in `h->error`. */
+static struct qsv_slot *qsv_surface(struct yapfast_hwenc *h, void *texture,
+                                    unsigned subresource) {
+#if YAPFAST_D3D11
+  ID3D11Texture2D *surface = texture;
+  struct qsv_slot *empty = NULL, *oldest = NULL;
+  for (size_t i = 0; i < QSV_SURFACES; i++) {
+    struct qsv_slot *slot = &h->qsv_slots[i];
+    if (!slot->texture) {
+      if (!empty) empty = slot;
+      continue;
+    }
+    if (slot->texture == texture && slot->subresource == subresource) {
+      slot->used = ++h->qsv_used;
+      return slot;
+    }
+    if (!oldest || slot->used < oldest->used) oldest = slot;
+  }
+  D3D11_TEXTURE2D_DESC desc;
+  surface->lpVtbl->GetDesc(surface, &desc);
+  /* The size is the stream's, read back rather than assumed: a capture of a
+   * screen that isn't the stream's size has to be scaled before it is encoded,
+   * and a surface that says so here is a frame the caller converts and hands
+   * over again rather than one the encoder stretches to fit. */
+  if (desc.Width != (UINT)h->codec->width || desc.Height != (UINT)h->codec->height) {
+    snprintf(h->error, sizeof h->error,
+             "the capture's surface is %ux%u and the stream %dx%d, so it has to be scaled "
+             "before it is encoded",
+             desc.Width, desc.Height, h->codec->width, h->codec->height);
+    return NULL;
+  }
+  if (desc.Format != DXGI_FORMAT_NV12) {
+    snprintf(h->error, sizeof h->error,
+             "the capture's surface is DXGI format %u, and a session reading surfaces "
+             "reads NV12",
+             (unsigned)desc.Format);
+    return NULL;
+  }
+  if (subresource >= desc.MipLevels * desc.ArraySize) {
+    snprintf(h->error, sizeof h->error, "the capture's surface has no subresource %u",
+             subresource);
+    return NULL;
+  }
+  /* The surface the encoder is handed and the pairing the driver reads the
+   * texture out of, in one buffer: FFmpeg's encoder copies the surface out of
+   * the frame it is given and reads the pairing where it points, so both have
+   * to live as long as the frame does, and the frame that outlives them all is
+   * the one this buffer is referenced by. */
+  size_t bytes = sizeof(mfxFrameSurface1) + sizeof(mfxHDLPair);
+  mfxFrameSurface1 *built = av_mallocz(bytes);
+  if (!built) {
+    snprintf(h->error, sizeof h->error, "no memory for a description of a surface");
+    return NULL;
+  }
+  mfxHDLPair *pair = (mfxHDLPair *)(built + 1);
+  /* Every surface is described the way FFmpeg described the pool it isn't
+   * allocating from: the width and height padded to what the driver reads in
+   * whole blocks, the crop the stream's own size, NV12's fourcc and 4:2:0. A
+   * frames context that opened with a pool of none always has one, and asking
+   * rather than assuming costs a branch a frame. */
+  const AVHWFramesContext *frames = (const AVHWFramesContext *)h->qsv_frames->data;
+  const mfxFrameInfo *info = ((const AVQSVFramesContext *)frames->hwctx)->info;
+  if (!info) {
+    av_free(built);
+    snprintf(h->error, sizeof h->error,
+             "the encoder's frames context describes no surface to hand it one");
+    return NULL;
+  }
+  built->Info = *info;
+  pair->first = texture;
+  /* A render target is addressed as the whole surface; one that isn't is
+   * addressed by the subresource inside it, the way FFmpeg addresses the
+   * textures it makes for an encoder. */
+  pair->second = (desc.BindFlags & D3D11_BIND_RENDER_TARGET) ? (mfxMemId)MFX_INFINITE
+                                                             : (mfxMemId)(size_t)subresource;
+  built->Data.MemId = pair;
+  AVBufferRef *ref = av_buffer_create((uint8_t *)built, bytes, qsv_surface_free, NULL, 0);
+  if (!ref) {
+    av_free(built);
+    snprintf(h->error, sizeof h->error, "no memory for a description of a surface");
+    return NULL;
+  }
+  struct qsv_slot *reuse = empty ? empty : oldest;
+  av_buffer_unref(&reuse->ref);
+  surface->lpVtbl->AddRef(surface);
+  reuse->texture = texture;
+  reuse->subresource = subresource;
+  reuse->ref = ref;
+  reuse->surface = built;
+  reuse->used = ++h->qsv_used;
+  return reuse;
+#else
+  (void)h;
+  (void)texture;
+  (void)subresource;
+  return NULL;
+#endif
+}
+
 /* Whether this machine has the card NVENC encodes on, asked once: CUDA is
  * NVIDIA's, and FFmpeg's NVENC reaches the card through it. d3d11enc.c asks
  * the adapter it was handed for its VendorId, and this side is handed no
@@ -314,8 +592,9 @@ static int nvidia_card(void) {
 }
 
 static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va_device device,
-                        const struct nvenc_tuning *nvenc, unsigned codec_id, unsigned width,
-                        unsigned height, unsigned fps, unsigned kbps) {
+                        void *capture_device, const struct nvenc_tuning *nvenc,
+                        unsigned codec_id, unsigned width, unsigned height, unsigned fps,
+                        unsigned kbps) {
   int vaapi = device.path != NULL, amf = strstr(found->name, "_amf") != NULL,
       qsv = strstr(found->name, "_qsv") != NULL;
   AVCodecContext *codec = h->codec = avcodec_alloc_context3(found);
@@ -355,8 +634,8 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
      * padding it, and one frame in flight so a frame doesn't wait: the
      * stream needs both, so a driver that can't do either fails the open. */
     const struct setting vaapi_settings[] = {
-        {REQUIRED, "rc_mode", "VBR"},
-        {REQUIRED, "async_depth", "1"},
+        {REQUIRED_SETTING, "rc_mode", "VBR"},
+        {REQUIRED_SETTING, "async_depth", "1"},
     };
     ret = set_options(h, vaapi_settings, sizeof vaapi_settings / sizeof *vaapi_settings);
     if (ret < 0) return ret;
@@ -364,45 +643,46 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
     ret = open_vaapi(h, codec, device);
     if (ret < 0) return ret;
   } else if (qsv) {
-    /* Quick Sync is fed from the processor, as AMF is: NV12 frames in system
-     * memory, which FFmpeg copies into the surfaces its session encodes from.
-     * No frame here takes a zero-copy path, and the log says so.
+    /* Quick Sync is fed from the processor by default, as AMF is: NV12 frames
+     * in system memory, which FFmpeg copies into the surfaces its session
+     * encodes from. A stream whose capture already holds its pictures on the
+     * card is offered the path below first, where a frame never reaches memory
+     * at all; everything after it is the upload, unchanged, for a stream with
+     * no surfaces to hand over and for a driver or a device that refused them.
      *
      * The session is asked for Intel's GPU through oneVPL, which is the device
      * `-init_hw_device qsv` makes: a machine can hold another maker's card as
      * well, and which implementation oneVPL picks by itself is not this side's
      * to guess. A build with no QSV device to make leaves FFmpeg to open its
      * own internal session, which is the same upload. */
-    ret = av_hwdevice_ctx_create(&h->device, AV_HWDEVICE_TYPE_QSV, NULL, NULL, 0);
-    if (ret >= 0) {
-      codec->hw_device_ctx = av_buffer_ref(h->device);
-      if (!codec->hw_device_ctx) return AVERROR(ENOMEM);
-    } else {
-      /* Not a reason to stop: the encoder may still open without it, and if
-       * it can't, its own error is the one the report wants. */
-      first_error[0] = 0;
+    if (capture_device) {
+      int shared = open_qsv_shared(h, codec, capture_device);
+      if (shared < 0) {
+        /* Not a reason to stop: the upload below encodes the same picture, one
+         * frame behind the processor's copy of it. Why the surfaces weren't
+         * taken goes in the report, since it is a frame's worth of copying per
+         * frame that the stream lost. */
+        if (!first_error[0]) av_strerror(shared, first_error, sizeof first_error);
+        snprintf(h->shared_why, sizeof h->shared_why,
+                 "reading the capture's own surfaces wasn't possible (%s), so every frame is "
+                 "copied to the processor",
+                 first_error);
+        first_error[0] = 0;
+        av_buffer_unref(&h->device);
+      }
     }
-    /* One frame in flight, so a frame doesn't wait for the next; an IDR when
-     * one is asked for; and the average obeyed frame by frame rather than
-     * banked. The stream needs the first two, so a driver that can't do either
-     * fails the open; the medium preset and the per-frame average only improve
-     * the picture and the latency. */
-    const struct setting qsv_settings[] = {
-        {REQUIRED, "async_depth", "1"},
-        {REQUIRED, "forced_idr", "1"},
-        {OPTIONAL, "preset", "medium"},
-        {OPTIONAL, "low_delay_brc", "1"},
-    };
-    ret = set_options(h, qsv_settings, sizeof qsv_settings / sizeof *qsv_settings);
-    /* Look-ahead is off in FFmpeg's default and is asked for by name where the
-     * encoder has the switch, so a default that changed can't add a frame of
-     * delay to the stream. AV1 has only a depth, which does nothing without
-     * extended rate control. */
-    if (ret >= 0 && codec_id != CODEC_AV1)
-      ret = set_option(h, OPTIONAL, "look_ahead", "0");
-    /* AV1 encodes in Quick Sync's low-power engine, the only one it has. */
-    if (ret >= 0 && codec_id == CODEC_AV1)
-      ret = set_option(h, OPTIONAL, "low_power", "1");
+    if (!h->qsv_frames) {
+      ret = av_hwdevice_ctx_create(&h->device, AV_HWDEVICE_TYPE_QSV, NULL, NULL, 0);
+      if (ret >= 0) {
+        codec->hw_device_ctx = av_buffer_ref(h->device);
+        if (!codec->hw_device_ctx) return AVERROR(ENOMEM);
+      } else {
+        /* Not a reason to stop: the encoder may still open without it, and if
+         * it can't, its own error is the one the report wants. */
+        first_error[0] = 0;
+      }
+    }
+    ret = set_qsv(h, codec_id);
     if (ret < 0) return ret;
     preset = "medium";
     rate = "VBR";
@@ -414,13 +694,13 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
      * without padding; its balanced quality preset and no filler padding
      * only improve the picture. */
     const struct setting amf_settings[] = {
-        {REQUIRED, "usage", "lowlatency"},
-        {OPTIONAL, "quality", "balanced"},
-        {REQUIRED, "rc", "vbr_peak"},
-        {REQUIRED, "enforce_hrd", "1"},
-        {OPTIONAL, "filler_data", "0"},
-        {REQUIRED, "async_depth", "1"},
-        {REQUIRED, "forced_idr", "1"},
+        {REQUIRED_SETTING, "usage", "lowlatency"},
+        {OPTIONAL_SETTING, "quality", "balanced"},
+        {REQUIRED_SETTING, "rc", "vbr_peak"},
+        {REQUIRED_SETTING, "enforce_hrd", "1"},
+        {OPTIONAL_SETTING, "filler_data", "0"},
+        {REQUIRED_SETTING, "async_depth", "1"},
+        {REQUIRED_SETTING, "forced_idr", "1"},
     };
     ret = set_options(h, amf_settings, sizeof amf_settings / sizeof *amf_settings);
     if (ret < 0) return ret;
@@ -428,7 +708,7 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
     rate = "vbr_peak";
     /* av1_amf has no `aud`, and asking it for one only fails the open. */
     if (codec_id != CODEC_AV1) {
-      ret = set_option(h, REQUIRED, "aud", "0");
+      ret = set_option(h, REQUIRED_SETTING, "aud", "0");
       if (ret < 0) return ret;
     }
     /* Each codec names its own latency mode (a mode for AV1, a flag for the
@@ -436,25 +716,25 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
      * frame comes out for each frame in. */
     if (codec_id == CODEC_AV1) {
       const struct setting av1_settings[] = {
-          {REQUIRED, "latency", "real_time"},
-          {REQUIRED, "header_insertion_mode", "frame"},
-          {REQUIRED, "bf", "0"},
+          {REQUIRED_SETTING, "latency", "real_time"},
+          {REQUIRED_SETTING, "header_insertion_mode", "frame"},
+          {REQUIRED_SETTING, "bf", "0"},
       };
       ret = set_options(h, av1_settings, sizeof av1_settings / sizeof *av1_settings);
     } else {
-      ret = set_option(h, REQUIRED, "latency", "1");
+      ret = set_option(h, REQUIRED_SETTING, "latency", "1");
     }
     if (ret >= 0 && codec_id == CODEC_HEVC)
-      ret = set_option(h, REQUIRED, "header_insertion_mode", "idr");
+      ret = set_option(h, REQUIRED_SETTING, "header_insertion_mode", "idr");
     if (ret >= 0 && codec_id == CODEC_H264) {
       /* Main profile is Discord's client's; a driver that won't take it
        * still encodes, so it's only asked for. */
       char spacing[16];
       snprintf(spacing, sizeof spacing, "%d", codec->gop_size);
       const struct setting h264_settings[] = {
-          {OPTIONAL, "profile", "main"},
-          {REQUIRED, "bf", "0"},
-          {REQUIRED, "header_spacing", spacing},
+          {OPTIONAL_SETTING, "profile", "main"},
+          {REQUIRED_SETTING, "bf", "0"},
+          {REQUIRED_SETTING, "header_spacing", spacing},
       };
       ret = set_options(h, h264_settings, sizeof h264_settings / sizeof *h264_settings);
     }
@@ -503,7 +783,11 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
   h->frame = av_frame_alloc();
   h->packet = av_packet_alloc();
   if (!h->frame || !h->packet) return AVERROR(ENOMEM);
-  h->frame->format = pixels;
+  /* A session reading the capture's own surfaces is handed one of them in
+   * `yapfast_hwenc_encode_texture`, which puts the surface in the frame itself:
+   * there is no picture in memory here to give a buffer to, and the one
+   * `fill` would have written is the frame that path would have uploaded. */
+  h->frame->format = h->qsv_frames ? AV_PIX_FMT_QSV : pixels;
   h->frame->width = (int)width;
   h->frame->height = (int)height;
   /* Read back rather than assumed, as the format is: an encoder that kept
@@ -517,7 +801,7 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
   snprintf(h->config, sizeof h->config, "%s, %s %s range, %d/%d, %u kbit/s", format,
            space ? space : "no colour space", range, codec->time_base.num,
            codec->time_base.den, kbps);
-  return av_frame_get_buffer(h->frame, 0);
+  return h->qsv_frames ? 0 : av_frame_get_buffer(h->frame, 0);
 }
 
 /* The encoders to try for each codec, best first, which is this build's own
@@ -652,6 +936,10 @@ struct opening {
   /* The encoders to try, best first: Rust's order where it chose an adapter,
    * and this build's own where it named none. */
   struct encoders encoders;
+  /* The device a capture's surfaces live on, which only Quick Sync's shared
+   * path reads: an ID3D11Device on Windows, and NULL where the stream has no
+   * surfaces of its own to hand over. */
+  void *device;
   char *report;
   size_t report_size, used;
 };
@@ -681,11 +969,17 @@ static struct yapfast_hwenc *try_open(struct opening *o, const AVCodec *found,
   struct yapfast_hwenc *h = av_mallocz(sizeof *h);
   if (!h) return NULL;
   first_error[0] = 0;
-  int ret = open_encoder(h, found, device, o->nvenc, o->codec_id, o->width, o->height, o->fps,
-                         o->kbps);
+  int ret = open_encoder(h, found, device, o->device, o->nvenc, o->codec_id, o->width, o->height,
+                         o->fps, o->kbps);
   if (ret >= 0) {
     h->engine = name;
-    snprintf(o->report, o->report_size, "%s", label);
+    /* A stream that asked for the capture's own surfaces and didn't get them
+     * says so beside the encoder that did open: the picture is the upload's,
+     * and why it isn't the other one is what a reader of the log is after. */
+    if (h->shared_why[0])
+      snprintf(o->report, o->report_size, "%s; %s", label, h->shared_why);
+    else
+      snprintf(o->report, o->report_size, "%s", label);
     return h;
   }
   if (!first_error[0]) av_strerror(ret, first_error, sizeof first_error);
@@ -708,6 +1002,11 @@ struct yapfast_hwenc_open {
   /* "dedicated" or "integrated": the kind of GPU the stream asked for, for the
    * render nodes VA-API chooses between itself; NULL for any. */
   const char *preference;
+  /* The device a capture's surfaces live on, which only Quick Sync's shared
+   * path reads: an ID3D11Device on Windows, and NULL where the stream has no
+   * surfaces of its own to hand over. Borrowed for as long as the encoder
+   * lives, and referenced while it does. */
+  void *device;
 };
 
 /* Opens the first encoder of the request's codec that works, in the order the
@@ -740,6 +1039,7 @@ struct yapfast_hwenc *yapfast_hwenc_new(const struct yapfast_hwenc_open *ask, ch
                       .kbps = ask->kbps,
                       .nvenc = nvenc,
                       .preference = ask->preference,
+                      .device = ask->device,
                       .report = report,
                       .report_size = report_size};
   parse_encoders(&o.encoders, ask->encoders, codec_id);
@@ -821,32 +1121,15 @@ static int fill(struct yapfast_hwenc *h, const uint8_t *y, int y_stride, const u
   return 0;
 }
 
-/* Encodes one I420 frame whose time is `pts` in 90 kHz units: the stream's
- * own clock, which Rust also labels the frame's packets with. The encoder is
- * given the same time rescaled into its time base, so a packet can be told
- * apart from another frame's, and an encoder opened again mid-stream carries
- * on from the stream's time rather than from a count of its own. What the
- * frame produced is kept for `yapfast_hwenc_drain` to copy into the caller's
- * buffer: the size it reports may be larger than that buffer, which grows to
- * hold it without the frame being encoded a second time. Returns the size
- * produced, 0 when the encoder gave no frame, or a negative number on
- * failure. `duration` is unused: frames are timed by the frame rate. */
-long yapfast_hwenc_encode(struct yapfast_hwenc *h, const unsigned char *y, int y_stride,
-                          const unsigned char *u, int u_stride, const unsigned char *v,
-                          int v_stride, long long pts, unsigned long duration, int keyframe,
-                          int *is_key) {
-  (void)duration;
-  int64_t at = av_rescale_q((int64_t)pts, (AVRational){1, 90000}, h->codec->time_base);
-  int ret = fill(h, y, y_stride, u, u_stride, v, v_stride);
-  if (ret < 0) return -1;
-  AVFrame *frame = h->frame;
-  if (h->surface) {
-    av_frame_unref(h->surface);
-    ret = av_hwframe_get_buffer(h->codec->hw_frames_ctx, h->surface, 0);
-    if (ret >= 0) ret = av_hwframe_transfer_data(h->surface, h->frame, 0);
-    if (ret < 0) return -1;
-    frame = h->surface;
-  }
+/* Hands `frame`, timed `at`, to the encoder, and keeps the access unit it
+ * produced for `yapfast_hwenc_drain` to copy into the caller's buffer. Both
+ * encodes go through this, so a frame from memory and a frame that never left
+ * the card are timed, made into keyframes and told apart from a driver's late
+ * packet the same way. Returns the size produced, 0 when the encoder gave no
+ * frame, or -1 on failure. */
+static long encode_frame(struct yapfast_hwenc *h, AVFrame *frame, int64_t at, int keyframe,
+                         int *is_key) {
+  int ret = 0;
   frame->pts = at;
   /* A dropped picture is one the frames after it are built on, so the next
    * frame starts a new sequence: asked for as a keyframe, a viewer has a
@@ -893,6 +1176,69 @@ long yapfast_hwenc_encode(struct yapfast_hwenc *h, const unsigned char *y, int y
   if (ret != AVERROR(EAGAIN)) return -1;
   h->staged_size = size;
   return (long)size;
+}
+
+/* Encodes one I420 frame whose time is `pts` in 90 kHz units: the stream's
+ * own clock, which Rust also labels the frame's packets with. The encoder is
+ * given the same time rescaled into its time base, so a packet can be told
+ * apart from another frame's, and an encoder opened again mid-stream carries
+ * on from the stream's time rather than from a count of its own. What the
+ * frame produced is kept for `yapfast_hwenc_drain` to copy into the caller's
+ * buffer: the size it reports may be larger than that buffer, which grows to
+ * hold it without the frame being encoded a second time. Returns the size
+ * produced, 0 when the encoder gave no frame, or a negative number on
+ * failure. `duration` is unused: frames are timed by the frame rate. A session
+ * reading the capture's own surfaces has no picture in memory to give this, so
+ * its frames go through `yapfast_hwenc_encode_texture` instead. */
+long yapfast_hwenc_encode(struct yapfast_hwenc *h, const unsigned char *y, int y_stride,
+                          const unsigned char *u, int u_stride, const unsigned char *v,
+                          int v_stride, long long pts, unsigned long duration, int keyframe,
+                          int *is_key) {
+  (void)duration;
+  /* A frame from the card can't be filled from the processor, and pretending
+   * it can would write through pointers this path never made. */
+  if (h->qsv_frames) return -1;
+  int64_t at = av_rescale_q((int64_t)pts, (AVRational){1, 90000}, h->codec->time_base);
+  int ret = fill(h, y, y_stride, u, u_stride, v, v_stride);
+  if (ret < 0) return -1;
+  AVFrame *frame = h->frame;
+  if (h->surface) {
+    av_frame_unref(h->surface);
+    ret = av_hwframe_get_buffer(h->codec->hw_frames_ctx, h->surface, 0);
+    if (ret >= 0) ret = av_hwframe_transfer_data(h->surface, h->frame, 0);
+    if (ret < 0) return -1;
+    frame = h->surface;
+  }
+  return encode_frame(h, frame, at, keyframe, is_key);
+}
+
+/* Encodes one surface the caller already holds, at `pts` in 90 kHz units: a
+ * Direct3D 11 texture on the card, and the subresource inside it. Nothing of
+ * the picture reaches the processor: the texture is described as a Quick Sync
+ * surface, the encoder is handed that surface, and the driver reads the texture
+ * where it lies. `is_key` is what the frame produced, as above. Returns the
+ * size produced, 0 when the encoder gave no frame, or -1 on failure, with the
+ * reason in `yapfast_hwenc_error` when the surface wasn't one it could read. */
+long yapfast_hwenc_encode_texture(struct yapfast_hwenc *h, void *texture, unsigned subresource,
+                                  long long pts, int keyframe, int *is_key) {
+  if (!h || !h->qsv_frames || !texture || !is_key) return -1;
+  h->error[0] = 0;
+  struct qsv_slot *slot = qsv_surface(h, texture, subresource);
+  if (!slot) return -1;
+  int64_t at = av_rescale_q((int64_t)pts, (AVRational){1, 90000}, h->codec->time_base);
+  AVFrame *frame = h->frame;
+  av_frame_unref(frame);
+  frame->format = AV_PIX_FMT_QSV;
+  frame->width = h->codec->width;
+  frame->height = h->codec->height;
+  /* FFmpeg's encoder copies the surface out of the frame it is given, and
+   * keeps the frame — and so this reference — until the surface is free again:
+   * which is what keeps the texture and its pairing alive for as long as the
+   * driver is reading them. */
+  frame->buf[0] = av_buffer_ref(slot->ref);
+  if (!frame->buf[0]) return -1;
+  frame->data[3] = (uint8_t *)slot->surface;
+  return encode_frame(h, frame, at, keyframe, is_key);
 }
 
 /* Copies the access unit the last encode produced into `out`, which holds it,
@@ -955,6 +1301,21 @@ int yapfast_hwenc_set_bitrate(struct yapfast_hwenc *h, unsigned kbps) {
   return 0;
 }
 
+/* Whether this session reads the capture's own surfaces rather than an upload:
+ * 1 when it does, and 0 for every other session. Rust asks before it decides
+ * how a frame reaches the encoder, since the two encodes are not
+ * interchangeable, and logs it beside the encoder's name. */
+int yapfast_hwenc_shared(struct yapfast_hwenc *h) { return h->qsv_frames != NULL; }
+
+/* Why the last frame wasn't encoded, when one wasn't, into `why`: empty when
+ * the frame before it was. The surface handed over is the only thing that
+ * fails here for a reason Rust can act on — a capture of another size, or of a
+ * format this session doesn't read — so it says which, rather than leaving a
+ * stream to lose every frame silently. */
+void yapfast_hwenc_error(struct yapfast_hwenc *h, char *why, size_t size) {
+  if (size) snprintf(why, size, "%s", h->error);
+}
+
 /* The optional settings this encoder's FFmpeg didn't have or its driver
  * didn't keep, by name and separated by commas, into `notes`: empty when it
  * kept them all. */
@@ -988,7 +1349,7 @@ int yapfast_hwenc_nvenc_settings(const char *name, char *asked, size_t size) {
   for (size_t i = 0; i < count; i++) {
     int written = snprintf(asked + used, size - used, "%s%s=%s%s", used ? " " : "",
                            settings[i].name, settings[i].value,
-                           settings[i].worth == OPTIONAL ? "(optional)" : "(required)");
+                           settings[i].worth == OPTIONAL_SETTING ? "(optional)" : "(required)");
     if (written < 0) break;
     used += (size_t)written;
     if (used >= size) {

@@ -173,8 +173,9 @@ worth: 0.07 bits per pixel per frame, floored at 3.5 Mbit/s and capped at 35
 Mbit/s (what 3840x2160 at 60 is worth), announced as op 12's `max_bitrate`
 (bps) with the frame rate and size as its `max_framerate` and `max_resolution`.
 A 1080p60 share declares 8.7 Mbit/s, a 3440x1440@60 share 20.8, and a 4K30
-share 17.4. A share above 1080 lines runs at 30 frames a second at most, since
-the same bits buy twice the picture at half the frames.
+share 17.4. The frame rate is the one the interface asked for, whatever the
+picture's size: a screen above 1080 lines offered 60 sends 60, and declares what
+that is worth — for 4K60, the 35 Mbit/s cap.
 
 Those numbers are measured here rather than copied: four-second clips at the p4
 low-latency setting a stream opens with, VMAF against the source. Busy
@@ -197,9 +198,15 @@ estimate is a tenth below the rate, a rise once a quarter above it, so a wobble
 changes nothing and a recovered path is climbed again; an estimate that stops
 coming is not followed, and the rate holds rather than leaping to the cap. The worker converts
 captured frames to I420 with libyuv, scales them with libyuv's filtering
-scaler, and encodes those. The preview — the same picture scaled down to 720p,
-for the share's tile and the corner — is made only while the UI shows one: the
-window tells the worker, and the first frame after it says so has one. A grid
+scaler, and encodes those. The preview — the same picture written for the
+share's tile and the corner — is made only while the UI shows one: the window
+tells the worker, and the first frame after it says so has one. It is written at
+the size, in pixels, of the tile showing it, which the window says when that
+changes, on the same terms as a watched stream's tile: a small tile costs a small
+frame, a large one grows the frames file once, and a picture smaller than the
+tile is never scaled up. Until a tile says anything the box is 1280x720, and the
+frame Discord is stilled from is made in that box rather than the tile's, since a
+tile smaller than the 512x288 still would cost it its detail. A grid
 scrolled past the share's tile is not showing one, and neither is a call with no
 share tile at all. Each
 goes into a buffer the capture keeps frame after frame, made again only
@@ -556,10 +563,17 @@ than x264 at low bitrates. Intel graphics encode through Quick Sync — FFmpeg's
 `h264_qsv`, `hevc_qsv` and `av1_qsv`, through oneVPL — wherever one of those
 opens, and with x264 where none does: `vendor/ffmpeg-src` is configured with
 them on both targets, and a build without oneVPL never tries them, saying "not
-in this FFmpeg" for each. Quick Sync is fed from the processor the way AMF is:
-every frame is uploaded to it as NV12, and nothing on that path is zero-copy. It
-has not been measured on Intel hardware here, so what is known of it is that it
-opens and encodes, not that its picture beats x264's.
+in this FFmpeg" for each. Quick Sync and AMF read a capture's own texture where
+their driver takes one: the session is opened on the capture's D3D11 device
+(`encode::Encoder::on_device`) and given a frames context of `AV_PIX_FMT_QSV` or
+`AV_PIX_FMT_D3D11` with no pool — `native/hwenc.c`'s `open_qsv_shared`, and the
+same shape for AMF, whose FFmpeg encoder takes a `ID3D11Texture2D` out of
+`frame->data[0]` — so the picture is handed over as the texture it already is
+(`yapfast_hwenc_encode_texture`, and `Encoding::QsvTextures` in the worker), with
+nothing converted or uploaded. A driver, a device or a size that refuses it says
+so once and the session opened from memory takes the stream as it always did. It
+has not been measured on Intel or AMD hardware here, so what is known of it is
+that it compiles and refuses cleanly, not that its picture beats x264's.
 
 On Linux, a picture that is already on the card goes to a VA-API encoder where
 it lies, with no copy at all: `encode::Encoder::encode_dmabuf` hands a frames
@@ -579,6 +593,25 @@ on which way its frame reached the encoder. A stream whose pictures all arrive
 that way runs one session on the card, not two: the encoder opened for pictures
 in memory is given up when it has never encoded one, and opened again for the
 first picture that has to come through memory.
+
+NVIDIA's cards have no VA-API to reach, so the same picture takes a different
+door: `native/cudaconvert.c` imports the descriptor the compositor drew as an
+EGLImage (with its modifier), registers it with CUDA, and runs two kernels —
+`native/cuda_convert.cu`, the BGRA to NV12 scale and convert a video processor
+would do, compiled to PTX by `build.rs` with clang alone — into an NV12 buffer
+in the card's memory, which `native/cudaenc.c` encodes with NVENC opened on the
+CUDA device (`NV_ENC_DEVICE_TYPE_CUDA`) and reading that buffer where it lies
+(`NV_ENC_INPUT_RESOURCE_TYPE_CUDADEVICEPTR`). Nothing crosses to the processor
+and nothing is uploaded, which `yapfast_cudaconvert_copied` answers. It needs
+NVIDIA's driver and nothing else: `libcuda` and `libEGL` are dlopened, the PTX
+is the driver's to run, and the CUDA context the picture lives in is entered per
+call because the encoder runs on another thread. The PTX is built for `sm_52` —
+Maxwell — since PTX runs on the arch it names and every newer one, so a single
+blob covers every card whose driver still encodes. A driver that hands a tiled
+picture back as a CUDA array rather than rows, a format that isn't 32-bit BGRA,
+and a device that isn't the picture's are all one sentence and the processor's
+copy, which is the ladder every encoder here walks. The session's settings are
+`native/hwenc.c`'s NVENC row, and a test holds the two tables to one answer.
 
 What a descriptor can hold here is an NV12 picture in one buffer: that is what
 a picture the card decoded is, and what a VA-API surface is made of without

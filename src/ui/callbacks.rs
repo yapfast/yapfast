@@ -3052,6 +3052,10 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     // it's told once when that changes: a stream is scaled to what shows it,
     // so a small tile costs a small frame. Zero until a tile shows one.
     let sized = std::cell::Cell::new((0u32, 0u32));
+    // And the size, in pixels, of the tile showing this account's own share,
+    // which the worker writes the preview at, told on the same terms. Zero
+    // until a tile shows one.
+    let share_sized = std::cell::Cell::new((0u32, 0u32));
     // And which share and which viewed stream those hints were about, by the
     // frames each reads: a stream replaced by another, or stopped and started
     // again, is one the cached hints say nothing about, even when nothing the
@@ -3085,6 +3089,11 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             seen.set(!window.get_watching() || !on_screen(&window));
             sized.set((0, 0));
         }
+        if share_key != was_share {
+            // The same for a share that has just started: its worker begins
+            // without knowing which tile shows it.
+            share_sized.set((0, 0));
+        }
         // Scaling and converting a frame for the preview is only needed while
         // the UI displays one, so the worker is told once when that changes.
         // A window that is hidden or minimised shows none of it, whichever tile
@@ -3107,6 +3116,23 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             let effects = adapter
                 .app
                 .dispatch(Action::Voice(voice::Command::WatchShown(seeing)));
+            adapter.execute(effects);
+        }
+        // The tile showing what's shared says how large it is, in pixels, on the
+        // same terms: the preview is written at the size it shows at, so a small
+        // tile costs a small frame rather than a fixed box's worth.
+        let share = {
+            let adapter = state.borrow();
+            share_size(&adapter, &window).unwrap_or_default()
+        };
+        if share.0 > 0 && share != share_sized.replace(share) {
+            let mut adapter = state.borrow_mut();
+            let effects = adapter
+                .app
+                .dispatch(Action::Voice(voice::Command::ShareSize {
+                    width: share.0,
+                    height: share.1,
+                }));
             adapter.execute(effects);
         }
         // The tile showing the watched stream says how large it is, in pixels,
@@ -3767,6 +3793,28 @@ fn identity(
             .and_then(|watching| watching.frames.as_ref())
             .map_or(0, |frames| frames.id()),
     )
+}
+
+fn share_size(adapter: &Adapter, window: &YapfastWindow) -> Option<(u32, u32)> {
+    let voice = &adapter.app.state.voice;
+    voice.sharing.as_ref()?;
+    let scale = window.window().scale_factor();
+    let pixels = |side: f32| ((side * scale).round() as u32).max(2);
+    // The corner shows it while the call is off screen, at the size the corner
+    // draws.
+    if window.get_pip_shown() && window.get_pip_kind() == 2 {
+        return Some((pixels(PIP_WIDTH), pixels(PIP_HEIGHT)));
+    }
+    if !(window.get_grid_shown() && voice.active()) {
+        return None;
+    }
+    // This account's shared screen leads the grid's tiles.
+    let stage = Stage {
+        participants: &voice.participants,
+        sharing: true,
+    };
+    let slot = stage.slot(&Focus::OwnScreen)?;
+    adapter.tiles?.shown_at(slot, scale)
 }
 
 fn watch_size(adapter: &Adapter, window: &YapfastWindow) -> Option<(u32, u32)> {

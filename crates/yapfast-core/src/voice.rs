@@ -493,6 +493,15 @@ pub enum Command {
         width: u32,
         height: u32,
     },
+    /// The size, in pixels, of the tile showing this account's own share, as
+    /// the UI says it when that changes and when the share starts showing: the
+    /// preview is written at that size, so a small tile costs a small frame and
+    /// a large one grows the frames file once. The stream that goes out is the
+    /// same whatever it says. A zero says nothing.
+    ShareSize {
+        width: u32,
+        height: u32,
+    },
     /// Remove memberships this device left in voice channels, for example
     /// after Yapfast was killed. Ignored during a call.
     LeaveStale,

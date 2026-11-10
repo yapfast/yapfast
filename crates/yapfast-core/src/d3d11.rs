@@ -321,10 +321,11 @@ fn wide(text: &[u16]) -> String {
 /// [`Source::texture`], [`D3d11Encoder::scale`], [`Shared::picture`] — and forging
 /// one is `unsafe`.
 pub struct Texture<'a> {
-    /// The `ID3D11Texture2D` itself.
-    handle: *mut c_void,
+    /// The `ID3D11Texture2D` itself, handed to a session opened on the
+    /// capture's own device.
+    pub handle: *mut c_void,
     /// Which subresource of it, for a texture array; 0 for an ordinary one.
-    subresource: u32,
+    pub subresource: u32,
     /// The borrow of the owner that gave it out, which is the whole of why a
     /// texture cannot be used past it. Nothing here reads it: the compiler is
     /// what holds the owner to it.

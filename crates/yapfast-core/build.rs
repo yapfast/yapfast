@@ -74,6 +74,7 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(hevcdec)");
     println!("cargo::rustc-check-cfg=cfg(vaapidec)");
     println!("cargo::rustc-check-cfg=cfg(vaapivpp)");
+    println!("cargo::rustc-check-cfg=cfg(nvcuda)");
     println!("cargo::rustc-check-cfg=cfg(d3d11enc)");
     println!("cargo::rustc-check-cfg=cfg(d3d11dec)");
     println!("cargo::rustc-check-cfg=cfg(wgc)");
@@ -342,6 +343,48 @@ fn main() {
             ),
         }
     }
+    // NVIDIA's card as the way a screen's picture reaches its encoder on Linux:
+    // native/cuda_convert.cu, the BGRA to NV12 scale and convert that runs on
+    // the card, compiled here to the PTX the driver loads at run time.
+    // native/cudaconvert.c then imports a captured DMA-BUF and launches it. No
+    // CUDA toolkit is needed to build this or to run it — clang emits PTX, and
+    // the driver that opens NVENC also loads it — so it is tried wherever a
+    // Linux build with Go Live in it runs, and the rung is left out where it
+    // can't be.
+    if target_os == "linux" && std::env::var_os("CARGO_FEATURE_DISCORD").is_some() {
+        match cuda_kernel() {
+            Ok(ptx) => {
+                println!("cargo:rustc-env=YAPFAST_CUDA_PTX={}", ptx.display());
+                // native/cudaconvert.c is the import and the launch: the
+                // descriptor's memory as an EGLImage, that image as CUDA sees
+                // it, and the kernels above run into an NV12 buffer on the card.
+                // GNU C, because naming the device reads /proc/self/fd, which
+                // strict C leaves undeclared.
+                let mut convert = cc::Build::new();
+                convert
+                    .file("native/cudaconvert.c")
+                    .std("gnu17")
+                    .warnings(true);
+                convert.compile("yapfast_cudaconvert");
+                // native/cudaenc.c is the session on that buffer: NVENC opened on a
+                // CUDA device, its input registered once, the tunings hwenc.c uses.
+                // It sees FFmpeg's nvEncodeAPI header and loads the driver's own
+                // encoder library, which is all an NVIDIA machine has.
+                let mut encoder = cc::Build::new();
+                encoder.file("native/cudaenc.c").std("gnu17").warnings(true);
+                if let Some(folders) = std::env::var_os("DEP_FFMPEG_INCLUDE") {
+                    encoder.includes(std::env::split_paths(&folders));
+                }
+                encoder.compile("yapfast_cudaenc");
+                // Both libraries are dlopened, so a machine with neither still
+                // starts: libcuda and libEGL are only wanted when a share asks
+                // for the card, and `dl` is what asks.
+                println!("cargo:rustc-link-lib=dylib=dl");
+                println!("cargo::rustc-cfg=nvcuda");
+            }
+            Err(why) => println!("cargo:warning=no CUDA convert on the card ({why})"),
+        }
+    }
     let os = match target_os.as_str() {
         "windows" => "win",
         "macos" => "mac",
@@ -370,6 +413,97 @@ fn main() {
         .warnings(true);
     use_clang_cl(&mut codecs);
     codecs.compile("yapfast_codecs");
+}
+
+// native/cuda_convert.cu as PTX, in `OUT_DIR`: one file, two kernels, and no
+// CUDA toolkit anywhere in the build. clang compiles CUDA to PTX on its own, and
+// the types and builtins the kernel uses come from clang's own resource
+// directory (`__clang_cuda_builtin_vars.h`, which is what says `threadIdx`)
+// rather than from a toolkit's headers — that is what `-nocudainc` and the two
+// defines here say.
+fn cuda_kernel() -> Result<std::path::PathBuf, String> {
+    println!("cargo:rerun-if-changed=native/cuda_convert.cu");
+    // clang is the only compiler that emits PTX, and it is not always the one
+    // this shell builds C with: `CC` may be gcc, which compiles the rest of
+    // native/ and can do nothing here.
+    let mut candidates = vec!["clang".to_owned()];
+    for key in ["YAPFAST_CUDA_CLANG", "CC", "CXX"] {
+        if let Ok(value) = std::env::var(key)
+            && !candidates.contains(&value)
+        {
+            candidates.push(value);
+        }
+    }
+    let mut why = vec![];
+    for clang in candidates {
+        match cuda_ptx(&clang) {
+            Ok(out) => return Ok(out),
+            Err(reason) => why.push(format!("{clang}: {reason}")),
+        }
+    }
+    Err(why.join("; "))
+}
+
+/// `native/cuda_convert.cu` as PTX, with `clang`.
+fn cuda_ptx(clang: &str) -> Result<std::path::PathBuf, String> {
+    let resource = std::process::Command::new(clang)
+        .arg("-print-resource-dir")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|folder| folder.trim().to_owned())
+        .ok_or_else(|| format!("{clang} has no resource directory"))?;
+    let out =
+        std::path::PathBuf::from(std::env::var("OUT_DIR").map_err(|_| "no OUT_DIR".to_owned())?)
+            .join("cuda_convert.ptx");
+    // The oldest target whose PTX every newer card runs, and that anyone with a
+    // driver new enough to encode still has: Maxwell, where R520 still runs and
+    // NVENC has H.264 and HEVC. PTX runs on the arch it names and every newer
+    // one, so one target covers the lot, and the older the target the more
+    // drivers can load it — clang emits ISA 4.2 for this and ISA 6.3 for Turing,
+    // and a modern driver takes both. What a card can encode is its own business:
+    // AV1 needs Ada, HEVC Maxwell, H.264 Kepler, and an older card than this
+    // falls through to the processor's copy like any other refusal.
+    let arch = "sm_52";
+    let result = std::process::Command::new(clang)
+        .args([
+            "-x",
+            "cuda",
+            "--cuda-path=/nonexistent",
+            // One argument, not `--cuda-gpu-arch sm_75`: clang takes this one
+            // joined, and refuses the split form.
+            &format!("--cuda-gpu-arch={arch}"),
+            "--cuda-device-only",
+            "-nocudainc",
+            "-nocudalib",
+            "-O3",
+            "-S",
+            "-include",
+            &format!("{resource}/include/__clang_cuda_builtin_vars.h"),
+            "-D__device__=__attribute__((device))",
+            "-D__global__=__attribute__((global))",
+            "-o",
+            out.to_str().ok_or("OUT_DIR is not UTF-8")?,
+            "native/cuda_convert.cu",
+        ])
+        // Nix's clang wrapper adds `-fzero-call-used-regs`, which the PTX target
+        // refuses: it is a hardening flag for native code, and this output is the
+        // driver's to run.
+        .env("NIX_HARDENING_ENABLE", "")
+        .output()
+        .map_err(|error| format!("clang didn't run: {error}"))?;
+    if !result.status.success() {
+        // What clang said, so a machine whose compiler can't do this says why
+        // rather than only that it didn't.
+        let said = String::from_utf8_lossy(&result.stderr);
+        let said = said.trim();
+        return Err(format!(
+            "clang couldn't compile native/cuda_convert.cu to {arch} PTX ({})",
+            said.lines().next().unwrap_or("no reason given")
+        ));
+    }
+    Ok(out)
 }
 
 // Whether the FFmpeg this crate links was configured to decode on the card

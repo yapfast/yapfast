@@ -148,6 +148,17 @@ unsafe extern "C" {
         keyframe: c_int,
         is_key: *mut c_int,
     ) -> c_long;
+    #[cfg(target_os = "windows")]
+    fn yapfast_hwenc_encode_texture(
+        encoder: *mut Raw,
+        texture: *mut std::ffi::c_void,
+        subresource: c_uint,
+        pts: c_longlong,
+        keyframe: c_int,
+        is_key: *mut c_int,
+    ) -> c_long;
+    #[cfg(target_os = "windows")]
+    fn yapfast_hwenc_shared(encoder: *mut Raw) -> c_int;
     fn yapfast_hwenc_drain(encoder: *mut Raw, out: *mut c_uchar, capacity: usize) -> c_long;
     fn yapfast_hwenc_staging(encoder: *mut Raw) -> usize;
     fn yapfast_hwenc_set_bitrate(encoder: *mut Raw, kbps: c_uint) -> c_int;
@@ -244,6 +255,11 @@ struct OpenRequest {
     /// "dedicated" or "integrated", for the render nodes VA-API chooses
     /// between itself; null when nothing is preferred.
     preference: *const c_char,
+    /// The device a capture's surfaces live on — an `ID3D11Device` on Windows —
+    /// which only Quick Sync's shared path reads. Null where the stream has no
+    /// surfaces of its own to hand over, which leaves that path closed and the
+    /// encoder reading memory as it always did.
+    device: *mut std::ffi::c_void,
 }
 
 /// A picture in a DMA-BUF, as native/hwenc_dmabuf.c reads it: one DRM object
@@ -348,6 +364,24 @@ impl std::error::Error for Refused {}
 /// without the path is told before its picture is looked at.
 fn takes_dmabuf(name: &str) -> bool {
     name.ends_with("_vaapi")
+}
+
+#[cfg(all(target_os = "windows", hwenc))]
+thread_local! {
+    /// The capture's device, for the open that is happening now on this thread:
+    /// a session reads a texture only on the device it was opened on.
+    static CAPTURE_DEVICE: std::cell::RefCell<Option<*mut std::ffi::c_void>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The encoder the card will open for `codec`, as the adapter preference picks
+/// it: what decides whether a capture's own texture can reach the encoder at
+/// all. Quick Sync and AMF read a Direct3D 11 surface through FFmpeg's own
+/// encoders; NVENC has no such path there, and reads one through
+/// `native/d3d11enc.c` instead.
+#[cfg(target_os = "windows")]
+pub fn planned(codec: Codec) -> Option<&'static str> {
+    plan(codec, None).tried.first().map(|(_, name)| *name)
 }
 
 /// The render node and libva driver the encoder opened on, out of the report it
@@ -653,6 +687,42 @@ impl Encoder {
         hardware: bool,
     ) -> Result<Self> {
         Self::open(codec, width, height, fps, kbps, effort, hardware, None)
+    }
+
+    /// An encoder opened on the device a capture fills its textures on, which is
+    /// what lets Quick Sync and AMF read a frame where the capture drew it: a
+    /// surface is only readable by the device it lives on, and only a session
+    /// opened there can be handed one.
+    ///
+    /// The device travels with the open rather than with the encoder: the shim
+    /// takes it once, in the request that opens the session, and keeps a
+    /// reference for as long as that session lives.
+    #[cfg(all(target_os = "windows", hwenc))]
+    #[allow(clippy::too_many_arguments)]
+    pub fn on_device(
+        codec: Codec,
+        width: u32,
+        height: u32,
+        fps: u32,
+        kbps: u32,
+        effort: Effort,
+        hardware: bool,
+        device: *mut std::ffi::c_void,
+    ) -> Result<Self> {
+        CAPTURE_DEVICE.with(|slot| *slot.borrow_mut() = Some(device));
+        let opened = Self::new(codec, width, height, fps, kbps, effort, hardware);
+        CAPTURE_DEVICE.with(|slot| *slot.borrow_mut() = None);
+        opened
+    }
+
+    /// Whether the session that opened reads a capture's own surfaces rather
+    /// than frames in memory: Quick Sync and AMF do, and NVENC's session here
+    /// does not.
+    #[cfg(all(target_os = "windows", hwenc))]
+    pub fn took_surfaces(&self) -> bool {
+        // SAFETY: raw is an open encoder, and the shim answers whether this
+        // session reads a capture's surfaces or frames in memory.
+        unsafe { yapfast_hwenc_shared(self.raw) != 0 }
     }
 
     /// An encoder like [`Self::new`], for a capture whose frames were filled on
@@ -1040,6 +1110,53 @@ impl Encoder {
             return self.encode_converted(&picture, at, keyframe);
         }
         Err(refused)
+    }
+
+    /// Encodes the picture in `texture` — a capture's own D3D11 texture, from
+    /// the device the session was opened on — where it lies: Quick Sync's shared
+    /// path hands the surface straight to the encoder, so no pixel of the picture
+    /// is converted or uploaded. What comes back is the access unit for the
+    /// picture, or none when the encoder wants another first.
+    ///
+    /// Only a session that opened its shared path reads surfaces: one opened from
+    /// memory answers -1, which is a picture for [`Self::encode_i420`] and the
+    /// reason the caller falls back.
+    #[cfg(all(target_os = "windows", hwenc))]
+    pub fn encode_texture(
+        &mut self,
+        texture: *mut std::ffi::c_void,
+        subresource: u32,
+        pts: u64,
+        keyframe: bool,
+    ) -> Result<Option<Frame>> {
+        let mut is_key: c_int = 0;
+        // SAFETY: the texture is the capture's and lives through the call, and
+        // the flag has a place of its own.
+        let written = unsafe {
+            yapfast_hwenc_encode_texture(
+                self.raw,
+                texture,
+                subresource,
+                pts as c_longlong,
+                c_int::from(keyframe),
+                &mut is_key,
+            )
+        };
+        let (size, keyframe) = match written {
+            ..0 => bail!(
+                "{:?} wouldn't encode the capture's own surface; it goes through the processor \
+                 instead",
+                self.codec
+            ),
+            0 => return Ok(None),
+            size => (size as usize, is_key != 0),
+        };
+        // The picture was encoded where it lay: a failure here is the copy of its
+        // bitstream, and handing the picture to the processor now would encode it
+        // twice, against a reference the receiver never got.
+        let frame = self.collect(size, keyframe, pts, self.raw, yapfast_hwenc_drain)?;
+        self.in_place += 1;
+        Ok(Some(frame))
     }
 
     /// `picture`, as native/hwenc_dmabuf.c reads it, when the encoder can take it
@@ -1881,6 +1998,15 @@ fn open_hardware(
             .as_ref()
             .map_or(std::ptr::null(), |names| names.as_ptr()),
         preference: preference.as_ptr(),
+        // The capture's device, when this open is a share's own: Quick Sync and
+        // AMF read the texture it filled, and a session without it reads frames
+        // in memory as every encoder here used to.
+        #[cfg(all(target_os = "windows", hwenc))]
+        device: CAPTURE_DEVICE
+            .with(|slot| slot.borrow_mut().take())
+            .unwrap_or(std::ptr::null_mut()),
+        #[cfg(not(all(target_os = "windows", hwenc)))]
+        device: std::ptr::null_mut(),
     };
     let mut report = [0u8; 512];
     // SAFETY: the request's strings outlive the call, and the report is a
@@ -2567,6 +2693,8 @@ mod tests {
             tuning: std::ptr::null(),
             encoders: std::ptr::null(),
             preference: std::ptr::null(),
+            // No capture's device: this asks what a machine with none opens.
+            device: std::ptr::null_mut(),
         };
         // SAFETY: plain values and a buffer of the size given, which the shim
         // ends with a zero.
