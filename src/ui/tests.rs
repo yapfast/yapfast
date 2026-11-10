@@ -9874,6 +9874,68 @@ fn a_long_message_folds_until_show_more_only_with_the_switch_on() {
 }
 
 #[test]
+fn many_reactions_wrap_onto_more_lines_in_the_messages_width() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    let settle = |window: &YapfastWindow| {
+        for _ in 0..5 {
+            i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(1));
+            slint::platform::update_timers_and_animations();
+            let _ = window.invoke_timeline_extent();
+        }
+    };
+    // Past a screen of messages, so the list is as tall as its rows.
+    let long: String = (1..=40).map(|line| format!("Line {line}\n")).collect();
+    adapter
+        .borrow_mut()
+        .action(&window, Action::SetDraft(long.trim_end().into()));
+    adapter.borrow_mut().action(&window, Action::Send);
+    settle(&window);
+    let before = window.invoke_timeline_extent();
+    let item = window.get_messages().iter().last().unwrap().item;
+    let emoji = [
+        "👍", "❤️", "😂", "🎉", "🔥", "👀", "🙏", "💯", "😮", "😢", "🚀", "✨", "🍕", "🌈", "🎧",
+        "🐢",
+    ];
+    for key in emoji {
+        window.invoke_react(item.clone(), key.into());
+    }
+    settle(&window);
+    let row = window.get_messages().iter().last().unwrap();
+    assert_eq!(row.reactions.row_count(), emoji.len());
+    // Sixteen chips are wider than the timeline: in one row they'd add one
+    // chip's height and run past its edge; wrapped, the row grows by each line.
+    let chip = 28.;
+    let grown = window.invoke_timeline_extent() - before;
+    assert!(grown > chip * 2. + 6., "the reactions add {grown}px");
+    // A wider window fits more to a line, so the row is shorter again.
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1900., 760.));
+    settle(&window);
+    let wide = window.invoke_timeline_extent();
+    for key in emoji {
+        window.invoke_react(item.clone(), key.into());
+    }
+    settle(&window);
+    let wide_grown = wide - window.invoke_timeline_extent();
+    assert!(wide_grown < grown, "{wide_grown}px wide, {grown}px narrow");
+}
+
+#[test]
 fn the_mouse_side_buttons_go_back_and_forward() {
     use slint::winit_030::winit::event::MouseButton;
     assert!(matches!(
