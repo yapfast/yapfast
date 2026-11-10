@@ -67,18 +67,18 @@ thread_local! {
     static PRO_AUDIO: RefCell<Option<ProAudio>> = const { RefCell::new(None) };
 }
 
-pub fn raise_priority() {
+/// Says how it raised the calling thread, or why it couldn't.
+pub fn raise_priority() -> Result<&'static str, String> {
     PRO_AUDIO.with_borrow_mut(|held| {
-        if held.is_some() {
-            return;
+        if held.is_none() {
+            let mut task = 0;
+            // SAFETY: registers the calling thread; the name is a constant.
+            let handle = unsafe { AvSetMmThreadCharacteristicsW(w!("Pro Audio"), &mut task) }
+                .map_err(|error| error.to_string())?;
+            *held = Some(ProAudio(handle));
         }
-        let mut task = 0;
-        // SAFETY: registers the calling thread; the name is a constant.
-        match unsafe { AvSetMmThreadCharacteristicsW(w!("Pro Audio"), &mut task) } {
-            Ok(handle) => *held = Some(ProAudio(handle)),
-            Err(error) => tracing::warn!(%error, "an audio thread stays at normal priority"),
-        }
-    });
+        Ok("MMCSS Pro Audio")
+    })
 }
 
 /// What a stream without a queue of its own keeps queued.

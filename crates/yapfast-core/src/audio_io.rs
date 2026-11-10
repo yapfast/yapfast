@@ -44,8 +44,35 @@ pub use lasting::{LastingInput, LastingOutput};
 /// threads take, and real-time scheduling on Linux where the user's limits
 /// allow it. Otherwise the thread carries on as it was. It lasts until the
 /// thread ends.
-pub fn raise_thread_priority() {
-    platform::raise_priority();
+///
+/// `thread` names it for the log, which says at info level whether it was
+/// raised, and for [`NO_PRIORITY`], which leaves it at normal priority.
+pub fn raise_thread_priority(thread: &str) {
+    if priority_off(std::env::var(NO_PRIORITY).ok().as_deref(), thread) {
+        tracing::info!(
+            thread,
+            "an audio thread stays at normal priority, as {NO_PRIORITY} says"
+        );
+        return;
+    }
+    match platform::raise_priority() {
+        Ok(how) => tracing::info!(thread, how, "an audio thread raised its priority"),
+        Err(error) => tracing::info!(thread, %error, "an audio thread stays at normal priority"),
+    }
+}
+
+/// Leaves audio threads at normal priority, to tell whether raising them is
+/// what goes wrong on a machine: `1` or `all` for every one, or a list of
+/// them, such as `call,speakers`.
+pub const NO_PRIORITY: &str = "YAPFAST_VOICE_NO_PRIORITY";
+
+/// Whether [`NO_PRIORITY`]'s value leaves `thread` at normal priority.
+fn priority_off(value: Option<&str>, thread: &str) -> bool {
+    match value.map(str::trim) {
+        None | Some("" | "0") => false,
+        Some("1" | "all") => true,
+        Some(list) => list.split(',').any(|name| name.trim() == thread),
+    }
 }
 
 static WINDOWS_EFFECTS: AtomicBool = AtomicBool::new(false);
@@ -260,6 +287,18 @@ type Hear = Box<dyn FnMut(Heard<'_>) + Send>;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_priority_switch_names_threads() {
+        for unset in [None, Some(""), Some("0")] {
+            assert!(!priority_off(unset, "call"));
+        }
+        assert!(priority_off(Some("1"), "speakers"));
+        assert!(priority_off(Some("all"), "call"));
+        assert!(priority_off(Some("call"), "call"));
+        assert!(!priority_off(Some("call"), "speakers"));
+        assert!(priority_off(Some("call, speakers"), "speakers"));
+    }
 
     #[test]
     fn formats_count_their_bytes() {

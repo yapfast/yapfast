@@ -8,7 +8,9 @@ use super::Format;
 
 const UNSUPPORTED: &str = "Yapfast has no sound on this system yet.";
 
-pub fn raise_priority() {}
+pub fn raise_priority() -> Result<&'static str, String> {
+    Err(UNSUPPORTED.to_owned())
+}
 
 pub struct Output;
 
