@@ -334,16 +334,23 @@ Yapfast is back, rather than showing an error.
   or pauses it, its waveform as 32 round bars, and how long it plays. The
   bars come from the attachment's `waveform`, base64 of up to 256 loudness
   bytes, each bar the loudest of its stretch; the length from its
-  `duration_secs`. Playing, the bars fill up to where it has played and the
-  time shows as "0:02 / 0:05", in the recording's time at any speed. While
-  the pointer or the keyboard is on the pill, or its volume is open, a speed
+  `duration_secs`, in whole seconds rounded up, as Discord's client has it.
+  Playing, the bars fill up to where it has played and the time counts down
+  what's left of the recording, at any speed. The time keeps the width of
+  its widest, so the pill doesn't change width as it counts. While the
+  pointer or the keyboard is on the pill, or its volume is open, a speed
   button and a volume button slide out after the time; with animations off
   in the settings they always show. The speed button goes from 1x to 1.5x to
-  2x and back; the volume button opens an upright slider in a popup over it,
-  as Discord's desktop player has, or under it without room above, from 0 to
-  100%, squared as a video's is. Up and Down move it 5%, Page Up and Page
-  Down 20%; a click elsewhere or Escape closes it. Both apply to the one playing at once and
-  to the next, until Yapfast closes. The recording downloads whole, up to 16
+  2x and back. The volume button mutes and unmutes, keeping the volume to
+  unmute to, as Discord's does; the pointer on it opens an upright slider in
+  a popup over it, as Discord's desktop player has, or under it without room
+  above, from 0 to 100%, squared as a video's is. While a popup is open
+  Slint gives the window no pointer events, so the popup covers the button
+  too, with its own mute button in the same place, and closes as the pointer
+  leaves it, or with Escape. Up and Down move the slider 5%, Page Up and Page
+  Down 20%, and the wheel over the popup 5%. Moving it unmutes, and 0 mutes.
+  All of them apply to the one playing at once and to the next, until
+  Yapfast closes. The recording downloads whole, up to 16
   MiB, and is kept in memory while it's the last one played; it decodes a
   packet at a time on a thread of its own (`voice_message.rs`), is sped up
   at the same pitch by WSOLA, as FFmpeg's `atempo` does (Yapfast's FFmpeg

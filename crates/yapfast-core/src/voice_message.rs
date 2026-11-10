@@ -51,7 +51,7 @@ pub enum Report {
 }
 
 /// How fast and loud it plays, which the person may change as it plays: an
-/// [`f32`] each, by its bits.
+/// [`f32`] each, by its bits; muted, it plays at no volume.
 struct Tuning {
     speed: AtomicU32,
     volume: AtomicU32,
@@ -61,13 +61,17 @@ impl Tuning {
     fn new(tuning: VoiceTuning) -> Self {
         Self {
             speed: AtomicU32::new(tuning.speed.to_bits()),
-            volume: AtomicU32::new(tuning.volume.to_bits()),
+            volume: AtomicU32::new(Self::volume(tuning).to_bits()),
         }
     }
 
     fn set(&self, tuning: VoiceTuning) {
         self.speed.store(tuning.speed.to_bits(), Relaxed);
-        self.volume.store(tuning.volume.to_bits(), Relaxed);
+        self.volume.store(Self::volume(tuning).to_bits(), Relaxed);
+    }
+
+    fn volume(tuning: VoiceTuning) -> f32 {
+        if tuning.muted { 0.0 } else { tuning.volume }
     }
 
     /// Its speed, kept between half and twice as fast.
@@ -574,7 +578,7 @@ mod tests {
     }
 
     #[test]
-    fn plays_twice_as_fast_at_the_same_pitch_and_silent_at_no_volume() {
+    fn plays_twice_as_fast_at_the_same_pitch_and_silent_muted() {
         let (_control, controls) = mpsc::channel();
         let (reported, mut reports) = tokio::sync::mpsc::unbounded_channel();
         let mut normal_speed = Kept::default();
@@ -589,7 +593,7 @@ mod tests {
         while reports.try_recv().is_ok() {}
         let tuning = Tuning::new(VoiceTuning {
             speed: 2.0,
-            volume: 1.0,
+            ..VoiceTuning::default()
         });
         let mut fast = Kept::default();
         assert!(play(&recording(), &mut fast, &controls, &tuning, &reported).unwrap());
@@ -612,7 +616,8 @@ mod tests {
 
         tuning.set(VoiceTuning {
             speed: 1.5,
-            volume: 0.0,
+            volume: 0.5,
+            muted: true,
         });
         let mut silent = Kept::default();
         assert!(play(&recording(), &mut silent, &controls, &tuning, &reported).unwrap());

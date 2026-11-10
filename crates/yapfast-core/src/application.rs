@@ -1648,8 +1648,11 @@ pub enum Action {
     ToggleVoiceMessage(String),
     /// Play voice messages at the next speed: 1, 1.5, then 2 times as fast.
     CycleVoiceMessageSpeed,
-    /// Play voice messages this loud, from 0 to 1 as the slider stands.
+    /// Play voice messages this loud, from 0 to 1 as the slider stands,
+    /// unmuting them; 0 mutes them.
     VoiceMessageVolume(f32),
+    /// Mute voice messages, or unmute them at the volume they had.
+    MuteVoiceMessages(bool),
     /// Show the message's next image, or with -1 its previous one, wrapping around.
     StepImage(isize),
     CloseImage,
@@ -3321,7 +3324,16 @@ impl Application {
                 self.tune_voice_message()
             }
             Action::VoiceMessageVolume(volume) => {
-                self.state.voice_tuning.volume = volume.clamp(0.0, 1.0);
+                let tuning = &mut self.state.voice_tuning;
+                let volume = volume.clamp(0.0, 1.0);
+                tuning.muted = volume == 0.0;
+                if volume > 0.0 {
+                    tuning.volume = volume;
+                }
+                self.tune_voice_message()
+            }
+            Action::MuteVoiceMessages(muted) => {
+                self.state.voice_tuning.muted = muted;
                 self.tune_voice_message()
             }
             Action::StepImage(step) => self.step_image(step),

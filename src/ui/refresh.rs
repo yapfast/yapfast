@@ -4913,6 +4913,7 @@ impl Adapter {
         let state = &self.app.state;
         player.set_speed(format!("{}x", state.voice_tuning.speed).into());
         player.set_volume(state.voice_tuning.volume);
+        player.set_muted(state.voice_tuning.muted);
         let Some(playback) = &state.voice_message else {
             player.set_item(SharedString::default());
             player.set_playing(false);
@@ -4933,10 +4934,11 @@ impl Adapter {
         } else {
             0.0
         });
-        // At its start it shows only how long it is.
+        // Once started it counts down what's left, as Discord's does; at
+        // its start the card shows how long it is.
         let started = playback.playing || playback.position_ms > 0;
         player.set_time(if started {
-            video_time(playback.position_ms, Some(duration)).into()
+            voice_time(duration.saturating_sub(playback.position_ms)).into()
         } else {
             SharedString::default()
         });
@@ -5540,6 +5542,12 @@ pub(super) fn video_time(at_ms: u64, duration_ms: Option<u64>) -> String {
         Some(duration) => format!("{} / {}", clock(at_ms.min(duration)), clock(duration)),
         None => clock(at_ms),
     }
+}
+
+/// A voice message's time, in whole seconds rounded up as Discord's are, so
+/// the last moments read 0:01 and a 2.4-second one 0:03.
+pub(super) fn voice_time(ms: u64) -> String {
+    video_time(ms.div_ceil(1000) * 1000, None)
 }
 
 /// A section of a list of threads: its heading over the first, if it has any.

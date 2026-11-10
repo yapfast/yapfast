@@ -3013,8 +3013,19 @@ fn a_voice_message_plays_and_pauses_one_at_a_time() {
     assert!(matches!(
         app.dispatch(Action::VoiceMessageVolume(0.5)).as_slice(),
         [Effect::Backend(Command::TuneVoiceMessage(tuning))]
-            if *tuning == chat::VoiceTuning { speed: 1.5, volume: 0.5 }
+            if *tuning == chat::VoiceTuning { speed: 1.5, volume: 0.5, muted: false }
     ));
+    // Muting keeps its volume to unmute to; the slider at 0 mutes it too.
+    app.dispatch(Action::MuteVoiceMessages(true));
+    assert!(app.state.voice_tuning.muted);
+    app.dispatch(Action::VoiceMessageVolume(0.25));
+    assert!(!app.state.voice_tuning.muted, "turning it up unmutes it");
+    app.dispatch(Action::VoiceMessageVolume(0.0));
+    assert_eq!(
+        (app.state.voice_tuning.muted, app.state.voice_tuning.volume),
+        (true, 0.25)
+    );
+    app.dispatch(Action::MuteVoiceMessages(false));
     app.dispatch(Action::CycleVoiceMessageSpeed);
     assert_eq!(app.state.voice_tuning.speed, 2.0);
     app.dispatch(Action::CycleVoiceMessageSpeed);

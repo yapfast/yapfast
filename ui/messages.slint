@@ -357,20 +357,24 @@ export global VoicePlayer {
     in property <string> item;
     in property <bool> loading;
     in property <bool> playing;
-    /// How far it has played, from 0 to 1, and as text, such as
-    /// "0:02 / 0:05"; empty at its start.
+    /// How far it has played, from 0 to 1, and the time left, such as
+    /// "0:03"; empty at its start.
     in property <float> progress;
     in property <string> time;
     in property <string> error;
     /// How fast voice messages play, as their speed button says, such as
-    /// "1.5x", and how loud, from 0 to 1 as the slider stands.
+    /// "1.5x", and how loud, from 0 to 1 as the slider stands; muted, they
+    /// keep that volume to unmute to.
     in property <string> speed: "1x";
     in property <float> volume: 1;
+    in property <bool> muted;
     /// Plays an item's voice message, or pauses it while it plays.
     callback toggle(string);
     /// Plays them at the next speed: 1x, 1.5x, then 2x.
     callback cycle-speed();
+    /// Sets how loud they play, unmuting them; 0 mutes them.
     callback change-volume(float);
+    callback mute(bool);
 }
 
 // A playing video's controls: play or pause, its time, a bar to move
@@ -1584,6 +1588,11 @@ export component FileCard inherits HorizontalLayout {
         property <bool> focused: play.focused || speed-focus.has-focus || volume.focused;
         // Its volume popup keeps them out too, though the pointer is on it.
         property <bool> expanded: Motion.never || pill-touch.has-hover || self.focused || volume-popup.is-open;
+        // A wheel's step turns the volume 5% up or down.
+        function turn(delta: length) {
+            let shown = VoicePlayer.muted ? 0 : VoicePlayer.volume;
+            VoicePlayer.change-volume(clamp(shown + (delta > 0 ? 0.05 : -0.05), 0, 1));
+        }
         height: 52px; width: voice-card.preferred-width;
         background: Theme.sidebar; border-radius: 26px;
         accessible-role: groupbox; accessible-label: "Voice message, " + root.file.duration;
@@ -1610,12 +1619,22 @@ export component FileCard inherits HorizontalLayout {
                         background: (index + 0.5) / root.file.waveform.length <= root.played ? Theme.text : Theme.muted;
                     }
                 }
-                Text {
-                    text: root.active && VoicePlayer.error != "" ? VoicePlayer.error
-                        : root.active && VoicePlayer.loading ? "Loading..."
-                        : root.active && VoicePlayer.time != "" ? VoicePlayer.time : root.file.duration;
-                    color: root.active && VoicePlayer.error != "" ? Theme.danger : Theme.muted;
-                    font-size: 14px; vertical-alignment: center;
+                // As wide as its widest time, so the card keeps its width as
+                // the time counts down: 0 is the widest digit in its fonts.
+                Rectangle {
+                    width: max(time.preferred-width, widest-time.preferred-width);
+                    widest-time := Text {
+                        visible: false; font-size: 14px;
+                        text: root.file.duration.character-count > 5 ? "0:00:00"
+                            : root.file.duration.character-count > 4 ? "00:00" : "0:00";
+                    }
+                    time := Text {
+                        x: 0; width: self.preferred-width;
+                        text: root.active && VoicePlayer.error != "" ? VoicePlayer.error
+                            : root.active && VoicePlayer.time != "" ? VoicePlayer.time : root.file.duration;
+                        color: root.active && VoicePlayer.error != "" ? Theme.danger : Theme.muted;
+                        font-size: 14px; vertical-alignment: center;
+                    }
                 }
                 // Speed and volume, folded away until wanted.
                 extras := Rectangle {
@@ -1651,12 +1670,16 @@ export component FileCard inherits HorizontalLayout {
                                 }
                             }
                         }
+                        // Mute; the pointer on it opens the volume over it.
                         Middle {
                             volume := IconButton {
                                 size: 28px; glyph: 18px; tint: Theme.muted;
-                                icon: VoicePlayer.volume == 0 ? @image-url("icons/volume-x.svg") : @image-url("icons/volume-2.svg");
-                                label: "Volume";
-                                clicked => { volume-popup.show(); }
+                                icon: VoicePlayer.muted ? @image-url("icons/volume-x.svg") : @image-url("icons/volume-2.svg");
+                                label: VoicePlayer.muted ? "Unmute" : "Mute";
+                                clicked => { VoicePlayer.mute(!VoicePlayer.muted); }
+                                changed hovered => {
+                                    if self.hovered { volume-popup.show(); }
+                                }
                             }
                         }
                     }
@@ -1665,29 +1688,76 @@ export component FileCard inherits HorizontalLayout {
         }
         // The volume over its button, upright as Discord's desktop player
         // has it, or under it without room above; a popup, so nothing clips
-        // it.
+        // it. While it's open the window takes no pointer, so the popup
+        // covers the button too, with a mute button of its own in the same
+        // place, and closes once the pointer leaves it.
         volume-popup := PopupWindow {
-            property <length> above: volume.absolute-position.y - self.height - 6px;
-            width: 40px; height: 120px;
+            property <length> slider: 120px;
+            property <length> gap: 6px;
+            property <bool> up: volume.absolute-position.y - self.slider - self.gap >= 8px;
+            // The pointer has been on it, so leaving closes it at once, or
+            // as a drag that left it ends; a pointer that came and stayed
+            // still has a second to move.
+            property <bool> entered;
+            width: 40px; height: self.slider + self.gap + volume.height;
             x: volume.absolute-position.x - pill.absolute-position.x + (volume.width - self.width) / 2;
-            y: (self.above >= 8px ? self.above : volume.absolute-position.y + volume.height + 6px)
-                - pill.absolute-position.y;
-            close-policy: PopupClosePolicy.close-on-click-outside;
-            FocusScope {
-                key-pressed(event) => {
-                    if event.text == Key.Escape {
-                        volume-popup.close(); return accept;
+            y: volume.absolute-position.y - pill.absolute-position.y - (self.up ? self.slider + self.gap : 0px);
+            close-policy: PopupClosePolicy.no-auto-close;
+            Timer {
+                interval: volume-popup.entered ? 100ms : 1s;
+                running: !popup-touch.has-hover && !volume-level.pressed;
+                triggered => { volume-popup.close(); }
+            }
+            popup-touch := TouchArea {
+                changed has-hover => {
+                    if self.has-hover {
+                        volume-popup.entered = true;
+                    } else if !volume-level.pressed {
+                        volume-popup.close();
                     }
-                    return reject;
                 }
-                Rectangle {
-                    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
-                    drop-shadow-blur: 16px; drop-shadow-color: #00000060;
-                    UprightVolumeSlider {
-                        x: (parent.width - self.width) / 2; y: 6px; height: parent.height - 12px;
-                        label: "Volume";
-                        value: round(VoicePlayer.volume * 100);
-                        changed(level) => { VoicePlayer.change-volume(level / 100); }
+                scroll-event(event) => {
+                    if event.delta-y == 0 { return reject; }
+                    pill.turn(event.delta-y);
+                    return accept;
+                }
+                FocusScope {
+                    key-pressed(event) => {
+                        if event.text == Key.Escape {
+                            volume-popup.close(); return accept;
+                        }
+                        return reject;
+                    }
+                    Rectangle {
+                        y: volume-popup.up ? 0px : volume.height + volume-popup.gap;
+                        height: volume-popup.slider;
+                        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
+                        drop-shadow-blur: 16px; drop-shadow-color: #00000060;
+                        volume-level := UprightVolumeSlider {
+                            x: (parent.width - self.width) / 2; y: 6px; height: parent.height - 12px;
+                            label: "Volume";
+                            value: VoicePlayer.muted ? 0 : round(VoicePlayer.volume * 100);
+                            changed(level) => { VoicePlayer.change-volume(level / 100); }
+                        }
+                    }
+                    // The button under the pointer, drawn as it's drawn hovered.
+                    Rectangle {
+                        x: (parent.width - self.width) / 2;
+                        y: volume-popup.up ? volume-popup.slider + volume-popup.gap : 0px;
+                        width: volume.width; height: volume.height; border-radius: 6px;
+                        background: mute-touch.has-hover ? transparent.mix(Theme.overlay, 0.9) : transparent;
+                        accessible-role: button;
+                        accessible-label: VoicePlayer.muted ? "Unmute" : "Mute";
+                        accessible-action-default => { VoicePlayer.mute(!VoicePlayer.muted); }
+                        Image {
+                            width: 18px; height: 18px;
+                            source: VoicePlayer.muted ? @image-url("icons/volume-x.svg") : @image-url("icons/volume-2.svg");
+                            colorize: mute-touch.has-hover ? Theme.text : Theme.muted;
+                        }
+                        mute-touch := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { VoicePlayer.mute(!VoicePlayer.muted); }
+                        }
                     }
                 }
             }

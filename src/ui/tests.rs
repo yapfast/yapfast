@@ -1462,7 +1462,8 @@ fn a_voice_message_shows_its_player_which_plays_and_pauses() {
     let row = message_row_plain(&message);
     let file = row.files.row_data(0).unwrap();
     assert!(file.voice);
-    assert_eq!(file.duration, "0:05");
+    // Rounded up, as Discord's are.
+    assert_eq!(file.duration, "0:06");
     let bars: Vec<f32> = file.waveform.iter().collect();
     assert_eq!(bars.len(), 32);
     assert_eq!((bars[0], bars[31]), (0.0, 0.2));
@@ -1473,11 +1474,11 @@ fn a_voice_message_shows_its_player_which_plays_and_pauses() {
     assert_eq!(player.get_item(), "", "nothing plays yet");
 
     // Its button plays it, which the backend does; meanwhile it shows as
-    // started.
+    // started, then counts down what's left.
     player.invoke_toggle("d:1".into());
     assert_eq!(player.get_item(), "d:1");
     assert!(player.get_playing() && player.get_loading());
-    assert_eq!(player.get_time(), "0:00 / 0:05");
+    assert_eq!(player.get_time(), "0:06");
     let reach = adapter.borrow_mut().apply(Event::VoiceMessage(Some(
         yapfast_core::chat::VoicePlayback {
             room: "general".into(),
@@ -1491,7 +1492,7 @@ fn a_voice_message_shows_its_player_which_plays_and_pauses() {
     adapter.borrow_mut().show(&window, reach);
     assert!(!player.get_loading());
     assert_eq!(player.get_progress(), 0.5);
-    assert_eq!(player.get_time(), "0:02 / 0:05");
+    assert_eq!(player.get_time(), "0:03");
 
     // Again, it pauses where it is.
     player.invoke_toggle("d:1".into());
@@ -1524,6 +1525,11 @@ fn a_voice_message_shows_its_player_which_plays_and_pauses() {
     assert_eq!(speeds, ["1x", "1.5x", "2x", "1x"]);
     player.invoke_change_volume(0.25);
     assert_eq!(player.get_volume(), 0.25);
+    // Its volume button mutes it, keeping the volume to unmute to.
+    player.invoke_mute(true);
+    assert_eq!((player.get_muted(), player.get_volume()), (true, 0.25));
+    player.invoke_mute(false);
+    assert!(!player.get_muted());
 }
 
 #[test]
@@ -1575,7 +1581,7 @@ fn a_voice_messages_speed_and_volume_slide_out_while_pointed_at() {
     // along the message, found from the left, before the volume button.
     window.global::<Motion>().set_never(true);
     settle(&window);
-    let speed = (300..1000)
+    let (left, y) = (300..1000)
         .step_by(6)
         .flat_map(|x| (60..680).step_by(6).map(move |y| (x as f32, y as f32)))
         .find(|&(x, y)| {
@@ -1583,6 +1589,19 @@ fn a_voice_messages_speed_and_volume_slide_out_while_pointed_at() {
             cycled.get() > 0
         })
         .expect("the speed button shows");
+    // Its middle: its left edge is under the folded pill's padding. Its
+    // right edge comes before the gap to the volume button, which the
+    // pointer mustn't reach, as it would open the volume.
+    let right = (left as i32..)
+        .step_by(2)
+        .take_while(|&x| {
+            let before = cycled.get();
+            click(x as f32, y);
+            cycled.get() > before
+        })
+        .last()
+        .unwrap();
+    let speed = ((left + right as f32) / 2., y);
 
     // With them on, they're folded away until the pointer comes, then slide
     // out.

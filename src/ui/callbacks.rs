@@ -3361,6 +3361,15 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
+    voice.on_mute(move |muted| {
+        if let Some(window) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .action(&window, Action::MuteVoiceMessages(muted));
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
     window.on_join_unmuted(move || {
         if let Some(window) = weak.upgrade() {
             state.borrow_mut().action(&window, Action::UnmuteOnJoin);

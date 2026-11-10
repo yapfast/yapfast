@@ -1702,8 +1702,9 @@ pub struct VoicePlayback {
 pub struct VoiceTuning {
     /// 1, 1.5 or 2 times as fast, at the same pitch.
     pub speed: f32,
-    /// From 0 to 1 as the slider stands.
+    /// From 0 to 1 as the slider stands, kept while muted.
     pub volume: f32,
+    pub muted: bool,
 }
 
 impl Default for VoiceTuning {
@@ -1711,6 +1712,7 @@ impl Default for VoiceTuning {
         Self {
             speed: 1.0,
             volume: 1.0,
+            muted: false,
         }
     }
 }

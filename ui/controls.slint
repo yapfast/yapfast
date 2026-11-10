@@ -1582,7 +1582,9 @@ export component Banner inherits Rectangle {
 // Down move 5% at a time, Page Up and Page Down 20%.
 export component UprightVolumeSlider inherits Rectangle {
     in property <string> label;
-    in-out property <int> value: 100;
+    /// Where it stands, which `changed` asks to move.
+    in property <int> value: 100;
+    out property <bool> pressed: touch.pressed;
     callback changed(int);
     width: 24px;
     accessible-role: slider;
@@ -1597,7 +1599,6 @@ export component UprightVolumeSlider inherits Rectangle {
     function set(value: int) {
         let clamped = max(0, min(100, value));
         if clamped != root.value {
-            root.value = clamped;
             root.changed(clamped);
         }
     }
@@ -1625,7 +1626,7 @@ export component UprightVolumeSlider inherits Rectangle {
             if event.text == Key.PageDown { root.set(root.value - 20); return accept; }
             return reject;
         }
-        TouchArea {
+        touch := TouchArea {
             mouse-cursor: MouseCursor.pointer;
             pointer-event(event) => {
                 if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
