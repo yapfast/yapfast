@@ -597,6 +597,34 @@ each card's profile points to one by SKU. A layer plays as many times as its
 APNG's `acTL` says, then holds its last frame, as a browser does, and stops
 asking for frames; a file that says 0 plays for as long as its layer shows.
 
+## Profile frames
+
+A profile names the frame its person equips in its `collectibles`, the item
+of type 3 (`profile_frame` in some answers), in `guild_member_profile` before
+`user_profile`. The frame itself is the shop's: Yapfast asks for it with
+`GET /collectibles-products/{sku}`, as for an effect, and takes the item with
+`layers`, each `{id, type, order, anchor}` and a still at
+`/media/v1/collectibles-shop/{sku}/{id}/static`; the client has no moving
+version of these. `Discord::profile_frame` keeps each SKU's layers, a few
+addresses, for as long as the session runs, so a frame seen once comes with
+its card; the first time, `Event::ProfileFrame` brings it after the card.
+
+The card draws the layers as Discord's stylesheet does, from 12px past each
+side of a small card and 16px past a full one's: a `staple` once past the
+end it's anchored to, hanging 77 parts in 332 of the frame's width above
+and 53 below; a `rail` the card's height with its picture at its anchor; a
+`border` repeated down the card. The `back` layers go behind the card's
+contents and the others over them. The full profile leaves out the layers
+anchored at the foot, and shows none in a window under 785 pixels tall,
+which leaves no room above the card. The DM's panel and the editor's preview
+show none. Each layer decodes at up to 460 by 1600 (`FRAME_SIZE`), as wide
+as a card draws it.
+
+A banner whose hash starts with `a_` moves: the card shows its still PNG and
+plays the GIF at the same address once it has come, while animations play
+(`Motion.playing`), as a moving decoration does. With animations off in
+Settings the GIF isn't asked for.
+
 ## Display name styles
 
 A name can carry a style, `display_name_styles: {font_id, effect_id, colors}`,
@@ -660,6 +688,7 @@ window draws carry no address for it, so Slint asks for nothing either.
 | Animate decorations and nameplates (`moving_cosmetics`) | Their `/animated` APNG is never asked for (`animated_url` gives none), so only the still is fetched and decoded | On |
 | Show name styles (`name_styles`) | Names in the UI's typeface and the theme's colour | On |
 | Show server tags (`server_tags`) | No tag chip, and no badge picture | On |
+| Show profile frames (`profile_frames`) | No `/collectibles-products/` request for a profile's frame (`DiscordCommand::Profile`'s `frame`), and none of its layers | On |
 
 Every switch starts on, so profiles look as in Discord's client. The
 switches are there for the cheaper side: an effect's layers are APNGs up

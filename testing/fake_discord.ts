@@ -451,6 +451,12 @@ const ALICE = "1400000000000000001";
 
 /** The profile effect Bob equips: an intro layer and a looping one over the card. */
 const PROFILE_EFFECT = "1500000000000000010";
+/** The profile frame Dave equips, a staple over the top and a border down
+ *  the sides, which GET /collectibles-products/{sku} describes; its layers
+ *  are served at /media/v1/collectibles-shop/{sku}/{layer}/static. Dave's
+ *  banner moves: its hash starts with `a_`, and its GIF is
+ *  testing/fixtures/gifs/hello.gif. */
+const PROFILE_FRAME = "1500000000000000011";
 // The SKUs that are nameplates, whose pictures are strips.
 const nameplateSkus = new Set<string>();
 // How many times a collectible's animated picture was asked for.
@@ -1020,15 +1026,19 @@ function wireProfile(user: User, guild: string | null, origin: string) {
   const carol = user.id === users.carol.id;
   const inServer = Object.values(users).includes(user) && user.id !== ALICE;
   const isMember = Object.values(users).includes(user);
+  const dave = user.id === users.dave.id;
   const profile = user.id === ALICE ? aliceProfile : {
     bio: bob ? "Plays bass in a **ska** band. Ask me about https://example.com/gigs" : "",
     pronouns: bob ? "he/him" : "",
-    banner: bob ? "bob-banner" : null,
+    banner: bob ? "bob-banner" : dave ? "a_davebanner" : null,
     accent_color: carol ? 0x5865f2 : null,
   };
   return {
     user: { ...wireUser(user), banner: profile.banner, accent_color: profile.accent_color, bio: profile.bio },
-    user_profile: { ...profile, profile_effect: user.effect ? { id: user.effect, expires_at: null } : null },
+    user_profile: {
+      ...profile, profile_effect: user.effect ? { id: user.effect, expires_at: null } : null,
+      collectibles: dave ? [{ type: 3, sku_id: PROFILE_FRAME }] : [],
+    },
     ...(guild === GUILD && isMember
       ? {
           guild_member_profile: guildMemberProfile(user.id),
@@ -6204,6 +6214,19 @@ async function api(req: Request, path: string, origin: string): Promise<Response
 
   // The shop's product for a profile effect, whose layers Discord's client
   // lays over a profile card: an intro that plays once, and a loop.
+  if (method === "GET" && path === `/collectibles-products/${PROFILE_FRAME}`) {
+    return json({
+      sku_id: PROFILE_FRAME, store_listing_id: "2", type: 3, name: "Brass", summary: "A brass frame",
+      items: [{
+        type: 3, sku_id: PROFILE_FRAME, label: "A brass frame", inner_width: 1200,
+        overflow_top: 304, overflow_bottom: 212, overflow_horizontal: 56,
+        layers: [
+          { id: "1", type: "staple", order: "front", anchor: "top" },
+          { id: "2", type: "border", order: "back", anchor: "center" },
+        ],
+      }],
+    });
+  }
   if (method === "GET" && (m = path.match(/^\/collectibles-products\/(\d+)$/))) {
     const sku = m[1]!;
     if (!profileEffects.has(sku)) return notFound("Unknown Collectibles Product", 10000);
@@ -8770,6 +8793,20 @@ const server = Bun.serve<SocketData>({
     const effectLayer = req.method === "GET" ? path.match(/^\/assets\/profile_effects\/(\d+)\/(\w+)\.png$/) : null;
     if (effectLayer && profileEffects.has(effectLayer[1]!)) {
       return new Response(effectPicture(effectLayer[2]!), { headers: { "content-type": "image/png" } });
+    }
+    // A frame's layers: a brass bar with a knob for the staple, and a
+    // brass edge down either side for the border.
+    const frameLayer = req.method === "GET" ? path.match(/^\/media\/v1\/collectibles-shop\/(\d+)\/([12])\/static$/) : null;
+    if (frameLayer) {
+      const brass = [196, 150, 60, 255];
+      const picture = frameLayer[2] === "1"
+        ? png(460, 110, (x, y) => (y > 70 && y < 90) || Math.hypot(x - 230, y - 60) < 40 ? brass : [0, 0, 0, 0])
+        : png(460, 200, (x) => x < 14 || x >= 446 ? brass : [0, 0, 0, 0]);
+      return new Response(picture, { headers: { "content-type": "image/png" } });
+    }
+    const movingBanner = req.method === "GET" ? path.match(/^\/banners\/\d+\/a_[a-z]+\.gif$/) : null;
+    if (movingBanner) {
+      return new Response(Bun.file(new URL("gifs/hello.gif", fixtures)), { headers: { "content-type": "image/gif" } });
     }
     const collectible = req.method === "GET" ? path.match(COLLECTIBLES_PATH) : null;
     if (collectible) {

@@ -118,6 +118,7 @@ impl Application {
                 room,
                 user: person,
                 effect: self.state.cosmetics.effects,
+                frame: self.state.cosmetics.frames,
             }))]
         } else {
             vec![]

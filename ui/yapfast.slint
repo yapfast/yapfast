@@ -4600,6 +4600,9 @@ export component YapfastWindow inherits Window {
             width: min(max(root.width * 0.7, 720px), root.width - 32px); height: min(max(root.height * 0.75, 520px), root.height - 32px);
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
             data: root.profile;
+            // As Discord's, a window too short to leave room above the card
+            // shows no frame.
+            show-frame: root.height > 785px;
             close => { root.close-profile(); }
             befriend => { root.befriend(root.profile.id); }
             message-person(user) => { root.close-profile(); root.message-person(user); }

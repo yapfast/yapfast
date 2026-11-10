@@ -1356,6 +1356,43 @@ async fn a_star_saves_the_favourite_emoji_and_leaves_the_rest() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn fetches_the_profile_frame_a_profile_names() {
+    let Fixture {
+        _fake,
+        discord,
+        guild,
+        bob,
+        ..
+    } = Fixture::start("fetches_the_profile_frame_a_profile_names").await;
+    // Dave's profile names a frame, and his banner moves; Bob's has no frame.
+    let dave = discord
+        .profile(&guild, "1400000000000000004", |_| {})
+        .await
+        .unwrap();
+    let sku = dave.frame.expect("Dave equips a frame");
+    assert!(dave.banner.unwrap().contains("/a_davebanner.png?"));
+    let bob = discord.profile(&guild, &bob, |_| {}).await.unwrap();
+    assert_eq!(bob.frame, None);
+    // The shop describes its layers, the back ones first, and they're kept.
+    assert_eq!(discord.kept_frame(&sku), None);
+    let layers = discord.profile_frame(&sku).await.unwrap().unwrap();
+    assert_eq!(
+        layers
+            .iter()
+            .map(|layer| (layer.kind.as_str(), layer.front))
+            .collect::<Vec<_>>(),
+        [("border", false), ("staple", true)]
+    );
+    assert!(
+        layers[1]
+            .src
+            .ends_with(&format!("/collectibles-shop/{sku}/1/static"))
+    );
+    assert_eq!(discord.kept_frame(&sku), Some(Some(layers)));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn fetches_the_profile_effect_a_profile_names() {
     let Fixture {
         _fake,

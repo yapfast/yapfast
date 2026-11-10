@@ -863,6 +863,9 @@ pub struct Profile {
     /// The SKU of the profile effect they equip, which
     /// [`Event::ProfileEffect`] describes.
     pub effect: Option<String>,
+    /// The layers of the frame around their card, the back ones first; none
+    /// without one, or until [`Event::ProfileFrame`] says what it is.
+    pub frame: Arc<[ProfileFrameLayer]>,
     /// The two colours of their profile's theme, when they set one.
     pub theme: Option<[u32; 2]>,
     /// The address of their banner, and its colour when there's no picture.
@@ -907,6 +910,27 @@ pub struct Profile {
     /// What they did lately, once asked for.
     pub recent: Vec<RecentActivity>,
     pub recent_asked: bool,
+}
+
+/// One picture of a profile frame; see `yapfast_discord::profile::FrameLayer`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProfileFrameLayer {
+    pub src: String,
+    pub kind: String,
+    pub anchor: String,
+    pub front: bool,
+}
+
+#[cfg(feature = "discord")]
+impl From<&yapfast_discord::profile::FrameLayer> for ProfileFrameLayer {
+    fn from(layer: &yapfast_discord::profile::FrameLayer) -> Self {
+        Self {
+            src: layer.src.clone(),
+            kind: layer.kind.clone(),
+            anchor: layer.anchor.clone(),
+            front: layer.front,
+        }
+    }
 }
 
 /// A past thing on someone's Activity tab.
@@ -3134,10 +3158,13 @@ pub enum DiscordCommand {
     /// the other person in a DM. It comes back as [`Event::Profile`], and
     /// the effect it names as [`Event::ProfileEffect`] when `effect` asks
     /// for it; without, the shop isn't asked what the effect is made of.
+    /// Its frame comes with it, or as [`Event::ProfileFrame`] the first time,
+    /// when `frame` asks for it.
     Profile {
         room: String,
         user: String,
         effect: bool,
+        frame: bool,
     },
     /// Download server icons and avatars by address. Each that arrives comes
     /// back as [`Event::Picture`]; one that fails doesn't.
@@ -4076,6 +4103,12 @@ pub enum Event {
     },
     /// The layers of a profile effect a [`Profile::effect`] names.
     ProfileEffect(Arc<ProfileEffect>),
+    /// The layers of the frame of `user`'s profile, which the shop
+    /// described after [`Event::Profile`] came.
+    ProfileFrame {
+        user: String,
+        frame: Arc<[ProfileFrameLayer]>,
+    },
     /// The Activity panel's feed, in Discord's order; empty if it can't be had.
     ActivityFeed(Arc<[FeedEntry]>),
     /// It's time to ask for the Activity panel's feed again.

@@ -4551,9 +4551,9 @@ fn profile_switches_that_are_off_ask_for_nothing() {
         }));
         let effects = app.dispatch(Action::ShowDmProfile("discord:@me:30".into()));
         let effect = effects.iter().find_map(|effect| match effect {
-            Effect::Backend(Command::Discord(DiscordCommand::Profile { effect, .. })) => {
-                Some(*effect)
-            }
+            Effect::Backend(Command::Discord(DiscordCommand::Profile {
+                effect, frame, ..
+            })) => Some((*effect, *frame)),
             _ => None,
         });
         (app, effect)
@@ -4564,15 +4564,24 @@ fn profile_switches_that_are_off_ask_for_nothing() {
         moving: false,
         name_styles: false,
         server_tags: false,
+        frames: false,
     };
     let (app, effect) = open(off);
-    assert_eq!(effect, Some(false), "the effect isn't asked about");
+    assert_eq!(
+        effect,
+        Some((false, false)),
+        "neither the effect nor the frame is asked about"
+    );
     for url in ["ring.png", "mine.png", "plate.png"] {
         assert!(!app.requested_pictures.contains(url), "{url} isn't fetched");
     }
     // By default everything shows, as the stack draws it.
     let (app, effect) = open(Cosmetics::default());
-    assert_eq!(effect, Some(true), "the effect is asked about");
+    assert_eq!(
+        effect,
+        Some((true, true)),
+        "the effect and frame are asked about"
+    );
     assert!(app.requested_pictures.contains("ring.png"));
     if cfg!(not(feature = "matrix")) {
         assert!(app.requested_pictures.contains("mine.png"));
@@ -4585,7 +4594,7 @@ fn profile_switches_that_are_off_ask_for_nothing() {
     });
     assert_eq!(
         effect,
-        Some(false),
+        Some((false, true)),
         "an effect that may not play isn't asked about"
     );
     assert!(app.requested_pictures.contains("ring.png"));
