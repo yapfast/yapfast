@@ -681,7 +681,7 @@ impl Media {
             // client, which plays by timestamp, takes a frame its decryptor
             // drops, rather than a frame lost to conceal.
             if let Some(speaker) = self.speakers.get_mut(&packet.ssrc) {
-                speaker.skip(packet.sequence);
+                speaker.skip(packet.sequence, packet.timestamp);
             }
             return Ok(());
         };
@@ -705,7 +705,7 @@ impl Media {
             },
         };
         speaker.user = user;
-        speaker.push(packet.sequence, opus);
+        speaker.push(packet.sequence, packet.timestamp, opus);
         Ok(())
     }
 
@@ -728,11 +728,16 @@ impl Media {
 struct Speaker {
     user: u64,
     decoder: opus::Decoder,
-    /// Packets by sequence number, oldest first. An empty one is a packet
-    /// end-to-end encryption dropped, which plays as nothing.
-    waiting: VecDeque<(u16, Vec<u8>)>,
+    /// Packets by sequence number, oldest first, with their RTP timestamps.
+    /// An empty one is a packet end-to-end encryption dropped, which plays as
+    /// nothing, unless it held 20 ms of its own.
+    waiting: VecDeque<(u16, u32, Vec<u8>)>,
     /// The sequence number to play next, while playing.
     next: Option<u16>,
+    /// The RTP timestamp that follows what played last: a dropped packet
+    /// with it, before a packet to play with a later one, held that much of
+    /// the sender's audio.
+    follows: Option<u32>,
     /// Packets missing in a row.
     missing: u8,
     /// Whether the packets wait longer than their lateness needs, as a
@@ -774,6 +779,7 @@ impl Speaker {
             decoder: opus::Decoder::new(crate::voice::CHANNELS)?,
             waiting: VecDeque::with_capacity(MOST + 1),
             next: None,
+            follows: None,
             missing: 0,
             surplus: Surplus::with_cushion(START - 1),
             pcm: vec![0; LONGEST * usize::from(crate::voice::CHANNELS)],
@@ -782,42 +788,42 @@ impl Speaker {
         })
     }
 
-    fn push(&mut self, sequence: u16, opus: Vec<u8>) {
+    fn push(&mut self, sequence: u16, timestamp: u32, opus: Vec<u8>) {
         self.heard = std::time::Instant::now();
-        self.insert(sequence, opus);
+        self.insert(sequence, timestamp, opus);
     }
 
     /// Notes that packet `sequence` came but has nothing to play, so it
     /// isn't concealed as lost: senders' packets that end-to-end encryption
     /// drops, which can come many to a frame.
-    fn skip(&mut self, sequence: u16) {
-        self.insert(sequence, Vec::new());
+    fn skip(&mut self, sequence: u16, timestamp: u32) {
+        self.insert(sequence, timestamp, Vec::new());
     }
 
-    fn insert(&mut self, sequence: u16, opus: Vec<u8>) {
+    fn insert(&mut self, sequence: u16, timestamp: u32, opus: Vec<u8>) {
         if self.next.is_some_and(|next| before(sequence, next)) {
             return;
         }
         let at = self
             .waiting
             .iter()
-            .rposition(|(waiting, _)| !before(sequence, *waiting))
+            .rposition(|(waiting, _, _)| !before(sequence, *waiting))
             .map_or(0, |at| at + 1);
         if at > 0 && self.waiting[at - 1].0 == sequence {
             // A packet with something to play takes a skipped one's place.
-            if self.waiting[at - 1].1.is_empty() {
-                self.waiting[at - 1].1 = opus;
+            if self.waiting[at - 1].2.is_empty() {
+                self.waiting[at - 1] = (sequence, timestamp, opus);
             }
             return;
         }
-        self.waiting.insert(at, (sequence, opus));
+        self.waiting.insert(at, (sequence, timestamp, opus));
         // Skipped packets don't count, as they hold nothing to wait for,
         // but a run of them is bounded too. A stopped speaker stays
         // stopped: dropped packets piling up mustn't start it.
         while self.queued() > MOST || self.waiting.len() > MOST * 4 {
             self.waiting.pop_front();
             if self.next.is_some() {
-                self.next = self.waiting.front().map(|(sequence, _)| *sequence);
+                self.next = self.waiting.front().map(|(sequence, _, _)| *sequence);
             }
         }
     }
@@ -826,8 +832,21 @@ impl Speaker {
     fn queued(&self) -> usize {
         self.waiting
             .iter()
-            .filter(|(_, opus)| !opus.is_empty())
+            .filter(|(_, _, opus)| !opus.is_empty())
             .count()
+    }
+
+    /// Whether a dropped packet with `timestamp` held 20 ms of the sender's
+    /// audio: it follows what played, and the next packet to play comes
+    /// after it. Dropped packets that share a timestamp with a packet to
+    /// play, or come in the same 20 ms as many do, held none.
+    fn held_time(&self, timestamp: u32) -> bool {
+        self.follows == Some(timestamp)
+            && self
+                .waiting
+                .iter()
+                .find(|(_, _, opus)| !opus.is_empty())
+                .is_some_and(|(_, later, _)| (later.wrapping_sub(timestamp) as i32) > 0)
     }
 
     /// The next 20 ms, or nothing while waiting to start or once stopped.
@@ -857,9 +876,19 @@ impl Speaker {
         let mut next = next;
         loop {
             match self.waiting.front() {
-                Some((sequence, _)) if before(*sequence, next) => {}
+                Some((sequence, _, _)) if before(*sequence, next) => {}
+                // Dropped, but it held 20 ms of the sender's audio: that's
+                // concealed in its place, as Discord's clients, which play
+                // by timestamp, conceal it, rather than played from the next
+                // packet early, which would leave the cushion short.
+                Some((sequence, timestamp, opus))
+                    if *sequence == next && opus.is_empty() && self.held_time(*timestamp) =>
+                {
+                    self.waiting.pop_front();
+                    break;
+                }
                 // Skipped: the one after plays in its place.
-                Some((sequence, opus)) if *sequence == next && opus.is_empty() => {
+                Some((sequence, _, opus)) if *sequence == next && opus.is_empty() => {
                     next = next.wrapping_add(1);
                 }
                 _ => break,
@@ -868,7 +897,7 @@ impl Speaker {
         }
         self.next = Some(next);
         let decoded = match self.waiting.front() {
-            Some((sequence, _)) if *sequence == next => {
+            Some((sequence, _, _)) if *sequence == next => {
                 self.missing = 0;
                 let mut decoded = self.decode(next);
                 if let Ok(samples) = decoded
@@ -888,11 +917,12 @@ impl Speaker {
                 if self.missing >= GONE && waiting.is_none() {
                     // Stopped talking: wait for them to start again.
                     self.next = None;
+                    self.follows = None;
                     self.missing = 0;
                     self.surplus = Surplus::with_cushion(START - 1);
                     return None;
                 }
-                match waiting {
+                let concealed = match waiting {
                     // Nothing after it has come either: it's late rather
                     // than lost, so it plays next. Each frame concealed so
                     // makes the queue a frame longer, as far as the packets'
@@ -900,7 +930,7 @@ impl Speaker {
                     None => self.decoder.conceal(&mut self.pcm[..frame]),
                     // The next packet carries this one's forward error
                     // correction.
-                    Some((sequence, opus))
+                    Some((sequence, _, opus))
                         if *sequence == next.wrapping_add(1) && !opus.is_empty() =>
                     {
                         self.next = Some(next.wrapping_add(1));
@@ -910,7 +940,13 @@ impl Speaker {
                         self.next = Some(next.wrapping_add(1));
                         self.decoder.conceal(&mut self.pcm[..frame])
                     }
+                };
+                if let Ok(samples) = concealed {
+                    self.follows = self
+                        .follows
+                        .map(|follows| follows.wrapping_add(samples as u32));
                 }
+                concealed
             }
         };
         match decoded {
@@ -924,9 +960,12 @@ impl Speaker {
 
     /// Decodes packet `sequence`, the first waiting, into `pcm`.
     fn decode(&mut self, sequence: u16) -> Result<usize> {
-        let (_, opus) = self.waiting.pop_front().expect("a waiting packet");
+        let (_, timestamp, opus) = self.waiting.pop_front().expect("a waiting packet");
         self.next = Some(sequence.wrapping_add(1));
         let decoded = self.decoder.decode(&opus, &mut self.pcm, false);
+        if let Ok(samples) = decoded {
+            self.follows = Some(timestamp.wrapping_add(samples as u32));
+        }
         if decoded.is_err() {
             tracing::debug!(
                 sequence,
@@ -947,7 +986,7 @@ impl Speaker {
         let following = self.next.is_some_and(|next| {
             self.waiting
                 .front()
-                .is_some_and(|(sequence, opus)| *sequence == next && !opus.is_empty())
+                .is_some_and(|(sequence, _, opus)| *sequence == next && !opus.is_empty())
         });
         // A long packet, as music bots send, would skip more than a frame.
         if !following || samples != FRAME {
@@ -967,6 +1006,12 @@ impl Speaker {
 
 #[cfg(test)]
 mod tests {
+    /// The RTP timestamp of a sender's packet `sequence`, one 20 ms frame a
+    /// packet.
+    fn at(sequence: u16) -> u32 {
+        u32::from(sequence) * FRAME as u32
+    }
+
     use super::*;
 
     fn tone(encoder: &mut opus::Encoder, frame: usize) -> Vec<u8> {
@@ -987,21 +1032,21 @@ mod tests {
         let mut speaker = Speaker::new(7).unwrap();
         let packets: Vec<Vec<u8>> = (0..8).map(|frame| tone(&mut encoder, frame)).collect();
         // Two packets aren't enough to start.
-        speaker.push(65_534, packets[0].clone());
-        speaker.push(65_535, packets[1].clone());
+        speaker.push(65_534, at(65_534), packets[0].clone());
+        speaker.push(65_535, at(65_535), packets[1].clone());
         assert!(speaker.next().is_none(), "waits for 60 ms");
         // The fourth arrives before the third, across the wrap.
-        speaker.push(1, packets[3].clone());
-        speaker.push(0, packets[2].clone());
+        speaker.push(1, at(1), packets[3].clone());
+        speaker.push(0, at(0), packets[2].clone());
         for _ in 0..4 {
             assert_eq!(speaker.next().map(<[i16]>::len), Some(FRAME * 2));
         }
         assert!(speaker.waiting.is_empty());
         // A packet that comes too late is dropped, not played.
-        speaker.push(65_535, packets[1].clone());
+        speaker.push(65_535, at(65_535), packets[1].clone());
         assert!(speaker.waiting.is_empty());
         // Packet 2 is lost: it's concealed from packet 3's error correction.
-        speaker.push(3, packets[5].clone());
+        speaker.push(3, at(3), packets[5].clone());
         assert!(speaker.next().is_some(), "packet 2, rebuilt");
         assert!(speaker.next().is_some(), "packet 3");
         // Then silence: concealed briefly, then the speaker stops.
@@ -1035,7 +1080,7 @@ mod tests {
         let mut played = 0;
         for tick in 0..packets.len() + 20 {
             if let Some(packet) = packets.get(tick) {
-                speaker.push(tick as u16, packet.clone());
+                speaker.push(tick as u16, at(tick as u16), packet.clone());
             }
             played += usize::from(speaker.next().is_some());
         }
@@ -1049,7 +1094,11 @@ mod tests {
         let mut speaker = Speaker::new(7).unwrap();
         let packets: Vec<Vec<u8>> = (0..5).map(|frame| tone(&mut encoder, frame)).collect();
         for sequence in 0..3 {
-            speaker.push(sequence, packets[usize::from(sequence)].clone());
+            speaker.push(
+                sequence,
+                at(sequence),
+                packets[usize::from(sequence)].clone(),
+            );
         }
         for _ in 0..3 {
             assert!(speaker.next().is_some());
@@ -1058,8 +1107,8 @@ mod tests {
         let concealed = speaker.next().expect("a concealed frame");
         assert!(concealed.iter().any(|sample| *sample != 0));
         // It comes, and plays next, with packet 4 waiting behind it.
-        speaker.push(3, packets[3].clone());
-        speaker.push(4, packets[4].clone());
+        speaker.push(3, at(3), packets[3].clone());
+        speaker.push(4, at(4), packets[4].clone());
         assert!(speaker.next().is_some());
         assert_eq!(speaker.next, Some(4));
         assert_eq!(speaker.waiting.len(), 1);
@@ -1092,7 +1141,7 @@ mod tests {
             let mut packet = vec![0; 4000];
             let length = encoder.encode_float(&music, &mut packet).unwrap();
             packet.truncate(length);
-            speaker.push(sequence, packet);
+            speaker.push(sequence, at(sequence), packet);
         }
         for tick in 0..START * 3 {
             assert_eq!(
@@ -1160,7 +1209,11 @@ mod tests {
                 if speaker.next.is_some_and(|next| before(sequence, next)) {
                     late += 1;
                 }
-                speaker.push(sequence, packets[usize::from(sequence) % 50].clone());
+                speaker.push(
+                    sequence,
+                    at(sequence),
+                    packets[usize::from(sequence) % 50].clone(),
+                );
             }
             most = most.max(speaker.waiting.len());
             speaker.next();
@@ -1189,8 +1242,9 @@ mod tests {
         let mut encoder = opus::Encoder::new(1, opus::Application::Voice, BITRATE).unwrap();
         let mut speaker = Speaker::new(7).unwrap();
         for frame in 0..10u16 {
-            speaker.push(frame * 2, tone(&mut encoder, usize::from(frame)));
-            speaker.skip(frame * 2 + 1);
+            // Each dropped packet shares the next frame's timestamp.
+            speaker.push(frame * 2, at(frame), tone(&mut encoder, usize::from(frame)));
+            speaker.skip(frame * 2 + 1, at(frame + 1));
         }
         for tick in 0..10 {
             assert!(speaker.next().is_some(), "tick {tick}");
@@ -1208,12 +1262,17 @@ mod tests {
     fn a_burst_of_dropped_packets_keeps_the_frames_around_it() {
         let mut encoder = opus::Encoder::new(1, opus::Application::Voice, BITRATE).unwrap();
         let mut speaker = Speaker::new(7).unwrap();
-        speaker.push(0, tone(&mut encoder, 0));
+        // The burst comes within a frame, sharing a timestamp.
+        speaker.push(0, at(0), tone(&mut encoder, 0));
         for sequence in 1..=30 {
-            speaker.skip(sequence);
+            speaker.skip(sequence, at(1));
         }
         for (frame, sequence) in (31..34).enumerate() {
-            speaker.push(sequence, tone(&mut encoder, frame + 1));
+            speaker.push(
+                sequence,
+                at(frame as u16 + 1),
+                tone(&mut encoder, frame + 1),
+            );
         }
         assert_eq!(speaker.queued(), 4);
         for _ in 0..4 {
@@ -1221,13 +1280,13 @@ mod tests {
         }
         assert!(speaker.waiting.is_empty(), "{:?}", speaker.waiting);
         // A packet that comes after its sequence number was skipped plays.
-        speaker.skip(34);
-        speaker.push(34, tone(&mut encoder, 5));
+        speaker.skip(34, at(4));
+        speaker.push(34, at(4), tone(&mut encoder, 5));
         assert_eq!(speaker.queued(), 1);
         // Skipped ones alone don't start a speaker.
         let mut quiet = Speaker::new(8).unwrap();
         for sequence in 0..10 {
-            quiet.skip(sequence);
+            quiet.skip(sequence, at(sequence));
         }
         assert!(quiet.next().is_none());
     }
@@ -1241,12 +1300,16 @@ mod tests {
         let mut encoder = opus::Encoder::new(1, opus::Application::Voice, BITRATE).unwrap();
         let mut speaker = Speaker::new(7).unwrap();
         for sequence in 0..10u16 {
-            speaker.push(sequence, tone(&mut encoder, usize::from(sequence)));
+            speaker.push(
+                sequence,
+                at(sequence),
+                tone(&mut encoder, usize::from(sequence)),
+            );
         }
         let mut sounding = 0;
         for tick in 0..400u16 {
             if tick >= 10 {
-                speaker.skip(tick);
+                speaker.skip(tick, at(tick));
             }
             sounding += usize::from(speaker.next().is_some());
         }
@@ -1255,7 +1318,11 @@ mod tests {
         assert!(speaker.next.is_none());
         // Speech that decrypts again plays at once.
         for sequence in 400..403u16 {
-            speaker.push(sequence, tone(&mut encoder, usize::from(sequence)));
+            speaker.push(
+                sequence,
+                at(sequence),
+                tone(&mut encoder, usize::from(sequence)),
+            );
         }
         assert!(speaker.next().is_some());
         assert_eq!(speaker.next, Some(401));
@@ -1311,7 +1378,7 @@ mod tests {
                 if speaker.next.is_some_and(|next| before(sequence, next)) {
                     *late += 1;
                 }
-                speaker.push(sequence, packet.clone());
+                speaker.push(sequence, at(sequence), packet.clone());
             }
             *now += cost(kind);
             Some(())
@@ -1367,17 +1434,84 @@ mod tests {
         assert!(held > Duration::from_millis(10), "{held:?}");
     }
 
+    /// A sender's 48 frames, one packet a tick, with two more packets that
+    /// DAVE drops after the 20th: each holding a frame's time of its own if
+    /// `own_time`, coming on their own ticks, or else sharing the 20th's
+    /// timestamp and coming with it. Returns the ticks that sounded and the
+    /// fewest packets that waited to play after a tick once the dropped
+    /// ones were passed, two ticks after the second came.
+    fn two_dropped(own_time: bool) -> (usize, usize) {
+        let mut encoder = opus::Encoder::new(1, opus::Application::Voice, BITRATE).unwrap();
+        let mut speaker = Speaker::new(7).unwrap();
+        // By tick, what comes: (sequence, timestamp, dropped).
+        let mut ticks: Vec<Vec<(u16, u32, bool)>> = Vec::new();
+        for frame in 0..48u16 {
+            let sequence = if frame < 20 { frame } else { frame + 2 };
+            let timestamp = if own_time { at(sequence) } else { at(frame) };
+            ticks.push(vec![(sequence, timestamp, false)]);
+            if frame == 19 {
+                let dropped = [(20, at(20), true), (21, at(21), true)];
+                if own_time {
+                    ticks.extend(dropped.map(|packet| vec![packet]));
+                } else {
+                    ticks
+                        .last_mut()
+                        .unwrap()
+                        .extend(dropped.map(|(sequence, _, _)| (sequence, at(19), true)));
+                }
+            }
+        }
+        let (mut sounded, mut fewest) = (0, usize::MAX);
+        for tick in 0..ticks.len() + 20 {
+            for &(sequence, timestamp, dropped) in ticks.get(tick).into_iter().flatten() {
+                if dropped {
+                    speaker.skip(sequence, timestamp);
+                } else {
+                    speaker.push(sequence, timestamp, tone(&mut encoder, tick));
+                }
+            }
+            sounded += usize::from(speaker.next().is_some());
+            if (24..ticks.len()).contains(&tick) {
+                fewest = fewest.min(speaker.queued());
+            }
+        }
+        (sounded, fewest)
+    }
+
+    /// Dropped packets each a frame later than the last, as from a sender
+    /// some of whose frames don't decrypt, held 20 ms of their audio:
+    /// concealed in their place, they keep the sender's timing, and the
+    /// 40 ms cushion that waits for late packets. Played from the next
+    /// packet instead, the frames after came 40 ms early, and nothing was
+    /// left waiting for a late one.
+    #[test]
+    fn dropped_packets_that_held_time_are_concealed_in_place() {
+        let (sounded, fewest) = two_dropped(true);
+        assert_eq!(sounded, 50 + usize::from(GONE) - 1);
+        assert_eq!(fewest, START - 1);
+    }
+
+    /// Dropped packets that share a timestamp held no time of their own,
+    /// as in the log #176 fixed: they play as nothing, and the frames
+    /// around them keep the cushion.
+    #[test]
+    fn dropped_packets_sharing_a_timestamp_play_as_nothing() {
+        let (sounded, fewest) = two_dropped(false);
+        assert_eq!(sounded, 48 + usize::from(GONE) - 1);
+        assert_eq!(fewest, START - 1);
+    }
+
     #[test]
     fn a_long_stall_keeps_only_the_newest() {
         let mut encoder = opus::Encoder::new(1, opus::Application::Voice, BITRATE).unwrap();
         let mut speaker = Speaker::new(7).unwrap();
         let packet = tone(&mut encoder, 0);
         for sequence in 0..(MOST as u16 + 10) {
-            speaker.push(sequence, packet.clone());
+            speaker.push(sequence, at(sequence), packet.clone());
         }
         assert_eq!(speaker.waiting.len(), MOST);
         assert_eq!(
-            speaker.waiting.front().map(|(sequence, _)| *sequence),
+            speaker.waiting.front().map(|(sequence, _, _)| *sequence),
             Some(10)
         );
     }

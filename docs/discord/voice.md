@@ -192,7 +192,11 @@ outside a transition, plays as nothing rather than as a lost frame to
 conceal. NetEq plays by timestamp, so Discord's clients never conceal those
 frames. Some senders' streams carry such packets between their sealed frames,
 one for every frame or bursts of 50 at once, and counting each one as lost
-played those speakers at half speed or cut them out. Dropped packets alone
+played those speakers at half speed or cut them out. A dropped packet that
+held 20 ms of its own, though, its RTP timestamp the one that follows what
+played and the next packet to play's later, is concealed in its place, as
+NetEq conceals it: played from the next packet instead, everything after
+came 20 ms early and the cushion against late packets ran out. Dropped packets alone
 never start a speaker who has stopped, however many pile up, as from someone
 whose frames stopped decrypting. The log line "dropping a
 speaker's audio" gives the first such packet's size and Opus TOC byte. After
