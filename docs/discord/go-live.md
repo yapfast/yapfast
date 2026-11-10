@@ -109,7 +109,11 @@ frame's first 8 packets, the rest are paced at 2.5 times the stream's
 target bitrate, as libwebrtc's pacer sends, or faster when that wouldn't
 send the frame within two frames' time, so a keyframe doesn't hold back the
 frames after it until they're dropped: a 1080p keyframe of 200 packets sent
-at once can overflow buffers on the way, and fills the sender's uplink.
+at once can overflow buffers on the way, and fills the sender's uplink. A
+frame's packets wait in a queue with when each is due, and go out from a
+branch of their own, so the stream's sound, NACKs and receiver reports are
+handled while a frame goes out, and a report is timed when it comes; the
+next frame is taken once the queue is empty.
 Yapfast keeps the last 2048 video packets, and when a viewer reports
 some lost with a generic NACK (RTCP 205), resends up to 128 of them as
 Discord's client does: on the RTX SSRC with RTX's payload type and numbering,
@@ -136,21 +140,29 @@ router's queue, and everything else the sender does online waits in it: a
 game's ping climbs to hundreds of milliseconds and stays there while the
 stream lasts. Discord's client runs libwebrtc's delay-based control on
 transport-wide feedback (RTCP 205/15, about the sequence numbers of
-extension 5). Yapfast doesn't read that feedback yet; it measures the round
-trip from the receiver reports Discord's stream server sends about the video,
-which echo the last sender report (`lsr`) with the delay since (`dlsr`), as
-RFC 3550 describes, and reads the share of packets lost from them. A queue at
-the router lengthens the round trip as much as the delay it adds. Whether the
-stream server sends transport-wide feedback to a sender on its UDP
-connection isn't checked; the debug log counts it as `205/15` if it does.
+extension 5), which Discord's stream server sends a sender on its UDP
+connection too, about 9 a second. Yapfast doesn't read that feedback yet; it
+measures the round trip from the receiver reports the server sends about the
+video, about two a second, which echo the last sender report (`lsr`) with
+the delay since (`dlsr`), as RFC 3550 describes, and reads the share of
+packets lost from them. A queue at the router lengthens the round trip as
+much as the delay it adds.
 
 A stream starts at 2.5 Mbit/s, or its cap when that's lower. Each report
 whose round trip is within 25 ms of the lowest of the last minute, with at
 most 2% of packets lost, raises the target by 8%, up to the cap: about 17 s
-from the start to 1080p's 9 Mbit/s, with a report a second. A round trip more
-than 60 ms over the lowest in two reports in a row, not one alone as after a
-keyframe, or more than 10% of packets lost in one, lowers it to 85%,
-and it doesn't rise again for 3 s. It stays under the server's bandwidth
+from the start to 1080p's 9 Mbit/s, with a report a second. It doesn't rise
+past 1.5 times what went out over the last second, video and resends, nor
+before a second was counted: a calm picture sends less than the target, and
+a target raised over it would be tried on the uplink only once the picture
+gets busy, all at once. A round trip more than 60 ms over the lowest in two
+reports in a row, not one alone as after a keyframe, or more than 10% of
+packets lost in one, lowers it to 85% of what went out over the last second,
+or of the target when that's lower, and it doesn't rise again for 3 s. From
+80% of the rate it backed off from, each rise adds a hundredth of that rate,
+so it comes back to where the queue built slowly and stays there longer
+before the next back-off; past 115% of it the uplink carries more than it
+did, and the target rises by 8% again. It stays under the server's bandwidth
 estimate (REMB) when that's lower than the cap, and never goes below
 500 kbit/s. Without a measured round trip, as when reports don't echo a
 sender report, the target doesn't rise from where it started. The encoder
@@ -206,7 +218,8 @@ With `YAPFAST_LOG=debug`, Yapfast logs every 5 s while sharing what it sent and 
 RTCP that came back (`stream sent`): receiver reports with the highest
 sequence number Discord's server got and its echo of our sender reports
 (`lsr`), its bitrate estimate (REMB), and keyframe requests, with the last
-round trip measured (`round_trip_ms`) and the target (`target_kbps`). Each
+round trip measured (`round_trip_ms`), the target (`target_kbps`) and what
+went out over the last second (`sending_kbps`). Each
 change of the target is logged as "changing the stream's bitrate", with
 `kbps`, the `reason`, the report's `round_trip_ms` and `lost` (out of 256),
 and the lowest round trip (`lowest_ms`); the encoder following it logs "the

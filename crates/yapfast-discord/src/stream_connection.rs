@@ -5,7 +5,7 @@
 //! H264.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -53,6 +53,25 @@ const ECHOED: usize = 4;
 fn pacing_rate(target: u64, bytes: usize, fps: u32) -> u64 {
     let within = bytes as u64 * 8 * u64::from(fps.max(1)) / 2;
     (target * 5 / 2).max(within).max(1)
+}
+
+/// When each of a frame's packets is due, from `started`: the first
+/// [`BURST`] at once, then the rest at `rate` bit/s.
+fn schedule(
+    started: Instant,
+    packets: Vec<Vec<u8>>,
+    rate: u64,
+) -> impl Iterator<Item = (Instant, Vec<u8>)> {
+    let mut paced = 0u64;
+    packets.into_iter().enumerate().map(move |(index, packet)| {
+        let due = if index < BURST {
+            started
+        } else {
+            started + Duration::from_micros(paced * 8 * 1_000_000 / rate)
+        };
+        paced += packet.len() as u64;
+        (due, packet)
+    })
 }
 
 /// The most bit/s a stream of `height` lines may take, as Discord's client
@@ -527,9 +546,14 @@ async fn send(
     let mut sound_sequence: u16 = rand::random();
     let (mut sound_packets, mut sound_octets) = (0u32, 0u32);
     let mut sound_reported = Instant::now() - SENDER_REPORTS;
+    // The packets of the frame going out, each with when it's due, and its
+    // RTP timestamp. They go out from their own branch, so receiver reports
+    // are timed as they come, and the next frame waits until they're out.
+    let mut pending: VecDeque<(Instant, Vec<u8>)> = VecDeque::new();
+    let mut pending_timestamp = 0u32;
     loop {
         tokio::select! {
-            frame = frames.recv() => {
+            frame = frames.recv(), if pending.is_empty() => {
                 let Some(frame) = frame else {
                     let _ = connection.ws.close(None).await;
                     return Ok(());
@@ -570,15 +594,14 @@ async fn send(
                 let packets_of_frame = packetizer.packets(&payload, frame.timestamp, frame.keyframe);
                 let bytes: usize = packets_of_frame.iter().map(Vec::len).sum();
                 let rate = pacing_rate(pacing.target(), bytes, fps);
-                let (started, mut paced) = (Instant::now(), 0u64);
-                for (index, mut packet) in packets_of_frame.into_iter().enumerate() {
-                    if index >= BURST {
-                        let due = started + Duration::from_micros(paced * 8 * 1_000_000 / rate);
-                        if due > Instant::now() {
-                            tokio::time::sleep_until(due).await;
-                        }
-                    }
-                    paced += packet.len() as u64;
+                pending.extend(schedule(Instant::now(), packets_of_frame, rate));
+                pending_timestamp = frame.timestamp;
+            }
+            _ = tokio::time::sleep_until(pending.front().map_or_else(Instant::now, |&(due, _)| due)), if !pending.is_empty() => {
+                let now = Instant::now();
+                while pending.front().is_some_and(|&(due, _)| due <= now)
+                    && let Some((_, mut packet)) = pending.pop_front()
+                {
                     history.remember(&packet);
                     let clear = rtp::rtp_clear_len(&packet).unwrap_or(packet.len());
                     packets = packets.wrapping_add(1);
@@ -586,13 +609,14 @@ async fn send(
                     connection.transport.seal(&mut packet, clear)?;
                     connection.udp.send(&packet).await?;
                     shared.video_bytes.fetch_add(packet.len() as u64, Ordering::Relaxed);
+                    pacing.sent(std::time::Instant::now(), packet.len());
                 }
-                if reported.elapsed() >= SENDER_REPORTS {
+                if pending.is_empty() && reported.elapsed() >= SENDER_REPORTS {
                     reported = Instant::now();
                     let mut report = rtp::sender_report(
                         video,
                         std::time::SystemTime::now(),
-                        frame.timestamp,
+                        pending_timestamp,
                         packets,
                         octets,
                     );
@@ -709,13 +733,15 @@ async fn send(
                     connection.transport.seal(&mut again, clear)?;
                     connection.udp.send(&again).await?;
                     shared.video_bytes.fetch_add(again.len() as u64, Ordering::Relaxed);
+                    pacing.sent(std::time::Instant::now(), again.len());
                     shared.resent.fetch_add(1, Ordering::Relaxed);
                     sent.resent += 1;
                 }
             }
             _ = log.tick() => {
                 let target_kbps = pacing.target() / 1000;
-                tracing::debug!(?sent, packets, octets, target_kbps, "stream sent");
+                let sending_kbps = pacing.sending().map(|sending| sending / 1000);
+                tracing::debug!(?sent, packets, octets, target_kbps, sending_kbps, "stream sent");
                 sent = Sent::default();
             }
         }
@@ -1095,6 +1121,21 @@ mod tests {
         // not 160 ms at 2.5 times the target.
         assert_eq!(pacing_rate(4_000_000, 200_000, 30), 24_000_000);
         assert_eq!(pacing_rate(4_000_000, 200_000, 60), 48_000_000);
+    }
+
+    #[test]
+    fn schedules_a_frame_past_its_burst() {
+        let started = Instant::now();
+        // Ten packets of 1000 bytes at 8 Mbit/s: a millisecond each past
+        // the first eight, which go at once.
+        let due: Vec<_> = schedule(started, vec![vec![0; 1000]; 10], 8_000_000)
+            .map(|(due, _)| due - started)
+            .collect();
+        assert_eq!(due[..BURST], [Duration::ZERO; BURST]);
+        assert_eq!(
+            due[BURST..],
+            [Duration::from_millis(8), Duration::from_millis(9)]
+        );
     }
 
     #[test]

@@ -5,10 +5,12 @@
 //! video, which a queue at the sender's router lengthens too.
 //!
 //! It starts below the cap, raises the target a little each report while
-//! the round trip stays near the lowest seen, and lowers it by a share when
-//! the round trip climbs well over that or packets are lost, then holds.
-//! The cap is Discord's for the stream's height, or the server's estimate
-//! (REMB) when that's lower.
+//! the round trip stays near the lowest seen, and lowers it below what was
+//! sent when the round trip climbs well over that or packets are lost, then
+//! holds. It doesn't rise far past what the encoder sends, so a calm picture
+//! can't take it to a rate the uplink never carried, and near the rate it
+//! last backed off from it rises slowly. The cap is Discord's for the
+//! stream's height, or the server's estimate (REMB) when that's lower.
 
 use std::{
     collections::VecDeque,
@@ -38,6 +40,16 @@ const BACK_OFF: u64 = 85;
 /// Each rise adds this share, in hundredths: about 17 s from the start to
 /// 1080p's cap, with a report a second.
 const RAMP: u64 = 8;
+/// Near the rate it last backed off from, from this share of it in
+/// hundredths, each rise adds a hundredth of that rate instead.
+const NEAR_CAPACITY: u64 = 80;
+/// Past this share of that rate, in hundredths, the uplink carries more than
+/// it did, and the target rises by [`RAMP`] again.
+const PAST_CAPACITY: u64 = 115;
+/// The target doesn't rise past this share of what was sent, in hundredths.
+const HEADROOM: u64 = 150;
+/// What was sent is measured over this long.
+const SENDING: Duration = Duration::from_secs(1);
 /// After a drop, the target doesn't rise for this long.
 const HOLD: Duration = Duration::from_secs(3);
 /// The lowest round trip is the lowest of those measured this long ago or
@@ -85,6 +97,14 @@ pub struct Controller {
     queuing: u32,
     /// Until when the target doesn't rise.
     held: Option<Instant>,
+    /// The bit/s sent when it last backed off, which the uplink didn't
+    /// carry, until the target rises well past it.
+    capacity: Option<u64>,
+    /// Bytes sent since `counting`, and the bit/s sent over the last whole
+    /// [`SENDING`].
+    counted: u64,
+    counting: Option<Instant>,
+    sending: Option<u64>,
 }
 
 impl Controller {
@@ -96,7 +116,37 @@ impl Controller {
             trips: VecDeque::new(),
             queuing: 0,
             held: None,
+            capacity: None,
+            counted: 0,
+            counting: None,
+            sending: None,
         }
+    }
+
+    /// Takes `bytes` sent `now`, video and resends alike.
+    pub fn sent(&mut self, now: Instant, bytes: usize) {
+        self.count(now);
+        self.counting.get_or_insert(now);
+        self.counted += bytes as u64;
+    }
+
+    /// Ends the second being counted once it's whole, so what was sent
+    /// follows a stream that stopped sending too.
+    fn count(&mut self, now: Instant) {
+        let Some(since) = self.counting else {
+            return;
+        };
+        let elapsed = now.duration_since(since);
+        if elapsed >= SENDING {
+            self.sending = Some(self.counted * 8 * 1000 / elapsed.as_millis() as u64);
+            self.counted = 0;
+            self.counting = Some(now);
+        }
+    }
+
+    /// The bit/s sent over the last whole second, once there was one.
+    pub fn sending(&self) -> Option<u64> {
+        self.sending
     }
 
     /// The bit/s to send at.
@@ -145,6 +195,7 @@ impl Controller {
         trip: Option<Duration>,
         fraction_lost: u8,
     ) -> Option<Reason> {
+        self.count(now);
         if let Some(trip) = trip {
             self.trips.push_back((now, trip));
             while self
@@ -172,7 +223,13 @@ impl Controller {
         if let Some(reason) = drop {
             self.queuing = 0;
             self.held = Some(now + HOLD);
-            let lower = (self.target * BACK_OFF / 100).max(FLOOR);
+            // Below what went out, which the uplink didn't carry, as the
+            // encoder may send less than the target.
+            let sent = self
+                .sending
+                .map_or(self.target, |sending| sending.min(self.target));
+            self.capacity = Some(sent);
+            let lower = (sent * BACK_OFF / 100).max(FLOOR);
             return (lower < self.target).then(|| {
                 self.target = lower;
                 reason
@@ -184,7 +241,21 @@ impl Controller {
         if held || fraction_lost > SOME_LOSS || !over.is_some_and(|over| over <= NEAR) {
             return None;
         }
-        let higher = (self.target * (100 + RAMP) / 100).min(self.limit());
+        // Only a rate the encoder came near was tried on the uplink.
+        let sending = self.sending?;
+        if self
+            .capacity
+            .is_some_and(|capacity| self.target > capacity * PAST_CAPACITY / 100)
+        {
+            self.capacity = None;
+        }
+        let step = match self.capacity {
+            Some(capacity) if self.target >= capacity * NEAR_CAPACITY / 100 => capacity / 100,
+            _ => self.target * RAMP / 100,
+        };
+        let higher = (self.target + step)
+            .min(self.limit())
+            .min(sending * HEADROOM / 100);
         (higher > self.target).then(|| {
             self.target = higher;
             Reason::Ramp
@@ -202,7 +273,8 @@ mod tests {
         Duration::from_millis(milliseconds)
     }
 
-    /// Reports a second apart from `at`, each with `trip` and `lost`.
+    /// Reports a second apart from `at`, each with `trip` and `lost`, after
+    /// a second of sending at the target, as a busy picture does.
     fn reports(
         controller: &mut Controller,
         at: &mut Instant,
@@ -212,10 +284,18 @@ mod tests {
     ) -> Vec<Option<Reason>> {
         (0..count)
             .map(|_| {
-                *at += Duration::from_secs(1);
+                let target = controller.target();
+                sending(controller, at, target);
                 controller.report(*at, trip, lost)
             })
             .collect()
+    }
+
+    /// A second from `at` of sending `bits` a second.
+    fn sending(controller: &mut Controller, at: &mut Instant, bits: u64) {
+        controller.sent(*at, bits.div_ceil(8) as usize);
+        *at += Duration::from_secs(1);
+        controller.sent(*at, 0);
     }
 
     #[test]
@@ -351,6 +431,72 @@ mod tests {
         );
         assert_eq!(controller.set_cap(3_500_000), Some(Reason::Cap));
         assert_eq!(controller.target(), 3_500_000);
+    }
+
+    #[test]
+    fn does_not_rise_far_past_what_is_sent() {
+        let mut controller = Controller::new(CAP);
+        let mut at = Instant::now();
+        // A calm picture: the encoder sends a fifth of the target.
+        for _ in 0..30 {
+            sending(&mut controller, &mut at, 500_000);
+            controller.report(at, Some(ms(40)), 0);
+        }
+        assert_eq!(controller.sending(), Some(500_000));
+        assert_eq!(controller.target(), 2_500_000, "never lowered by it either");
+        // Busy again, it rises as the encoder follows.
+        reports(&mut controller, &mut at, 3, Some(ms(40)), 0);
+        assert_eq!(
+            controller.target(),
+            2_500_000 * 108 / 100 * 108 / 100 * 108 / 100
+        );
+    }
+
+    #[test]
+    fn does_not_rise_without_knowing_what_was_sent() {
+        let mut controller = Controller::new(CAP);
+        let at = Instant::now();
+        assert_eq!(controller.report(at, Some(ms(40)), 0), None);
+        assert_eq!(controller.target(), 2_500_000);
+    }
+
+    #[test]
+    fn backs_off_below_what_was_sent() {
+        let mut controller = Controller::new(CAP);
+        let mut at = Instant::now();
+        reports(&mut controller, &mut at, 20, Some(ms(40)), 0);
+        assert_eq!(controller.target(), CAP);
+        // The encoder sent 4 Mbit/s of the 9 it may; the uplink didn't carry it.
+        sending(&mut controller, &mut at, 4_000_000);
+        assert_eq!(controller.report(at, None, 40), Some(Reason::Loss));
+        assert_eq!(controller.target(), 4_000_000 * 85 / 100);
+    }
+
+    #[test]
+    fn rises_slowly_near_the_rate_it_backed_off_from() {
+        let mut controller = Controller::new(CAP);
+        let mut at = Instant::now();
+        reports(&mut controller, &mut at, 5, Some(ms(40)), 0);
+        let capacity = controller.target();
+        reports(&mut controller, &mut at, 1, None, 40);
+        assert_eq!(controller.target(), capacity * 85 / 100);
+        // Held, then a hundredth of that rate a report.
+        reports(&mut controller, &mut at, 3, Some(ms(40)), 0);
+        let after = controller.target();
+        reports(&mut controller, &mut at, 1, Some(ms(40)), 0);
+        assert_eq!(controller.target(), after + capacity / 100);
+        // Well past it, the uplink carries more, and it rises faster again.
+        let mut reached = None;
+        for _ in 0..60 {
+            let before = controller.target();
+            reports(&mut controller, &mut at, 1, Some(ms(40)), 0);
+            if controller.target() - before > capacity / 100 {
+                reached = Some(before);
+                break;
+            }
+        }
+        let reached = reached.expect("rose faster again");
+        assert!(reached > capacity * 115 / 100, "{reached} of {capacity}");
     }
 
     #[test]
