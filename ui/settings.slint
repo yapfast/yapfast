@@ -230,6 +230,8 @@ export component SettingsFrame inherits Rectangle {
     in property <bool> with-discord;
     in property <bool> may-edit-profile;
     callback edit-profile;
+    /// Puts text on the clipboard, for the version under the sections.
+    callback copy-text(string);
     /// Room below the section, for a bar over its bottom.
     in property <length> bottom: 56px;
     /// The page fills the frame's height instead of scrolling in it, for
@@ -261,6 +263,7 @@ export component SettingsFrame inherits Rectangle {
                 may-edit-profile: root.may-edit-profile;
                 chose(id) => { root.chose(id); }
                 edit-profile => { root.edit-profile(); }
+                copy-text(text) => { root.copy-text(text); }
             }
             if !root.discord-layout: Rectangle {
                 background: Theme.sidebar; horizontal-stretch: 0; min-width: 232px;
@@ -370,6 +373,7 @@ export component SettingsScreen inherits Rectangle {
     callback close;
     callback edit-profile;
     callback refresh-devices;
+    callback copy-text(string);
     property <[SettingsRow]> with-discord: [
         { heading: true, text: "SETTINGS" },
         { text: "My account", icon: @image-url("icons/user.svg"), id: 0 },
@@ -407,6 +411,7 @@ export component SettingsScreen inherits Rectangle {
             with-discord: root.discord-build && !root.preview;
             may-edit-profile: root.may-edit-profile;
             edit-profile => { root.edit-profile(); }
+            copy-text(text) => { root.copy-text(text); }
             rows: root.discord-build && !root.preview ? root.with-discord : root.without-discord;
             selected: root.settings-section;
             chose(id) => {
@@ -499,6 +504,10 @@ export component VoiceSettings inherits VerticalLayout {
     in-out property <int> noise-strength;
     /// Discord calls take the room's reverb out of the microphone.
     in-out property <bool> dereverb;
+    /// Windows runs its microphone effects in Discord calls; the switch shows
+    /// where there are any, on Windows.
+    in-out property <bool> windows-effects;
+    in property <bool> windows-effects-choice;
     /// The quietest speech Discord calls send, in dBFS; and the microphone as
     /// the voice gate hears it, refreshed while this shows.
     in-out property <int> sensitivity: -60;
@@ -708,6 +717,12 @@ export component VoiceSettings inherits VerticalLayout {
         text: "Take out your room's echo in Discord calls";
         description: "For a bare or echoey room that makes your voice sound far away. Uses a little more processing, and your voice goes out 10 ms later.";
         checked <=> root.dereverb;
+        toggled => { root.preferences-changed(); }
+    }
+    if root.discord && root.windows-effects-choice: SettingsSwitch {
+        text: "Let Windows process your microphone in Discord calls";
+        description: "Runs the effects Windows and your sound driver add to the microphone, such as their own noise suppression. Off, Yapfast skips them, as they can muffle your voice on top of Yapfast's. Turn it on if your microphone sounds worse without them, as some laptop microphones can.";
+        checked <=> root.windows-effects;
         toggled => { root.preferences-changed(); }
     }
     VerticalLayout {

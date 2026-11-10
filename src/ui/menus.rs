@@ -23,6 +23,23 @@ pub(super) const EVENTS: &str = "events:";
 pub(super) const TOOLBAR: &str = "thread-toolbar:";
 pub(super) const SIDEBAR: &str = "thread-sidebar:";
 
+/// How a profile's More button names its menu, before the person's id: their
+/// menu, whose changes to a relationship say they came from the profile.
+pub(super) const PROFILE_MORE: &str = "profile-more:";
+
+/// Where Discord's client says a profile's More menu blocked, unblocked or
+/// unfriended someone; a right-click menu is "ContextMenu".
+const PROFILE_OVERFLOW: &str = "user profile overflow menu";
+
+/// A menu's target without the profile's prefix, and where Discord's client
+/// says a change to a relationship from that menu came from.
+pub(super) fn relationship_place(target: &str) -> (&str, &'static str) {
+    match target.strip_prefix(PROFILE_MORE) {
+        Some(user) => (user, PROFILE_OVERFLOW),
+        None => (target, "ContextMenu"),
+    }
+}
+
 /// The thread a header's More menu is about, and where Discord's client says
 /// a choice in it came from.
 fn thread_more(id: &str) -> Option<(&str, &'static str)> {
@@ -94,6 +111,7 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
     if let Some(server) = id.strip_prefix(EVENTS) {
         return events(adapter, server);
     }
+    let (id, _) = relationship_place(id);
     let icons = &adapter.icons;
     let app = &adapter.app;
     let state = &app.state;
@@ -829,6 +847,11 @@ pub(super) fn choose(
     if target.starts_with(EVENTS) {
         return;
     }
+    // A profile's More menu is its person's, said to come from the profile.
+    let (target, relationship_location) = {
+        let (user, location) = relationship_place(&target);
+        (user.to_owned(), location)
+    };
     // A checkbox shows its new state at once, as the menu stays open.
     let ticked = toggle(window, id);
     // Someone's menu in a voice channel acts on them in its server.
@@ -885,7 +908,6 @@ pub(super) fn choose(
         .map(|(room, _)| room)
         .or(listed)
         .or_else(|| adapter.app.state.selected.clone());
-    let me = adapter.app.state.discord_user.as_deref() == Some(target.as_str());
     let voice = |change| {
         place.clone().map(|place| Action::ChangeMember {
             place,
@@ -894,12 +916,10 @@ pub(super) fn choose(
         })
     };
     if let Some(to) = id.strip_prefix(MOVE_TO) {
-        // This account moves by joining there.
-        let action = if me {
-            Some(Action::RequestJoinVoice(to.to_owned()))
-        } else {
-            voice(MemberChange::Move(Some(to.to_owned())))
-        };
+        // This account moves by joining there; see Application::move_to.
+        let action = place
+            .as_deref()
+            .and_then(|place| adapter.app.move_to(place, &target, to));
         if let Some(action) = action {
             adapter.action(window, action);
         }
@@ -934,10 +954,19 @@ pub(super) fn choose(
     let Some(choice) = CHOICES.into_iter().find(|&choice| choice_id(choice) == id) else {
         return;
     };
-    let ask = |ask| user.clone().map(|user| Action::AskPerson { user, ask });
+    let ask = |ask| {
+        user.clone().map(|user| Action::AskPerson {
+            user,
+            ask,
+            location: relationship_location,
+        })
+    };
     let change = |change| {
-        user.clone()
-            .map(|user| Action::ChangeRelationship { user, change })
+        user.clone().map(|user| Action::ChangeRelationship {
+            user,
+            change,
+            location: relationship_location,
+        })
     };
     let ask_member = |ask| {
         place.clone().map(|place| Action::AskMember {

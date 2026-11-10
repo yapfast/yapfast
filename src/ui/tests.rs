@@ -828,6 +828,7 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
         noise_strength: yapfast_core::noise::Strength::Light,
         input_sensitivity: Some(-45),
         reduce_room_echo: true,
+        windows_microphone_effects: true,
         ..Default::default()
     };
     let row = layout.restyle(&message, message_row(&message, &HashSet::new()));
@@ -884,6 +885,11 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
     assert_eq!(saved["noise_strength"], "light");
     assert_eq!(window.get_sensitivity(), -45);
     assert!(window.get_dereverb() && !defaults.reduce_room_echo);
+    // Microphones skip Windows' effects unless asked, and the switch shows
+    // only where there are any.
+    assert!(window.get_windows_effects() && !defaults.windows_microphone_effects);
+    assert_eq!(window.get_windows_effects_choice(), cfg!(windows));
+    yapfast_core::set_windows_effects(false);
     assert_eq!(defaults.sensitivity(), -60);
     let out_of_range = Layout {
         input_sensitivity: Some(12),
@@ -1416,6 +1422,187 @@ fn pictures_on_their_way_hold_their_place_as_skeletons() {
 }
 
 #[test]
+fn a_voice_message_shows_its_player_which_plays_and_pauses() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    adapter
+        .borrow_mut()
+        .action(&window, Action::SelectRoom("general".into()));
+    let message = ChatMessage {
+        item: "d:1".into(),
+        author: "Sam".into(),
+        attachments: vec![yapfast_core::chat::Attachment {
+            name: "voice-message.ogg".into(),
+            size: Some(36_000),
+            image: false,
+            dimensions: None,
+            preview: None,
+            preview_failed: false,
+            placement: Placement::Message,
+            gif: None,
+            spoiler: false,
+            video: false,
+            url: Some("https://cdn.example/voice-message.ogg".into()),
+        }],
+        voice: Some(yapfast_core::chat::VoiceMessage {
+            duration_ms: 5_480,
+            waveform: [0, 255, 51].into(),
+        }),
+        ..Default::default()
+    };
+    let row = message_row_plain(&message);
+    let file = row.files.row_data(0).unwrap();
+    assert!(file.voice);
+    assert_eq!(file.duration, "0:05");
+    let bars: Vec<f32> = file.waveform.iter().collect();
+    assert_eq!(bars.len(), 32);
+    assert_eq!((bars[0], bars[31]), (0.0, 0.2));
+    assert!(bars.contains(&1.0));
+    adapter.borrow_mut().app.state.messages = Arc::new(vec![Arc::new(message)]);
+    adapter.borrow_mut().refresh(&window);
+    let player = window.global::<VoicePlayer>();
+    assert_eq!(player.get_item(), "", "nothing plays yet");
+
+    // Its button plays it, which the backend does; meanwhile it shows as
+    // started.
+    player.invoke_toggle("d:1".into());
+    assert_eq!(player.get_item(), "d:1");
+    assert!(player.get_playing() && player.get_loading());
+    assert_eq!(player.get_time(), "0:00 / 0:05");
+    let reach = adapter.borrow_mut().apply(Event::VoiceMessage(Some(
+        yapfast_core::chat::VoicePlayback {
+            room: "general".into(),
+            item: "d:1".into(),
+            loading: false,
+            playing: true,
+            position_ms: 2_740,
+            error: None,
+        },
+    )));
+    adapter.borrow_mut().show(&window, reach);
+    assert!(!player.get_loading());
+    assert_eq!(player.get_progress(), 0.5);
+    assert_eq!(player.get_time(), "0:02 / 0:05");
+
+    // Again, it pauses where it is.
+    player.invoke_toggle("d:1".into());
+    assert!(!player.get_playing());
+    assert_eq!(player.get_progress(), 0.5);
+    // At its end it goes back to its start, showing how long it is.
+    let reach = adapter.borrow_mut().apply(Event::VoiceMessage(Some(
+        yapfast_core::chat::VoicePlayback {
+            room: "general".into(),
+            item: "d:1".into(),
+            ..Default::default()
+        },
+    )));
+    adapter.borrow_mut().show(&window, reach);
+    assert!(!player.get_playing());
+    assert_eq!(
+        (player.get_progress(), player.get_time().as_str()),
+        (0.0, "")
+    );
+
+    // Its speed button goes from 1x to 1.5x to 2x and back; its volume
+    // stays as set.
+    let speeds: Vec<String> = (0..4)
+        .map(|_| {
+            let speed = player.get_speed().to_string();
+            player.invoke_cycle_speed();
+            speed
+        })
+        .collect();
+    assert_eq!(speeds, ["1x", "1.5x", "2x", "1x"]);
+    player.invoke_change_volume(0.25);
+    assert_eq!(player.get_volume(), 0.25);
+}
+
+#[test]
+fn a_voice_messages_speed_and_volume_slide_out_while_pointed_at() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    let window = showing(vec![ChatMessage {
+        author: "Sam".into(),
+        attachments: vec![yapfast_core::chat::Attachment {
+            name: "voice-message.ogg".into(),
+            size: Some(36_000),
+            image: false,
+            dimensions: None,
+            preview: None,
+            preview_failed: false,
+            placement: Placement::Message,
+            gif: None,
+            spoiler: false,
+            video: false,
+            url: None,
+        }],
+        voice: Some(yapfast_core::chat::VoiceMessage {
+            duration_ms: 5_000,
+            waveform: [128; 64].into(),
+        }),
+        ..Default::default()
+    }]);
+    let cycled = Rc::new(Cell::new(0));
+    let count = cycled.clone();
+    window
+        .global::<VoicePlayer>()
+        .on_cycle_speed(move || count.set(count.get() + 1));
+    let wait = |ms| {
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(ms));
+        settle(&window);
+    };
+    let point = |x: f32, y: f32| {
+        window.window().dispatch_event(WindowEvent::PointerMoved {
+            position: slint::LogicalPosition::new(x, y),
+        });
+    };
+    let click = |x: f32, y: f32| {
+        let (position, button) = (slint::LogicalPosition::new(x, y), PointerEventButton::Left);
+        let dispatch = |event| window.window().dispatch_event(event);
+        dispatch(WindowEvent::PointerPressed { position, button });
+        dispatch(WindowEvent::PointerReleased { position, button });
+    };
+
+    // With animations off they always show: the speed button is somewhere
+    // along the message, found from the left, before the volume button.
+    window.global::<Motion>().set_never(true);
+    settle(&window);
+    let speed = (300..1000)
+        .step_by(6)
+        .flat_map(|x| (60..680).step_by(6).map(move |y| (x as f32, y as f32)))
+        .find(|&(x, y)| {
+            click(x, y);
+            cycled.get() > 0
+        })
+        .expect("the speed button shows");
+
+    // With them on, they're folded away until the pointer comes, then slide
+    // out.
+    window.global::<Motion>().set_never(false);
+    window.invoke_focus_composer();
+    point(1100., 40.);
+    wait(300);
+    let before = cycled.get();
+    click(speed.0, speed.1);
+    assert_eq!(cycled.get(), before, "folded away as the pointer comes");
+    wait(300);
+    click(speed.0, speed.1);
+    assert_eq!(cycled.get(), before + 1, "out while pointed at");
+    point(1100., 40.);
+    wait(300);
+    click(speed.0, speed.1);
+    assert_eq!(cycled.get(), before + 1, "folded again once it left");
+}
+
+#[test]
 fn the_sticker_picker_lists_the_servers_stickers_above_the_packs() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();
@@ -1530,6 +1717,7 @@ fn a_servers_icon_draws_on_its_heading_and_rail_button() {
             banner: None,
             verified: false,
             events: Vec::new(),
+            boosts: None,
             tag: None,
             boosts: None,
         })];
@@ -2406,6 +2594,82 @@ fn invite_to_server_lists_the_servers_in_a_submenu() {
         [("invite-to:discord:50".to_owned(), "Club".to_owned())],
         "not the server she's shown in, nor one that doesn't let Alice invite"
     );
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn someone_dragged_onto_another_voice_channel_moves_as_move_to_does() {
+    const LOUNGE: &str = "discord:10:12";
+    const DEN: &str = "discord:10:13";
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    // Alice is Staff, who may move members; Dave and she, on another
+    // client, are in Lounge.
+    adapter.borrow_mut().app = yapfast_core::application::member_server(&["30"]);
+    adapter.borrow_mut().refresh(&window);
+    let droppable = || -> Vec<String> {
+        window
+            .get_rooms()
+            .iter()
+            .zip(window.get_person_droppable().iter())
+            .filter(|(_, droppable)| *droppable)
+            .map(|(row, _)| row.name.to_string())
+            .collect()
+    };
+    let stopped = || {
+        !window.get_person_moving()
+            && window.get_person_droppable().row_count() == 0
+            && adapter.borrow().moving_person.is_none()
+    };
+
+    // Dave may be dragged onto Den, the one other channel his menu's Move
+    // to offers; Lounge, where he is, Vault and #general dim.
+    assert!(window.invoke_start_moving_person(LOUNGE.into(), "4".into()));
+    assert!(window.get_person_moving());
+    assert_eq!(droppable(), ["Den"]);
+    // Let go anywhere else, nothing is sent.
+    window.invoke_move_person("discord:10:11".into());
+    assert!(stopped());
+    assert!(adapter.borrow().app.state.notice.is_none());
+    // Escape, or letting go outside the list, stops it; winit's Escape,
+    // which this backend doesn't send, calls the same stop.
+    assert!(window.invoke_start_moving_person(LOUNGE.into(), "4".into()));
+    window.invoke_stop_moving_person();
+    assert!(stopped());
+    // Dropped on Den, the move goes out, as from his menu; here, with no
+    // Discord connection, it fails.
+    assert!(window.invoke_start_moving_person(LOUNGE.into(), "4".into()));
+    window.invoke_move_person(DEN.into());
+    assert!(stopped());
+    assert!(adapter.borrow().app.state.notice.is_some());
+    // Another list showing, with nowhere to drop him, stops it.
+    assert!(window.invoke_start_moving_person(LOUNGE.into(), "4".into()));
+    let navigate = |to| adapter.borrow_mut().action(&window, Action::Navigate(to));
+    navigate(Navigation::DirectMessages);
+    assert!(stopped());
+    navigate(Navigation::Server("discord:10".into()));
+
+    // Alice, on another client, joins Den from here.
+    assert!(window.invoke_start_moving_person(LOUNGE.into(), "1".into()));
+    assert_eq!(droppable(), ["Den"]);
+    window.invoke_move_person(DEN.into());
+    assert!(stopped());
+    assert!(adapter.borrow().app.state.voice.error.is_some());
+
+    // Without Move Members, Dave stays put; Cara isn't in voice.
+    adapter.borrow_mut().app = yapfast_core::application::member_server(&["20"]);
+    adapter.borrow_mut().refresh(&window);
+    assert!(!window.invoke_start_moving_person(LOUNGE.into(), "4".into()));
+    assert!(!window.invoke_start_moving_person(LOUNGE.into(), "3".into()));
+    assert!(stopped());
 }
 
 #[test]
@@ -4942,6 +5206,50 @@ fn a_right_click_on_a_folder_asks_for_its_menu() {
         toggled.borrow().len(),
         1,
         "a right click leaves it as it was"
+    );
+}
+
+#[test]
+fn a_profile_theme_is_light_by_its_first_colour_as_in_discord() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = classic_window();
+    let theme = window.global::<ProfileTheme>();
+    let rgb = slint::Color::from_rgb_u8;
+    // Discord's client: light when 0.299 red, 0.587 green and 0.114 blue come
+    // to at least half of full, whatever the second colour or the app's theme.
+    assert!(theme.invoke_light(rgb(0xfd, 0xe2, 0xe4)), "a pale pink");
+    assert!(theme.invoke_light(rgb(0x80, 0x80, 0x80)), "the middle grey");
+    assert!(!theme.invoke_light(rgb(0x7f, 0x7f, 0x7f)), "just under it");
+    assert!(
+        !theme.invoke_light(rgb(0x58, 0x65, 0xf2)),
+        "Discord's blurple"
+    );
+    assert!(!theme.invoke_light(rgb(0xff, 0x00, 0x00)), "red is dark");
+    assert!(theme.invoke_light(rgb(0x00, 0xff, 0x00)), "green is light");
+    // A light theme lies under 60% white and takes black text; a dark one
+    // under 60% black and takes white.
+    let channels = |colour: slint::Color| [colour.red(), colour.green(), colour.blue()];
+    let near = |a: slint::Color, b: slint::Color| {
+        channels(a)
+            .iter()
+            .zip(channels(b))
+            .all(|(a, b)| a.abs_diff(b) <= 1)
+    };
+    assert!(near(
+        theme.invoke_wash(rgb(0xff, 0x00, 0x00), true),
+        rgb(0xff, 0x99, 0x99)
+    ));
+    assert!(near(
+        theme.invoke_wash(rgb(0xff, 0x00, 0x00), false),
+        rgb(0x66, 0x00, 0x00)
+    ));
+    assert_eq!(
+        theme.invoke_ink(true),
+        slint::Color::from_argb_u8(0xf5, 0, 0, 0)
+    );
+    assert_eq!(
+        theme.invoke_ink(false),
+        slint::Color::from_argb_u8(0xf5, 0xff, 0xff, 0xff)
     );
 }
 
@@ -8072,6 +8380,8 @@ fn a_card_of_components_shows_headings_files_and_only_link_buttons_working() {
         label: "Go".into(),
         style,
         url: url.map(str::to_owned),
+        custom_id: None,
+        sku_id: None,
         disabled: false,
     };
     let message = ChatMessage {
@@ -9288,6 +9598,59 @@ fn yapfast_settings_navigation_and_header_keep_the_existing_actions() {
 }
 
 #[test]
+fn yapfast_settings_name_the_build_and_copy_it_on_a_click() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    i_slint_backend_testing::init_no_event_loop();
+    let window = YapfastWindow::new().unwrap();
+    window.set_own_title_bar(true);
+    window.set_account_name("Alex".into());
+    window.set_account_initial("A".into());
+    let build = window.global::<BuildInfo>();
+    build.set_headline("Yapfast v0.4.0-nightly.20261107.12".into());
+    build.set_channel("Nightly".into());
+    build.set_details("59391f96 · 2026-11-07".into());
+    build.set_tone(1);
+    build
+        .set_summary("Yapfast v0.4.0-nightly.20261107.12 · Nightly · 59391f96 · 2026-11-07".into());
+    window.set_settings_open(true);
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1920., 1080.));
+    // The settings card fades in; let the animation finish so it takes clicks.
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(1000));
+    let clipboard = || {
+        i_slint_core::window::WindowInner::from_pub(window.window())
+            .context()
+            .platform()
+            .clipboard_text(i_slint_core::platform::Clipboard::DefaultClipboard)
+    };
+    assert_ne!(
+        clipboard().as_deref(),
+        Some("Yapfast v0.4.0-nightly.20261107.12 · Nightly · 59391f96 · 2026-11-07")
+    );
+    // Under the sections, at the foot of the navigation.
+    let position = slint::LogicalPosition::new(350., 980.);
+    window.window().dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    });
+    window
+        .window()
+        .dispatch_event(WindowEvent::PointerReleased {
+            position,
+            button: PointerEventButton::Left,
+        });
+    assert_eq!(
+        clipboard().as_deref(),
+        Some("Yapfast v0.4.0-nightly.20261107.12 · Nightly · 59391f96 · 2026-11-07"),
+        "a click on the build copies it as one line"
+    );
+    assert!(window.get_settings_open(), "and leaves settings open");
+    window.hide().unwrap();
+}
+
+#[test]
 fn yapfast_account_popover_copies_its_id_and_opens_settings_without_changing_status() {
     use slint::platform::{PointerEventButton, WindowEvent};
     let window = one_message("Synthetic message");
@@ -9563,6 +9926,140 @@ fn an_avatars_colour_is_worked_out_once_it_has_arrived() {
 }
 
 #[test]
+fn bot_modal_summaries_show_default_entity_names_and_unknown_ids() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    let mut adapter = adapter.borrow_mut();
+    adapter.app.state.messages = Arc::new(vec![Arc::new(ChatMessage {
+        sender: "discord:11".into(),
+        author: "Alex".into(),
+        ..Default::default()
+    })]);
+    adapter.apply(Event::InteractionModal(serde_json::json!({
+        "id": "42", "channel_id": "7", "guild_id": "10", "custom_id": "assign",
+        "application": {"id": "3"}, "title": "Assign", "nonce": "click",
+        "components": [
+            {"type": 18, "label": "User", "component": {
+                "type": 5, "custom_id": "user", "default_values": [{"id": "11", "type": "user"}]
+            }},
+            {"type": 18, "label": "Mentionable", "component": {
+                "type": 7, "custom_id": "mention", "default_values": [{"id": "11", "type": "user"}]
+            }},
+            {"type": 18, "label": "Role", "component": {
+                "type": 6, "custom_id": "role", "default_values": [{"id": "12", "type": "role"}]
+            }},
+            {"type": 18, "label": "Channel", "component": {
+                "type": 8, "custom_id": "channel", "default_values": [{"id": "13", "type": "channel"}]
+            }}
+        ]
+    })));
+    adapter.refresh(&window);
+    let fields = window.get_bot_modal_fields();
+    assert_eq!(fields.row_data(0).unwrap().summary, "Alex");
+    assert_eq!(fields.row_data(1).unwrap().summary, "Alex");
+    assert_eq!(fields.row_data(2).unwrap().summary, "12");
+    assert_eq!(fields.row_data(3).unwrap().summary, "13");
+}
+
+#[test]
+fn bot_modal_keeps_input_model_while_typing() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    {
+        let mut adapter = adapter.borrow_mut();
+        adapter.apply(Event::InteractionModal(serde_json::json!({
+            "id": "42", "channel_id": "7", "custom_id": "ticket",
+            "application": {"id": "3"}, "title": "Open ticket", "nonce": "click",
+            "components": [{"type": 1, "components": [{
+                "type": 4, "custom_id": "reason", "label": "Reason", "style": 1
+            }]}]
+        })));
+        adapter.refresh(&window);
+    }
+    let original = window.get_bot_modal_fields();
+    for value in ["t", "te", "tes", "test"] {
+        window.invoke_bot_modal_field_edited(0, value.into());
+        let current = window.get_bot_modal_fields();
+        assert!(std::ptr::eq(original.as_any(), current.as_any()));
+        assert_eq!(current.row_data(0).unwrap().value, value);
+    }
+}
+
+#[test]
+fn bot_select_keeps_its_model_and_filters_original_choice_indices() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    {
+        let mut adapter = adapter.borrow_mut();
+        adapter.apply(Event::InteractionModal(serde_json::json!({
+            "id": "42", "channel_id": "7", "custom_id": "ticket",
+            "application": {"id": "3"}, "title": "Choose", "nonce": "click",
+            "components": [{"type": 18, "label": "Choice", "component": {
+                "type": 3, "custom_id": "choice", "required": false,
+                "options": [
+                    {"label": "Alpha", "value": "a"},
+                    {"label": "Beta", "value": "b"}
+                ]
+            }}]
+        })));
+        adapter.refresh(&window);
+    }
+    window.invoke_bot_modal_open_select(0);
+    let original = window.get_bot_select_choices();
+    assert_eq!(original.row_count(), 2);
+    adapter.borrow_mut().refresh(&window);
+    assert!(std::ptr::eq(
+        original.as_any(),
+        window.get_bot_select_choices().as_any()
+    ));
+    window.invoke_bot_select_search("BETA".into());
+    let filtered = window.get_bot_select_choices();
+    assert!(std::ptr::eq(original.as_any(), filtered.as_any()));
+    assert_eq!(filtered.row_count(), 1);
+    assert_eq!(filtered.row_data(0).unwrap().index, 1);
+    window.invoke_bot_select_toggle(1);
+    assert!(filtered.row_data(0).unwrap().selected);
+    window.invoke_bot_select_submit();
+    assert_eq!(
+        adapter
+            .borrow()
+            .app
+            .state
+            .interaction_modal
+            .as_ref()
+            .unwrap()
+            .fields[0]
+            .values,
+        ["b"]
+    );
+    assert!(!window.get_bot_select_open());
+    assert_eq!(window.get_bot_select_choices().row_count(), 0);
+}
+
+#[test]
 fn a_long_message_folds_until_show_more_only_with_the_switch_on() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();
@@ -9780,6 +10277,68 @@ fn a_saved_font_file_that_is_missing_is_skipped_and_noted() {
 }
 
 #[test]
+fn many_reactions_wrap_onto_more_lines_in_the_messages_width() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    let settle = |window: &YapfastWindow| {
+        for _ in 0..5 {
+            i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(1));
+            slint::platform::update_timers_and_animations();
+            let _ = window.invoke_timeline_extent();
+        }
+    };
+    // Past a screen of messages, so the list is as tall as its rows.
+    let long: String = (1..=40).map(|line| format!("Line {line}\n")).collect();
+    adapter
+        .borrow_mut()
+        .action(&window, Action::SetDraft(long.trim_end().into()));
+    adapter.borrow_mut().action(&window, Action::Send);
+    settle(&window);
+    let before = window.invoke_timeline_extent();
+    let item = window.get_messages().iter().last().unwrap().item;
+    let emoji = [
+        "👍", "❤️", "😂", "🎉", "🔥", "👀", "🙏", "💯", "😮", "😢", "🚀", "✨", "🍕", "🌈", "🎧",
+        "🐢",
+    ];
+    for key in emoji {
+        window.invoke_react(item.clone(), key.into());
+    }
+    settle(&window);
+    let row = window.get_messages().iter().last().unwrap();
+    assert_eq!(row.reactions.row_count(), emoji.len());
+    // Sixteen chips are wider than the timeline: in one row they'd add one
+    // chip's height and run past its edge; wrapped, the row grows by each line.
+    let chip = 28.;
+    let grown = window.invoke_timeline_extent() - before;
+    assert!(grown > chip * 2. + 6., "the reactions add {grown}px");
+    // A wider window fits more to a line, so the row is shorter again.
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1900., 760.));
+    settle(&window);
+    let wide = window.invoke_timeline_extent();
+    for key in emoji {
+        window.invoke_react(item.clone(), key.into());
+    }
+    settle(&window);
+    let wide_grown = wide - window.invoke_timeline_extent();
+    assert!(wide_grown < grown, "{wide_grown}px wide, {grown}px narrow");
+}
+
+#[test]
 fn the_mouse_side_buttons_go_back_and_forward() {
     use slint::winit_030::winit::event::MouseButton;
     assert!(matches!(
@@ -9798,4 +10357,60 @@ fn the_mouse_side_buttons_go_back_and_forward() {
     ] {
         assert!(side_button_action(other).is_none(), "{other:?}");
     }
+}
+
+#[test]
+fn a_profiles_more_menu_blocks_from_the_profile() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    // Alice, "1", has #general open; Dave, "4", is her friend there.
+    adapter.borrow_mut().app = yapfast_core::application::member_server(&["30"]);
+    let texts = |window: &YapfastWindow| -> Vec<String> {
+        window
+            .get_menu_rows()
+            .iter()
+            .map(|row| row.text.to_string())
+            .collect()
+    };
+    // The profile's More button opens the person's own menu.
+    window.invoke_prepare_menu("profile-more:4".into(), true);
+    let from_profile = texts(&window);
+    window.invoke_prepare_menu("4".into(), true);
+    assert_eq!(from_profile, texts(&window));
+    assert!(from_profile.iter().any(|text| text == "Block"));
+    // Alice's own profile offers no Block.
+    window.invoke_prepare_menu("profile-more:1".into(), true);
+    assert!(!texts(&window).iter().any(|text| text == "Block"));
+
+    // Block asks first, and the dialog remembers it came from the profile.
+    window.invoke_choose_menu("profile-more:4".into(), true, "block".into());
+    let dialog = adapter.borrow().app.state.person_dialog.clone().unwrap();
+    assert_eq!(
+        (dialog.user.as_str(), dialog.ask, dialog.location),
+        ("4", PersonAsk::Block, "user profile overflow menu")
+    );
+    // A right click's says it came from a menu.
+    adapter.borrow_mut().app.state.person_dialog = None;
+    window.invoke_choose_menu("4".into(), true, "block".into());
+    let dialog = adapter.borrow().app.state.person_dialog.clone().unwrap();
+    assert_eq!(dialog.location, "ContextMenu");
+    adapter.borrow_mut().app.state.person_dialog = None;
+    // Its changes to a relationship, Unblock included, name the same place.
+    assert_eq!(
+        menus::relationship_place("profile-more:4"),
+        ("4", "user profile overflow menu")
+    );
+    assert_eq!(menus::relationship_place("4"), ("4", "ContextMenu"));
+    // The rest of the menu acts on the person, not on the prefixed target.
+    window.invoke_choose_menu("profile-more:4".into(), true, "profile".into());
+    let shown = adapter.borrow().app.state.profile.clone();
+    assert_eq!(shown.map(|view| view.profile.id), Some("4".into()));
 }

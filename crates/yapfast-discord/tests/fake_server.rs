@@ -2047,6 +2047,113 @@ async fn votes_in_and_posts_polls() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn uses_bots_controls_and_forms() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        general,
+        ..
+    } = Fixture::start("uses_bots_controls_and_forms").await;
+    let mut live = discord.live();
+    post_control(server, "/_control/components", "");
+    let deployed = live_where(&mut live, |event| match event {
+        Live::Created(message) if message.content.starts_with("Deploy") => Some(message),
+        _ => None,
+    })
+    .await;
+    // As Discord's client sends it: a bot's message names no app, so its
+    // author's id stands for it.
+    let component = |nonce: &str, custom_id: &str, values: Option<&[&str]>| {
+        let mut data = serde_json::json!({"component_type": 2, "custom_id": custom_id});
+        if let Some(values) = values {
+            data = serde_json::json!({
+                "component_type": 3, "custom_id": custom_id, "type": 3, "values": values,
+            });
+        }
+        serde_json::json!({
+            "type": 3, "nonce": nonce, "guild_id": guild, "channel_id": general,
+            "message_flags": deployed.flags, "message_id": deployed.id,
+            "application_id": deployed.author_id, "data": data,
+        })
+    };
+    discord
+        .interact(component("1", "approve", None))
+        .await
+        .unwrap();
+    live_where(&mut live, |event| match event {
+        Live::InteractionSuccess { nonce } if nonce == "1" => Some(()),
+        _ => None,
+    })
+    .await;
+    live_where(&mut live, |event| match event {
+        Live::Created(message) if message.content == "Approved by Alice." => Some(()),
+        _ => None,
+    })
+    .await;
+    // A form, with its text, comes back to this session; its answers go
+    // back in its shape.
+    discord
+        .interact(component("2", "rollback", None))
+        .await
+        .unwrap();
+    let modal = live_where(&mut live, |event| match event {
+        Live::InteractionModal(modal) if modal["nonce"] == "2" => Some(modal),
+        _ => None,
+    })
+    .await;
+    assert_eq!(modal["title"], "Roll back v2.4");
+    assert_eq!(modal["components"][0]["type"], 10);
+    discord
+        .interact(serde_json::json!({
+            "type": 5, "nonce": "3", "guild_id": guild, "channel_id": general,
+            "application_id": modal["application"]["id"],
+            "data": {"id": modal["id"], "custom_id": "rollback", "components": [
+                {"type": 10},
+                {"type": 18, "component": {"type": 4, "custom_id": "why", "value": "Broke the login"}},
+            ]},
+        }))
+        .await
+        .unwrap();
+    live_where(&mut live, |event| match event {
+        Live::Created(message) if message.content == "Rolled back to **v2.3**: Broke the login" => {
+            Some(())
+        }
+        _ => None,
+    })
+    .await;
+    discord
+        .interact(component("4", "environment", Some(&["production"])))
+        .await
+        .unwrap();
+    live_where(&mut live, |event| match event {
+        Live::InteractionFailure { nonce, .. } if nonce == "4" => Some(()),
+        _ => None,
+    })
+    .await;
+    let sent: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/interactions", "")).unwrap();
+    assert_eq!(sent.as_array().unwrap().len(), 4);
+    assert_eq!(sent[0]["application_id"], "1400000000000000007");
+    assert!(
+        sent[0]["session_id"]
+            .as_str()
+            .is_some_and(|id| !id.is_empty())
+    );
+    // An app the message isn't from is turned away.
+    let refused = discord
+        .interact(serde_json::json!({
+            "type": 3, "nonce": "5", "channel_id": general, "message_id": deployed.id,
+            "message_flags": 0, "application_id": "1",
+            "data": {"component_type": 2, "custom_id": "approve"},
+        }))
+        .await;
+    assert!(refused.is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn forwards_messages() {
     let Fixture {
         _fake,
@@ -4030,6 +4137,43 @@ async fn shows_status_and_games() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn blocks_and_unblocks_from_a_profile() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        ..
+    } = Fixture::start("blocks_and_unblocks_from_a_profile").await;
+    // Bob is Alice's friend; blocking him from his profile's menu ends that.
+    let bob = discord.find_people("bob")[0].id.clone();
+    snapshot_where(&discord, |snapshot| snapshot.friends.contains(&bob)).await;
+    let profile = "user profile overflow menu";
+    discord.block(&bob, true, profile).await.unwrap();
+    snapshot_where(&discord, |snapshot| {
+        snapshot.blocked.contains(&bob)
+            && !snapshot.friends.contains(&bob)
+            && snapshot
+                .blocked_list
+                .iter()
+                .any(|blocked| blocked.user_id == bob)
+    })
+    .await;
+    discord.block(&bob, false, profile).await.unwrap();
+    snapshot_where(&discord, |snapshot| {
+        !snapshot.blocked.contains(&bob) && snapshot.blocked_list.is_empty()
+    })
+    .await;
+    // Each says it came from the profile's menu, as Discord's client does.
+    assert_eq!(
+        self::control(server, "GET", "/_control/relationship-changes", ""),
+        format!(
+            r#"[{{"method":"PUT","user":"{bob}","type":2,"location":"{profile}"}},{{"method":"DELETE","user":"{bob}","type":null,"location":"{profile}"}}]"#
+        )
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn acts_from_a_dms_menu() {
     let Fixture {
         _fake,
@@ -4123,13 +4267,16 @@ async fn acts_from_a_dms_menu() {
     })
     .await;
 
-    discord.unfriend(&dave_user).await.unwrap();
+    discord.unfriend(&dave_user, "ContextMenu").await.unwrap();
     snapshot_where(&discord, |snapshot| {
         !snapshot.friends.contains(&dave_user)
             && dave_dm(snapshot).is_some_and(|dm| dm.name == "Dave")
     })
     .await;
-    discord.block(&dave_user, true).await.unwrap();
+    discord
+        .block(&dave_user, true, "ContextMenu")
+        .await
+        .unwrap();
     snapshot_where(&discord, |snapshot| {
         snapshot.blocked.contains(&dave_user)
             && snapshot
@@ -4138,11 +4285,22 @@ async fn acts_from_a_dms_menu() {
                 .any(|blocked| blocked.user_id == dave_user && blocked.name == "Dave")
     })
     .await;
-    discord.block(&dave_user, false).await.unwrap();
+    discord
+        .block(&dave_user, false, "ContextMenu")
+        .await
+        .unwrap();
     snapshot_where(&discord, |snapshot| {
         !snapshot.blocked.contains(&dave_user) && snapshot.blocked_list.is_empty()
     })
     .await;
+    // Each says where in Discord's client it came from: the request from
+    // a profile, the rest from the DM's menu.
+    assert_eq!(
+        self::control(server, "GET", "/_control/relationship-changes", ""),
+        format!(
+            r#"[{{"method":"PUT","user":"{dave_user}","type":null,"location":"User Profile"}},{{"method":"DELETE","user":"{dave_user}","type":null,"location":"ContextMenu"}},{{"method":"PUT","user":"{dave_user}","type":2,"location":"ContextMenu"}},{{"method":"DELETE","user":"{dave_user}","type":null,"location":"ContextMenu"}}]"#
+        )
+    );
     discord.close_dm(&dave).await.unwrap();
     snapshot_where(&discord, |snapshot| dave_dm(snapshot).is_none()).await;
 }

@@ -2030,6 +2030,111 @@ fn menus_offer_what_fits_their_conversation_or_server() {
 
 #[test]
 #[cfg(feature = "discord")]
+fn someones_menu_blocks_and_unblocks_them_but_never_this_account() {
+    use MenuChoice::*;
+    use chat::{Profile, RelationshipChange};
+    use yapfast_discord::service::{BlockedUser, Friend, Snapshot, Status};
+    let profile = "user profile overflow menu";
+    let snapshot = |eve_blocked: bool| Snapshot {
+        status: Status::Online,
+        user_id: Some("1".into()),
+        friends: vec!["2".into()].into(),
+        friend_list: vec![Friend {
+            user_id: "2".into(),
+            name: "Annie".into(),
+            avatar: String::new(),
+            nickname: None,
+            presence: None,
+            activity: None,
+            activities: Default::default(),
+        }]
+        .into(),
+        blocked: if eve_blocked {
+            vec!["5".into()].into()
+        } else {
+            vec![].into()
+        },
+        blocked_list: if eve_blocked {
+            vec![BlockedUser {
+                user_id: "5".into(),
+                name: "Eve".into(),
+                username: None,
+                avatar: String::new(),
+            }]
+            .into()
+        } else {
+            vec![].into()
+        },
+        ..Default::default()
+    };
+    let mut app = Application::default();
+    app.apply(discord_event(snapshot(false)));
+    // Away from any conversation, as a mutual friend's or a linked profile
+    // opens: a friend, a stranger, and this account, which can't block itself.
+    assert_eq!(app.state.person_choices("2"), [Message, Block, CopyId]);
+    assert_eq!(app.state.person_choices("5"), [AddFriend, Block, CopyId]);
+    assert_eq!(app.state.person_choices("1"), [CopyId]);
+    app.apply(discord_event(snapshot(true)));
+    assert_eq!(
+        app.state.person_choices("5"),
+        [Unblock, CopyId],
+        "no friend request to someone blocked"
+    );
+    app.apply(discord_event(snapshot(false)));
+
+    // Blocking from a profile asks first, naming them as their profile does,
+    // and then says it came from the profile's menu.
+    app.state.profile = Some(ProfileView {
+        profile: Profile {
+            id: "5".into(),
+            name: "Eve".into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    assert!(
+        app.dispatch(Action::AskPerson {
+            user: "5".into(),
+            ask: PersonAsk::Block,
+            location: profile,
+        })
+        .is_empty()
+    );
+    let dialog = app.state.person_dialog.as_ref().unwrap();
+    assert_eq!((dialog.name.as_str(), dialog.location), ("Eve", profile));
+    assert!(matches!(
+        app.dispatch(Action::AnswerPerson(String::new())).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::Relationship {
+            user,
+            change: RelationshipChange::Block,
+            location: "user profile overflow menu",
+        }))] if user == "5"
+    ));
+    // Not this account, whatever asks, even with its own profile open.
+    app.state.profile = Some(ProfileView {
+        profile: Profile {
+            id: "1".into(),
+            name: "Alice".into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    assert!(
+        app.dispatch(Action::AskPerson {
+            user: "1".into(),
+            ask: PersonAsk::Block,
+            location: profile,
+        })
+        .is_empty()
+    );
+    assert_eq!(app.state.person_dialog, None);
+    // Nor a request to someone blocked, whatever asks.
+    app.apply(discord_event(snapshot(true)));
+    assert!(app.dispatch(Action::Befriend("5".into())).is_empty());
+}
+
+#[test]
+#[cfg(feature = "discord")]
 fn a_discord_dms_menu_manages_its_person_and_notifications() {
     use MenuChoice::*;
     use chat::{Muting, RelationshipChange};
@@ -2168,7 +2273,7 @@ fn a_discord_dms_menu_manages_its_person_and_notifications() {
     // A note loads, then saves; the dialog closes once Discord has it.
     app.apply(discord_event(snapshot(true, false, false, false)));
     assert!(matches!(
-        app.dispatch(Action::AskPerson { user: "2".into(), ask: PersonAsk::Note }).as_slice(),
+        app.dispatch(Action::AskPerson { user: "2".into(), ask: PersonAsk::Note, location: "ContextMenu" }).as_slice(),
         [Effect::Backend(Command::Discord(DiscordCommand::Note { user }))] if user == "2"
     ));
     assert_eq!(app.state.person_dialog.as_ref().unwrap().text, None);
@@ -2201,6 +2306,7 @@ fn a_discord_dms_menu_manages_its_person_and_notifications() {
     app.dispatch(Action::AskPerson {
         user: "2".into(),
         ask: PersonAsk::Nickname,
+        location: "ContextMenu",
     });
     assert_eq!(
         app.state.person_dialog.as_ref().unwrap().text.as_deref(),
@@ -2213,6 +2319,7 @@ fn a_discord_dms_menu_manages_its_person_and_notifications() {
         app.dispatch(Action::AskPerson {
             user: "2".into(),
             ask: PersonAsk::Block,
+            location: "ContextMenu",
         })
         .is_empty()
     );
@@ -2221,13 +2328,15 @@ fn a_discord_dms_menu_manages_its_person_and_notifications() {
         [Effect::Backend(Command::Discord(DiscordCommand::Relationship {
             user,
             change: RelationshipChange::Block,
+            location: "ContextMenu",
         }))] if user == "2"
     ));
     assert_eq!(app.state.person_dialog, None);
     assert!(matches!(
         app.dispatch(Action::ChangeRelationship {
             user: "2".into(),
-            change: RelationshipChange::Ignore
+            change: RelationshipChange::Ignore,
+            location: "ContextMenu",
         })
         .as_slice(),
         [Effect::Backend(Command::Discord(
@@ -2843,6 +2952,81 @@ fn videos_play_in_the_open_room_until_it_closes() {
     );
     app.dispatch(Action::Navigate(Navigation::Server("friends".into())));
     assert!(app.state.video.is_none(), "leaving the room stops it");
+}
+
+#[test]
+fn a_voice_message_plays_and_pauses_one_at_a_time() {
+    let mut app = connected();
+    let recorded = |id: &str, voice: bool| {
+        Arc::new(ChatMessage {
+            id: id.into(),
+            item: format!("d:{id}"),
+            voice: voice.then(|| chat::VoiceMessage {
+                duration_ms: 5000,
+                waveform: [0, 128, 255].into(),
+            }),
+            ..Default::default()
+        })
+    };
+    app.apply(Event::Timeline {
+        room: "dm".into(),
+        messages: vec![
+            recorded("1", true),
+            recorded("2", true),
+            recorded("3", false),
+        ],
+    });
+    let toggle =
+        |app: &mut Application, item: &str| app.dispatch(Action::ToggleVoiceMessage(item.into()));
+    assert!(toggle(&mut app, "d:3").is_empty(), "not a voice message");
+    assert!(matches!(
+        toggle(&mut app, "d:1").as_slice(),
+        [Effect::Backend(Command::PlayVoiceMessage { room, item, .. })] if room == "dm" && item == "d:1"
+    ));
+    let playing = app.state.voice_message.clone().unwrap();
+    assert!(playing.playing && playing.loading);
+    app.apply(Event::VoiceMessage(Some(chat::VoicePlayback {
+        loading: false,
+        position_ms: 1200,
+        ..playing
+    })));
+    assert!(matches!(
+        toggle(&mut app, "d:1").as_slice(),
+        [Effect::Backend(Command::PauseVoiceMessage)]
+    ));
+    let paused = app.state.voice_message.clone().unwrap();
+    assert!(!paused.playing);
+    assert_eq!(paused.position_ms, 1200, "it pauses where it was");
+    // Played again, it goes on from there; another starts from the start.
+    toggle(&mut app, "d:1");
+    let resumed = app.state.voice_message.clone().unwrap();
+    assert!(resumed.playing && !resumed.loading);
+    assert_eq!(resumed.position_ms, 1200);
+    assert!(matches!(
+        toggle(&mut app, "d:2").as_slice(),
+        [Effect::Backend(Command::PlayVoiceMessage { item, .. })] if item == "d:2"
+    ));
+    let other = app.state.voice_message.clone().unwrap();
+    assert_eq!((other.item.as_str(), other.position_ms), ("d:2", 0));
+    // Its speed and volume change as it plays, and last for the next.
+    app.dispatch(Action::CycleVoiceMessageSpeed);
+    assert!(matches!(
+        app.dispatch(Action::VoiceMessageVolume(0.5)).as_slice(),
+        [Effect::Backend(Command::TuneVoiceMessage(tuning))]
+            if *tuning == chat::VoiceTuning { speed: 1.5, volume: 0.5 }
+    ));
+    app.dispatch(Action::CycleVoiceMessageSpeed);
+    assert_eq!(app.state.voice_tuning.speed, 2.0);
+    app.dispatch(Action::CycleVoiceMessageSpeed);
+    assert_eq!(app.state.voice_tuning.speed, 1.0);
+    app.apply(Event::VoiceMessage(Some(chat::VoicePlayback {
+        room: "elsewhere".into(),
+        ..other
+    })));
+    assert!(
+        app.state.voice_message.is_none(),
+        "another room's voice message doesn't show"
+    );
 }
 
 #[test]
@@ -4393,11 +4577,16 @@ fn discord_friends_are_listed_and_messaged() {
     // With no conversation open, only a friend's DM has their profile.
     assert_eq!(
         app.state.person_choices("2"),
-        [MenuChoice::Profile, MenuChoice::Message, MenuChoice::CopyId]
+        [
+            MenuChoice::Profile,
+            MenuChoice::Message,
+            MenuChoice::Block,
+            MenuChoice::CopyId
+        ]
     );
     assert_eq!(
         app.state.person_choices("3"),
-        [MenuChoice::Message, MenuChoice::CopyId]
+        [MenuChoice::Message, MenuChoice::Block, MenuChoice::CopyId]
     );
 
     // A friend with a DM opens it; one without has it started.
@@ -5232,10 +5421,10 @@ fn discord_friend_requests_are_sent_answered_and_cancelled() {
         choices,
         [
             vec![CopyId],
-            vec![Message, CopyId],
-            vec![AcceptFriend, CopyId],
-            vec![CancelFriendRequest, CopyId],
-            vec![AddFriend, CopyId],
+            vec![Message, Block, CopyId],
+            vec![AcceptFriend, Block, CopyId],
+            vec![CancelFriendRequest, Block, CopyId],
+            vec![AddFriend, Block, CopyId],
         ]
     );
     let sent = |effects: Vec<Effect>| -> Option<(String, bool)> {

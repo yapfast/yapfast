@@ -120,6 +120,23 @@ notice.
 Discord's menu also has Invite to listen (Spotify), Apps and Open in
 moderator view, which Yapfast leaves out for now.
 
+### Dragging someone to another voice channel
+
+As in Discord's client, someone under a voice channel in the channel list
+can be dragged onto another voice channel of the server, wherever their menu
+offers Move to, which `Application::move_targets` decides for both. The drag
+starts once the pointer has moved a few pixels with the button down, as a
+channel's does, so a click still opens their profile and a right click their
+menu. While someone is dragged, the channels Move to lists stay bright and
+every other channel dims, the one they're in included, as other channels do
+while one is dragged; the one under the pointer is outlined, and the list
+scrolls near its top and bottom. Dropping them there does what choosing it
+in Move to does (`Application::move_to`): someone else is moved with the
+same `PATCH /guilds/{id}/members/{user}` and `{"channel_id": ...}`, and this
+account joins it, also when it's in the call on another client. Dropping
+anywhere else, beside the list included, or Escape, lets go without moving
+anyone. Dragging needs a pointer; Move to in their menu does the same.
+
 ## Invites
 
 Invite to server, in a server's menu or its header, and Invite to channel,

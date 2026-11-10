@@ -30,6 +30,7 @@ mod forum;
 mod gifs;
 mod gift;
 mod header;
+mod interactions;
 mod join;
 mod members;
 mod messages;
@@ -61,6 +62,9 @@ pub use cosmetics::Cosmetics;
 pub use forum::{ForumInfo, ForumPost, ForumPosts, ForumView};
 pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
 pub use gift::GiftDialog;
+pub use interactions::{
+    InteractionModal, ModalField, PendingInteraction, SelectChoice, SelectMenu,
+};
 pub use join::JoinDialog;
 pub use members::{BAN_HISTORY, RoleChoice, TIMEOUT_TIMES};
 #[cfg(all(feature = "discord", any(test, feature = "test-fixtures")))]
@@ -170,6 +174,9 @@ pub struct PersonDialog {
     /// Their name, as the DM or the server shows it.
     pub name: String,
     pub ask: PersonAsk,
+    /// Where in Discord's client it was asked from, which unfriending and
+    /// blocking tell Discord, such as "ContextMenu".
+    pub location: &'static str,
     /// The note, nickname or reason as it stands; `None` while the note is
     /// on its way.
     pub text: Option<String>,
@@ -432,6 +439,15 @@ pub enum Compose {
 
 #[derive(Default)]
 pub struct AppState {
+    /// Bots' controls used and not yet answered, at most one a message, as
+    /// Discord's client allows.
+    pub pending_interactions: Vec<PendingInteraction>,
+    /// The message whose control last failed, and what its components say.
+    pub interaction_failed: Option<(String, String)>,
+    /// A bot's form, open.
+    pub interaction_modal: Option<InteractionModal>,
+    /// The choices of a bot's select menu, in a message or a form, open.
+    pub select_menu: Option<SelectMenu>,
     pub voice: voice::State,
     /// Discord is linked on this device and connected.
     pub discord_online: bool,
@@ -713,6 +729,10 @@ pub struct AppState {
     pub viewer: Option<Viewer>,
     /// The video playing in the selected room.
     pub video: Option<chat::Video>,
+    /// The voice message playing, or paused, in the selected room.
+    pub voice_message: Option<chat::VoicePlayback>,
+    /// How fast and loud voice messages play, until Yapfast closes.
+    pub voice_tuning: chat::VoiceTuning,
     /// The profile card that's open.
     pub profile: Option<ProfileView>,
     pub role: Option<RoleView>,
@@ -871,7 +891,9 @@ impl AppState {
     /// A dialog that takes the keyboard is open, over which the quick
     /// switcher doesn't open and a link handed from outside waits.
     pub fn dialog_open(&self) -> bool {
-        !self.mfa.is_empty()
+        self.interaction_modal.is_some()
+            || self.select_menu.is_some()
+            || !self.mfa.is_empty()
             || self.forwarding.is_some()
             || self.new_dm.is_some()
             || self.add_friend.is_some()
@@ -1468,6 +1490,25 @@ pub enum Relation {
 }
 
 pub enum Action {
+    UseButton {
+        item: String,
+        custom_id: String,
+    },
+    OpenSelect {
+        item: String,
+        custom_id: String,
+    },
+    OpenModalSelect(usize),
+    ToggleSelect(usize),
+    SearchSelect(String),
+    SubmitSelect,
+    CloseSelect,
+    SetModalField {
+        index: usize,
+        value: String,
+    },
+    SubmitModal,
+    CloseModal,
     Navigate(Navigation),
     SelectRoom(String),
     /// Mark a listed conversation read, or every conversation of a listed
@@ -1603,6 +1644,12 @@ pub enum Action {
     },
     /// Control the video playing.
     Video(chat::VideoCommand),
+    /// Play an item's voice message, or pause it while it plays.
+    ToggleVoiceMessage(String),
+    /// Play voice messages at the next speed: 1, 1.5, then 2 times as fast.
+    CycleVoiceMessageSpeed,
+    /// Play voice messages this loud, from 0 to 1 as the slider stands.
+    VoiceMessageVolume(f32),
     /// Show the message's next image, or with -1 its previous one, wrapping around.
     StepImage(isize),
     CloseImage,
@@ -2032,17 +2079,21 @@ pub enum Action {
     ResendMfa,
     ConfirmMfa,
     CancelMfa,
-    /// Change how the Discord account stands with someone. Unfriending and
-    /// blocking ask first, through [`Action::AskPerson`].
+    /// Change how the Discord account stands with someone, from `location`
+    /// in Discord's client, such as "ContextMenu". Unfriending and blocking
+    /// ask first, through [`Action::AskPerson`].
     ChangeRelationship {
         user: String,
         change: chat::RelationshipChange,
+        location: &'static str,
     },
-    /// Open a dialog about a Discord user, from their DM's menu; carry out
-    /// what it asks for, with the note or nickname written; or close it.
+    /// Open a dialog about a Discord user, from their DM's menu or
+    /// `location` in Discord's client; carry out what it asks for, with the
+    /// note or nickname written; or close it.
     AskPerson {
         user: String,
         ask: PersonAsk,
+        location: &'static str,
     },
     AnswerPerson(String),
     /// Save this account's note on a Discord user, as the full profile's
@@ -3057,6 +3108,30 @@ impl Application {
 
     fn dispatch_action(&mut self, action: Action) -> Vec<Effect> {
         match action {
+            Action::UseButton { item, custom_id } => self.use_button(item, custom_id),
+            Action::OpenSelect { item, custom_id } => self.open_select(item, custom_id),
+            Action::OpenModalSelect(index) => self.open_modal_select(index),
+            Action::ToggleSelect(index) => self.toggle_select(index),
+            Action::SearchSelect(query) => self.search_select(query),
+            Action::SubmitSelect => self.submit_select(),
+            Action::CloseSelect => {
+                self.state.select_menu = None;
+                vec![]
+            }
+            Action::SetModalField { index, value } => self.set_modal_field(index, value),
+            Action::SubmitModal => self.submit_modal(),
+            Action::CloseModal => {
+                // A form being sent stays until Discord answers.
+                if self
+                    .state
+                    .interaction_modal
+                    .as_ref()
+                    .is_none_or(|modal| modal.nonce.is_none())
+                {
+                    self.state.interaction_modal = None;
+                }
+                vec![]
+            }
             Action::VisibleMessages {
                 room,
                 items,
@@ -3233,6 +3308,22 @@ impl Application {
                 }
                 vec![Effect::Backend(Command::Video(command))]
             }
+            Action::ToggleVoiceMessage(item) => self.toggle_voice_message(item),
+            Action::CycleVoiceMessageSpeed => {
+                let speed = &mut self.state.voice_tuning.speed;
+                *speed = if *speed < 1.25 {
+                    1.5
+                } else if *speed < 1.75 {
+                    2.0
+                } else {
+                    1.0
+                };
+                self.tune_voice_message()
+            }
+            Action::VoiceMessageVolume(volume) => {
+                self.state.voice_tuning.volume = volume.clamp(0.0, 1.0);
+                self.tune_voice_message()
+            }
             Action::StepImage(step) => self.step_image(step),
             Action::CloseImage => {
                 self.state.viewer = None;
@@ -3297,8 +3388,9 @@ impl Application {
             Action::DeclineCall(room) => vec![Effect::Backend(Command::Discord(
                 DiscordCommand::DeclineCall { room },
             ))],
+            // Discord takes no request to someone blocked.
             Action::Befriend(user) => match self.state.relation(&user) {
-                Relation::Stranger | Relation::Incoming => {
+                Relation::Stranger | Relation::Incoming if !self.state.is_blocked(&user) => {
                     vec![Effect::Backend(Command::Discord(DiscordCommand::Friend {
                         user,
                         add: true,
@@ -3557,8 +3649,16 @@ impl Application {
             Action::ResendMfa => self.resend_mfa(),
             Action::ConfirmMfa => self.confirm_mfa(),
             Action::CancelMfa => self.cancel_mfa(),
-            Action::ChangeRelationship { user, change } => self.change_relationship(user, change),
-            Action::AskPerson { user, ask } => self.ask_person(user, ask),
+            Action::ChangeRelationship {
+                user,
+                change,
+                location,
+            } => self.change_relationship(user, change, location),
+            Action::AskPerson {
+                user,
+                ask,
+                location,
+            } => self.ask_person(user, ask, location),
             Action::AnswerPerson(text) => self.answer_person(text),
             Action::ClosePersonDialog => {
                 self.state.person_dialog = None;
@@ -3898,6 +3998,12 @@ impl Application {
 
     fn apply_event(&mut self, event: Event) -> Vec<Effect> {
         match event {
+            Event::InteractionModal(modal) => self.open_interaction_modal(modal),
+            Event::InteractionFailed { nonce, reason } => self.interaction_failed(&nonce, reason),
+            Event::InteractionSucceeded(nonce) => self.interaction_succeeded(&nonce),
+            Event::InteractionSettled(nonce) => {
+                self.interaction_failed(&nonce, "The application did not respond".into());
+            }
             Event::Voice(state) => {
                 let sounds = call_sounds(&self.state.voice, &state);
                 // Someone moved the call to another channel, as a bot does
@@ -3963,14 +4069,11 @@ impl Application {
             }
             Event::Picture { url, picture } => self.keep_picture(url, picture),
             Event::Video(video) => {
-                self.state.video = video.filter(|video| {
-                    self.state.selected.as_ref() == Some(&video.room)
-                        || self
-                            .state
-                            .aside
-                            .as_ref()
-                            .is_some_and(|aside| aside.room == video.room)
-                });
+                self.state.video = video.filter(|video| self.state.shows_room(&video.room));
+            }
+            Event::VoiceMessage(playback) => {
+                self.state.voice_message =
+                    playback.filter(|playback| self.state.shows_room(&playback.room));
             }
             // Do Not Disturb holds back message notifications, as in Discord.
             Event::Notify(_) if self.state.do_not_disturb() => {}
@@ -4370,7 +4473,12 @@ impl Application {
                     self.state.mention_groups = groups;
                 }
             }
-            Event::MemberMatches { room, members, .. } => {
+            Event::MemberMatches {
+                room,
+                query,
+                members,
+            } => {
+                self.select_member_matches(&room, &query, &members);
                 if self.state.selected.as_ref() == Some(&room) {
                     for member in members {
                         if !self

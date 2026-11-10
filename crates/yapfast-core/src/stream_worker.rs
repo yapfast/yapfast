@@ -27,6 +27,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use yapfast_discord::{
+    congestion,
     rtp::Codec,
     stream::StreamServer,
     stream_connection::{self, Link, StreamReceiver, StreamSender},
@@ -559,16 +560,6 @@ fn log_encoder(encoder: &Encoder) {
     );
 }
 
-/// The kbit/s to aim for, as Discord's client does: its cap for frames of
-/// `height` lines, or what its server estimates the path carries when
-/// that's less, but at least the 500 kbit/s it gives a screen.
-fn kbps(height: u32, estimate: Option<u64>) -> u32 {
-    let cap = stream_connection::max_bitrate(height) / 1000;
-    estimate.map_or(cap, |estimate| {
-        (estimate / 1000).clamp(500, u64::from(cap)) as u32
-    })
-}
-
 impl Sink {
     /// Takes a frame at the size it's sent: the preview shows it, scaled
     /// down to fit, and Discord gets it once the stream has a server.
@@ -645,12 +636,12 @@ impl Sink {
         let Some(video) = self.video.as_mut() else {
             return Ok(());
         };
-        let wanted = kbps(height, video.sender.bandwidth_estimate());
+        let wanted = (video.sender.target() / 1000) as u32;
         let aimed = video.encoder.bitrate();
         // Not on every wobble, which would churn the rate control.
         if wanted.abs_diff(aimed) > aimed / 10 {
             match video.encoder.set_bitrate(wanted) {
-                Ok(()) => tracing::debug!(kbps = wanted, "following Discord's bandwidth estimate"),
+                Ok(()) => tracing::debug!(kbps = wanted, "the encoder follows the stream's target"),
                 Err(error) => {
                     tracing::warn!(error = format!("{error:#}"), "could not change the bitrate")
                 }
@@ -711,15 +702,19 @@ impl Sink {
         Ok(encoder)
     }
 
-    /// An encoder in `codec`, at the bitrate Discord's cap for its height
-    /// allows.
+    /// An encoder in `codec`, at the stream's target, or what a stream of
+    /// `height` lines starts at before it has one.
     fn open(&self, codec: Codec, width: u32, height: u32) -> Result<Encoder> {
+        let target = self.video.as_ref().map_or_else(
+            || congestion::start(stream_connection::max_bitrate(height).into()),
+            |video| video.sender.target(),
+        );
         Encoder::new(
             codec,
             width,
             height,
             self.fps,
-            kbps(height, None),
+            (target / 1000) as u32,
             self.effort,
             self.hardware,
         )
@@ -1863,15 +1858,6 @@ mod tests {
         assert_eq!(fit(1920, 1080, 1280, 720), (1280, 720));
         assert_eq!(fit(3440, 1440, 1280, 720), (1280, 534));
         assert_eq!(fit(801, 601, 1280, 720), (800, 600), "never larger");
-    }
-
-    #[test]
-    fn aims_for_discords_bitrates() {
-        assert_eq!(kbps(720, None), 3500);
-        assert_eq!(kbps(1080, None), 9000);
-        assert_eq!(kbps(1080, Some(4_000_000)), 4000, "what the path carries");
-        assert_eq!(kbps(720, Some(9_000_000)), 3500, "never past the cap");
-        assert_eq!(kbps(1080, Some(100_000)), 500, "nor below a screen's floor");
     }
 
     /// With the GPU, AV1 and H265 before H264 where they open, and an
