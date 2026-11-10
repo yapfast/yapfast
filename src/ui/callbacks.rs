@@ -977,6 +977,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 Action::ChangeRelationship {
                     user: user.to_string(),
                     change: yapfast_core::chat::RelationshipChange::Unblock,
+                    location: "ContextMenu",
                 },
             );
         }
@@ -1340,6 +1341,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                             Action::AskPerson {
                                 user,
                                 ask: yapfast_core::application::PersonAsk::Note,
+                                location: "ContextMenu",
                             },
                         );
                     }

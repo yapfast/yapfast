@@ -4137,6 +4137,43 @@ async fn shows_status_and_games() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn blocks_and_unblocks_from_a_profile() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        ..
+    } = Fixture::start("blocks_and_unblocks_from_a_profile").await;
+    // Bob is Alice's friend; blocking him from his profile's menu ends that.
+    let bob = discord.find_people("bob")[0].id.clone();
+    snapshot_where(&discord, |snapshot| snapshot.friends.contains(&bob)).await;
+    let profile = "user profile overflow menu";
+    discord.block(&bob, true, profile).await.unwrap();
+    snapshot_where(&discord, |snapshot| {
+        snapshot.blocked.contains(&bob)
+            && !snapshot.friends.contains(&bob)
+            && snapshot
+                .blocked_list
+                .iter()
+                .any(|blocked| blocked.user_id == bob)
+    })
+    .await;
+    discord.block(&bob, false, profile).await.unwrap();
+    snapshot_where(&discord, |snapshot| {
+        !snapshot.blocked.contains(&bob) && snapshot.blocked_list.is_empty()
+    })
+    .await;
+    // Each says it came from the profile's menu, as Discord's client does.
+    assert_eq!(
+        self::control(server, "GET", "/_control/relationship-changes", ""),
+        format!(
+            r#"[{{"method":"PUT","user":"{bob}","type":2,"location":"{profile}"}},{{"method":"DELETE","user":"{bob}","type":null,"location":"{profile}"}}]"#
+        )
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn acts_from_a_dms_menu() {
     let Fixture {
         _fake,
@@ -4230,13 +4267,16 @@ async fn acts_from_a_dms_menu() {
     })
     .await;
 
-    discord.unfriend(&dave_user).await.unwrap();
+    discord.unfriend(&dave_user, "ContextMenu").await.unwrap();
     snapshot_where(&discord, |snapshot| {
         !snapshot.friends.contains(&dave_user)
             && dave_dm(snapshot).is_some_and(|dm| dm.name == "Dave")
     })
     .await;
-    discord.block(&dave_user, true).await.unwrap();
+    discord
+        .block(&dave_user, true, "ContextMenu")
+        .await
+        .unwrap();
     snapshot_where(&discord, |snapshot| {
         snapshot.blocked.contains(&dave_user)
             && snapshot
@@ -4245,11 +4285,22 @@ async fn acts_from_a_dms_menu() {
                 .any(|blocked| blocked.user_id == dave_user && blocked.name == "Dave")
     })
     .await;
-    discord.block(&dave_user, false).await.unwrap();
+    discord
+        .block(&dave_user, false, "ContextMenu")
+        .await
+        .unwrap();
     snapshot_where(&discord, |snapshot| {
         !snapshot.blocked.contains(&dave_user) && snapshot.blocked_list.is_empty()
     })
     .await;
+    // Each says where in Discord's client it came from: the request from
+    // a profile, the rest from the DM's menu.
+    assert_eq!(
+        self::control(server, "GET", "/_control/relationship-changes", ""),
+        format!(
+            r#"[{{"method":"PUT","user":"{dave_user}","type":null,"location":"User Profile"}},{{"method":"DELETE","user":"{dave_user}","type":null,"location":"ContextMenu"}},{{"method":"PUT","user":"{dave_user}","type":2,"location":"ContextMenu"}},{{"method":"DELETE","user":"{dave_user}","type":null,"location":"ContextMenu"}}]"#
+        )
+    );
     discord.close_dm(&dave).await.unwrap();
     snapshot_where(&discord, |snapshot| dave_dm(snapshot).is_none()).await;
 }

@@ -3918,7 +3918,7 @@ export component YapfastWindow inherits Window {
                             data: root.panel-profile;
                             enlarge => { root.enlarge-panel-profile(); }
                             befriend => { root.befriend(root.panel-profile.id); }
-                            more(x, y) => { root.open-context-menu(root.panel-profile.id, true, x, y); }
+                            more(x, y) => { root.open-context-menu("profile-more:" + root.panel-profile.id, true, x, y); }
                             send-message(text) => { root.message-from-profile(root.panel-profile.id, text); }
                             edit-profile => { root.edit-profile(); }
                             open-link(link) => { root.open-link(link); }
@@ -4402,7 +4402,7 @@ export component YapfastWindow inherits Window {
             enlarge => { root.enlarge-profile(); }
             close => { root.close-profile(); }
             befriend => { root.befriend(root.profile.id); }
-            more(x, y) => { root.open-context-menu(root.profile.id, true, x, y); }
+            more(x, y) => { root.open-context-menu("profile-more:" + root.profile.id, true, x, y); }
             open-link(link) => { root.open-link(link); }
             send-message(text) => { root.message-from-profile(root.profile.id, text); }
             edit-profile => { root.close-profile(); root.edit-profile(); }
@@ -4432,7 +4432,7 @@ export component YapfastWindow inherits Window {
             befriend => { root.befriend(root.profile.id); }
             message-person(user) => { root.close-profile(); root.message-person(user); }
             save-note(user, note) => { root.save-note(user, note); }
-            more(x, y) => { root.open-context-menu(root.profile.id, true, x, y); }
+            more(x, y) => { root.open-context-menu("profile-more:" + root.profile.id, true, x, y); }
             open-link(link) => { root.open-link(link); }
             open-server(server, x, y, width, height) => { root.open-server-card(server, x, y, width, height); }
             // In the full profile, a friend's opens full too.

@@ -292,7 +292,7 @@ fn nicknames_change_for_oneself_and_those_below() {
 fn a_members_note_and_dm_need_no_dm_first() {
     let mut app = staff();
     assert!(matches!(
-        app.dispatch(Action::AskPerson { user: "3".into(), ask: PersonAsk::Note }).as_slice(),
+        app.dispatch(Action::AskPerson { user: "3".into(), ask: PersonAsk::Note, location: "ContextMenu" }).as_slice(),
         [Effect::Backend(Command::Discord(DiscordCommand::Note { user }))] if user == "3"
     ));
     assert_eq!(app.state.person_dialog.as_ref().unwrap().name, "Cara");
@@ -300,6 +300,7 @@ fn a_members_note_and_dm_need_no_dm_first() {
     app.dispatch(Action::AskPerson {
         user: "3".into(),
         ask: PersonAsk::Nickname,
+        location: "ContextMenu",
     });
     assert!(app.state.person_dialog.is_none(), "Cara isn't a friend");
     assert!(matches!(
@@ -358,6 +359,7 @@ fn a_call_from_a_menu_asks_first_unless_told_not_to() {
     let ask = || Action::AskPerson {
         user: "4".into(),
         ask: PersonAsk::Call,
+        location: "ContextMenu",
     };
     assert!(app.dispatch(ask()).is_empty(), "nothing goes yet");
     assert!(!app.pending_call);
@@ -429,7 +431,7 @@ fn invite_to_server_lists_where_one_may_invite_but_the_server_theyre_shown_in() 
     assert_eq!(names(app.invite_servers("4")), ["Test", "Club"]);
     assert_eq!(
         app.person_choices("4"),
-        [Message, InviteToServer, CopyId],
+        [Message, InviteToServer, Block, CopyId],
         "a friend's"
     );
 }

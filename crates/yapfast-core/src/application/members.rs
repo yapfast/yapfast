@@ -485,6 +485,7 @@ impl Application {
                 user,
                 name,
                 ask,
+                location: "ContextMenu",
                 text: Some(text),
                 saving: false,
                 error: None,
