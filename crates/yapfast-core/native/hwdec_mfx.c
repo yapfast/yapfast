@@ -69,9 +69,6 @@ struct yapfast_mfxdec {
   VADisplay display;
   int fd;
   int codec;
-  /* The stream's own picture, once its first sequence header has said what it
-   * is: nothing is decoded before that. */
-  mfxVideoParam param;
   int configured;
   /* The frame being handed over, and the surface it is in: the decoder's pool
    * holds the surface against the card until the picture is released. */
@@ -79,7 +76,11 @@ struct yapfast_mfxdec {
   struct yapfast_mfxpicture picture;
   int have_picture;
   int picture_planes;
-  int picture_fds[YAPFAST_MFX_PLANES];
+  /* The objects the exported descriptor names, as libva handed them over: one
+   * per object, and two planes often share one, so they are closed by object
+   * rather than by plane. */
+  int object_fds[4];
+  int object_count;
   unsigned char *bits;
   size_t bits_size;
   struct yapfast_mfxfacts facts;
@@ -220,9 +221,9 @@ struct yapfast_mfxdec *yapfast_mfxdec_new(int codec) {
   struct yapfast_mfxdec *decoder = calloc(1, sizeof *decoder);
   if (decoder == NULL) return NULL;
   decoder->codec = codec;
+  decoder->fd = -1;
   decoder->picture_planes = 0;
-  decoder->picture_fds[0] = -1;
-  decoder->picture_fds[1] = -1;
+  decoder->object_count = 0;
   if (!load(decoder) || !start(decoder)) {
     yapfast_mfxdec_free(decoder);
     return NULL;
@@ -236,6 +237,12 @@ static int configure(struct yapfast_mfxdec *decoder, mfxBitstream *bits) {
   mfxVideoParam param;
   memset(&param, 0, sizeof param);
   mfxStatus status = decoder->mfx.MFXVideoDECODE_DecodeHeader(decoder->session, bits, &param);
+  if (status == MFX_ERR_MORE_DATA) {
+    /* The header hasn't finished: the next frame may complete it, and nothing is
+     * wrong with the stream yet. */
+    decoder->error[0] = 0;
+    return 0;
+  }
   if (status < MFX_ERR_NONE) {
     failed(decoder, status, "the stream's header wasn't readable");
     return 0;
@@ -253,7 +260,6 @@ static int configure(struct yapfast_mfxdec *decoder, mfxBitstream *bits) {
     failed(decoder, status, "oneVPL wouldn't open a decoder for the stream");
     return 0;
   }
-  decoder->param = param;
   decoder->configured = 1;
   return 1;
 }
@@ -289,6 +295,10 @@ static int export_picture(struct yapfast_mfxdec *decoder) {
     put(decoder->error, sizeof decoder->error,
         "the decoded surface isn't NV12 in two layers (0x%x, %u layers)", desc.fourcc,
         desc.num_layers);
+    /* libva made these descriptors for this call, so nothing else will close
+     * them: a stream whose surface is refused would leak one an attempt. */
+    for (uint32_t object = 0; object < desc.num_objects && object < 4; object++)
+      close(desc.objects[object].fd);
     return 0;
   }
   struct yapfast_mfxpicture *picture = &decoder->picture;
@@ -297,6 +307,9 @@ static int export_picture(struct yapfast_mfxdec *decoder) {
   picture->height = (int)surface->Info.CropH;
   picture->fourcc = MFX_DRM_FORMAT_NV12;
   picture->planes = 2;
+  decoder->object_count = (int)(desc.num_objects < 4 ? desc.num_objects : 4);
+  for (int object = 0; object < decoder->object_count; object++)
+    decoder->object_fds[object] = desc.objects[object].fd;
   for (unsigned layer = 0; layer < 2; layer++) {
     const uint32_t object = desc.layers[layer].object_index[0];
     picture->plane[layer].fd = desc.objects[object].fd;
@@ -305,8 +318,6 @@ static int export_picture(struct yapfast_mfxdec *decoder) {
     picture->plane[layer].size = desc.objects[object].size;
     picture->plane[layer].modifier = desc.objects[object].drm_format_modifier;
   }
-  decoder->picture_fds[0] = picture->plane[0].fd;
-  decoder->picture_fds[1] = picture->plane[1].fd;
   decoder->picture_planes = 2;
   decoder->facts.exported++;
   return 1;
@@ -353,6 +364,10 @@ int yapfast_mfxdec_decode(struct yapfast_mfxdec *decoder, const unsigned char *d
   if ((status = decoder->mfx.MFXVideoCORE_SyncOperation(decoder->session, sync, 60000)) !=
       MFX_ERR_NONE) {
     failed(decoder, status, "the card's decode didn't finish");
+    /* The surface is the decoder's until it is handed back: one lost here is one
+     * the pool never sees again, and enough of them stop the stream. */
+    decoder->surface = surface;
+    unlock(decoder);
     return -1;
   }
   decoder->surface = surface;
@@ -378,11 +393,14 @@ int yapfast_mfxdec_picture(struct yapfast_mfxdec *decoder, struct yapfast_mfxpic
 void yapfast_mfxdec_release(struct yapfast_mfxdec *decoder) {
   if (decoder == NULL) return;
   if (decoder->have_picture) {
-    /* The export made its own descriptors; the caller's are closed here. */
-    for (unsigned plane = 0; plane < 2; plane++) {
-      if (decoder->picture_fds[plane] >= 0) close(decoder->picture_fds[plane]);
-      decoder->picture_fds[plane] = -1;
+    /* One descriptor an object, whichever planes name it: two planes of an NV12
+     * surface are usually the same object, and closing it twice would close
+     * whatever the process opened next. */
+    for (int object = 0; object < decoder->object_count; object++) {
+      if (decoder->object_fds[object] >= 0) close(decoder->object_fds[object]);
+      decoder->object_fds[object] = -1;
     }
+    decoder->object_count = 0;
     decoder->have_picture = 0;
     decoder->picture_planes = 0;
   }

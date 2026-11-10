@@ -709,10 +709,19 @@ impl Encoder {
         hardware: bool,
         device: *mut std::ffi::c_void,
     ) -> Result<Self> {
+        /// Clears the capture device however the open ends, a panic included: the
+        /// device is only valid for the call it was set for.
+        struct Carried;
+
+        impl Drop for Carried {
+            fn drop(&mut self) {
+                CAPTURE_DEVICE.with(|slot| *slot.borrow_mut() = None);
+            }
+        }
+
         CAPTURE_DEVICE.with(|slot| *slot.borrow_mut() = Some(device));
-        let opened = Self::new(codec, width, height, fps, kbps, effort, hardware);
-        CAPTURE_DEVICE.with(|slot| *slot.borrow_mut() = None);
-        opened
+        let _carried = Carried;
+        Self::new(codec, width, height, fps, kbps, effort, hardware)
     }
 
     /// Whether the session that opened reads a capture's own surfaces rather

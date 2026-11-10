@@ -459,7 +459,18 @@ fn main() {
 // rather than from a toolkit's headers — that is what `-nocudainc` and the two
 // defines here say.
 fn cuda_kernel() -> Result<std::path::PathBuf, String> {
-    println!("cargo:rerun-if-changed=native/cuda_convert.cu");
+    for file in [
+        "native/cuda_convert.cu",
+        "native/cudaconvert.c",
+        "native/cudaenc.c",
+        "native/cudaconvert.h",
+        "native/hwdec_cuda.c",
+        "native/hwdec_cuda.h",
+        "native/hwdec_mfx.c",
+        "native/hwdec_mfx.h",
+    ] {
+        println!("cargo:rerun-if-changed={file}");
+    }
     // clang is the only compiler that emits PTX, and it is not always the one
     // this shell builds C with: `CC` may be gcc, which compiles the rest of
     // native/ and can do nothing here.

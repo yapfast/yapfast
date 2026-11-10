@@ -234,11 +234,23 @@ impl Convert {
                     // A device that isn't the picture's refuses to import it, and
                     // only the one whose memory it is takes it: try the next node
                     // once, and report the refusal of the last when none does.
+                    //
+                    // Not once a session has registered this buffer: replacing the
+                    // handle frees the context and the memory that session reads,
+                    // so the picture is refused rather than the stream broken.
+                    if Arc::strong_count(&self.handle) > 1 {
+                        return Err(error.context(
+                            "another device's picture, and a session already reads this one's memory",
+                        ));
+                    }
                     let Some(next) = self.rest.first().cloned() else {
                         return Err(error);
                     };
                     self.rest.remove(0);
-                    *self = Self::at(&next, self.width, self.height)?;
+                    let mut moved = Self::at(&next, self.width, self.height)?;
+                    // The nodes left are the ones this had not tried.
+                    moved.rest = std::mem::take(&mut self.rest);
+                    *self = moved;
                 }
             }
         }
@@ -310,12 +322,9 @@ impl Convert {
     }
 }
 
-impl Drop for Convert {
-    fn drop(&mut self) {
-        // SAFETY: made by this module, and let go of once.
-        unsafe { yapfast_cudaconvert_free(self.handle.0) }
-    }
-}
+// `Convert` has no `Drop` of its own: the [`Handle`] it shares with any session
+// encoding the buffer is what frees the driver's side, once, when the last of
+// them is gone.
 
 /// The render nodes this machine has, in the order they're tried: the first is
 /// whichever driver's `renderD128` is, which is the one a single-card desktop
@@ -421,12 +430,12 @@ impl Encoder {
             raw,
             _keep: Arc::clone(&convert.handle),
             codec,
-            // The driver's own bitstream buffer is 4 MiB, and a unit bigger than
-            // the buffer it is handed back in is one this path can't deliver: the
-            // picture has already been taken by the session, so submitting it
-            // again would reference a frame nobody got. Room for what the driver
-            // can hold, made once.
-            out: vec![0; 4 << 20],
+            // The driver's own bitstream buffer is 4 MiB, which a 1440p keyframe
+            // can pass: a unit bigger than the buffer it is handed back in is one
+            // this path can't deliver, and the picture is already the session's,
+            // so submitting it again would reference a frame nobody got. Room for
+            // two bytes a pixel, made once.
+            out: vec![0; ((width as usize * height as usize) * 2).max(4 << 20)],
         })
     }
 
@@ -489,7 +498,7 @@ impl Encoder {
     }
 
     pub fn config(&self) -> String {
-        let mut text = [0 as c_char; 128];
+        let mut text = [0 as c_char; 320];
         // SAFETY: as [`Self::tuning`].
         unsafe { yapfast_cudaenc_config(self.raw, text.as_mut_ptr(), text.len()) };
         // SAFETY: the C side leaves a terminated string.

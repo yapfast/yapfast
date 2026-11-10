@@ -452,7 +452,12 @@ struct yapfast_cudaconvert *yapfast_cudaconvert_new(int drm_fd, unsigned width,
     put(c->driver, sizeof(c->driver), "CUDA");
   if (c->cuda.cuDeviceGetName(c->device_name, sizeof(c->device_name), c->device) != CUDA_SUCCESS)
     put(c->device_name, sizeof(c->device_name), "an NVIDIA device");
-  CU(c, cuModuleLoadData(&c->module, ptx), "the convert kernels wouldn't load");
+  if (c->cuda.cuModuleLoadData(&c->module, ptx) != CUDA_SUCCESS) {
+    put(c->error, sizeof(c->error), "the convert kernels wouldn't load");
+    put(error, size, "%s", c->error);
+    yapfast_cudaconvert_free(c);
+    return NULL;
+  }
   char name[64];
   if (c->cuda.cuModuleGetFunction(&c->to_y, c->module, "bgra_to_y") != CUDA_SUCCESS) {
     put(c->error, sizeof(c->error), "the PTX has no bgra_to_y");
@@ -473,8 +478,20 @@ struct yapfast_cudaconvert *yapfast_cudaconvert_new(int drm_fd, unsigned width,
   c->width = width & ~1u;
   c->height = height & ~1u;
   c->pitch = (c->width + 255u) & ~255u;
-  c->nv12_size = (size_t)c->pitch * c->height * 3 / 2;
-  CU(c, cuMemAlloc(&c->nv12, c->nv12_size), "no room on the card for the picture");
+  /* A whole number of macroblocks' rows is allocated, though only the stream's
+   * own are written: a driver that rounds a surface's height up to sixteen reads
+   * the padding for the last chroma row rather than past the allocation. */
+  c->nv12_size = (size_t)c->pitch * ((c->height + 15u) & ~15u) * 3 / 2;
+  if (c->cuda.cuMemAlloc(&c->nv12, c->nv12_size) != CUDA_SUCCESS) {
+    put(c->error, sizeof(c->error), "no room on the card for the picture");
+    put(error, size, "%s", c->error);
+    yapfast_cudaconvert_free(c);
+    return NULL;
+  }
+  /* Nothing is current on the thread that opened this: the work enters the two
+   * contexts per call, and a share that never encodes leaves no binding behind. */
+  if (c->display != EGL_NO_DISPLAY && c->context != EGL_NO_CONTEXT)
+    c->egl.eglMakeCurrent(c->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
   /* The picture the kernels are given, until a frame says otherwise. */
   c->source_width = c->width;
   c->source_height = c->height;
@@ -613,6 +630,13 @@ int yapfast_cudaconvert_convert(struct yapfast_cudaconvert *c, int fd, unsigned 
      * refuse rather than read them wrongly. The share falls to the next rung. */
     put(c->error, sizeof(c->error),
         "a picture the driver holds as an array rather than rows (a tiled buffer)");
+  } else if (frame.pitch < stride) {
+    /* The driver imported the picture at a narrower pitch than the descriptor's
+     * own: the kernels read rows at the pitch they are given, so this one would
+     * read past every row's real extent. */
+    put(c->error, sizeof(c->error),
+        "a picture the driver holds at %u bytes a row where its descriptor says %u",
+        frame.pitch, stride);
   } else {
     c->source_width = width;
     c->source_height = height;
@@ -631,7 +655,11 @@ done:
 void yapfast_cudaconvert_free(struct yapfast_cudaconvert *c) {
   if (c == NULL) return;
   if (c->cuda_context != NULL && c->cuda.cuCtxDestroy != NULL) {
+    /* The block belongs to the context that made it, so it is let go of inside
+     * that context whether or not this thread had it current. */
+    c->cuda.cuCtxPushCurrent(c->cuda_context);
     if (c->nv12 != 0 && c->cuda.cuMemFree != NULL) c->cuda.cuMemFree(c->nv12);
+    c->cuda.cuCtxPopCurrent(NULL);
     c->cuda.cuCtxDestroy(c->cuda_context);
   }
   if (c->display != EGL_NO_DISPLAY) {

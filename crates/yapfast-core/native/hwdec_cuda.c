@@ -88,7 +88,9 @@ enum { MAX_SIDE = 8192 };
 /* The surfaces one stream's decoder holds: H264's sixteen reference pictures at
  * most, the rest giving the card room to decode ahead. A stream whose decoder
  * says it needs more gets what it asks for. */
-enum { POOL = 20 };
+/* The surfaces the decoder itself keeps: two pictures in flight and room for the
+ * codec's reference chain, which is what the parser is allowed to ask for. */
+enum { POOL = 20, SURFACES = 32 };
 
 /* How much of the card's memory a picture's DMA-BUF is described over: the
  * surface's address is only page-aligned after rounding down, so the exported
@@ -377,16 +379,23 @@ void yapfast_cuvadec_release(struct yapfast_cudec *decoder) {
   decoder->exported_size = 0;
   decoder->exported_shift = 0;
   if (decoder->mapped && decoder->decoder) {
-    const CUresult status = g_driver.cuvidUnmapVideoFrame(decoder->decoder,
-                                                          (unsigned long long)decoder->mapped_pointer);
-    (void)status;
+    /* Mapping belongs to the context that made it: a picture is handed back
+     * whether or not this thread had that context current, since a surface the
+     * driver believes is still mapped is one it can't decode into again. */
+    const int current = push_context(decoder);
+    g_driver.cuvidUnmapVideoFrame(decoder->decoder, (unsigned long long)decoder->mapped_pointer);
+    if (current) pop_context(decoder);
     decoder->mapped = 0;
     decoder->mapped_pointer = 0;
   }
-  if (decoder->fd >= 0) {
+  /* A descriptor the shim opened for a picture the driver exported where it lay.
+   * A slot's is drop_slots's to close: it names the same buffer as the picture
+   * that used it and outlives the picture. */
+  if (decoder->direct && decoder->fd >= 0) {
     close(decoder->fd);
     decoder->fd = -1;
   }
+  decoder->fd = -1;
   decoder->direct = 0;
 }
 
@@ -591,6 +600,7 @@ static int CUDAAPI sequence_callback(void *user, CUVIDEOFORMAT *format) {
   info.ulNumDecodeSurfaces = format->min_num_decode_surfaces > POOL
                                  ? format->min_num_decode_surfaces
                                  : POOL;
+  if (info.ulNumDecodeSurfaces > SURFACES) info.ulNumDecodeSurfaces = SURFACES;
   info.CodecType = decoder->driver_codec;
   info.ChromaFormat = cudaVideoChromaFormat_420;
   /* The dedicated video engines, not the CUDA cores standing in for them. */
@@ -612,6 +622,9 @@ static int CUDAAPI sequence_callback(void *user, CUVIDEOFORMAT *format) {
   info.target_rect.top = 0;
   info.target_rect.right = (short)width;
   info.target_rect.bottom = (short)height;
+  /* A picture still mapped from the decoder about to be dropped goes back to it
+   * first: the new decoder has no way to unmap it, and the old one is gone. */
+  yapfast_cuvadec_release(decoder);
   CUvideodecoder made = NULL;
   const CUresult status = g_driver.cuvidCreateDecoder(&made, &info);
   if (status != CUDA_SUCCESS) {
@@ -741,7 +754,10 @@ struct yapfast_cudec *yapfast_cuvadec_new(int codec) {
   params.CodecType = decoder->driver_codec;
   /* The parser's queue, which the sequence callback raises if the stream's own
    * decoder needs more. */
-  params.ulMaxNumDecodeSurfaces = POOL;
+  /* What the sequence callback may ask for, which is what the parser will hand
+   * over: a stream that needs more than this is refused rather than silently
+   * giving up the pictures the decoder can't get a surface for. */
+  params.ulMaxNumDecodeSurfaces = SURFACES;
   /* A microsecond clock, since no timestamp is passed: it only has to be a
    * clock. */
   params.ulClockRate = 1000000;

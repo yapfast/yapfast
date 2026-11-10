@@ -1242,10 +1242,15 @@ async fn send(
                     sent.unopened += 1;
                     continue;
                 };
-                for (kind, said) in rtp::rtcp_kinds(rtcp) {
-                    *sent.rtcp.entry(kind.clone()).or_default() += 1;
-                    if !said.is_empty() {
-                        sent.said.insert(kind, said);
+                // Naming a report's parts is for the five-second debug line and
+                // nothing else: two strings a report, and reports arrive in
+                // bursts when the path is losing packets.
+                if tracing::enabled!(tracing::Level::DEBUG) {
+                    for (kind, said) in rtp::rtcp_kinds(rtcp) {
+                        *sent.rtcp.entry(kind.clone()).or_default() += 1;
+                        if !said.is_empty() {
+                            sent.said.insert(kind, said);
+                        }
                     }
                 }
                 // One clock read for what this report says, and what it means
@@ -1260,7 +1265,7 @@ async fn send(
                     }
                 }
                 if let Some(estimate) = rtp::bandwidth_estimate(rtcp, video)
-                    && let Some(reason) = pacing.set_estimate(estimate)
+                    && let Some(reason) = pacing.set_estimate(estimate, now)
                 {
                     retarget(shared, &pacing, reason, None);
                 }
@@ -1307,7 +1312,7 @@ async fn send(
                     // The picture changed size, so what it's worth changed: a
                     // bigger one declares more, and the controller takes that
                     // as its ceiling from here on.
-                    if let Some(reason) = pacing.set_cap(max_bitrate(size.0, size.1, fps).into()) {
+                    if let Some(reason) = pacing.set_cap(max_bitrate(size.0, size.1, fps).into(), std::time::Instant::now()) {
                         retarget(shared, &pacing, reason, None);
                     }
                 }

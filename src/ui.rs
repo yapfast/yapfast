@@ -1719,6 +1719,7 @@ impl Layout {
         window.set_high_bitrate(self.high_bitrate.unwrap_or(false));
         #[cfg(feature = "discord")]
         yapfast_core::stream_worker::set_hardware_encoding(self.gpu_encoding.unwrap_or(true));
+        yapfast_core::stream_worker::set_high_bitrate(self.high_bitrate.unwrap_or(false));
         // Before any share opens, which is what asks: a capture already
         // running keeps the way it started with.
         window.set_capture_preference(choice(&CAPTURES, self.capture));

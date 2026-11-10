@@ -114,12 +114,20 @@ struct Received {
     lost: u32,
 }
 
+/// How long the server's estimate speaks for the path. Its reports come as often
+/// as viewers' receivers send them, so a stream somebody watches never sees it
+/// lapse; one that does lapse — a viewer who left, a socket gone quiet — is not
+/// news about the path now, and the cap speaks again.
+const ESTIMATE_LIFE: Duration = Duration::from_secs(5);
+
 pub struct Controller {
     target: u64,
     /// Discord's cap for the stream's height.
     cap: u64,
-    /// The server's estimate (REMB), once it sent one.
-    estimate: Option<u64>,
+    /// The server's estimate (REMB), once it sent one, and when: an estimate
+    /// speaks for the path as it was when its report was made, and one the
+    /// server stopped repeating is not news about the path now.
+    estimate: Option<(u64, Instant)>,
     /// Round trips measured within [`BASELINE`], oldest first.
     trips: VecDeque<(Instant, Duration)>,
     /// Reports in a row whose round trip said a queue was building.
@@ -222,15 +230,16 @@ impl Controller {
         self.trips.iter().map(|&(_, trip)| trip).min()
     }
 
-    fn limit(&self) -> u64 {
+    fn limit(&self, now: Instant) -> u64 {
         self.estimate
-            .map_or(self.cap, |estimate| estimate.min(self.cap))
+            .filter(|(_, at)| now.duration_since(*at) < ESTIMATE_LIFE)
+            .map_or(self.cap, |(estimate, _)| estimate.min(self.cap))
             .max(FLOOR)
     }
 
     /// Lowers the target to the limit when it's past it.
-    fn clamp(&mut self) -> Option<Reason> {
-        let limit = self.limit();
+    fn clamp(&mut self, now: Instant) -> Option<Reason> {
+        let limit = self.limit(now);
         (self.target > limit).then(|| {
             self.target = limit;
             Reason::Cap
@@ -238,15 +247,15 @@ impl Controller {
     }
 
     /// Takes a new cap, for a new frame size.
-    pub fn set_cap(&mut self, cap: u64) -> Option<Reason> {
+    pub fn set_cap(&mut self, cap: u64, now: Instant) -> Option<Reason> {
         self.cap = cap;
-        self.clamp()
+        self.clamp(now)
     }
 
     /// Takes the server's bandwidth estimate (REMB).
-    pub fn set_estimate(&mut self, estimate: u64) -> Option<Reason> {
-        self.estimate = Some(estimate);
-        self.clamp()
+    pub fn set_estimate(&mut self, estimate: u64, now: Instant) -> Option<Reason> {
+        self.estimate = Some((estimate, now));
+        self.clamp(now)
     }
 
     /// Counts the packets the server received since the report it counts
@@ -349,7 +358,7 @@ impl Controller {
             _ => self.target * RAMP / 100,
         };
         let higher = (self.target + step)
-            .min(self.limit())
+            .min(self.limit(now))
             .min(sending * HEADROOM / 100);
         (higher > self.target).then(|| {
             self.target = higher;
@@ -553,6 +562,23 @@ mod tests {
     }
 
     #[test]
+    fn an_estimate_that_stops_coming_stops_being_the_ceiling() {
+        let mut uplink = Uplink::new(CAP);
+        assert_eq!(
+            uplink.controller.set_estimate(2_000_000, uplink.at),
+            Some(Reason::Cap)
+        );
+        assert_eq!(uplink.target(), 2_000_000);
+        // Ten seconds without a new report: the estimate described the path as it
+        // was, not as it is, so it stops being the ceiling and the cap speaks.
+        uplink.busy(10, Some(ms(50)), 0);
+        assert!(
+            uplink.target() > 2_000_000,
+            "the lapsed estimate still clamped the rate"
+        );
+    }
+
+    #[test]
     fn never_goes_below_the_floor() {
         let mut uplink = Uplink::new(CAP);
         let said = uplink.busy(40, None, 255);
@@ -563,20 +589,31 @@ mod tests {
     #[test]
     fn follows_the_cap_and_discords_estimate() {
         let mut uplink = Uplink::new(CAP);
-        assert_eq!(uplink.controller.set_estimate(2_000_000), Some(Reason::Cap));
+        assert_eq!(
+            uplink.controller.set_estimate(2_000_000, uplink.at),
+            Some(Reason::Cap)
+        );
         assert_eq!(uplink.target(), 2_000_000);
-        uplink.busy(10, Some(ms(50)), 0);
+        // Inside the estimate's life, which is what a server that keeps reporting
+        // holds: the rate can't pass it.
+        uplink.busy(1, Some(ms(50)), 0);
         assert_eq!(uplink.target(), 2_000_000, "never past the estimate");
-        assert_eq!(uplink.controller.set_estimate(100_000), Some(Reason::Cap));
+        assert_eq!(
+            uplink.controller.set_estimate(100_000, uplink.at),
+            Some(Reason::Cap)
+        );
         assert_eq!(uplink.target(), FLOOR, "nor below the floor");
-        assert_eq!(uplink.controller.set_estimate(20_000_000), None);
+        assert_eq!(uplink.controller.set_estimate(20_000_000, uplink.at), None);
         uplink.busy(40, Some(ms(50)), 0);
         assert_eq!(
             uplink.target(),
             CAP,
             "an estimate past the cap leaves the cap"
         );
-        assert_eq!(uplink.controller.set_cap(3_500_000), Some(Reason::Cap));
+        assert_eq!(
+            uplink.controller.set_cap(3_500_000, uplink.at),
+            Some(Reason::Cap)
+        );
         assert_eq!(uplink.target(), 3_500_000);
     }
 

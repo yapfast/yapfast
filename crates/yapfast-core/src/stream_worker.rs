@@ -759,8 +759,8 @@ struct Cuda {
     encoder: cuda::Encoder,
     codec: Codec,
     size: (u32, u32),
-    /// The kbit/s the session aims for now, which moves with Discord's estimate
-    /// as the one fed from memory does.
+    /// The kbit/s the session aims for now, which follows the sender's target as
+    /// the session fed from memory does.
     kbps: u32,
     /// The line the log and the Stream tab show: which backend runs, the card it
     /// runs on, and that its pictures never come back to the processor.
@@ -1121,6 +1121,9 @@ struct Video {
     /// Frames the send queue was too full to take, since the stream started:
     /// a sender that can't keep up shows here first.
     skipped: u64,
+    /// The rate the encoder refused, until the sender's target moves: asked
+    /// again with every frame, a refusal would be a warning a frame.
+    refused: Option<u32>,
     /// When the stream last reported how it goes out, and the bytes it had
     /// sent then.
     measured: (Instant, u64),
@@ -1165,7 +1168,7 @@ impl Video {
         let sound = self.sound.as_ref().map(stream_audio::Capture::stats);
         StreamStats {
             fps,
-            target_kbps: self.encoder.as_ref().map_or(0, Encoding::bitrate),
+            target_kbps: (self.sender.target() / 1000) as u32,
             sent_kbps: (bits / milliseconds) as u32,
             keyframe_requests: sent.keyframe_requests,
             resent: sent.resent,
@@ -1200,6 +1203,17 @@ fn log_encoder(encoder: &Encoding) {
 /// which is what an encoder is opened at before the stream has a target of its
 /// own: a card's encoder opened to capture with, and the preview's, run for
 /// nothing but a picture and a thumbnail. See [`stream_connection::max_bitrate`].
+/// Whether a share may hand its session the capture's own surface. A capture
+/// fills a BGRA texture at the capture's size, while a session reading surfaces
+/// reads NV12 at the stream's size: until a capture hands one over in that shape,
+/// every frame would be refused, and a share would fall to the processor having
+/// thrown away a session that worked. So the rung is off, and a measurement asks
+/// for it by name.
+#[cfg(all(target_os = "windows", hwenc))]
+fn surfaces_offered() -> bool {
+    std::env::var_os("YAPFAST_STREAM_SURFACES").is_some()
+}
+
 fn kbps(width: u32, height: u32, fps: u32) -> u32 {
     stream_connection::max_bitrate(width, height, fps) / 1000
 }
@@ -1542,9 +1556,9 @@ impl Sink {
     }
 
     /// Everything a frame needs before it's encoded, and nothing of the encoding
-    /// itself: the stream opened at this size and this codec, the rate Discord
-    /// last estimated followed, and the frame's own time and whether it has to be
-    /// whole. None when the frame is dropped instead — the queue is full, or
+    /// itself: the stream opened at this size and this codec, the rate the
+    /// sender's congestion controller asks for followed, and the frame's own time
+    /// and whether it has to be whole. None when the frame is dropped instead — the queue is full, or
     /// nothing has said where the stream goes yet.
     fn ready(
         &mut self,
@@ -1569,6 +1583,7 @@ impl Sink {
                 sound,
                 reopen: false,
                 skipped: 0,
+                refused: None,
                 measured: (Instant::now(), 0),
             });
         }
@@ -1627,15 +1642,22 @@ impl Sink {
         // a report at a time. Not on every wobble: a tenth is the width of a
         // change worth telling the rate control about.
         let wanted = (video.sender.target() / 1000) as u32;
-        if wanted.abs_diff(aimed) > aimed / 10 {
+        // A rate the encoder refused is not asked for again until the target
+        // moves: the condition would stay true every frame otherwise, and a
+        // warning a frame is a storm in the log and an allocation with it.
+        if wanted.abs_diff(aimed) > aimed / 10 && video.refused != Some(wanted) {
             match video
                 .encoder
                 .as_mut()
                 .expect("opened above")
                 .set_bitrate(wanted)
             {
-                Ok(()) => tracing::debug!(kbps = wanted, "the encoder follows the stream's target"),
+                Ok(()) => {
+                    video.refused = None;
+                    tracing::debug!(kbps = wanted, "the encoder follows the stream's target");
+                }
                 Err(error) => {
+                    video.refused = Some(wanted);
                     tracing::warn!(error = format!("{error:#}"), "could not change the bitrate")
                 }
             }
@@ -1845,6 +1867,7 @@ impl Sink {
                 // so it keeps the native session that scales on the card.
                 #[cfg(all(target_os = "windows", hwenc))]
                 if !encode::planned(codec).is_some_and(|name| name.ends_with("_nvenc"))
+                    && surfaces_offered()
                     && let Ok(encoder) = encode::Encoder::on_device(
                         codec,
                         width,

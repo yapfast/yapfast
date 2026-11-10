@@ -546,6 +546,11 @@ static struct qsv_slot *qsv_surface(struct yapfast_hwenc *h, void *texture,
     return NULL;
   }
   built->Info = *info;
+  /* The texture's own size, not the frames context's aligned one: a stream sized
+   * to a screen that isn't a multiple of sixteen would otherwise be read at a
+   * pitch wider than the subresource has. */
+  built->Info.Width = desc.Width;
+  built->Info.Height = desc.Height;
   pair->first = texture;
   /* A render target is addressed as the whole surface; one that isn't is
    * addressed by the subresource inside it, the way FFmpeg addresses the
@@ -560,8 +565,10 @@ static struct qsv_slot *qsv_surface(struct yapfast_hwenc *h, void *texture,
     return NULL;
   }
   struct qsv_slot *reuse = empty ? empty : oldest;
-  av_buffer_unref(&reuse->ref);
+  /* The reference is taken before the slot's is let go of: a slot naming this
+   * same texture would otherwise be released to nothing and then written to. */
   surface->lpVtbl->AddRef(surface);
+  av_buffer_unref(&reuse->ref);
   reuse->texture = texture;
   reuse->subresource = subresource;
   reuse->ref = ref;

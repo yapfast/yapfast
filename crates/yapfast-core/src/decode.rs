@@ -1169,6 +1169,9 @@ mod cuda {
     use super::message;
     use crate::dmabuf::{Descriptor, MAX_PLANES, Plane};
 
+    /// The planes the shim's picture names: NV12's luma and its chroma.
+    const YAPFAST_PLANES: usize = 2;
+
     /// One plane of a picture's buffer, laid out as `struct yapfast_cuplane`.
     #[repr(C)]
     #[derive(Clone, Copy, Debug, Default)]
@@ -1188,8 +1191,13 @@ mod cuda {
         height: c_int,
         fourcc: u32,
         planes: u32,
-        plane: [RawPlane; MAX_PLANES],
+        plane: [RawPlane; YAPFAST_PLANES],
     }
+
+    /// The C header's struct is this size: two planes of 32 bytes after four
+    /// 32-bit fields. A field added on either side without the other fails here
+    /// instead of reading a neighbour's memory.
+    const _: () = assert!(std::mem::size_of::<RawPicture>() == 80);
 
     /// The decoder, which only the shim knows the inside of.
     #[repr(C)]
@@ -1391,6 +1399,9 @@ mod mfx {
     use super::message;
     use crate::dmabuf::{Descriptor, MAX_PLANES, Plane};
 
+    /// The planes the shim's picture names: NV12's luma and its chroma.
+    const YAPFAST_PLANES: usize = 2;
+
     /// One plane of a picture's buffer, laid out as `struct yapfast_cuplane`.
     #[repr(C)]
     #[derive(Clone, Copy, Debug, Default)]
@@ -1410,8 +1421,13 @@ mod mfx {
         height: c_int,
         fourcc: u32,
         planes: u32,
-        plane: [RawPlane; MAX_PLANES],
+        plane: [RawPlane; YAPFAST_PLANES],
     }
+
+    /// The C header's struct is this size: two planes of 32 bytes after four
+    /// 32-bit fields. A field added on either side without the other fails here
+    /// instead of reading a neighbour's memory.
+    const _: () = assert!(std::mem::size_of::<RawPicture>() == 80);
 
     /// The decoder, which only the shim knows the inside of.
     #[repr(C)]
@@ -1698,7 +1714,7 @@ mod linux {
 /// exported it as, which the tile pass imports.
 pub enum Frame<'a> {
     Software(Picture<'a>),
-    #[cfg(any(d3d11dec, vaapidec))]
+    #[cfg(any(d3d11dec, vaapidec, nvdec, mfxdec))]
     Hardware(&'a mut Hardware),
 }
 
@@ -1707,7 +1723,7 @@ impl Frame<'_> {
     pub fn size(&self) -> (u32, u32) {
         match self {
             Frame::Software(picture) => (picture.width, picture.height),
-            #[cfg(any(d3d11dec, vaapidec))]
+            #[cfg(any(d3d11dec, vaapidec, nvdec, mfxdec))]
             Frame::Hardware(hardware) => hardware.size(),
         }
     }
@@ -1720,7 +1736,7 @@ impl Frame<'_> {
 /// and the stream is shown the same way either way.
 pub struct Live {
     codec: Codec,
-    #[cfg(any(d3d11dec, vaapidec))]
+    #[cfg(any(d3d11dec, vaapidec, nvdec, mfxdec))]
     hardware: Option<Hardware>,
     software: Option<Decoder>,
 }
@@ -1748,9 +1764,9 @@ impl Live {
 
     /// [`Self::new_on`], without the safety the caller carries from here on.
     fn on_codec(device: *mut c_void, codec: Codec) -> Result<Self> {
-        #[cfg(not(any(d3d11dec, vaapidec)))]
+        #[cfg(not(any(d3d11dec, vaapidec, nvdec, mfxdec)))]
         let _ = device;
-        #[cfg(any(d3d11dec, vaapidec))]
+        #[cfg(any(d3d11dec, vaapidec, nvdec, mfxdec))]
         {
             // SAFETY: the device outlives every decoder made from it, as
             // `new_on` promises and `Live::new` has none.
@@ -1789,7 +1805,7 @@ impl Live {
     pub fn software(codec: Codec) -> Result<Self> {
         Ok(Self {
             codec,
-            #[cfg(any(d3d11dec, vaapidec))]
+            #[cfg(any(d3d11dec, vaapidec, nvdec, mfxdec))]
             hardware: None,
             software: Some(Decoder::new(codec)?),
         })
@@ -1801,14 +1817,14 @@ impl Live {
 
     /// Whether the machine's decoder is the one reading this stream, rather
     /// than the software one.
-    #[cfg(any(d3d11dec, vaapidec))]
+    #[cfg(any(d3d11dec, vaapidec, nvdec, mfxdec))]
     pub fn on_the_card(&self) -> bool {
         self.hardware.is_some()
     }
 
     /// Whether the machine's decoder is the one reading this stream, rather
     /// than the software one.
-    #[cfg(not(any(d3d11dec, vaapidec)))]
+    #[cfg(not(any(d3d11dec, vaapidec, nvdec, mfxdec)))]
     pub fn on_the_card(&self) -> bool {
         false
     }
@@ -1820,9 +1836,9 @@ impl Live {
     /// says so: the caller waits for a keyframe, and the software decoder takes
     /// the stream from there.
     // `keyframe` is what a machine decoder is told; software doesn't need it.
-    #[cfg_attr(not(any(d3d11dec, vaapidec)), allow(unused_variables))]
+    #[cfg_attr(not(any(d3d11dec, vaapidec, nvdec, mfxdec)), allow(unused_variables))]
     pub fn decode(&mut self, frame: &[u8], keyframe: bool) -> Result<Option<Frame<'_>>> {
-        #[cfg(any(d3d11dec, vaapidec))]
+        #[cfg(any(d3d11dec, vaapidec, nvdec, mfxdec))]
         if let Some(mut hardware) = self.hardware.take() {
             match hardware.decode(frame, keyframe) {
                 Ok(true) => {
