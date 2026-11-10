@@ -3640,6 +3640,9 @@ fn capture_textures(
     let mut saw_picture = false;
     let mut preview_pending = false;
     let mut was_wanted = false;
+    /// Whether the tile's preview is read back because the window draws on the
+    /// processor: decided once, on the first picture the window refused.
+    let mut readback = false;
     while next_frame(started, &mut slot, fps, stop).is_some() {
         // One look per stream slot, paced by `next_frame` on both rungs: a
         // duplication asked with no wait answers at once whether the desktop
@@ -4316,6 +4319,21 @@ fn showable(writer: &mut Writer) -> bool {
     writer.dmabuf_showable().is_some()
 }
 
+/// Whether this build has an encoder that reads a descriptor where it lies: the
+/// VA-API import, or the CUDA rung NVIDIA's cards need. The question is the
+/// encoder's, not the window's — a share whose tile is drawn on the processor
+/// still sends from the card, with its preview read back instead of shown.
+fn encodes_descriptors() -> bool {
+    #[cfg(any(dmabufenc, nvcuda))]
+    {
+        true
+    }
+    #[cfg(not(any(dmabufenc, nvcuda)))]
+    {
+        false
+    }
+}
+
 /// Opens `rung`'s capture of `source`, whose pictures are the DMA-BUFs the
 /// compositor drew.
 #[cfg(target_os = "linux")]
@@ -4421,8 +4439,8 @@ fn dmabuf_capture(source: &Source, sink: &mut Sink) -> Result<Opened> {
     if !dmabuf_takes(source) {
         bail!("this source has no picture the card made");
     }
-    if !showable(&mut sink.writer) {
-        bail!("the window has no way to show a picture the card made");
+    if !showable(&mut sink.writer) && !encodes_descriptors() {
+        bail!("nothing here can read a picture the card made");
     }
     let session = capture::Session::new(portal_picks());
     let available = available();
@@ -4525,6 +4543,10 @@ fn capture_dmabufs(
     let mut saw_picture = false;
     let mut preview_pending = false;
     let mut was_wanted = false;
+    /// Whether the tile's preview is read back, because the window draws on the
+    /// processor and can't sample the picture the card made: decided once, on the
+    /// first picture the window refused.
+    let mut readback = false;
     // The buffers a picture is converted in, when the encoder reads memory: one
     // for the picture and one for the stream's size, made again only when a
     // picture comes at another size.
@@ -4681,11 +4703,26 @@ fn capture_dmabufs(
         // socket has gone, or it stopped retiring slots — leaves the share on the
         // processor, which is where its pixels are.
         if publishing(wanted, preview_pending)
+            && !readback
             && let Some(_slot) = sink.writer.claim()
         {
             if sink.writer.publish_dmabuf(&shot.descriptor()) {
                 sink.diagnosis.presentation = Some(Presentation::Shared);
                 preview_pending = false;
+            } else if encodes_descriptors() {
+                // The window draws on the processor and can't sample a descriptor,
+                // so its preview is read back — the same copy Discord's still is
+                // made of — while the encoder goes on reading the card's own
+                // picture. Said once, since it holds for the rest of the share.
+                tracing::info!(
+                    "the window draws on the processor: its preview is a copy of the picture, and \
+                     the stream is still the card's own"
+                );
+                readback = true;
+                sink.diagnosis.presentation = Some(Presentation::Copy);
+                sink.diagnosis.fallback = Some(
+                    "the window draws on the processor, so the tile's preview is a copy".to_owned(),
+                );
             } else {
                 tracing::info!(
                     "sharing from the processor: the window can't show the card's picture"
@@ -4694,6 +4731,20 @@ fn capture_dmabufs(
                 sink.diagnosis.fallback =
                     Some("the window can't show the picture the card drew".to_owned());
                 return Ok((sink, After::Processor(source)));
+            }
+        }
+        // A read-back preview is made only while a tile shows one, and only of
+        // the picture the window can't sample: one copy of the screen a preview
+        // frame, which is what a software renderer costs a share.
+        if readback && wanted {
+            if let Err(error) = shot.still(&mut scratch) {
+                tracing::warn!(
+                    error = format!("{error:#}"),
+                    "sharing without a preview: the picture couldn't be read back"
+                );
+            } else if let Some(full) = scratch.full.as_ref() {
+                sink.preview(full);
+                preview_pending = false;
             }
         }
     }

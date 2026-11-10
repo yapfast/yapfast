@@ -356,10 +356,18 @@ wanted, into a slot `frames::Writer::claim` answers, with
 `frames::Writer::publish_dmabuf`: the descriptor and its plane go over the
 stream's socket, and the window imports them. `frames::Writer::dmabuf_showable`
 is asked before any capture opens, and again before a publish that leaves a slot
-free: a window that can't show these pictures is a share that stays on the
-processor, where its frames have always been pixels. A size change (`Resized`, or
-a descriptor of another size) is reported to the UI at the size the next picture
-is sent at, and the stream's encoder is opened at it on the same connection.
+free — but it decides the *preview*, not the stream. A window drawing on the
+processor can't sample a descriptor, and before this it took the whole share down
+to the processor with it; now the capture stays on the card, the encoder goes on
+reading the descriptor (VA-API's import, or the CUDA rung NVIDIA's cards need) and
+the tile's preview is the picture read back — the same `mmap` the still is made
+of — said once in the log. So a software-rendered window costs one copy of the
+screen per preview frame it shows, and nothing of the stream. A session whose
+build has neither an importer nor an encoder that reads descriptors keeps the
+processor's capturer, which is where its frames have always been pixels. A size
+change (`Resized`, or a descriptor of another size) is reported to the UI at the
+size the next picture is sent at, and the stream's encoder is opened at it on the
+same connection.
 
 What the encoder is given is the descriptor itself, through
 `stream_worker::Encoding::encode_dmabuf`: a VA-API session imports it and no pixel
