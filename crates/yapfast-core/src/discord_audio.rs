@@ -152,7 +152,7 @@ impl Listener for Hearing {
     /// The call's thread decodes and mixes everyone each 20 ms; held up,
     /// the speakers run dry.
     fn on_call_thread(&self) {
-        crate::audio_io::raise_thread_priority();
+        crate::audio_io::raise_thread_priority("call");
     }
 }
 
@@ -502,8 +502,8 @@ const BEHIND: Duration = Duration::from_millis(40);
 /// the thread up, audio waits in the microphone's buffer, and once
 /// [`BEHIND`] waits, the suppressor runs lightly until it's caught up.
 /// Waiting longer, the buffer overflows and the call has nothing to send,
-/// which others hear as a robotic voice; a few blocks less suppressed go
-/// unnoticed.
+/// which others hear as a robotic voice; a few blocks passed with their
+/// noise matter less.
 #[derive(Default)]
 struct Pace {
     /// About how much waits in the microphone's buffer.
@@ -567,7 +567,7 @@ pub fn speakers(
     thread::Builder::new()
         .name("yapfast-discord-out".into())
         .spawn(move || {
-            crate::audio_io::raise_thread_priority();
+            crate::audio_io::raise_thread_priority("speakers");
             // Speakers that go away, such as Bluetooth headphones, open
             // again when they come back.
             let stream = LastingOutput::<i16>::open(

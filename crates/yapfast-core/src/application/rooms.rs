@@ -174,8 +174,9 @@ impl AppState {
     }
 
     /// What someone's menu offers, by Discord user id or Matrix ID: their
-    /// profile when Yapfast knows them, a DM, and Discord friendship; in their
-    /// DM, what the DM's menu offers.
+    /// profile when Yapfast knows them, a DM, Discord friendship and
+    /// blocking, never for this account; in their DM, what the DM's menu
+    /// offers.
     pub fn person_choices(&self, user: &str) -> Vec<MenuChoice> {
         // In their own DM, someone's menu is the DM's, less what's about it
         // as a conversation in the list; its ID is theirs.
@@ -202,12 +203,20 @@ impl AppState {
         }
         // Matrix IDs start with `@`; Discord user ids are numbers.
         if !me && !self.preview && !user.starts_with('@') && self.discord_user.is_some() {
+            let blocked = self.is_blocked(user);
             match self.relation(user) {
-                Relation::Stranger => choices.push(MenuChoice::AddFriend),
+                // Discord takes no request to someone blocked.
+                Relation::Stranger if !blocked => choices.push(MenuChoice::AddFriend),
                 Relation::Incoming => choices.push(MenuChoice::AcceptFriend),
                 Relation::Outgoing => choices.push(MenuChoice::CancelFriendRequest),
-                Relation::Friend | Relation::Me | Relation::Bot => {}
+                Relation::Stranger | Relation::Friend | Relation::Me | Relation::Bot => {}
             }
+            // As a profile's More menu offers it in Discord's client.
+            choices.push(if blocked {
+                MenuChoice::Unblock
+            } else {
+                MenuChoice::Block
+            });
         }
         if !self.preview {
             choices.push(MenuChoice::CopyId);
@@ -888,6 +897,11 @@ impl Application {
                 .iter()
                 .any(|room| room.id == id && self.state.in_scope(room));
         let mut effects = if changes { self.close_aside() } else { vec![] };
+        if changes {
+            // As in Discord's client, a failed control's line goes with
+            // the channel.
+            self.state.interaction_failed = None;
+        }
         effects.extend(self.show_room(id, chat));
         effects.extend(self.ask_activity());
         effects
@@ -938,6 +952,7 @@ impl Application {
         self.state.forwarding = None;
         self.state.viewer = None;
         self.state.video = None;
+        self.state.voice_message = None;
         self.state.profile = None;
         self.state.room_ready = self.state.preview || voice_room;
         self.state.loading_history = false;
@@ -1063,6 +1078,7 @@ impl Application {
         self.state.forwarding = None;
         self.state.viewer = None;
         self.state.video = None;
+        self.state.voice_message = None;
         self.state.room_ready = false;
         self.state.loading_history = false;
         self.state.history_start = false;

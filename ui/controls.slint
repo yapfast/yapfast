@@ -101,6 +101,7 @@ export component IconButton inherits Rectangle {
     in property <int> tip-side: 0;
     in property <length> radius: 6px;
     out property <bool> hovered: pointer.has-hover;
+    out property <bool> focused: focus.has-focus;
     callback clicked;
     // The root fills its row; the visible face stays square and centred.
     width: root.size; min-height: root.size;
@@ -365,6 +366,9 @@ export global PictureStore {
 // Discord, so GIFs on another screen hold still where they are.
 export global Motion {
     in property <bool> playing: true;
+    /// Animations are turned off in the settings: what would move into
+    /// view shows at once, or always.
+    in property <bool> never;
 }
 
 // A picture, or an animation's frames in turn while it shows.
@@ -1570,6 +1574,68 @@ export component Banner inherits Rectangle {
         Image { source: @image-url("icons/triangle-alert.svg"); width: 18px; image-fit: contain; colorize: Theme.accent; }
         Text { text: root.text; color: Theme.text; font-size: 15px; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
         Middle { ActionButton { text: "Dismiss"; ghost: true; small: true; clicked => { root.dismissed(); } } }
+    }
+}
+
+// How loud something sounds, from 0% to 100%, on an upright track filled
+// from the bottom, as Discord's desktop voice message player has it. Up and
+// Down move 5% at a time, Page Up and Page Down 20%.
+export component UprightVolumeSlider inherits Rectangle {
+    in property <string> label;
+    /// Where it stands, which `changed` asks to move.
+    in property <int> value: 100;
+    out property <bool> pressed: touch.pressed;
+    callback changed(int);
+    width: 24px;
+    accessible-role: slider;
+    accessible-label: root.label;
+    accessible-value: root.value + "%";
+    accessible-value-minimum: 0;
+    accessible-value-maximum: 100;
+    accessible-value-step: 5;
+    accessible-action-increment => { root.set(root.value + 5); }
+    accessible-action-decrement => { root.set(root.value - 5); }
+    forward-focus: focus;
+    function set(value: int) {
+        let clamped = max(0, min(100, value));
+        if clamped != root.value {
+            root.changed(clamped);
+        }
+    }
+    function point(y: length) {
+        root.set(round((1 - max(0, min(1, (y - track.y) / track.height))) * 100));
+    }
+    track := Rectangle {
+        x: (parent.width - self.width) / 2; y: 8px; width: 4px; height: parent.height - 16px;
+        border-radius: 2px; background: Theme.field;
+        Rectangle {
+            y: parent.height * (1 - root.value / 100); height: parent.height * root.value / 100;
+            border-radius: 2px; background: Theme.accent;
+        }
+    }
+    Rectangle {
+        x: (parent.width - self.width) / 2; y: track.y + track.height * (1 - root.value / 100) - self.height / 2;
+        width: 14px; height: 14px; border-radius: 7px; background: Theme.text;
+        border-width: focus.has-focus ? 2px : 0px; border-color: Theme.accent;
+    }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.UpArrow { root.set(root.value + 5); return accept; }
+            if event.text == Key.DownArrow { root.set(root.value - 5); return accept; }
+            if event.text == Key.PageUp { root.set(root.value + 20); return accept; }
+            if event.text == Key.PageDown { root.set(root.value - 20); return accept; }
+            return reject;
+        }
+        touch := TouchArea {
+            mouse-cursor: MouseCursor.pointer;
+            pointer-event(event) => {
+                if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                    focus.focus();
+                    root.point(self.mouse-y);
+                }
+            }
+            moved => { if self.pressed { root.point(self.mouse-y); } }
+        }
     }
 }
 

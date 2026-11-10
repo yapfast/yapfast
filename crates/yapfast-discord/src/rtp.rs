@@ -1544,7 +1544,37 @@ pub fn receiver_report(
 /// The report blocks of the sender and receiver reports in a decrypted
 /// compound RTCP packet: each about one SSRC, with the packets lost from it
 /// so far and the highest sequence number received, extended.
-pub fn report_blocks(mut rtcp: &[u8]) -> Vec<(u32, u32, u32)> {
+pub fn report_blocks(rtcp: &[u8]) -> Vec<(u32, u32, u32)> {
+    blocks(rtcp)
+        .into_iter()
+        .map(|block| (block.ssrc, block.lost, block.highest))
+        .collect()
+}
+
+/// What one report block of a sender or receiver report says about an SSRC.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Reception {
+    pub ssrc: u32,
+    /// Packets lost since the previous report, out of 256.
+    pub fraction_lost: u8,
+    /// Packets lost so far.
+    pub lost: u32,
+    /// The highest sequence number received, extended.
+    pub highest: u32,
+    /// Interarrival jitter, in the stream's RTP clock.
+    pub jitter: u32,
+    /// The middle 32 bits of the NTP time of the last sender report heard
+    /// from the SSRC, or 0 before one, and the delay since it, in 1/65536 s.
+    pub last_report: u32,
+    pub delay: u32,
+}
+
+/// The last report block about `ssrc` in a decrypted compound RTCP packet.
+pub fn reception(rtcp: &[u8], ssrc: u32) -> Option<Reception> {
+    blocks(rtcp).into_iter().rfind(|block| block.ssrc == ssrc)
+}
+
+fn blocks(mut rtcp: &[u8]) -> Vec<Reception> {
     let mut blocks = vec![];
     while rtcp.len() >= 4 {
         let length = (usize::from(u16::from_be_bytes([rtcp[2], rtcp[3]])) + 1) * 4;
@@ -1560,18 +1590,39 @@ pub fn report_blocks(mut rtcp: &[u8]) -> Vec<(u32, u32, u32)> {
             201 => Some(8),
             _ => None,
         };
-        for block in first.into_iter().flat_map(|first| {
+        for at in first.into_iter().flat_map(|first| {
             (0..usize::from(packet[0] & 0x1f)).map(move |block| first + block * 24)
         }) {
-            if let (Some(ssrc), Some(lost), Some(highest)) =
-                (word(block), word(block + 4), word(block + 8))
-            {
-                blocks.push((ssrc, lost & 0x00ff_ffff, highest));
-            }
+            let block = || {
+                let lost = word(at + 4)?;
+                Some(Reception {
+                    ssrc: word(at)?,
+                    fraction_lost: (lost >> 24) as u8,
+                    lost: lost & 0x00ff_ffff,
+                    highest: word(at + 8)?,
+                    jitter: word(at + 12)?,
+                    last_report: word(at + 16)?,
+                    delay: word(at + 20)?,
+                })
+            };
+            blocks.extend(block());
         }
         rtcp = rtcp.get(length..).unwrap_or_default();
     }
     blocks
+}
+
+/// The round trip a report block measured: from `sent`, when this end sent
+/// the sender report it echoes, to `received`, less the `delay` the other
+/// end held it, in 1/65536 s. None when the delay is longer than the time
+/// between, as a report about another sender report would be.
+pub fn round_trip(
+    sent: std::time::Instant,
+    received: std::time::Instant,
+    delay: u32,
+) -> Option<std::time::Duration> {
+    let held = std::time::Duration::from_micros(u64::from(delay) * 1_000_000 / 65_536);
+    received.checked_duration_since(sent)?.checked_sub(held)
 }
 
 /// The sender reports in a decrypted compound RTCP packet: each sender's
@@ -1604,6 +1655,48 @@ mod tests {
         assert_eq!(report_blocks(&report), [(77, 12, 1000)]);
         assert_eq!(report_blocks(&both), [(77, 12, 1000), (78, 0, 40)]);
         assert!(report_blocks(&picture_loss(1, 77)).is_empty());
+    }
+
+    #[test]
+    fn reads_what_a_report_says_about_one_ssrc() {
+        let report = receiver_report(1, 77, (1000, 12, 30), (0x1234_5678, 6554));
+        let both = [receiver_report(1, 78, (40, 0, 0), (0, 0)), report].concat();
+        assert_eq!(
+            reception(&both, 77),
+            Some(Reception {
+                ssrc: 77,
+                fraction_lost: 30,
+                lost: 12,
+                highest: 1000,
+                jitter: 0,
+                last_report: 0x1234_5678,
+                delay: 6554,
+            })
+        );
+        assert_eq!(reception(&both, 79), None);
+    }
+
+    #[test]
+    fn measures_the_round_trip_from_an_echoed_sender_report() {
+        use std::time::{Duration, Instant};
+        let sent = Instant::now();
+        // Held 0.1 s (6554/65536) of the 0.35 s between.
+        let received = sent + Duration::from_millis(350);
+        let trip = round_trip(sent, received, 6554).unwrap();
+        assert!(
+            trip.abs_diff(Duration::from_millis(250)) < Duration::from_millis(1),
+            "{trip:?}"
+        );
+        assert_eq!(
+            round_trip(sent, received, 0),
+            Some(Duration::from_millis(350))
+        );
+        assert_eq!(
+            round_trip(sent, received, 65_536),
+            None,
+            "held longer than the trip"
+        );
+        assert_eq!(round_trip(received, sent, 0), None, "from the future");
     }
 
     #[test]

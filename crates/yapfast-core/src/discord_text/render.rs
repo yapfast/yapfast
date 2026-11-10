@@ -98,6 +98,8 @@ pub(super) fn found(
     ChatMessage {
         id: format!("d:{}", message.id),
         item: format!("d:{}", message.id),
+        application_id: message.application_id.clone(),
+        flags: message.flags,
         sender: discord::sender_id(&message.author_id),
         spoilers: true,
         avatar: Some(discord.avatar(guild, &message.author_id)),
@@ -140,9 +142,21 @@ pub(super) fn found(
         emoji: custom_emoji(message),
         // Shown, not voted in: its author can't end it from here either.
         poll: message.poll.as_ref().map(|poll| chat_poll(poll, false)),
+        voice: chat_voice(message),
         notice: chat_notice(message),
         ..Default::default()
     }
+}
+
+/// A Discord voice message's recording, as its card shows it.
+pub(super) fn chat_voice(message: &Message) -> Option<crate::chat::VoiceMessage> {
+    message
+        .voice
+        .as_ref()
+        .map(|voice| crate::chat::VoiceMessage {
+            duration_ms: voice.duration_ms,
+            waveform: voice.waveform.clone(),
+        })
 }
 
 /// A Discord message's notice, as the timeline marks it.
@@ -712,8 +726,11 @@ pub(super) fn chat_card(
             Style::Success => ButtonStyle::Success,
             Style::Danger => ButtonStyle::Danger,
             Style::Link => ButtonStyle::Link,
+            Style::Premium => ButtonStyle::Premium,
         },
         url: button.url.clone(),
+        custom_id: button.custom_id.clone(),
+        sku_id: button.sku_id.clone(),
         disabled: button.disabled,
     };
     Card {
@@ -736,9 +753,34 @@ pub(super) fn chat_card(
                     large: *large,
                 },
                 Row::Buttons(buttons) => CardRow::Buttons(buttons.iter().map(button).collect()),
-                Row::Select { text, disabled } => CardRow::Select {
+                Row::Select {
+                    text,
+                    disabled,
+                    kind,
+                    custom_id,
+                    options,
+                    defaults,
+                    channel_types,
+                    min_values,
+                    max_values,
+                } => CardRow::Select {
                     text: text.clone(),
                     disabled: *disabled,
+                    kind: *kind,
+                    custom_id: custom_id.clone(),
+                    options: options
+                        .iter()
+                        .map(|option| crate::chat::CardOption {
+                            label: option.label.clone(),
+                            value: option.value.clone(),
+                            description: option.description.clone(),
+                            default: option.default,
+                        })
+                        .collect(),
+                    defaults: defaults.clone(),
+                    channel_types: channel_types.clone(),
+                    min_values: *min_values,
+                    max_values: *max_values,
                 },
                 Row::Unknown => CardRow::Unknown,
             })

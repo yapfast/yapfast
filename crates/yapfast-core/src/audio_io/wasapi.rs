@@ -70,23 +70,23 @@ thread_local! {
 
 /// Threads that play join "Pro Audio", MMCSS's highest category, as
 /// Discord's and browsers' do; a microphone's joins "Audio", the category
-/// below, which is still above every ordinary thread.
-pub fn raise_priority(priority: super::Priority) {
+/// below, which is still above every ordinary thread. Says how it raised
+/// the calling thread, or why it couldn't.
+pub fn raise_priority(priority: super::Priority) -> Result<&'static str, String> {
+    let (name, how) = match priority {
+        super::Priority::Playback => (w!("Pro Audio"), "MMCSS Pro Audio"),
+        super::Priority::Capture => (w!("Audio"), "MMCSS Audio"),
+    };
     MMCSS.with_borrow_mut(|held| {
-        if held.is_some() {
-            return;
+        if held.is_none() {
+            let mut task = 0;
+            // SAFETY: registers the calling thread; the name is a constant.
+            let handle = unsafe { AvSetMmThreadCharacteristicsW(name, &mut task) }
+                .map_err(|error| error.to_string())?;
+            *held = Some(Mmcss(handle));
         }
-        let name = match priority {
-            super::Priority::Playback => w!("Pro Audio"),
-            super::Priority::Capture => w!("Audio"),
-        };
-        let mut task = 0;
-        // SAFETY: registers the calling thread; the name is a constant.
-        match unsafe { AvSetMmThreadCharacteristicsW(name, &mut task) } {
-            Ok(handle) => *held = Some(Mmcss(handle)),
-            Err(error) => tracing::warn!(%error, "an audio thread stays at normal priority"),
-        }
-    });
+        Ok(how)
+    })
 }
 
 /// Opts this process out of power throttling and asks for a 1 ms timer, or

@@ -14,7 +14,8 @@ use crate::chat::SendOptions;
 use super::{
     channels::SharedPreviews,
     render::{
-        chat_card, chat_embed, chat_notice, chat_poll, custom_emoji, rendered, sent_id, system_body,
+        chat_card, chat_embed, chat_notice, chat_poll, chat_voice, custom_emoji, rendered, sent_id,
+        system_body,
     },
     *,
 };
@@ -1747,6 +1748,8 @@ impl OpenChannel {
         ChatMessage {
             id,
             item: format!("d:{}", message.id),
+            application_id: message.application_id.clone(),
+            flags: message.flags,
             author,
             sender: discord::sender_id(&message.author_id),
             spoilers: true,
@@ -1794,6 +1797,7 @@ impl OpenChannel {
             can_pin: ordinary && self.rendered_with.may_pin,
             thread: self.thread_link(server, message),
             poll: message.poll.as_ref().map(|poll| chat_poll(poll, own)),
+            voice: chat_voice(message),
             notice: chat_notice(message),
         }
     }

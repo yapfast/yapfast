@@ -47,7 +47,7 @@ import { ActionButton, IconButton, Motion, PingToggle, DeviceToggle, Avatar, Tex
 import { PersonRow, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
-import { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, EmojiCardView, MessageStickerCard, MessageStickerCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, Polls } from "messages.slint";
+import { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, EmojiCardView, MessageStickerCard, MessageStickerCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, VoicePlayer, Polls } from "messages.slint";
 import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
 import { MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
@@ -61,6 +61,7 @@ import { ChannelSettingsPrompt, ChannelSettingsScreen, OverwriteRow, ThreeStateR
 import { MfaChoice, MfaPrompt, MfaDialog } from "mfa.slint";
 import { FoundRow, PickRow, ThreadRow, HeaderSearch, PinsPopover, ThreadsPopover, AddPeoplePopover, SearchPanel, TopicPopover } from "header.slint";
 import { ThreadPanel, NewThreadPanel } from "thread.slint";
+import { BotSelectDialog, BotModalDialog, SelectChoice, ModalField } from "interactions.slint";
 import { PostTag, PostRow, PostTagChoice, ForumPanel } from "forum.slint";
 import { BrowseRow, BrowseScreen } from "browse.slint";
 
@@ -76,12 +77,13 @@ export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameL
 export { ServerTagRow } from "server.slint";
 export { ProfileTheme } from "people.slint";
 export { StagedFile, MentionRow } from "composer.slint";
-export { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, MessageStickerCard, EmojiFavorites, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
+export { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, MessageStickerCard, EmojiFavorites, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, VoicePlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
 export { MemberRow, MemberActivityRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileBadgeRow, ProfileData, ActivityRow, ActivityClock, ProfileGameRow, ProfileWidgetRow, ProfileWishlistRow, ProfileRecentRow } from "people.slint";
 export { RequestRow, FriendRow } from "friends.slint";
 export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from "dialogs.slint";
 export { FoundRow, PickRow } from "header.slint";
 export { GifTile, GifFavorites } from "gifs.slint";
+export { SelectChoice, ModalField } from "interactions.slint";
 
 export component YapfastWindow inherits Window {
     /// "Yapfast", or "(3) Yapfast" with mentions and DMs waiting, as a browser
@@ -437,6 +439,33 @@ export component YapfastWindow inherits Window {
     callback show-hidden-channels-toggled(bool);
     /// A link in a message was clicked.
     callback open-link(string);
+    callback use-button(string, string);
+    callback open-select(string, string);
+    in property <bool> bot-select-open;
+    /// The message whose bot control waits, and the one whose control
+    /// failed, with why.
+    in property <string> bot-busy-item;
+    in property <string> bot-failed-item;
+    in property <string> bot-failed-text;
+    in property <string> bot-select-heading;
+    in property <[SelectChoice]> bot-select-choices;
+    in property <string> bot-select-query;
+    in property <int> bot-select-min;
+    in property <int> bot-select-max;
+    callback bot-select-toggle(int);
+    callback bot-select-search(string);
+    callback bot-select-submit;
+    callback bot-select-close;
+    in property <bool> bot-modal-open;
+    in property <string> bot-modal-heading;
+    in property <[ModalField]> bot-modal-fields;
+    in property <bool> bot-modal-supported;
+    in property <bool> bot-modal-saving;
+    in property <string> bot-modal-error;
+    callback bot-modal-field-edited(int, string);
+    callback bot-modal-open-select(int);
+    callback bot-modal-submit;
+    callback bot-modal-close;
     in-out property <bool> sync-discord-reads;
     callback sync-discord-reads-toggled(bool);
     in-out property <bool> show-idle: true;
@@ -1420,6 +1449,12 @@ export component YapfastWindow inherits Window {
     callback start-arranging(int) -> bool;
     callback arrange-room(int);
     callback stop-arranging;
+    /// Dragging someone from a voice channel onto another; see RoomList.
+    in property <bool> person-moving;
+    in property <[bool]> person-droppable;
+    callback start-moving-person(string, string) -> bool;
+    callback move-person(string);
+    callback stop-moving-person;
     // Someone's volumes, from a right click on them in a call, as percentages.
     callback volume-of(string, bool) -> int;
     /// A person, whether it's their stream, the volume, and whether it's
@@ -2571,6 +2606,10 @@ export component YapfastWindow inherits Window {
                                 start-arranging(place) => { return root.start-arranging(place); }
                                 arrange(place) => { root.arrange-room(place); }
                                 stop-arranging => { root.stop-arranging(); }
+                                moving: root.person-moving; move-droppable: root.person-droppable;
+                                start-moving(room, user) => { return root.start-moving-person(room, user); }
+                                move-person(room) => { root.move-person(room); }
+                                stop-moving => { root.stop-moving-person(); }
                                 toggle-category(category) => { root.toggle-category(category); }
                                 may-create(id) => { return root.may-create-channel(root.category-of(id)); }
                                 create-channel(id) => {
@@ -3350,7 +3389,7 @@ export component YapfastWindow inherits Window {
                                                         Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: message.unread-start ? Theme.accent : Theme.line; } }
                                                     }
                                                     MessageContent {
-                                                        message: message; active-item: root.active-item; preview: root.preview; reactions-enabled: root.reactions-enabled;
+                                                        message: message; active-item: root.active-item; preview: root.preview; reactions-enabled: root.reactions-enabled; bot-busy-item: root.bot-busy-item; bot-failed-item: root.bot-failed-item; bot-failed-text: root.bot-failed-text;
                                                         emoji-font: root.emoji-font; message-font-size: root.message-font-size;
                                                         collapse-long: root.collapse-long;
                                                         // The view keeps the message's top: it stops following
@@ -3372,6 +3411,8 @@ export component YapfastWindow inherits Window {
                                                             root.open-link(link);
                                                         }
                                                         open-link(link) => { root.open-link(link); }
+                                                        use-button(item, id) => { root.use-button(item, id); }
+                                                        open-select(item, id) => { root.open-select(item, id); }
                                                         open-thread(room) => { root.open-aside(room); }
                                                         react(item, key) => { root.react(item, key); }
                                                         retry(item) => { root.retry(item); }
@@ -3795,7 +3836,7 @@ export component YapfastWindow inherits Window {
                         typing-tick: root.aside-typing-tick;
                         composer-focused => { root.aside-composer-last = true; }
                         escape-composing => { return root.escape-composing(); }
-                        busy: root.busy; composer-enabled: root.aside-composer-enabled; can-send: root.aside-can-send;
+                        busy: root.busy; bot-busy-item: root.bot-busy-item; bot-failed-item: root.bot-failed-item; bot-failed-text: root.bot-failed-text; composer-enabled: root.aside-composer-enabled; can-send: root.aside-can-send;
                         reactions-enabled: root.aside-reactions-enabled; new-reactions-enabled: root.aside-new-reactions-enabled;
                         sending: root.sending; compose-label: root.aside-compose-label; draft <=> root.aside-draft;
                         reply-ping: root.aside-reply-ping; toggle-reply-ping => { root.aside-toggle-reply-ping(); }
@@ -3856,6 +3897,8 @@ export component YapfastWindow inherits Window {
                         jump-to(item) => { root.jump-to(item); }
                         link-clicked(link, x, y) => { root.anchor(x, y, 0px, 0px, true); root.open-link(link); }
                         open-link(link) => { root.open-link(link); }
+                        use-button(item, id) => { root.use-button(item, id); }
+                        open-select(item, id) => { root.open-select(item, id); }
                         open-thread(room) => { root.open-aside(room); }
                         retry(item) => { root.retry(item); }
                         cancel-send(item) => { root.cancel-send(item); }
@@ -3885,7 +3928,7 @@ export component YapfastWindow inherits Window {
                             data: root.panel-profile;
                             enlarge => { root.enlarge-panel-profile(); }
                             befriend => { root.befriend(root.panel-profile.id); }
-                            more(x, y) => { root.open-context-menu(root.panel-profile.id, true, x, y); }
+                            more(x, y) => { root.open-context-menu("profile-more:" + root.panel-profile.id, true, x, y); }
                             send-message(text) => { root.message-from-profile(root.panel-profile.id, text); }
                             edit-profile => { root.edit-profile(); }
                             open-link(link) => { root.open-link(link); }
@@ -4369,7 +4412,7 @@ export component YapfastWindow inherits Window {
             enlarge => { root.enlarge-profile(); }
             close => { root.close-profile(); }
             befriend => { root.befriend(root.profile.id); }
-            more(x, y) => { root.open-context-menu(root.profile.id, true, x, y); }
+            more(x, y) => { root.open-context-menu("profile-more:" + root.profile.id, true, x, y); }
             open-link(link) => { root.open-link(link); }
             send-message(text) => { root.message-from-profile(root.profile.id, text); }
             edit-profile => { root.close-profile(); root.edit-profile(); }
@@ -4399,7 +4442,7 @@ export component YapfastWindow inherits Window {
             befriend => { root.befriend(root.profile.id); }
             message-person(user) => { root.close-profile(); root.message-person(user); }
             save-note(user, note) => { root.save-note(user, note); }
-            more(x, y) => { root.open-context-menu(root.profile.id, true, x, y); }
+            more(x, y) => { root.open-context-menu("profile-more:" + root.profile.id, true, x, y); }
             open-link(link) => { root.open-link(link); }
             open-server(server, x, y, width, height) => { root.open-server-card(server, x, y, width, height); }
             // In the full profile, a friend's opens full too.
@@ -4814,6 +4857,23 @@ export component YapfastWindow inherits Window {
         close-switcher => { root.close-switcher(); }
     }
     // Over everything, as the request it confirms may come from anywhere.
+    if root.bot-modal-open: BotModalDialog {
+        heading: root.bot-modal-heading; fields: root.bot-modal-fields; supported: root.bot-modal-supported;
+        saving: root.bot-modal-saving; error: root.bot-modal-error;
+        field-edited(index, value) => { root.bot-modal-field-edited(index, value); }
+        open-select(index) => { root.bot-modal-open-select(index); }
+        submit => { root.bot-modal-submit(); }
+        close => { root.bot-modal-close(); }
+    }
+    if root.bot-select-open: BotSelectDialog {
+        heading: root.bot-select-heading; choices: root.bot-select-choices;
+        query: root.bot-select-query;
+        min-values: root.bot-select-min; max-values: root.bot-select-max;
+        toggle(index) => { root.bot-select-toggle(index); }
+        search(query) => { root.bot-select-search(query); }
+        submit => { root.bot-select-submit(); }
+        close => { root.bot-select-close(); }
+    }
     mfa-motion := PopupMotion { open: root.mfa-open; }
     if mfa-motion.shown: MfaDialog {
         motion: mfa-motion.amount;
