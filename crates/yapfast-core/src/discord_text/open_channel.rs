@@ -1747,6 +1747,8 @@ impl OpenChannel {
         ChatMessage {
             id,
             item: format!("d:{}", message.id),
+            application_id: message.application_id.clone(),
+            flags: message.flags,
             author,
             sender: discord::sender_id(&message.author_id),
             spoilers: true,

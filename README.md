@@ -170,6 +170,8 @@ they do in Discord.
   Yapfast, including one handed to it by the desktop.
 - **Threads**: start one from a message, browse a channel's threads, join or
   leave one, and read it beside its channel.
+- **Bots' buttons, menus and forms**: click a bot's buttons, choose from its
+  menus and fill in the forms it opens.
 - **Search** a whole server with Discord's filters, and browse a channel's pins.
 - **Friends**: requests, adding by username, nicknames, notes, profile cards,
   your status and custom status (custom emoji included). Block and ignore

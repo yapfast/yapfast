@@ -278,6 +278,18 @@ request to someone blocked. When Discord refuses, the card
 keeps what the member list knew and says so. A linked profile with nobody in
 a list to show first opens with the id as its name while that fetch runs.
 
+A profile with a theme, Nitro's two colours, is drawn in them as Discord
+draws it: the card, the full profile's panel, the account's card and the
+editor's preview run from the first colour to the second under a wash. The
+theme is light or dark by its first colour alone, as Discord's client decides
+it: light when its red, green and blue, weighed 0.299, 0.587 and 0.114, come
+to at least half of full. A light theme lies under 60% white, with text in
+black at 96%, 88% and 76% for the strong, subtle and muted kinds, and tiles
+and boxes in 24% white; a dark one lies under 60% black, with the same text in
+white. Yapfast's own theme, light or dark, changes none of it, as Discord's
+light and dark themes don't (`ProfileTheme` in `ui/people.slint`). A profile
+without a theme is drawn in Yapfast's colours.
+
 The profile shows each of the person's activities as a card, as Discord's does:
 what they're playing, streaming, listening to, watching or competing in, or
 their Hang status, headed by what it is ("LISTENING TO SPOTIFY"), with its

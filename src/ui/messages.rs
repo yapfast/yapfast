@@ -687,6 +687,17 @@ pub(super) fn message_row_within(
         color: role_color(message.color),
         has_color: message.color.is_some(),
         bot: message.bot,
+        app_id: message
+            .application_id
+            .as_deref()
+            .or_else(|| {
+                message
+                    .bot
+                    .then(|| discord::sender_user(&message.sender))
+                    .flatten()
+            })
+            .unwrap_or_default()
+            .into(),
         initial: initial(&message.author),
         tint: tint(&message.author),
         // Virtualized avatars resolve their URLs when their components are built.
@@ -908,9 +919,16 @@ fn card_row<'a>(
             )),
             ..Default::default()
         },
-        Row::Select { text, .. } => CardRow {
+        Row::Select {
+            text,
+            disabled,
+            custom_id,
+            ..
+        } => CardRow {
             kind: CardRowKind::Select,
             select: text.as_str().into(),
+            select_id: custom_id.as_str().into(),
+            select_enabled: !disabled && !custom_id.is_empty(),
             ..Default::default()
         },
         Row::Unknown => CardRow {
@@ -941,9 +959,13 @@ fn card_button(
             ButtonStyle::Success => CardButtonStyle::Success,
             ButtonStyle::Danger => CardButtonStyle::Danger,
             ButtonStyle::Link => CardButtonStyle::Link,
+            ButtonStyle::Premium => CardButtonStyle::Premium,
         },
         url: button.url.clone().unwrap_or_default().into(),
-        enabled: button.url.is_some() && !button.disabled,
+        custom_id: button.custom_id.clone().unwrap_or_default().into(),
+        sku_id: button.sku_id.clone().unwrap_or_default().into(),
+        enabled: !button.disabled
+            && (button.url.is_some() || button.custom_id.is_some() || button.sku_id.is_some()),
     }
 }
 

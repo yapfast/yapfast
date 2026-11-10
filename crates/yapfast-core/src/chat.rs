@@ -1748,6 +1748,13 @@ pub enum CardRow {
     Select {
         text: String,
         disabled: bool,
+        kind: u64,
+        custom_id: String,
+        options: Vec<CardOption>,
+        defaults: Vec<String>,
+        channel_types: Vec<u64>,
+        min_values: u64,
+        max_values: u64,
     },
     /// Components of a kind Yapfast can't show.
     Unknown,
@@ -1770,7 +1777,20 @@ pub struct CardButton {
     pub style: ButtonStyle,
     /// Where a link button leads.
     pub url: Option<String>,
+    /// What its app knows it by, when using it asks the app.
+    pub custom_id: Option<String>,
+    /// What a premium button offers in its app's store.
+    pub sku_id: Option<String>,
     pub disabled: bool,
+}
+
+/// An option of a select menu in an app's message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CardOption {
+    pub label: String,
+    pub value: String,
+    pub description: Option<String>,
+    pub default: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1780,6 +1800,7 @@ pub enum ButtonStyle {
     Success,
     Danger,
     Link,
+    Premium,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1788,6 +1809,9 @@ pub struct ChatMessage {
     pub id: String,
     /// The timeline item that actions apply to: `e:` event ID or `t:` transaction ID.
     pub item: String,
+    /// The Discord app that owns interactive components, when one is known.
+    pub application_id: Option<String>,
+    pub flags: u64,
     pub author: String,
     /// The author's Matrix user ID, which tells apart people sharing a display name.
     pub sender: String,
@@ -2471,6 +2495,8 @@ pub enum DiscordCommand {
     /// holding none in memory: what a start prefetches so that the picker's
     /// first look finds its emoji kept. See [`Pictures::prefetch`].
     PrefetchPictures(Vec<String>),
+    /// Use a bot's message component or submit a modal as this account.
+    Interact(serde_json::Value),
     /// The GIF picker's home: trending terms with a GIF each, and a GIF for
     /// "Trending GIFs"; [`Event::GifCategories`] follows.
     GifCategories,
@@ -3734,6 +3760,19 @@ pub enum ForwardFailure {
 }
 
 pub enum Event {
+    /// A bot answered an interaction of this session with a form, as
+    /// Discord's INTERACTION_MODAL_CREATE has it.
+    InteractionModal(serde_json::Value),
+    /// An interaction, by its nonce, failed, and what its message says.
+    InteractionFailed {
+        nonce: String,
+        reason: String,
+    },
+    /// The bot answered an interaction, by its nonce.
+    InteractionSucceeded(String),
+    /// An interaction was sent a while ago: if nothing answered it, the bot
+    /// didn't respond.
+    InteractionSettled(String),
     /// The GIF picker's home, or why it couldn't load.
     GifCategories(Result<(Vec<GifCategory>, Option<Gif>), String>),
     /// GIFs for a search, or with `None` those trending, or why not.
