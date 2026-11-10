@@ -646,6 +646,66 @@ impl Application {
         self.cache_emoji_pictures()
     }
 
+    /// Whether linking a Discord account can start: with none linked, or from
+    /// Manage Accounts, which adds one to those linked up to
+    /// [`chat::MOST_DISCORD_ACCOUNTS`].
+    pub(super) fn can_link_discord(&self) -> bool {
+        let state = &self.state;
+        cfg!(feature = "discord")
+            && !state.preview
+            && (!state.discord_linked
+                || (state.manage_accounts.is_some()
+                    && state.discord_accounts.len() < chat::MOST_DISCORD_ACCOUNTS))
+    }
+
+    /// Whether a Discord account with this id is linked on this device.
+    pub(super) fn linked_account(&self, id: &str) -> bool {
+        self.state
+            .discord_accounts
+            .iter()
+            .any(|account| account.id == id)
+    }
+
+    /// Leaves what belonged to the Discord account before after another
+    /// became the active one: everything it showed goes, and the new
+    /// account's snapshots fill it in again as they come.
+    pub(super) fn switched_discord(&mut self) -> Vec<Effect> {
+        let state = &mut self.state;
+        state.manage_accounts = None;
+        state.add_friend = None;
+        state.status_editor = None;
+        state.new_dm = None;
+        state.invite = None;
+        state.join = None;
+        state.oauth = None;
+        state.scheduled_event = None;
+        state.gift = None;
+        state.channel_dialog = None;
+        state.leave = None;
+        state.move_sync = None;
+        state.profile_editor = None;
+        state.forwarding = None;
+        state.add_people = None;
+        state.switch_voice = None;
+        state.reactions = None;
+        state.interaction_modal = None;
+        state.select_menu = None;
+        state.profile = None;
+        state.panel_profile = None;
+        state.account_name = None;
+        state.account_username = None;
+        state.account_avatar = None;
+        state.account_decoration = None;
+        state.account_nameplate = None;
+        state.account_profile = None;
+        state.discord_presence = None;
+        state.pending_watch = None;
+        state.pending_camera = None;
+        let effects = self.forget_discord();
+        self.state.discord_linked = true;
+        effects
+    }
+
     /// Forgets the Discord account after it was unlinked.
     pub(super) fn forget_discord(&mut self) -> Vec<Effect> {
         #[cfg(feature = "discord")]

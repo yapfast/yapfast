@@ -157,6 +157,14 @@ pub enum DiscordLink {
     Failed(String),
 }
 
+/// Manage Accounts, the dialog that lists the Discord accounts linked on
+/// this device, while it's open.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ManageAccounts {
+    /// The account whose "more" menu is open, by id.
+    pub menu: Option<String>,
+}
+
 /// The dialog that sends a friend request by Discord username.
 #[derive(Clone, Debug, Default)]
 pub struct AddFriend {
@@ -524,6 +532,11 @@ pub struct AppState {
     /// connected, and linking one, while that's under way.
     pub discord_linked: bool,
     pub discord_link: Option<DiscordLink>,
+    /// The Discord accounts linked on this device, in the order they were
+    /// linked, and the active one's id, which is empty while none is.
+    pub discord_accounts: Vec<chat::DiscordAccount>,
+    pub discord_active: String,
+    pub manage_accounts: Option<ManageAccounts>,
     pub add_friend: Option<AddFriend>,
     /// A screen of the DM list open in place of a conversation.
     pub dm_screen: Option<DmScreen>,
@@ -897,6 +910,7 @@ impl AppState {
             || self.forwarding.is_some()
             || self.new_dm.is_some()
             || self.add_friend.is_some()
+            || self.manage_accounts.is_some()
             || self.status_editor.is_some()
             || self.person_dialog.is_some()
             || self.invite.is_some()
@@ -2142,6 +2156,16 @@ pub enum Action {
     OpenDiscordCaptcha,
     CancelDiscordLink,
     UnlinkDiscord,
+    /// Open Manage Accounts, or close it. Closing it stops linking too.
+    OpenManageAccounts,
+    CloseManageAccounts,
+    /// Open one account's "more" menu in Manage Accounts, or close the one
+    /// open with an empty id.
+    OpenAccountMenu(String),
+    /// Make this Discord account, by id, the active one.
+    SwitchDiscordAccount(String),
+    /// Log this Discord account, by id, out on this device.
+    LogOutDiscordAccount(String),
     /// Open the custom status dialog, set the status, clear it, or close it.
     /// The emoji is a Unicode one or a custom one's `:name:`, which needs Nitro.
     OpenStatusEditor,
@@ -2469,6 +2493,13 @@ fn pictures_on_screen<'a>(
         .filter(move |_| list_avatars)
         .filter_map(|server| server.icon.as_deref())
         .chain(state.account_avatar.as_deref())
+        // The accounts the switcher lists.
+        .chain(
+            state
+                .discord_accounts
+                .iter()
+                .filter_map(|account| account.avatar.as_deref()),
+        )
         .chain(cosmetics.decoration(state.account_decoration.as_deref()))
         .chain(
             state
@@ -3680,14 +3711,14 @@ impl Application {
                 change,
             } => self.change_member(place, user, change),
             Action::LinkDiscord => {
-                if self.state.preview || self.state.discord_linked || !cfg!(feature = "discord") {
+                if !self.can_link_discord() {
                     return vec![];
                 }
                 self.state.discord_link = Some(DiscordLink::Starting);
                 vec![Effect::LinkDiscord]
             }
             Action::LinkDiscordToken(token) => {
-                if self.state.preview || self.state.discord_linked || !cfg!(feature = "discord") {
+                if !self.can_link_discord() {
                     return vec![];
                 }
                 if token.trim().is_empty() {
@@ -3706,10 +3737,59 @@ impl Application {
             },
             Action::UnlinkDiscord => {
                 if self.state.discord_linked && self.state.account.is_some() {
-                    vec![Effect::Backend(Command::Discord(DiscordCommand::Unlink))]
+                    // Only the active account, as logging out in Discord does.
+                    vec![Effect::Backend(Command::Discord(
+                        if self.state.discord_active.is_empty() {
+                            DiscordCommand::Unlink
+                        } else {
+                            DiscordCommand::RemoveAccount(self.state.discord_active.clone())
+                        },
+                    ))]
                 } else {
                     vec![]
                 }
+            }
+            Action::OpenManageAccounts => {
+                if !self.state.discord_accounts.is_empty() {
+                    self.state.manage_accounts = Some(ManageAccounts::default());
+                }
+                vec![]
+            }
+            Action::CloseManageAccounts => {
+                self.state.manage_accounts = None;
+                match self.state.discord_link.take() {
+                    Some(_) => vec![Effect::StopDiscordLink],
+                    None => vec![],
+                }
+            }
+            Action::OpenAccountMenu(id) => {
+                if let Some(dialog) = &mut self.state.manage_accounts {
+                    let open = dialog.menu.as_deref() == Some(id.as_str());
+                    dialog.menu = (!id.is_empty() && !open).then_some(id);
+                }
+                vec![]
+            }
+            Action::SwitchDiscordAccount(id) => {
+                if let Some(dialog) = &mut self.state.manage_accounts {
+                    dialog.menu = None;
+                }
+                if id == self.state.discord_active || !self.linked_account(&id) {
+                    return vec![];
+                }
+                vec![Effect::Backend(Command::Discord(
+                    DiscordCommand::SwitchAccount(id),
+                ))]
+            }
+            Action::LogOutDiscordAccount(id) => {
+                if let Some(dialog) = &mut self.state.manage_accounts {
+                    dialog.menu = None;
+                }
+                if !self.linked_account(&id) {
+                    return vec![];
+                }
+                vec![Effect::Backend(Command::Discord(
+                    DiscordCommand::RemoveAccount(id),
+                ))]
             }
             Action::OpenAddFriend => {
                 if self.state.discord_user.is_some() {
@@ -4358,6 +4438,14 @@ impl Application {
                 }
             }
             Event::DiscordUnlinked => return self.forget_discord(),
+            Event::DiscordSwitched => return self.switched_discord(),
+            Event::DiscordAccounts { accounts, active } => {
+                self.state.discord_accounts = accounts;
+                self.state.discord_active = active;
+                if self.state.discord_accounts.is_empty() {
+                    self.state.manage_accounts = None;
+                }
+            }
             Event::Note { user, result } => {
                 if let Ok(note) = &result {
                     for view in [&mut self.state.profile, &mut self.state.panel_profile]

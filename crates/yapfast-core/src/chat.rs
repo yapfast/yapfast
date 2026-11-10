@@ -2962,10 +2962,22 @@ pub enum DiscordCommand {
         since: Option<u64>,
         show_idle: bool,
     },
-    /// Connect the Discord account that was just linked.
+    /// Connect the Discord account that is active on this device, in place
+    /// of the one running: after linking another, which becomes the active
+    /// one. [`Event::DiscordAccounts`] follows.
     Start,
-    /// Forget the linked Discord account on this device, ending its session
-    /// on Discord; [`Event::DiscordUnlinked`] follows.
+    /// Make the linked Discord account with this id the active one and
+    /// connect it in place of the one running; [`Event::DiscordSwitched`]
+    /// and [`Event::DiscordAccounts`] follow, or [`Event::Error`] when it
+    /// can't.
+    SwitchAccount(String),
+    /// Forget the linked Discord account with this id on this device, ending
+    /// its session on Discord. [`Event::DiscordAccounts`] follows; so does
+    /// [`Event::DiscordSwitched`] when it was the active one and another
+    /// takes its place, or [`Event::DiscordUnlinked`] when it was the last.
+    RemoveAccount(String),
+    /// Forget every linked Discord account on this device, ending their
+    /// sessions on Discord; [`Event::DiscordUnlinked`] follows.
     Unlink,
     /// Change a member of a Discord server, by its server id; a nickname,
     /// a timeout, a kick or a ban answers with [`Event::PersonSaved`], and
@@ -3985,8 +3997,19 @@ pub enum Event {
     SoundCatalog(Result<Arc<[crate::voice::SoundGroup]>, String>),
     /// Whether [`DiscordCommand::SetJoinSound`] changed it, or why not.
     JoinSoundSet(Result<(), String>),
-    /// [`DiscordCommand::Unlink`] forgot the account.
+    /// [`DiscordCommand::Unlink`] forgot the account, or
+    /// [`DiscordCommand::RemoveAccount`] forgot the last one.
     DiscordUnlinked,
+    /// The Discord accounts linked on this device, and which is active. Sent
+    /// when Yapfast starts with any, and after each change to them.
+    DiscordAccounts {
+        accounts: Vec<DiscordAccount>,
+        /// The active account's id; empty when none is linked.
+        active: String,
+    },
+    /// The active Discord account is another now: what Yapfast showed of the
+    /// one before belongs to it no longer.
+    DiscordSwitched,
     /// [`DiscordCommand::Pins`]'s messages, the latest pinned first, or why
     /// they didn't come.
     Pins {
@@ -4901,6 +4924,26 @@ pub fn can_restore(root: &std::path::Path) -> bool {
     }
 }
 
+/// The most Discord accounts that can be linked on one device.
+#[cfg(feature = "discord")]
+pub const MOST_DISCORD_ACCOUNTS: usize = yapfast_discord::token::MOST_ACCOUNTS;
+#[cfg(not(feature = "discord"))]
+pub const MOST_DISCORD_ACCOUNTS: usize = 5;
+
+/// A Discord account linked on this device, as the account switcher lists it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DiscordAccount {
+    /// Discord's id for the account, or an id of Yapfast's own for a login
+    /// that hasn't said whose it is yet.
+    pub id: String,
+    /// The account's username, which is empty until it has connected once.
+    pub username: String,
+    /// The name it shows, which is the username when it has none.
+    pub name: String,
+    /// The address of its picture, if it has one; see [`DiscordCommand::Pictures`].
+    pub avatar: Option<String>,
+}
+
 /// A new message that should notify the person, by their notification settings on its
 /// network.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -5006,6 +5049,8 @@ pub async fn run(
     if let Some(error) = &discord_error {
         let _ = events.send(Event::Error(error.clone()));
     }
+    #[cfg(feature = "discord")]
+    send_discord_accounts(&events);
     #[cfg(not(feature = "matrix"))]
     let _ = events.send(Event::Connected {
         user: "Discord".into(),
@@ -5060,31 +5105,81 @@ pub async fn run(
                 #[cfg(feature = "discord")]
                 Route::Discord => match command {
                     Command::Discord(DiscordCommand::Start) => {
-                        if discord.is_none() {
-                            // Linking saved the login just before.
-                            let started = crate::discord_text::Chat::start().and_then(|started| {
-                                started.ok_or_else(|| anyhow::anyhow!("its login wasn't saved"))
-                            });
-                            match started {
-                                Ok(started) => {
-                                    discord = Some(started);
+                        // Linking saved the login and made it the active one.
+                        let replacing = discord.is_some();
+                        connect_discord(&mut discord, &mut discord_error, &linked, &voice, &events);
+                        if replacing {
+                            let _ = events.send(Event::DiscordSwitched);
+                        }
+                        send_discord_accounts(&events);
+                    }
+                    Command::Discord(DiscordCommand::SwitchAccount(id)) => {
+                        match yapfast_discord::token::switch(&id) {
+                            Ok(()) => {
+                                connect_discord(
+                                    &mut discord,
+                                    &mut discord_error,
+                                    &linked,
+                                    &voice,
+                                    &events,
+                                );
+                                let _ = events.send(Event::DiscordSwitched);
+                            }
+                            Err(error) => {
+                                tracing::warn!(%error, "could not switch the Discord account");
+                                let _ = events.send(Event::Error(
+                                    "Could not switch to that Discord account.".into(),
+                                ));
+                            }
+                        }
+                        send_discord_accounts(&events);
+                    }
+                    Command::Discord(DiscordCommand::RemoveAccount(id)) => {
+                        let active = yapfast_discord::token::listing()
+                            .ok()
+                            .and_then(|listing| listing.active);
+                        if active.as_deref() == Some(id.as_str()) {
+                            // Its session ends and the next account, if any, takes its place.
+                            stop_discord(&mut discord, &linked, &voice, true);
+                            let remaining = yapfast_discord::token::forget_account(&id);
+                            match remaining {
+                                Ok(Some(_)) => {
+                                    connect_discord(
+                                        &mut discord,
+                                        &mut discord_error,
+                                        &linked,
+                                        &voice,
+                                        &events,
+                                    );
+                                    let _ = events.send(Event::DiscordSwitched);
+                                }
+                                Ok(None) => {
                                     discord_error = None;
+                                    let _ = events.send(Event::DiscordUnlinked);
                                 }
                                 Err(error) => {
-                                    let error = discord_failed(&error);
-                                    let _ = events.send(Event::Error(error.clone()));
-                                    discord_error = Some(error);
+                                    tracing::warn!(%error, "could not forget the Discord login");
+                                    let _ = events.send(Event::Error(
+                                        "Could not log out of that Discord account.".into(),
+                                    ));
                                 }
                             }
-                            linked.send_replace(
-                                discord.as_ref().map(crate::discord_text::Chat::service),
-                            );
+                        } else {
+                            end_other_session(&id);
+                            if let Err(error) = yapfast_discord::token::forget_account(&id) {
+                                tracing::warn!(%error, "could not forget the Discord login");
+                                let _ = events.send(Event::Error(
+                                    "Could not log out of that Discord account.".into(),
+                                ));
+                            }
                         }
+                        send_discord_accounts(&events);
                     }
                     Command::Discord(DiscordCommand::Unlink) => {
                         unlink_discord(&mut discord, &linked, &voice);
                         discord_error = None;
                         let _ = events.send(Event::DiscordUnlinked);
+                        send_discord_accounts(&events);
                     }
                     command => match discord.as_mut() {
                         Some(discord) => discord.command(command, &events),
@@ -5106,8 +5201,32 @@ pub async fn run(
                 #[cfg(not(feature = "matrix"))]
                 Route::Matrix => {
                     if let Command::Logout = command {
+                        // Only the active account logs out; another one, if
+                        // linked, takes its place.
                         #[cfg(feature = "discord")]
-                        unlink_discord(&mut discord, &linked, &voice);
+                        {
+                            let active = yapfast_discord::token::listing()
+                                .ok()
+                                .and_then(|listing| listing.active);
+                            if let Some(active) = active {
+                                stop_discord(&mut discord, &linked, &voice, true);
+                                if matches!(
+                                    yapfast_discord::token::forget_account(&active),
+                                    Ok(Some(_))
+                                ) {
+                                    connect_discord(
+                                        &mut discord,
+                                        &mut discord_error,
+                                        &linked,
+                                        &voice,
+                                        &events,
+                                    );
+                                    let _ = events.send(Event::DiscordSwitched);
+                                    send_discord_accounts(&events);
+                                    continue;
+                                }
+                            }
+                        }
                         let _ = events.send(Event::LoggedOut);
                         break;
                     }
@@ -5143,13 +5262,72 @@ fn discord_failed(error: &anyhow::Error) -> String {
     format!("Discord couldn't start: {error}")
 }
 
-/// Forgets the linked Discord account on this device: leaves its call, ends
-/// its session on Discord, and stops it.
+/// Connects the active Discord account in place of the one running, which
+/// is stopped first so that what it kept goes to disk before the next one
+/// takes its files. Why it couldn't connect answers the commands that need it.
 #[cfg(feature = "discord")]
-fn unlink_discord(
+fn connect_discord(
+    discord: &mut Option<crate::discord_text::Chat>,
+    discord_error: &mut Option<String>,
+    linked: &tokio::sync::watch::Sender<Option<yapfast_discord::service::Discord>>,
+    voice: &voice::Controller,
+    events: &UnboundedSender<Event>,
+) {
+    stop_discord(discord, linked, voice, false);
+    let started = crate::discord_text::Chat::start()
+        .and_then(|started| started.ok_or_else(|| anyhow::anyhow!("its login wasn't saved")));
+    match started {
+        Ok(started) => {
+            *discord = Some(started);
+            *discord_error = None;
+        }
+        Err(error) => {
+            let error = discord_failed(&error);
+            let _ = events.send(Event::Error(error.clone()));
+            *discord_error = Some(error);
+        }
+    }
+    linked.send_replace(discord.as_ref().map(crate::discord_text::Chat::service));
+}
+
+/// Says which Discord accounts are linked, and which is active.
+#[cfg(feature = "discord")]
+fn send_discord_accounts(events: &UnboundedSender<Event>) {
+    let listing = match yapfast_discord::token::listing() {
+        Ok(listing) => listing,
+        Err(error) => {
+            tracing::warn!(%error, "could not list the Discord accounts");
+            return;
+        }
+    };
+    let accounts = listing
+        .accounts
+        .into_iter()
+        .map(|account| DiscordAccount {
+            avatar: Some(account.avatar).filter(|avatar| !avatar.is_empty()),
+            id: account.id,
+            name: if account.name.is_empty() {
+                account.username.clone()
+            } else {
+                account.name
+            },
+            username: account.username,
+        })
+        .collect();
+    let _ = events.send(Event::DiscordAccounts {
+        accounts,
+        active: listing.active.unwrap_or_default(),
+    });
+}
+
+/// Stops the running Discord account: leaves its call and, with `log_out`,
+/// ends its session on Discord.
+#[cfg(feature = "discord")]
+fn stop_discord(
     discord: &mut Option<crate::discord_text::Chat>,
     linked: &tokio::sync::watch::Sender<Option<yapfast_discord::service::Discord>>,
     voice: &voice::Controller,
+    log_out: bool,
 ) {
     if voice
         .states
@@ -5161,7 +5339,9 @@ fn unlink_discord(
         voice.command(voice::Command::Leave);
     }
     linked.send_replace(None);
-    if let Some(chat) = discord.take() {
+    if let Some(chat) = discord.take()
+        && log_out
+    {
         let service = chat.service();
         tokio::spawn(async move {
             if let Err(error) = service.logout().await {
@@ -5172,6 +5352,37 @@ fn unlink_discord(
             }
         });
     }
+}
+
+/// Ends the session on Discord of a linked account that isn't running.
+#[cfg(feature = "discord")]
+fn end_other_session(id: &str) {
+    let Ok(token) = yapfast_discord::token::token_of(id) else {
+        return;
+    };
+    tokio::spawn(async move {
+        let ended = match yapfast_discord::api::Api::new(token) {
+            Ok(api) => api.logout().await,
+            Err(error) => Err(error),
+        };
+        if let Err(error) = ended {
+            tracing::warn!(
+                error = format!("{error:#}"),
+                "could not end the Discord session"
+            );
+        }
+    });
+}
+
+/// Forgets every linked Discord account on this device: leaves the call,
+/// ends the running session on Discord, and stops it.
+#[cfg(feature = "discord")]
+fn unlink_discord(
+    discord: &mut Option<crate::discord_text::Chat>,
+    linked: &tokio::sync::watch::Sender<Option<yapfast_discord::service::Discord>>,
+    voice: &voice::Controller,
+) {
+    stop_discord(discord, linked, voice, true);
     if let Err(error) = yapfast_discord::token::forget() {
         tracing::warn!(%error, "could not forget the Discord login");
     }
