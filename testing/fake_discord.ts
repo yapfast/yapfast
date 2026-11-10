@@ -247,6 +247,18 @@
 // gives INTERACTION_SUCCESS and an ephemeral MESSAGE_CREATE (flag 64, no
 // guild_id), which history leaves out. GET /_control/interactions lists
 // each body Alice sent, oldest first.
+// Apps' commands are in three indexes (see "Commands"): "Server"'s, GET
+// /guilds/{id}/application-command-index, lists Status Bot's /ping, /echo
+// (text, times 1-5), /pick (colour, from choices), /find (query, which
+// autocompletes), /upload (a file), /admin (for administrators, which Alice
+// isn't) and /config set|get, with its message command Quote and user
+// command Wave, all off in #ideas; GET /users/@me/application-command-index
+// lists Notes' /note, an app Alice installed for herself; a DM's or group
+// DM's, GET /channels/{id}/application-command-index, lists none. GET
+// /_control/command-index-fetches lists each index fetched, as
+// `guilds/{id}`, `channels/{id}` or `users/@me`, oldest first, and POST
+// /_control/commands-changed sends GUILD_APPLICATION_COMMAND_INDEX_UPDATE
+// for "Server".
 // A gift of Nitro from Bob resolves and redeems the same way: GET
 // /entitlements/gift-codes/{code} shows it, POST .../redeem redeems it
 // once and sends ENTITLEMENT_CREATE and GIFT_CODE_UPDATE, and GET
@@ -637,9 +649,9 @@ const bit = (n: number) => 2 ** n;
 // Invite, view, send, embed, attach, read history, react, connect, speak,
 // voice activity, change one's own nickname, make public and private threads
 // and write in them, and post polls: Discord's defaults for @everyone.
-// Discord's defaults for @everyone, among them using the soundboard (42) and
-// other servers' sounds (45).
-const EVERYONE = [0, 10, 11, 14, 15, 16, 6, 20, 21, 25, 26, 35, 36, 38, 42, 45, 49].reduce((sum, n) => sum + bit(n), 0);
+// Discord's defaults for @everyone, among them using apps' commands (31), the
+// soundboard (42) and other servers' sounds (45).
+const EVERYONE = [0, 10, 11, 14, 15, 16, 6, 20, 21, 25, 26, 31, 35, 36, 38, 42, 45, 49].reduce((sum, n) => sum + bit(n), 0);
 // Kick, ban, view the audit log, manage nicknames, manage roles, moderate
 // members, and mute, deafen and move members in voice.
 const MODERATION = [1, 2, 7, 27, 28, 40, 22, 23, 24].reduce((sum, n) => sum + bit(n), 0);
@@ -4894,6 +4906,107 @@ function answerInteraction(body: any, id: string, origin: string) {
   }
 }
 
+// --- Commands ---
+/** Each command index Alice fetched, by its resource (`guilds/{id}`,
+ *  `channels/{id}` or `users/@me`), oldest first, for
+ *  GET /_control/command-index-fetches. */
+const commandIndexFetches: string[] = [];
+/** The ids of Status Bot's commands, by name, for the interactions they
+ *  start. */
+const STATUS_COMMANDS = {
+  ping: "1400000000000000700", echo: "1400000000000000701", pick: "1400000000000000702",
+  find: "1400000000000000703", upload: "1400000000000000704", admin: "1400000000000000705",
+  config: "1400000000000000706", quote: "1400000000000000707", wave: "1400000000000000708",
+} as const;
+/** Notes, an app Alice installed for herself, and its one command. */
+const NOTES_APP = "1400000000000000710";
+const NOTE_COMMAND = "1400000000000000711";
+const COMMANDS_VERSION = "1400000000000000720";
+
+/** A command as an index lists it, the server's or Alice's own. */
+function indexCommand(id: string, application: string, type: number, name: string, description: string, extra: Record<string, unknown> = {}) {
+  return {
+    id, type, application_id: application, version: COMMANDS_VERSION, name, name_default: name,
+    description, description_default: description, default_member_permissions: null, nsfw: false,
+    integration_types: [0], contexts: null, ...extra,
+  };
+}
+
+/** "Server"'s command index: Status Bot's, as GET /guilds/{id}/application-command-index
+ *  gives it. Its commands are off in #ideas. */
+function serverCommandIndex() {
+  const app = statusBot.id;
+  const option = (type: number, name: string, description: string, extra: Record<string, unknown> = {}) => ({ type, name, description, ...extra });
+  return {
+    applications: [{
+      id: app, name: "Status Bot", description: "Posts deploys.", icon: null, bot_id: app, flags: "0",
+      bot: { id: app, username: statusBot.username, global_name: statusBot.global_name, avatar: null, discriminator: "0", bot: true },
+      permissions: { channels: { [FORUM]: false } },
+    }],
+    application_commands: [
+      indexCommand(STATUS_COMMANDS.ping, app, 1, "ping", "Checks that Status Bot is up."),
+      indexCommand(STATUS_COMMANDS.echo, app, 1, "echo", "Says it back.", { options: [
+        option(3, "text", "What to say", { required: true }),
+        option(4, "times", "How many times", { min_value: 1, max_value: 5 }),
+      ] }),
+      indexCommand(STATUS_COMMANDS.pick, app, 1, "pick", "Picks a colour.", { options: [
+        option(3, "colour", "Which colour", { required: true, choices: [
+          { name: "Red", value: "red" }, { name: "Green", value: "green" }, { name: "Blue", value: "blue" },
+        ] }),
+      ] }),
+      indexCommand(STATUS_COMMANDS.find, app, 1, "find", "Finds a deploy.", { options: [
+        option(3, "query", "What to look for", { required: true, autocomplete: true }),
+      ] }),
+      indexCommand(STATUS_COMMANDS.upload, app, 1, "upload", "Attaches a build log.", { options: [
+        option(11, "file", "The log", { required: true }),
+      ] }),
+      // Administrators only, which Alice isn't.
+      indexCommand(STATUS_COMMANDS.admin, app, 1, "admin", "Changes Status Bot's setup.", { default_member_permissions: "8" }),
+      indexCommand(STATUS_COMMANDS.config, app, 1, "config", "Status Bot's settings.", { options: [
+        option(1, "set", "Changes a setting", { options: [
+          option(3, "key", "Which setting", { required: true }), option(3, "value", "Its new value", { required: true }),
+        ] }),
+        option(1, "get", "Shows a setting", { options: [option(3, "key", "Which setting", { required: true })] }),
+      ] }),
+      indexCommand(STATUS_COMMANDS.quote, app, 3, "Quote", ""),
+      indexCommand(STATUS_COMMANDS.wave, app, 2, "Wave", ""),
+    ],
+    version: COMMANDS_VERSION,
+  };
+}
+
+/** Alice's own command index, GET /users/@me/application-command-index:
+ *  Notes, installed for her, whose /note works anywhere. */
+function ownCommandIndex() {
+  return {
+    applications: [{ id: NOTES_APP, name: "Notes", description: "Keeps notes.", icon: null, bot_id: NOTES_APP, flags: "0" }],
+    application_commands: [
+      indexCommand(NOTE_COMMAND, NOTES_APP, 1, "note", "Keeps a note.", {
+        integration_types: [1], contexts: [0, 1, 2],
+        options: [{ type: 3, name: "text", description: "The note", required: true }],
+      }),
+    ],
+    version: COMMANDS_VERSION,
+  };
+}
+
+/** A command index Alice asked for, or null for a path that isn't one: a
+ *  server's (Status Bot's in "Server", none elsewhere), a DM's or group
+ *  DM's (none: no bot is in one), or her own. */
+function commandIndexRoute(method: string, path: string): Response | null {
+  const m = path.match(/^\/(guilds\/\d+|channels\/\d+|users\/@me)\/application-command-index$/);
+  if (method !== "GET" || !m) return null;
+  const resource = m[1]!;
+  commandIndexFetches.push(resource);
+  const none = { applications: [], application_commands: [], version: "0" };
+  if (resource === "users/@me") return json(ownCommandIndex());
+  const [kind, id] = resource.split("/") as [string, string];
+  if (kind === "guilds") return json(id === GUILD ? serverCommandIndex() : none);
+  // Only a DM or group DM has one; Discord refuses a server's channel.
+  if (!privates.has(id)) return json({ message: "Invalid Form Body", code: 50035 }, 400);
+  return json(none);
+}
+
 /** The invites Alice made, oldest first, for GET /_control/invites. */
 const invites: Record<string, unknown>[] = [];
 /** Each join by an invite, oldest first, for GET /_control/invite-joins. */
@@ -7306,6 +7419,10 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     return unknown(req, path);
   }
 
+  // Apps' commands, once Alice types "/"; see "Commands" in the header.
+  const commandIndex = commandIndexRoute(method, path);
+  if (commandIndex) return commandIndex;
+
   // Alice uses Status Bot's controls; see "Interactions" in the header.
   if (method === "POST" && path === "/interactions") {
     const body: any = await req.json().catch(() => ({}));
@@ -9003,6 +9120,13 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/interactions") {
       return Response.json(interactionsSent);
+    }
+    if (req.method === "GET" && path === "/_control/command-index-fetches") {
+      return Response.json(commandIndexFetches);
+    }
+    if (req.method === "POST" && path === "/_control/commands-changed") {
+      dispatch("GUILD_APPLICATION_COMMAND_INDEX_UPDATE", { guild_id: GUILD });
+      return new Response("Server's commands changed\n");
     }
     if (req.method === "GET" && path === "/_control/oauth-authorizations") {
       return Response.json(oauthAuthorizations);

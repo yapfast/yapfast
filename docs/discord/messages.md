@@ -536,6 +536,41 @@ click or a submit sends one, and none is sent again on its own.
 - An app that answers with a web page in a window
   (INTERACTION_IFRAME_MODAL_CREATE) says to use Discord for it.
 
+## Apps' commands
+
+The commands apps offer come from Discord's application command indexes
+(docs.discord.food, "Application Commands"): `GET
+/guilds/{id}/application-command-index` in a server,
+`/channels/{id}/application-command-index` in a DM or group DM, and
+`/users/@me/application-command-index` for the apps the account installed
+for itself, merged, with the place's own first. Each is fetched only once
+the person types `/` in the composer, never ahead, and kept until Discord
+says it changed: GUILD_APPLICATION_COMMAND_INDEX_UPDATE for a server's, and
+APPLICATION_COMMAND_PERMISSIONS_UPDATE, or a gateway backlog that may have
+missed one, for all of them. Typing `/` again in the same server asks
+nothing. Up to 16 indexes are kept. A DM's that Discord refuses leaves the
+account's own.
+
+A command is offered where the person may use it, as Discord's client
+decides:
+
+- Its `contexts` take the place: a server's channel, the DM with the app's
+  own bot (one of the index's apps has that `bot_id`), or any other DM or
+  group DM. From the account's own index, only commands installed for it
+  (`integration_types` with 1) count.
+- An age-restricted (`nsfw`) command shows only in an age-restricted channel.
+- In a server, a server's command needs Use Application Commands in the
+  channel, then its permissions: the channel's override (a thread takes its
+  channel's), else all channels' (the server's id less one), then this
+  account's override, its roles' (any allowed, else any denied) and
+  @everyone's; each first the command's, then its app's. Without any, the
+  command's `default_member_permissions` must all be held. An owner or
+  administrator may use every command. The account's own apps aren't the
+  server's to limit.
+
+Slash commands show with their subcommands apart, as `config set`; message
+and user commands are for those menus.
+
 ## GIFs
 
 The GIF button left of the emoji button, or Ctrl+G, opens a picker with two
