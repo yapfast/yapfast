@@ -3047,6 +3047,80 @@ fn a_window_made_again_shows_what_the_last_one_did() {
 }
 
 #[test]
+fn dragging_the_member_list_resizes_it_within_limits_and_remembers_it() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1400., 760.));
+    window.set_members_available(true);
+    window.set_member_list(true);
+    let drag = |from: f32, to: f32| {
+        let window = window.window();
+        let button = slint::platform::PointerEventButton::Left;
+        let at = |x| slint::LogicalPosition::new(x, 400.);
+        window.dispatch_event(slint::platform::WindowEvent::PointerMoved { position: at(from) });
+        window.dispatch_event(slint::platform::WindowEvent::PointerPressed {
+            position: at(from),
+            button,
+        });
+        window.dispatch_event(slint::platform::WindowEvent::PointerMoved { position: at(to) });
+        window.dispatch_event(slint::platform::WindowEvent::PointerReleased {
+            position: at(to),
+            button,
+        });
+    };
+    // The style's width until dragged.
+    assert_eq!(window.get_members_shown(), 240.);
+    // Its edge, 1160px in, widens it leftwards.
+    drag(1160., 1060.);
+    assert_eq!(window.get_members_shown(), 340.);
+    assert_eq!(Layout::read(directory.path()).members_width, Some(340.));
+    // It keeps 200 to 480px.
+    drag(1060., 1300.);
+    assert_eq!(window.get_members_shown(), 200.);
+    drag(1200., 0.);
+    assert_eq!(window.get_members_shown(), 480.);
+    // A new window starts at the stored width.
+    let next = classic_window();
+    adapter.borrow_mut().attach(&next);
+    assert_eq!(next.get_members_shown(), 480.);
+    // A double click goes back to the style's width, and forgets the drag.
+    let edge = slint::LogicalPosition::new(1400. - 480., 400.);
+    let button = slint::platform::PointerEventButton::Left;
+    for _ in 0..2 {
+        window
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::PointerMoved { position: edge });
+        window
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::PointerPressed {
+                position: edge,
+                button,
+            });
+        window
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::PointerReleased {
+                position: edge,
+                button,
+            });
+    }
+    assert_eq!(window.get_members_shown(), 240.);
+    assert_eq!(Layout::read(directory.path()).members_width, None);
+    window.hide().unwrap();
+}
+
+#[test]
 fn dragging_the_thread_beside_resizes_it_within_limits_and_remembers_it() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();

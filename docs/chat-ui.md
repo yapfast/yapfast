@@ -62,7 +62,10 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   since sync loads members lazily, and membership changes refresh it. Voice
   channels and one-to-one DMs have no member list; a one-to-one DM shows the
   other person's profile there instead, which the person icon in its header
-  hides or shows. A Discord text channel
+  hides or shows. Dragging the list's edge makes it 200 to 480px wide,
+  leaving the conversation 420px, and Yapfast keeps the width
+  (`members_width` in `layout.json`); a double click on the edge goes back to
+  the style's width. A Discord text channel
   lists whoever can read it, grouped as in Discord: under hoisted roles, then
   ONLINE and OFFLINE, with counts, avatars, status dots, role colours,
   custom statuses, and a red clock beside someone timed out. An app has an APP
