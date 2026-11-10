@@ -883,7 +883,11 @@ and replaces a socket that hears nothing for three pings. A link Discord
 refuses a token for, code 40012 for one revoked, is left until
 `USER_CONNECTIONS_UPDATE` changes the list, which comes from
 `GET /users/@me/connections`. Tokens stay in memory. Neither they nor the
-socket's address reach a log.
+socket's address reach a log; a socket that fails logs why, such as a TLS
+error. The socket trusts the certificates the system trusts, as HTTPS and
+Discord's sockets do (`websocket.rs`). The tests' fake dealer speaks `ws://`,
+so the ignored `reaches_spotifys_real_dealer` test opens the real one with no
+token and expects its 401.
 
 The activity is what Discord's client sends, type 2 and named "Spotify":
 

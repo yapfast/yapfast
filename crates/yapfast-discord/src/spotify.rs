@@ -23,13 +23,13 @@ use tokio::{
     time::{Instant, MissedTickBehavior, timeout},
 };
 use tokio_tungstenite::{
-    MaybeTlsStream, WebSocketStream, connect_async,
+    MaybeTlsStream, WebSocketStream,
     tungstenite::{self, Message, client::IntoClientRequest, http::HeaderValue},
 };
 
 use crate::{
     api::{self, Api, Refused},
-    client,
+    client, websocket,
 };
 
 type Activity = Option<Arc<Value>>;
@@ -473,8 +473,11 @@ fn events(message: &Value) -> impl Iterator<Item = &Value> {
         .flat_map(|payload| payload["events"].as_array().into_iter().flatten())
 }
 
-/// Opens the dealer socket. An error says only Spotify's refusal, as others
-/// may quote the address, which holds the token.
+/// Opens the dealer socket, trusting what HTTPS and Discord's own sockets
+/// trust: tokio-tungstenite's `connect_async` has no certificates of its own
+/// here, so it can't open a `wss://` address at all. An error gives Spotify's
+/// refusal; the log gives why it failed, but never the address, which holds
+/// the token.
 async fn open(url: String) -> Result<Socket, Option<StatusCode>> {
     let mut request = url.into_client_request().map_err(|_| None)?;
     let headers = request.headers_mut();
@@ -486,15 +489,24 @@ async fn open(url: String) -> Result<Socket, Option<StatusCode>> {
         header::ORIGIN,
         HeaderValue::from_static("https://discord.com"),
     );
-    match timeout(REQUEST_TIMEOUT, connect_async(request)).await {
+    match timeout(REQUEST_TIMEOUT, websocket::connect(request)).await {
         Ok(Ok((socket, _))) => Ok(socket),
         Ok(Err(tungstenite::Error::Http(response))) => {
             let status = response.status();
             tracing::warn!(%status, "Spotify refused its socket");
             Err(StatusCode::from_u16(status.as_u16()).ok())
         }
-        Ok(Err(_)) | Err(_) => {
-            tracing::warn!("couldn't reach Spotify's socket");
+        // A URL error may quote the address.
+        Ok(Err(tungstenite::Error::Url(_))) => {
+            tracing::warn!("couldn't reach Spotify's socket: a bad address");
+            Err(None)
+        }
+        Ok(Err(error)) => {
+            tracing::warn!(%error, "couldn't reach Spotify's socket");
+            Err(None)
+        }
+        Err(_) => {
+            tracing::warn!("couldn't reach Spotify's socket: no answer in time");
             Err(None)
         }
     }
@@ -1139,6 +1151,18 @@ mod tests {
         assert_eq!(next_shown(&mut started.shown).await, None, "it ran out");
         let (_second, _) = dealer_connects(&dealer).await;
         assert_eq!(count(&seen, TOKEN), 0, "READY's token was good");
+    }
+
+    /// The fakes here speak `ws://`, which never needs a certificate; this
+    /// reaches the real dealer over TLS with no token, which it refuses with
+    /// 401 only once the TLS handshake and the request got through. Needs
+    /// the network: `cargo test -p yapfast-discord -- --ignored
+    /// reaches_spotifys_real_dealer`.
+    #[tokio::test]
+    #[ignore = "reaches dealer.spotify.com"]
+    async fn reaches_spotifys_real_dealer() {
+        let refused = open(format!("{DEALER}/?access_token=")).await.err();
+        assert_eq!(refused, Some(Some(StatusCode::UNAUTHORIZED)));
     }
 
     #[tokio::test]
