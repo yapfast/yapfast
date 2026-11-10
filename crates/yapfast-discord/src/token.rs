@@ -251,12 +251,18 @@ fn id_of(token: &str) -> String {
         String::from_utf8(bytes).ok()
     });
     match spelled {
-        Some(id) if (15..=20).contains(&id.len()) && id.bytes().all(|byte| byte.is_ascii_digit()) => {
+        Some(id)
+            if (15..=20).contains(&id.len()) && id.bytes().all(|byte| byte.is_ascii_digit()) =>
+        {
             id
         }
         _ => {
             let digest = Sha256::digest(token.as_bytes());
-            let hash: String = digest.iter().take(8).map(|byte| format!("{byte:02x}")).collect();
+            let hash: String = digest
+                .iter()
+                .take(8)
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
             format!("login-{hash}")
         }
     }
@@ -369,8 +375,11 @@ fn describe_in(
     let Some(mut saved) = read_saved(vault, id)? else {
         return Ok(());
     };
-    if (saved.username.as_str(), saved.name.as_str(), saved.avatar.as_str())
-        == (username, name, avatar)
+    if (
+        saved.username.as_str(),
+        saved.name.as_str(),
+        saved.avatar.as_str(),
+    ) == (username, name, avatar)
     {
         return Ok(());
     }
@@ -592,7 +601,10 @@ mod tests {
     fn links_accounts_and_the_last_linked_is_active() {
         let vault = Memory::default();
         assert_eq!(listing_in(&vault).unwrap(), Listing::default());
-        let (first, second) = (login("100000000000000001", "a"), login("100000000000000002", "b"));
+        let (first, second) = (
+            login("100000000000000001", "a"),
+            login("100000000000000002", "b"),
+        );
         link(&vault, &first, true).unwrap();
         link(&vault, &second, true).unwrap();
         let listing = listing_in(&vault).unwrap();
@@ -617,7 +629,12 @@ mod tests {
     fn stops_at_the_most_accounts() {
         let vault = Memory::default();
         for number in 0..MOST_ACCOUNTS {
-            link(&vault, &login(&format!("10000000000000000{number}"), "x"), true).unwrap();
+            link(
+                &vault,
+                &login(&format!("10000000000000000{number}"), "x"),
+                true,
+            )
+            .unwrap();
         }
         let refused = link(&vault, &login("100000000000000099", "x"), true).unwrap_err();
         assert!(refused.is::<TooManyAccounts>());
@@ -635,7 +652,11 @@ mod tests {
         describe_in(&vault, &id, "ann", "Ann", "https://cdn/ann.png").unwrap();
         let account = listing_in(&vault).unwrap().accounts.remove(0);
         assert_eq!(
-            (account.username.as_str(), account.name.as_str(), account.avatar.as_str()),
+            (
+                account.username.as_str(),
+                account.name.as_str(),
+                account.avatar.as_str()
+            ),
             ("ann", "Ann", "https://cdn/ann.png")
         );
         // An account that isn't linked isn't made by describing it.
@@ -651,12 +672,18 @@ mod tests {
         let id = link(&vault, "first-login", true).unwrap();
         link(&vault, "other-login", true).unwrap();
         let index = read_index(&vault).unwrap();
-        assert_eq!(locate(&vault, &index, "first-login").unwrap(), Some(id.clone()));
+        assert_eq!(
+            locate(&vault, &index, "first-login").unwrap(),
+            Some(id.clone())
+        );
         let mut saved = read_saved(&vault, &id).unwrap().unwrap();
         saved.token = "refreshed-login".into();
         write_saved(&vault, &id, &saved).unwrap();
         let index = read_index(&vault).unwrap();
-        assert_eq!(locate(&vault, &index, "refreshed-login").unwrap(), Some(id.clone()));
+        assert_eq!(
+            locate(&vault, &index, "refreshed-login").unwrap(),
+            Some(id.clone())
+        );
         // The active account stays the one that was.
         assert_eq!(index.active(), Some(id_of("other-login").as_str()));
     }
@@ -665,7 +692,12 @@ mod tests {
     fn forgetting_the_active_account_activates_the_first_left() {
         let vault = Memory::default();
         for number in 1..=3 {
-            link(&vault, &login(&format!("10000000000000000{number}"), "x"), true).unwrap();
+            link(
+                &vault,
+                &login(&format!("10000000000000000{number}"), "x"),
+                true,
+            )
+            .unwrap();
         }
         // Not the active one: it stays active.
         let (was_active, active) = forget_in(&vault, "100000000000000001").unwrap();
@@ -691,7 +723,10 @@ mod tests {
         assert_eq!(listing.accounts.len(), 1);
         assert!(vault.read(ACCOUNT).unwrap().is_none(), "moved, not copied");
         assert_eq!(
-            read_saved(&vault, "100000000000000001").unwrap().unwrap().token,
+            read_saved(&vault, "100000000000000001")
+                .unwrap()
+                .unwrap()
+                .token,
             token
         );
         // The first probe's login moves the same way.

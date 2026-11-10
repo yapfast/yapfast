@@ -5176,7 +5176,10 @@ fn manages_linked_discord_accounts() {
     // closes with an empty id.
     app.dispatch(Action::OpenAccountMenu("2".into()));
     assert_eq!(
-        app.state.manage_accounts.as_ref().and_then(|d| d.menu.as_deref()),
+        app.state
+            .manage_accounts
+            .as_ref()
+            .and_then(|d| d.menu.as_deref()),
         Some("2")
     );
     app.dispatch(Action::OpenAccountMenu("2".into()));

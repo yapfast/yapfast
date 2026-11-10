@@ -4638,7 +4638,11 @@ async fn keeps_two_accounts_and_switches_between_them() {
     let bea = listing.active.clone().unwrap();
     assert_ne!(bea, alice);
     assert_eq!(token::load().unwrap(), client::TEST_SECOND_TOKEN);
-    let me = Api::new(token::load().unwrap()).unwrap().me().await.unwrap();
+    let me = Api::new(token::load().unwrap())
+        .unwrap()
+        .me()
+        .await
+        .unwrap();
     assert_eq!(me.username, "bea");
     assert_eq!(me.global_name.as_deref(), Some("Bea"));
 
@@ -4663,7 +4667,11 @@ async fn keeps_two_accounts_and_switches_between_them() {
     // Switching back gives Alice's login again; logging Bea out leaves her.
     token::switch(&alice).unwrap();
     assert_eq!(token::load().unwrap(), client::TEST_TOKEN);
-    let me = Api::new(token::load().unwrap()).unwrap().me().await.unwrap();
+    let me = Api::new(token::load().unwrap())
+        .unwrap()
+        .me()
+        .await
+        .unwrap();
     assert_eq!(me.username, "alice");
     assert_eq!(token::forget_account(&bea).unwrap(), Some(alice.clone()));
     assert_eq!(token::listing().unwrap().accounts.len(), 1);
