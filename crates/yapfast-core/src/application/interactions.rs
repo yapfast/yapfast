@@ -103,6 +103,18 @@ impl Interactions {
         );
     }
 
+    /// Takes `nonce` as an app's command sent in `guild`, whose answer may
+    /// be a form.
+    pub(super) fn command_sent(&mut self, nonce: String, guild: Option<String>) {
+        self.start(
+            nonce,
+            Pending {
+                control: None,
+                guild,
+            },
+        );
+    }
+
     fn start(&mut self, nonce: String, pending: Pending) {
         self.pending.insert(nonce, pending);
     }
@@ -796,6 +808,10 @@ impl Application {
         else {
             return;
         };
+        // A command answered with a form: its row goes.
+        if let Some(nonce) = raw["nonce"].as_str() {
+            self.command_answered(nonce, None, false);
+        }
         let Some(mut modal) = InteractionModal::parse(raw) else {
             self.state.notice = Some("Yapfast couldn't show this app's form.".into());
             return;
@@ -836,6 +852,7 @@ impl Application {
         failure: Option<String>,
         settled: bool,
     ) {
+        self.command_answered(nonce, failure.clone(), settled);
         let Some(pending) = self
             .state
             .interactions

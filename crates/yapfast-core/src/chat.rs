@@ -1818,6 +1818,8 @@ pub struct ChatMessage {
     pub item: String,
     /// The Discord app that owns interactive components, when one is known.
     pub application_id: Option<String>,
+    /// The Discord interaction it answers, by its id.
+    pub interaction: Option<String>,
     pub flags: u64,
     pub author: String,
     /// The author's Matrix user ID, which tells apart people sharing a display name.
@@ -3874,8 +3876,9 @@ pub enum Event {
     /// it in time, as across a reconnect.
     InteractionSettled(String),
     /// Discord passed the interaction with this nonce to its app, which gave
-    /// it `id`: the answer's message names it in `interaction_metadata`.
-    /// Nothing shows it yet; a command's "Sending command…" row will.
+    /// it `id`: the answer's message names it in `interaction_metadata`
+    /// ([`ChatMessage::interaction`]), which ends a command's "Sending
+    /// command…" row.
     InteractionCreated {
         nonce: String,
         id: String,

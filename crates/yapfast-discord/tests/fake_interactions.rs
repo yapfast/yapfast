@@ -460,6 +460,7 @@ async fn a_slash_command_posts_its_options_and_its_answer_arrives() {
     })
     .await;
     assert_eq!(answer.content, "Ran /config.");
+    assert_eq!(answer.interaction.as_deref(), Some(created.as_str()));
     assert_eq!(
         answer.application_id.as_deref(),
         Some(fixture.deploy.author_id.as_str())

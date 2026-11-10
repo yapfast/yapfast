@@ -669,6 +669,8 @@ pub(super) fn message_row_within(
             false,
             true,
         ),
+        // An app's command, whose row says why.
+        Delivery::Failed if message.item.starts_with("c:") => ("Not sent.", true, true),
         Delivery::Failed => ("Not sent. The server refused this message.", true, true),
     };
     let reply_author = message

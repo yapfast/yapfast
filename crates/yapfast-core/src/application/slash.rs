@@ -46,12 +46,32 @@ pub struct Slash {
     dismissed: bool,
     /// The command being written.
     command: Option<CommandDraft>,
+    /// Commands sent, until their answers come.
+    sent: Vec<SentCommand>,
 }
+
+/// A command sent, which its channel shows as "Sending command…" until the
+/// app's answer comes, or, when it failed, as why, with Retry.
+struct SentCommand {
+    run: CommandRun,
+    app_name: String,
+    app_icon: Option<String>,
+    /// The interaction's id, which its answer names in
+    /// `interaction_metadata`, once Discord gave it.
+    interaction: Option<String>,
+    /// Why it failed.
+    failed: Option<String>,
+}
+
+/// What a command row's item starts with.
+const SENT_COMMAND: &str = "c:";
 
 /// A command picked from the picker, with what was entered for its options.
 pub struct CommandDraft {
     room: String,
     application: String,
+    app_name: String,
+    app_icon: Option<String>,
     /// The command as the index gives it, sent along with it.
     command: Arc<Value>,
     /// Its name with its subcommand's, as "config set".
@@ -551,6 +571,8 @@ impl Application {
         let draft = CommandDraft {
             room: room.clone(),
             application: picked.app,
+            app_name: picked.app_name,
+            app_icon: picked.app_icon,
             command,
             name: picked.name,
             path: picked.path,
@@ -761,7 +783,8 @@ impl Application {
             options.push(json!({"type": option.kind, "name": option.name, "value": value}));
         }
         let run = CommandRun {
-            nonce: command_nonce(),
+            // send_command gives it one.
+            nonce: String::new(),
             room: room.to_owned(),
             application: command.application.clone(),
             command: command.command.clone(),
@@ -769,14 +792,172 @@ impl Application {
             target: None,
             files,
         };
-        self.state.slash.command = None;
+        let Some(command) = self.state.slash.command.take() else {
+            return vec![];
+        };
         self.state.drafts.insert(room.to_owned(), String::new());
         if self.state.preview {
             return vec![];
         }
+        self.state.slash.sent.push(SentCommand {
+            run,
+            app_name: command.app_name,
+            app_icon: command.app_icon,
+            interaction: None,
+            failed: None,
+        });
+        self.send_command(self.state.slash.sent.len() - 1)
+    }
+
+    /// Sends the sent command at `index`, again for a retry, with a new
+    /// nonce, and shows it as sending.
+    fn send_command(&mut self, index: usize) -> Vec<Effect> {
+        let mut nonce = command_nonce();
+        // A retry within the same millisecond takes the next one.
+        while self
+            .state
+            .slash
+            .sent
+            .iter()
+            .any(|sent| sent.run.nonce == nonce)
+        {
+            nonce = match nonce.parse::<u64>() {
+                Ok(number) => (number + 1).to_string(),
+                Err(_) => command_nonce(),
+            };
+        }
+        let sent = &mut self.state.slash.sent[index];
+        sent.run.nonce = nonce.clone();
+        sent.interaction = None;
+        sent.failed = None;
+        let run = sent.run.clone();
+        // A form it answers with opens as a control's does.
+        let guild = discord::parse_room(&run.room)
+            .map(|(guild, _)| guild)
+            .filter(|guild| *guild != discord::DM_GUILD)
+            .map(str::to_owned);
+        self.state.interactions.command_sent(nonce, guild);
+        self.show_sent_commands();
         vec![Effect::Backend(Command::Discord(
             DiscordCommand::RunCommand(Box::new(run)),
         ))]
+    }
+
+    /// Retry on a command that failed, by its row's item.
+    pub(super) fn retry_command(&mut self, item: &str) -> Vec<Effect> {
+        let nonce = item.strip_prefix(SENT_COMMAND).unwrap_or_default();
+        match self
+            .state
+            .slash
+            .sent
+            .iter()
+            .position(|sent| sent.run.nonce == nonce && sent.failed.is_some())
+        {
+            Some(index) => self.send_command(index),
+            None => vec![],
+        }
+    }
+
+    /// Cancel on a command that failed: its row goes.
+    pub(super) fn cancel_command(&mut self, item: &str) {
+        let nonce = item.strip_prefix(SENT_COMMAND).unwrap_or_default();
+        self.state
+            .slash
+            .sent
+            .retain(|sent| sent.run.nonce != nonce || sent.failed.is_none());
+        self.show_sent_commands();
+    }
+
+    /// [`Event::InteractionCreated`]: the id its answer will name.
+    pub(super) fn command_created(&mut self, nonce: &str, id: String) {
+        if let Some(sent) = self.sent_command(nonce) {
+            sent.interaction = Some(id);
+        }
+    }
+
+    /// Discord's word on the command `nonce`: answered, when its row goes,
+    /// or failed with `failure`, or neither in time when `settled`.
+    pub(super) fn command_answered(&mut self, nonce: &str, failure: Option<String>, settled: bool) {
+        let Some(sent) = self.sent_command(nonce) else {
+            return;
+        };
+        match failure {
+            Some(reason) => sent.failed = Some(reason),
+            None if settled => {
+                sent.failed = Some(
+                    "Discord didn't confirm this command was sent. Check for the app's answer before sending it again."
+                        .into(),
+                );
+            }
+            None => self.state.slash.sent.retain(|sent| sent.run.nonce != nonce),
+        }
+        self.show_sent_commands();
+    }
+
+    fn sent_command(&mut self, nonce: &str) -> Option<&mut SentCommand> {
+        self.state
+            .slash
+            .sent
+            .iter_mut()
+            .find(|sent| sent.run.nonce == nonce)
+    }
+
+    /// Puts the open room's sent commands under its messages, and lets go
+    /// of those whose answer is among them.
+    pub(super) fn show_sent_commands(&mut self) {
+        let Some(room) = self.state.selected.as_deref() else {
+            return;
+        };
+        let messages = &self.state.messages;
+        let answered = |id: &String| {
+            messages
+                .iter()
+                .any(|message| message.interaction.as_ref() == Some(id))
+        };
+        self.state.slash.sent.retain(|sent| {
+            sent.run.room != room || !sent.interaction.as_ref().is_some_and(answered)
+        });
+        let rows: Vec<Arc<ChatMessage>> = self
+            .state
+            .slash
+            .sent
+            .iter()
+            .filter(|sent| sent.run.room == room)
+            .map(|sent| {
+                let item = format!("{SENT_COMMAND}{}", sent.run.nonce);
+                Arc::new(ChatMessage {
+                    id: item.clone(),
+                    item,
+                    application_id: Some(sent.run.application.clone()),
+                    author: sent.app_name.clone(),
+                    avatar: sent.app_icon.clone(),
+                    bot: true,
+                    body: sent
+                        .failed
+                        .clone()
+                        .unwrap_or_else(|| "Sending command…".into()),
+                    delivery: if sent.failed.is_some() {
+                        chat::Delivery::Failed
+                    } else {
+                        chat::Delivery::Sent
+                    },
+                    ..Default::default()
+                })
+            })
+            .collect();
+        let shown = messages
+            .iter()
+            .any(|message| message.item.starts_with(SENT_COMMAND));
+        if !shown && rows.is_empty() {
+            return;
+        }
+        let mut messages: Vec<_> = messages
+            .iter()
+            .filter(|message| !message.item.starts_with(SENT_COMMAND))
+            .cloned()
+            .collect();
+        messages.extend(rows);
+        self.state.messages = Arc::new(messages);
     }
 }
 

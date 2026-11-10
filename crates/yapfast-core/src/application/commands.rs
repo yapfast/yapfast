@@ -125,7 +125,10 @@ impl Application {
             Event::AutocompleteChoices { nonce, choices } => {
                 self.slash_autocomplete(&nonce, &choices)
             }
-            Event::InteractionCreated { .. } => vec![],
+            Event::InteractionCreated { nonce, id } => {
+                self.command_created(&nonce, id);
+                vec![]
+            }
             _ => vec![],
         }
     }

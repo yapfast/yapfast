@@ -12504,3 +12504,96 @@ fn a_command_with_missing_required_options_does_not_send() {
     assert!(run.target.is_none() && run.files.is_empty());
     assert_eq!(app.state.draft(), "");
 }
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_sent_command_shows_until_its_answer_and_a_failed_one_retries() {
+    let (mut app, room) = in_discord_channel();
+    app.dispatch(Action::SetDraft("/".into()));
+    app.apply(Event::CommandIndex {
+        room: room.clone(),
+        index: Ok(command_index()),
+    });
+    let send = |effects: Vec<Effect>| -> String {
+        effects
+            .into_iter()
+            .find_map(|effect| match effect {
+                Effect::Backend(Command::Discord(DiscordCommand::RunCommand(run))) => {
+                    Some(run.nonce)
+                }
+                _ => None,
+            })
+            .expect("the command runs")
+    };
+    let rows = |app: &Application| -> Vec<(String, chat::Delivery)> {
+        app.state
+            .messages
+            .iter()
+            .filter(|message| message.item.starts_with("c:"))
+            .map(|message| (message.body.clone(), message.delivery))
+            .collect()
+    };
+    app.dispatch(Action::SetDraft("/ping".into()));
+    app.dispatch(Action::PickCommand(0));
+    let effects = app.dispatch(Action::Send);
+    let nonce = send(effects);
+    assert_eq!(
+        rows(&app),
+        [("Sending command…".into(), chat::Delivery::Sent)]
+    );
+    assert_eq!(app.state.messages.last().unwrap().author, "Status Bot");
+    // A timeline that comes keeps it; the answer, naming the interaction,
+    // takes its place.
+    app.apply(Event::InteractionCreated {
+        nonce: nonce.clone(),
+        id: "900".into(),
+    });
+    app.apply(Event::Timeline {
+        room: room.clone(),
+        messages: timeline(vec![message("d:1", true)]),
+    });
+    assert_eq!(rows(&app).len(), 1);
+    app.apply(Event::Timeline {
+        room: room.clone(),
+        messages: timeline(vec![
+            message("d:1", true),
+            ChatMessage {
+                interaction: Some("900".into()),
+                ..message("d:2", false)
+            },
+        ]),
+    });
+    assert!(rows(&app).is_empty());
+    assert_eq!(app.state.messages.len(), 2);
+
+    // A failed one says why, and Retry sends it again with a new nonce.
+    app.dispatch(Action::SetDraft("/ping".into()));
+    app.dispatch(Action::PickCommand(0));
+    let effects = app.dispatch(Action::Send);
+    let nonce = send(effects);
+    app.apply(Event::InteractionFailed {
+        nonce: nonce.clone(),
+        reason: "The app didn't answer.".into(),
+    });
+    assert_eq!(
+        rows(&app),
+        [("The app didn't answer.".into(), chat::Delivery::Failed)]
+    );
+    let item = format!("c:{nonce}");
+    let effects = app.dispatch(Action::Retry(item));
+    let again = send(effects);
+    assert_ne!(again, nonce);
+    assert_eq!(rows(&app)[0].1, chat::Delivery::Sent);
+    // Answered without a message, as with a form, it goes too.
+    app.apply(Event::InteractionSucceeded(again.clone()));
+    assert!(rows(&app).is_empty());
+    // Cancel lets a failed one go.
+    app.dispatch(Action::SetDraft("/ping".into()));
+    app.dispatch(Action::PickCommand(0));
+    let effects = app.dispatch(Action::Send);
+    let nonce = send(effects);
+    app.apply(Event::InteractionSettled(nonce.clone()));
+    assert_eq!(rows(&app)[0].1, chat::Delivery::Failed);
+    app.dispatch(Action::CancelSend(format!("c:{nonce}")));
+    assert!(rows(&app).is_empty());
+}

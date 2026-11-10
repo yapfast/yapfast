@@ -631,6 +631,13 @@ sends one, and none is sent again on its own.
   INTERACTION_SUCCESS or INTERACTION_FAILURE, or a form. A deferred answer
   is a message with the LOADING flag and no content, which a MESSAGE_UPDATE
   fills in.
+- Until the answer comes, the channel shows a row from the app saying
+  "Sending command…", by the command's nonce. The answer's message names the
+  interaction INTERACTION_CREATE gave (`interaction_metadata.id`) and takes
+  its place; INTERACTION_SUCCESS, or a form, ends it too. A command Discord
+  or the app refused, or that Discord never confirmed, says why there
+  instead, with Retry, which sends it again with a new nonce, and Cancel.
+  The row is Yapfast's own and lives only while Yapfast runs.
 - An option whose app completes it (`autocomplete`) asks the app for its
   choices with a type 4 interaction once typing pauses for 300 ms: the same
   data, without files, the option typed in marked `focused` with its value

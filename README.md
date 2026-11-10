@@ -166,7 +166,8 @@ they do in Discord.
   message requests.
 - **Messages** you can send, reply to, edit, react to, pin, forward and attach
   files to, with Markdown, embeds, custom emoji, stickers and spoilers. Bots'
-  buttons, menus and forms work too.
+  buttons, menus and forms work too, and so do apps' slash commands: type `/`,
+  pick one and fill in its options, files and autocomplete included.
   Discord's own links to servers, channels, messages and profiles open in
   Yapfast, including one handed to it by the desktop.
 - **Threads**: start one from a message, browse a channel's threads, join or
@@ -184,7 +185,7 @@ they do in Discord.
 
 - Media channels.
 - Activities.
-- Bots' slash commands and the commands in a message's or a person's menu.
+- Apps' commands in a message's or a person's menu.
 - Making and changing server folders.
 - A server's form for new members, such as its rules, when you join. Yapfast
   sends you to Discord in your browser to fill it in.

@@ -171,6 +171,10 @@ pub struct Message {
     /// account, who may delete it as their own.
     #[serde(default)]
     pub invoker: Option<String>,
+    /// The interaction it answers, by the id INTERACTION_CREATE gave it
+    /// (`interaction_metadata.id`).
+    #[serde(default)]
+    pub interaction: Option<String>,
     /// The poll it asks, if it's one.
     #[serde(default)]
     pub poll: Option<Poll>,
@@ -818,6 +822,9 @@ pub fn parse(value: &Value) -> Option<Message> {
             .all(|field| value[*field].is_null()),
         undeletable: kind == CALL,
         invoker: invoker(&value["interaction_metadata"]),
+        interaction: value["interaction_metadata"]["id"]
+            .as_str()
+            .map(str::to_owned),
         poll: Poll::of(&shown["poll"]),
         ephemeral: value["flags"].as_u64().unwrap_or_default() & EPHEMERAL != 0,
         loading: value["flags"].as_u64().unwrap_or_default() & LOADING != 0,
@@ -2135,6 +2142,7 @@ mod tests {
         };
         let mine = answer(json!({"1": "1"}));
         assert_eq!(mine.invoker.as_deref(), Some("1"));
+        assert_eq!(mine.interaction.as_deref(), Some("901"));
         assert!(!mine.undeletable);
         assert_eq!(
             answer(json!({"0": "10", "1": "1"})).invoker,

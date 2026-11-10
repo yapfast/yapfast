@@ -3300,8 +3300,13 @@ impl Application {
                 vec![]
             }
             Action::ConfirmDelete => self.confirm_delete(),
+            Action::Retry(item) if item.starts_with("c:") => self.retry_command(&item),
             Action::Retry(item) => {
                 self.queue_action(item, |room, item| Command::Retry { room, item })
+            }
+            Action::CancelSend(item) if item.starts_with("c:") => {
+                self.cancel_command(&item);
+                vec![]
             }
             Action::CancelSend(item) => {
                 self.queue_action(item, |room, item| Command::Cancel { room, item })
@@ -4110,6 +4115,7 @@ impl Application {
                     }
                     self.state.room_ready = true;
                     self.state.messages = self.without_blocked(Arc::new(messages));
+                    self.show_sent_commands();
                     let mut effects = self.place_unread();
                     effects.extend(self.seek());
                     effects.extend(self.read_latest());
