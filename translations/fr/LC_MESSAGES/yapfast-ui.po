@@ -4507,7 +4507,7 @@ msgstr "Rechercher des tags de serveur"
 
 #: ui/yapfast/settings-nav.slint
 msgid "Search settings"
-msgstr "Rechercher dans les paramètres"
+msgstr "Rechercher"
 
 #: src/ui/refresh.rs
 msgid "Search {}"
