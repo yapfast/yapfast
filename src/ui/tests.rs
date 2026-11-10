@@ -121,7 +121,9 @@ fn equal_lists_stay_so_rows_count_as_unchanged() {
 }
 
 #[test]
-fn this_accounts_own_profile_shares_its_friends_and_servers_with_nobody() {
+fn this_accounts_own_profile_shows_no_mutuals() {
+    use i_slint_core::{accessibility::AccessibleStringProperty, item_tree::ItemRc};
+    i_slint_backend_testing::init_no_event_loop();
     let view = |id: &str| yapfast_core::application::ProfileView {
         profile: yapfast_core::chat::Profile {
             id: id.into(),
@@ -148,17 +150,66 @@ fn this_accounts_own_profile_shares_its_friends_and_servers_with_nobody() {
     state.discord_user = Some("42".into());
     let mut pictures = HashMap::new();
 
-    // Anyone else's card names what the account shares with them.
+    // Anyone else's card and full profile name what the account shares with
+    // them.
     let other = profile_data(&mut pictures, &state, &view("7"));
     assert_eq!(other.mutual_friends_text, "1 mutual friend");
     assert_eq!(other.mutual_servers_text, "1 mutual server");
     assert!(!other.own);
 
-    // Its own profile shares them with nobody, so it names them plainly.
+    // Its own shares them with nobody, so, as in Discord's client, its card
+    // has no mutual line and its full profile no mutual tabs.
     let own = profile_data(&mut pictures, &state, &view("42"));
-    assert_eq!(own.mutual_friends_text, "1 friend");
-    assert_eq!(own.mutual_servers_text, "1 server");
     assert!(own.own);
+
+    let window = classic_window();
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    // Past the cards' opening and closing motions.
+    let settle = |window: &YapfastWindow| {
+        for _ in 0..5 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(200));
+            settle(window);
+        }
+    };
+    // Whether something with this label shows: a tab that doesn't keeps its
+    // elements, hidden.
+    let shows = |window: &YapfastWindow, label: &str| {
+        let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+        ItemRc::new_root(inner.component())
+            .visit_descendants(|item| {
+                let named = item.accessible_string_property(AccessibleStringProperty::Label);
+                if named.as_deref() == Some(label) && item.is_visible() {
+                    std::ops::ControlFlow::Break(())
+                } else {
+                    std::ops::ControlFlow::Continue(())
+                }
+            })
+            .is_some()
+    };
+    for (data, mutuals) in [(other, true), (own, false)] {
+        window.set_profile_large(false);
+        window.set_profile(data);
+        window.set_profile_open(true);
+        settle(&window);
+        assert_eq!(
+            shows(
+                &window,
+                "Show mutual friends and servers in the full profile"
+            ),
+            mutuals,
+            "the card's mutual line"
+        );
+        window.set_profile_large(true);
+        settle(&window);
+        assert!(shows(&window, "Activity"), "the full profile is open");
+        assert_eq!(shows(&window, "1 mutual friend"), mutuals, "Mutual Friends");
+        assert_eq!(shows(&window, "1 mutual server"), mutuals, "Mutual Servers");
+        window.set_profile_open(false);
+        settle(&window);
+    }
 }
 
 #[test]
