@@ -769,6 +769,88 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         }};
     }
     bind!(on_explore_preview, Action::Preview);
+    {
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        window.on_use_button(move |item, custom_id| {
+            if let Some(window) = weak.upgrade() {
+                state.borrow_mut().action(
+                    &window,
+                    Action::UseButton {
+                        item: item.to_string(),
+                        custom_id: custom_id.to_string(),
+                    },
+                );
+            }
+        });
+    }
+    {
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        window.on_open_select(move |item, custom_id| {
+            if let Some(window) = weak.upgrade() {
+                state.borrow_mut().action(
+                    &window,
+                    Action::OpenSelect {
+                        item: item.to_string(),
+                        custom_id: custom_id.to_string(),
+                    },
+                );
+            }
+        });
+    }
+    bind!(on_bot_select_submit, Action::SubmitSelect);
+    bind!(on_bot_select_close, Action::CloseSelect);
+    {
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        window.on_bot_select_search(move |query| {
+            if let Some(window) = weak.upgrade() {
+                state
+                    .borrow_mut()
+                    .action(&window, Action::SearchSelect(query.to_string()));
+            }
+        });
+    }
+    bind!(on_bot_modal_submit, Action::SubmitModal);
+    bind!(on_bot_modal_close, Action::CloseModal);
+    {
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        window.on_bot_modal_open_select(move |index| {
+            if let Some(window) = weak.upgrade() {
+                state
+                    .borrow_mut()
+                    .action(&window, Action::OpenModalSelect(index as usize));
+            }
+        });
+    }
+    {
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        window.on_bot_select_toggle(move |index| {
+            if let Some(window) = weak.upgrade() {
+                state
+                    .borrow_mut()
+                    .action(&window, Action::ToggleSelect(index as usize));
+            }
+        });
+    }
+    {
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        window.on_bot_modal_field_edited(move |index, value| {
+            if let Some(window) = weak.upgrade() {
+                state.borrow_mut().action(
+                    &window,
+                    Action::SetModalField {
+                        index: index as usize,
+                        value: value.to_string(),
+                    },
+                );
+            }
+        });
+    }
     bind!(on_restore, Action::Restore);
     bind!(on_logout, Action::Logout);
     bind!(on_refresh_trust, Action::RefreshTrust);

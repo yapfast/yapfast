@@ -146,6 +146,14 @@
 // buttons and a menu under its text, and one of components outside a
 // container, with a gallery of its attachments and a file. It answers with
 // the notice's id.
+// POST /interactions takes Alice's use of Status Bot's controls, as
+// Discord's client sends it (its user's id is its app's), and answers 204;
+// the session named answers over the gateway with INTERACTION_CREATE, then:
+// "approve" succeeds and Status Bot says so, "rollback" opens a form with a
+// text display and a reason (INTERACTION_MODAL_CREATE), whose submission
+// succeeds with a reply, and choosing "production" in its menu fails
+// (INTERACTION_FAILURE); "staging" succeeds. GET /_control/interactions
+// lists what was sent, oldest first.
 // POST /_control/unlooked-reply?channel=ID&to=ID makes Bob reply to a message
 // in a channel, live and in its history without `referenced_message`, as when
 // Discord didn't look the original up, and answers with the reply's id.
@@ -5075,6 +5083,7 @@ const DETECTABLE_GAMES = [{ id: "123456789012345680", name: "Detected Fixture",
   ], third_party_skus: [] }];
 
 async function api(req: Request, path: string, origin: string): Promise<Response> {
+  if (req.method === "POST" && path === "/interactions") return interact(await req.json(), origin);
   // A Rich Presence application and its images. Games leave out their name
   // and name images by key, which the client turns into the application's
   // name and image ids before the presence goes to the gateway.
@@ -7631,6 +7640,55 @@ function postComponents(origin: string): string {
   return notice.id;
 }
 
+/** What Alice's client sent to POST /interactions, oldest first. */
+const interactions: unknown[] = [];
+
+/** Status Bot answers its controls and forms, to the session that used them. */
+function interact(body: any, origin: string): Response {
+  interactions.push(body);
+  const session = [...sockets].find((ws) => ws.data.identified && ws.data.session === body.session_id);
+  if (!session) return json({ message: "Invalid Form Body", code: 50035 }, 400);
+  const message = (messages.get(body.channel_id) ?? []).find((each) => each.id === body.message_id);
+  const known = body.application_id === statusBot.id
+    && (body.type === 5 || (body.type === 3 && message?.author.id === statusBot.id));
+  if (!known) return json({ message: "Unknown Application", code: 10002 }, 404);
+  const now = Date.now();
+  const id = snowflake(now, interactions.length);
+  const nonce = body.nonce;
+  const reply = (content: string) => {
+    const said = post(body.channel_id, statusBot, content, now + 1);
+    dispatch("MESSAGE_CREATE", dispatched(said, origin));
+  };
+  queueMicrotask(() => {
+    send(session, 0, { id, nonce }, "INTERACTION_CREATE");
+    const data = body.data ?? {};
+    if (body.type === 5 && data.custom_id === "rollback") {
+      const why = data.components?.find((row: any) => row.type === 18)?.component?.value;
+      send(session, 0, { id, nonce }, "INTERACTION_SUCCESS");
+      reply(`Rolled back to **v2.3**: ${why}`);
+    } else if (data.custom_id === "approve") {
+      send(session, 0, { id, nonce }, "INTERACTION_SUCCESS");
+      reply("Approved by Alice.");
+    } else if (data.custom_id === "rollback") {
+      send(session, 0, {
+        id, nonce, channel_id: body.channel_id, custom_id: "rollback", title: "Roll back v2.4",
+        application: { id: statusBot.id, name: "Status Bot", icon: null, description: "", bot_public: true },
+        components: [
+          { type: 10, id: 1, content: "**This redeploys v2.3** to everyone." },
+          { type: 18, id: 2, label: "Why", component: { type: 4, id: 3, custom_id: "why", style: 2, required: true } },
+        ],
+      }, "INTERACTION_MODAL_CREATE");
+      send(session, 0, { id, nonce }, "INTERACTION_SUCCESS");
+    } else if (data.custom_id === "environment" && data.values?.[0] === "staging") {
+      send(session, 0, { id, nonce }, "INTERACTION_SUCCESS");
+      reply("Deploying to staging.");
+    } else {
+      send(session, 0, { id, nonce, reason_code: 1 }, "INTERACTION_FAILURE");
+    }
+  });
+  return new Response(null, { status: 204 });
+}
+
 // --- Environments -------------------------------------------------------------
 // With --env, the fixture made above is emptied and the env's content fills
 // the same stores: people in userById, history through post(), DMs in
@@ -8315,6 +8373,7 @@ const server = Bun.serve<SocketData>({
       return new Response(`${name}'s camera is ${state.self_video ? "on" : "off"} in ${calls.length} call(s)\n`);
     }
     if (path === "/_control/soundboard-sends") return Response.json(soundboardSends);
+    if (path === "/_control/interactions") return Response.json(interactions);
     if (path === "/_control/custom-call-sounds") return Response.json(customCallSounds);
     if (req.method === "POST" && path === "/_control/soundboard-play") {
       const who = url.searchParams.get("user") ?? "bob";

@@ -888,6 +888,11 @@ impl Application {
                 .iter()
                 .any(|room| room.id == id && self.state.in_scope(room));
         let mut effects = if changes { self.close_aside() } else { vec![] };
+        if changes {
+            // As in Discord's client, a failed control's line goes with
+            // the channel.
+            self.state.interaction_failed = None;
+        }
         effects.extend(self.show_room(id, chat));
         effects.extend(self.ask_activity());
         effects

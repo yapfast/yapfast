@@ -100,6 +100,10 @@ pub struct Page {
 pub struct Message {
     pub id: String,
     pub channel_id: String,
+    #[serde(default)]
+    pub application_id: Option<String>,
+    #[serde(default)]
+    pub flags: u64,
     /// The client's nonce, on messages this account sent.
     pub nonce: Option<String>,
     pub author_id: String,
@@ -733,6 +737,8 @@ pub fn parse(value: &Value) -> Option<Message> {
     Some(Message {
         id: value["id"].as_str()?.into(),
         channel_id: value["channel_id"].as_str().unwrap_or_default().into(),
+        application_id: value["application_id"].as_str().map(str::to_owned),
+        flags: value["flags"].as_u64().unwrap_or_default(),
         nonce: match &value["nonce"] {
             Value::String(nonce) => Some(nonce.clone()),
             Value::Number(nonce) => Some(nonce.to_string()),

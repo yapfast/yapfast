@@ -38,6 +38,9 @@ events! {
     /// What READY left out to be smaller: DMs, presences, voice states.
     ReadySupplemental = "READY_SUPPLEMENTAL",
     MessageCreate = "MESSAGE_CREATE",
+    InteractionSuccess = "INTERACTION_SUCCESS",
+    InteractionFailure = "INTERACTION_FAILURE",
+    InteractionModalCreate = "INTERACTION_MODAL_CREATE",
     MessageUpdate = "MESSAGE_UPDATE",
     MessageDelete = "MESSAGE_DELETE",
     MessageDeleteBulk = "MESSAGE_DELETE_BULK",
