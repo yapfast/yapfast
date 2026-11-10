@@ -44,6 +44,12 @@ const USER_INSTALL: &str = "1";
 
 /// The message flag that hides its embeds.
 const SUPPRESS_EMBEDS: u64 = 1 << 2;
+/// The message flag of a voice message, whose only attachment is its
+/// recording.
+const IS_VOICE_MESSAGE: u64 = 1 << 13;
+/// The most of a voice message's waveform Discord sends: a byte for each
+/// point.
+const WAVEFORM_POINTS: usize = 256;
 /// The message flags Discord's client forwards a message with: crossposts,
 /// hidden embeds, threads, @silent, voice messages, forwards and the like,
 /// but not ephemeral or loading messages, or flags it doesn't know.
@@ -56,7 +62,7 @@ const FORWARDABLE_FLAGS: u64 = 1 << 0
     | 1 << 9
     | 1 << 10
     | 1 << 12
-    | 1 << 13
+    | IS_VOICE_MESSAGE
     | 1 << 14
     | 1 << 15
     | 1 << 19
@@ -100,6 +106,10 @@ pub struct Page {
 pub struct Message {
     pub id: String,
     pub channel_id: String,
+    #[serde(default)]
+    pub application_id: Option<String>,
+    #[serde(default)]
+    pub flags: u64,
     /// The client's nonce, on messages this account sent.
     pub nonce: Option<String>,
     pub author_id: String,
@@ -164,6 +174,45 @@ pub struct Message {
     /// The poll it asks, if it's one.
     #[serde(default)]
     pub poll: Option<Poll>,
+    /// What a voice message's recording, its first attachment, sounds like.
+    #[serde(default)]
+    pub voice: Option<VoiceMessage>,
+}
+
+/// A voice message's recording as Discord describes it, to show before it's
+/// downloaded.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct VoiceMessage {
+    /// How long it plays, in milliseconds.
+    pub duration_ms: u64,
+    /// How loud it is along its length: up to 256 points from 0 to 255.
+    pub waveform: Arc<[u8]>,
+}
+
+impl VoiceMessage {
+    /// A voice message's recording, from its message's flags and its first
+    /// attachment's `duration_secs` and base64 `waveform`.
+    fn of(message: &Value) -> Option<Self> {
+        use base64::Engine;
+        if message["flags"].as_u64().unwrap_or_default() & IS_VOICE_MESSAGE == 0 {
+            return None;
+        }
+        let recording = &message["attachments"][0];
+        let seconds = recording["duration_secs"].as_f64().unwrap_or_default();
+        let mut waveform = recording["waveform"]
+            .as_str()
+            .and_then(|waveform| {
+                base64::engine::general_purpose::STANDARD
+                    .decode(waveform)
+                    .ok()
+            })
+            .unwrap_or_default();
+        waveform.truncate(WAVEFORM_POINTS);
+        Some(Self {
+            duration_ms: (seconds.max(0.0) * 1000.0).round() as u64,
+            waveform: waveform.into(),
+        })
+    }
 }
 
 /// A message's poll, its votes as Discord counted them when the message
@@ -733,6 +782,8 @@ pub fn parse(value: &Value) -> Option<Message> {
     Some(Message {
         id: value["id"].as_str()?.into(),
         channel_id: value["channel_id"].as_str().unwrap_or_default().into(),
+        application_id: value["application_id"].as_str().map(str::to_owned),
+        flags: value["flags"].as_u64().unwrap_or_default(),
         nonce: match &value["nonce"] {
             Value::String(nonce) => Some(nonce.clone()),
             Value::Number(nonce) => Some(nonce.to_string()),
@@ -799,6 +850,7 @@ pub fn parse(value: &Value) -> Option<Message> {
         undeletable: kind == CALL,
         invoker: invoker(&value["interaction_metadata"]),
         poll: Poll::of(&shown["poll"]),
+        voice: VoiceMessage::of(shown),
     })
 }
 
@@ -1938,8 +1990,7 @@ impl Names {
             let (name, id) = emoji.split_once(':')?;
             (digits(id) && !name.is_empty()).then(|| format!(":{name}:"))
         } else if let Some(time) = tag.strip_prefix("t:") {
-            let seconds = time.split(':').next()?.parse::<i64>().ok()?;
-            Some(date_time(seconds))
+            timestamp_tag(time)
         } else {
             None
         }
@@ -2006,9 +2057,166 @@ fn escape_markdown(text: &str) -> String {
     escaped
 }
 
-/// A Unix time in the local time zone, such as `2026-10-06 14:05`.
-fn date_time(seconds: i64) -> String {
-    local(seconds).format("%Y-%m-%d %H:%M").to_string()
+/// `text` with each `<t:SECONDS>` or `<t:SECONDS:STYLE>` written as the
+/// time it names, as [`Names::render`] writes them in messages; for text
+/// that isn't rendered otherwise, such as a bio being written.
+pub fn render_timestamps(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find("<t:") {
+        out.push_str(&rest[..start]);
+        let tag = &rest[start + 3..];
+        let parsed = tag
+            .find('>')
+            .and_then(|end| Some((timestamp_tag(&tag[..end])?, end)));
+        match parsed {
+            Some((time, end)) => {
+                out.push_str(&time);
+                rest = &tag[end + 1..];
+            }
+            None => {
+                out.push_str("<t:");
+                rest = tag;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// A timestamp tag's inside, `SECONDS` or `SECONDS:STYLE`, as the time it
+/// names; none for anything else, which Discord's client shows as written:
+/// another style, or a time it can't place.
+fn timestamp_tag(tag: &str) -> Option<String> {
+    let mut parts = tag.split(':');
+    let seconds = parts.next()?;
+    let digits = seconds.strip_prefix('-').unwrap_or(seconds);
+    if digits.is_empty() || digits.len() > 17 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let seconds = seconds.parse::<i64>().ok()?;
+    chrono::DateTime::from_timestamp(seconds, 0)?;
+    let style = parts.next();
+    if style
+        .is_some_and(|style| !matches!(style, "t" | "T" | "d" | "D" | "f" | "F" | "s" | "S" | "R"))
+    {
+        return None;
+    }
+    parts.next().is_none().then(|| timestamp(seconds, style))
+}
+
+/// How `<t:…>` timestamps write times and dates, as the app's settings
+/// say: on a 12-hour clock or not, and a date's short and long forms, as
+/// chrono formats such as `%d/%m/%Y` and `%-d %B %Y`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TimestampFormat {
+    pub twelve_hour: bool,
+    pub short_date: &'static str,
+    pub long_date: &'static str,
+}
+
+impl TimestampFormat {
+    /// Until the app says otherwise: day first, on a 24-hour clock.
+    const DEFAULT: Self = Self {
+        twelve_hour: false,
+        short_date: "%d/%m/%Y",
+        long_date: "%-d %B %Y",
+    };
+}
+
+static TIMESTAMP_FORMAT: std::sync::RwLock<TimestampFormat> =
+    std::sync::RwLock::new(TimestampFormat::DEFAULT);
+
+/// Writes `<t:…>` timestamps in `format` from now on; the UI sets it at
+/// start and when the clock or date format setting changes.
+pub fn set_timestamp_format(format: TimestampFormat) {
+    *TIMESTAMP_FORMAT
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = format;
+}
+
+/// A `<t:SECONDS:STYLE>` timestamp in the local time zone, as Discord's
+/// client shows each style, here with dates day first on a 24-hour clock:
+/// `t` 14:05, `T` 14:05:09, `d` 06/10/2026, `D` 6 October 2026, `f` (and no
+/// style) 6 October 2026 14:05, `F` Tuesday, 6 October 2026 14:05, `s`
+/// 06/10/2026 14:05, `S` 06/10/2026 14:05:09, `R` 3 hours ago. Messages
+/// render once, so `R` says how long ago it was when the message arrived.
+fn timestamp(seconds: i64, style: Option<&str>) -> String {
+    let format = *TIMESTAMP_FORMAT
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    timestamp_at(seconds, style, chrono::Local::now().timestamp(), format)
+}
+
+fn timestamp_at(seconds: i64, style: Option<&str>, now: i64, format: TimestampFormat) -> String {
+    let at = local(seconds);
+    // Discord's client writes them in moment's LT, LTS, L, LL, LLL and
+    // LLLL, in the user's locale.
+    let (time, time_seconds) = if format.twelve_hour {
+        ("%-I:%M %p", "%-I:%M:%S %p")
+    } else {
+        ("%H:%M", "%H:%M:%S")
+    };
+    let TimestampFormat {
+        short_date,
+        long_date,
+        ..
+    } = format;
+    let pattern = match style {
+        Some("t") => time.to_owned(),
+        Some("T") => time_seconds.to_owned(),
+        Some("d") => short_date.to_owned(),
+        Some("D") => long_date.to_owned(),
+        Some("F") => format!("%A, {long_date} {time}"),
+        Some("s") => format!("{short_date} {time}"),
+        Some("S") => format!("{short_date} {time_seconds}"),
+        Some("R") => return relative(seconds - now),
+        _ => format!("{long_date} {time}"),
+    };
+    at.format(&pattern).to_string()
+}
+
+/// `seconds` from now in Discord's words: `in 5 minutes`, `2 days ago`.
+/// Discord's client asks moment's `fromNow` with its thresholds for seconds
+/// and minutes moved up, so minutes count to 59 and seconds don't show:
+/// each unit is rounded, and the next one starts where that rounds to its
+/// threshold.
+fn relative(seconds: i64) -> String {
+    let span = seconds.unsigned_abs() as f64;
+    let days = span / 86_400.0;
+    // moment's lengths of a month and a year, in days.
+    let rounded = |units: f64| units.round() as u64;
+    let (minutes, hours, whole_days) =
+        (rounded(span / 60.0), rounded(span / 3600.0), rounded(days));
+    let (months, years) = (rounded(days / 30.436_875), rounded(days / 365.242_5));
+    let words = if rounded(span) < 60 {
+        "a few seconds".to_owned()
+    } else if minutes <= 1 {
+        "a minute".to_owned()
+    } else if minutes < 60 {
+        format!("{minutes} minutes")
+    } else if hours <= 1 {
+        "an hour".to_owned()
+    } else if hours < 22 {
+        format!("{hours} hours")
+    } else if whole_days <= 1 {
+        "a day".to_owned()
+    } else if whole_days < 26 {
+        format!("{whole_days} days")
+    } else if months <= 1 {
+        "a month".to_owned()
+    } else if months < 11 {
+        format!("{months} months")
+    } else if years <= 1 {
+        "a year".to_owned()
+    } else {
+        format!("{years} years")
+    };
+    if seconds >= 0 {
+        format!("in {words}")
+    } else {
+        format!("{words} ago")
+    }
 }
 
 /// A day in Unix milliseconds as profiles show it, in the local time zone: `6 Oct 2026`.
@@ -2365,6 +2573,45 @@ mod tests {
     }
 
     #[test]
+    fn reads_a_voice_messages_length_and_waveform() {
+        let voice = |flags: u64, recording: Value| {
+            parse(&json!({
+                "id": "1", "type": 0, "content": "", "author": {"id": "2"}, "flags": flags,
+                "attachments": [recording],
+            }))
+            .unwrap()
+            .voice
+        };
+        let recording = json!({
+            "filename": "voice-message.ogg", "size": 36000, "url": "https://cdn/v.ogg",
+            "content_type": "audio/ogg", "duration_secs": 5.48, "waveform": "AAh/gP8=",
+        });
+        assert_eq!(
+            voice(1 << 13, recording.clone()),
+            Some(VoiceMessage {
+                duration_ms: 5480,
+                waveform: [0, 8, 127, 128, 255].into(),
+            })
+        );
+        // Without the flag, an Ogg file is a file.
+        assert_eq!(voice(0, recording), None);
+        // A waveform that isn't base64 shows flat; one too long is cut.
+        let long = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [9; 300]);
+        let odd = voice(
+            1 << 13,
+            json!({"filename": "a.ogg", "url": "https://cdn/a.ogg", "waveform": "!", "duration_secs": 1}),
+        )
+        .unwrap();
+        assert_eq!((odd.duration_ms, odd.waveform.len()), (1000, 0));
+        let cut = voice(
+            1 << 13,
+            json!({"filename": "a.ogg", "url": "https://cdn/a.ogg", "waveform": long}),
+        )
+        .unwrap();
+        assert_eq!((cut.duration_ms, cut.waveform.len()), (0, 256));
+    }
+
+    #[test]
     fn forwards_what_discord_forwards() {
         let forwardable = |extra: Value| {
             let mut value = json!({"id": "1", "type": 0, "content": "hi", "author": {"id": "1"}});
@@ -2569,11 +2816,11 @@ mod tests {
         assert_eq!(
             names.render(
                 Some(&server),
-                "<@2> <@!1> <@&30> in <#11> <:pog:5> <a:dance:6> <t:1791295500:R> <@9> a < b"
+                "<@2> <@!1> <@&30> in <#11> <:pog:5> <a:dance:6> <t:1791295500:t> <@9> a < b"
             ),
             format!(
                 "@Annie @me @Mods in #general :pog: :dance: {} @Discord user a < b",
-                date_time(1_791_295_500)
+                local(1_791_295_500).format("%H:%M")
             )
         );
         assert_eq!(
@@ -2963,5 +3210,90 @@ mod tests {
         names.learn_user(&json!({"id": "1", "public_flags": 0}));
         assert!(!names.is_official("1"));
         assert!(!names.is_official("2"));
+    }
+
+    #[test]
+    fn timestamps_in_plain_text_become_times() {
+        let at = 1_791_295_500;
+        let time = timestamp(at, Some("t"));
+        assert_eq!(
+            render_timestamps(&format!("My 12AM is your <t:{at}:t>!")),
+            format!("My 12AM is your {time}!")
+        );
+        assert_eq!(render_timestamps("<t:nope> and <t:1"), "<t:nope> and <t:1");
+        // As Discord's client leaves them: another style, a time past 17
+        // digits, or one it can't place.
+        for tag in [
+            "<t:1:x>",
+            "<t:1:R:x>",
+            "<t:123456789012345678>",
+            "<t:99999999999999999>",
+            "<t:+1>",
+        ] {
+            assert_eq!(render_timestamps(tag), tag);
+        }
+        assert_ne!(render_timestamps("<t:-86400:d>"), "<t:-86400:d>");
+    }
+
+    #[test]
+    fn timestamps_show_their_style() {
+        let at = 1_791_295_500;
+        let local = local(at);
+        let day_first = TimestampFormat::DEFAULT;
+        let month_first = TimestampFormat {
+            twelve_hour: true,
+            short_date: "%m/%d/%Y",
+            long_date: "%B %-d, %Y",
+        };
+        let shown = |style, format| timestamp_at(at, style, at, format);
+        let written = |pattern: &str| local.format(pattern).to_string();
+        assert_eq!(shown(Some("t"), day_first), written("%H:%M"));
+        assert_eq!(shown(Some("T"), day_first), written("%H:%M:%S"));
+        assert_eq!(shown(Some("d"), day_first), written("%d/%m/%Y"));
+        assert_eq!(shown(Some("D"), day_first), written("%-d %B %Y"));
+        assert_eq!(shown(Some("f"), day_first), written("%-d %B %Y %H:%M"));
+        assert_eq!(shown(None, day_first), shown(Some("f"), day_first));
+        assert_eq!(shown(Some("F"), day_first), written("%A, %-d %B %Y %H:%M"));
+        assert_eq!(shown(Some("s"), day_first), written("%d/%m/%Y %H:%M"));
+        assert_eq!(shown(Some("S"), day_first), written("%d/%m/%Y %H:%M:%S"));
+        // As en-US writes them: month first, on a 12-hour clock.
+        assert_eq!(shown(Some("t"), month_first), written("%-I:%M %p"));
+        assert_eq!(shown(Some("T"), month_first), written("%-I:%M:%S %p"));
+        assert_eq!(shown(Some("d"), month_first), written("%m/%d/%Y"));
+        assert_eq!(shown(Some("D"), month_first), written("%B %-d, %Y"));
+        assert_eq!(
+            shown(Some("f"), month_first),
+            written("%B %-d, %Y %-I:%M %p")
+        );
+        assert_eq!(
+            shown(Some("F"), month_first),
+            written("%A, %B %-d, %Y %-I:%M %p")
+        );
+        assert_eq!(shown(Some("s"), month_first), written("%m/%d/%Y %-I:%M %p"));
+    }
+
+    #[test]
+    fn relative_timestamps_use_discords_thresholds() {
+        let at = 1_791_295_500;
+        let ago =
+            |seconds: i64| timestamp_at(at, Some("R"), at + seconds, TimestampFormat::DEFAULT);
+        let (minute, hour, day) = (60, 3600, 86_400);
+        assert_eq!(ago(10), "a few seconds ago");
+        assert_eq!(ago(55), "a few seconds ago", "under a minute");
+        assert_eq!(ago(-60), "in a minute");
+        assert_eq!(ago(89), "a minute ago");
+        assert_eq!(ago(5 * minute), "5 minutes ago");
+        assert_eq!(ago(50 * minute), "50 minutes ago", "minutes count to 59");
+        assert_eq!(ago(59 * minute), "59 minutes ago");
+        assert_eq!(ago(60 * minute), "an hour ago");
+        assert_eq!(ago(-3 * hour), "in 3 hours");
+        assert_eq!(ago(21 * hour), "21 hours ago");
+        assert_eq!(ago(22 * hour), "a day ago");
+        assert_eq!(ago(10 * day), "10 days ago");
+        assert_eq!(ago(25 * day), "25 days ago");
+        assert_eq!(ago(26 * day), "a month ago");
+        assert_eq!(ago(-90 * day), "in 3 months");
+        assert_eq!(ago(320 * day), "a year ago");
+        assert_eq!(ago(3 * 365 * day), "3 years ago");
     }
 }

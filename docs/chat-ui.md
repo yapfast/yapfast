@@ -180,7 +180,8 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   frequently used emoji and every category of the `emojis` crate up to
   Unicode 15.0, which Noto Color
   Emoji and Windows 11 draw; Enter picks the first match. Clicking an existing
-  reaction adds or removes yours.
+  reaction adds or removes yours. A message's reactions wrap onto as many
+  lines as its width needs, as in Discord's client.
 - Holding Shift turns the toolbar into quick actions, as in Discord's
   client: the reactions give way to Pin or Unpin, Create Thread, and on your
   own message Reply, before Add reaction and Edit or Reply; Forward follows;
@@ -384,7 +385,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   360×270, decoded with dimension and memory limits, with a save button over the
   picture on hover. Other files show a card with a save button. Saving writes the
   decrypted file where you choose. A Discord message with several images shows
-  them as square tiles, two to a row.
+  them as square tiles, two to a row. Where the timeline is narrower than a
+  message's pictures, or a link preview's, they shrink to its width, keeping
+  their shape, as in Discord's client; they never grow past their size.
 - Click an image to see it large over the window. It opens at the image's full
   proportions with the preview, then sharpens when Yapfast has downloaded it at up
   to 1920×1200. The left and right arrow keys or the side buttons step through
@@ -643,7 +646,10 @@ The window follows Discord's arrangement:
   server's call, or under a voice channel, their volume sits above that
   menu, which adds a Mute just for you, Move to and, in red, Server mute,
   Server deafen and Disconnect; see
-  [Discord](discord/servers.md#someones-menu-in-a-voice-channel). Time out and Ban ask how long
+  [Discord](discord/servers.md#someones-menu-in-a-voice-channel). Where Move
+  to is offered, they can also be dragged onto another voice channel in the
+  channel list; see
+  [Discord](discord/servers.md#dragging-someone-to-another-voice-channel). Time out and Ban ask how long
   or how much in their dialog, and each asks a reason. In a one-to-one DM, the
   other person's menu is the DM's own, less Mark as read and Copy link, and
   Copy ID copies theirs. Clicking an author's avatar or name, which underlines while

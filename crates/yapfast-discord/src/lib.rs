@@ -12,6 +12,7 @@ pub mod captcha;
 pub mod client;
 pub mod collectibles;
 pub mod components;
+pub mod congestion;
 pub mod cookies;
 mod dave;
 pub mod embed;

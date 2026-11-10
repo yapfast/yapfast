@@ -113,6 +113,8 @@ pub mod video_player;
 pub mod voice;
 #[cfg(feature = "matrix")]
 pub mod voice_demo;
+#[cfg(feature = "discord")]
+mod voice_message;
 pub mod volume;
 #[cfg(all(feature = "discord", wgc))]
 pub mod wgc;
