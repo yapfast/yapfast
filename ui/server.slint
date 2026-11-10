@@ -2,7 +2,7 @@
 import { StatusDot } from "rail.slint";
 import { ScrollView } from "scrollview.slint";
 import { Theme, Label, Middle, Popup } from "theme.slint";
-import { ActionButton, Avatar, IconButton, MenuItem, TextField, Motion, StatusText, ServerTagChip, PictureStore, StyledName, NameStyleRow } from "controls.slint";
+import { ActionButton, Avatar, IconButton, MenuItem, TextField, Motion, StatusText, ServerTagChip, PictureStore, StyledName, NameStyleRow, Nameplate, ProfileEffect, AccountLook } from "controls.slint";
 import { Choices, Picker, UnsavedBar } from "settings.slint";
 import { NameStyles } from "controls.slint";
 import { ProfileData, ProfileHeading, ProfileTitle, ActivityCard, ProfileBadge, ProfileBadgeRow, BoardCard, WishlistCard } from "people.slint";
@@ -797,9 +797,29 @@ component ProfileCustomize inherits Rectangle {
                 CustomizeGroup {
                     title: "Nameplate";
                     CustomizeCell {
-                        height: 42px; enabled: true;
+                        height: 42px; enabled: true; border-radius: 6px;
                         clicked => { root.open-link("https://discord.com/shop"); }
-                        HorizontalLayout {
+                        // The equipped nameplate fills the bar as its artwork, with the
+                        // account's avatar and name over it, as the account card composes
+                        // it. No animation: one still frame, as Discord's preview. Held
+                        // hovered, so the plate shows at the strength Discord's preview has.
+                        if AccountLook.nameplate-url != "": Nameplate {
+                            x: 0px; y: 0px; width: parent.width; height: parent.height;
+                            radius: 6px; account: true; hovered: true; animate: false;
+                            picture-url: AccountLook.nameplate-url;
+                            palette: Theme.dark ? AccountLook.nameplate-color : AccountLook.nameplate-light;
+                        }
+                        if AccountLook.nameplate-url != "": Avatar {
+                            x: 6px; y: (parent.height - self.height) / 2;
+                            size: 35px; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture;
+                        }
+                        if AccountLook.nameplate-url != "": Text {
+                            x: 48px; y: 0px; width: 65px; height: parent.height;
+                            text: root.data.name; color: Theme.text; font-size: 15px; font-weight: 700;
+                            vertical-alignment: center; overflow: elide;
+                        }
+                        // Without one, the row keeps its empty state and its add button.
+                        if AccountLook.nameplate-url == "": HorizontalLayout {
                             padding-left: 8px; padding-right: 8px; spacing: 8px;
                             Middle { Avatar { size: 26px; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; } }
                             Middle { Rectangle { height: 12px; border-radius: 6px; background: Theme.hover; horizontal-stretch: 1; } }
@@ -831,8 +851,10 @@ component ProfileCustomize inherits Rectangle {
                         height: 42px; enabled: root.look-enabled;
                         clicked => { root.open-style(); }
                         StyledName {
-                            x: max(0px, (parent.width - self.width) / 2); y: (parent.height - self.height) / 2;
-                            text: root.data.name; font-size: 18px; font-weight: 600; styles: root.data.name-style; ink: Theme.text;
+                            x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+                            width: self.preferred-width; height: self.preferred-height;
+                            transform-scale: self.width > 0px ? min(1.0, (parent.width - 12px) / self.width) : 1.0;
+                            text: root.data.name; font-size: 24px; font-weight: 600; styles: root.data.name-style; ink: Theme.text;
                         }
                     }
                 }
@@ -868,13 +890,39 @@ component ProfileCustomize inherits Rectangle {
                     HorizontalLayout {
                         spacing: 8px;
                         CustomizeCell {
-                            enabled: true;
+                            enabled: true; border-radius: 6px;
                             clicked => { root.open-link("https://discord.com/shop"); }
-                            if root.effect-set: Text { text: "Effect on"; color: Theme.text; font-size: 13px; }
+                            // A still of the equipped effect over a mini card mock, as
+                            // Discord's tile shows it: a light panel, the name and bio
+                            // bars at the lower left, the effect's art over the tile.
+                            if root.effect-set && (root.data.effect-still != "" || root.data.effect-layers.length > 0): Rectangle {
+                                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                                Rectangle {
+                                    x: parent.width * 0.2; y: parent.height * 0.12;
+                                    width: parent.width * 0.6; height: parent.height * 0.38;
+                                    border-radius: 2px; background: #8f8f93;
+                                }
+                                Rectangle {
+                                    x: parent.width * 0.19; y: parent.height * 0.81;
+                                    width: parent.width * 0.28; height: parent.height * 0.06;
+                                    border-radius: 1px; background: #4d4e63;
+                                }
+                                Rectangle {
+                                    x: parent.width * 0.19; y: parent.height * 0.9;
+                                    width: parent.width * 0.26; height: parent.height * 0.07;
+                                    border-radius: 1px; background: #414255;
+                                }
+                                ProfileEffect {
+                                    x: 0px; y: 0px; width: parent.width; height: parent.height;
+                                    layers: root.data.effect-layers; still-url: root.data.effect-still;
+                                    play: false; end: root.data.effect-end; loops: root.data.effect-loops;
+                                }
+                            }
+                            if root.effect-set && root.data.effect-still == "" && root.data.effect-layers.length == 0: Text { text: "Effect on"; color: Theme.text; font-size: 13px; }
                             if !root.effect-set: SlotPlus { }
                         }
                         CustomizeCell {
-                            enabled: true;
+                            enabled: true; border-radius: 6px;
                             clicked => { root.open-link("https://discord.com/shop"); }
                             if root.frame-set: Text { text: "Frame on"; color: Theme.text; font-size: 13px; }
                             if !root.frame-set: SlotPlus { }
