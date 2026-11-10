@@ -77,7 +77,12 @@
             nasm
           ];
           buildInputs = libraries;
-          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath runtimeLibraries;
+          # The C++ runtime is not a library of ours, but a test binary links
+          # one: libwebrtc is C++, so a test binary that pulls in the media
+          # stack dies before its first test with a missing libstdc++.so.6.
+          # It stays out of `native.runtimeLibraries`, which the shipped
+          # binary's wrapper uses.
+          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (runtimeLibraries ++ [ pkgs.stdenv.cc.cc.lib ]);
           CC = "clang";
           CXX = "clang++";
           LIBCLANG_PATH = "${pkgs.llvmPackages_21.libclang.lib}/lib";
