@@ -768,6 +768,14 @@ export struct MessageRow {
     reply-author: string, reply-body: string, reply-initial: string, reply-tint: color, reply-color: color, reply-has-color: bool, reply-picture: image, has-reply: bool,
     /// The original message's item; clicking the reply jumps to it.
     reply-item: string,
+    /// An app's answer, without a reply: the line above it says who used
+    /// which command, as "{user} used /{name}", on `command-target` when
+    /// that's a person. Clicking the user opens their card, by
+    /// `command-sender`; clicking a slash command puts `/{command-slash}`
+    /// in the composer.
+    has-command: bool, command-user: string, command-sender: string, command-initial: string, command-tint: color,
+    command-color: color, command-has-color: bool, command-picture-url: string,
+    command-name: string, command-slash: string, command-target: string,
     reactions: [ReactionChip],
     /// Images with previews, laid out in a gallery of this size; other
     /// attachments show as file cards.
@@ -2373,6 +2381,12 @@ export component MessageContent inherits VerticalLayout {
     callback author-card(string, string, length, length, length, length);
     callback author-menu(string, string, length, length);
     callback jump-to(string);
+    /// The slash command an app's answer names was clicked: its name, to
+    /// write in the composer. Only where `can-use-commands`.
+    in property <bool> can-use-commands;
+    callback use-command(string);
+    /// A line above the message: its reply, or the command it answers.
+    property <bool> header: message.has-reply || message.has-command;
     /// A link in the text, which opens beside the pointer; and one in an embed.
     callback link-clicked(string);
     callback open-link(string);
@@ -2403,8 +2417,8 @@ export component MessageContent inherits VerticalLayout {
         padding-left: root.start-padding; padding-right: root.end-padding; padding-top: 2px; padding-bottom: 2px; spacing: 16px;
         Rectangle {
             width: 40px;
-            min-height: message.first && message.notice == "" ? (message.has-reply ? 64px : 40px) : 0px;
-            if message.has-reply: Rectangle {
+            min-height: message.first && message.notice == "" ? (root.header ? 64px : 40px) : 0px;
+            if root.header: Rectangle {
                 x: 19px; y: 11px; width: 33px; height: 13px; clip: true;
                 Rectangle {
                     x: 0px; y: 0px; width: parent.width + 12px; height: parent.height + 12px;
@@ -2422,14 +2436,14 @@ export component MessageContent inherits VerticalLayout {
                 colorize: message.notice == "join" || message.notice == "call" ? Theme.live : Theme.muted;
             }
             if message.first && message.notice == "": Avatar {
-                x: 0px; y: message.has-reply ? 24px : 2px;
+                x: 0px; y: root.header ? 24px : 2px;
                 initial: message.initial; tint: message.tint; picture: message.picture; picture-url: message.picture-url;
                 decoration-url: message.decoration-url; animate: root.active-item == message.item;
             }
             // Clicking the author's avatar shows their card beside it;
             // a right click opens their menu. Their name does the same.
             if message.first && message.notice == "" && message.sender != "": TouchArea {
-                x: 0px; y: message.has-reply ? 24px : 2px; width: 40px; height: 40px;
+                x: 0px; y: root.header ? 24px : 2px; width: 40px; height: 40px;
                 mouse-cursor: MouseCursor.pointer;
                 clicked => { root.author-card(message.item, message.sender, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                 pointer-event(event) => {
@@ -2474,6 +2488,41 @@ export component MessageContent inherits VerticalLayout {
                     mouse-cursor: self.enabled ? MouseCursor.pointer : MouseCursor.default;
                     clicked => { root.jump-to(message.reply-item); }
                 }
+            }
+            // As Discord's client heads an app's answer: "Ann used /ping".
+            if message.has-command && !message.has-reply: HorizontalLayout {
+                height: 22px; spacing: 4px;
+                Middle { Avatar { size: 16px; initial: message.command-initial; tint: message.command-tint; picture-url: message.command-picture-url; } }
+                Text {
+                    text: message.command-user; font-size: 14px; font-weight: 500; vertical-alignment: center;
+                    color: message.command-has-color ? message.command-color : Theme.secondary;
+                    accessible-role: button;
+                    accessible-label: "Show " + message.command-user + "'s profile";
+                    accessible-action-default => { root.author-card(message.item, message.command-sender, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
+                    TouchArea {
+                        enabled: message.command-sender != "";
+                        mouse-cursor: self.enabled ? MouseCursor.pointer : MouseCursor.default;
+                        clicked => { root.author-card(message.item, message.command-sender, parent.absolute-position.x, parent.absolute-position.y, parent.width, parent.height); }
+                    }
+                }
+                Text { text: "used"; font-size: 14px; vertical-alignment: center; color: Theme.muted; }
+                Text {
+                    text: message.command-name; font-size: 14px; font-weight: 500; vertical-alignment: center; overflow: elide;
+                    color: command-touch.has-hover && command-touch.enabled ? Theme.text : Theme.link;
+                    accessible-role: button;
+                    accessible-enabled: message.command-slash != "" && root.can-use-commands;
+                    accessible-label: "Use " + message.command-name;
+                    accessible-action-default => { if message.command-slash != "" && root.can-use-commands { root.use-command(message.command-slash); } }
+                    command-touch := TouchArea {
+                        enabled: message.command-slash != "" && root.can-use-commands;
+                        mouse-cursor: self.enabled ? MouseCursor.pointer : MouseCursor.default;
+                        clicked => { root.use-command(message.command-slash); }
+                    }
+                }
+                if message.command-target != "": Text {
+                    text: "on @" + message.command-target; font-size: 14px; vertical-alignment: center; color: Theme.muted; overflow: elide;
+                }
+                Rectangle { horizontal-stretch: 1; }
             }
             if message.first && message.notice == "": HorizontalLayout {
                 spacing: 8px;

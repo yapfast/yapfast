@@ -248,7 +248,8 @@
 // guild_id), which history leaves out. Alice's commands to Status Bot
 // (type 2, by data.name; files as multipart payload_json and files[n],
 // which data.attachments must each name) answer as an app does, each answer
-// a type 20 message with interaction_metadata: "ping" "Pong!", "echo" an "is
+// a type 20 message with interaction_metadata (its name with subcommands, as
+// "config set") and the deprecated interaction: "ping" "Pong!", "echo" an "is
 // thinking…" message (flag LOADING, 128, no content) that a MESSAGE_UPDATE
 // fills in a second later with text repeated times, "upload" the name and
 // size of the file its option names (INTERACTION_FAILURE without it),
@@ -1420,6 +1421,8 @@ function wireMessage(message: Message, origin: string, nested = false): Record<s
       // A server install's owner is its server; "0" outside one.
       authorizing_integration_owners: { "0": guildOf(message.channel).guild_id ?? "0" },
     };
+    // The deprecated object Discord still sends beside it.
+    wire.interaction = { id: message.interaction.id, type: 2, name: message.interaction.name, user: wireUser(users.alice) };
   }
   if (message.stickers) wire.sticker_items = message.stickers;
   if (message.call) {
@@ -5059,10 +5062,16 @@ function answerCommand(body: any, id: string, origin: string, files: Map<string,
   const nonce = body.nonce;
   const name: string = body.data?.name ?? "";
   const options = body.data?.options ?? [];
+  // The answer names the command with its subcommand group and subcommand
+  // (option types 2 and 1), as Discord's does.
+  let used = name;
+  for (let level = options; level?.[0]?.type === 1 || level?.[0]?.type === 2; level = level[0].options) {
+    used += ` ${level[0].name}`;
+  }
   const reply = (content: string, flags = 0): Message => {
     const message: Message = {
       id: nextId(Date.now()), channel: body.channel_id, author: statusBot, content, type: 20,
-      files: [], reactions: [], flags, interaction: { id, name, application: statusBot.id },
+      files: [], reactions: [], flags, interaction: { id, name: used, application: statusBot.id },
     };
     // An ephemeral answer goes to Alice's session alone, never in history.
     if (!(flags & EPHEMERAL)) {

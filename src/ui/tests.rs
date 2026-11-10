@@ -53,6 +53,47 @@ fn a_notice_is_a_group_of_its_own_with_an_icon() {
     assert_eq!(message_row_plain(&said).notice, "");
 }
 
+#[test]
+fn an_apps_answer_starts_a_group_under_who_used_which_command() {
+    use yapfast_core::chat::UsedCommand;
+    let thought = ChatMessage {
+        item: "d:4".into(),
+        author: "Status Bot".into(),
+        sender: "discord:9".into(),
+        body: "Pong!".into(),
+        timestamp: 100,
+        ..Default::default()
+    };
+    let answer = ChatMessage {
+        item: "d:5".into(),
+        timestamp: 110,
+        used: Some(UsedCommand {
+            user: "Alice".into(),
+            sender: "discord:1".into(),
+            avatar: None,
+            color: Some(0x3498db),
+            name: "/echo".into(),
+            slash: Some("echo".into()),
+            target: None,
+        }),
+        ..thought.clone()
+    };
+    assert!(!messages::continues(&thought, &answer));
+    let row = message_row_plain(&answer);
+    assert!(row.has_command && !row.has_reply);
+    assert_eq!(
+        (
+            row.command_user.as_str(),
+            row.command_sender.as_str(),
+            row.command_name.as_str(),
+            row.command_slash.as_str()
+        ),
+        ("Alice", "1", "/echo", "echo")
+    );
+    assert!(row.command_has_color);
+    assert!(!message_row_plain(&thought).has_command);
+}
+
 #[cfg(feature = "discord")]
 #[test]
 fn statuses_show_their_custom_emoji_as_pictures() {

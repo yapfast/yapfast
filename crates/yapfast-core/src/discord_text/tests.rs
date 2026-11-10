@@ -1954,3 +1954,70 @@ async fn a_servers_card_shows_how_many_of_its_members_are_online() {
     assert_eq!(preview.online, Some(3), "Dave is offline");
     assert!(!preview.discoverable, "the fake lists no DISCOVERABLE");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn an_apps_answer_says_who_used_which_command() {
+    use yapfast_discord::message::{CHAT_INPUT, Interaction, USER_COMMAND};
+    let discord = fake_discord().await;
+    let snapshot = discord.snapshots().borrow().clone();
+    let server = snapshot
+        .servers
+        .iter()
+        .find(|server| server.id == FAKE_GUILD)
+        .map(|server| &*server.server);
+    let answer = |interaction: Interaction| Message {
+        interaction: Some(interaction),
+        ..message("9", None)
+    };
+    // Names come from the server, not the interaction's own copy.
+    let used = |interaction| {
+        found(&discord, server, &answer(interaction))
+            .used
+            .expect("a line above it")
+    };
+    let slash = used(Interaction {
+        id: "8".into(),
+        user_id: "1400000000000000001".into(),
+        user: "alice".into(),
+        name: Some("config set".into()),
+        command_type: Some(CHAT_INPUT),
+        ..Default::default()
+    });
+    assert_eq!(
+        (
+            slash.user.as_str(),
+            slash.name.as_str(),
+            slash.slash.as_deref()
+        ),
+        ("Alice", "/config set", Some("config"))
+    );
+    assert_eq!(slash.sender, discord::sender_id("1400000000000000001"));
+    let user = used(Interaction {
+        id: "8".into(),
+        user_id: "1400000000000000001".into(),
+        user: "alice".into(),
+        name: Some("High five".into()),
+        command_type: Some(USER_COMMAND),
+        target_user: Some(("1400000000000000002".into(), "bob".into())),
+        ..Default::default()
+    });
+    assert_eq!(
+        (user.name.as_str(), user.slash, user.target.as_deref()),
+        ("High five", None, Some("Bob"))
+    );
+    // A button's answer, or one that quotes a message, has none.
+    let button = answer(Interaction {
+        id: "8".into(),
+        ..Default::default()
+    });
+    assert!(found(&discord, server, &button).used.is_none());
+    let quoting = Message {
+        reply: Some(yapfast_discord::message::Reply::Deleted),
+        ..answer(Interaction {
+            name: Some("Quote".into()),
+            ..Default::default()
+        })
+    };
+    assert!(found(&discord, server, &quoting).used.is_none());
+}

@@ -9,7 +9,7 @@ use tokio::time::timeout;
 use yapfast_discord::{
     client,
     interactions::{self, Interaction},
-    message::Message,
+    message::{self, Message},
     service::{Discord, Live, Snapshot, Status},
     token,
 };
@@ -460,7 +460,14 @@ async fn a_slash_command_posts_its_options_and_its_answer_arrives() {
     })
     .await;
     assert_eq!(answer.content, "Ran /config.");
-    assert_eq!(answer.interaction.as_deref(), Some(created.as_str()));
+    let interaction = answer.interaction.clone().unwrap();
+    assert_eq!(interaction.id, created);
+    // Its line says who used which command, subcommand and all.
+    assert_eq!(
+        (interaction.user.as_str(), interaction.name.as_deref()),
+        ("Alice", Some("config set"))
+    );
+    assert_eq!(interaction.command_type, Some(message::CHAT_INPUT));
     assert_eq!(
         answer.application_id.as_deref(),
         Some(fixture.deploy.author_id.as_str())

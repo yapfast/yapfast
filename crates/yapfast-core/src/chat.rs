@@ -1157,6 +1157,28 @@ pub struct Reply {
     pub color: Option<u32>,
 }
 
+/// Who used which Discord app command a message answers, as the line
+/// above it says.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UsedCommand {
+    /// Who used it, by name in the conversation, and Matrix-style user id,
+    /// which opens their card.
+    pub user: String,
+    pub sender: String,
+    /// The address of their avatar; see [`DiscordCommand::Pictures`].
+    pub avatar: Option<String>,
+    /// Their role colour, where the network gives one.
+    pub color: Option<u32>,
+    /// The command as the line names it: `/name sub` for a slash command,
+    /// its name for one used from a person's or message's menu.
+    pub name: String,
+    /// A slash command, which clicking puts in the composer for its picker
+    /// to find: its name without the `/` or its subcommands.
+    pub slash: Option<String>,
+    /// The person a command from their menu was used on, by name.
+    pub target: Option<String>,
+}
+
 /// A Discord thread a message leads to: the one started from it, or that
 /// its notice names.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1820,6 +1842,9 @@ pub struct ChatMessage {
     pub application_id: Option<String>,
     /// The Discord interaction it answers, by its id.
     pub interaction: Option<String>,
+    /// The command whose answer it is, which shows above it as Discord's
+    /// "{user} used /{name}", when it doesn't quote a message instead.
+    pub used: Option<UsedCommand>,
     pub flags: u64,
     pub author: String,
     /// The author's Matrix user ID, which tells apart people sharing a display name.
