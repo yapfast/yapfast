@@ -302,7 +302,13 @@ fn activity_row(activity: &yapfast_core::chat::Activity) -> ActivityRow {
         (
             activity.details.as_deref().unwrap_or(name).to_owned(),
             after("by", &activity.state),
-            after("on", &activity.large_text),
+            // A podcast's episode has no artist, and Discord's card names only
+            // the episode, with no "on" line for its show.
+            if activity.state.is_some() {
+                after("on", &activity.large_text)
+            } else {
+                String::new()
+            },
         )
     } else {
         (
@@ -538,12 +544,23 @@ pub(super) fn profile_data(
         ))
     }));
     // The profile keeps the status's own line breaks. A line that only
-    // names an activity goes, as its card says more.
-    let (activity_emoji, activity) = profile
-        .activity
-        .as_deref()
-        .filter(|line| !names_an_activity(line, &profile.activities))
-        .map_or((None, ""), yapfast_core::discord::status_parts);
+    // names an activity goes, as its card says more. One's own, while
+    // online, says the custom status this session has: it is the newest, and
+    // the member list's line, where there is one, can be from before it
+    // changed.
+    let own_status = state
+        .custom_status
+        .as_ref()
+        .filter(|_| state.online && state.discord_user.as_deref() == Some(profile.id.as_str()))
+        .map(status_line);
+    let (activity_emoji, activity) = match &own_status {
+        Some((words, emoji)) => (emoji.clone(), words.as_str()),
+        None => profile
+            .activity
+            .as_deref()
+            .filter(|line| !names_an_activity(line, &profile.activities))
+            .map_or((None, ""), yapfast_core::discord::status_parts),
+    };
     let cosmetics = state.cosmetics;
     let effect = cosmetics.effect(profile.effect.as_deref()).and_then(|sku| {
         state

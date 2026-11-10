@@ -4466,6 +4466,11 @@ export component YapfastWindow inherits Window {
         TouchArea { clicked => { root.close-profile(); } }
         FocusScope {
             init => { self.focus(); }
+            // The note dialog, or another about the person, took the
+            // keyboard; closing it gives it back, so Escape closes the
+            // profile again.
+            property <bool> asking: root.person-open;
+            changed asking => { if !self.asking { self.focus(); } }
             key-pressed(event) => {
                 if event.text == Key.Escape { root.close-profile(); return accept; }
                 return reject;
