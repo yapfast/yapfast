@@ -1313,6 +1313,9 @@ impl Adapter {
                             .collect();
                         ModelRc::new(VecModel::from(people))
                     },
+                    voice_started: room
+                        .voice_started
+                        .map_or(0, super::profile::activity_seconds),
                     voice_summary: if room.voice && !room.direct {
                         yapfast_core::voice_roster::Roster::of(&room.people)
                             .summary()
@@ -1410,6 +1413,8 @@ impl Adapter {
                 row
             })
             .collect::<Vec<_>>();
+        // A busy voice channel's row counts its call's time on ActivityClock.
+        self.voice_timed = rows.iter().any(|row| row.voice_started > 0 && !row.hidden);
         // The voice card goes with its row, which can go without the
         // pointer leaving it: its channel deleted, emptied or filtered out
         // by the channel search.
@@ -1422,6 +1427,7 @@ impl Adapter {
             card.set_people(ModelRc::default());
         }
         update_model(&self.models.rooms, rows);
+        self.tick_activities(window);
         self.places = places;
         // What's being dragged keeps going, at its new place.
         if self.arranging.is_some() {
@@ -2493,28 +2499,48 @@ impl Adapter {
     /// The reactions offered on messages, the most used first.
     fn show_reactions_offered(&self, window: &YapfastWindow) {
         let scale = window.window().scale_factor();
+        let keys = self.app.frequent_reactions(4);
+        // A custom emoji's picture comes from the pictures the application
+        // keeps, not the picker's, which it lets go of when it closes; one
+        // not there yet is asked for, and shows once it comes.
+        let ids: HashSet<&str> = keys
+            .iter()
+            .filter_map(|key| key.split_once(':').map(|(_, id)| id))
+            .collect();
+        let custom = self.app.emoji_by_id(&ids);
+        let cells: Vec<EmojiCell> = keys
+            .iter()
+            .map(|key| {
+                let cell = emoji::cell(key);
+                if cell.picture.size().width > 0 {
+                    return cell;
+                }
+                let Some(emoji) = key
+                    .split_once(':')
+                    .and_then(|(_, id)| custom.iter().find(|emoji| emoji.id == id))
+                else {
+                    return cell;
+                };
+                match self.app.state.pictures.get(&emoji.picture) {
+                    Some(arrived) => EmojiCell {
+                        picture: picture(arrived),
+                        ..cell
+                    },
+                    None => {
+                        window
+                            .global::<PictureStore>()
+                            .invoke_request(emoji.picture.as_str().into());
+                        cell
+                    }
+                }
+            })
+            .collect();
+        let cells = emoji::with_pictures(cells, scale);
         update_model(
             &self.models.bar_reactions,
-            emoji::with_pictures(
-                self.app
-                    .frequent_reactions(3)
-                    .iter()
-                    .map(|key| emoji::cell(key))
-                    .collect(),
-                scale,
-            ),
+            cells[..cells.len().min(3)].to_vec(),
         );
-        update_model(
-            &self.models.menu_reactions,
-            emoji::with_pictures(
-                self.app
-                    .frequent_reactions(4)
-                    .iter()
-                    .map(|key| emoji::cell(key))
-                    .collect(),
-                scale,
-            ),
-        );
+        update_model(&self.models.menu_reactions, cells);
     }
 
     /// A role's card, with the members known to have it.
@@ -4931,6 +4957,7 @@ impl Adapter {
         let state = &self.app.state;
         player.set_speed(format!("{}x", state.voice_tuning.speed).into());
         player.set_volume(state.voice_tuning.volume);
+        player.set_muted(state.voice_tuning.muted);
         let Some(playback) = &state.voice_message else {
             player.set_item(SharedString::default());
             player.set_playing(false);
@@ -4951,10 +4978,11 @@ impl Adapter {
         } else {
             0.0
         });
-        // At its start it shows only how long it is.
+        // Once started it counts down what's left, as Discord's does; at
+        // its start the card shows how long it is.
         let started = playback.playing || playback.position_ms > 0;
         player.set_time(if started {
-            video_time(playback.position_ms, Some(duration)).into()
+            voice_time(duration.saturating_sub(playback.position_ms)).into()
         } else {
             SharedString::default()
         });
@@ -5558,6 +5586,12 @@ pub(super) fn video_time(at_ms: u64, duration_ms: Option<u64>) -> String {
         Some(duration) => format!("{} / {}", clock(at_ms.min(duration)), clock(duration)),
         None => clock(at_ms),
     }
+}
+
+/// A voice message's time, in whole seconds rounded up as Discord's are, so
+/// the last moments read 0:01 and a 2.4-second one 0:03.
+pub(super) fn voice_time(ms: u64) -> String {
+    video_time(ms.div_ceil(1000) * 1000, None)
 }
 
 /// A section of a list of threads: its heading over the first, if it has any.

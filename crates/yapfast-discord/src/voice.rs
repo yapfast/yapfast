@@ -7,7 +7,7 @@ use std::{
     collections::{HashMap, VecDeque},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc as channel,
     },
     time::Duration,
@@ -185,6 +185,7 @@ impl Call {
         *lock(&self.sending) = Some(Sending {
             buffer: input.buffer,
             playing: playing.clone(),
+            dropped: input.dropped,
         });
         Track(playing)
     }
@@ -272,12 +273,15 @@ impl Track {
 /// Audio for [`Call::play`]: the microphone's buffer.
 pub struct Input {
     buffer: Arc<Mutex<VecDeque<f32>>>,
+    dropped: Arc<AtomicU64>,
 }
 
 /// Where Yapfast writes the processed microphone, as mono f32 at 48 kHz.
 #[derive(Clone)]
 pub struct Microphone {
     buffer: Arc<Mutex<VecDeque<f32>>>,
+    /// Samples dropped as too old, for the call's log.
+    dropped: Arc<AtomicU64>,
 }
 
 /// At most this much microphone audio waits to be sent; older audio is dropped
@@ -290,7 +294,10 @@ impl Microphone {
         let mut buffer = lock(&self.buffer);
         buffer.extend(samples);
         let excess = buffer.len().saturating_sub(MICROPHONE_BACKLOG);
-        buffer.drain(..excess);
+        if excess > 0 {
+            buffer.drain(..excess);
+            self.dropped.fetch_add(excess as u64, Ordering::Relaxed);
+        }
     }
 
     pub fn clear(&self) {
@@ -299,16 +306,18 @@ impl Microphone {
 }
 
 /// A live microphone input for [`Call::play`], and its writer. The call
-/// takes 20 ms of it every 20 ms while it plays, and silence when the
-/// writer is behind.
+/// takes 20 ms of it every 20 ms while it plays, and sends nothing on a
+/// tick when less than that waits, as when the writer is behind.
 pub fn live_microphone() -> (Microphone, Input) {
     let buffer: Arc<Mutex<VecDeque<f32>>> =
         Arc::new(Mutex::new(VecDeque::with_capacity(MICROPHONE_BACKLOG)));
+    let dropped = Arc::new(AtomicU64::new(0));
     (
         Microphone {
             buffer: buffer.clone(),
+            dropped: dropped.clone(),
         },
-        Input { buffer },
+        Input { buffer, dropped },
     )
 }
 

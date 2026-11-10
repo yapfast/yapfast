@@ -642,6 +642,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     window
         .global::<PictureStore>()
         .on_plays(|url, _revision| picture_plays(url.as_str()));
+    window
+        .global::<ActivityClock>()
+        .on_lasted(super::profile::activity_lasted);
     window.global::<PictureStore>().on_request(move |url| {
         if url.is_empty() {
             return;
@@ -3329,8 +3332,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 .action(&window, Action::Video(VideoCommand::Volume(volume)));
         }
     });
-    // A voice message's card plays and pauses it, and sets how fast and
-    // loud voice messages play.
+    // A voice message's card plays, pauses and moves it, and sets how fast
+    // and loud voice messages play.
     let voice = window.global::<VoicePlayer>();
     let state = adapter.clone();
     let weak = window.as_weak();
@@ -3357,6 +3360,24 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             state
                 .borrow_mut()
                 .action(&window, Action::VoiceMessageVolume(volume));
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    voice.on_mute(move |muted| {
+        if let Some(window) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .action(&window, Action::MuteVoiceMessages(muted));
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    voice.on_seek(move |item, fraction| {
+        if let Some(window) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .action(&window, Action::MoveVoiceMessage(item.into(), fraction));
         }
     });
     let state = adapter.clone();

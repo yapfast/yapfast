@@ -162,6 +162,12 @@
 // GIF link, and a bot post a card with fields; their pictures come from
 // /external/, standing in for Discord's media proxy. They go to #general, or
 // with ?channel=ID to that channel or thread.
+// A server voice channel's session starts as its first person joins and ends
+// as its last leaves, which VOICE_CHANNEL_START_TIME_UPDATE says; the Lounge's
+// started 47 minutes before the fake did. Op 43 answers CHANNEL_INFO with the
+// server's voice channels and the fields asked for, `voice_start_time` and a
+// `status` that's always null, and GET
+// /_control/channel-info lists the servers it was asked about.
 // The soundboard: GET /soundboard-default-sounds gives six of Discord's own,
 // and op 31 "Server"'s two, Bob's laugh with :talk: and Carol's applause.
 // POST /channels/{id}/send-soundboard-sound plays one in the call Alice is in,
@@ -2022,6 +2028,31 @@ const startingVoice = (): [string, VoiceState][] => [
 ];
 const voice = new Map<string, VoiceState>(startingVoice());
 
+/** When each busy server voice channel's session started, in Unix seconds,
+ *  with its server; the Lounge's 47 minutes before the fake started. */
+const voiceStarted = new Map<string, { guild: string; at: number }>();
+/** The servers op 43 asked about, for /_control/channel-info. */
+const channelInfoRequests: string[] = [];
+
+/** Starts the sessions of server voice channels someone is in now and ends
+ *  those of channels nobody is, telling everyone with
+ *  VOICE_CHANNEL_START_TIME_UPDATE; `at` is when a new one starts. */
+function syncVoiceStarted(at = Math.floor(Date.now() / 1000), announce = true) {
+  const busy = new Map<string, string>();
+  for (const state of voice.values()) if (state.guild) busy.set(state.channel, state.guild);
+  for (const [channel, started] of voiceStarted) {
+    if (busy.has(channel)) continue;
+    voiceStarted.delete(channel);
+    if (announce) dispatch("VOICE_CHANNEL_START_TIME_UPDATE", { id: channel, guild_id: started.guild, voice_start_time: null });
+  }
+  for (const [channel, guild] of busy) {
+    if (voiceStarted.has(channel)) continue;
+    voiceStarted.set(channel, { guild, at });
+    if (announce) dispatch("VOICE_CHANNEL_START_TIME_UPDATE", { id: channel, guild_id: guild, voice_start_time: at });
+  }
+}
+syncVoiceStarted(Math.floor(Date.now() / 1000) - 47 * 60, false);
+
 // Go Live streams by stream key; Bob's is running from the start. A DM
 // call's streams are keyed `call:{channel}:{user}`.
 /** `decodes`: the video codecs each viewer's client decodes, for those that
@@ -2147,6 +2178,8 @@ function sendGateway(ws: Socket, payload: string) {
 function dispatch(name: string, data: unknown) {
   for (const ws of sockets) if (ws.data.identified) send(ws, 0, data, name);
   for (const session of parked.values()) session.missed.push({ name, data });
+  // Each move in voice may start or end a channel's session.
+  if (name === "VOICE_STATE_UPDATE") syncVoiceStarted();
 }
 
 /** A role of "Server" as Discord sends it. */
@@ -3322,6 +3355,33 @@ function gatewayMessage(ws: Socket, text: string) {
         send(ws, 0, { guild_id: id, soundboard_sounds: id === GUILD ? serverSounds : [] }, "SOUNDBOARD_SOUNDS");
       }
       break;
+    case 43: {
+      // Request channel info: each of the server's voice channels, with when
+      // its session started while someone is in it. Only the web client's own
+      // request is answered, so a test notices one that differs from it.
+      if (JSON.stringify(d.fields) !== JSON.stringify(["status", "voice_start_time"])) {
+        console.warn(`op 43 asked for ${JSON.stringify(d.fields)}, not the web client's fields`);
+        break;
+      }
+      channelInfoRequests.push(d.guild_id);
+      const ids = new Set<string>(
+        (d.guild_id === GUILD ? guild().channels : [])
+          .filter((channel) => channel.type === 2 || channel.type === 13)
+          .map((channel) => channel.id),
+      );
+      for (const [channel, started] of voiceStarted) if (started.guild === d.guild_id) ids.add(channel);
+      const wanted = (d.fields ?? []).includes("voice_start_time");
+      const statuses = (d.fields ?? []).includes("status");
+      send(ws, 0, {
+        guild_id: d.guild_id,
+        channels: [...ids].map((id) => ({
+          id,
+          ...(statuses ? { status: null } : {}),
+          ...(wanted ? { voice_start_time: voiceStarted.get(id)?.at ?? null } : {}),
+        })),
+      }, "CHANNEL_INFO");
+      break;
+    }
     case 37: {
       // Guild subscriptions: messages are sent anyway; a channel's member
       // list is sent when asked for. The list subscribed to before stops,
@@ -8154,6 +8214,10 @@ function envProfile(world: World, user: User, guild: string | null) {
 
 if (env) {
   world = applyEnv(env);
+  // The env's people in voice, seated without a word, started their calls
+  // as the fixture's did.
+  voiceStarted.clear();
+  syncVoiceStarted(Math.floor(Date.now() / 1000) - 47 * 60, false);
   // The env's servers, in its order: without a list, clients sort them
   // their own way, as Yapfast does by name.
   const list = world.guilds.map((server) => [...folderEntry([server.id])]).flat();
@@ -8370,6 +8434,7 @@ const server = Bun.serve<SocketData>({
     if (path === "/_control/logouts") return Response.json(logouts);
     if (path === "/_control/voice-identifies") return Response.json(voiceIdentifies);
     if (path === "/_control/voice-changes") return Response.json(voiceChanges);
+    if (path === "/_control/channel-info") return Response.json(channelInfoRequests);
     if (req.method === "POST" && path === "/_control/voice-reset") {
       // Bob, Carol and Dave back in the Lounge as they started, after a
       // test moved or disconnected them.

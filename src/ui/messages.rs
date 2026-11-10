@@ -644,7 +644,7 @@ pub(super) fn message_row_within(
                         ModelRc::new(VecModel::from(waveform_bars(&voice.waveform)))
                     }),
                     duration: voice
-                        .map(|voice| super::refresh::video_time(voice.duration_ms, None).into())
+                        .map(|voice| super::refresh::voice_time(voice.duration_ms).into())
                         .unwrap_or_default(),
                 }
             })
@@ -787,6 +787,8 @@ pub(super) fn message_row_within(
         delivery_failed: message.delivery == Delivery::Failed,
         can_retry,
         can_cancel,
+        // One with files keeps its line, with Cancel, while they upload.
+        sending: message.delivery == Delivery::Sending && message.attachments.is_empty(),
         can_reply: message.can_reply,
         can_edit: message.can_edit,
         can_delete: message.can_delete,

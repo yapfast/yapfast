@@ -23,13 +23,14 @@ use windows::{
         Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0},
         Media::{
             Audio::{
-                AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED,
-                AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-                AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, AUDCLNT_STREAMOPTIONS_RAW,
-                AudioCategory_Other, AudioClientProperties, DEVICE_STATE_ACTIVE, EDataFlow,
-                IAudioCaptureClient, IAudioClient, IAudioClient2, IAudioRenderClient, IMMDevice,
-                IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEX, WAVEFORMATEXTENSIBLE,
-                WAVEFORMATEXTENSIBLE_0, eCapture, eConsole, eRender,
+                AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY, AUDCLNT_BUFFERFLAGS_SILENT,
+                AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
+                AUDCLNT_STREAMFLAGS_EVENTCALLBACK, AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+                AUDCLNT_STREAMOPTIONS_RAW, AudioCategory_Other, AudioClientProperties,
+                DEVICE_STATE_ACTIVE, EDataFlow, IAudioCaptureClient, IAudioClient, IAudioClient2,
+                IAudioRenderClient, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator,
+                WAVEFORMATEX, WAVEFORMATEXTENSIBLE, WAVEFORMATEXTENSIBLE_0, eCapture, eConsole,
+                eRender,
             },
             KernelStreaming::{
                 KSDATAFORMAT_SUBTYPE_PCM, SPEAKER_FRONT_CENTER, SPEAKER_FRONT_LEFT,
@@ -53,10 +54,10 @@ use windows::{
 use super::Format;
 use crate::voice::NAMED;
 
-/// A thread's place in MMCSS's "Pro Audio" task, given back as it ends.
-struct ProAudio(HANDLE);
+/// A thread's place in an MMCSS task, given back as it ends.
+struct Mmcss(HANDLE);
 
-impl Drop for ProAudio {
+impl Drop for Mmcss {
     fn drop(&mut self) {
         // SAFETY: the handle AvSetMmThreadCharacteristicsW gave this thread.
         let _ = unsafe { AvRevertMmThreadCharacteristics(self.0) };
@@ -64,21 +65,84 @@ impl Drop for ProAudio {
 }
 
 thread_local! {
-    static PRO_AUDIO: RefCell<Option<ProAudio>> = const { RefCell::new(None) };
+    static MMCSS: RefCell<Option<Mmcss>> = const { RefCell::new(None) };
 }
 
-pub fn raise_priority() {
-    PRO_AUDIO.with_borrow_mut(|held| {
-        if held.is_some() {
-            return;
+/// Threads that play join "Pro Audio", MMCSS's highest category, as
+/// Discord's and browsers' do; a microphone's joins "Audio", the category
+/// below, which is still above every ordinary thread. Says how it raised
+/// the calling thread, or why it couldn't.
+pub fn raise_priority(priority: super::Priority) -> Result<&'static str, String> {
+    let (name, how) = match priority {
+        super::Priority::Playback => (w!("Pro Audio"), "MMCSS Pro Audio"),
+        super::Priority::Capture => (w!("Audio"), "MMCSS Audio"),
+    };
+    MMCSS.with_borrow_mut(|held| {
+        if held.is_none() {
+            let mut task = 0;
+            // SAFETY: registers the calling thread; the name is a constant.
+            let handle = unsafe { AvSetMmThreadCharacteristicsW(name, &mut task) }
+                .map_err(|error| error.to_string())?;
+            *held = Some(Mmcss(handle));
         }
-        let mut task = 0;
-        // SAFETY: registers the calling thread; the name is a constant.
-        match unsafe { AvSetMmThreadCharacteristicsW(w!("Pro Audio"), &mut task) } {
-            Ok(handle) => *held = Some(ProAudio(handle)),
-            Err(error) => tracing::warn!(%error, "an audio thread stays at normal priority"),
+        Ok(how)
+    })
+}
+
+/// Opts this process out of power throttling and asks for a 1 ms timer, or
+/// gives both back to the system. Windows 11 may run a process whose window
+/// is minimized or hidden at EcoQoS, on efficient cores at a low clock, and
+/// ignores its timer resolution, unless it opts out
+/// (`PROCESS_POWER_THROTTLING_EXECUTION_SPEED` and
+/// `PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION`, both cleared). With
+/// the 1 ms timer, a call's 20 ms ticks come on time rather than on the
+/// default 15.6 ms clock. Windows before 10's 1709 update doesn't know the
+/// setting, and keeps only the timer.
+#[cfg(feature = "discord")]
+pub fn full_speed(on: bool) {
+    use windows::Win32::{
+        Media::{timeBeginPeriod, timeEndPeriod},
+        System::Threading::{
+            GetCurrentProcess, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+            PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+            PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION, PROCESS_POWER_THROTTLING_STATE,
+            ProcessPowerThrottling, SetProcessInformation,
+        },
+    };
+    let state = PROCESS_POWER_THROTTLING_STATE {
+        Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+        // Off, the masks name what the process controls with every state
+        // bit clear, which runs it at full speed; nothing named hands both
+        // back to the system.
+        ControlMask: if on {
+            PROCESS_POWER_THROTTLING_EXECUTION_SPEED
+                | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION
+        } else {
+            0
+        },
+        StateMask: 0,
+    };
+    // SAFETY: the current process's pseudo handle, and a state of the size
+    // given, which outlives the call.
+    let set = unsafe {
+        SetProcessInformation(
+            GetCurrentProcess(),
+            ProcessPowerThrottling,
+            std::ptr::from_ref(&state).cast(),
+            size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+        )
+    };
+    if let Err(error) = set {
+        tracing::debug!(%error, "Windows keeps its power throttling for Yapfast");
+    }
+    // SAFETY: plain calls, each timeBeginPeriod balanced by a timeEndPeriod.
+    unsafe {
+        if on {
+            timeBeginPeriod(1);
+        } else {
+            timeEndPeriod(1);
         }
-    });
+    }
 }
 
 /// What a stream without a queue of its own keeps queued.
@@ -423,6 +487,9 @@ pub struct Input {
     /// The end of the last packet, which the last read had no room for.
     left: Vec<u8>,
     taken: usize,
+    /// How often the engine said audio was lost, as when the reader fell
+    /// so far behind that the buffer overflowed.
+    gaps: u32,
 }
 
 // SAFETY: as for `Stream`.
@@ -452,6 +519,7 @@ impl Input {
             capture,
             left,
             taken: 0,
+            gaps: 0,
         })
     }
 
@@ -478,6 +546,13 @@ impl Input {
                     .context("the microphone went away")?;
                 let length = count as usize * self.stream.format.frame_bytes();
                 let silent = flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 || data.is_null();
+                if flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0 {
+                    self.gaps += 1;
+                    tracing::debug!(
+                        gaps = self.gaps,
+                        "the microphone lost audio before it was read"
+                    );
+                }
                 let packet: &[u8] = if silent {
                     &[]
                 } else {

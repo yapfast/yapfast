@@ -142,6 +142,9 @@ pub struct ChatRoom {
     pub empty: bool,
     /// A Discord message request's latest message, when it's known.
     pub preview: Option<Box<RequestPreview>>,
+    /// When the session of a Discord voice channel with people in it
+    /// started, in Unix seconds, as Discord says; its row counts from it.
+    pub voice_started: Option<u64>,
 }
 
 impl ChatRoom {
@@ -1702,8 +1705,9 @@ pub struct VoicePlayback {
 pub struct VoiceTuning {
     /// 1, 1.5 or 2 times as fast, at the same pitch.
     pub speed: f32,
-    /// From 0 to 1 as the slider stands.
+    /// From 0 to 1 as the slider stands, kept while muted.
     pub volume: f32,
+    pub muted: bool,
 }
 
 impl Default for VoiceTuning {
@@ -1711,6 +1715,7 @@ impl Default for VoiceTuning {
         Self {
             speed: 1.0,
             volume: 1.0,
+            muted: false,
         }
     }
 }
@@ -2225,6 +2230,16 @@ pub enum Command {
     PlayVoiceMessage {
         room: String,
         item: String,
+        speakers: Option<String>,
+        tuning: VoiceTuning,
+    },
+    /// Move a voice message to `at_ms` into its recording, playing or
+    /// paused as it was; in place of any other, it loads to wait there
+    /// paused on `speakers`.
+    MoveVoiceMessage {
+        room: String,
+        item: String,
+        at_ms: u64,
         speakers: Option<String>,
         tuning: VoiceTuning,
     },
@@ -3790,6 +3805,7 @@ impl Command {
             | Command::ViewImage { room, .. }
             | Command::PlayVideo { room, .. }
             | Command::PlayVoiceMessage { room, .. }
+            | Command::MoveVoiceMessage { room, .. }
             | Command::Typing { room, .. }
             | Command::MarkRead { room, .. }
             | Command::SaveDraft { room, .. }

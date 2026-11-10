@@ -886,6 +886,7 @@ impl Matrix {
             | Command::PlayVideo { .. }
             | Command::Video(_)
             | Command::PlayVoiceMessage { .. }
+            | Command::MoveVoiceMessage { .. }
             | Command::PauseVoiceMessage
             | Command::TuneVoiceMessage(_) => {}
         }
@@ -1225,6 +1226,7 @@ async fn room_index(client: &Client) -> RoomIndex {
             official: false,
             empty: false,
             preview: None,
+            voice_started: None,
         });
     }
     result.sort_by(|a, b| {

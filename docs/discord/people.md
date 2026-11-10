@@ -255,12 +255,11 @@ from `GET /users/{id}/profile` with the open server's id, so the server's
 nickname, avatar, banner, bio and pronouns win over the person's own, and the
 profile lists their roles in role order, when they joined Discord and the server,
 and the servers and friends the account shares with them. Profiles are kept for
-five minutes, at most 32 of them. On this account's own profile the lists are
-its own friends and servers, which it shares with nobody, so the card and its
-tabs say "5 friends" and "2 servers" rather than "5 mutual friends" and
-"2 mutual servers", and an empty tab says "No friends." rather than "No friends
-in common." Presence and activity come from the member
-list, since the profile doesn't carry them. Their custom status, or what
+five minutes, at most 32 of them. This account's own profile shares its
+friends and servers with nobody, so, as in Discord's client, its card shows
+no mutual line and its full profile no mutual tabs. Presence and activity
+come from the member list, since the profile doesn't carry them. Their
+custom status, or what
 they're doing, sits in a thought bubble beside the picture, as in
 Discord's: two lines at most, and all of it while pointed at. One's
 own card, small or full, has Edit Profile in place of the friend and
@@ -310,7 +309,10 @@ anything but plain characters show no picture. A game Discord detected has no
 pictures, so its card shows the game's icon, which Yapfast asks for once per
 game with `GET /applications/public?application_ids={id}` and downloads from
 `/app-icons/`. Application pictures stay in the picture cache. The timers tick
-once a second, and only while a profile with one shows. Matrix members and
+once a second, and only while a profile with one shows; the same clock ticks
+every 15 seconds for
+[busy voice channels' times](voice.md#how-long-a-channels-call-has-gone-on)
+otherwise. Matrix members and
 one-to-one Matrix DMs get the same card with their name, Matrix ID, avatar and
 room role.
 
@@ -420,7 +422,7 @@ rules:
 | Board | It's one's own, or they have widgets |
 | Activity | Always |
 | Wishlist | It's one's own, or it's public and they're a friend or share a server |
-| Mutual friends, mutual servers | Always |
+| Mutual friends, mutual servers | It isn't one's own |
 
 It opens on Activity. Activity lists their activities, then, under "Recent
 activity", from `GET /content-inventory/users/{id}/outbox` when the tab first

@@ -3035,9 +3035,13 @@ async fn calls_and_goes_live() {
     // The call measures its connection, as Discord's voice panel shows it:
     // the heartbeats' round trips, and the share of this account's audio
     // Discord's receiver reports say was lost.
+    // The fake reports every 50 packets, and the share is read from two
+    // reports in a row while it's lost; `say` pushes a frame a little less
+    // often than the call ticks, and a tick without a whole frame sends
+    // nothing, so this leaves a margin.
     post_control(server, "/_control/voice-link?loss=10", "");
     track.play().unwrap();
-    say(&microphone, 120).await;
+    say(&microphone, 160).await;
     track.pause().unwrap();
     post_control(server, "/_control/voice-link", "");
     let stats = call.stats();
@@ -3849,6 +3853,115 @@ async fn moderates_voice() {
     );
     post_control(server, "/_control/voice-reset", "");
     snapshot_where(&discord, |snapshot| dave_in(&lounge)(snapshot).is_some()).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn knows_when_voice_channels_calls_started() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        snapshot,
+        guild,
+        lounge,
+        ..
+    } = Fixture::start("knows_when_voice_channels_calls_started").await;
+    let create_room = snapshot
+        .servers
+        .iter()
+        .flat_map(|server| &server.voice_channels)
+        .find(|found| found.name == "Create Room")
+        .unwrap()
+        .id
+        .clone();
+    let now = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    };
+    // Opening the server asks once when its voice channels' calls started:
+    // the Lounge's, 47 minutes before the fake started.
+    discord.view(&guild, None);
+    let snapshot = snapshot_where(&discord, |snapshot| {
+        snapshot.voice_started.contains_key(&lounge)
+    })
+    .await;
+    let started = snapshot.voice_started[&lounge];
+    assert!(
+        (46 * 60..=60 * 60).contains(&(now() - started)),
+        "{started}"
+    );
+    assert!(!snapshot.voice_started.contains_key(&create_room));
+    discord.view(&guild, Some(&lounge));
+
+    // Someone joining an empty channel starts its call, and the last to
+    // leave ends it, as VOICE_CHANNEL_START_TIME_UPDATE says.
+    let dave = snapshot.voice[&lounge]
+        .iter()
+        .find(|member| member.name == "Dave")
+        .unwrap()
+        .user_id
+        .clone();
+    discord
+        .move_member(&guild, &dave, Some(&create_room))
+        .await
+        .unwrap();
+    let snapshot = snapshot_where(&discord, |snapshot| {
+        snapshot.voice_started.contains_key(&create_room)
+    })
+    .await;
+    assert!(now() - snapshot.voice_started[&create_room] < 60);
+    assert_eq!(
+        snapshot.voice_started[&lounge], started,
+        "the Lounge's goes on"
+    );
+    discord.move_member(&guild, &dave, None).await.unwrap();
+    snapshot_where(&discord, |snapshot| {
+        !snapshot.voice_started.contains_key(&create_room)
+    })
+    .await;
+    // Viewing another of its channels, after all that, asked nothing more.
+    let asked = || -> serde_json::Value {
+        serde_json::from_str(&control(server, "GET", "/_control/channel-info", "")).unwrap()
+    };
+    assert_eq!(asked(), serde_json::json!([guild]));
+    post_control(server, "/_control/voice-reset", "");
+
+    // A resumed session missed nothing, and asks nothing again.
+    post_control(server, "/_control/gateway-reconnect", "");
+    timeout(WAIT, async {
+        while control(server, "GET", "/_control/sessions", "") != r#"{"identifies":1,"resumes":1}"#
+        {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the session didn't resume");
+    discord.set_status("idle").await.unwrap();
+    presence_where(server, |presence| presence["status"] == "idle").await;
+    discord.set_status("online").await.unwrap();
+    assert_eq!(asked(), serde_json::json!([guild]));
+    assert!(
+        discord
+            .snapshots()
+            .borrow()
+            .voice_started
+            .contains_key(&lounge)
+    );
+
+    // Leaving takes its times; joined again, the server on screen is asked
+    // again, once.
+    discord.leave_server(&guild).await.unwrap();
+    snapshot_where(&discord, |snapshot| snapshot.voice_started.is_empty()).await;
+    post_control(server, "/_control/rejoin", "");
+    let snapshot = snapshot_where(&discord, |snapshot| {
+        snapshot.voice_started.get(&lounge) == Some(&started)
+    })
+    .await;
+    assert!(snapshot.servers.iter().any(|known| known.id == guild));
+    assert_eq!(asked(), serde_json::json!([guild, guild]));
 }
 
 #[tokio::test(flavor = "multi_thread")]
