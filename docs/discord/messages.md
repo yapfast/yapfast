@@ -583,10 +583,11 @@ click or a submit sends one, and none is sent again on its own.
   taking what's picked rather than sending it), radio groups (RADIO_GROUP,
   sent as `value`), checkbox groups (CHECKBOX_GROUP, as `values`), checkboxes
   (CHECKBOX, a `value` of true or false) and file uploads (FILE_UPLOAD), each
-  with its label's description. A file upload's files go in the submit's own
-  request, as a command's do: `multipart/form-data` with `payload_json` and
-  `files[n]`, `data.attachments` naming each by its place, and the upload's
-  `values` holding those places. A part Yapfast can't fill shows as such,
+  with its label's description. A file upload's files are uploaded first, as
+  a command's are (see "Sending apps' commands"), `data.attachments` naming
+  each by its place, and the upload's `values` holding those places as
+  numbers. A radio group left alone goes as `"value": null`, as Discord's
+  client sends it. A part Yapfast can't fill shows as such,
   and the form can't be sent from Yapfast; a form Yapfast can't read at all
   says so. A form that fails, or isn't complete, stays open with what was
   entered and why, in the form, until something is changed.
@@ -624,33 +625,57 @@ click or a submit sends one, and none is sent again on its own.
 The commands apps offer come from Discord's application command indexes
 (docs.discord.food, "Application Commands"): `GET
 /guilds/{id}/application-command-index` in a server,
-`/channels/{id}/application-command-index` in a DM or group DM, and
-`/users/@me/application-command-index` for the apps the account installed
-for itself, merged, with the place's own first. Each is fetched only once
-the person types `/` in the composer or opens a message's or a person's
-menu there, never ahead, and kept until Discord
-says it changed: GUILD_APPLICATION_COMMAND_INDEX_UPDATE for a server's, and
-APPLICATION_COMMAND_PERMISSIONS_UPDATE, or a gateway backlog that may have
-missed one, for all of them. Typing `/` again in the same server asks
-nothing. Up to 16 indexes are kept. A DM's that Discord refuses leaves the
-account's own.
+`/channels/{id}/application-command-index` in a one-to-one DM with a bot,
+and `/users/@me/application-command-index` for the apps the account
+installed for itself. As in Discord's client, no other DM's or group DM's
+is asked for. They're merged in the place's order, then the account's; a
+command in both is the account's copy, with its app as the place's index
+has it. Each is fetched only once the person types `/` in the composer or
+opens a message's or a person's menu there, never ahead, and kept until
+Discord's client would count it out of date:
 
-A command is offered where the person may use it, as Discord's client
-decides:
+- every one in a new gateway session (READY), or after a gateway backlog
+  that may have missed a change;
+- a server's on GUILD_APPLICATION_COMMAND_INDEX_UPDATE naming a version
+  other than the one kept, and with it the DMs with that server's apps'
+  bots;
+- the account's own on USER_APPLICATION_UPDATE or USER_APPLICATION_REMOVE.
 
-- Its `contexts` take the place: a server's channel, the DM with the app's
-  own bot (one of the index's apps has that `bot_id`), or any other DM or
-  group DM. From the account's own index, only commands installed for it
-  (`integration_types` with 1) count.
-- An age-restricted (`nsfw`) command shows only in an age-restricted channel.
-- In a server, a server's command needs Use Application Commands in the
-  channel, then its permissions: the channel's override (a thread takes its
-  channel's), else all channels' (the server's id less one), then this
-  account's override, its roles' (any allowed, else any denied) and
-  @everyone's; each first the command's, then its app's. Without any, the
-  command's `default_member_permissions` must all be held. An owner or
-  administrator may use every command. The account's own apps aren't the
-  server's to limit.
+APPLICATION_COMMAND_PERMISSIONS_UPDATE changes nothing, as in Discord's
+client. Typing `/` again in the same server asks nothing. An index out of
+date is fetched again on its next use, and the one kept is used if that
+fails. One that couldn't be had isn't asked for again for 5 seconds, as
+Discord's client waits; while Discord is still building one (202), it's
+asked again 5 seconds later, up to three times. Up to 16 indexes are kept,
+the one used longest ago going first. A DM's that Discord refuses leaves
+the account's own. An index changing while the open picker waits for it is
+asked for again.
+
+A command is offered where the person may use it, step by step as Discord's
+client decides:
+
+- Its `contexts` take the place: a server's channel, the DM with its own
+  app's bot (`bot_id`), or any other DM or group DM. A command without
+  `contexts` goes in servers and in its bot's DM, unless its
+  `dm_permission` is false.
+- An age-restricted (`nsfw`) command shows only to an account Discord lets
+  see age-restricted content (`nsfw_allowed`), and there only in an
+  age-restricted channel (a thread takes its channel's), in a server marked
+  explicit or age-restricted (`nsfw_level` 1 or 3), or in DMs when the
+  account's settings offer such commands there (`view_nsfw_commands`).
+- In a server, an owner or administrator may use every command, and so may
+  the account on a command installed for it (from its own index, with
+  `USER_INSTALL` among its `integration_types`). Otherwise a command of an
+  app installed in the server needs View Channel, Use Application Commands
+  and Send Messages in the channel (Send Messages in Threads in a thread).
+  Then the channel's override, first the command's, then its app's: the
+  channel's own (a thread takes its channel's), else all channels' (the
+  server's id less one). Then the command's own override for this account,
+  its roles (any allowed, else any denied) and @everyone, which decides;
+  without one, the app's, which can only refuse. Last, the command's
+  `default_member_permissions` must all be held; `"0"` leaves it to
+  administrators. A timed-out member's permissions are those a timeout
+  leaves, View Channel and Read Message History, so a server's commands go.
 
 Message and user commands are for those menus (see "Apps" below); the
 composer offers the slash commands:
@@ -658,9 +683,14 @@ composer offers the slash commands:
 - Typing `/` at the start of a channel's composer opens the picker over it,
   as Discord's does. It lists the slash commands the person may use there, a
   subcommand as its own row, as `config set`, in the index's order, each with
-  its app's icon and name, and narrows them as a word of the name is typed.
-  Up and Down choose, Tab, Enter or a click picks, and Escape closes it until
-  the `/` goes.
+  its app's icon and name, and narrows them as a word of the name is typed,
+  or as a name with a subcommand's is, as `config s`. Up and Down choose,
+  Tab, Enter or a click picks, and Escape closes it until the `/` goes. A
+  command's whole name and a space picks it, as in Discord's client, what
+  follows going to its first option; text that names no command goes as a
+  message. Enter sends nothing while the room's commands are still coming,
+  and Up doesn't edit the last message while the picker or a command is
+  open.
 - A picked command shows as pills over the composer, one for each option,
   each as wide as its name, value and error up to the composer's width,
   wrapping onto more rows as needed, and the composer's text writes the
@@ -713,16 +743,21 @@ its `options`, a subcommand or group nesting its own; a context-menu
 command carries its `target_id` instead: the message's id or the user's.
 An app answers one with a type 23 message, which shows as a reply when it
 names the message it ran on (docs.discord.food gives `referenced_message`
-for type 23 as for replies). A command typed in the composer
-says `analytics_location: "slash_ui"`, which docs.discord.food gives as
-"executed from the chat bar"; what Discord's client says for a context
-menu isn't known, and Yapfast says nothing there. Only sending the command
-sends one, and none is sent again on its own.
+for type 23 as for replies). Like Discord's client, every command says
+`analytics_location: "slash_ui"`, which docs.discord.food gives as
+"executed from the chat bar", a context menu's too, and its `data` always
+has `options`, empty for a context menu, and the `guild_id` of a command
+made for one server. `application_command` is the index's entry exactly as
+Discord sent it. Only sending the command sends one. A 429 sends it once
+more after Discord's wait, as Discord's client sends a command or a form
+again; a click on a bot's control or an autocomplete isn't.
 
-- Files go in the same request: a `multipart/form-data` body of the JSON as
-  `payload_json` and the files as `files[0]`, `files[1]`..., which
-  `data.attachments` names as `{id: "0", filename}`, and a file option's
-  value is that id. Up to 25 files.
+- Files are uploaded first, as a message's are (`POST
+  /channels/{id}/attachments`, then the file to the address it gives), and
+  the JSON names them in `data.attachments` as `{id: "0", filename,
+  uploaded_filename}`, as Discord's client does; a file option's value is
+  that place, as a number. Up to 25 files. Uploads a refused command didn't
+  use are deleted.
 - As with a bot's buttons, Discord answers 204 and tells the rest over the
   gateway by the nonce: INTERACTION_CREATE gives the interaction's id, which
   the answer's message names in `interaction_metadata`, then
@@ -737,12 +772,15 @@ sends one, and none is sent again on its own.
   instead, with Retry, which sends it again with a new nonce, and Cancel.
   The row is Yapfast's own and lives only while Yapfast runs.
 - An option whose app completes it (`autocomplete`) asks the app for its
-  choices with a type 4 interaction once typing pauses for 300 ms: the same
-  data, without files, the option typed in marked `focused` with its value
-  as text. Only the newest is sent, and only its answer
+  choices with a type 4 interaction, debounced as Discord's client does it:
+  the first keystroke asks at once, and the others once typing pauses for
+  500 ms. It carries the same data, without files, the option typed in
+  marked `focused` with its value as text. Only the newest answer
   (APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE) is shown; a keystroke within
   the pause, or one after an older autocomplete was sent, drops the older
-  one. A failed or unanswered autocomplete keeps the choices shown.
+  one. Text the app already answered for that option shows its answer
+  again without asking, as Discord's client keeps them. A failed or
+  unanswered autocomplete keeps the choices shown.
 
 ## Who used an app's command
 

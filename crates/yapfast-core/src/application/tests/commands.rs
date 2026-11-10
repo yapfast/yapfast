@@ -40,7 +40,7 @@ fn index() -> Arc<CommandIndex> {
         }),
         true,
     );
-    Arc::new(server.merged(&own))
+    Arc::new(own.merged(&server))
 }
 
 #[test]
@@ -92,4 +92,34 @@ fn a_slash_asks_for_the_index_once_until_discord_says_it_changed() {
         app.state.app_commands.error.as_deref(),
         Some("Discord said no")
     );
+}
+
+#[test]
+fn a_commands_name_and_a_space_picks_it_and_a_slash_waits_for_the_commands() {
+    let mut app = super::discord_server();
+    app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    app.dispatch(Action::SelectRoom(GENERAL.into()));
+    app.dispatch(Action::SetDraft("/note".into()));
+    assert!(app.state.app_commands.loading(GENERAL));
+    // Until the commands come, `/note` may be one: Enter sends nothing, and
+    // Up is the picker's.
+    assert!(app.dispatch(Action::Send).is_empty());
+    assert!(app.dispatch(Action::EditLast).is_empty());
+    app.apply(Event::CommandIndex {
+        room: GENERAL.into(),
+        index: Ok(index()),
+    });
+    // A whole name and a space picks it, as in Discord's client.
+    app.dispatch(Action::SetDraft("/note ".into()));
+    let draft = app.state.command_draft().expect("/note picked");
+    assert_eq!(draft.name, "note");
+    assert!(app.dispatch(Action::EditLast).is_empty());
+    app.dispatch(Action::CloseCommand(false));
+    // A name no command has goes as text.
+    app.dispatch(Action::SetDraft("/nothing here".into()));
+    assert!(app.state.command_draft().is_none());
+    assert_eq!(app.state.slash_query(), None);
+    // The start of a name keeps the picker.
+    app.dispatch(Action::SetDraft("/no".into()));
+    assert_eq!(app.state.slash_query(), Some("no"));
 }

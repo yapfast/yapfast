@@ -33,6 +33,9 @@ const MENTIONABLE: u64 = 9;
 const NUMBER: u64 = 10;
 const ATTACHMENT: u64 = 11;
 
+/// How many of an app's autocomplete answers a command being written keeps.
+const ANSWERS_KEPT: usize = 32;
+
 /// How many people, roles or channels an option offers at once.
 const OPTION_SUGGESTIONS: usize = 10;
 
@@ -84,8 +87,12 @@ pub struct CommandDraft {
     /// Enter was pressed with an option missing or wrong: every option shows
     /// what's wrong with it, the required ones too.
     tried: bool,
-    /// The newest autocomplete asked, by nonce; older answers are dropped.
-    autocomplete: Option<String>,
+    /// The newest autocomplete asked, by nonce, with the option and the
+    /// text it asked for; older answers are dropped.
+    autocomplete: Option<(String, usize, String)>,
+    /// The app's answers so far, by option and text, newest last: text
+    /// answered before isn't asked again, as Discord's client keeps them.
+    answered: Vec<(usize, String, Vec<Suggestion>)>,
     /// What the app suggested for the focused option.
     suggested: Vec<Suggestion>,
     /// The focused option's suggestions were closed with Escape.
@@ -486,15 +493,63 @@ impl Application {
         let writing = Network::of(room) == Network::Discord
             && !matches!(self.state.compose.get(room), Some(Compose::Edit { .. }))
             && !self.state.preview;
-        let query = body
-            .strip_prefix('/')
-            .filter(|rest| writing && !rest.contains(char::is_whitespace));
+        let query = body.strip_prefix('/').filter(|_| writing);
         let Some(query) = query else {
             self.state.slash.query = None;
             self.state.slash.dismissed = false;
             return None;
         };
+        if query.contains(char::is_whitespace) && !self.state.app_commands.loading(room) {
+            // A command's whole name and a space picks it, as in Discord's
+            // client, the rest going to its first option; a name a
+            // subcommand's starts keeps the picker; anything else is text.
+            if let Some((picked, rest)) = self.named_command(room, query) {
+                let mut effects = self.write_command(room.to_owned(), picked);
+                if !rest.is_empty() {
+                    effects.extend(self.set_draft(rest));
+                }
+                return Some(effects);
+            }
+            let lower = query.to_lowercase();
+            if !self
+                .slash_commands(room, "")
+                .iter()
+                .any(|command| command.name.to_lowercase().starts_with(&lower))
+            {
+                self.state.slash.query = None;
+                self.state.slash.dismissed = false;
+                return None;
+            }
+        }
         Some(self.follow_slash(room.to_owned(), query.to_owned()))
+    }
+
+    /// The command whose whole name `query` starts with, followed by a
+    /// space, and what follows the space. The longest name wins, so
+    /// `config set` over `config`.
+    fn named_command(&self, room: &str, query: &str) -> Option<(SlashCommand, String)> {
+        let picked = self
+            .slash_commands(room, "")
+            .into_iter()
+            .filter(|command| {
+                let len = command.name.len();
+                query
+                    .get(..len)
+                    .is_some_and(|head| head.to_lowercase() == command.name.to_lowercase())
+                    && query[len..].starts_with(char::is_whitespace)
+            })
+            .max_by_key(|command| command.name.len())?;
+        let rest = query[picked.name.len()..].trim_start().to_owned();
+        Some((picked, rest))
+    }
+
+    /// The `/` picker is open in `room`.
+    pub(super) fn slash_open_in(&self, room: &str) -> bool {
+        self.state
+            .slash
+            .query
+            .as_ref()
+            .is_some_and(|(at, _)| at == room)
     }
 
     /// The draft is `/` and `query` after it: the picker follows it, and
@@ -516,9 +571,10 @@ impl Application {
         let Some(command) = self.state.slash.command.as_mut() else {
             return vec![];
         };
-        if command.autocomplete.as_deref() != Some(nonce) {
+        let Some((_, option, typed)) = command.autocomplete.take_if(|(asked, ..)| asked == nonce)
+        else {
             return vec![];
-        }
+        };
         command.suggested = choices
             .as_array()
             .into_iter()
@@ -534,6 +590,12 @@ impl Application {
                 value: choice.get("value").cloned().unwrap_or(Value::Null),
             })
             .collect();
+        if command.answered.len() >= ANSWERS_KEPT {
+            command.answered.remove(0);
+        }
+        command
+            .answered
+            .push((option, typed, command.suggested.clone()));
         vec![]
     }
 
@@ -565,6 +627,11 @@ impl Application {
         let Some(picked) = self.slash_commands(&room, &query).into_iter().nth(index) else {
             return vec![];
         };
+        self.write_command(room, picked)
+    }
+
+    /// Starts writing `picked` in `room`'s composer, its options as pills.
+    fn write_command(&mut self, room: String, picked: SlashCommand) -> Vec<Effect> {
         let Some((command, options)) = self.slash_command_spec(&room, &picked) else {
             return vec![];
         };
@@ -592,6 +659,7 @@ impl Application {
             focused: 0,
             tried: false,
             autocomplete: None,
+            answered: Vec::new(),
             suggested: Vec::new(),
             choices_dismissed: false,
         };
@@ -650,6 +718,19 @@ impl Application {
                 return vec![];
             }
         }
+        let Some(command) = self.state.slash.command.as_mut() else {
+            return vec![];
+        };
+        let (focused, typed) = (command.focused, body.to_owned());
+        if let Some((.., answer)) = command
+            .answered
+            .iter()
+            .find(|(option, text, _)| *option == focused && *text == typed)
+        {
+            command.suggested = answer.clone();
+            command.autocomplete = None;
+            return vec![];
+        }
         let Some(command) = self.state.slash.command.as_ref() else {
             return vec![];
         };
@@ -679,7 +760,7 @@ impl Application {
             files: Vec::new(),
         };
         if let Some(command) = self.state.slash.command.as_mut() {
-            command.autocomplete = Some(nonce);
+            command.autocomplete = Some((nonce, focused, typed));
         }
         vec![Effect::Backend(Command::Discord(
             DiscordCommand::Autocomplete(Box::new(run)),
@@ -768,9 +849,11 @@ impl Application {
         for option in &command.options {
             let value = if option.kind == ATTACHMENT {
                 match &option.file {
+                    // Its index among the files, a number, as Discord's
+                    // client names it.
                     Some(path) => {
                         files.push(path.clone());
-                        Value::String((files.len() - 1).to_string())
+                        json!(files.len() - 1)
                     }
                     None => continue,
                 }

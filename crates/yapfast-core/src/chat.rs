@@ -4008,8 +4008,8 @@ pub enum Event {
         room: String,
         index: Result<Arc<CommandIndex>, String>,
     },
-    /// A server's command index changed, or with none who may use commands:
-    /// a kept index is out of date.
+    /// A server's command index is out of date, and those of the DMs with
+    /// its bots, or with none every index: the next use asks again.
     CommandIndexChanged {
         guild: Option<String>,
     },

@@ -301,7 +301,14 @@ pub(super) fn live(live: Live, events: &UnboundedSender<Event>) -> Option<Live> 
         },
         // Only the newest autocomplete's, which [`autocomplete`] passes on.
         Live::AutocompleteChoices { .. } => return None,
-        Live::CommandIndexChanged { guild } => Event::CommandIndexChanged { guild },
+        Live::CommandIndexStale(stale) => Event::CommandIndexChanged {
+            guild: match stale {
+                yapfast_discord::commands::Stale::Guild { guild, .. } => Some(guild),
+                yapfast_discord::commands::Stale::All | yapfast_discord::commands::Stale::User => {
+                    None
+                }
+            },
+        },
         other => return Some(other),
     };
     let _ = events.send(event);

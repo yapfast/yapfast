@@ -259,8 +259,9 @@
 // gives INTERACTION_SUCCESS and an ephemeral MESSAGE_CREATE (flag 64, no
 // guild_id) of what was entered, a file upload's files by name, which
 // history leaves out. Alice's commands to Status Bot
-// (type 2, by data.name; files as multipart payload_json and files[n],
-// which data.attachments must each name) answer as an app does, each answer
+// (type 2, by data.name; files uploaded first and named in
+// data.attachments by uploaded_filename, each option's or file upload's
+// value its index as a number) answer as an app does, each answer
 // a type 20 message with interaction_metadata (its name with subcommands, as
 // "config set") and the deprecated interaction: "ping" "Pong!", "echo" an "is
 // thinking…" message (flag LOADING, 128, no content) that a MESSAGE_UPDATE
@@ -286,7 +287,7 @@
 // /_control/command-index-fetches lists each index fetched, as
 // `guilds/{id}`, `channels/{id}` or `users/@me`, oldest first, and POST
 // /_control/commands-changed sends GUILD_APPLICATION_COMMAND_INDEX_UPDATE
-// for "Server".
+// for "Server", with the index's version moved on.
 // A gift of Nitro from Bob resolves and redeems the same way: GET
 // /entitlements/gift-codes/{code} shows it, POST .../redeem redeems it
 // once and sends ENTITLEMENT_CREATE and GIFT_CODE_UPDATE, and GET
@@ -4985,13 +4986,13 @@ function answerInteraction(body: any, id: string, origin: string, files: Map<str
   }
   if (body.type === 5) {
     dispatch("INTERACTION_SUCCESS", { id, nonce });
-    // A file upload's values name the attachments sent with it.
+    // A file upload's values name the attachments sent with it, by index.
     const named = new Map<string, string>((body.data?.attachments ?? []).map((file: any) => [file.id, file.filename]));
     const entered = (body.data?.components ?? [])
       .map((row: any) => row.component ?? row.components?.[0])
       .filter((field: any) => field && field.type !== 10)
       .map((field: any) => field.type === 19
-        ? (field.values ?? []).map((id: string) => named.get(id) ?? "?").join(", ")
+        ? (field.values ?? []).map((index: number) => named.get(String(index)) ?? "?").join(", ")
         : String(field.value ?? (field.values ?? []).join(", ")));
     // Only Alice sees it: sent to her session alone, without the server, and
     // never in the channel's history.
@@ -5080,6 +5081,8 @@ const STATUS_COMMANDS = {
 /** Notes, an app Alice installed for herself, and its one command. */
 const NOTES_APP = "1400000000000000710";
 const NOTE_COMMAND = "1400000000000000711";
+// The server's index's version, which /_control/commands-changed moves on.
+let serverCommandsVersion = 1400000000000000720n;
 const COMMANDS_VERSION = "1400000000000000720";
 
 /** A command as an index lists it, the server's or Alice's own. */
@@ -5130,7 +5133,7 @@ function serverCommandIndex() {
       indexCommand(STATUS_COMMANDS.quote, app, 3, "Quote", ""),
       indexCommand(STATUS_COMMANDS.wave, app, 2, "Wave", ""),
     ],
-    version: COMMANDS_VERSION,
+    version: String(serverCommandsVersion),
   };
 }
 
@@ -5164,6 +5167,18 @@ function commandIndexRoute(method: string, path: string): Response | null {
   // Only a DM or group DM has one; Discord refuses a server's channel.
   if (!privates.has(id)) return json({ message: "Invalid Form Body", code: 50035 }, 400);
   return json(none);
+}
+
+/** The file indexes an interaction's data names: its attachment options'
+ *  values and its file uploads' values. */
+function fileIndexes(data: any): unknown[] {
+  const options = (list: any[] | undefined): unknown[] =>
+    (list ?? []).flatMap((option) => option.type === 11 ? [option.value] : options(option.options));
+  const uploads = (data?.components ?? [])
+    .map((row: any) => row.component ?? row.components?.[0])
+    .filter((field: any) => field?.type === 19)
+    .flatMap((field: any) => field.values ?? []);
+  return [...options(data?.options), ...uploads];
 }
 
 /** The value of option `name` among `options`, looking into a subcommand. */
@@ -5253,10 +5268,11 @@ function answerMenuCommand(body: any, id: string, origin: string, reply: (conten
   const nonce = body.nonce;
   const kind: number = body.data.type;
   const target: string | undefined = body.data.target_id;
-  // A context-menu command has its target and no options.
+  // A context-menu command has its target and no options: an empty list,
+  // as Discord's client sends it.
   const quoted = kind === 3 && target ? byId.get(target) : undefined;
   const person = kind === 2 && target ? Object.values(users).find((user) => user.id === target) : undefined;
-  if (body.data.options !== undefined || (kind === 3 && quoted?.channel !== body.channel_id) || (kind === 2 && !person)) {
+  if (!Array.isArray(body.data.options) || body.data.options.length > 0 || (kind === 3 && quoted?.channel !== body.channel_id) || (kind === 2 && !person)) {
     dispatch("INTERACTION_FAILURE", { id, nonce, reason_code: 1 });
     return;
   }
@@ -7708,27 +7724,27 @@ async function api(req: Request, path: string, origin: string): Promise<Response
 
   // Alice uses Status Bot's controls; see "Interactions" in the header.
   if (method === "POST" && path === "/interactions") {
-    // JSON, or with files a form of payload_json and files[n].
+    // JSON only: Discord's client uploads files first (POST
+    // /channels/{id}/attachments), then names them in data.attachments by
+    // uploaded_filename, as a message does.
+    if (!(req.headers.get("content-type") ?? "").startsWith("application/json")) {
+      return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    }
+    const body: any = await req.json().catch(() => ({}));
     const files = new Map<string, Blob>();
-    let body: any = {};
-    if ((req.headers.get("content-type") ?? "").startsWith("multipart/form-data")) {
-      const form = await req.formData().catch(() => null);
-      try {
-        body = JSON.parse(String(form?.get("payload_json") ?? ""));
-      } catch {
-        body = {};
+    for (const file of body.data?.attachments ?? []) {
+      const upload = uploads.get(file.uploaded_filename);
+      if (typeof file.id === "string" && upload?.data && upload.filename === file.filename) {
+        files.set(file.id, new File([upload.data], upload.filename));
+        uploads.delete(file.uploaded_filename);
       }
-      for (const [field, value] of form?.entries() ?? []) {
-        const index = /^files\[(\d+)\]$/.exec(field)?.[1];
-        if (index !== undefined && typeof value !== "string") files.set(index, value);
-      }
-    } else {
-      body = await req.json().catch(() => ({}));
     }
     const live = [...sockets].some((ws) => ws.data.identified && ws.data.session === body.session_id);
     const form = body.type !== 5 || formsOpened.has(body.data?.id);
-    // Each attachment named has its file, and a command is named whole.
-    const named = (body.data?.attachments ?? []).every((file: any) => files.has(file.id));
+    // Each attachment named was uploaded, an option or file upload names
+    // one by its index, a number, and a command is named whole.
+    const named = (body.data?.attachments ?? []).every((file: any) => files.has(file.id))
+      && fileIndexes(body.data).every((index) => typeof index === "number" && files.has(String(index)));
     const command = ![2, 4].includes(body.type) || (typeof body.data?.id === "string" && typeof body.data?.name === "string");
     if (!live || typeof body.nonce !== "string" || ![2, 3, 4, 5].includes(body.type) || !form || !named || !command) {
       return json({ message: "Invalid Form Body", code: 50035 }, 400);
@@ -9469,7 +9485,8 @@ const server = Bun.serve<SocketData>({
       return Response.json(commandIndexFetches);
     }
     if (req.method === "POST" && path === "/_control/commands-changed") {
-      dispatch("GUILD_APPLICATION_COMMAND_INDEX_UPDATE", { guild_id: GUILD });
+      serverCommandsVersion += 1n;
+      dispatch("GUILD_APPLICATION_COMMAND_INDEX_UPDATE", { guild_id: GUILD, version: String(serverCommandsVersion) });
       return new Response("Server's commands changed\n");
     }
     if (req.method === "GET" && path === "/_control/oauth-authorizations") {

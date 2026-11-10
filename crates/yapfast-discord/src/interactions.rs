@@ -9,14 +9,13 @@
 //! here retries or sends one on its own.
 
 use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-    time::Duration,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 use serde_json::{Value, json};
+
+use crate::api::Upload;
 
 /// How long an interaction stays pending without a word from the gateway,
 /// once Discord took the request. Discord itself fails one whose app doesn't
@@ -25,11 +24,13 @@ use serde_json::{Value, json};
 pub const UNANSWERED: Duration = Duration::from_secs(15);
 
 /// How long typing in an autocompleted option pauses before the app is
-/// asked for its choices: a keystroke within it asks instead.
-pub const AUTOCOMPLETE_PAUSE: Duration = Duration::from_millis(300);
+/// asked again for its choices, as Discord's client debounces it: the first
+/// keystroke asks at once, the others once typing stops for this long.
+pub const AUTOCOMPLETE_PAUSE: Duration = Duration::from_millis(500);
 
-/// Where Discord's client says a command typed in the composer comes from:
-/// docs.discord.food lists `slash_ui` as "executed from the chat bar".
+/// Where Discord's client says a command comes from: docs.discord.food lists
+/// `slash_ui` as "executed from the chat bar", and the client sends it for a
+/// command chosen from a message's or a person's menu too.
 const CHAT_BAR: &str = "slash_ui";
 
 /// The application command option type of a file.
@@ -67,9 +68,10 @@ pub enum Interaction {
         custom_id: String,
         /// The form's components with what was entered, as Discord takes them.
         /// A file upload's `values` are its files' places in `files`, as
-        /// `"0"` for the first.
+        /// `0` for the first.
         components: Value,
-        /// The names of the files its file uploads carry, sent as `files[n]`.
+        /// The names of the files its file uploads carry, uploaded before
+        /// it's sent.
         files: Vec<String>,
     },
     /// An app's command sent, as typed in the composer or chosen from a
@@ -93,12 +95,12 @@ pub struct CommandUse {
     pub command: Arc<Value>,
     /// The options as `/interactions` takes them: `{type, name, value}`
     /// each, a subcommand or group as `{type: 1 or 2, name, options}`. A
-    /// file option's `value` is its index in `files`, as a string. For an
+    /// file option's `value` is its index in `files`, a number. For an
     /// autocomplete, the option being typed has `focused: true`.
     pub options: Value,
     /// The message or user a context-menu command acts on.
     pub target: Option<String>,
-    /// The names of the files the options carry, sent as `files[n]`.
+    /// The names of the files the options carry, uploaded before it's sent.
     pub files: Vec<String>,
 }
 
@@ -110,8 +112,32 @@ impl Interaction {
         }
     }
 
-    /// The body of `POST /interactions` in the gateway session `session`.
-    pub fn body(&self, session: &str) -> Value {
+    /// The channel it's used in, where its files are uploaded.
+    pub fn channel(&self) -> &str {
+        match self {
+            Self::Component { channel, .. } | Self::Modal { channel, .. } => channel,
+            Self::Command(run) | Self::Autocomplete(run) => &run.channel,
+        }
+    }
+
+    /// The names of the files it carries, to upload before it's sent.
+    pub fn files(&self) -> &[String] {
+        match self {
+            Self::Component { .. } | Self::Autocomplete(_) => &[],
+            Self::Modal { files, .. } => files,
+            Self::Command(run) => &run.files,
+        }
+    }
+
+    /// Whether it goes again after a 429, as Discord's client sends a
+    /// command or a form again; a click or an autocomplete it drops.
+    pub fn again_when_limited(&self) -> bool {
+        matches!(self, Self::Modal { .. } | Self::Command(_))
+    }
+
+    /// The body of `POST /interactions` in the gateway session `session`,
+    /// with [`Self::files`] uploaded as `uploads`.
+    pub fn body(&self, session: &str, uploads: &[Upload]) -> Value {
         match self {
             Self::Component {
                 nonce,
@@ -165,14 +191,14 @@ impl Interaction {
                 });
                 // As a command's: each file named by its place among them.
                 if !files.is_empty() {
-                    body["data"]["attachments"] = attachments(files);
+                    body["data"]["attachments"] = attachments(uploads);
                 }
                 if let Some(guild) = guild {
                     body["guild_id"] = json!(guild);
                 }
                 body
             }
-            Self::Command(run) => run.command_body(session),
+            Self::Command(run) => run.command_body(session, uploads),
             Self::Autocomplete(run) => run.autocomplete_body(session),
         }
     }
@@ -180,18 +206,14 @@ impl Interaction {
 
 impl CommandUse {
     /// The body of `POST /interactions` that runs the command (type 2), as
-    /// docs.discord.food's "Create Interaction" gives it. Its files go
-    /// beside it in the same request, as `files[n]`.
-    pub fn command_body(&self, session: &str) -> Value {
+    /// docs.discord.food's "Create Interaction" gives it, with its files
+    /// uploaded first as `uploads`, as Discord's client does.
+    pub fn command_body(&self, session: &str, uploads: &[Upload]) -> Value {
         let mut body = self.body(2, session, self.options.clone());
-        if !self.files.is_empty() {
-            body["data"]["attachments"] = attachments(&self.files);
+        if !uploads.is_empty() {
+            body["data"]["attachments"] = attachments(uploads);
         }
-        // A command typed in the composer; what Discord's client says for
-        // one from a context menu isn't known, so it says nothing.
-        if self.target.is_none() {
-            body["analytics_location"] = json!(CHAT_BAR);
-        }
+        body["analytics_location"] = json!(CHAT_BAR);
         body
     }
 
@@ -206,21 +228,18 @@ impl CommandUse {
     fn body(&self, kind: u64, session: &str, options: Value) -> Value {
         let command = &*self.command;
         let command_type = command["type"].as_u64().unwrap_or(1);
+        // Discord's client sends `options`, empty for a context-menu
+        // command, and the server a command was made for.
         let mut data = json!({
             "version": command["version"],
             "id": command["id"],
             "name": command["name"],
             "type": command_type,
+            "options": if options.is_array() { options } else { json!([]) },
             "application_command": command,
         });
-        // Options belong to a chat command alone; a context-menu command
-        // names its target instead.
-        if command_type == 1 {
-            data["options"] = if options.is_array() {
-                options
-            } else {
-                json!([])
-            };
+        if let Some(guild) = command["guild_id"].as_str() {
+            data["guild_id"] = json!(guild);
         }
         if let Some(target) = &self.target {
             data["target_id"] = json!(target);
@@ -240,13 +259,19 @@ impl CommandUse {
     }
 }
 
-/// The partial attachments of `files` sent as `files[n]`: each by its
-/// place, `"0"` for the first, which an option or a file upload names.
-fn attachments(files: &[String]) -> Value {
-    files
+/// The uploaded files as `data.attachments` names them, each by its place,
+/// `"0"` for the first, as an option's or a file upload's value names it.
+fn attachments(uploads: &[Upload]) -> Value {
+    uploads
         .iter()
         .enumerate()
-        .map(|(index, name)| json!({"id": index.to_string(), "filename": name}))
+        .map(|(index, upload)| {
+            json!({
+                "id": index.to_string(),
+                "filename": upload.filename,
+                "uploaded_filename": upload.uploaded_filename,
+            })
+        })
         .collect()
 }
 
@@ -278,21 +303,53 @@ fn typed_so_far(options: &Value) -> Value {
         .collect()
 }
 
-/// Which autocomplete is the newest: only its answer is wanted, and one
-/// still waiting out [`AUTOCOMPLETE_PAUSE`] when a newer one starts is never
-/// sent.
+/// Which autocomplete is the newest, whose answer alone is wanted, and when
+/// the next may go: the first keystroke after a pause asks at once, and a
+/// keystroke within [`AUTOCOMPLETE_PAUSE`] of another asks once typing stops
+/// for that long, as Discord's client's debounce (leading and trailing).
 #[derive(Clone, Default, Debug)]
-pub struct Autocompletes(Arc<AtomicU64>);
+pub struct Autocompletes(Arc<Mutex<Turns>>);
+
+#[derive(Default, Debug)]
+struct Turns {
+    newest: u64,
+    /// Until when keystrokes wait, pushed on by each.
+    quiet_until: Option<Instant>,
+}
 
 impl Autocompletes {
-    /// Starts an autocomplete, which is the newest until the next starts.
-    pub fn start(&self) -> u64 {
-        self.0.fetch_add(1, Ordering::SeqCst) + 1
+    fn turns(&self) -> std::sync::MutexGuard<'_, Turns> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Starts an autocomplete at `now`, which is the newest until the next
+    /// starts, and says whether it goes at once.
+    pub fn start(&self, now: Instant) -> (u64, bool) {
+        let mut turns = self.turns();
+        turns.newest += 1;
+        let at_once = turns.quiet_until.is_none_or(|until| until <= now);
+        turns.quiet_until = Some(now + AUTOCOMPLETE_PAUSE);
+        (turns.newest, at_once)
+    }
+
+    /// When one that waits may go, if it's still the newest by then.
+    pub fn due(&self) -> Option<Instant> {
+        self.turns().quiet_until
+    }
+
+    /// One that waited went: the next keystroke asks at once again.
+    pub fn went(&self, turn: u64) {
+        let mut turns = self.turns();
+        if turns.newest == turn {
+            turns.quiet_until = None;
+        }
     }
 
     /// Whether the autocomplete `start` gave `turn` is still the newest.
     pub fn newest(&self, turn: u64) -> bool {
-        self.0.load(Ordering::SeqCst) == turn
+        self.turns().newest == turn
     }
 }
 
@@ -327,7 +384,7 @@ mod tests {
     #[test]
     fn a_click_is_sent_as_discords_client_sends_it() {
         assert_eq!(
-            click(None).body("s"),
+            click(None).body("s", &[]),
             json!({
                 "type": 3, "nonce": "5", "guild_id": "1", "channel_id": "2",
                 "message_id": "3", "message_flags": 0, "application_id": "7",
@@ -336,7 +393,7 @@ mod tests {
         );
         // A menu's picks go with its kind beside them.
         assert_eq!(
-            click(Some(vec!["a".into()])).body("s")["data"],
+            click(Some(vec!["a".into()])).body("s", &[])["data"],
             json!({"component_type": 3, "custom_id": "ok", "type": 3, "values": ["a"]})
         );
     }
@@ -360,7 +417,7 @@ mod tests {
             components: json!([{"type": 18, "component": {"type": 4, "custom_id": "a", "value": "hi"}}]),
             files: Vec::new(),
         };
-        let body = form.body("s");
+        let body = form.body("s", &[]);
         assert_eq!(body["type"], 5);
         assert!(body.get("guild_id").is_none());
         assert_eq!(body["data"]["id"], "11");
@@ -377,14 +434,25 @@ mod tests {
             application: "9".into(),
             id: "11".into(),
             custom_id: "proof".into(),
-            components: json!([{"type": 18, "component": {"type": 19, "custom_id": "shots", "values": ["0", "1"]}}]),
+            components: json!([{"type": 18, "component": {"type": 19, "custom_id": "shots", "values": [0, 1]}}]),
             files: vec!["a.png".into(), "b.txt".into()],
         };
-        let body = form.body("s");
+        assert_eq!(form.files(), ["a.png", "b.txt"]);
+        let body = form.body("s", &[upload("a.png"), upload("b.txt")]);
         assert_eq!(
             body["data"]["attachments"],
-            json!([{"id": "0", "filename": "a.png"}, {"id": "1", "filename": "b.txt"}])
+            json!([
+                {"id": "0", "filename": "a.png", "uploaded_filename": "uploads/a.png"},
+                {"id": "1", "filename": "b.txt", "uploaded_filename": "uploads/b.txt"},
+            ])
         );
+    }
+
+    fn upload(name: &str) -> Upload {
+        Upload {
+            filename: name.into(),
+            uploaded_filename: format!("uploads/{name}"),
+        }
     }
 
     fn echo(options: Value, files: &[&str]) -> CommandUse {
@@ -407,7 +475,7 @@ mod tests {
     fn a_command_is_sent_with_its_index_entry_and_options() {
         let run = echo(json!([{"type": 3, "name": "text", "value": "hi"}]), &[]);
         assert_eq!(
-            Interaction::Command(run.clone()).body("s"),
+            Interaction::Command(run.clone()).body("s", &[]),
             json!({
                 "type": 2, "nonce": "5", "application_id": "9", "guild_id": "1",
                 "channel_id": "2", "session_id": "s", "analytics_location": "slash_ui",
@@ -423,25 +491,35 @@ mod tests {
     #[test]
     fn a_subcommand_nests_and_a_file_is_named_by_its_index() {
         let options = json!([{"type": 1, "name": "set", "options": [
-            {"type": 11, "name": "file", "value": "0"},
+            {"type": 11, "name": "file", "value": 0},
         ]}]);
-        let body = echo(options.clone(), &["a.png"]).command_body("s");
+        let body = echo(options.clone(), &["a.png"]).command_body("s", &[upload("a.png")]);
         assert_eq!(body["data"]["options"], options);
         assert_eq!(
             body["data"]["attachments"],
-            json!([{"id": "0", "filename": "a.png"}])
+            json!([{"id": "0", "filename": "a.png", "uploaded_filename": "uploads/a.png"}])
         );
     }
 
     #[test]
-    fn a_context_menu_command_names_its_target_without_options() {
-        let mut run = echo(json!([]), &[]);
+    fn a_context_menu_command_names_its_target_and_no_options() {
+        let mut run = echo(Value::Null, &[]);
         run.command = Arc::new(json!({"id": "40", "version": "41", "type": 3, "name": "Quote"}));
         run.target = Some("77".into());
-        let body = run.command_body("s");
+        let body = run.command_body("s", &[]);
         assert_eq!(body["data"]["target_id"], "77");
-        assert!(body["data"].get("options").is_none());
-        assert!(body.get("analytics_location").is_none());
+        assert_eq!(body["data"]["options"], json!([]));
+        assert_eq!(body["analytics_location"], "slash_ui");
+        assert!(body["data"].get("guild_id").is_none());
+    }
+
+    #[test]
+    fn a_servers_own_command_names_its_server() {
+        let mut run = echo(json!([]), &[]);
+        run.command = Arc::new(
+            json!({"id": "30", "version": "31", "type": 1, "name": "echo", "guild_id": "1"}),
+        );
+        assert_eq!(run.command_body("s", &[])["data"]["guild_id"], "1");
     }
 
     #[test]
@@ -449,7 +527,7 @@ mod tests {
         let run = echo(
             json!([
                 {"type": 4, "name": "times", "value": 3, "focused": true},
-                {"type": 11, "name": "file", "value": "0"},
+                {"type": 11, "name": "file", "value": 0},
             ]),
             &["a.png"],
         );
@@ -464,12 +542,22 @@ mod tests {
     }
 
     #[test]
-    fn only_the_newest_autocomplete_is_wanted() {
+    fn autocompletes_go_first_and_last_and_only_the_newest_is_wanted() {
         let autocompletes = Autocompletes::default();
-        let first = autocompletes.start();
-        assert!(autocompletes.newest(first));
-        let second = autocompletes.start();
-        assert!(!autocompletes.newest(first));
-        assert!(autocompletes.newest(second));
+        let now = Instant::now();
+        let (first, at_once) = autocompletes.start(now);
+        assert!(at_once && autocompletes.newest(first));
+        let (second, at_once) = autocompletes.start(now + Duration::from_millis(100));
+        assert!(!at_once, "within the pause it waits");
+        assert!(!autocompletes.newest(first) && autocompletes.newest(second));
+        assert_eq!(
+            autocompletes.due(),
+            Some(now + Duration::from_millis(100) + AUTOCOMPLETE_PAUSE)
+        );
+        autocompletes.went(second);
+        let (_, at_once) = autocompletes.start(now + Duration::from_millis(700));
+        assert!(at_once, "after one went, the next goes at once");
+        let (_, at_once) = autocompletes.start(now + Duration::from_secs(5));
+        assert!(at_once, "and after a pause");
     }
 }

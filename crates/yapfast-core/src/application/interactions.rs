@@ -399,19 +399,17 @@ impl InteractionModal {
                     kind if select_kind(kind) || kind == CHECKBOX_GROUP => {
                         json!({"type": kind, "custom_id": id, "values": field.values})
                     }
-                    // A radio group left alone, when it may be, says nothing.
-                    RADIO_GROUP => match field.values.first() {
-                        Some(value) => {
-                            json!({"type": RADIO_GROUP, "custom_id": id, "value": value})
-                        }
-                        None => json!({"type": RADIO_GROUP, "custom_id": id}),
-                    },
+                    // A radio group left alone, when it may be, says null,
+                    // as Discord's client sends it.
+                    RADIO_GROUP => {
+                        json!({"type": RADIO_GROUP, "custom_id": id, "value": field.values.first()})
+                    }
                     CHECKBOX => json!({"type": CHECKBOX, "custom_id": id, "value": field.checked}),
                     FILE_UPLOAD => {
                         let start = files.len();
                         files.extend(field.files.iter().cloned());
-                        let ids: Vec<String> =
-                            (start..files.len()).map(|at| at.to_string()).collect();
+                        // Each file by its index among them, a number.
+                        let ids: Vec<usize> = (start..files.len()).collect();
                         json!({"type": FILE_UPLOAD, "custom_id": id, "values": ids})
                     }
                     _ => json!({"type": TEXT_INPUT, "custom_id": id, "value": field.value}),
@@ -1921,8 +1919,8 @@ mod tests {
                 {"type": 18, "component": {"type": 21, "custom_id": "size", "value": "s"}},
                 {"type": 18, "component": {"type": 22, "custom_id": "areas", "values": ["calls"]}},
                 {"type": 18, "component": {"type": 23, "custom_id": "agree", "value": true}},
-                {"type": 18, "component": {"type": 19, "custom_id": "shots", "values": ["0"]}},
-                {"type": 18, "component": {"type": 19, "custom_id": "logs", "values": ["1"]}},
+                {"type": 18, "component": {"type": 19, "custom_id": "shots", "values": [0]}},
+                {"type": 18, "component": {"type": 19, "custom_id": "logs", "values": [1]}},
             ])
         );
         assert_eq!(

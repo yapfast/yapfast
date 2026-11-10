@@ -457,7 +457,12 @@ async fn a_slash_command_posts_its_options_and_its_answer_arrives() {
     .await;
     assert!(!created.is_empty());
     let answer = live_where(&mut live, |live| match live {
-        Live::Created(message) if message.author_id == fixture.deploy.author_id => Some(message),
+        // A command's answer, not one of the components control's posts.
+        Live::Created(message)
+            if message.author_id == fixture.deploy.author_id && message.interaction.is_some() =>
+        {
+            Some(message)
+        }
         _ => None,
     })
     .await;
@@ -531,15 +536,26 @@ async fn autocomplete_keeps_only_the_newest_answer() {
             json!([{"type": 3, "name": "query", "value": value, "focused": true}]),
         )
     };
-    // Keys pressed within the pause: only the last is sent.
-    let first = {
-        let (fixture, run) = (fixture.clone(), typed("7000", "s"));
+    // The first key asks at once, as Discord's client's debounce does.
+    let choices = fixture
+        .discord
+        .autocomplete(typed("7000", "s"))
+        .await
+        .unwrap()
+        .expect("the first keystroke is answered");
+    assert_eq!(choices.as_array().map(Vec::len), Some(3));
+    assert_eq!(fixture.sent().len(), 1);
+    // Keys pressed soon after it wait for typing to pause: only the last
+    // is sent.
+    let second = {
+        let (fixture, run) = (fixture.clone(), typed("7001", "st"));
         tokio::spawn(async move { fixture.discord.autocomplete(run).await })
     };
     tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(fixture.sent().len(), 1, "waiting for typing to pause");
     let choices = fixture
         .discord
-        .autocomplete(typed("7001", "st"))
+        .autocomplete(typed("7002", "sta"))
         .await
         .unwrap()
         .expect("the newest autocomplete is answered");
@@ -547,21 +563,22 @@ async fn autocomplete_keeps_only_the_newest_answer() {
         choices,
         json!([{"name": "staging", "value": "staging"}, {"name": "status", "value": "status"}])
     );
-    assert_eq!(first.await.unwrap().unwrap(), None);
+    assert_eq!(second.await.unwrap().unwrap(), None);
     let sent = fixture.sent();
-    assert_eq!(sent.len(), 1);
-    assert_eq!(sent[0]["type"], 4);
-    assert_eq!(sent[0]["nonce"], "7001");
-    assert!(sent[0].get("analytics_location").is_none());
-    assert_eq!(sent[0]["data"]["options"][0]["focused"], true);
+    assert_eq!(sent.len(), 2);
+    assert_eq!(sent[1]["type"], 4);
+    assert_eq!(sent[1]["nonce"], "7002");
+    assert!(sent[1].get("analytics_location").is_none());
+    assert_eq!(sent[1]["data"]["options"][0]["focused"], true);
+    // Once that went, the next key asks at once again.
 
     // One sent but answered after a newer one started is dropped.
     let slow = {
-        let (fixture, run) = (fixture.clone(), typed("7002", "sl"));
+        let (fixture, run) = (fixture.clone(), typed("7003", "sl"));
         tokio::spawn(async move { fixture.discord.autocomplete(run).await })
     };
     timeout(WAIT, async {
-        while fixture.sent().len() < 2 {
+        while fixture.sent().len() < 3 {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     })
@@ -569,7 +586,7 @@ async fn autocomplete_keeps_only_the_newest_answer() {
     .unwrap();
     let newest = fixture
         .discord
-        .autocomplete(typed("7003", "p"))
+        .autocomplete(typed("7004", "p"))
         .await
         .unwrap();
     assert_eq!(
@@ -577,18 +594,18 @@ async fn autocomplete_keeps_only_the_newest_answer() {
         Some(json!([{"name": "production", "value": "production"}]))
     );
     assert_eq!(slow.await.unwrap().unwrap(), None);
-    assert_eq!(fixture.sent().len(), 3);
+    assert_eq!(fixture.sent().len(), 4);
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
-async fn an_attachment_option_uploads_in_the_same_request() {
-    let fixture = Fixture::start("an_attachment_option_uploads_in_the_same_request").await;
+async fn an_attachment_option_is_uploaded_first() {
+    let fixture = Fixture::start("an_attachment_option_is_uploaded_first").await;
     let mut live = fixture.discord.live();
     let mut run = fixture.run(
         "8000",
         "upload",
-        json!([{"type": 11, "name": "file", "value": "0"}]),
+        json!([{"type": 11, "name": "file", "value": 0}]),
     );
     run.files = vec!["a.png".into()];
     assert!(
@@ -600,16 +617,23 @@ async fn an_attachment_option_uploads_in_the_same_request() {
     );
     let sent = fixture.sent();
     assert_eq!(sent.len(), 1);
-    assert_eq!(
-        sent[0]["data"]["attachments"],
-        json!([{"id": "0", "filename": "a.png"}])
+    // As Discord's client: uploaded, then named by where it went.
+    let attachment = &sent[0]["data"]["attachments"][0];
+    assert_eq!(attachment["id"], "0");
+    assert_eq!(attachment["filename"], "a.png");
+    assert!(
+        attachment["uploaded_filename"]
+            .as_str()
+            .is_some_and(|name| name.starts_with("uploads/"))
     );
     assert_eq!(
         sent[0]["files"],
         json!([{"index": "0", "name": "a.png", "size": 300}])
     );
+    // Waits for the answer itself: the components control may still be
+    // posting Status Bot's other messages.
     let answer = live_where(&mut live, |live| match live {
-        Live::Created(message) if message.author_id == fixture.deploy.author_id => Some(message),
+        Live::Created(message) if message.content.starts_with("Got") => Some(message),
         _ => None,
     })
     .await;
@@ -619,7 +643,7 @@ async fn an_attachment_option_uploads_in_the_same_request() {
     let mut lost = fixture.run(
         "8001",
         "upload",
-        json!([{"type": 11, "name": "file", "value": "0"}]),
+        json!([{"type": 11, "name": "file", "value": 0}]),
     );
     lost.files = vec!["b.png".into()];
     assert!(fixture.discord.run_command(lost, vec![]).await.is_err());
@@ -768,17 +792,22 @@ async fn context_menu_commands_run_on_their_message_or_person() {
     assert_eq!(body["data"]["type"], 3);
     assert_eq!(body["data"]["name"], "Quote");
     assert_eq!(body["data"]["target_id"], fixture.deploy.id.as_str());
-    // No options, and no analytics_location: what Discord's client says
-    // for a context menu isn't known.
-    assert!(body["data"].get("options").is_none());
-    assert!(body.get("analytics_location").is_none());
+    // Empty options, and the chat bar's analytics_location, as Discord's
+    // client sends a context menu's command.
+    assert_eq!(body["data"]["options"], json!([]));
+    assert_eq!(body["analytics_location"], "slash_ui");
     let created = live_where(&mut live, |live| match live {
         Live::InteractionCreated { nonce, id } if nonce == "7000" => Some(id),
         _ => None,
     })
     .await;
     let quoted = live_where(&mut live, |live| match live {
-        Live::Created(message) if message.author_id == fixture.deploy.author_id => Some(message),
+        // A command's answer, not one of the components control's posts.
+        Live::Created(message)
+            if message.author_id == fixture.deploy.author_id && message.interaction.is_some() =>
+        {
+            Some(message)
+        }
         _ => None,
     })
     .await;
@@ -804,7 +833,12 @@ async fn context_menu_commands_run_on_their_message_or_person() {
     assert!(fixture.discord.run_command(wave, vec![]).await.unwrap());
     assert_eq!(fixture.sent()[1]["data"]["target_id"], alice.as_str());
     let waved = live_where(&mut live, |live| match live {
-        Live::Created(message) if message.author_id == fixture.deploy.author_id => Some(message),
+        // A command's answer, not one of the components control's posts.
+        Live::Created(message)
+            if message.author_id == fixture.deploy.author_id && message.interaction.is_some() =>
+        {
+            Some(message)
+        }
         _ => None,
     })
     .await;
@@ -920,7 +954,7 @@ async fn a_form_of_choices_checkboxes_and_files_submits_them_in_one_request() {
         components: json!([
             {"type": 18, "component": {"type": 21, "custom_id": "rating", "value": "smooth"}},
             {"type": 18, "component": {"type": 22, "custom_id": "areas", "values": ["calls"]}},
-            {"type": 18, "component": {"type": 19, "custom_id": "shots", "values": ["0", "1"]}},
+            {"type": 18, "component": {"type": 19, "custom_id": "shots", "values": [0, 1]}},
             {"type": 18, "component": {"type": 23, "custom_id": "follow", "value": false}},
         ]),
         files: vec!["before.png".into(), "after.png".into()],
@@ -943,9 +977,25 @@ async fn a_form_of_choices_checkboxes_and_files_submits_them_in_one_request() {
     );
     let body = &fixture.sent()[1];
     assert_eq!(body["type"], 5);
+    let names: Vec<_> = body["data"]["attachments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|file| {
+            (
+                file["id"].clone(),
+                file["filename"].clone(),
+                file["uploaded_filename"].is_string(),
+            )
+        })
+        .collect();
     assert_eq!(
-        body["data"]["attachments"],
-        json!([{"id": "0", "filename": "before.png"}, {"id": "1", "filename": "after.png"}])
+        names,
+        [
+            (json!("0"), json!("before.png"), true),
+            (json!("1"), json!("after.png"), true)
+        ],
+        "uploaded first, as Discord's client does"
     );
     assert_eq!(
         body["files"],

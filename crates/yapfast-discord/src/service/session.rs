@@ -236,6 +236,11 @@ async fn connected_session(
     }
     tracker.beside(shared.beside.as_ref().map(|(_, thread)| thread.as_str()));
     shared.snapshots.send_replace(Arc::new(tracker.snapshot()));
+    // Discord's client counts every command index out of date in a new
+    // session.
+    let _ = shared
+        .live
+        .send(Live::CommandIndexStale(crate::commands::Stale::All));
     let quiet = tracker.next_quiet(now_ms());
     let mut session = Session {
         gateway,

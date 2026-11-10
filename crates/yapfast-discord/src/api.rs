@@ -525,40 +525,18 @@ impl Api {
         }
     }
 
-    /// The signed-in account uses a bot's message component or submits its
-    /// modal. Discord acknowledges this request before the app responds over
-    /// the gateway; a successful HTTP response alone is not the app's result.
-    pub async fn interact(&self, body: &Value) -> Result<()> {
-        self.empty(with_json(self.request(Method::POST, "/interactions"), body))
-            .await
-    }
-
-    /// [`Self::interact`] with files, given by name and contents, in one
-    /// `multipart/form-data` request: the body as `payload_json`, then
-    /// `files[0]`, `files[1]`... as docs.discord.food's "Uploading Files"
-    /// gives them, which the body's `data.attachments` name by index. Each
-    /// file's contents go once they're in the request's.
-    pub async fn interact_with_files(
-        &self,
-        body: &Value,
-        files: Vec<(String, Vec<u8>)>,
-    ) -> Result<()> {
-        let payload = body.to_string();
-        let parts = files.into_iter().enumerate().map(|(index, (name, data))| {
-            (
-                format!("files[{index}]"),
-                name,
-                "application/octet-stream",
-                data,
-            )
-        });
-        let (content_type, form) = multipart(&[("payload_json", &payload)], parts);
-        self.empty(
-            self.request(Method::POST, "/interactions")
-                .header(header::CONTENT_TYPE, content_type)
-                .body(form),
-        )
-        .await
+    /// The signed-in account uses a bot's message component, submits its
+    /// modal, runs an app's command or asks for an autocomplete's choices.
+    /// Discord acknowledges this request before the app responds over the
+    /// gateway; a successful HTTP response alone is not the app's result.
+    /// Files go uploaded first, named in the body's `data.attachments`.
+    ///
+    /// After a 429 it goes again once, as Discord's client sends commands
+    /// and forms again, only with `again`: the client drops a click or an
+    /// autocomplete that was limited.
+    pub async fn interact(&self, body: &Value, again: bool) -> Result<()> {
+        let request = with_json(self.request(Method::POST, "/interactions"), body);
+        self.send_request(request, again).await.map(drop)
     }
 
     /// Sends a message, as a reply when `options` names one in the same
@@ -741,11 +719,22 @@ impl Api {
     }
 
     /// The apps' commands under `resource`, `guilds/{id}`, `channels/{id}`
-    /// or `users/@me`: `{applications, application_commands, version}`. See
-    /// [`crate::commands`].
-    pub async fn command_index(&self, resource: &str) -> Result<Value> {
+    /// or `users/@me`: `{applications, application_commands, version}`, or
+    /// None while Discord is still building it and answers 202, as its
+    /// client then asks again a while later. See [`crate::commands`].
+    pub async fn command_index(&self, resource: &str) -> Result<Option<Value>> {
         let path = format!("/{resource}/application-command-index");
-        self.json(self.request(Method::GET, &path)).await
+        let response = self.execute(self.request(Method::GET, &path)).await?;
+        if response.status() == StatusCode::ACCEPTED {
+            return Ok(None);
+        }
+        let body = response
+            .bytes()
+            .await
+            .context("could not read Discord's answer")?;
+        Ok(Some(
+            serde_json::from_slice(&body).context("could not understand Discord's answer")?,
+        ))
     }
 
     /// The message that each of up to 25 message requests is waiting with,
@@ -2262,10 +2251,15 @@ impl Api {
     /// A 429 means Discord didn't act on it, so it goes once more after the
     /// wait Discord asks for.
     async fn execute(&self, request: RequestBuilder) -> Result<Response> {
+        self.send_request(request, true).await
+    }
+
+    /// [`Self::execute`], sent again after a 429 only with `again`.
+    async fn send_request(&self, request: RequestBuilder, again: bool) -> Result<Response> {
         let (client, request) = request.build_split();
         let mut request = request.context("could not build the request")?;
         let route = limits::route(request.method(), request.url().path());
-        let mut retried = false;
+        let mut retried = !again;
         loop {
             match self.refusals.check() {
                 Ok(()) => {}
@@ -2565,25 +2559,8 @@ fn post_body(
 /// A `multipart/form-data` body of text `fields` and a file, given by its
 /// name, type and bytes, with its content type.
 fn form(fields: &[(&str, &str)], file: (&str, &str, &[u8])) -> (String, Vec<u8>) {
-    let (filename, mime, data) = file;
-    multipart(fields, [("file", filename, mime, data)])
-}
-
-/// A `multipart/form-data` body of text `fields` and files, each given by
-/// its field's name, its own name, its type and its bytes, with its content
-/// type. Each file is dropped once copied in.
-fn multipart<F, N, M, D>(
-    fields: &[(&str, &str)],
-    files: impl IntoIterator<Item = (F, N, M, D)>,
-) -> (String, Vec<u8>)
-where
-    F: std::fmt::Display,
-    N: AsRef<str>,
-    M: std::fmt::Display,
-    D: AsRef<[u8]>,
-{
     let boundary = format!("yapfast{:016x}", rand::random::<u64>());
-    let mut body = Vec::with_capacity(512);
+    let mut body = Vec::with_capacity(file.2.len() + 512);
     for (name, value) in fields {
         body.extend_from_slice(
             format!(
@@ -2592,20 +2569,16 @@ where
             .as_bytes(),
         );
     }
-    for (field, filename, mime, data) in files {
-        let filename = filename.as_ref().replace(['"', '\r', '\n'], "_");
-        let data = data.as_ref();
-        body.reserve(data.len() + 256);
-        body.extend_from_slice(
-            format!(
-                "--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"{filename}\"\r\nContent-Type: {mime}\r\n\r\n"
-            )
-            .as_bytes(),
-        );
-        body.extend_from_slice(data);
-        body.extend_from_slice(b"\r\n");
-    }
-    body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+    let (filename, mime, data) = file;
+    let filename = filename.replace(['"', '\r', '\n'], "_");
+    body.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\nContent-Type: {mime}\r\n\r\n"
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(data);
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
     (format!("multipart/form-data; boundary={boundary}"), body)
 }
 

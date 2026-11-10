@@ -65,11 +65,21 @@ pub(super) fn live_events(
             nonce: data["nonce"].as_str().unwrap_or_default().to_owned(),
             choices: data["choices"].clone(),
         }],
-        Event::GuildApplicationCommandIndexUpdate => vec![Live::CommandIndexChanged {
-            guild: data["guild_id"].as_str().map(str::to_owned),
-        }],
-        Event::ApplicationCommandPermissionsUpdate => {
-            vec![Live::CommandIndexChanged { guild: None }]
+        // Discord's client leaves its indexes be on
+        // APPLICATION_COMMAND_PERMISSIONS_UPDATE, until the next of these or
+        // the next session.
+        Event::GuildApplicationCommandIndexUpdate => data["guild_id"]
+            .as_str()
+            .map(|guild| {
+                Live::CommandIndexStale(crate::commands::Stale::Guild {
+                    guild: guild.to_owned(),
+                    version: data["version"].as_str().map(str::to_owned),
+                })
+            })
+            .into_iter()
+            .collect(),
+        Event::UserApplicationUpdate | Event::UserApplicationRemove => {
+            vec![Live::CommandIndexStale(crate::commands::Stale::User)]
         }
         // Few and small: an open page of the server's settings follows it.
         Event::GuildUpdate => data["id"]

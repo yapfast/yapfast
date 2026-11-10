@@ -104,6 +104,14 @@ pub struct Account {
     /// not the address.
     #[serde(default)]
     pub has_email: bool,
+    /// Discord lets it see age-restricted content, as its `nsfw_allowed`
+    /// says: an adult's, by the birthday it gave. Apps' age-restricted
+    /// commands are offered to no other.
+    #[serde(default)]
+    pub nsfw_allowed: bool,
+    /// Its settings offer apps' age-restricted commands in DMs.
+    #[serde(default)]
+    pub nsfw_commands_in_dms: bool,
 }
 
 /// A DM or group DM, as the DM list shows it.
@@ -421,12 +429,11 @@ pub enum Live {
         nonce: String,
         choices: Value,
     },
-    /// GUILD_APPLICATION_COMMAND_INDEX_UPDATE, or with no server
-    /// APPLICATION_COMMAND_PERMISSIONS_UPDATE's: a kept command index is out
-    /// of date, which [`Discord::command_index`] then fetches again.
-    CommandIndexChanged {
-        guild: Option<String>,
-    },
+    /// Kept command indexes are out of date, which
+    /// [`Discord::command_index`] then fetches again: a new gateway
+    /// session's, GUILD_APPLICATION_COMMAND_INDEX_UPDATE's or
+    /// USER_APPLICATION_UPDATE's.
+    CommandIndexStale(commands::Stale),
     /// The Activity panel's feed has something new, to fetch after this long.
     ActivityFeedStale {
         refresh_after_ms: Option<u64>,
@@ -893,36 +900,59 @@ impl Discord {
         self.live.subscribe()
     }
 
-    /// The apps' commands for a channel: its server's index, or with no
-    /// server the DM's or group DM's, merged with this account's own. Each
-    /// index is fetched once, when first asked for, which the person typing
-    /// `/` does, and kept until the gateway says it changed. A DM's that
-    /// can't be had leaves the account's own.
+    /// The apps' commands for a channel: its server's index, or the DM
+    /// with a bot's, merged with this account's own. Discord's client asks
+    /// for no other DM's or group DM's. Each index is fetched when first
+    /// asked for, which the person typing `/` or opening a menu with Apps
+    /// does, and kept until Discord's client would count it out of date
+    /// ([`commands::Stale`]). A DM's that can't be had leaves the account's
+    /// own.
     pub async fn command_index(
         &self,
         guild: Option<&str>,
         channel: &str,
     ) -> Result<Arc<commands::CommandIndex>> {
-        let fetch = async |owner: &commands::Owner| self.api.command_index(&owner.resource()).await;
+        let fetch = |resource: String| async move { self.api.command_index(&resource).await };
         let place = match guild {
             Some(guild) => {
                 let owner = commands::Owner::Guild(guild.to_owned());
-                Some(self.commands.get(owner, fetch).await?)
+                Some(self.commands.get(owner, None, fetch).await?)
             }
-            None => {
-                let owner = commands::Owner::Channel(channel.to_owned());
-                self.commands
-                    .get(owner, fetch)
-                    .await
-                    .inspect_err(|error| tracing::debug!(%error, "no command index for a DM"))
-                    .ok()
-            }
+            None => match self.dm_bot(channel) {
+                Some(bot) => {
+                    let owner = commands::Owner::Channel(channel.to_owned());
+                    self.commands
+                        .get(owner, Some(&bot), fetch)
+                        .await
+                        .inspect_err(|error| tracing::debug!(%error, "no command index for a DM"))
+                        .ok()
+                }
+                None => None,
+            },
         };
-        let own = self.commands.get(commands::Owner::User, fetch).await?;
+        let own = self
+            .commands
+            .get(commands::Owner::User, None, fetch)
+            .await?;
         Ok(match place {
-            Some(place) => Arc::new(place.merged(&own)),
+            // The account's own come first: a command in both is theirs,
+            // as Discord's client takes it.
+            Some(place) => Arc::new(own.merged(&place)),
             None => own,
         })
+    }
+
+    /// The bot a one-to-one DM is with, if it's with one.
+    fn dm_bot(&self, channel: &str) -> Option<String> {
+        let person = self
+            .snapshots
+            .borrow()
+            .conversations
+            .iter()
+            .find(|dm| dm.id == channel && !dm.group)?
+            .person
+            .clone()?;
+        self.read_names().is_bot(&person).then_some(person)
     }
 
     /// Tells Discord a server's channel is on screen, so its messages arrive
@@ -1089,10 +1119,10 @@ impl Discord {
     }
 
     /// Runs an app's command as the person just sent it, with the contents
-    /// of its files, in the order its `files` names them, in the same
-    /// request. Like [`Self::interact`], this waits for the app's answer
-    /// and is never sent again; the answer's message then comes as any
-    /// other, naming the [`Live::InteractionCreated`] id in its
+    /// of its files, in the order its `files` names them, uploaded first
+    /// as Discord's client does. Like [`Self::interact`], this waits for
+    /// the app's answer; the answer's message then comes as any other,
+    /// naming the [`Live::InteractionCreated`] id in its
     /// `interaction_metadata`.
     pub async fn run_command(
         &self,
@@ -1109,8 +1139,8 @@ impl Discord {
 
     /// Submits a bot's form as the person just did, with the contents of
     /// the files its file uploads carry, in the order its `files` names
-    /// them, in the same request. Like [`Self::interact`], this waits for
-    /// the app's answer and is never sent again.
+    /// them, uploaded first. Like [`Self::interact`], this waits for the
+    /// app's answer.
     pub async fn submit_form(
         &self,
         form: &interactions::Interaction,
@@ -1126,22 +1156,31 @@ impl Discord {
         self.interact_with_files(form, files).await
     }
 
-    /// Asks an app for its choices for the option being typed, once typing
-    /// pauses for [`interactions::AUTOCOMPLETE_PAUSE`]. Only the newest
-    /// autocomplete is sent and answered: this gives `None` for one a newer
-    /// one replaced, before or after it was sent, and for one Discord said
-    /// nothing more of within [`interactions::UNANSWERED`]. It is never
-    /// sent again.
+    /// Asks an app for its choices for the option being typed: at once, or
+    /// within [`interactions::AUTOCOMPLETE_PAUSE`] of another, once typing
+    /// pauses that long, as Discord's client. Only the newest is answered:
+    /// this gives `None` for one a newer one replaced, before or after it
+    /// was sent, and for one Discord said nothing more of within
+    /// [`interactions::UNANSWERED`]. It is never sent again.
     pub async fn autocomplete(&self, run: interactions::CommandUse) -> Result<Option<Value>> {
-        let turn = self.autocompletes.start();
-        tokio::time::sleep(interactions::AUTOCOMPLETE_PAUSE).await;
-        if !self.autocompletes.newest(turn) {
-            return Ok(None);
+        let (turn, at_once) = self.autocompletes.start(std::time::Instant::now());
+        if !at_once {
+            while let Some(due) = self.autocompletes.due()
+                && due > std::time::Instant::now()
+            {
+                tokio::time::sleep_until(due.into()).await;
+                if !self.autocompletes.newest(turn) {
+                    return Ok(None);
+                }
+            }
+            self.autocompletes.went(turn);
         }
         let session = self.session().await?;
         let mut live = self.live.subscribe();
         let interaction = interactions::Interaction::Autocomplete(run);
-        self.api.interact(&interaction.body(&session)).await?;
+        self.api
+            .interact(&interaction.body(&session, &[]), false)
+            .await?;
         let nonce = interaction.nonce();
         let answered = async {
             loop {
@@ -1189,14 +1228,18 @@ impl Discord {
         files: Vec<(String, Vec<u8>)>,
     ) -> Result<bool> {
         let session = self.session().await?;
+        let uploads = self.upload(interaction.channel(), files).await?;
         // Listening before sending, so an answer that comes first is heard.
         let mut live = self.live.subscribe();
-        let body = interaction.body(&session);
-        if files.is_empty() {
-            self.api.interact(&body).await?;
-        } else {
-            self.api.interact_with_files(&body, files).await?;
+        let body = interaction.body(&session, &uploads);
+        let sent = self
+            .api
+            .interact(&body, interaction.again_when_limited())
+            .await;
+        if sent.is_err() {
+            self.discard(&uploads).await;
         }
+        sent?;
         let nonce = interaction.nonce();
         let answered = async {
             loop {

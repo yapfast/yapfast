@@ -8,7 +8,7 @@ use std::{sync::Arc, time::Duration};
 use tokio::time::timeout;
 use yapfast_discord::{
     client,
-    commands::{self, CommandIndex, Context, Place},
+    commands::{self, CommandIndex, Place},
     service::{Discord, Live, Snapshot, Status},
     token,
 };
@@ -137,7 +137,7 @@ impl Fixture {
             guild: Some(&server.id),
             channel,
             parent: None,
-            context: Context::Guild,
+            recipient: None,
             permissions: server.channel_permissions(found, me, roles),
             roles,
             nsfw: found.nsfw,
@@ -272,11 +272,14 @@ async fn the_index_is_fetched_once_per_guild_until_discord_says_it_changed() {
     let mut live = fixture.discord.live();
     control(fixture.server, "POST", "/_control/commands-changed", "");
     let changed = live_where(&mut live, |live| match live {
-        Live::CommandIndexChanged { guild } => Some(guild),
+        Live::CommandIndexStale(commands::Stale::Guild { guild, version }) => {
+            Some((guild, version))
+        }
         _ => None,
     })
     .await;
-    assert_eq!(changed.as_deref(), Some(guild.as_str()));
+    assert_eq!(changed.0, guild);
+    assert_ne!(changed.1.as_deref(), Some(index.version.as_str()));
     timeout(WAIT, async {
         while fixture.fetched(&resource) < 2 {
             fixture
@@ -349,10 +352,9 @@ async fn commands_alice_cannot_use_are_not_offered() {
 async fn user_installed_commands_show_in_dms() {
     let fixture = Fixture::start("user_installed_commands_show_in_dms").await;
     let index = fixture.discord.command_index(None, DM_BOB).await.unwrap();
-    assert_eq!(
-        fixture.fetches(),
-        [format!("channels/{DM_BOB}"), "users/@me".to_owned()]
-    );
+    // Bob is no bot, so his DM has no index of its own to ask for, as
+    // Discord's client asks for none.
+    assert_eq!(fixture.fetches(), ["users/@me".to_owned()]);
     let bob = fixture
         .snapshot
         .conversations
@@ -360,20 +362,19 @@ async fn user_installed_commands_show_in_dms() {
         .find(|dm| dm.id == DM_BOB)
         .and_then(|dm| dm.person.clone())
         .unwrap();
-    assert!(!index.is_bot(&bob), "Bob is no app's bot");
     let place = Place {
         guild: None,
         channel: DM_BOB,
         parent: None,
-        context: Context::PrivateChannel,
-        permissions: yapfast_discord::ready::permission::ALL,
+        recipient: Some(&bob),
+        permissions: 0,
         roles: &[],
         nsfw: false,
     };
     assert_eq!(slash_names(&index, &place), ["note"]);
     let notes = index.app(&index.commands[0].application_id).unwrap();
     assert_eq!(notes.name, "Notes");
-    // The DM's index is kept too.
+    // The account's own is kept.
     fixture.discord.command_index(None, DM_BOB).await.unwrap();
-    assert_eq!(fixture.fetches().len(), 2);
+    assert_eq!(fixture.fetches().len(), 1);
 }

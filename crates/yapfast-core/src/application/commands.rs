@@ -135,8 +135,16 @@ impl Application {
                 vec![]
             }
             Event::CommandIndexChanged { guild } => {
-                self.forget_command_index(guild.as_deref());
-                vec![]
+                let asked = self.forget_command_index(guild.as_deref());
+                // One the open picker waited for is asked for again, as
+                // Discord's client fetches an index it's showing that went
+                // out of date.
+                match asked {
+                    Some(room) if self.slash_open_in(&room) => {
+                        self.ask_command_index().into_iter().collect()
+                    }
+                    _ => vec![],
+                }
             }
             Event::AutocompleteChoices { nonce, choices } => {
                 self.slash_autocomplete(&nonce, &choices)
@@ -149,14 +157,17 @@ impl Application {
         }
     }
 
-    /// Drops the kept index if it's `guild`'s, or with none whichever it is,
-    /// so the next `/` asks again; one on its way is asked for again too.
-    fn forget_command_index(&mut self, guild: Option<&str>) {
+    /// Drops the kept index if it's `guild`'s or a DM's, which may be with
+    /// one of its bots, or with none whichever it is, so the next `/` asks
+    /// again. Gives the room of one on its way, whose answer is dropped.
+    fn forget_command_index(&mut self, guild: Option<&str>) -> Option<String> {
         let commands = &mut self.state.app_commands;
         let of_guild = |room: &str| {
             #[cfg(feature = "discord")]
-            return guild
-                .is_none_or(|guild| discord::parse_room(room).is_none_or(|(its, _)| its == guild));
+            return guild.is_none_or(|guild| {
+                discord::parse_room(room)
+                    .is_none_or(|(its, _)| its == guild || its == discord::DM_GUILD)
+            });
             #[cfg(not(feature = "discord"))]
             {
                 let _ = room;
@@ -171,8 +182,9 @@ impl Application {
             commands.kept = None;
         }
         if commands.asked.as_deref().is_some_and(of_guild) {
-            commands.asked = None;
+            return commands.asked.take();
         }
+        None
     }
 
     /// The slash commands the person may use in `room`, whose `query`
@@ -193,7 +205,7 @@ impl Application {
     pub fn commands_for_target(&self, room: &str, target: CommandTarget) -> Vec<SlashCommand> {
         #[cfg(feature = "discord")]
         if let Some(index) = self.state.app_commands.index(room)
-            && let Some(place) = self.command_place(room, index)
+            && let Some(place) = self.command_place(room)
         {
             use yapfast_discord::commands::{MESSAGE, USER};
             let kind = match target {
@@ -353,7 +365,7 @@ impl Application {
         query: &str,
     ) -> Vec<SlashCommand> {
         use yapfast_discord::commands::CHAT_INPUT;
-        let Some(place) = self.command_place(room, index) else {
+        let Some(place) = self.command_place(room) else {
             return vec![];
         };
         let query = query.trim().to_lowercase();
@@ -392,18 +404,17 @@ impl Application {
     }
 
     /// Where `room` is, as far as which commands the person may use there
-    /// goes: its server, roles and permissions, or the kind of DM it is.
+    /// goes: its server, roles and permissions, or who a DM is with, and
+    /// whether age-restricted commands are offered, as Discord's client
+    /// decides: only to an account allowed to see age-restricted content,
+    /// in a server's age-restricted channel or in an age-restricted server,
+    /// and in DMs when its settings offer them.
     #[cfg(feature = "discord")]
-    fn command_place<'a>(
-        &'a self,
-        room: &'a str,
-        index: &CommandIndex,
-    ) -> Option<yapfast_discord::commands::Place<'a>> {
-        use yapfast_discord::{
-            commands::{Context, Place},
-            ready::permission,
-        };
+    fn command_place<'a>(&'a self, room: &'a str) -> Option<yapfast_discord::commands::Place<'a>> {
+        use yapfast_discord::commands::Place;
         let (guild, channel) = discord::parse_room(room)?;
+        let account = self.discord.as_ref()?.account.as_ref();
+        let adult = account.is_some_and(|account| account.nsfw_allowed);
         if guild == discord::DM_GUILD {
             let dm = self
                 .discord
@@ -411,22 +422,14 @@ impl Application {
                 .conversations
                 .iter()
                 .find(|dm| dm.id == channel)?;
-            let bot = dm
-                .person
-                .as_deref()
-                .is_some_and(|person| index.is_bot(person));
             return Some(Place {
                 guild: None,
                 channel,
                 parent: None,
-                context: if bot {
-                    Context::BotDm
-                } else {
-                    Context::PrivateChannel
-                },
-                permissions: permission::ALL,
+                recipient: if dm.group { None } else { dm.person.as_deref() },
+                permissions: 0,
                 roles: &[],
-                nsfw: false,
+                nsfw: adult && account.is_some_and(|account| account.nsfw_commands_in_dms),
             });
         }
         let (server, _, me) = self.discord_place(room)?;
@@ -445,10 +448,10 @@ impl Application {
             guild: Some(guild),
             channel,
             parent,
-            context: Context::Guild,
+            recipient: None,
             permissions: server.channel_permissions(found, me, &server.marks.roles),
             roles: &server.marks.roles,
-            nsfw,
+            nsfw: adult && (nsfw || server.server.age_restricted),
         })
     }
 }

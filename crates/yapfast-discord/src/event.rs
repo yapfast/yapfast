@@ -48,9 +48,12 @@ events! {
     InteractionIframeModalCreate = "INTERACTION_IFRAME_MODAL_CREATE",
     /// An app's choices for an option being typed in a command.
     ApplicationCommandAutocompleteResponse = "APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE",
-    /// A server's command index, or who may use its commands, changed.
+    /// A server's command index changed.
     GuildApplicationCommandIndexUpdate = "GUILD_APPLICATION_COMMAND_INDEX_UPDATE",
-    ApplicationCommandPermissionsUpdate = "APPLICATION_COMMAND_PERMISSIONS_UPDATE",
+    /// An app this account installed for itself changed, or went: its own
+    /// command index did.
+    UserApplicationUpdate = "USER_APPLICATION_UPDATE",
+    UserApplicationRemove = "USER_APPLICATION_REMOVE",
     MessageUpdate = "MESSAGE_UPDATE",
     MessageDelete = "MESSAGE_DELETE",
     MessageDeleteBulk = "MESSAGE_DELETE_BULK",

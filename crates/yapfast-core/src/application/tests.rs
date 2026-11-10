@@ -2085,7 +2085,7 @@ fn menus_offer_what_fits_their_conversation_or_server() {
         );
         app.apply(Event::CommandIndex {
             room: GENERAL.into(),
-            index: Ok(Arc::new(server.merged(&own))),
+            index: Ok(Arc::new(own.merged(&server))),
         });
         let names = |target| -> Vec<String> {
             app.commands_for_target(GENERAL, target)
@@ -3634,6 +3634,8 @@ fn discord_mentions_search_the_server_and_name_roles() {
             premium_type: 2,
             mfa_enabled: false,
             has_email: true,
+            nsfw_allowed: false,
+            nsfw_commands_in_dms: false,
         }),
         servers: vec![MarkedServer::from(Server {
             id: "10".into(),
@@ -4454,6 +4456,8 @@ fn decorations_and_nameplates_reach_profiles_and_the_account() {
             premium_type: 0,
             mfa_enabled: false,
             has_email: true,
+            nsfw_allowed: false,
+            nsfw_commands_in_dms: false,
         }),
         ..Default::default()
     }));
@@ -4512,6 +4516,8 @@ fn profile_switches_that_are_off_ask_for_nothing() {
                 premium_type: 0,
                 mfa_enabled: false,
                 has_email: true,
+                nsfw_allowed: false,
+                nsfw_commands_in_dms: false,
             }),
             ..Default::default()
         }));
@@ -8702,6 +8708,8 @@ fn a_server_profile_is_edited_as_discords_per_server_profile_editor_does() {
         premium_type: 2,
         mfa_enabled: false,
         has_email: true,
+        nsfw_allowed: false,
+        nsfw_commands_in_dms: false,
     });
     app.apply(discord_event(snapshot));
     app.dispatch(Action::EditServerProfile("discord:10".into()));
@@ -8947,6 +8955,8 @@ fn the_main_profile_is_edited_as_discords_profile_editor_does() {
         premium_type: 2,
         mfa_enabled: false,
         has_email: true,
+        nsfw_allowed: false,
+        nsfw_commands_in_dms: false,
     });
     app.apply(discord_event(snapshot));
     app.dispatch(Action::EditProfile);
@@ -11864,6 +11874,8 @@ fn another_servers_emoji_and_stickers_need_the_channels_leave() {
             premium_type: 2,
             mfa_enabled: false,
             has_email: true,
+            nsfw_allowed: false,
+            nsfw_commands_in_dms: false,
         }),
         servers: vec![
             MarkedServer::from(Server {
