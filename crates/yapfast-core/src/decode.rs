@@ -1151,11 +1151,308 @@ mod vaapi {
     }
 }
 
-/// The card's decoder, as [`Live`] and [`Frame`] name it: the Direct3D 11 one
-/// on Windows and the VA-API one on Linux, which are never in one build. A
-/// build with neither names neither.
-#[cfg(all(target_os = "linux", not(d3d11dec), vaapidec))]
-pub use vaapi::Hardware;
+/// NVIDIA's card decoding a watched stream, where VA-API has nothing to open:
+/// NVDEC through the driver's own API (`native/hwdec_cuda.c`), which leaves each
+/// decoded picture on the card and exports it as a DMA-BUF the tile imports where
+/// it lies. The same shape as [`vaapi`], since what the tile pass does with a
+/// picture is the same either way.
+#[cfg(all(target_os = "linux", not(d3d11dec), nvdec))]
+mod cuda {
+    use std::{
+        ffi::{c_int, c_uchar},
+        os::fd::RawFd,
+    };
+
+    use anyhow::{Result, bail};
+    use yapfast_discord::rtp::Codec;
+
+    use super::message;
+    use crate::dmabuf::{Descriptor, MAX_PLANES, Plane};
+
+    /// One plane of a picture's buffer, laid out as `struct yapfast_cuplane`.
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug, Default)]
+    struct RawPlane {
+        fd: c_int,
+        offset: u32,
+        stride: u32,
+        size: u64,
+        modifier: u64,
+    }
+
+    /// The newest picture, laid out as `struct yapfast_cupicture`.
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug, Default)]
+    struct RawPicture {
+        width: c_int,
+        height: c_int,
+        fourcc: u32,
+        planes: u32,
+        plane: [RawPlane; MAX_PLANES],
+    }
+
+    /// The decoder, which only the shim knows the inside of.
+    #[repr(C)]
+    struct Raw {
+        _private: [u8; 0],
+    }
+
+    unsafe extern "C" {
+        /// A decoder for `codec` (0 H264, 1 HEVC, 2 AV1) on the machine's card.
+        /// The card's own decoder is made when the stream's first sequence header
+        /// says how large its pictures are, so no size is asked for here.
+        fn yapfast_cuvadec_new(codec: c_int) -> *mut Raw;
+        fn yapfast_cuvadec_decode(
+            decoder: *mut Raw,
+            data: *const c_uchar,
+            size: usize,
+            keyframe: c_int,
+        ) -> c_int;
+        fn yapfast_cuvadec_picture(decoder: *mut Raw, picture: *mut RawPicture) -> c_int;
+        fn yapfast_cuvadec_release(decoder: *mut Raw);
+        fn yapfast_cuvadec_error(decoder: *const Raw) -> *const c_uchar;
+        fn yapfast_cuvadec_free(decoder: *mut Raw);
+    }
+
+    /// The newest picture, in the arrays a [`Descriptor`] borrows: its places and
+    /// the descriptor holding each, which are the decoder's until it lets go of
+    /// the picture.
+    #[derive(Clone, Copy, Debug)]
+    struct Picture {
+        width: u32,
+        height: u32,
+        fourcc: u32,
+        modifier: u64,
+        nb_planes: usize,
+        planes: [Plane; MAX_PLANES],
+        fds: [RawFd; MAX_PLANES],
+    }
+
+    impl Picture {
+        /// The shim's picture in the shape the frames channel speaks: one
+        /// modifier for the buffer, and both planes in it, which is what an NVDEC
+        /// surface and the shim's own copy of one are.
+        fn of(raw: &RawPicture) -> Self {
+            let nb_planes = (raw.planes as usize).min(MAX_PLANES);
+            let mut planes = [Plane::default(); MAX_PLANES];
+            let mut fds = [0; MAX_PLANES];
+            for (index, plane) in raw.plane.iter().take(nb_planes).enumerate() {
+                planes[index] = Plane {
+                    offset: plane.offset,
+                    stride: plane.stride,
+                };
+                fds[index] = plane.fd;
+            }
+            Self {
+                width: raw.width as u32,
+                height: raw.height as u32,
+                fourcc: raw.fourcc,
+                modifier: raw.plane.first().map_or(0, |plane| plane.modifier),
+                nb_planes,
+                planes,
+                fds,
+            }
+        }
+
+        fn descriptor(&self) -> Descriptor<'_> {
+            Descriptor {
+                width: self.width,
+                height: self.height,
+                fourcc: self.fourcc,
+                modifier: self.modifier,
+                planes: &self.planes[..self.nb_planes],
+                fds: &self.fds[..self.nb_planes],
+            }
+        }
+    }
+
+    /// The card's NVDEC decoder for one watched stream: a picture on the card,
+    /// exported as a DMA-BUF and never read by the processor.
+    pub struct Hardware {
+        raw: *mut Raw,
+        /// The newest picture, while the decoder holds it: none until the
+        /// stream's first picture, and none after it is released.
+        picture: Option<Picture>,
+    }
+
+    // SAFETY: one thread uses a decoder at a time, since `Frame::Hardware` holds
+    // it mutably, so moving one between threads is sound and using one from two
+    // at once is not.
+    unsafe impl Send for Hardware {}
+
+    impl Hardware {
+        /// The card's decoder for `codec`, on the NVIDIA card `CUDA_VISIBLE_DEVICES`
+        /// names, or the one there is. VP8 never has one — no hardware decoder
+        /// takes it — and the software decoder reads the rest.
+        pub fn new(codec: Codec) -> Result<Self> {
+            let (which, what) = match codec {
+                Codec::H264 => (0, "H264"),
+                Codec::H265 => (1, "H265"),
+                Codec::Av1 => (2, "AV1"),
+                Codec::Vp8 => bail!("the graphics card has no VP8 decoder"),
+            };
+            // SAFETY: a plain value, and the driver's own loader is what answers.
+            let raw = unsafe { yapfast_cuvadec_new(which) };
+            if raw.is_null() {
+                // SAFETY: the null decoder is what `error` reads the reason off.
+                let reason = unsafe { message(yapfast_cuvadec_error(std::ptr::null())) };
+                if reason.is_empty() {
+                    bail!("no {what} hardware decoder: the machine gave no reason")
+                }
+                bail!("no {what} hardware decoder: {reason}")
+            }
+            Ok(Self { raw, picture: None })
+        }
+
+        /// The newest picture's size, as the decoder made it: (0, 0) until the
+        /// stream's first picture.
+        pub fn size(&self) -> (u32, u32) {
+            self.picture
+                .map_or((0, 0), |picture| (picture.width, picture.height))
+        }
+
+        /// Feeds one whole frame and exports the newest picture, which
+        /// [`Self::dmabuf`] hands over. True says there is one, false that the
+        /// decoder kept the frame for the pictures after it.
+        pub fn decode(&mut self, frame: &[u8], keyframe: bool) -> Result<bool> {
+            // The picture from the call before goes back to the card as the new
+            // one is made: the caller has had it.
+            self.picture = None;
+            // SAFETY: the frame outlives the call, and one thread uses the
+            // decoder at a time.
+            let decoded = unsafe {
+                yapfast_cuvadec_decode(self.raw, frame.as_ptr(), frame.len(), keyframe as c_int)
+            };
+            if decoded < 0 {
+                // SAFETY: the decoder is this one's, alive for as long as it is.
+                bail!("the graphics card wouldn't decode a frame: {}", unsafe {
+                    message(yapfast_cuvadec_error(self.raw))
+                });
+            }
+            if decoded == 0 {
+                return Ok(false);
+            }
+            let mut raw = RawPicture::default();
+            // SAFETY: the decoder holds the picture its last decode exported, and
+            // one thread uses the decoder at a time.
+            if unsafe { yapfast_cuvadec_picture(self.raw, &mut raw) } != 0 {
+                // SAFETY: the decoder is this one's, alive for as long as it is.
+                bail!("the picture wasn't readable as a DMA-BUF: {}", unsafe {
+                    message(yapfast_cuvadec_error(self.raw))
+                });
+            }
+            if raw.width <= 0 || raw.height <= 0 {
+                bail!("the graphics card gave a picture with no size");
+            }
+            self.picture = Some(Picture::of(&raw));
+            Ok(true)
+        }
+
+        /// The newest picture as the DMA-BUF descriptor the frames channel
+        /// carries, while the decoder holds it.
+        pub fn dmabuf(&self) -> Option<Descriptor<'_>> {
+            self.picture.as_ref().map(Picture::descriptor)
+        }
+
+        /// Says the caller is done with the newest picture: its descriptor is
+        /// closed and its surface goes back to the card, once.
+        pub fn release(&mut self) {
+            self.picture = None;
+            // SAFETY: the decoder is this one's, and releasing a picture that is
+            // already gone releases nothing.
+            unsafe { yapfast_cuvadec_release(self.raw) };
+        }
+    }
+
+    impl Drop for Hardware {
+        fn drop(&mut self) {
+            // SAFETY: raw came from the constructor `free` belongs with, and is
+            // freed once.
+            unsafe { yapfast_cuvadec_free(self.raw) };
+        }
+    }
+}
+
+/// The card's decoder on Linux: VA-API where the machine's driver answers — AMD
+/// and Intel — and NVDEC where it doesn't, which is NVIDIA's. Both hand out a
+/// DMA-BUF, so what the tile pass does with a picture is the same either way.
+#[cfg(all(target_os = "linux", not(d3d11dec), any(vaapidec, nvdec)))]
+pub use linux::Hardware;
+
+#[cfg(all(target_os = "linux", not(d3d11dec), any(vaapidec, nvdec)))]
+mod linux {
+    use anyhow::{Result, bail};
+    use yapfast_discord::rtp::Codec;
+
+    use crate::dmabuf::Descriptor;
+
+    /// Which of the two decoders this machine's card took.
+    pub struct Hardware(Kind);
+
+    enum Kind {
+        #[cfg(vaapidec)]
+        Vaapi(super::vaapi::Hardware),
+        #[cfg(nvdec)]
+        Cuda(super::cuda::Hardware),
+    }
+
+    impl Hardware {
+        /// The card's decoder for `codec`: VA-API first, which is what AMD's and
+        /// Intel's drivers answer, and NVDEC where that opens nothing. A machine
+        /// with neither says why both were passed over, and the stream falls to
+        /// the software decoder.
+        pub fn new(codec: Codec) -> Result<Self> {
+            let mut why = Vec::new();
+            #[cfg(vaapidec)]
+            match super::vaapi::Hardware::new(codec) {
+                Ok(decoder) => return Ok(Self(Kind::Vaapi(decoder))),
+                Err(error) => why.push(format!("VA-API: {error:#}")),
+            }
+            #[cfg(nvdec)]
+            match super::cuda::Hardware::new(codec) {
+                Ok(decoder) => return Ok(Self(Kind::Cuda(decoder))),
+                Err(error) => why.push(format!("NVDEC: {error:#}")),
+            }
+            bail!("no {} hardware decoder: {}", codec.name(), why.join("; "))
+        }
+
+        pub fn size(&self) -> (u32, u32) {
+            match &self.0 {
+                #[cfg(vaapidec)]
+                Kind::Vaapi(decoder) => decoder.size(),
+                #[cfg(nvdec)]
+                Kind::Cuda(decoder) => decoder.size(),
+            }
+        }
+
+        pub fn decode(&mut self, frame: &[u8], keyframe: bool) -> Result<bool> {
+            match &mut self.0 {
+                #[cfg(vaapidec)]
+                Kind::Vaapi(decoder) => decoder.decode(frame, keyframe),
+                #[cfg(nvdec)]
+                Kind::Cuda(decoder) => decoder.decode(frame, keyframe),
+            }
+        }
+
+        pub fn dmabuf(&self) -> Option<Descriptor<'_>> {
+            match &self.0 {
+                #[cfg(vaapidec)]
+                Kind::Vaapi(decoder) => decoder.dmabuf(),
+                #[cfg(nvdec)]
+                Kind::Cuda(decoder) => decoder.dmabuf(),
+            }
+        }
+
+        pub fn release(&mut self) {
+            match &mut self.0 {
+                #[cfg(vaapidec)]
+                Kind::Vaapi(decoder) => decoder.release(),
+                #[cfg(nvdec)]
+                Kind::Cuda(decoder) => decoder.release(),
+            }
+        }
+    }
+}
 
 /// A picture decoded for a watched stream, and where it lies: in the software
 /// decoder's planes, which the processor reads and converts, or on the
