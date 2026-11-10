@@ -908,7 +908,6 @@ pub(super) fn choose(
         .map(|(room, _)| room)
         .or(listed)
         .or_else(|| adapter.app.state.selected.clone());
-    let me = adapter.app.state.discord_user.as_deref() == Some(target.as_str());
     let voice = |change| {
         place.clone().map(|place| Action::ChangeMember {
             place,
@@ -917,12 +916,10 @@ pub(super) fn choose(
         })
     };
     if let Some(to) = id.strip_prefix(MOVE_TO) {
-        // This account moves by joining there.
-        let action = if me {
-            Some(Action::RequestJoinVoice(to.to_owned()))
-        } else {
-            voice(MemberChange::Move(Some(to.to_owned())))
-        };
+        // This account moves by joining there; see Application::move_to.
+        let action = place
+            .as_deref()
+            .and_then(|place| adapter.app.move_to(place, &target, to));
         if let Some(action) = action {
             adapter.action(window, action);
         }

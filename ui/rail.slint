@@ -667,6 +667,52 @@ component DropLine inherits Rectangle {
     drop-shadow-blur: 3px; drop-shadow-color: #00000066;
 }
 
+// Someone listed under a voice channel: a click opens their profile and a
+// right click their menu. They may be dragged as ChannelRow may, once the
+// pointer has moved a few pixels with the button down: `start-drag` asks
+// whether they may, `dragged` says where the pointer is in the window, and
+// `dropped` that the button went up, which doesn't click. While another
+// row or person is dragged, `tracking` reports the pointer over this one,
+// as ChannelRow's does.
+component PersonTouch inherits TouchArea {
+    callback open-profile;
+    callback open-menu(length, length);
+    callback start-drag() -> bool;
+    callback dragged(length, length);
+    callback dropped;
+    in property <bool> tracking;
+    property <bool> dragging;
+    // Asked and refused, until the button goes down again.
+    property <bool> refused;
+    mouse-cursor: root.dragging ? MouseCursor.grabbing : MouseCursor.pointer;
+    // Slint reports the click before the button going up, which ends a drag.
+    clicked => {
+        if !root.dragging { root.open-profile(); }
+    }
+    moved => {
+        if self.pressed && !root.dragging && !root.refused && abs(self.mouse-y - self.pressed-y) > 4px {
+            root.dragging = root.start-drag();
+            root.refused = !root.dragging;
+        }
+        if root.dragging { root.dragged(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); }
+    }
+    pointer-event(event) => {
+        if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+            root.open-menu(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+        }
+        if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+            root.refused = false;
+        }
+        if event.button == PointerEventButton.left && event.kind == PointerEventKind.up && (root.dragging || root.tracking) {
+            root.dragging = false;
+            root.dropped();
+        }
+        if event.kind == PointerEventKind.move && root.tracking && !root.dragging {
+            root.dragged(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+        }
+    }
+}
+
 // A channel category's heading. Clicking it collapses the category, or opens
 // it again; a right click, or the Menu key or Shift+F10, opens its menu.
 component CategoryHeading inherits Rectangle {
@@ -1034,6 +1080,17 @@ export component RoomList inherits Rectangle {
     callback start-arranging(int) -> bool;
     callback arrange(int);
     callback stop-arranging;
+    /// Dragging someone from under a voice channel onto another, which
+    /// moves them as their menu's Move to does: `start-moving` asks whether
+    /// they may be dragged, by the channel's room id and their user id, and
+    /// `moving` says they are, with the rows they may drop on, by index, in
+    /// `move-droppable`. `move-person` drops them on a voice channel, by
+    /// room id, and `stop-moving` nowhere.
+    in property <bool> moving;
+    in property <[bool]> move-droppable;
+    callback start-moving(string, string) -> bool;
+    callback move-person(string);
+    callback stop-moving;
     // Where the pointer is in the window while dragging, the place it's
     // over, and whether a voice channel or a category is dragged, which
     // dims the rows it can't drop among. Each step of scrolling counts,
@@ -1047,6 +1104,34 @@ export component RoomList inherits Rectangle {
     // held where it was pressed.
     property <RoomRow> dragged-row;
     property <length> grab-y;
+    // A row or someone is being dragged, and the rows that aren't follow it.
+    property <bool> dragging: root.arranging > 0 || root.moving;
+    // Who is dragged from a voice channel, and the row they're over, by
+    // index from 1.
+    property <PersonRow> dragged-person;
+    property <int> move-hovered;
+    // Across, too, for someone dragged, who drops only over the list. A
+    // channel's row reports only how far down the pointer is, over itself,
+    // so in the list.
+    property <length> drag-x;
+    pure function over-list() -> bool {
+        return root.drag-x >= list.absolute-position.x && root.drag-x < list.absolute-position.x + list.width
+            && root.drag-y >= list.absolute-position.y && root.drag-y < list.absolute-position.y + list.height;
+    }
+    function follow(x: length, y: length) {
+        root.drag-x = x;
+        root.drag-y = y;
+    }
+    function begin-moving(room: string, person: PersonRow) -> bool {
+        if person.person == "" { return false; }
+        root.dragged-person = person;
+        root.move-hovered = 0;
+        if !root.start-moving(room, person.person) { return false; }
+        // Their tooltip, such as "Connected on another client", would
+        // cover the list for the rest of the drag.
+        Tip.text = "";
+        return true;
+    }
     function begin(place: int, row: RoomRow, category: bool, grab-y: length) -> bool {
         root.dragged-voice = row.voice && !category;
         root.dragged-category = category;
@@ -1058,13 +1143,20 @@ export component RoomList inherits Rectangle {
     // Drops what's dragged on the place it's over, if it may drop there and
     // the pointer is still over the list.
     function finish() {
-        if root.hovered > 0 && root.hovered != root.arranging && root.droppable[root.hovered - 1]
+        if root.moving {
+            if root.move-hovered > 0 && root.move-droppable[root.move-hovered - 1] && root.over-list() {
+                root.move-person(root.rooms[root.move-hovered - 1].id);
+            } else {
+                root.stop-moving();
+            }
+        } else if root.hovered > 0 && root.hovered != root.arranging && root.droppable[root.hovered - 1]
             && root.drag-y >= list.absolute-position.y && root.drag-y < list.absolute-position.y + list.height {
             root.arrange(root.hovered);
         } else {
             root.stop-arranging();
         }
         root.hovered = 0;
+        root.move-hovered = 0;
     }
     pure function aimed(place: int) -> bool {
         return root.arranging > 0 && place > 0 && root.hovered == place && place != root.arranging && root.droppable[place - 1];
@@ -1072,10 +1164,18 @@ export component RoomList inherits Rectangle {
     pure function dimmed(voice: bool) -> bool {
         return root.arranging > 0 && (root.dragged-category || voice != root.dragged-voice);
     }
+    // Someone dragged may drop on the row at this index, which the pointer
+    // is over; the rows they may not drop on dim.
+    pure function move-aimed(index: int) -> bool {
+        return root.moving && root.move-hovered == index + 1 && root.move-droppable[index];
+    }
+    pure function unfit(index: int) -> bool {
+        return root.moving && !root.move-droppable[index];
+    }
     // Near the list's top or bottom, it scrolls while dragging.
     Timer {
         interval: 16ms;
-        running: root.arranging > 0 && (root.drag-y < list.absolute-position.y + 40px || root.drag-y > list.absolute-position.y + list.height - 40px);
+        running: root.dragging && (root.drag-y < list.absolute-position.y + 40px || root.drag-y > list.absolute-position.y + list.height - 40px);
         triggered => {
             if root.drag-y < list.absolute-position.y + 40px {
                 list.content-y = min(0px, list.content-y + 8px);
@@ -1147,9 +1247,9 @@ export component RoomList inherits Rectangle {
                     create => { root.create-channel(room.id); }
                     toggled => { root.toggle-category(room.category); }
                     context-menu(x, y) => { root.open-category-menu(room.id, x, y); }
-                    draggable: room.heading-place > 0; tracking: root.arranging > 0;
+                    draggable: room.heading-place > 0; tracking: root.dragging;
                     start-drag(y) => { return root.begin(room.heading-place, room, true, y); }
-                    dragged(y) => { root.drag-y = y; }
+                    dragged(y) => { root.follow(list.absolute-position.x, y); }
                     dropped => { root.finish(); }
                     // The pointer is over it, or the gap above it.
                     property <bool> over: root.arranging > 0 && room.heading-place > 0 && root.scrolled >= 0
@@ -1180,9 +1280,9 @@ export component RoomList inherits Rectangle {
                     }
                     ChannelRow {
                         text: room.name; thread: true;
-                        opacity: root.dimmed(false) ? 0.3 : 1;
-                        tracking: root.arranging > 0;
-                        dragged(y) => { root.drag-y = y; }
+                        opacity: root.dimmed(false) || root.unfit(index) ? 0.3 : 1;
+                        tracking: root.dragging;
+                        dragged(y) => { root.follow(list.absolute-position.x, y); }
                         dropped => { root.finish(); }
                         label: room.name + ", thread" + (room.muted ? ", muted" : "")
                             + (room.badge != "" ? ", " + room.badge + " mentions" : room.unread ? ", unread" : "");
@@ -1215,10 +1315,10 @@ export component RoomList inherits Rectangle {
                     clicked => { root.select-room(room.id); }
                     open-voice => { root.open-voice(room.voice-room); }
                     context-menu(x, y) => { root.open-room-menu(room.id, x, y); }
-                    opacity: root.dimmed(room.voice) ? 0.3 : 1;
-                    draggable: room.place > 0; tracking: root.arranging > 0;
+                    opacity: root.dimmed(room.voice) || root.unfit(index) ? 0.3 : 1;
+                    draggable: room.place > 0; tracking: root.dragging;
                     start-drag(y) => { return root.begin(room.place, room, false, y); }
-                    dragged(y) => { root.drag-y = y; }
+                    dragged(y) => { root.follow(list.absolute-position.x, y); }
                     dropped => { root.finish(); }
                     // Who is in a voice channel lists under it, as part of it.
                     property <length> people: !room.voice ? 0px
@@ -1229,6 +1329,17 @@ export component RoomList inherits Rectangle {
                     changed over => {
                         if self.over { root.hovered = room.place; }
                         else if root.hovered == room.place { root.hovered = 0; }
+                    }
+                    // The same, for someone dragged from a voice channel.
+                    property <bool> move-over: root.moving && root.scrolled >= 0 && root.over-list()
+                        && root.drag-y >= self.absolute-position.y - 2px && root.drag-y < self.absolute-position.y + self.height + self.people;
+                    changed move-over => {
+                        if self.move-over { root.move-hovered = index + 1; }
+                        else if root.move-hovered == index + 1 { root.move-hovered = 0; }
+                    }
+                    // Where someone dragged would drop, outlined in the drop line's colour.
+                    if root.move-aimed(index): Rectangle {
+                        border-radius: 6px; border-width: 2px; border-color: Theme.live;
                     }
                     if root.aimed(room.place): DropLine {
                         x: 8px; width: parent.width - 8px;
@@ -1244,6 +1355,7 @@ export component RoomList inherits Rectangle {
                         // click their menu, as in Discord; their LIVE tag watches
                         // their stream. This account in the call on another
                         // client is dimmed until hovered, without its icons.
+                        // They may be dragged onto another voice channel.
                         property <string> tip: person.elsewhere ? "Connected on another client" : "";
                         height: 30px; border-radius: 4px;
                         background: person-touch.has-hover ? Theme.hover : transparent;
@@ -1255,16 +1367,15 @@ export component RoomList inherits Rectangle {
                         accessible-action-default => {
                             root.open-voice-profile(person, self.absolute-position.x, self.absolute-position.y, self.width, self.height);
                         }
-                        person-touch := TouchArea {
-                            mouse-cursor: MouseCursor.pointer;
-                            clicked => {
+                        person-touch := PersonTouch {
+                            tracking: root.dragging;
+                            open-profile => {
                                 root.open-voice-profile(person, parent.absolute-position.x, parent.absolute-position.y, parent.width, parent.height);
                             }
-                            pointer-event(event) => {
-                                if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
-                                    root.open-voice-menu(room.id, person, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
-                                }
-                            }
+                            open-menu(x, y) => { root.open-voice-menu(room.id, person, x, y); }
+                            start-drag => { return root.begin-moving(room.id, person); }
+                            dragged(x, y) => { root.follow(x, y); }
+                            dropped => { root.finish(); }
                             changed has-hover => {
                                 if self.has-hover && parent.tip != "" {
                                     Tip.text = parent.tip; Tip.side = 0;
@@ -1308,7 +1419,7 @@ export component RoomList inherits Rectangle {
                     padding-left: 32px; padding-bottom: 4px; spacing: 0px;
                     for person in root.participants: Rectangle {
                         // A click opens their profile and a right click their
-                        // menu, as above.
+                        // menu, and they may be dragged, as above.
                         height: 30px; border-radius: 4px;
                         background: participant-touch.has-hover ? Theme.hover : transparent;
                         animate background { duration: 90ms; }
@@ -1317,16 +1428,15 @@ export component RoomList inherits Rectangle {
                         accessible-action-default => {
                             root.open-voice-profile(person, self.absolute-position.x, self.absolute-position.y, self.width, self.height);
                         }
-                        participant-touch := TouchArea {
-                            mouse-cursor: MouseCursor.pointer;
-                            clicked => {
+                        participant-touch := PersonTouch {
+                            tracking: root.dragging;
+                            open-profile => {
                                 root.open-voice-profile(person, parent.absolute-position.x, parent.absolute-position.y, parent.width, parent.height);
                             }
-                            pointer-event(event) => {
-                                if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
-                                    root.open-voice-menu(root.voice-channel, person, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
-                                }
-                            }
+                            open-menu(x, y) => { root.open-voice-menu(root.voice-channel, person, x, y); }
+                            start-drag => { return root.begin-moving(root.voice-channel, person); }
+                            dragged(x, y) => { root.follow(x, y); }
+                            dropped => { root.finish(); }
                         }
                         HorizontalLayout {
                             spacing: 8px; padding-left: 4px; padding-right: 8px;
@@ -1359,6 +1469,21 @@ export component RoomList inherits Rectangle {
                         }
                     }
                 }
+            }
+        }
+    }
+    // Someone dragged follows the pointer the same way, just below it, so the
+    // name of the channel they'd drop on stays readable.
+    if root.moving: Rectangle {
+        x: 40px; y: root.drag-y - root.absolute-position.y + 12px;
+        width: root.width - 48px; height: 30px; border-radius: 4px;
+        background: Theme.active; opacity: 0.6;
+        HorizontalLayout {
+            spacing: 8px; padding-left: 4px; padding-right: 8px;
+            Middle { Avatar { size: 22px; initial: root.dragged-person.initial; tint: root.dragged-person.tint; picture: root.dragged-person.picture; } }
+            Text {
+                text: root.dragged-person.name; font-size: 15px; font-weight: 500; color: Theme.text;
+                vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
             }
         }
     }

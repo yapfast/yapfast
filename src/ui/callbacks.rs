@@ -2834,6 +2834,43 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         state.borrow_mut().arranging = None;
         window.set_room_arranging(0);
     });
+    // Dragging someone from a voice channel onto another, which moves them
+    // as their menu's Move to does; see RoomList.
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_start_moving_person(move |place, user| {
+        let Some(window) = weak.upgrade() else {
+            return false;
+        };
+        let mut adapter = state.borrow_mut();
+        if adapter.arranging.is_some() {
+            return false;
+        }
+        adapter.moving_person = Some((place.into(), user.into()));
+        adapter.show_moving_person(&window);
+        adapter.moving_person.is_some()
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_move_person(move |to| {
+        let Some(window) = weak.upgrade() else { return };
+        let mut adapter = state.borrow_mut();
+        let action = adapter
+            .moving_person
+            .as_ref()
+            .and_then(|(place, user)| adapter.app.move_to(place, user, &to));
+        adapter.stop_moving_person(&window);
+        if let Some(action) = action {
+            adapter.action(&window, action);
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_stop_moving_person(move || {
+        if let Some(window) = weak.upgrade() {
+            state.borrow_mut().stop_moving_person(&window);
+        }
+    });
     let state = adapter.clone();
     let weak = window.as_weak();
     window.on_answer_move_sync(move |sync| {

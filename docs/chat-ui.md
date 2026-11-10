@@ -646,7 +646,10 @@ The window follows Discord's arrangement:
   server's call, or under a voice channel, their volume sits above that
   menu, which adds a Mute just for you, Move to and, in red, Server mute,
   Server deafen and Disconnect; see
-  [Discord](discord/servers.md#someones-menu-in-a-voice-channel). Time out and Ban ask how long
+  [Discord](discord/servers.md#someones-menu-in-a-voice-channel). Where Move
+  to is offered, they can also be dragged onto another voice channel in the
+  channel list; see
+  [Discord](discord/servers.md#dragging-someone-to-another-voice-channel). Time out and Ban ask how long
   or how much in their dialog, and each asks a reason. In a one-to-one DM, the
   other person's menu is the DM's own, less Mark as read and Copy link, and
   Copy ID copies theirs. Clicking an author's avatar or name, which underlines while
