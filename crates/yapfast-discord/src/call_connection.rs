@@ -59,8 +59,13 @@ const QUIET: f32 = 1e-5;
 /// 5 ms, so the skip doesn't click.
 const SPLICE: usize = FRAME / 4;
 /// At most this many datagrams waiting in the socket are read before a
-/// tick plays.
+/// tick plays: after a stall, several speakers' audio and a camera's video,
+/// as they came.
 const CATCH_UP: usize = 64;
+/// And for at most this long, a tenth of a tick, so however much a packet
+/// costs to read, the next tick's microphone isn't held up. What's left is
+/// read between ticks.
+const CATCH_UP_TIME: Duration = Duration::from_millis(2);
 /// A speaker heard from no more in this long gives up their decoder.
 const FORGET: Duration = Duration::from_secs(10);
 /// A tick this late means the call stalled rather than woke late: its
@@ -241,6 +246,12 @@ async fn run(
     }
 }
 
+/// Whether a tick reads another datagram waiting in the socket, having read
+/// `read` in `taken`.
+fn catches_up(read: usize, taken: Duration) -> bool {
+    read < CATCH_UP && taken < CATCH_UP_TIME
+}
+
 /// The voice gateway's close code, when it closed with one.
 fn closed(error: &anyhow::Error) -> Option<u16> {
     error
@@ -405,12 +416,15 @@ impl Media {
                         // came meanwhile are read: the speakers would then
                         // conceal audio that's sitting in the socket, and
                         // play it late afterwards.
-                        for _ in 0..CATCH_UP {
+                        let started = std::time::Instant::now();
+                        let mut read = 0;
+                        while catches_up(read, started.elapsed()) {
                             match connection.udp.try_recv(&mut datagram) {
                                 Ok(length) => self.receive(connection, &datagram[..length]).await?,
                                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
                                 Err(error) => return Err(error.into()),
                             }
+                            read += 1;
                         }
                         self.hear(listener);
                         self.watching.repair(connection).await?;
@@ -1245,6 +1259,112 @@ mod tests {
         }
         assert!(speaker.next().is_some());
         assert_eq!(speaker.next, Some(401));
+    }
+
+    /// What a call's thread does through a 300 ms stall on a machine where
+    /// reading a packet is slow, `catch_up` deciding how many a tick reads
+    /// before it plays: someone talking, a camera's video at 300 packets a
+    /// second, and RTCP. Time is counted, not measured: a datagram of
+    /// audio takes 100 µs, RTCP 150 and video 300, about fifty times what
+    /// opening and parsing one takes here (0.6 to 3 µs, and DAVE about as
+    /// much again for audio), as on a slow processor that a game keeps busy. Between ticks it reads a packet at a time, and a due
+    /// tick waits for the packet being read, as `select!` does. Returns the
+    /// longest a tick's microphone waited, once due, for the tick before to
+    /// finish reading (the stall's missed ticks come at once, so each waits
+    /// for the last), the audio packets that came too late to play, and the
+    /// ticks from the stall on that played nothing for the speaker.
+    fn through_a_stall(catch_up: impl Fn(usize, Duration) -> bool) -> (Duration, usize, usize) {
+        #[derive(Clone, Copy)]
+        enum Kind {
+            Audio(u16),
+            Video,
+            Rtcp,
+        }
+        let mut encoder = opus::Encoder::new(1, opus::Application::Voice, BITRATE).unwrap();
+        let packet = tone(&mut encoder, 0);
+        let mut speaker = Speaker::new(7).unwrap();
+        let micros = |micros: u64| Duration::from_micros(micros);
+        let (stall, stalled_for, end) = (micros(1_000_000), micros(300_000), micros(3_000_000));
+        let mut arrivals: Vec<(Duration, Kind)> = Vec::new();
+        for frame in 0..(end.as_micros() / 20_000) as u16 {
+            arrivals.push((
+                micros(3_000 + u64::from(frame) * 20_000),
+                Kind::Audio(frame),
+            ));
+        }
+        for at in (0..end.as_micros() as u64).step_by(3_333) {
+            arrivals.push((micros(at + 500), Kind::Video));
+        }
+        for at in (0..end.as_micros() as u64).step_by(100_000) {
+            arrivals.push((micros(at + 7_000), Kind::Rtcp));
+        }
+        arrivals.sort_by_key(|(at, _)| *at);
+        let cost = |kind: Kind| match kind {
+            Kind::Audio(_) => micros(100),
+            Kind::Video => micros(300),
+            Kind::Rtcp => micros(150),
+        };
+        let mut socket = arrivals.into_iter().peekable();
+        let mut read = |now: &mut Duration, speaker: &mut Speaker, late: &mut usize| {
+            let (_, kind) = socket.next_if(|(at, _)| *at <= *now)?;
+            if let Kind::Audio(sequence) = kind {
+                if speaker.next.is_some_and(|next| before(sequence, next)) {
+                    *late += 1;
+                }
+                speaker.push(sequence, packet.clone());
+            }
+            *now += cost(kind);
+            Some(())
+        };
+        let (mut now, mut due, mut sent) = (Duration::ZERO, Duration::ZERO, Duration::ZERO);
+        let (mut held, mut late, mut silent) = (Duration::ZERO, 0, 0);
+        while due < end {
+            if now >= stall && now < stall + stalled_for {
+                // Held up by something else, not by reading.
+                now = stall + stalled_for;
+                sent = now;
+            }
+            if now < due {
+                // Between ticks: one packet, or wait for the next to come.
+                if read(&mut now, &mut speaker, &mut late).is_none() {
+                    now = due.min(now + micros(100));
+                }
+                continue;
+            }
+            // A tick: the microphone goes out, the socket is read, and
+            // everyone plays.
+            held = held.max(now - due.max(sent));
+            sent = now;
+            let started = now;
+            let mut count = 0;
+            while catch_up(count, now - started)
+                && read(&mut now, &mut speaker, &mut late).is_some()
+            {
+                count += 1;
+            }
+            let played = speaker.next().is_some();
+            if due >= stall && !played {
+                silent += 1;
+            }
+            due += micros(20_000);
+        }
+        (held, late, silent)
+    }
+
+    #[test]
+    fn reading_after_a_stall_doesnt_hold_up_the_microphone() {
+        let (held, late, silent) = through_a_stall(catches_up);
+        // Never longer than the budget and a packet.
+        assert!(
+            held <= CATCH_UP_TIME + Duration::from_micros(300),
+            "{held:?}"
+        );
+        // The speaker's audio was all read in time to play, and played on
+        // every tick from the stall on, concealed while it waited.
+        assert_eq!((late, silent), (0, 0));
+        // Reading up to 64 packets whatever they cost held the ticks up.
+        let (held, _, _) = through_a_stall(|read, _| read < CATCH_UP);
+        assert!(held > Duration::from_millis(10), "{held:?}");
     }
 
     #[test]

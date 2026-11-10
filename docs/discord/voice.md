@@ -207,9 +207,11 @@ any frame once four more wait. The skipped frame fades into the next over
 frames under -40 dBFS as quiet, cut the end of words: the first quiet frame
 after a second of speech is usually a word dying away.
 
-Before a tick plays, it reads every packet waiting in the socket. After a
-stall, the ticks missed run at once, and would otherwise run before those
-packets were read, concealing audio that had come.
+Before a tick plays, it reads the packets waiting in the socket, up to 64 of
+them and for at most 2 ms; what's left is read between ticks. After a stall,
+the ticks missed run at once, and would otherwise run before those packets
+were read, concealing audio that had come. The 2 ms keeps the reading from
+holding up the next tick's microphone, whatever a packet costs to read.
 
 The mix goes through a queue of up to four frames to the speakers' thread,
 which keeps 60 ms queued at the device, and skips a frame quieter than
