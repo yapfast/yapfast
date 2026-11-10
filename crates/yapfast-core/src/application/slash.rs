@@ -12,7 +12,7 @@
 //! The index is asked for only once the person types `/`, and kept, by
 //! application/commands.rs, which also says which of its commands the person
 //! may use; autocomplete only on a keystroke in an option that has it; a
-//! command runs only on Enter.
+//! command runs only on Enter, or from a menu's "Apps" (application/commands.rs).
 
 use serde_json::{Value, json};
 
@@ -796,13 +796,25 @@ impl Application {
             return vec![];
         };
         self.state.drafts.insert(room.to_owned(), String::new());
+        self.start_command(run, command.app_name, command.app_icon)
+    }
+
+    /// Sends `run`, from `app_name`'s app, and shows it as sending until
+    /// its answer comes: a command written in the composer, or one chosen
+    /// from a menu's "Apps".
+    pub(super) fn start_command(
+        &mut self,
+        run: CommandRun,
+        app_name: String,
+        app_icon: Option<String>,
+    ) -> Vec<Effect> {
         if self.state.preview {
             return vec![];
         }
         self.state.slash.sent.push(SentCommand {
             run,
-            app_name: command.app_name,
-            app_icon: command.app_icon,
+            app_name,
+            app_icon,
             interaction: None,
             failed: None,
         });

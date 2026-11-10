@@ -3,6 +3,7 @@ import { ListView, ScrollView } from "scrollview.slint";
 import { Theme, Tip, ReactionHover, Middle, Label, Twemoji } from "theme.slint";
 import { ActionButton, IconButton, Avatar, Picture, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField, ContextMenu, MenuRow, StyledName, NameStyleRow, ServerTagChip } from "controls.slint";
 import { FavoriteStar, GifFavorites } from "gifs.slint";
+import { CommandChoice } from "app_commands.slint";
 
 /// An emoji: what shows, its name, and the reaction it adds, which for a custom
 /// emoji is Discord's `name:id`. A custom emoji shows its `picture` once it has
@@ -1290,7 +1291,8 @@ export component EmojiPicker inherits Rectangle {
 
 // A message's actions, from its hover bar's "More" button or a right click:
 // frequent reactions, then what can be done with it. A right click on a
-// picture, video or link adds what can be done with that.
+// picture, video or link adds what can be done with that. "Apps" opens a
+// submenu of the apps' message commands beside it, which run on the message.
 export component MessageMenu inherits Rectangle {
     in property <MessageRow> menu-message;
     /// Text selected in the message, as copied; empty for none.
@@ -1310,7 +1312,29 @@ export component MessageMenu inherits Rectangle {
     /// from a verified device.
     in property <bool> forward-allowed;
     in property <bool> preview;
-    out property <length> content-height: menu-content.preferred-height;
+    /// The open channel's apps' message commands, which "Apps" lists.
+    in property <[CommandChoice]> app-commands;
+    /// The Apps submenu opens left of the menu, for want of room on its
+    /// right; the menu then sits at the component's right.
+    in property <bool> flip;
+    // The menu, and with Apps the room for its submenu beside it, so the
+    // submenu opening moves nothing.
+    property <length> menu-width: 224px;
+    property <length> apps-width: 224px;
+    property <length> menu-height: menu-content.preferred-height;
+    // A Discord message the person sent or got, not one still sending, an
+    // answer only they see, or Yapfast's "Sending command…".
+    property <bool> has-apps: root.app-commands.length > 0 && root.menu-message.item.starts-with("d:")
+        && root.menu-message.delivery == "" && !root.menu-message.ephemeral && !root.menu-message.thinking;
+    // Its rows have a second line, the app's name: 44px each.
+    property <length> apps-height: 12px + root.app-commands.length * 46px - 2px;
+    out property <length> content-width: root.menu-width + (root.has-apps ? 4px + root.apps-width : 0px);
+    out property <length> content-height: max(root.menu-height, root.has-apps ? root.apps-height : 0px);
+    // The submenu: whether it shows, and how far down the Apps row is.
+    property <bool> apps-open;
+    property <length> apps-y;
+    /// Runs an app's message command, by its id, on the message, by its item.
+    callback run-app-command(string, string);
     callback react(string, string);
     callback open-picker(string);
     callback edit(string);
@@ -1329,89 +1353,132 @@ export component MessageMenu inherits Rectangle {
     callback copy-image(string, int);
     callback save-attachment(string, int);
     callback open-link(string);
-    background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
-    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
-    menu-content := VerticalLayout {
-        padding: 6px; spacing: 2px;
-        // Discord's quick reactions: 44px tiles, spread across the menu.
-        if root.menu-can-react: HorizontalLayout {
-            spacing: 4px; padding-bottom: 4px; padding-left: 2px; padding-right: 2px;
-            alignment: space-between;
-            for cell in root.menu-reactions: EmojiButton {
-                animation-key: cell.key;
-                emoji: cell; font: root.emoji-font; size: 44px; height: 44px; glyph: 24px; fill: Theme.field;
-                clicked => { root.react(root.menu-message.item, cell.key); }
+    panel := Rectangle {
+        x: root.flip ? root.content-width - root.menu-width : 0px; y: 0px;
+        width: root.menu-width; height: root.menu-height;
+        background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
+        drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+        menu-content := VerticalLayout {
+            padding: 6px; spacing: 2px;
+            // Discord's quick reactions: 44px tiles, spread across the menu.
+            if root.menu-can-react: HorizontalLayout {
+                spacing: 4px; padding-bottom: 4px; padding-left: 2px; padding-right: 2px;
+                alignment: space-between;
+                for cell in root.menu-reactions: EmojiButton {
+                    animation-key: cell.key;
+                    emoji: cell; font: root.emoji-font; size: 44px; height: 44px; glyph: 24px; fill: Theme.field;
+                    clicked => { root.react(root.menu-message.item, cell.key); }
+                }
+            }
+            if root.menu-can-react: MenuItem {
+                text: "Add reaction"; icon: @image-url("icons/smile-plus.svg");
+                hovered => { root.apps-open = false; }
+                clicked => { root.open-picker(root.menu-message.item); }
+            }
+            if root.menu-message.reactions.length > 0: MenuItem {
+                text: "View Reactions"; icon: @image-url("icons/smile.svg");
+                hovered => { root.apps-open = false; }
+                clicked => { root.view-reactions(root.menu-message.item); }
+            }
+            if root.menu-message.can-edit && root.composer-enabled: MenuItem {
+                text: "Edit message"; icon: @image-url("icons/pencil.svg");
+                hovered => { root.apps-open = false; }
+                clicked => { root.edit(root.menu-message.item); }
+            }
+            if root.menu-message.can-reply && root.composer-enabled: MenuItem {
+                text: "Reply"; icon: @image-url("icons/reply.svg");
+                hovered => { root.apps-open = false; }
+                clicked => { root.reply(root.menu-message.item); }
+            }
+            if root.menu-message.can-forward && root.forward-allowed: MenuItem {
+                text: "Forward"; icon: @image-url("icons/forward.svg");
+                hovered => { root.apps-open = false; }
+                clicked => { root.start-forward(root.menu-message.item); }
+            }
+            // A message someone wrote starts a thread, or leads to its own.
+            if root.can-start-thread && root.menu-message.can-reply && root.menu-message.delivery == ""
+                && root.menu-message.thread-room == "": MenuItem {
+                text: "Create Thread"; icon: @image-url("icons/thread.svg");
+                hovered => { root.apps-open = false; }
+                clicked => { root.start-thread(root.menu-message.item); }
+            }
+            if root.menu-message.can-reply && root.menu-message.thread-room != "": MenuItem {
+                text: "View Thread"; icon: @image-url("icons/thread.svg");
+                hovered => { root.apps-open = false; }
+                clicked => { root.view-thread(root.menu-message.thread-room); }
+            }
+            if root.menu-message.body != "": MenuItem {
+                text: "Copy text"; icon: @image-url("icons/copy.svg");
+                hovered => { root.apps-open = false; }
+                clicked => { root.copy-text(root.menu-message.body); }
+            }
+            if root.selection != "": MenuItem {
+                text: "Copy selection"; icon: @image-url("icons/text-select.svg");
+                hovered => { root.apps-open = false; }
+                clicked => { root.copy-text(root.selection); }
+            }
+            if root.menu-message.has-poll && root.menu-message.poll.can-end: MenuItem {
+                text: "End Poll Now"; icon: @image-url("icons/circle-stop.svg");
+                hovered => { root.apps-open = false; }
+                clicked => { root.end-poll(root.menu-message.item); }
+            }
+            if root.menu-message.can-pin && root.menu-message.delivery == "": MenuItem {
+                text: root.menu-message.pinned ? "Unpin message" : "Pin message";
+                icon: root.menu-message.pinned ? @image-url("icons/pin-off.svg") : @image-url("icons/pin.svg");
+                hovered => { root.apps-open = false; }
+                clicked => { root.pin-message(root.menu-message.item); }
+            }
+            // Opens on hover or a click, beside the menu, as Discord's does.
+            if root.has-apps: MenuItem {
+                text: "Apps"; icon: @image-url("icons/slash.svg"); submenu: true;
+                highlighted: root.apps-open;
+                hovered => { root.apps-y = self.absolute-position.y - panel.absolute-position.y; root.apps-open = true; }
+                clicked => { root.apps-y = self.absolute-position.y - panel.absolute-position.y; root.apps-open = true; }
+            }
+            if root.link != "" || (root.media-index >= 0 && !root.preview): Rectangle { height: 1px; background: Theme.line; }
+            if root.media-index >= 0 && root.link != "" && !root.media-video && !root.preview: MenuItem {
+                text: "Copy Image"; icon: @image-url("icons/image.svg");
+                hovered => { root.apps-open = false; }
+                clicked => { root.copy-image(root.menu-message.item, root.media-index); }
+            }
+            if root.media-index >= 0 && !root.preview: MenuItem {
+                text: root.media-video ? "Save Video" : "Save Image"; icon: @image-url("icons/download.svg");
+                hovered => { root.apps-open = false; }
+                clicked => { root.save-attachment(root.menu-message.item, root.media-index); }
+            }
+            if root.link != "": MenuItem {
+                text: "Copy Link"; icon: @image-url("icons/link.svg");
+                hovered => { root.apps-open = false; }
+                clicked => { root.copy-text(root.link); }
+            }
+            // A link in the text opens with a click.
+            if root.media-index >= 0 && root.link != "": MenuItem {
+                text: "Open Link"; icon: @image-url("icons/external-link.svg");
+                hovered => { root.apps-open = false; }
+                clicked => { root.open-link(root.link); }
+            }
+            if root.menu-message.can-delete && root.composer-enabled: Rectangle { height: 1px; background: Theme.line; }
+            if root.menu-message.can-delete && root.composer-enabled: MenuItem {
+                text: "Delete message"; icon: @image-url("icons/trash-2.svg"); danger: true;
+                hovered => { root.apps-open = false; }
+                clicked => { root.request-delete(root.menu-message.item); }
             }
         }
-        if root.menu-can-react: MenuItem {
-            text: "Add reaction"; icon: @image-url("icons/smile-plus.svg");
-            clicked => { root.open-picker(root.menu-message.item); }
-        }
-        if root.menu-message.reactions.length > 0: MenuItem {
-            text: "View Reactions"; icon: @image-url("icons/smile.svg");
-            clicked => { root.view-reactions(root.menu-message.item); }
-        }
-        if root.menu-message.can-edit && root.composer-enabled: MenuItem {
-            text: "Edit message"; icon: @image-url("icons/pencil.svg");
-            clicked => { root.edit(root.menu-message.item); }
-        }
-        if root.menu-message.can-reply && root.composer-enabled: MenuItem {
-            text: "Reply"; icon: @image-url("icons/reply.svg");
-            clicked => { root.reply(root.menu-message.item); }
-        }
-        if root.menu-message.can-forward && root.forward-allowed: MenuItem {
-            text: "Forward"; icon: @image-url("icons/forward.svg");
-            clicked => { root.start-forward(root.menu-message.item); }
-        }
-        // A message someone wrote starts a thread, or leads to its own.
-        if root.can-start-thread && root.menu-message.can-reply && root.menu-message.delivery == ""
-            && root.menu-message.thread-room == "": MenuItem {
-            text: "Create Thread"; icon: @image-url("icons/thread.svg");
-            clicked => { root.start-thread(root.menu-message.item); }
-        }
-        if root.menu-message.can-reply && root.menu-message.thread-room != "": MenuItem {
-            text: "View Thread"; icon: @image-url("icons/thread.svg");
-            clicked => { root.view-thread(root.menu-message.thread-room); }
-        }
-        if root.menu-message.body != "": MenuItem {
-            text: "Copy text"; icon: @image-url("icons/copy.svg");
-            clicked => { root.copy-text(root.menu-message.body); }
-        }
-        if root.selection != "": MenuItem {
-            text: "Copy selection"; icon: @image-url("icons/text-select.svg");
-            clicked => { root.copy-text(root.selection); }
-        }
-        if root.menu-message.has-poll && root.menu-message.poll.can-end: MenuItem {
-            text: "End Poll Now"; icon: @image-url("icons/circle-stop.svg");
-            clicked => { root.end-poll(root.menu-message.item); }
-        }
-        if root.menu-message.can-pin && root.menu-message.delivery == "": MenuItem {
-            text: root.menu-message.pinned ? "Unpin message" : "Pin message";
-            icon: root.menu-message.pinned ? @image-url("icons/pin-off.svg") : @image-url("icons/pin.svg");
-            clicked => { root.pin-message(root.menu-message.item); }
-        }
-        if root.link != "" || (root.media-index >= 0 && !root.preview): Rectangle { height: 1px; background: Theme.line; }
-        if root.media-index >= 0 && root.link != "" && !root.media-video && !root.preview: MenuItem {
-            text: "Copy Image"; icon: @image-url("icons/image.svg");
-            clicked => { root.copy-image(root.menu-message.item, root.media-index); }
-        }
-        if root.media-index >= 0 && !root.preview: MenuItem {
-            text: root.media-video ? "Save Video" : "Save Image"; icon: @image-url("icons/download.svg");
-            clicked => { root.save-attachment(root.menu-message.item, root.media-index); }
-        }
-        if root.link != "": MenuItem {
-            text: "Copy Link"; icon: @image-url("icons/link.svg");
-            clicked => { root.copy-text(root.link); }
-        }
-        // A link in the text opens with a click.
-        if root.media-index >= 0 && root.link != "": MenuItem {
-            text: "Open Link"; icon: @image-url("icons/external-link.svg");
-            clicked => { root.open-link(root.link); }
-        }
-        if root.menu-message.can-delete && root.composer-enabled: Rectangle { height: 1px; background: Theme.line; }
-        if root.menu-message.can-delete && root.composer-enabled: MenuItem {
-            text: "Delete message"; icon: @image-url("icons/trash-2.svg"); danger: true;
-            clicked => { root.request-delete(root.menu-message.item); }
+    }
+    if root.apps-open && root.has-apps: Rectangle {
+        x: root.flip ? 0px : root.menu-width + 4px;
+        // Level with the Apps row, kept within the component.
+        y: max(0px, min(root.apps-y - 6px, root.content-height - root.apps-height));
+        width: root.apps-width; height: root.apps-height;
+        background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
+        drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+        TouchArea { }
+        VerticalLayout {
+            padding: 6px; spacing: 2px;
+            for command in root.app-commands: MenuItem {
+                text: command.name; subtitle: command.app; icon: command.icon; plain: true;
+                clicked => { root.run-app-command(command.id, root.menu-message.item); }
+            }
         }
     }
 }

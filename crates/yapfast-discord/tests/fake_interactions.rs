@@ -9,7 +9,7 @@ use tokio::time::timeout;
 use yapfast_discord::{
     client,
     interactions::{self, Interaction},
-    message::Message,
+    message::{Message, Reply},
     service::{Discord, Live, Snapshot, Status},
     token,
 };
@@ -713,4 +713,95 @@ async fn an_ephemeral_answer_never_comes_back_after_a_reconnect_or_history() {
         .await
         .unwrap();
     assert!(!in_history(latest));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn context_menu_commands_run_on_their_message_or_person() {
+    let fixture = Fixture::start("context_menu_commands_run_on_their_message_or_person").await;
+    let mut live = fixture.discord.live();
+    let alice = fixture
+        .discord
+        .snapshots()
+        .borrow()
+        .user_id
+        .clone()
+        .unwrap();
+    // As the index lists them: a message command and a user command.
+    let menu_command = |id: &str, kind: u64, name: &str| {
+        Arc::new(json!({
+            "id": id, "application_id": "1400000000000000007", "version": "1400000000000000720",
+            "type": kind, "name": name, "description": "",
+        }))
+    };
+    let run = |nonce: &str, command: Arc<Value>, target: &str| interactions::CommandUse {
+        target: Some(target.into()),
+        command,
+        options: json!([]),
+        ..fixture.run(nonce, "", json!([]))
+    };
+    let quote = run(
+        "7000",
+        menu_command("1400000000000000707", 3, "Quote"),
+        &fixture.deploy.id,
+    );
+    assert!(fixture.discord.run_command(quote, vec![]).await.unwrap());
+    let sent = fixture.sent();
+    let body = &sent[0];
+    assert_eq!(body["type"], 2);
+    assert_eq!(body["data"]["type"], 3);
+    assert_eq!(body["data"]["name"], "Quote");
+    assert_eq!(body["data"]["target_id"], fixture.deploy.id.as_str());
+    // No options, and no analytics_location: what Discord's client says
+    // for a context menu isn't known.
+    assert!(body["data"].get("options").is_none());
+    assert!(body.get("analytics_location").is_none());
+    let created = live_where(&mut live, |live| match live {
+        Live::InteractionCreated { nonce, id } if nonce == "7000" => Some(id),
+        _ => None,
+    })
+    .await;
+    let quoted = live_where(&mut live, |live| match live {
+        Live::Created(message) if message.author_id == fixture.deploy.author_id => Some(message),
+        _ => None,
+    })
+    .await;
+    assert_eq!(quoted.interaction.as_deref(), Some(created.as_str()));
+    assert!(quoted.content.starts_with("> Deploy"), "{}", quoted.content);
+    // A type 23 answer replies to the message it ran on.
+    match &quoted.reply {
+        Some(Reply::Message { id, .. }) => assert_eq!(id, &fixture.deploy.id),
+        other => panic!("not a reply to the deploy message: {other:?}"),
+    }
+
+    let wave = run(
+        "7001",
+        menu_command("1400000000000000708", 2, "Wave"),
+        &alice,
+    );
+    assert!(fixture.discord.run_command(wave, vec![]).await.unwrap());
+    assert_eq!(fixture.sent()[1]["data"]["target_id"], alice.as_str());
+    let waved = live_where(&mut live, |live| match live {
+        Live::Created(message) if message.author_id == fixture.deploy.author_id => Some(message),
+        _ => None,
+    })
+    .await;
+    assert_eq!(waved.content, format!("👋 <@{alice}>"));
+    assert!(waved.reply.is_none());
+
+    // One without a target fails, as Discord refuses it.
+    let lost = interactions::CommandUse {
+        target: None,
+        ..run(
+            "7002",
+            menu_command("1400000000000000708", 2, "Wave"),
+            &alice,
+        )
+    };
+    assert!(fixture.discord.run_command(lost, vec![]).await.unwrap());
+    live_where(&mut live, |live| match live {
+        Live::InteractionFailure { nonce, .. } if nonce == "7002" => Some(()),
+        _ => None,
+    })
+    .await;
 }

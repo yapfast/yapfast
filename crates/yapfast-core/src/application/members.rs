@@ -58,7 +58,8 @@ pub(super) fn change(ask: PersonAsk, choice: usize, text: String) -> MemberChang
 impl Application {
     /// What someone's menu offers: in a Discord server's channel, their
     /// menu as a member of it; elsewhere [`AppState::person_choices`]. Each
-    /// invites them to a server, as Discord's do.
+    /// invites them to a server, as Discord's do, and offers the open room's
+    /// apps' user commands.
     pub fn person_choices(&self, user: &str) -> Vec<MenuChoice> {
         #[cfg(feature = "discord")]
         let mut choices = match self.member_place(user) {
@@ -68,6 +69,9 @@ impl Application {
         #[cfg(not(feature = "discord"))]
         let mut choices = self.state.person_choices(user);
         self.offer_invite(user, &mut choices);
+        if let Some(room) = self.state.selected.as_deref() {
+            self.offer_apps(room, user, &mut choices);
+        }
         choices
     }
 

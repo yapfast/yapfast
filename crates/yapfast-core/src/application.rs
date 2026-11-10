@@ -61,7 +61,7 @@ pub use channel_settings::{
     ChannelInput, ChannelSection, ChannelSettingsScreen, OverwriteConfirm, OverwriteRules,
     OverwriteState, Overwrites, channel_groups, channel_permission,
 };
-pub use commands::{AppCommands, SlashCommand};
+pub use commands::{AppCommands, CommandTarget, SlashCommand};
 pub use cosmetics::Cosmetics;
 pub use forum::{ForumInfo, ForumPost, ForumPosts, ForumView};
 pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
@@ -1522,6 +1522,9 @@ pub enum Action {
         command: String,
         target: Option<String>,
     },
+    /// A message's or a person's menu opened: asks for the open room's
+    /// command index, unless it's kept, for the menu's "Apps".
+    AskAppCommands,
     /// The composer writes this option of the command, as Tab or a click on
     /// its pill moves to it.
     FocusCommandOption(usize),
@@ -3137,6 +3140,7 @@ impl Application {
             | Action::PickCommand(_)
             | Action::SetCommandOption { .. }
             | Action::RunAppCommand { .. }
+            | Action::AskAppCommands
             | Action::FocusCommandOption(_)
             | Action::CloseCommand(_) => self.command_action(action),
             Action::DismissEphemeral(item) => self.dismiss_ephemeral(item),

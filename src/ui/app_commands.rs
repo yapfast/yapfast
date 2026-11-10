@@ -1,8 +1,10 @@
 //! Apps' commands in the window: the `/` picker over the composer, the
 //! values an option may take, and the pills of the command being written.
 //! What they show is the core's (`application/slash.rs`); this fills the
-//! window's lists from it and binds their callbacks. The "Apps" submenus are
-//! phase 2's.
+//! window's lists from it and binds their callbacks, and gives a message's
+//! menu its "Apps" (a person's are `menus.rs`'s).
+
+use yapfast_core::application::CommandTarget;
 
 use super::*;
 
@@ -11,6 +13,14 @@ use super::*;
 pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     window.set_command_choices(ModelRc::new(VecModel::<CommandChoice>::default()));
     window.set_command_options(ModelRc::new(VecModel::<CommandOptionPill>::default()));
+    window.set_app_menu_commands(ModelRc::new(VecModel::<CommandChoice>::default()));
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_ask_app_commands(move || {
+        if let Some(window) = weak.upgrade() {
+            state.borrow_mut().action(&window, Action::AskAppCommands);
+        }
+    });
     let state = adapter.clone();
     let weak = window.as_weak();
     window.on_slash_query(move |query| {
@@ -113,13 +123,46 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
 }
 
 impl Adapter {
+    /// Gives a message's menu the open room's message commands for its
+    /// "Apps", and says when the room's index came, so a person's menu open
+    /// meanwhile is built again with theirs. Returns the app icons it lacks.
+    fn show_app_menu_commands(&mut self, window: &YapfastWindow) -> Vec<String> {
+        let Some(room) = self.app.state.selected.clone() else {
+            window.set_app_commands_ready(false);
+            return vec![];
+        };
+        window.set_app_commands_ready(self.app.state.app_commands.index(&room).is_some());
+        let commands = self.app.commands_for_target(&room, CommandTarget::Message);
+        let state = &self.app.state;
+        let wanted = commands
+            .iter()
+            .filter_map(|command| command.app_icon.clone())
+            .filter(|icon| !state.pictures.contains_key(icon))
+            .collect();
+        let rows: Vec<CommandChoice> = commands
+            .iter()
+            .map(|command| CommandChoice {
+                id: command.command.as_str().into(),
+                app: command.app_name.as_str().into(),
+                icon: cached_picture(&mut self.pictures, state, command.app_icon.as_deref()),
+                name: command.name.as_str().into(),
+                description: SharedString::default(),
+            })
+            .collect();
+        let model = window.get_app_menu_commands();
+        if let Some(model) = model.as_any().downcast_ref::<VecModel<CommandChoice>>() {
+            update_model(model, rows);
+        }
+        wanted
+    }
+
     /// Fills the list over the composer and the command's pills from the
     /// core's state, asking for the app icons and avatars it lacks.
     pub(super) fn show_app_commands(&mut self, window: &YapfastWindow) {
         let rows = self.app.command_rows();
         let heading = self.app.command_heading();
         let state = &self.app.state;
-        let wanted: Vec<String> = rows
+        let mut wanted: Vec<String> = rows
             .iter()
             .filter_map(|row| row.icon.clone())
             .filter(|icon| !state.pictures.contains_key(icon))
@@ -127,6 +170,7 @@ impl Adapter {
         let choices: Vec<CommandChoice> = rows
             .iter()
             .map(|row| CommandChoice {
+                id: SharedString::default(),
                 app: row.app.as_str().into(),
                 icon: cached_picture(&mut self.pictures, state, row.icon.as_deref()),
                 name: row.name.as_str().into(),
@@ -179,6 +223,7 @@ impl Adapter {
         if let Some(model) = rows.as_any().downcast_ref::<VecModel<CommandOptionPill>>() {
             update_model(model, pills);
         }
+        wanted.extend(self.show_app_menu_commands(window));
         // Asked once each, and shown as they come; nothing to refresh now.
         if !wanted.is_empty() {
             let effects = self.app.dispatch(Action::LoadPictures(wanted));

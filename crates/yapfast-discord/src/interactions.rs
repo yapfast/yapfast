@@ -195,8 +195,8 @@ impl CommandUse {
                 .map(|(index, name)| json!({"id": index.to_string(), "filename": name}))
                 .collect();
         }
-        // A command typed in the composer; what a context menu sends is
-        // phase 2's, and not known yet.
+        // A command typed in the composer; what Discord's client says for
+        // one from a context menu isn't known, so it says nothing.
         if self.target.is_none() {
             body["analytics_location"] = json!(CHAT_BAR);
         }

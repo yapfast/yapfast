@@ -555,7 +555,8 @@ The commands apps offer come from Discord's application command indexes
 `/channels/{id}/application-command-index` in a DM or group DM, and
 `/users/@me/application-command-index` for the apps the account installed
 for itself, merged, with the place's own first. Each is fetched only once
-the person types `/` in the composer, never ahead, and kept until Discord
+the person types `/` in the composer or opens a message's or a person's
+menu there, never ahead, and kept until Discord
 says it changed: GUILD_APPLICATION_COMMAND_INDEX_UPDATE for a server's, and
 APPLICATION_COMMAND_PERMISSIONS_UPDATE, or a gateway backlog that may have
 missed one, for all of them. Typing `/` again in the same server asks
@@ -579,8 +580,8 @@ decides:
   administrator may use every command. The account's own apps aren't the
   server's to limit.
 
-Message and user commands are for those menus; the composer offers the
-slash commands:
+Message and user commands are for those menus (see "Apps" below); the
+composer offers the slash commands:
 
 - Typing `/` at the start of a channel's composer opens the picker over it,
   as Discord's does. It lists the slash commands the person may use there, a
@@ -589,7 +590,9 @@ slash commands:
   Up and Down choose, Tab, Enter or a click picks, and Escape closes it until
   the `/` goes.
 - A picked command shows as pills over the composer, one for each option,
-  and the composer's text writes the focused one. Tab and Shift+Tab move
+  each as wide as its name, value and error up to the composer's width,
+  wrapping onto more rows as needed, and the composer's text writes the
+  focused one. Tab and Shift+Tab move
   between them, as does a click on a pill. Escape stops writing the command,
   and Backspace in an empty first option puts its name back to pick again.
   The `/word` typed to find it isn't kept as a draft, and neither is what an
@@ -608,6 +611,26 @@ slash commands:
   and the first takes the composer. The wording is Yapfast's; Discord's isn't
   documented.
 
+### Apps
+
+A message's menu and a person's offer the open channel's message commands
+(type 3, `MESSAGE`) and user commands (type 2, `USER`) under "Apps", a
+submenu of them by name with their app's name under each, as Discord's
+does.
+The same rules decide which the person may use there as for slash commands.
+
+- A message's menu has Apps on a Discord message that was sent, not on one
+  still sending or failed, an answer only the account sees, or Yapfast's
+  "Sending command…" row. It opens beside the menu on hover or a click, on
+  the left near the window's right edge.
+- A person's menu has it before Invite to server and friendship, in a
+  server's channel or a DM; a DM's own menu in the list has it once that
+  DM's index came, as it does while the DM is open. Matrix people have none.
+- Opening either menu asks for the channel's index if it isn't kept, and
+  Apps shows once it comes: a person's menu open meanwhile is built again.
+- A choice runs the command at once on that message or person, with no
+  options; it is sent and shows as sending as a slash command does (below).
+
 ## Sending apps' commands
 
 An app's command is sent as Discord's client sends one (docs.discord.food,
@@ -615,7 +638,10 @@ An app's command is sent as Discord's client sends one (docs.discord.food,
 session, with the command's `id`, `name`, `type` and `version` and the whole
 entry of the command index as `application_command`. A chat command carries
 its `options`, a subcommand or group nesting its own; a context-menu
-command carries its `target_id` instead. A command typed in the composer
+command carries its `target_id` instead: the message's id or the user's.
+An app answers one with a type 23 message, which shows as a reply when it
+names the message it ran on (docs.discord.food gives `referenced_message`
+for type 23 as for replies). A command typed in the composer
 says `analytics_location: "slash_ui"`, which docs.discord.food gives as
 "executed from the chat bar"; what Discord's client says for a context
 menu isn't known, and Yapfast says nothing there. Only sending the command

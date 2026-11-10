@@ -3,17 +3,18 @@
 //! offers. See docs/discord/messages.md, "Apps' commands".
 //!
 //! The rules it keeps: the index is fetched only once the person types `/`
-//! ([`DiscordCommand::CommandIndex`]), a server's is kept until
+//! or opens a message's or a person's menu ([`DiscordCommand::CommandIndex`]), a server's is kept until
 //! [`Event::CommandIndexChanged`], autocomplete is asked only on a
 //! keystroke, and a command runs only on Enter or a menu choice.
 //!
 //! This holds the open room's index ([`AppCommands`]) and says which of its
-//! commands the person may use there ([`Application::slash_commands`]); the
-//! picker, the options and running a command (application/slash.rs) build
-//! on it.
+//! commands the person may use there ([`Application::slash_commands`],
+//! [`Application::commands_for_target`]); the picker, the options and
+//! running a command (application/slash.rs) build on it, and the "Apps"
+//! submenus of a message's and a person's menu run theirs here.
 
 use super::*;
-use crate::chat::CommandIndex;
+use crate::chat::{CommandIndex, CommandRun};
 
 /// The open room's apps' commands, once the person typed `/` there.
 #[derive(Default)]
@@ -58,10 +59,20 @@ pub struct SlashCommand {
     pub app_icon: Option<String>,
 }
 
+/// Which "Apps" submenu a command is for: a message's menu, whose message
+/// commands (`MESSAGE`, type 3) act on that message, or a person's, whose
+/// user commands (`USER`, type 2) act on them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommandTarget {
+    Message,
+    User,
+}
+
 impl Application {
     /// [`Action::SlashQuery`], [`Action::PickCommand`],
     /// [`Action::SetCommandOption`], [`Action::FocusCommandOption`],
-    /// [`Action::CloseCommand`] and [`Action::RunAppCommand`].
+    /// [`Action::CloseCommand`], [`Action::RunAppCommand`] and
+    /// [`Action::AskAppCommands`].
     pub(super) fn command_action(&mut self, action: Action) -> Vec<Effect> {
         match action {
             Action::SlashQuery(query) => self.slash_query_action(query),
@@ -76,13 +87,18 @@ impl Application {
                 Some(room) => self.run_written_command(&room),
                 None => vec![],
             },
-            Action::RunAppCommand { .. } => vec![],
+            Action::RunAppCommand {
+                command,
+                target: Some(target),
+            } => self.run_menu_command(&command, &target),
+            Action::AskAppCommands => self.ask_command_index().into_iter().collect(),
             _ => vec![],
         }
     }
 
     /// Asks for the open room's command index, unless it's kept or on its
-    /// way: the person just typed `/`.
+    /// way: the person just typed `/`, or opened a message's or a person's
+    /// menu, whose "Apps" lists its message or user commands.
     pub(super) fn ask_command_index(&mut self) -> Option<Effect> {
         let room = self.state.selected.clone()?;
         if !self.state.discord_online || !is_discord_room(&room) {
@@ -169,6 +185,132 @@ impl Application {
         }
         let _ = (room, query);
         vec![]
+    }
+
+    /// The message or user commands the person may use in `room`, for its
+    /// messages' or its people's "Apps" submenu, in the index's order; none
+    /// until the index came. Each is a [`SlashCommand`] without a path.
+    pub fn commands_for_target(&self, room: &str, target: CommandTarget) -> Vec<SlashCommand> {
+        #[cfg(feature = "discord")]
+        if let Some(index) = self.state.app_commands.index(room)
+            && let Some(place) = self.command_place(room, index)
+        {
+            use yapfast_discord::commands::{MESSAGE, USER};
+            let kind = match target {
+                CommandTarget::Message => MESSAGE,
+                CommandTarget::User => USER,
+            };
+            return index
+                .usable(&place)
+                .filter(|command| command.kind == kind)
+                .map(|command| {
+                    let app = index.app(&command.application_id);
+                    SlashCommand {
+                        command: command.id.clone(),
+                        path: vec![],
+                        name: command.name.clone(),
+                        description: command.description.clone(),
+                        app: command.application_id.clone(),
+                        app_name: app.map(|app| app.name.clone()).unwrap_or_default(),
+                        app_icon: app.and_then(|app| {
+                            let icon = app.icon.as_deref()?;
+                            Some(yapfast_discord::ready::application_icon(&app.id, icon))
+                        }),
+                    }
+                })
+                .collect();
+        }
+        let _ = (room, target);
+        vec![]
+    }
+
+    /// Puts "Apps" in the menu of `user`, seen from `room`, when they're a
+    /// Discord user and its index has user commands the person may use
+    /// there: before what's about how this account stands with them, as
+    /// Discord's has it.
+    pub(super) fn offer_apps(&self, room: &str, user: &str, choices: &mut Vec<MenuChoice>) {
+        let discord_user = !user.is_empty() && user.bytes().all(|byte| byte.is_ascii_digit());
+        if self.state.preview
+            || !discord_user
+            || self
+                .commands_for_target(room, CommandTarget::User)
+                .is_empty()
+        {
+            return;
+        }
+        let at = choices
+            .iter()
+            .position(|choice| {
+                matches!(
+                    choice,
+                    MenuChoice::InviteToServer
+                        | MenuChoice::AddFriend
+                        | MenuChoice::AcceptFriend
+                        | MenuChoice::CancelFriendRequest
+                        | MenuChoice::Unfriend
+                        | MenuChoice::Ignore
+                        | MenuChoice::Unignore
+                        | MenuChoice::Block
+                        | MenuChoice::Unblock
+                        | MenuChoice::CopyLink
+                        | MenuChoice::CopyId
+                )
+            })
+            .unwrap_or(choices.len());
+        choices.insert(at, MenuChoice::Apps);
+    }
+
+    /// A message's or a person's "Apps" choice: runs `command` in the open
+    /// room on `target`, a message's item or a Discord user id, as one
+    /// written in the composer runs, with no options. A command the room
+    /// doesn't offer for that kind of target, or a message that isn't one
+    /// of Discord's own (sending, or only this account's), runs nothing.
+    fn run_menu_command(&mut self, command: &str, target: &str) -> Vec<Effect> {
+        let Some(room) = self.state.selected.clone() else {
+            return vec![];
+        };
+        let message = self
+            .state
+            .messages
+            .iter()
+            .find(|message| message.item == target);
+        let (kind, target) = match message {
+            Some(message) => {
+                const EPHEMERAL: u64 = 1 << 6;
+                let id = message
+                    .item
+                    .strip_prefix("d:")
+                    .filter(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()));
+                match id {
+                    Some(id) if message.flags & EPHEMERAL == 0 => {
+                        (CommandTarget::Message, id.to_owned())
+                    }
+                    _ => return vec![],
+                }
+            }
+            None => (CommandTarget::User, target.to_owned()),
+        };
+        let Some(found) = self
+            .commands_for_target(&room, kind)
+            .into_iter()
+            .find(|offered| offered.command == command)
+        else {
+            return vec![];
+        };
+        let Some((spec, _)) = self.slash_command_spec(&room, &found) else {
+            return vec![];
+        };
+        let run = CommandRun {
+            // send_command gives it one.
+            nonce: String::new(),
+            room,
+            application: found.app,
+            command: spec,
+            options: serde_json::Value::Array(vec![]),
+            target: Some(target),
+            files: vec![],
+        };
+        self.start_command(run, found.app_name, found.app_icon)
     }
 
     /// A command `slash_commands` offered, as Discord's index gives it, to
