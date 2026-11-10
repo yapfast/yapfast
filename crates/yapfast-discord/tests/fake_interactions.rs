@@ -9,7 +9,7 @@ use tokio::time::timeout;
 use yapfast_discord::{
     client,
     interactions::{self, Interaction},
-    message::{Message, Reply},
+    message::{self, Message, Reply},
     service::{Discord, Live, Snapshot, Status},
     token,
 };
@@ -460,7 +460,14 @@ async fn a_slash_command_posts_its_options_and_its_answer_arrives() {
     })
     .await;
     assert_eq!(answer.content, "Ran /config.");
-    assert_eq!(answer.interaction.as_deref(), Some(created.as_str()));
+    let interaction = answer.interaction.clone().unwrap();
+    assert_eq!(interaction.id, created);
+    // Its line says who used which command, subcommand and all.
+    assert_eq!(
+        (interaction.user.as_str(), interaction.name.as_deref()),
+        ("Alice", Some("config set"))
+    );
+    assert_eq!(interaction.command_type, Some(message::CHAT_INPUT));
     assert_eq!(
         answer.application_id.as_deref(),
         Some(fixture.deploy.author_id.as_str())
@@ -766,7 +773,13 @@ async fn context_menu_commands_run_on_their_message_or_person() {
         _ => None,
     })
     .await;
-    assert_eq!(quoted.interaction.as_deref(), Some(created.as_str()));
+    let used = quoted.interaction.clone().unwrap();
+    assert_eq!(used.id, created);
+    assert_eq!(used.command_type, Some(message::MESSAGE_COMMAND));
+    assert_eq!(
+        used.target_message_id.as_deref(),
+        Some(fixture.deploy.id.as_str())
+    );
     assert!(quoted.content.starts_with("> Deploy"), "{}", quoted.content);
     // A type 23 answer replies to the message it ran on.
     match &quoted.reply {
@@ -788,6 +801,12 @@ async fn context_menu_commands_run_on_their_message_or_person() {
     .await;
     assert_eq!(waved.content, format!("👋 <@{alice}>"));
     assert!(waved.reply.is_none());
+    let used = waved.interaction.clone().unwrap();
+    assert_eq!(used.command_type, Some(message::USER_COMMAND));
+    assert_eq!(
+        used.target_user.map(|(id, _)| id).as_deref(),
+        Some(alice.as_str())
+    );
 
     // One without a target fails, as Discord refuses it.
     let lost = interactions::CommandUse {

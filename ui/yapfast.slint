@@ -3446,6 +3446,13 @@ export component YapfastWindow inherits Window {
                                                         author-card(item, sender, x, y, width, height) => { root.author-card(item, sender, x, y, width, height); }
                                                         author-menu(item, sender, x, y) => { root.author-menu(item, sender, x, y); }
                                                         jump-to(item) => { root.jump-to(item); }
+                                                        // The command an app's answer names, written for its picker.
+                                                        can-use-commands: root.composer-enabled;
+                                                        use-command(name) => {
+                                                            root.slash-query(name);
+                                                            root.place-composer-caret(1000000);
+                                                            root.focus-composer();
+                                                        }
                                                         // A mention's card opens beside the pointer.
                                                         link-clicked(link) => {
                                                             root.anchor(row-pointer.absolute-position.x + row-pointer.mouse-x, row-pointer.absolute-position.y + row-pointer.mouse-y, 0px, 0px, true);

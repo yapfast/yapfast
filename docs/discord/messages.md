@@ -672,6 +672,36 @@ sends one, and none is sent again on its own.
   the pause, or one after an older autocomplete was sent, drops the older
   one. A failed or unanswered autocomplete keeps the choices shown.
 
+## Who used an app's command
+
+An app's answer names the interaction it answers in `interaction_metadata`
+(docs.discord.food, "Message Interaction Metadata Object"), or, on older
+messages, only in the deprecated `interaction`, which Yapfast reads
+without the other. Over the answer, where a reply would quote, a line says
+who used which command, as Discord's client heads one:
+
+- A slash command (`command_type` 1, or the deprecated object): "Ann used
+  **/config set**", the name with its subcommand group and subcommand as
+  Discord sends it, with Ann's avatar and role colour. A form's answer
+  (type 5) names the command that opened the form, from
+  `triggering_interaction_metadata`; the person is the one who sent it.
+- A user command (2): "Ann used **High five** on @Bob", from `target_user`.
+- A message command's answer (type 23, `command_type` 3) quotes the message
+  it was used on instead, as a reply: `referenced_message`, which Discord
+  sends with it, else the message `message_reference` or
+  `target_message_id` names, looked up as a reply's original is.
+- A button's or menu's answer quotes the message with the button, by
+  `interacted_message_id`, when Discord didn't make it a reply itself; the
+  message the button updated, which names itself there, quotes nothing.
+
+Clicking the name opens the person's card. Clicking a slash command in a
+channel's timeline writes `/` and its name in the composer, as typing it
+would, so the picker offers it again; subcommands are left for the picker.
+The names are the server's, as the timeline's are. Discord's exact
+wording for a user command's target, and whether its client writes a
+clicked command in the composer, aren't documented; Yapfast's follow the
+docs' fields and Discord's client as remembered.
+
 ## GIFs
 
 The GIF button left of the emoji button, or Ctrl+G, opens a picker with two

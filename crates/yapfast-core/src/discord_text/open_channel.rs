@@ -14,7 +14,8 @@ use crate::chat::SendOptions;
 use super::{
     channels::SharedPreviews,
     render::{
-        chat_card, chat_embed, chat_notice, chat_poll, custom_emoji, rendered, sent_id, system_body,
+        chat_card, chat_embed, chat_notice, chat_poll, custom_emoji, rendered, sent_id,
+        system_body, used_command,
     },
     *,
 };
@@ -1778,7 +1779,11 @@ impl OpenChannel {
             id,
             item: format!("d:{}", message.id),
             application_id: message.application_id.clone(),
-            interaction: message.interaction.clone(),
+            interaction: message
+                .interaction
+                .as_ref()
+                .map(|interaction| interaction.id.clone()),
+            used: used_command(discord, Some(&self.guild), server, message),
             flags: message.flags,
             author,
             sender: discord::sender_id(&message.author_id),

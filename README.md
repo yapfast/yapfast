@@ -167,8 +167,9 @@ they do in Discord.
 - **Messages** you can send, reply to, edit, react to, pin, forward and attach
   files to, with Markdown, embeds, custom emoji, stickers and spoilers. Bots'
   buttons, menus and forms work too, and so do apps' slash commands: type `/`,
-  pick one and fill in its options, files and autocomplete included. Apps'
-  message and user commands are under Apps in a message's or a person's menu.
+  pick one and fill in its options, files and autocomplete included; an
+  app's answer says who used which command. Apps' message and user commands
+  are under Apps in a message's or a person's menu.
   Discord's own links to servers, channels, messages and profiles open in
   Yapfast, including one handed to it by the desktop.
 - **Threads**: start one from a message, browse a channel's threads, join or

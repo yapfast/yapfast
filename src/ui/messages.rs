@@ -12,8 +12,9 @@ pub(super) const JUMP_LINK: &str = "yapfast:jump/";
 pub(super) const PINS_LINK: &str = "yapfast:pins";
 
 /// A message continues the previous one's group when the same person sent it
-/// within seven minutes, without replying to something else. A notice, such
-/// as one that someone pinned a message, is a group of its own.
+/// within seven minutes, without replying to something else or answering a
+/// command. A notice, such as one that someone pinned a message, is a group
+/// of its own.
 pub(super) fn continues(before: &ChatMessage, message: &ChatMessage) -> bool {
     if before.notice.is_some() || message.notice.is_some() {
         return false;
@@ -28,7 +29,7 @@ pub(super) fn continues(before: &ChatMessage, message: &ChatMessage) -> bool {
     let close = before.timestamp == 0
         || message.timestamp == 0
         || message.timestamp.abs_diff(before.timestamp) <= 7 * 60;
-    message.reply.is_none() && sender(before) == sender(message) && close
+    message.reply.is_none() && message.used.is_none() && sender(before) == sender(message) && close
 }
 
 /// The local calendar date of a timestamp, such as "3 October 2026"; empty when unknown.
@@ -678,6 +679,14 @@ pub(super) fn message_row_within(
         .as_ref()
         .map(|reply| reply.author.as_str())
         .unwrap_or_default();
+    let used_text = |text: fn(&yapfast_core::chat::UsedCommand) -> &String| -> SharedString {
+        message
+            .used
+            .as_ref()
+            .map(|used| text(used).as_str())
+            .unwrap_or_default()
+            .into()
+    };
     let row = MessageRow {
         picture_url: SharedString::default(),
         reply_picture_url: SharedString::default(),
@@ -755,6 +764,40 @@ pub(super) fn message_row_within(
             .reply
             .as_ref()
             .and_then(|reply| reply.item.clone())
+            .unwrap_or_default()
+            .into(),
+        has_command: message.used.is_some(),
+        command_user: used_text(|used| &used.user),
+        command_sender: message
+            .used
+            .as_ref()
+            .map(|used| discord::sender_user(&used.sender).unwrap_or(&used.sender))
+            .unwrap_or_default()
+            .into(),
+        command_initial: initial(message.used.as_ref().map_or("", |used| &used.user)),
+        command_tint: tint(message.used.as_ref().map_or("", |used| &used.user)),
+        command_color: role_color(message.used.as_ref().and_then(|used| used.color)),
+        command_has_color: message
+            .used
+            .as_ref()
+            .is_some_and(|used| used.color.is_some()),
+        command_picture_url: message
+            .used
+            .as_ref()
+            .and_then(|used| used.avatar.as_deref())
+            .unwrap_or_default()
+            .into(),
+        command_name: used_text(|used| &used.name),
+        command_slash: message
+            .used
+            .as_ref()
+            .and_then(|used| used.slash.as_deref())
+            .unwrap_or_default()
+            .into(),
+        command_target: message
+            .used
+            .as_ref()
+            .and_then(|used| used.target.as_deref())
             .unwrap_or_default()
             .into(),
         reactions: ModelRc::new(VecModel::from(
@@ -836,6 +879,7 @@ pub(super) fn message_row_within(
             styled: slint::StyledText::from_markdown(&note)
                 .unwrap_or_else(|_| slint::StyledText::from_plain_text("Blocked message.")),
             has_reply: false,
+            has_command: false,
             reactions: ModelRc::default(),
             images: ModelRc::default(),
             gallery_width: 0,
