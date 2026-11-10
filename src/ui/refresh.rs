@@ -551,7 +551,6 @@ impl Adapter {
         self.show_channel_settings(window);
         self.show_mfa(window);
         self.show_bot_interactions(window);
-        self.show_app_commands(window);
         self.show_dialogs(window);
         self.show_reactions(window);
         self.show_gifs(window);
@@ -3980,6 +3979,8 @@ impl Adapter {
             self.emoji_word = None;
             self.show_emoji_suggestions(window);
         }
+        // The `/` picker and the command being written follow each keystroke.
+        self.show_app_commands(window);
     }
 
     /// Emoji for the `:name` being typed, or none.

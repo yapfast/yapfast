@@ -9,7 +9,8 @@
 //!
 //! This holds the open room's index ([`AppCommands`]) and says which of its
 //! commands the person may use there ([`Application::slash_commands`]); the
-//! picker, the options and running a command build on it.
+//! picker, the options and running a command (application/slash.rs) build
+//! on it.
 
 use super::*;
 use crate::chat::CommandIndex;
@@ -24,8 +25,6 @@ pub struct AppCommands {
     kept: Option<(String, Arc<CommandIndex>)>,
     /// Why the open room's index couldn't load.
     pub error: Option<String>,
-    /// What follows the `/` in the draft.
-    pub query: String,
 }
 
 impl AppCommands {
@@ -61,23 +60,30 @@ pub struct SlashCommand {
 
 impl Application {
     /// [`Action::SlashQuery`], [`Action::PickCommand`],
-    /// [`Action::SetCommandOption`] and [`Action::RunAppCommand`].
+    /// [`Action::SetCommandOption`], [`Action::FocusCommandOption`],
+    /// [`Action::CloseCommand`] and [`Action::RunAppCommand`].
     pub(super) fn command_action(&mut self, action: Action) -> Vec<Effect> {
         match action {
-            Action::SlashQuery(query) => {
-                self.state.app_commands.query = query;
-                self.ask_command_index().into_iter().collect()
-            }
-            Action::PickCommand(_)
-            | Action::SetCommandOption { .. }
-            | Action::RunAppCommand { .. } => vec![],
+            Action::SlashQuery(query) => self.slash_query_action(query),
+            Action::PickCommand(index) => self.pick_command(index),
+            Action::SetCommandOption { index, value } => self.set_command_option(index, value),
+            Action::FocusCommandOption(index) => self.focus_option(index),
+            Action::CloseCommand(back) => self.close_command(back),
+            Action::RunAppCommand {
+                command: _,
+                target: None,
+            } => match self.state.selected.clone() {
+                Some(room) => self.run_written_command(&room),
+                None => vec![],
+            },
+            Action::RunAppCommand { .. } => vec![],
             _ => vec![],
         }
     }
 
     /// Asks for the open room's command index, unless it's kept or on its
     /// way: the person just typed `/`.
-    fn ask_command_index(&mut self) -> Option<Effect> {
+    pub(super) fn ask_command_index(&mut self) -> Option<Effect> {
         let room = self.state.selected.clone()?;
         if !self.state.discord_online || !is_discord_room(&room) {
             return None;
@@ -116,7 +122,10 @@ impl Application {
                 self.forget_command_index(guild.as_deref());
                 vec![]
             }
-            Event::InteractionCreated { .. } | Event::AutocompleteChoices { .. } => vec![],
+            Event::AutocompleteChoices { nonce, choices } => {
+                self.slash_autocomplete(&nonce, &choices)
+            }
+            Event::InteractionCreated { .. } => vec![],
             _ => vec![],
         }
     }
@@ -157,6 +166,38 @@ impl Application {
         }
         let _ = (room, query);
         vec![]
+    }
+
+    /// A command `slash_commands` offered, as Discord's index gives it, to
+    /// send along with it, and the options of its subcommand, if it has one.
+    pub(super) fn slash_command_spec(
+        &self,
+        room: &str,
+        picked: &SlashCommand,
+    ) -> Option<(Arc<serde_json::Value>, Vec<serde_json::Value>)> {
+        #[cfg(feature = "discord")]
+        {
+            let command = self
+                .state
+                .app_commands
+                .index(room)?
+                .command(&picked.command)?;
+            let variant = command
+                .variants()
+                .into_iter()
+                .find(|variant| variant.path.iter().eq(picked.path.iter()))?;
+            let options = variant
+                .options
+                .iter()
+                .filter_map(|option| serde_json::to_value(option).ok())
+                .collect();
+            Some((Arc::new(command.to_json()), options))
+        }
+        #[cfg(not(feature = "discord"))]
+        {
+            let _ = (room, picked);
+            None
+        }
     }
 
     #[cfg(feature = "discord")]

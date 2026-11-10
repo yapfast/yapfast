@@ -62,7 +62,7 @@ import { MfaChoice, MfaPrompt, MfaDialog } from "mfa.slint";
 import { FoundRow, PickRow, ThreadRow, HeaderSearch, PinsPopover, ThreadsPopover, AddPeoplePopover, SearchPanel, TopicPopover } from "header.slint";
 import { ThreadPanel, NewThreadPanel } from "thread.slint";
 import { BotSelectDialog, BotModalDialog, SelectChoice, ModalField } from "interactions.slint";
-import { CommandChoice, CommandOptionPill } from "app_commands.slint";
+import { CommandChoice, CommandOptionPill, CommandList } from "app_commands.slint";
 import { PostTag, PostRow, PostTagChoice, ForumPanel } from "forum.slint";
 import { BrowseRow, BrowseScreen } from "browse.slint";
 
@@ -466,13 +466,26 @@ export component YapfastWindow inherits Window {
     callback bot-modal-open-select(int);
     callback bot-modal-submit;
     callback bot-modal-close;
-    // Apps' commands, for phases 1b, 1d and 2 of the bot commands (see
-    // app_commands.slint and src/ui/app_commands.rs). Declared, unused yet.
-    /// The `/` picker over the composer, and the commands it offers.
+    // Apps' commands (see app_commands.slint and src/ui/app_commands.rs).
+    /// The list over the composer: the `/` picker's commands, or the values
+    /// the focused option of the command being written may take, under a
+    /// heading that says which, or why there are none; the chosen row.
     in property <bool> command-picker-open;
     in property <[CommandChoice]> command-choices;
-    /// The options of the command being written in the composer.
+    in property <string> command-heading;
+    /// The rows are commands rather than an option's values.
+    in property <bool> command-rows-are-commands;
+    in-out property <int> command-choice-index;
+    /// The command being written in the composer, without its `/`, its
+    /// options and the one the composer writes.
+    in property <string> command-name;
     in property <[CommandOptionPill]> command-options;
+    in property <int> command-focus;
+    /// The composer writes this option; a file is wanted for this one;
+    /// Escape, or with `true` Backspace in the empty first option.
+    callback focus-command-option(int);
+    callback command-file(int);
+    callback close-command(bool);
     /// The commands an open message's or person's "Apps" submenu offers.
     in property <[CommandChoice]> app-menu-commands;
     /// The draft is `/` and this after it; a command picked by its place;
@@ -3711,21 +3724,30 @@ export component YapfastWindow inherits Window {
                                             placeholder: root.is-editing ? "Edit your message" : root.compose-label != "" ? "Write a reply" : root.room-selected ? root.composer-placeholder : "Write a message";
                                             edited(text) => { root.draft-edited(text); }
                                             accepted => { root.send(); }
-                                            suggesting: !root.suggesting-aside && (root.mentions.length > 0 || root.emoji-suggestions.length > 0);
+                                            suggesting: !root.suggesting-aside && ((root.command-picker-open && root.command-choices.length > 0) || root.mentions.length > 0 || root.emoji-suggestions.length > 0);
                                             caret(text, offset) => { root.composer-caret(text, offset); }
+                                            command-name: root.command-name; command-options: root.command-options; command-focus: root.command-focus;
+                                            command-option-clicked(index) => { root.focus-command-option(index); }
+                                            command-tab(step) => { root.focus-command-option(Math.mod(root.command-focus + step + root.command-options.length, root.command-options.length)); }
+                                            command-file(index) => { root.command-file(index); }
+                                            command-closed(back) => { root.close-command(back); }
                                             suggestion-moved(step) => {
-                                                if root.mentions.length > 0 {
+                                                if root.command-picker-open && root.command-choices.length > 0 {
+                                                    root.command-choice-index = Math.mod(root.command-choice-index + step + root.command-choices.length, root.command-choices.length);
+                                                } else if root.mentions.length > 0 {
                                                     root.mention-index = Math.mod(root.mention-index + step + root.mentions.length, root.mentions.length);
                                                 } else {
                                                     root.emoji-suggestion-index = Math.mod(root.emoji-suggestion-index + step + root.emoji-suggestions.length, root.emoji-suggestions.length);
                                                 }
                                             }
                                             suggestion-chosen => {
-                                                if root.mentions.length > 0 { root.mention-chosen(root.mention-index); }
+                                                if root.command-picker-open && root.command-choices.length > 0 { root.pick-command(root.command-choice-index); }
+                                                else if root.mentions.length > 0 { root.mention-chosen(root.mention-index); }
                                                 else { root.emoji-suggestion-chosen(root.emoji-suggestion-index); }
                                             }
                                             suggestion-dismissed => {
-                                                if root.mentions.length > 0 { root.mention-dismissed(); } else { root.emoji-suggestion-dismissed(); }
+                                                if root.command-picker-open && root.command-choices.length > 0 { root.close-command(false); }
+                                                else if root.mentions.length > 0 { root.mention-dismissed(); } else { root.emoji-suggestion-dismissed(); }
                                             }
                                             up-from-empty => { root.edit-last(); }
                                             up-to-messages => { root.browse-messages(); }
@@ -4090,7 +4112,17 @@ export component YapfastWindow inherits Window {
     }
     // Mention suggestions, just above the composer and as wide as it, over a
     // reply's or an edit's bar; see MentionList.
-    if root.mentions.length > 0 && root.composer-enabled && !root.suggesting-aside: MentionList {
+    // The `/` picker, or what the focused option of an app's command may
+    // take, in the same place; see CommandList.
+    if root.command-picker-open && root.composer-enabled && !root.suggesting-aside: CommandList {
+        x: composer-box.absolute-position.x;
+        width: composer-box.width;
+        y: composer-box.absolute-position.y - (root.compose-label != "" ? 36px : 0px) - self.height - 8px;
+        choices: root.command-choices; heading: root.command-heading;
+        choice-index: root.command-choice-index; commands: root.command-rows-are-commands;
+        chosen(index) => { root.pick-command(index); }
+    }
+    if root.mentions.length > 0 && root.composer-enabled && !root.suggesting-aside && !root.command-picker-open: MentionList {
         x: composer-box.absolute-position.x;
         width: composer-box.width;
         y: composer-box.absolute-position.y - (root.compose-label != "" ? 36px : 0px) - self.height - 8px;
@@ -4098,7 +4130,7 @@ export component YapfastWindow inherits Window {
         mention-chosen(index) => { root.mention-chosen(index); }
     }
     // Emoji suggestions, in the same place; see EmojiSuggestions.
-    if root.emoji-suggestions.length > 0 && root.mentions.length == 0 && root.composer-enabled && !root.suggesting-aside: EmojiSuggestions {
+    if root.emoji-suggestions.length > 0 && root.mentions.length == 0 && root.composer-enabled && !root.suggesting-aside && !root.command-picker-open: EmojiSuggestions {
         x: composer-box.absolute-position.x;
         width: composer-box.width;
         y: composer-box.absolute-position.y - (root.compose-label != "" ? 36px : 0px) - self.height - 8px;

@@ -2545,8 +2545,9 @@ pub struct CommandRun {
     pub options: serde_json::Value,
     /// The message or user a context-menu command acts on.
     pub target: Option<String>,
-    /// The files the options carry, which go in the same request. An
-    /// autocomplete sends none.
+    /// The files of its attachment options, in order, which go in the same
+    /// request: an attachment option's `value` is its file's place here, as
+    /// `"0"`. An autocomplete sends none.
     pub files: Vec<PathBuf>,
 }
 

@@ -579,8 +579,35 @@ decides:
   administrator may use every command. The account's own apps aren't the
   server's to limit.
 
-Slash commands show with their subcommands apart, as `config set`; message
-and user commands are for those menus.
+Message and user commands are for those menus; the composer offers the
+slash commands:
+
+- Typing `/` at the start of a channel's composer opens the picker over it,
+  as Discord's does. It lists the slash commands the person may use there, a
+  subcommand as its own row, as `config set`, in the index's order, each with
+  its app's icon and name, and narrows them as a word of the name is typed.
+  Up and Down choose, Tab, Enter or a click picks, and Escape closes it until
+  the `/` goes.
+- A picked command shows as pills over the composer, one for each option,
+  and the composer's text writes the focused one. Tab and Shift+Tab move
+  between them, as does a click on a pill. Escape stops writing the command,
+  and Backspace in an empty first option puts its name back to pick again.
+  The `/word` typed to find it isn't kept as a draft, and neither is what an
+  option holds.
+- An option with `choices` lists them, a boolean lists True and False, and
+  user, role, mentionable and channel options list the people, roles and
+  channels mentions would offer; a channel option keeps to its
+  `channel_types`, telling text channels (0, 5) from voice ones (2, 13). An
+  option with `autocomplete` lists the app's answer to what was typed (see
+  below). A file option opens the file picker on Enter or a click.
+- Discord leaves the checks to the client ("This validation is client-side
+  only"), so Enter runs the command only when each option passes them:
+  required options filled, whole numbers and numbers within `min_value` and
+  `max_value`, text within `min_length` and `max_length`, a choice's name or
+  a known person, role or channel. Until then each wrong pill says why in red,
+  and the first takes the composer. The wording is Yapfast's; Discord's isn't
+  documented.
+
 ## Sending apps' commands
 
 An app's command is sent as Discord's client sends one (docs.discord.food,
