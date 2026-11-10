@@ -729,8 +729,10 @@ component CustomizeGroup inherits VerticalLayout {
 
 component CustomizeCell inherits Rectangle {
     in property <bool> enabled;
+    /// While the pointer rests on the cell, for what plays only then.
+    out property <bool> hot: touch.has-hover;
     callback clicked;
-    height: 100px; border-radius: 12px; clip: true;
+    height: 100px; border-radius: 6px; clip: true;
     // Tiles side by side share their row evenly, whatever they hold.
     horizontal-stretch: 1; min-width: 0px; preferred-width: 100px;
     background: touch.has-hover && root.enabled ? Theme.hover : Theme.raised;
@@ -831,15 +833,17 @@ component ProfileCustomize inherits Rectangle {
                     title: "Avatar & Decoration";
                     HorizontalLayout {
                         spacing: 8px;
-                        CustomizeCell {
+                        avatar-cell := CustomizeCell {
                             enabled: root.avatar-enabled;
                             clicked => { root.pick(0); }
-                            Avatar { size: 72px; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; }
+                            // The list's entries play only under the pointer, as
+                            // Discord's do; the card's own avatar loops instead.
+                            Avatar { size: 72px; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; animate: avatar-cell.hot; }
                         }
-                        CustomizeCell {
+                        decoration-cell := CustomizeCell {
                             enabled: true;
                             clicked => { root.open-link("https://discord.com/shop"); }
-                            if root.data.decoration-url != "": Avatar { width: 64px; height: 64px; size: 64px; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; decoration-url: root.data.decoration-url; }
+                            if root.data.decoration-url != "": Avatar { width: 64px; height: 64px; size: 64px; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; decoration-url: root.data.decoration-url; animate: decoration-cell.hot; }
                             if root.data.decoration-url == "" && root.decoration-set: Text { text: "Decoration on"; color: Theme.text; font-size: 13px; }
                             if !root.decoration-set: SlotPlus { }
                         }
