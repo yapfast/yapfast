@@ -119,9 +119,9 @@ impl Fixture {
             channel: self.deploy.channel_id.clone(),
             message: self.deploy.id.clone(),
             message_flags: self.deploy.flags,
-            // Discord leaves a bot's own message without one.
-            application: None,
-            author: self.deploy.author_id.clone(),
+            // Discord leaves a bot's own message without one: its author's
+            // id, which a bot's user shares with its app, stands for it.
+            application: self.deploy.author_id.clone(),
             component_type: kind,
             custom_id: custom_id.into(),
             values: None,
@@ -256,7 +256,7 @@ async fn a_button_click_posts_discords_body_and_succeeds() {
     assert!(fixture.discord.interact(&pick).await.unwrap());
     assert_eq!(
         fixture.sent()[1]["data"],
-        json!({"component_type": 3, "custom_id": "environment", "values": ["production"]})
+        json!({"component_type": 3, "custom_id": "environment", "type": 3, "values": ["production"]})
     );
 }
 
@@ -341,13 +341,13 @@ async fn a_failed_interaction_says_why() {
     .await;
     assert_eq!(
         interactions::failure_reason(reason),
-        "This interaction failed."
+        "This interaction failed"
     );
     // An app Discord doesn't know refuses the request itself, with
     // Discord's words.
     let mut unknown = fixture.click("3001", 2, "ok");
     if let Interaction::Component { application, .. } = &mut unknown {
-        *application = Some("1".into());
+        *application = "1".into();
     }
     let error = fixture.discord.interact(&unknown).await.unwrap_err();
     assert_eq!(error.to_string(), "Discord doesn't know that application.");
@@ -864,7 +864,7 @@ async fn a_menu_of_several_options_sends_its_picks_and_shows_their_emoji() {
     assert!(fixture.discord.interact(&pick).await.unwrap());
     assert_eq!(
         fixture.sent()[0]["data"],
-        json!({"component_type": 3, "custom_id": "checks", "values": ["unit", "load"]})
+        json!({"component_type": 3, "custom_id": "checks", "type": 3, "values": ["unit", "load"]})
     );
     let updated = live_where(&mut live, |live| match live {
         Live::Updated(message) if message.id == fixture.deploy.id => Some(message),

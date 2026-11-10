@@ -143,6 +143,7 @@ pub(super) fn found(
         emoji: custom_emoji(message),
         // Shown, not voted in: its author can't end it from here either.
         poll: message.poll.as_ref().map(|poll| chat_poll(poll, false)),
+        voice: chat_voice(message),
         notice: chat_notice(message),
         used: used_command(discord, guild, server, message),
         ..Default::default()
@@ -191,6 +192,17 @@ pub(super) fn used_command(
             .as_ref()
             .map(|(target, fallback)| named(target, fallback)),
     })
+}
+
+/// A Discord voice message's recording, as its card shows it.
+pub(super) fn chat_voice(message: &Message) -> Option<crate::chat::VoiceMessage> {
+    message
+        .voice
+        .as_ref()
+        .map(|voice| crate::chat::VoiceMessage {
+            duration_ms: voice.duration_ms,
+            waveform: voice.waveform.clone(),
+        })
 }
 
 /// A Discord message's notice, as the timeline marks it.

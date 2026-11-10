@@ -199,8 +199,11 @@
 // it answers 80013.
 // From a DM's menu, PUT /users/@me/relationships/{id} with type 2 blocks,
 // DELETE ends a friendship or block, PUT and DELETE .../{id}/ignore ignore and
-// stop, and PATCH gives a friend a nickname. GET and PUT /users/@me/notes/{id}
-// read and write Alice's note on someone, GET /_control/note-reads counts the
+// stop, and PATCH gives a friend a nickname. GET
+// /_control/relationship-changes lists each PUT and DELETE on
+// /users/@me/relationships/{id}, oldest first: its method, the user, the
+// body's type or null, and the location its X-Context-Properties named.
+// GET and PUT /users/@me/notes/{id} read and write Alice's note on someone, GET /_control/note-reads counts the
 // reads, POST /_control/note-elsewhere?user=ID&note=TEXT changes a note as
 // another of her clients does, DELETE /channels/{id} closes a DM
 // or leaves a group, and GET /_control/group-leaves lists each group left
@@ -312,6 +315,8 @@
 // POST /_control/clip makes Bob attach clip.mp4, six seconds with sound, and
 // link a post whose card plays a video, as vxtwitter's do; Carol forwards
 // the clip. They go to #general, or with ?channel=ID to that channel or thread.
+// POST /_control/voice-message makes Bob send a voice message, the two
+// seconds of testing/fixtures/voice-tone.ogg, to #general or ?channel=ID.
 // POST /_control/bob-away makes Bob idle with a custom status,
 // /_control/bob-mobile puts him online on his phone alone, and
 // /_control/bob-offline takes him offline.
@@ -1235,6 +1240,8 @@ type File = {
   height?: number;
   /** Draws the image at a requested size, as Discord's media proxy does. */
   draw?: (width: number, height: number) => Uint8Array;
+  /** A voice message's recording: how long it plays, and its loudness. */
+  voice?: { seconds: number; waveform: Uint8Array };
 };
 const files = new Map<string, File>();
 const scaled = new Map<string, Uint8Array>();
@@ -1254,6 +1261,9 @@ function wireAttachment(file: File, origin: string) {
     proxy_url: `${origin}/media/${path}`,
     content_type: file.contentType,
     ...(file.width ? { width: file.width, height: file.height } : {}),
+    ...(file.voice
+      ? { duration_secs: file.voice.seconds, waveform: Buffer.from(file.voice.waveform).toString("base64") }
+      : {}),
   };
 }
 
@@ -2345,6 +2355,11 @@ const channelEdits = new Map<string, Partial<GuildChannel>>();
 const deletedChannels = new Set<string>();
 // Each body of PATCH /guilds/{id}/channels, for GET /_control/channel-moves.
 const channelMoves: unknown[] = [];
+
+// Each PUT and DELETE on /users/@me/relationships/{id}, with the type its
+// body gave and the location its X-Context-Properties named, for GET
+// /_control/relationship-changes.
+const relationshipChanges: { method: string; user: string; type: number | null; location: string }[] = [];
 
 // Each group DM Alice left, with the `silent` query DELETE /channels/{id}
 // sent, or null, for GET /_control/group-leaves.
@@ -6906,9 +6921,11 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     const id = m[1]!;
     const user = userById.get(id);
     if (!user || id === ALICE) return notFound("Unknown User", 10013);
-    if (!where()) return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    const location = where();
+    if (!location) return json({ message: "Invalid Form Body", code: 50035 }, 400);
     const before = relationships.get(id);
     if (method === "DELETE") {
+      relationshipChanges.push({ method, user: id, type: null, location });
       if (before === undefined) return notFound("Unknown Relationship", 10011);
       relationships.delete(id);
       nicknames.delete(id);
@@ -6916,6 +6933,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       return empty();
     }
     const body: any = await req.json().catch(() => ({}));
+    relationshipChanges.push({ method, user: id, type: typeof body.type === "number" ? body.type : null, location });
     if (body.type === 2) {
       nicknames.delete(id);
       befriend(user, 2);
@@ -7921,6 +7939,21 @@ function postShowcase(origin: string) {
 // beeps. Its poster, which Discord's proxy makes from the first frame, is
 // drawn here instead.
 const clip = readFileSync(new URL("video-clip.mp4", fixtures));
+
+/** Bob's voice message: IS_VOICE_MESSAGE, and one Ogg Opus attachment. */
+function postVoiceMessage(origin: string, channel: string) {
+  const now = Date.now();
+  const recording = addFile({
+    id: snowflake(now, 1),
+    channel,
+    filename: "voice-message.ogg",
+    contentType: "audio/ogg",
+    data: new Uint8Array(readFileSync(new URL("voice-tone.ogg", fixtures))),
+    // A steady tone that swells in and fades out.
+    voice: { seconds: 2.0065, waveform: Uint8Array.from({ length: 40 }, (_, i) => Math.min(200, 40 * Math.min(i + 1, 40 - i))) },
+  });
+  dispatch("MESSAGE_CREATE", dispatched(post(channel, users.bob, "", now, { files: [recording], flags: 1 << 13 }), origin));
+}
 
 function postVideo(origin: string, channel: string) {
   const now = Date.now();
@@ -9075,6 +9108,10 @@ const server = Bun.serve<SocketData>({
       postVideo(origin, url.searchParams.get("channel") ?? GENERAL);
       return new Response("video posted\n");
     }
+    if (req.method === "POST" && path === "/_control/voice-message") {
+      postVoiceMessage(origin, url.searchParams.get("channel") ?? GENERAL);
+      return new Response("voice message posted\n");
+    }
     if (req.method === "POST" && path === "/_control/components") {
       return new Response(`${postComponents(origin)}\n`);
     }
@@ -9347,6 +9384,9 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/group-leaves") {
       return Response.json(groupLeaves);
+    }
+    if (req.method === "GET" && path === "/_control/relationship-changes") {
+      return Response.json(relationshipChanges);
     }
     if (req.method === "GET" && path === "/_control/invite-joins") {
       return Response.json(inviteJoins);

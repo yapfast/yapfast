@@ -8,6 +8,25 @@ use super::*;
 use crate::chat::{CommandRun, Interaction};
 use yapfast_discord::interactions::{self, CommandUse, Interaction as DiscordInteraction};
 
+/// What a message says under the control that failed, as Discord's client.
+const FAILED: &str = "This interaction failed";
+
+/// Discord's client says this when a control is clicked faster than
+/// Discord takes.
+const TOO_FAST: &str = "Slow down! You're clicking too fast.";
+
+/// Why an interaction Discord didn't take failed, as Discord's client says
+/// it: a refusal in its words, anything else in Yapfast's.
+fn refused(error: &anyhow::Error) -> String {
+    tracing::debug!("Discord refused an interaction: {error:#}");
+    match error.downcast_ref::<yapfast_discord::api::Refused>() {
+        Some(refused) if refused.rate_limited() => TOO_FAST.to_owned(),
+        Some(_) => FAILED.to_owned(),
+        // Not connected, a file not read, or asked too often: Yapfast's.
+        None => error.to_string(),
+    }
+}
+
 /// Carries out an interaction command, or gives back any other.
 pub(super) fn command(
     command: Command,
@@ -87,7 +106,7 @@ fn interact(
             Err(error) => {
                 let _ = events.send(Event::InteractionFailed {
                     nonce,
-                    reason: error.to_string(),
+                    reason: refused(&error),
                 });
             }
         }
@@ -141,7 +160,7 @@ fn run_command(run: CommandRun, discord: Result<&Discord, &str>, events: &Unboun
             Err(error) => {
                 let _ = events.send(Event::InteractionFailed {
                     nonce,
-                    reason: error.to_string(),
+                    reason: refused(&error),
                 });
             }
         }
@@ -222,7 +241,6 @@ fn for_discord(interaction: Interaction) -> DiscordInteraction {
             message,
             message_flags,
             application,
-            author,
             component_type,
             custom_id,
             values,
@@ -233,7 +251,6 @@ fn for_discord(interaction: Interaction) -> DiscordInteraction {
             message,
             message_flags,
             application,
-            author,
             component_type,
             custom_id,
             values,

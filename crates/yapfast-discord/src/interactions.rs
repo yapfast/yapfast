@@ -9,9 +9,8 @@
 //! here retries or sends one on its own.
 
 use std::{
-    collections::HashMap,
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicU64, Ordering},
     },
     time::Duration,
@@ -36,9 +35,6 @@ const CHAT_BAR: &str = "slash_ui";
 /// The application command option type of a file.
 const ATTACHMENT: u64 = 11;
 
-/// The most bots whose application is kept.
-const KEPT_APPS: usize = 256;
-
 /// A use of a bot's control or form, as Yapfast sends it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Interaction {
@@ -51,10 +47,9 @@ pub enum Interaction {
         message: String,
         /// The message's flags, which Discord's client sends with it.
         message_flags: u64,
-        /// The message's `application_id`, when Discord gave one.
-        application: Option<String>,
-        /// The message's author, the bot.
-        author: String,
+        /// The message's `application_id`, or else its author's id, which a
+        /// bot's user shares with its app, as Discord's client sends it.
+        application: String,
         /// 2 for a button, 3 and 5-8 for the select menus.
         component_type: u64,
         custom_id: String,
@@ -115,9 +110,8 @@ impl Interaction {
         }
     }
 
-    /// The body of `POST /interactions` in the gateway session `session`,
-    /// with the application `app_ids` knows for a component's bot.
-    pub fn body(&self, session: &str, app_ids: &AppIds) -> Value {
+    /// The body of `POST /interactions` in the gateway session `session`.
+    pub fn body(&self, session: &str) -> Value {
         match self {
             Self::Component {
                 nonce,
@@ -126,20 +120,14 @@ impl Interaction {
                 message,
                 message_flags,
                 application,
-                author,
                 component_type,
                 custom_id,
                 values,
             } => {
-                let application = match application {
-                    Some(application) => {
-                        app_ids.learn(author, application);
-                        application.clone()
-                    }
-                    None => app_ids.of(author),
-                };
                 let mut data = json!({"component_type": component_type, "custom_id": custom_id});
                 if let Some(values) = values {
+                    // Discord's client names a menu's kind beside its picks.
+                    data["type"] = json!(component_type);
                     data["values"] = json!(values);
                 }
                 let mut body = json!({
@@ -308,50 +296,13 @@ impl Autocompletes {
     }
 }
 
-/// The application each bot user belongs to, as Discord said it: a message's
-/// `application_id`, or the `application` of the bot's profile once someone
-/// opened it. Yapfast asks for neither on its own. A bot not known here is
-/// taken to be its own application, as an app's bot user has the
-/// application's id: Discord's client does the same for a message without
-/// `application_id` (from its web client; docs.discord.food doesn't say).
-#[derive(Clone, Default, Debug)]
-pub struct AppIds(Arc<Mutex<HashMap<String, String>>>);
-
-impl AppIds {
-    /// Keeps `application` as the bot `bot`'s.
-    pub fn learn(&self, bot: &str, application: &str) {
-        if bot.is_empty() || application.is_empty() {
-            return;
-        }
-        let mut apps = self.0.lock().unwrap_or_else(|poison| poison.into_inner());
-        if apps.get(bot).map(String::as_str) == Some(application) {
-            return;
-        }
-        // Few bots are used in a session; past the limit, start over.
-        if apps.len() >= KEPT_APPS {
-            apps.clear();
-        }
-        apps.insert(bot.to_owned(), application.to_owned());
-    }
-
-    /// The application of the bot `bot`.
-    pub fn of(&self, bot: &str) -> String {
-        self.0
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .get(bot)
-            .cloned()
-            .unwrap_or_else(|| bot.to_owned())
-    }
-}
-
 /// What INTERACTION_FAILURE's `reason_code` means, in Discord's words.
 pub fn failure_reason(code: u64) -> &'static str {
     match code {
         // TIMEOUT: the app didn't answer within 3 seconds.
-        2 => "The application did not respond.",
+        2 => "The application did not respond",
         // UNKNOWN, and 3-20, which are about launching an activity.
-        _ => "This interaction failed.",
+        _ => "This interaction failed",
     }
 }
 
@@ -359,47 +310,42 @@ pub fn failure_reason(code: u64) -> &'static str {
 mod tests {
     use super::*;
 
-    fn click(application: Option<&str>) -> Interaction {
+    fn click(values: Option<Vec<String>>) -> Interaction {
         Interaction::Component {
             nonce: "5".into(),
             guild: Some("1".into()),
             channel: "2".into(),
             message: "3".into(),
             message_flags: 0,
-            application: application.map(str::to_owned),
-            author: "7".into(),
-            component_type: 2,
+            application: "7".into(),
+            component_type: if values.is_some() { 3 } else { 2 },
             custom_id: "ok".into(),
-            values: None,
+            values,
         }
     }
 
     #[test]
     fn a_click_is_sent_as_discords_client_sends_it() {
-        let apps = AppIds::default();
         assert_eq!(
-            click(None).body("s", &apps),
+            click(None).body("s"),
             json!({
                 "type": 3, "nonce": "5", "guild_id": "1", "channel_id": "2",
                 "message_id": "3", "message_flags": 0, "application_id": "7",
                 "session_id": "s", "data": {"component_type": 2, "custom_id": "ok"},
             })
         );
-    }
-
-    #[test]
-    fn a_bots_application_is_learned_from_what_discord_said() {
-        let apps = AppIds::default();
-        click(Some("9")).body("s", &apps);
-        assert_eq!(click(None).body("s", &apps)["application_id"], "9");
-        assert_eq!(apps.of("8"), "8");
+        // A menu's picks go with its kind beside them.
+        assert_eq!(
+            click(Some(vec!["a".into()])).body("s")["data"],
+            json!({"component_type": 3, "custom_id": "ok", "type": 3, "values": ["a"]})
+        );
     }
 
     #[test]
     fn failures_say_what_discords_client_says() {
-        assert_eq!(failure_reason(2), "The application did not respond.");
-        assert_eq!(failure_reason(1), "This interaction failed.");
-        assert_eq!(failure_reason(17), "This interaction failed.");
+        assert_eq!(failure_reason(2), "The application did not respond");
+        assert_eq!(failure_reason(1), "This interaction failed");
+        assert_eq!(failure_reason(17), "This interaction failed");
     }
 
     #[test]
@@ -414,7 +360,7 @@ mod tests {
             components: json!([{"type": 18, "component": {"type": 4, "custom_id": "a", "value": "hi"}}]),
             files: Vec::new(),
         };
-        let body = form.body("s", &AppIds::default());
+        let body = form.body("s");
         assert_eq!(body["type"], 5);
         assert!(body.get("guild_id").is_none());
         assert_eq!(body["data"]["id"], "11");
@@ -434,7 +380,7 @@ mod tests {
             components: json!([{"type": 18, "component": {"type": 19, "custom_id": "shots", "values": ["0", "1"]}}]),
             files: vec!["a.png".into(), "b.txt".into()],
         };
-        let body = form.body("s", &AppIds::default());
+        let body = form.body("s");
         assert_eq!(
             body["data"]["attachments"],
             json!([{"id": "0", "filename": "a.png"}, {"id": "1", "filename": "b.txt"}])
@@ -461,7 +407,7 @@ mod tests {
     fn a_command_is_sent_with_its_index_entry_and_options() {
         let run = echo(json!([{"type": 3, "name": "text", "value": "hi"}]), &[]);
         assert_eq!(
-            Interaction::Command(run.clone()).body("s", &AppIds::default()),
+            Interaction::Command(run.clone()).body("s"),
             json!({
                 "type": 2, "nonce": "5", "application_id": "9", "guild_id": "1",
                 "channel_id": "2", "session_id": "s", "analytics_location": "slash_ui",

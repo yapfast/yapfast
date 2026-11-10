@@ -80,6 +80,9 @@ pub enum Row {
     Buttons(Vec<Button>),
     /// A menu, by what it shows before it's opened: the options picked by
     /// default, or its placeholder.
+    /// A select menu, by the options it picks by default or its
+    /// placeholder; `kind` is its component type, 3 for its own options and
+    /// 5 to 8 for users, roles, both or channels, of `channel_types`.
     Select {
         text: String,
         disabled: bool,
@@ -118,11 +121,14 @@ pub struct Button {
     pub style: Style,
     /// Where a link button leads.
     pub url: Option<String>,
+    /// What its app knows it by, when using it asks the app.
     pub custom_id: Option<String>,
+    /// What a premium button offers in its app's store.
     pub sku_id: Option<String>,
     pub disabled: bool,
 }
 
+/// An option of a string select menu.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SelectOption {
     pub label: String,

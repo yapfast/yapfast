@@ -54,6 +54,8 @@ a phone. Yapfast tells that client's voice state from its own by the
 state with another is the other client's. The voice channel lists the
 account there as Discord does: dimmed until hovered, without its icons, with
 the tooltip "Connected on another client". Joining here takes the call over,
+from the channel's row, from Move to in the account's menu there, or by
+[dragging it onto another channel](servers.md#dragging-someone-to-another-voice-channel),
 and the join waits for a voice state of this session. When the other client
 joins voice, Yapfast's call ends without sending op 4 with no channel, which
 would end the other client's call too; Yapfast sends that only for a join under
@@ -135,8 +137,8 @@ the loss are measured.
 While this account's screen is live, a Stream tab says how it goes out:
 the encoder and where it runs ("NVENC on the GPU", "x264 on the CPU"), the
 codec Discord chose, the size and frame rate sent, the bitrate sent over
-the last second beside the one aimed for, which follows Discord's bandwidth
-estimate, and the keyframes viewers asked for and the packets resent to
+the last second beside the one aimed for, which follows what the uplink
+carries ([Go Live](go-live.md)), and the keyframes viewers asked for and the packets resent to
 them. Discord's client shows its stream's numbers only in developer mode.
 The stream worker reports them once a second while live
 (`Report::Sending`), counting what `StreamSender` sends; the call keeps

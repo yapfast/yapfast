@@ -35,7 +35,7 @@ pub(super) struct Reach {
     /// A custom emoji's picture arrived: the emoji picker shows it at once,
     /// without laying the rest of the window out again.
     emoji: bool,
-    /// The video playing changed.
+    /// The video or voice message playing changed.
     video: bool,
     pub(super) everything: bool,
 }
@@ -78,7 +78,7 @@ impl Reach {
                 picker: true,
                 ..Self::default()
             },
-            Event::Video(_) => Self {
+            Event::Video(_) | Event::VoiceMessage(_) => Self {
                 video: true,
                 ..Self::default()
             },
@@ -465,6 +465,7 @@ impl Adapter {
         }
         if reach.video {
             self.show_video(window);
+            self.show_voice_message(window);
         }
     }
 
@@ -563,6 +564,7 @@ impl Adapter {
         self.show_aside(window);
         self.show_voice(window);
         self.show_video(window);
+        self.show_voice_message(window);
         let state = &self.app.state;
         if changes.selection {
             self.focus_when_ready = state.shows_text() && !state.room_ready;
@@ -748,10 +750,15 @@ impl Adapter {
     /// Bots' controls waiting for Discord, and the select menu and form
     /// one opened.
     pub(super) fn show_bot_interactions(&mut self, window: &YapfastWindow) {
-        let busy = self.app.state.interactions.busy_controls();
-        if window.get_bot_busy_controls() != busy.as_str() {
-            window.set_bot_busy_controls(busy.into());
-        }
+        let state = &self.app.state;
+        // The newest control waiting shows so; the core holds back any.
+        window.set_bot_busy_item(state.interactions.newest_busy().unwrap_or("").into());
+        let (failed, why) = state
+            .interaction_failed
+            .as_ref()
+            .map_or(("", ""), |(item, why)| (item.as_str(), why.as_str()));
+        window.set_bot_failed_item(failed.into());
+        window.set_bot_failed_text(why.into());
         let select = self.app.state.select_menu.as_ref();
         window.set_bot_select_open(select.is_some());
         if let Some(select) = select {
@@ -807,7 +814,7 @@ impl Adapter {
         if let Some(modal) = modal {
             window.set_bot_modal_heading(modal.title.as_str().into());
             window.set_bot_modal_supported(modal.supported);
-            window.set_bot_modal_saving(modal.saving);
+            window.set_bot_modal_saving(modal.saving());
             window.set_bot_modal_error(modal.error.as_deref().unwrap_or_default().into());
             let current = window.get_bot_modal_fields();
             let shown = current.as_any().downcast_ref::<VecModel<ModalField>>();
@@ -1454,6 +1461,41 @@ impl Adapter {
         if self.arranging.is_some() {
             self.show_arranging(window);
         }
+        if self.moving_person.is_some() {
+            self.show_moving_person(window);
+        }
+    }
+
+    /// Someone dragged from a voice channel, and which of the list's rows
+    /// they may drop on: the voice channels their menu's Move to offers.
+    /// A folded category's hidden row names its first channel but takes no
+    /// drop. It stops once none is listed, as when they left the channel or
+    /// another server's list shows.
+    pub(super) fn show_moving_person(&mut self, window: &YapfastWindow) {
+        let targets = self
+            .moving_person
+            .as_ref()
+            .map(|(place, user)| self.app.move_targets(place, user))
+            .unwrap_or_default();
+        let droppable: Vec<bool> = self
+            .models
+            .rooms
+            .iter()
+            .map(|row| !row.hidden && targets.iter().any(|(room, _)| row.id == room.as_str()))
+            .collect();
+        if !droppable.contains(&true) {
+            self.stop_moving_person(window);
+            return;
+        }
+        window.set_person_droppable(ModelRc::new(VecModel::from(droppable)));
+        window.set_person_moving(true);
+    }
+
+    /// Ends dragging someone, wherever it ended.
+    pub(super) fn stop_moving_person(&mut self, window: &YapfastWindow) {
+        self.moving_person = None;
+        window.set_person_moving(false);
+        window.set_person_droppable(ModelRc::default());
     }
 
     /// The channel or category being dragged in a Discord server's channel
@@ -3110,7 +3152,11 @@ impl Adapter {
                     &editor.pronouns,
                     fallback.map(|fallback| &fallback.pronouns),
                 ),
-                bio: written(&editor.bio, fallback.map(|fallback| &fallback.bio)),
+                // Its times as the profile shows them, as Discord's preview does.
+                bio: yapfast_core::clock::render_timestamps(&written(
+                    &editor.bio,
+                    fallback.map(|fallback| &fallback.bio),
+                )),
                 created: fallback.and_then(|fallback| fallback.created.clone()),
                 joined: fallback.and_then(|fallback| fallback.joined.clone()),
                 theme: editor.theme().ok().flatten(),
@@ -4441,7 +4487,7 @@ impl Adapter {
         window.set_dm_friend(dm_person.map_or(0, |person| match state.relation(person) {
             // The header offers no "sent", which the profile card shows.
             Relation::Outgoing => 0,
-            relation => friend_offer(relation),
+            _ => friend_offer(state, person),
         }));
         window.set_can_call(dm_call.is_some_and(|room| !room.request) && !voice_here);
         window.set_call_going(!present.is_empty());
@@ -4912,6 +4958,42 @@ impl Adapter {
             };
             player.set_time(video_time(at, video.duration_ms).into());
         }
+    }
+
+    /// The voice message playing, or paused, which its card shows through
+    /// [`VoicePlayer`].
+    fn show_voice_message(&self, window: &YapfastWindow) {
+        let player = window.global::<VoicePlayer>();
+        let state = &self.app.state;
+        player.set_speed(format!("{}x", state.voice_tuning.speed).into());
+        player.set_volume(state.voice_tuning.volume);
+        let Some(playback) = &state.voice_message else {
+            player.set_item(SharedString::default());
+            player.set_playing(false);
+            player.set_progress(0.0);
+            player.set_time(SharedString::default());
+            return;
+        };
+        let duration = state
+            .message(&playback.item)
+            .and_then(|message| message.voice.as_ref())
+            .map_or(0, |voice| voice.duration_ms);
+        player.set_item(playback.item.as_str().into());
+        player.set_loading(playback.loading);
+        player.set_playing(playback.playing);
+        player.set_error(playback.error.clone().unwrap_or_default().into());
+        player.set_progress(if duration > 0 {
+            (playback.position_ms as f64 / duration as f64).min(1.0) as f32
+        } else {
+            0.0
+        });
+        // At its start it shows only how long it is.
+        let started = playback.playing || playback.position_ms > 0;
+        player.set_time(if started {
+            video_time(playback.position_ms, Some(duration)).into()
+        } else {
+            SharedString::default()
+        });
     }
 
     fn show_viewer(&mut self, window: &YapfastWindow) {

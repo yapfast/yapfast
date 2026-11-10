@@ -750,9 +750,6 @@ pub struct Discord {
     /// Discord's own soundboard sounds, once a call asked for them: Discord's
     /// client asks once a session too.
     default_sounds: Arc<tokio::sync::Mutex<Option<Arc<[soundboard::Sound]>>>>,
-    /// The application of each bot whose controls were used or whose
-    /// profile was opened; see [`interactions::AppIds`].
-    app_ids: interactions::AppIds,
     /// The command indexes fetched, until Discord says they changed; see
     /// [`Self::command_index`].
     commands: commands::Kept,
@@ -877,7 +874,6 @@ impl Discord {
             application_icons: Arc::default(),
             mfa: Arc::default(),
             default_sounds: Arc::default(),
-            app_ids: interactions::AppIds::default(),
             commands: kept_commands,
             autocompletes: interactions::Autocompletes::default(),
         })
@@ -1140,9 +1136,7 @@ impl Discord {
         let session = self.session().await?;
         let mut live = self.live.subscribe();
         let interaction = interactions::Interaction::Autocomplete(run);
-        self.api
-            .interact(&interaction.body(&session, &self.app_ids))
-            .await?;
+        self.api.interact(&interaction.body(&session)).await?;
         let nonce = interaction.nonce();
         let answered = async {
             loop {
@@ -1192,7 +1186,7 @@ impl Discord {
         let session = self.session().await?;
         // Listening before sending, so an answer that comes first is heard.
         let mut live = self.live.subscribe();
-        let body = interaction.body(&session, &self.app_ids);
+        let body = interaction.body(&session);
         if files.is_empty() {
             self.api.interact(&body).await?;
         } else {
@@ -1600,10 +1594,6 @@ impl Discord {
             kept(earlier);
         }
         let value = self.api.profile(user, server(guild)).await?;
-        // A bot's profile names its application, which its controls use.
-        if let Some(application) = value["application"]["id"].as_str() {
-            self.app_ids.learn(user, application);
-        }
         let learned = {
             let mut names = self.write_names();
             let before = names.version();
@@ -2431,16 +2421,18 @@ impl Discord {
     }
 
     /// Ends a friendship. The lists change when Discord confirms it.
-    pub async fn unfriend(&self, user: &str) -> Result<()> {
-        self.api.remove_relationship(user, "ContextMenu").await
+    /// `location` is where in Discord's client it happens, such as
+    /// "ContextMenu".
+    pub async fn unfriend(&self, user: &str, location: &str) -> Result<()> {
+        self.api.remove_relationship(user, location).await
     }
 
-    /// Blocks someone, or unblocks them.
-    pub async fn block(&self, user: &str, block: bool) -> Result<()> {
+    /// Blocks someone, or unblocks them, from `location` in Discord's client.
+    pub async fn block(&self, user: &str, block: bool, location: &str) -> Result<()> {
         if block {
-            self.api.block(user, "ContextMenu").await
+            self.api.block(user, location).await
         } else {
-            self.api.remove_relationship(user, "ContextMenu").await
+            self.api.remove_relationship(user, location).await
         }
     }
 

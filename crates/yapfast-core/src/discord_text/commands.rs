@@ -105,6 +105,9 @@ pub fn command(
     let Some(command) = super::stickers::command(command, discord, events) else {
         return;
     };
+    let Some(command) = super::interactions::command(command, discord, events) else {
+        return;
+    };
     let Some(command) = super::ownership::command(command, discord, events) else {
         return;
     };
