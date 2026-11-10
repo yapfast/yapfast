@@ -1,0 +1,6934 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: yapfast\n"
+"Language: de\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: ui/settings.slint
+msgid " account"
+msgstr " Konto"
+
+#: ui/settings.slint
+msgid " accounts"
+msgstr " Konten"
+
+#: src/ui/refresh.rs
+msgid " and works once"
+msgstr " und funktioniert einmal"
+
+#: src/ui/refresh.rs
+msgid " and works {n} time"
+msgid_plural " and works {n} times"
+msgstr[0] " und funktioniert {n} Mal"
+msgstr[1] " und funktioniert {n} Mal"
+
+#: ui/rail.slint
+msgid " is deafened"
+msgstr " ist taubgeschaltet"
+
+#: ui/rail.slint
+msgid " is muted"
+msgstr " ist stummgeschaltet"
+
+#: ui/rail.slint
+msgid " is server deafened"
+msgstr " ist vom Server taubgeschaltet"
+
+#: ui/rail.slint
+msgid " is server muted"
+msgstr " ist vom Server stummgeschaltet"
+
+#: ui/server.slint
+msgid " Item"
+msgstr " Element"
+
+#: ui/server.slint
+msgid " Items"
+msgstr " Elemente"
+
+#: ui/server_people.slint
+msgid " member"
+msgstr " Mitglied"
+
+#: ui/server_people.slint
+msgid " members"
+msgstr " Mitglieder"
+
+#: src/ui/messages.rs
+msgid " pinned {} to this channel. See all {}."
+msgstr " hat {} an diesen Kanal angeheftet. Alle {} ansehen."
+
+#: ui/settings.slint
+msgid " PM"
+msgstr " PM"
+
+#: ui/dialogs.slint
+msgid " reaction"
+msgstr " Reaktion"
+
+#: ui/dialogs.slint
+msgid " reactions"
+msgstr " Reaktionen"
+
+#: ui/dialogs.slint
+msgid " vote"
+msgstr " Stimme"
+
+#: ui/dialogs.slint
+msgid " votes"
+msgstr " Stimmen"
+
+#: ui/voice.slint
+msgid " You may sound robotic if your packet loss rate is over 10%."
+msgstr " Du könntest roboterhaft klingen, wenn deine Paketverlustrate über 10 % liegt."
+
+#: src/ui/refresh.rs
+msgid " You'll join muted."
+msgstr " Du trittst stummgeschaltet bei."
+
+#: ui/messages.slint
+msgid "(edited)"
+msgstr "(bearbeitet)"
+
+#: ui/server.slint
+msgid "+  Add Connection"
+msgstr "+  Verbindung hinzufügen"
+
+#: ui/voice.slint
+msgid ", camera on"
+msgstr ", Kamera an"
+
+#: ui/people.slint
+msgid ", collapse"
+msgstr ", einklappen"
+
+#: ui/rail.slint
+msgid ", collapsed"
+msgstr ", eingeklappt"
+
+#: ui/rail.slint
+msgid ", Discord"
+msgstr ", Discord"
+
+#: ui/rail.slint
+msgid ", do not disturb"
+msgstr ", Bitte nicht stören"
+
+#: ui/people.slint
+msgid ", expand"
+msgstr ", ausklappen"
+
+#: ui/rail.slint
+msgid ", expanded"
+msgstr ", ausgeklappt"
+
+#: ui/friends.slint
+msgid ", hidden"
+msgstr ", ausgeblendet"
+
+#: ui/rail.slint
+msgid ", in a call"
+msgstr ", in einem Anruf"
+
+#: ui/friends.slint ui/rail.slint
+msgid ", in {0} in {1}"
+msgstr ", in {0} in {1}"
+
+#: ui/messages.slint
+msgid ", including you. Remove your reaction"
+msgstr ", einschließlich dir. Reaktion entfernen"
+
+#: ui/rail.slint
+msgid ", locked"
+msgstr ", gesperrt"
+
+#: ui/rail.slint ui/voice.slint
+msgid ", muted"
+msgstr ", stummgeschaltet"
+
+#: ui/forum.slint
+msgid ", new"
+msgstr ", neu"
+
+#: ui/rail.slint
+msgid ", online on mobile"
+msgstr ", mobil online"
+
+#: ui/forum.slint ui/rail.slint
+msgid ", pinned"
+msgstr ", angepinnt"
+
+#: ui/people.slint
+msgid ", show cards"
+msgstr ", Karten anzeigen"
+
+#: ui/friends.slint
+msgid ", shown"
+msgstr ", angezeigt"
+
+#: ui/composer.slint
+msgid ", spoiler"
+msgstr ", Spoiler"
+
+#: ui/rail.slint
+msgid ", unavailable"
+msgstr ", nicht verfügbar"
+
+#: ui/dialogs.slint ui/friends.slint ui/rail.slint
+msgid ", unread"
+msgstr ", ungelesen"
+
+#: ui/people.slint
+msgid ", where they're {}"
+msgstr ", wo sie {} sind"
+
+#: ui/dialogs.slint ui/rail.slint
+msgid ", {} mentions"
+msgstr ", {} Erwähnungen"
+
+#: ui/rail.slint
+msgid ", {} unread"
+msgstr ", {} ungelesen"
+
+#: ui/rail.slint
+msgid ", {} waiting"
+msgstr ", {} wartend"
+
+#: src/ui/refresh.rs
+msgid "- Bot permissions: {}"
+msgstr "- Bot-Berechtigungen: {}"
+
+#: ui/messages.slint
+msgid ". Add this reaction"
+msgstr ". Diese Reaktion hinzufügen"
+
+#: ui/yapfast.slint
+msgid ". Set your status"
+msgstr ". Status festlegen"
+
+#: ui/dialogs.slint ui/server.slint
+msgid "1 day"
+msgstr "1 Tag"
+
+#: ui/yapfast.slint
+msgid "1 Event"
+msgstr "1 Event"
+
+#: ui/dialogs.slint ui/server_people.slint ui/server_settings.slint
+msgid "1 hour"
+msgstr "1 Stunde"
+
+#: ui/server.slint
+msgid "1 hr"
+msgstr "1 Std."
+
+#: ui/server_settings.slint
+msgid "1 minute"
+msgstr "1 Minute"
+
+#: ui/dialogs.slint
+msgid "1 week"
+msgstr "1 Woche"
+
+#: ui/server_people.slint
+msgid "12 hours"
+msgstr "12 Stunden"
+
+#: ui/server.slint
+msgid "12 hr"
+msgstr "12 Std."
+
+#: ui/server_settings.slint
+msgid "15 minutes"
+msgstr "15 Minuten"
+
+#: ui/server_people.slint
+msgid "2 hours"
+msgstr "2 Stunden"
+
+#: ui/dialogs.slint
+msgid "2 weeks"
+msgstr "2 Wochen"
+
+#: ui/server_people.slint
+msgid "24 hours"
+msgstr "24 Stunden"
+
+#: ui/dialogs.slint
+msgid "3 days"
+msgstr "3 Tage"
+
+#: ui/dialogs.slint ui/server.slint
+msgid "30 min"
+msgstr "30 Min."
+
+#: ui/server_settings.slint
+msgid "30 minutes"
+msgstr "30 Minuten"
+
+#: ui/dialogs.slint ui/server_people.slint
+msgid "4 hours"
+msgstr "4 Stunden"
+
+#: ui/server_settings.slint
+msgid "5 minutes"
+msgstr "5 Minuten"
+
+#: ui/server_people.slint
+msgid "6 hours"
+msgstr "6 Stunden"
+
+#: ui/server.slint
+msgid "6 hr"
+msgstr "6 Std."
+
+#: ui/server.slint
+msgid "7 days"
+msgstr "7 Tage"
+
+#: ui/dialogs.slint
+msgid "8 hours"
+msgstr "8 Stunden"
+
+#: ui/server.slint
+msgid "8Bit"
+msgstr "8Bit"
+
+#: src/ui/server_settings.rs
+msgid "<1 day ago"
+msgstr "vor <1 Tag"
+
+#: ui/controls.slint
+msgid "@ Off"
+msgstr "@ aus"
+
+#: ui/controls.slint
+msgid "@ On"
+msgstr "@ an"
+
+#: ui/sign-in.slint
+msgid "@you:matrix.org"
+msgstr "@du:matrix.org"
+
+#: src/ui.rs
+msgid "A card, \"{}\", hidden while link previews are off."
+msgstr "Eine Karte, „{}“, ist ausgeblendet, solange Linkvorschauen aus sind."
+
+#: src/ui.rs
+msgid "A card, hidden while link previews are off."
+msgstr "Eine Karte, ausgeblendet, solange Linkvorschauen aus sind."
+
+#: src/ui/refresh.rs
+msgid "A copy of {}, with its settings and permissions, in the same category."
+msgstr "Eine Kopie von {} mit allen Einstellungen und Berechtigungen, in derselben Kategorie."
+
+#: src/ui/refresh.rs
+msgid "A display name can be up to {} characters."
+msgstr "Ein Anzeigename darf bis zu {} Zeichen lang sein."
+
+#: ui/settings.slint
+msgid "A gem by the name of each member boosting their Discord server, in the member list."
+msgstr "Ein Edelstein mit dem Namen jedes Mitglieds, das den Discord-Server boostet, in der Mitgliederliste."
+
+#: ui/settings.slint
+msgid "A mention"
+msgstr "Eine Erwähnung"
+
+#: ui/settings.slint
+msgid "A message"
+msgstr "Eine Nachricht"
+
+#: src/ui/messages.rs
+msgid "a message"
+msgstr "eine Nachricht"
+
+#: ui/voice.slint
+msgid "A new code is generated when people join or leave this call. Compare it with the others in the call: everyone sees the same numbers."
+msgstr "Jedes Mal, wenn jemand dem Anruf beitritt oder ihn verlässt, wird ein neuer Code erzeugt. Vergleiche ihn mit den anderen im Anruf: Alle sehen dieselben Zahlen."
+
+#: src/ui/refresh.rs
+msgid "A nickname can be up to {} characters."
+msgstr "Ein Spitzname darf bis zu {} Zeichen lang sein."
+
+#: src/ui/refresh.rs
+msgid "A sound that's gone"
+msgstr "Ein Sound, der weg ist"
+
+#: ui/server.slint
+msgid "ABOUT ME"
+msgstr "ÜBER MICH"
+
+#: ui/composer.slint ui/friends.slint ui/voice.slint
+msgid "Accept"
+msgstr "Annehmen"
+
+#: ui/people.slint ui/yapfast.slint
+msgid "Accept Friend Request"
+msgstr "Freundschaftsanfrage annehmen"
+
+#: ui/yapfast.slint src/ui/menus.rs
+msgid "Accept friend request"
+msgstr "Freundschaftsanfrage annehmen"
+
+#: ui/composer.slint
+msgid "Accept the message request"
+msgstr "Nachrichtenanfrage annehmen"
+
+#: ui/composer.slint
+msgid "Accept to reply. Ignoring removes it without telling them."
+msgstr "Nimm an, um zu antworten. Ignorieren entfernt sie, ohne dass die Person es erfährt."
+
+#: ui/friends.slint
+msgid "Accept {}'s friend request"
+msgstr "Freundschaftsanfrage von {} annehmen"
+
+#: ui/yapfast/account-popover.slint ui/yapfast/settings-nav.slint
+msgid "Account"
+msgstr "Konto"
+
+#: ui/server_ownership.slint
+msgid "Acknowledge the transfer"
+msgstr "Übertragung bestätigen"
+
+#: ui/server_people.slint
+msgid "ACTIVE INVITE LINKS"
+msgstr "AKTIVE EINLADUNGSLINKS"
+
+#: src/emoji.rs
+msgid "Activities"
+msgstr "Aktivitäten"
+
+#: ui/people.slint ui/server.slint
+msgid "Activity"
+msgstr "Aktivität"
+
+#: ui/people.slint
+msgid "Activity — {}"
+msgstr "Aktivität: {}"
+
+#: ui/people.slint
+msgid "Activity, {0}{1}"
+msgstr "Aktivität, {0}{1}"
+
+#: ui/roles.slint
+msgid "Add"
+msgstr "Hinzufügen"
+
+#: ui/friends.slint ui/yapfast/dm-heading.slint ui/yapfast.slint
+msgid "Add a friend"
+msgstr "Freund hinzufügen"
+
+#: ui/server.slint
+msgid "Add a note"
+msgstr "Notiz hinzufügen"
+
+#: ui/channel_settings.slint
+msgid "Add a role or member"
+msgstr "Rolle oder Mitglied hinzufügen"
+
+#: ui/yapfast.slint
+msgid "Add an emoji"
+msgstr "Emoji hinzufügen"
+
+#: ui/dialogs.slint
+msgid "Add an optional message"
+msgstr "Optionale Nachricht hinzufügen"
+
+#: ui/dialogs.slint
+msgid "Add an optional message..."
+msgstr "Optionale Nachricht hinzufügen ..."
+
+#: ui/dialogs.slint
+msgid "Add another answer"
+msgstr "Weitere Antwort hinzufügen"
+
+#: ui/dialogs.slint
+msgid "Add emoji, answer {}"
+msgstr "Emoji hinzufügen, Antwort {}"
+
+#: ui/people.slint ui/yapfast.slint
+msgid "Add Friend"
+msgstr "Freund hinzufügen"
+
+#: src/ui/menus.rs
+msgid "Add friend"
+msgstr "Freund hinzufügen"
+
+#: src/ui/menus.rs
+msgid "Add friend nickname"
+msgstr "Spitzname des Freundes hinzufügen"
+
+#: ui/yapfast.slint
+msgid "Add friends to DM"
+msgstr "Freunde zur DM hinzufügen"
+
+#: ui/yapfast.slint
+msgid "Add friends to the group"
+msgstr "Freunde zur Gruppe hinzufügen"
+
+#: ui/settings.slint
+msgid "Add game"
+msgstr "Spiel hinzufügen"
+
+#: ui/roles.slint
+msgid "Add Members"
+msgstr "Mitglieder hinzufügen"
+
+#: ui/roles.slint
+msgid "Add members"
+msgstr "Mitglieder hinzufügen"
+
+#: src/ui/menus.rs
+msgid "Add note"
+msgstr "Notiz hinzufügen"
+
+#: ui/server.slint
+msgid "Add pronouns"
+msgstr "Pronomen hinzufügen"
+
+#: ui/messages.slint ui/thread.slint ui/yapfast.slint
+msgid "Add reaction"
+msgstr "Reaktion hinzufügen"
+
+#: ui/friends.slint
+msgid "Add someone with their Discord username."
+msgstr "Füge jemanden mit seinem Discord-Benutzernamen hinzu."
+
+#: ui/forum.slint
+msgid "Add tags"
+msgstr "Tags hinzufügen"
+
+#: src/ui/menus.rs
+msgid "Add to channel list"
+msgstr "Zur Kanalliste hinzufügen"
+
+#: ui/gifs.slint ui/messages.slint ui/stickers.slint ui/voice.slint
+msgid "Add to Favorites"
+msgstr "Zu Favoriten hinzufügen"
+
+#: ui/header.slint
+msgid "Add to Group"
+msgstr "Zur Gruppe hinzufügen"
+
+#: ui/server.slint
+msgid "ADD TO SERVER"
+msgstr "ZUM SERVER HINZUFÜGEN"
+
+#: ui/server.slint
+msgid "Add to server"
+msgstr "Zum Server hinzufügen"
+
+#: ui/server_expressions.slint
+msgid "Add up to {} custom emojis that anyone can use in this server. Animated GIF emojis may be used by members with Discord Nitro. Emoji names must be at least 2 characters long and can only contain alphanumeric characters and underscores. Emoji must be under 256 KB in size."
+msgstr "Füge bis zu {} eigene Emojis hinzu, die jeder auf diesem Server verwenden kann. Animierte GIF-Emojis können von Mitgliedern mit Discord Nitro verwendet werden. Emoji-Namen müssen mindestens 2 Zeichen lang sein und dürfen nur alphanumerische Zeichen und Unterstriche enthalten. Emojis dürfen höchstens 256 KB groß sein."
+
+#: ui/server.slint
+msgid "Add your pronouns"
+msgstr "Füge deine Pronomen hinzu"
+
+#: ui/channel_settings.slint
+msgid "Add:"
+msgstr "Hinzufügen:"
+
+#: ui/server.slint
+msgid "Adding more from Yapfast is coming soon."
+msgstr "Weitere aus Yapfast heraus hinzuzufügen, kommt bald."
+
+#: ui/header.slint
+msgid "Adding..."
+msgstr "Wird hinzugefügt ..."
+
+#: ui/settings.slint
+msgid "Adjust each sound"
+msgstr "Jeden Ton anpassen"
+
+#: src/ui/refresh.rs
+msgid "ADMINS"
+msgstr "ADMINS"
+
+#: ui/settings.slint ui/yapfast/settings-nav.slint
+msgid "Advanced"
+msgstr "Erweitert"
+
+#: ui/channel_settings.slint
+msgid "ADVANCED PERMISSIONS"
+msgstr "ERWEITERTE BERECHTIGUNGEN"
+
+#: ui/settings.slint
+msgid "After 10 minutes without using Yapfast, as in Discord. Either way, your phone gets notifications while you're away."
+msgstr "Nach 10 Minuten ohne Nutzung von Yapfast, wie bei Discord. Dein Handy erhält Benachrichtigungen, solange du weg bist."
+
+#: src/ui/refresh.rs
+msgid "Afterward, Discord hands its answer to {}, which Yapfast won't open."
+msgstr "Danach übergibt Discord seine Antwort an {}, was Yapfast nicht öffnet."
+
+#: src/ui/refresh.rs
+msgid "Afterward, Discord sends you to {}."
+msgstr "Danach leitet Discord dich zu {} weiter."
+
+#: ui/channel_settings.slint
+msgid "Age-Restricted Channel"
+msgstr "Altersbeschränkter Kanal"
+
+#: ui/voice.slint
+msgid "Aiming for:"
+msgstr "Ziel:"
+
+#: ui/yapfast.slint
+msgid "All"
+msgstr "Alle"
+
+#: src/ui/server_settings.rs
+msgid "All Actions"
+msgstr "Alle Aktionen"
+
+#: ui/friends.slint
+msgid "ALL FRIENDS — "
+msgstr "ALLE FREUNDE: "
+
+#: ui/server_settings.slint
+msgid "All Messages"
+msgstr "Alle Nachrichten"
+
+#: src/ui/menus.rs
+msgid "All messages"
+msgstr "Alle Nachrichten"
+
+#: src/ui/server_settings.rs
+msgid "All messages will be filtered for sensitive image-based media."
+msgstr "Alle Nachrichten werden auf sensible Bildinhalte gefiltert."
+
+#: src/ui/refresh.rs
+msgid "All servers"
+msgstr "Alle Server"
+
+#: src/ui/server_settings.rs
+msgid "All Users"
+msgstr "Alle Benutzer"
+
+#: ui/header.slint
+msgid "All your friends are here already."
+msgstr "Alle deine Freunde sind schon hier."
+
+#: ui/channel_settings.slint
+msgid "Allow"
+msgstr "Erlauben"
+
+#: ui/roles.slint
+msgid "Allow anyone to @mention this role"
+msgstr "Jedem erlauben, diese Rolle zu @erwähnen"
+
+#: ui/dialogs.slint
+msgid "Allow Multiple Answers"
+msgstr "Mehrere Antworten erlauben"
+
+#: ui/settings.slint
+msgid "Allow multiple windows"
+msgstr "Mehrere Fenster erlauben"
+
+#: ui/settings.slint
+msgid "Always"
+msgstr "Immer"
+
+#: src/ui/call_link.rs
+msgid "AMF on the GPU"
+msgstr "AMF auf der GPU"
+
+#: src/emoji.rs
+msgid "Animals & nature"
+msgstr "Tiere & Natur"
+
+#: ui/settings.slint
+msgid "Animate decorations and nameplates"
+msgstr "Dekorationen und Namensschilder animieren"
+
+#: src/ui/server_settings.rs
+msgid "Animated Emoji"
+msgstr "Animiertes Emoji"
+
+#: ui/dialogs.slint
+msgid "Answer {}"
+msgstr "Antwort {}"
+
+#: ui/dialogs.slint
+msgid "ANSWERS"
+msgstr "ANTWORTEN"
+
+#: ui/forum.slint ui/thread.slint
+msgid "Any changes you made will be lost if you exit now."
+msgstr "Alle Änderungen gehen verloren, wenn du jetzt beendest."
+
+#: ui/discord.slint
+msgid "Anyone with your token can use your account. Paste it only here, and never share it."
+msgstr "Jeder mit deinem Token kann dein Konto nutzen. Füge ihn nur hier ein und gib ihn niemals weiter."
+
+#: ui/messages.slint
+msgid "APP"
+msgstr "APP"
+
+#: ui/messages.slint
+msgid "App"
+msgstr "App"
+
+#: ui/yapfast/settings-nav.slint
+msgid "App Settings"
+msgstr "App-Einstellungen"
+
+#: ui/settings.slint ui/yapfast/settings-nav.slint
+msgid "Appearance"
+msgstr "Erscheinungsbild"
+
+#: ui/server.slint
+msgid "Apply"
+msgstr "Anwenden"
+
+#: ui/roles.slint
+msgid "Are you sure you want to delete the {} role? This action cannot be undone."
+msgstr "Bist du sicher, dass du die Rolle {} löschen möchtest? Das kann nicht rückgängig gemacht werden."
+
+#: ui/channel_settings.slint
+msgid "Are you sure you want to delete {} permissions? This action cannot be undone."
+msgstr "Bist du sicher, dass du die Berechtigungen für {} löschen möchtest? Das kann nicht rückgängig gemacht werden."
+
+#: src/ui/server_settings.rs
+msgid "Are you sure you want to delete {}? This action cannot be undone."
+msgstr "Möchtest du {} wirklich löschen? Das kann nicht rückgängig gemacht werden."
+
+#: src/ui/refresh.rs
+msgid "Are you sure you want to delete {}? This cannot be undone."
+msgstr "Möchtest du {} wirklich löschen? Das kann nicht rückgängig gemacht werden."
+
+#: ui/forum.slint ui/thread.slint
+msgid "Are you sure you want to go?"
+msgstr "Bist du sicher, dass du gehen möchtest?"
+
+#: src/ui/refresh.rs
+msgid "Are you sure you want to leave {0}? You won't be able to rejoin this {1} unless you are re-invited."
+msgstr "Möchtest du {0} wirklich verlassen? Du kannst diesem {1} nur mit einer neuen Einladung wieder beitreten."
+
+#: src/push_to_talk.rs
+msgid "Asking your desktop to let Yapfast use the key in every app..."
+msgstr "Dein Desktop wird gefragt, ob Yapfast die Taste in jeder App nutzen darf ..."
+
+#: ui/forum.slint ui/thread.slint ui/yapfast.slint src/ui/callbacks.rs
+msgid "Attach files"
+msgstr "Dateien anhängen"
+
+#: ui/moderation.slint src/ui/server_settings.rs
+msgid "Audit Log"
+msgstr "Audit-Log"
+
+#: src/ui/refresh.rs
+msgid "Authorize {}"
+msgstr "{} autorisieren"
+
+#: src/ui/refresh.rs
+msgid "Authorized."
+msgstr "Autorisiert."
+
+#: src/ui/refresh.rs
+msgid "Authorizing..."
+msgstr "Autorisiere..."
+
+#: ui/server_settings.slint
+msgid "Automatically move members to this channel and mute them when they have been idle for longer than the inactive timeout. This does not affect browsers."
+msgstr "Verschiebt Mitglieder automatisch in diesen Kanal und schaltet sie stumm, wenn sie länger als das Inaktivitäts-Timeout untätig waren. Das betrifft keine Browser."
+
+#: ui/server.slint
+msgid "Avatar & Decoration"
+msgstr "Avatar & Dekoration"
+
+#: ui/voice.slint
+msgid "Average ping:"
+msgstr "Durchschnittlicher Ping:"
+
+#: ui/gifs.slint ui/roles.slint ui/yapfast/window-bar.slint
+msgid "Back"
+msgstr "Zurück"
+
+#: ui/forum.slint ui/thread.slint
+msgid "Back to editing"
+msgstr "Zurück zum Bearbeiten"
+
+#: ui/settings.slint
+msgid "Back to sign in"
+msgstr "Zurück zur Anmeldung"
+
+#: ui/yapfast.slint
+msgid "Back to {}"
+msgstr "Zurück zu {}"
+
+#: src/ui/server_settings.rs
+msgid "Backup code"
+msgstr "Backup-Code"
+
+#: ui/mfa.slint
+msgid "Backup codes can only be used one time each and are for emergency access to your account!"
+msgstr "Backup-Codes können nur jeweils einmal verwendet werden und dienen dem Notfallzugriff auf dein Konto!"
+
+#: ui/moderation.slint
+msgid "Ban Reason"
+msgstr "Grund für den Bann"
+
+#: src/ui/menus.rs
+msgid "Ban {}"
+msgstr "{} bannen"
+
+#: src/ui/refresh.rs
+msgid "Ban {}?"
+msgstr "{} bannen?"
+
+#: ui/server.slint
+msgid "Banner color"
+msgstr "Bannerfarbe"
+
+#: ui/server.slint
+msgid "Banner color {}"
+msgstr "Bannerfarbe {}"
+
+#: ui/moderation.slint
+msgid "Bans by default are by account and IP.\nA user can circumvent an IP ban by using a proxy.\nBan circumvention can be made very hard by enabling phone verification in Safety Setup."
+msgstr "Standardmäßig gelten Bans für das Konto und die IP-Adresse.\nEin Benutzer kann einen IP-Ban mit einem Proxy umgehen.\nBan-Umgehung lässt sich sehr erschweren, indem du die Telefonverifizierung in den Sicherheitseinstellungen aktivierst."
+
+#: ui/server_people.slint
+msgid "Before searching, we need to index this server. Give us a bit."
+msgstr "Bevor du suchen kannst, müssen wir diesen Server indexieren. Gib uns einen Moment."
+
+#: ui/server.slint
+msgid "Bio"
+msgstr "Bio"
+
+#: src/ui/refresh.rs
+msgid "Block {}?"
+msgstr "{} blockieren?"
+
+#: ui/settings.slint
+msgid "Blocked accounts"
+msgstr "Blockierte Konten"
+
+#: src/ui/messages.rs
+msgid "Blocked message."
+msgstr "Blockierte Nachricht."
+
+#: src/ui/messages.rs
+msgid "Blocked user"
+msgstr "Blockierter Benutzer"
+
+#: ui/people.slint ui/server.slint
+msgid "Board"
+msgstr "Board"
+
+#: ui/yapfast.slint
+msgid "Boost Goal"
+msgstr "Boost-Ziel"
+
+#: ui/yapfast.slint
+msgid "Boost Goal, {} of 33 boosts"
+msgstr "Boost-Ziel, {} von 33 Boosts"
+
+#: ui/server_settings.slint src/ui/server_settings.rs
+msgid "Boost Perks"
+msgstr "Boost-Vorteile"
+
+#: src/ui/server_settings.rs
+msgid "Bot Invite"
+msgstr "Bot-Einladung"
+
+#: ui/server_expressions.slint
+msgid "Browse"
+msgstr "Durchsuchen"
+
+#: ui/yapfast.slint
+msgid "Browse Channels"
+msgstr "Kanäle durchsuchen"
+
+#: ui/rail.slint
+msgid "Browse channels"
+msgstr "Kanäle durchsuchen"
+
+#: src/ui/channel_settings.rs
+msgid "By making a category private, only select members and roles will be able to view this category. Linked channels in this category will automatically match to this setting."
+msgstr "Wenn du eine Kategorie privat machst, können nur ausgewählte Mitglieder und Rollen sie sehen. Verknüpfte Kanäle in dieser Kategorie übernehmen diese Einstellung automatisch."
+
+#: src/ui/channel_settings.rs
+msgid "By making a channel private, only select members and roles will be able to view this channel."
+msgstr "Wenn du einen Kanal privat machst, können nur ausgewählte Mitglieder und Rollen ihn sehen."
+
+#: src/ui/channel_settings.rs
+msgid "By making a channel private, only select members and roles will have access to view or connect to this channel."
+msgstr "Wenn du einen Kanal privat machst, können nur ausgewählte Mitglieder und Rollen ihn sehen oder ihm beitreten."
+
+#: src/ui/refresh.rs
+msgid "by {}"
+msgstr "von {}"
+
+#: ui/voice.slint
+msgid "Call time {}"
+msgstr "Anrufdauer {}"
+
+#: src/ui/refresh.rs
+msgid "Calling {}..."
+msgstr "{} wird angerufen..."
+
+#: ui/settings.slint
+msgid "CAMERA"
+msgstr "KAMERA"
+
+#: ui/settings.slint
+msgid "Camera device"
+msgstr "Kameragerät"
+
+#: ui/settings.slint
+msgid "Camera preview, off"
+msgstr "Kameravorschau, aus"
+
+#: ui/voice.slint
+msgid "CAMERAS"
+msgstr "KAMERAS"
+
+#: ui/channel_settings.slint ui/dialogs.slint ui/friends.slint ui/interactions.slint ui/messages.slint ui/mfa.slint ui/roles.slint ui/server.slint ui/server_expressions.slint ui/server_ownership.slint ui/server_people.slint ui/settings.slint ui/thread.slint ui/voice.slint ui/yapfast.slint
+msgid "Cancel"
+msgstr "Abbrechen"
+
+#: ui/thread.slint ui/yapfast.slint
+msgid "Cancel editing"
+msgstr "Bearbeiten abbrechen"
+
+#: src/ui/menus.rs
+msgid "Cancel friend request"
+msgstr "Freundschaftsanfrage abbrechen"
+
+#: ui/thread.slint ui/yapfast.slint
+msgid "Cancel reply"
+msgstr "Antwort abbrechen"
+
+#: ui/friends.slint
+msgid "Cancel the friend request to {}"
+msgstr "Freundschaftsanfrage an {} abbrechen"
+
+#: ui/settings.slint
+msgid "Cards for links, videos and bots under messages. Linked pictures still show."
+msgstr "Karten für Links, Videos und Bots unter Nachrichten. Verlinkte Bilder werden weiterhin angezeigt."
+
+#: ui/settings.slint
+msgid "Careful — you have unsaved changes!"
+msgstr "Vorsicht: Du hast ungespeicherte Änderungen!"
+
+#: ui/channel_settings.slint src/ui/refresh.rs
+msgid "CATEGORY NAME"
+msgstr "KATEGORIENAME"
+
+#: ui/channel_settings.slint
+msgid "Category name"
+msgstr "Kategoriename"
+
+#: src/ui/channel_settings.rs
+msgid "Category Settings"
+msgstr "Kategorieeinstellungen"
+
+#: ui/server.slint src/ui/callbacks.rs
+msgid "Change Avatar"
+msgstr "Avatar ändern"
+
+#: ui/server.slint src/ui/callbacks.rs
+msgid "Change Banner"
+msgstr "Banner ändern"
+
+#: ui/dialogs.slint ui/server.slint ui/settings.slint ui/yapfast/account-popover.slint
+msgid "Change custom status"
+msgstr "Benutzerdefinierten Status ändern"
+
+#: ui/server.slint
+msgid "Change Display Name Style"
+msgstr "Anzeigenamen-Stil ändern"
+
+#: src/ui/menus.rs
+msgid "Change friend nickname"
+msgstr "Spitznamen des Freundes ändern"
+
+#: src/ui/menus.rs
+msgid "Change nickname"
+msgstr "Spitznamen ändern"
+
+#: ui/server_settings.slint src/ui/server_settings.rs
+msgid "Change Server Icon"
+msgstr "Servericon ändern"
+
+#: ui/server.slint
+msgid "Change server tag"
+msgstr "Server-Tag ändern"
+
+#: ui/yapfast/account-popover.slint
+msgid "Change status"
+msgstr "Status ändern"
+
+#: src/ui/refresh.rs
+msgid "Change your nickname"
+msgstr "Deinen Spitznamen ändern"
+
+#: src/ui/refresh.rs
+msgid "Change {}'s nickname"
+msgstr "Spitznamen von {} ändern"
+
+#: ui/channel_settings.slint src/ui/refresh.rs
+msgid "CHANNEL NAME"
+msgstr "KANALNAME"
+
+#: ui/channel_settings.slint
+msgid "Channel name"
+msgstr "Kanalname"
+
+#: src/ui/channel_settings.rs
+msgid "Channel Permissions"
+msgstr "Kanalberechtigungen"
+
+#: ui/channel_settings.slint
+msgid "Channel settings"
+msgstr "Kanaleinstellungen"
+
+#: ui/channel_settings.slint
+msgid "CHANNEL TOPIC"
+msgstr "KANALTHEMA"
+
+#: ui/channel_settings.slint ui/yapfast.slint
+msgid "Channel topic"
+msgstr "Kanalthema"
+
+#: ui/server.slint
+msgid "CHANNEL TYPE"
+msgstr "KANALTYP"
+
+#: ui/server.slint
+msgid "Channel type"
+msgstr "Kanaltyp"
+
+#: ui/settings.slint
+msgid "Channels you read in Yapfast show as read in the Discord apps too."
+msgstr "Kanäle, die du in Yapfast liest, gelten auch in den Discord-Apps als gelesen."
+
+#: ui/sign-in.slint
+msgid "Check again"
+msgstr "Erneut prüfen"
+
+#: ui/server_ownership.slint
+msgid "Check your email: we sent you a verification code. Enter it here to verify you’re really you."
+msgstr "Sieh in deinem E-Mail-Postfach nach: Wir haben dir einen Bestätigungscode geschickt. Gib ihn hier ein, um zu bestätigen, dass du es wirklich bist."
+
+#: ui/discord.slint
+msgid "Checking the token..."
+msgstr "Token wird geprüft ..."
+
+#: ui/messages.slint ui/settings.slint
+msgid "Choose"
+msgstr "Auswählen"
+
+#: ui/messages.slint
+msgid "Choose a DM or a server channel on the left."
+msgstr "Wähle links eine DM oder einen Serverkanal aus."
+
+#: src/ui/refresh.rs
+msgid "Choose a DM or server channel to write a message."
+msgstr "Wähle eine DM oder einen Serverkanal, um eine Nachricht zu schreiben."
+
+#: ui/settings.slint
+msgid "Choose an entrance sound"
+msgstr "Wähle einen Beitrittssound"
+
+#: ui/interactions.slint
+msgid "Choose an option"
+msgstr "Wähle eine Option"
+
+#: ui/mfa.slint
+msgid "Choose how to confirm it's you."
+msgstr "Wähle, wie du bestätigen möchtest, dass du es bist."
+
+#: ui/moderation.slint
+msgid "Choose if server members can share image-based media detected by Discord's sensitive content filters. This setting will apply to channels that are not age-restricted."
+msgstr "Lege fest, ob Servermitglieder bildbasierte Medien teilen dürfen, die von Discords Filtern für sensible Inhalte erkannt wurden. Diese Einstellung gilt für Kanäle, die nicht altersbeschränkt sind."
+
+#: ui/roles.slint
+msgid "Choose Image"
+msgstr "Bild auswählen"
+
+#: ui/interactions.slint
+msgid "Choose one option"
+msgstr "Wähle eine Option"
+
+#: src/ui/server_settings.rs
+msgid "Choose Role Icon"
+msgstr "Rollensymbol wählen"
+
+#: ui/interactions.slint
+msgid "Choose up to one option"
+msgstr "Wähle höchstens eine Option"
+
+#: src/ui/refresh.rs
+msgid "Choose what to share"
+msgstr "Wähle, was du teilen möchtest"
+
+#: ui/interactions.slint
+msgid "Choose {0} to {1}"
+msgstr "Wähle {0} bis {1}"
+
+#: src/ui.rs
+msgid "Chosen device"
+msgstr "Gewähltes Gerät"
+
+#: ui/dialogs.slint
+msgid "CLEAR AFTER"
+msgstr "LÖSCHEN NACH"
+
+#: ui/dialogs.slint
+msgid "Clear after"
+msgstr "Löschen nach"
+
+#: ui/roles.slint
+msgid "Clear permissions"
+msgstr "Berechtigungen zurücksetzen"
+
+#: ui/header.slint
+msgid "Clear search"
+msgstr "Suche leeren"
+
+#: ui/dialogs.slint
+msgid "Clear status"
+msgstr "Status löschen"
+
+#: ui/stickers.slint
+msgid "Click a sticker to send it."
+msgstr "Klicke auf einen Sticker, um ihn zu senden."
+
+#: src/ui/gifs.rs
+msgid "Click the star in the corner of a GIF to favorite it. Favorites will show up here!"
+msgstr "Klicke auf den Stern in der Ecke eines GIFs, um es zu favorisieren. Favoriten erscheinen dann hier!"
+
+#: ui/people.slint ui/server.slint
+msgid "Click to add a note"
+msgstr "Klicken, um eine Notiz hinzuzufügen"
+
+#: ui/yapfast/build-info.slint
+msgid "Click to copy"
+msgstr "Zum Kopieren klicken"
+
+#: ui/settings.slint
+msgid "CLOCK"
+msgstr "UHRZEIT"
+
+#: ui/settings.slint
+msgid "Clock"
+msgstr "Uhrzeit"
+
+#: ui/dialogs.slint ui/forum.slint ui/friends.slint ui/header.slint ui/interactions.slint ui/messages.slint ui/server.slint ui/thread.slint ui/title_bar.slint ui/yapfast/window-bar.slint
+msgid "Close"
+msgstr "Schließen"
+
+#: src/ui/menus.rs
+msgid "Close DM"
+msgstr "DM schließen"
+
+#: ui/people.slint
+msgid "Close profile"
+msgstr "Profil schließen"
+
+#: ui/header.slint
+msgid "Close search"
+msgstr "Suche schließen"
+
+#: ui/thread.slint
+msgid "Close thread"
+msgstr "Thread schließen"
+
+#: ui/settings.slint
+msgid "Close to tray"
+msgstr "Beim Schließen in die Taskleiste"
+
+#: ui/settings.slint
+msgid "Close {}"
+msgstr "{} schließen"
+
+#: ui/settings.slint
+msgid "Closing the window keeps Yapfast running in the system tray, with any call. Quit from the tray icon's menu."
+msgstr "Wenn du das Fenster schließt, läuft Yapfast mit einem eventuellen Anruf im Infobereich der Taskleiste weiter. Beenden kannst du über das Menü des Symbols."
+
+#: ui/voice.slint
+msgid "Codec:"
+msgstr "Codec:"
+
+#: ui/settings.slint
+msgid "Collapse long messages"
+msgstr "Lange Nachrichten einklappen"
+
+#: ui/roles.slint
+msgid "Color {}"
+msgstr "Farbe {}"
+
+#: ui/server.slint
+msgid "Colour"
+msgstr "Farbe"
+
+#: ui/server.slint
+msgid "Colour code"
+msgstr "Farbcode"
+
+#: ui/server.slint
+msgid "Colour {}"
+msgstr "Farbe {}"
+
+#: ui/settings.slint
+msgid "COLOURS"
+msgstr "FARBEN"
+
+#: ui/settings.slint
+msgid "Colours"
+msgstr "Farben"
+
+#: ui/server.slint
+msgid "Colours and effects don't show in servers, and may look different across Discord."
+msgstr "Farben und Effekte werden auf Servern nicht angezeigt und können in Discord anders aussehen."
+
+#: ui/mfa.slint
+msgid "Confirm"
+msgstr "Bestätigen"
+
+#: ui/discord.slint
+msgid "Confirm on your phone"
+msgstr "Auf dem Handy bestätigen"
+
+#: ui/mfa.slint
+msgid "Confirming..."
+msgstr "Wird bestätigt ..."
+
+#: ui/rail.slint
+msgid "Connected on another client"
+msgstr "Mit einem anderen Client verbunden"
+
+#: src/ui/refresh.rs
+msgid "Connecting to {}'s stream..."
+msgstr "Verbinde mit dem Stream von {}..."
+
+#: ui/sign-in.slint
+msgid "Connecting..."
+msgstr "Verbindung wird hergestellt ..."
+
+#: ui/voice.slint
+msgid "Connection"
+msgstr "Verbindung"
+
+#: src/ui/refresh.rs
+msgid "Connection lost"
+msgstr "Verbindung verloren"
+
+#: ui/people.slint ui/server.slint
+msgid "Connections"
+msgstr "Verbindungen"
+
+#: src/ui/menus.rs
+msgid "Context Menu"
+msgstr "Kontextmenü"
+
+#: ui/server.slint ui/voice.slint ui/yapfast/build-info.slint
+msgid "Copied"
+msgstr "Kopiert"
+
+#: ui/composer.slint ui/server.slint ui/voice.slint
+msgid "Copy"
+msgstr "Kopieren"
+
+#: src/ui/menus.rs
+msgid "Copy ID"
+msgstr "ID kopieren"
+
+#: ui/messages.slint
+msgid "Copy Image"
+msgstr "Bild kopieren"
+
+#: ui/messages.slint
+msgid "Copy Link"
+msgstr "Link kopieren"
+
+#: ui/yapfast.slint src/ui/menus.rs
+msgid "Copy link"
+msgstr "Link kopieren"
+
+#: ui/messages.slint
+msgid "Copy selection"
+msgstr "Auswahl kopieren"
+
+#: ui/messages.slint
+msgid "Copy text"
+msgstr "Text kopieren"
+
+#: ui/yapfast/build-info.slint
+msgid "Copy the version: {}"
+msgstr "Version kopieren: {}"
+
+#: ui/server.slint ui/yapfast/account-popover.slint
+msgid "Copy User ID"
+msgstr "Benutzer-ID kopieren"
+
+#: src/ui.rs
+msgid "Could not list audio devices."
+msgstr "Audiogeräte konnten nicht aufgelistet werden."
+
+#: src/ui/refresh.rs
+msgid "Couldn't load the board."
+msgstr "Das Board konnte nicht geladen werden."
+
+#: src/ui/profile.rs
+msgid "Couldn't load the wishlist."
+msgstr "Die Wunschliste konnte nicht geladen werden."
+
+#: ui/messages.slint
+msgid "Couldn't load {} messages. Retry"
+msgstr "{} Nachrichten konnten nicht geladen werden. Erneut versuchen"
+
+#: ui/header.slint
+msgid "Create"
+msgstr "Erstellen"
+
+#: ui/dialogs.slint
+msgid "Create a Poll"
+msgstr "Umfrage erstellen"
+
+#: ui/server_people.slint
+msgid "Create an invite link anyone can use to join, or invite friends directly."
+msgstr "Erstelle einen Einladungslink, den jeder zum Beitreten nutzen kann, oder lade Freunde direkt ein."
+
+#: src/ui/menus.rs
+msgid "Create category"
+msgstr "Kategorie erstellen"
+
+#: src/ui/menus.rs src/ui/refresh.rs
+msgid "Create channel"
+msgstr "Kanal erstellen"
+
+#: ui/header.slint
+msgid "Create Group DM"
+msgstr "Gruppen-DM erstellen"
+
+#: ui/server_people.slint
+msgid "Create Invite Link"
+msgstr "Einladungslink erstellen"
+
+#: ui/yapfast.slint
+msgid "Create Poll"
+msgstr "Umfrage erstellen"
+
+#: ui/roles.slint
+msgid "Create Role"
+msgstr "Rolle erstellen"
+
+#: src/ui/menus.rs
+msgid "Create text channel"
+msgstr "Textkanal erstellen"
+
+#: ui/header.slint ui/messages.slint ui/thread.slint ui/yapfast.slint
+msgid "Create Thread"
+msgstr "Thread erstellen"
+
+#: src/ui/menus.rs
+msgid "Create voice channel"
+msgstr "Sprachkanal erstellen"
+
+#: src/ui/refresh.rs
+msgid "Create {}"
+msgstr "{} erstellen"
+
+#: ui/thread.slint
+msgid "Creating..."
+msgstr "Wird erstellt ..."
+
+#: ui/server.slint
+msgid "Current activity"
+msgstr "Aktuelle Aktivität"
+
+#: ui/roles.slint
+msgid "Custom color"
+msgstr "Eigene Farbe"
+
+#: ui/settings.slint
+msgid "CUSTOM GAMES"
+msgstr "EIGENE SPIELE"
+
+#: ui/server_settings.slint
+msgid "Customize how your server appears in invite links and, if enabled, in Server Discovery and Announcement Channel messages."
+msgstr "Lege fest, wie dein Server in Einladungslinks und, falls aktiviert, in der Serverentdeckung und in Nachrichten des Ankündigungskanals erscheint."
+
+#: ui/server.slint
+msgid "Customize your profile for every server, from avatar decorations to bios. Only with Nitro."
+msgstr "Passe dein Profil für jeden Server an, von Avatar-Dekorationen bis zu Bios. Nur mit Nitro."
+
+#: ui/composer.slint
+msgid "Cut"
+msgstr "Ausschneiden"
+
+#: ui/server.slint ui/settings.slint
+msgid "Dark"
+msgstr "Dunkel"
+
+#: ui/settings.slint
+msgid "DATE FORMAT"
+msgstr "DATUMSFORMAT"
+
+#: ui/settings.slint
+msgid "Day/Month/Year"
+msgstr "Tag/Monat/Jahr"
+
+#: ui/voice.slint ui/yapfast.slint
+msgid "Deafen"
+msgstr "Taubschalten"
+
+#: ui/voice.slint
+msgid "Deafened"
+msgstr "Taubgeschaltet"
+
+#: src/ui/refresh.rs
+msgid "Deafened and muted"
+msgstr "Taubgeschaltet und stummgeschaltet"
+
+#: ui/settings.slint
+msgid "Deafening"
+msgstr "Taubschaltung"
+
+#: ui/voice.slint
+msgid "Decline"
+msgstr "Ablehnen"
+
+#: ui/server.slint
+msgid "Decoration on"
+msgstr "Dekoration an"
+
+#: ui/settings.slint ui/yapfast.slint
+msgid "DeepFilterNet"
+msgstr "DeepFilterNet"
+
+#: ui/settings.slint
+msgid "DeepFilterNet also takes out typing and other sudden noise. RNNoise uses less processing. Off sends your microphone as it is, for a quiet room. A call going on switches straight away."
+msgstr "DeepFilterNet filtert auch Tippgeräusche und andere plötzliche Geräusche heraus. RNNoise braucht weniger Rechenleistung. Aus sendet dein Mikrofon unverändert, für einen ruhigen Raum. Ein laufender Anruf wechselt sofort."
+
+#: ui/roles.slint ui/server.slint ui/settings.slint
+msgid "Default"
+msgstr "Standard"
+
+#: src/ui.rs
+msgid "Default ({})"
+msgstr "Standard ({})"
+
+#: ui/server_settings.slint
+msgid "DEFAULT NOTIFICATION SETTINGS"
+msgstr "STANDARD-BENACHRICHTIGUNGSEINSTELLUNGEN"
+
+#: ui/server_settings.slint
+msgid "Default Notification Settings"
+msgstr "Standard-Benachrichtigungseinstellungen"
+
+#: ui/roles.slint src/ui/server_settings.rs
+msgid "Default Permissions"
+msgstr "Standardberechtigungen"
+
+#: ui/channel_settings.slint ui/roles.slint ui/server_expressions.slint ui/thread.slint ui/yapfast.slint
+msgid "Delete"
+msgstr "Löschen"
+
+#: src/ui/server_settings.rs
+msgid "Delete '{}'"
+msgstr "„{}“ löschen"
+
+#: src/ui/channel_settings.rs
+msgid "Delete Category"
+msgstr "Kategorie löschen"
+
+#: src/ui/menus.rs
+msgid "Delete category"
+msgstr "Kategorie löschen"
+
+#: src/ui/channel_settings.rs
+msgid "Delete Channel"
+msgstr "Kanal löschen"
+
+#: src/ui/menus.rs
+msgid "Delete channel"
+msgstr "Kanal löschen"
+
+#: ui/thread.slint ui/yapfast.slint
+msgid "Delete for everyone?"
+msgstr "Für alle löschen?"
+
+#: ui/settings.slint
+msgid "Delete it for good"
+msgstr "Endgültig löschen"
+
+#: ui/messages.slint
+msgid "Delete message"
+msgstr "Nachricht löschen"
+
+#: ui/channel_settings.slint
+msgid "Delete Permission Settings"
+msgstr "Berechtigungseinstellungen löschen"
+
+#: ui/roles.slint
+msgid "Delete Role"
+msgstr "Rolle löschen"
+
+#: ui/server_ownership.slint src/ui/server_settings.rs
+msgid "Delete Server"
+msgstr "Server löschen"
+
+#: src/ui/refresh.rs
+msgid "DELETE THEIR MESSAGES FROM"
+msgstr "IHRE NACHRICHTEN LÖSCHEN AUS"
+
+#: ui/settings.slint
+msgid "Delete theme"
+msgstr "Design löschen"
+
+#: src/ui/refresh.rs
+msgid "Delete {}"
+msgstr "{} löschen"
+
+#: ui/server_ownership.slint
+msgid "Deleting..."
+msgstr "Wird gelöscht ..."
+
+#: ui/channel_settings.slint
+msgid "Deny"
+msgstr "Verweigern"
+
+#: ui/server_expressions.slint ui/server_settings.slint
+msgid "DESCRIPTION"
+msgstr "BESCHREIBUNG"
+
+#: ui/server_expressions.slint ui/server_settings.slint
+msgid "Description"
+msgstr "Beschreibung"
+
+#: ui/server_expressions.slint
+msgid "Descriptions are optional but must be more than 1 character."
+msgstr "Beschreibungen sind optional, müssen aber aus mehr als 1 Zeichen bestehen."
+
+#: ui/settings.slint
+msgid "Developer Mode"
+msgstr "Entwicklermodus"
+
+#: ui/server_ownership.slint
+msgid "Didn’t receive a code or it expired? Resend it."
+msgstr "Keinen Code erhalten oder er ist abgelaufen? Sende ihn erneut."
+
+#: src/ui/refresh.rs
+msgid "Direct message"
+msgstr "Direktnachricht"
+
+#: ui/yapfast/dm-heading.slint ui/yapfast.slint
+msgid "Direct Messages"
+msgstr "Direktnachrichten"
+
+#: ui/rail.slint src/ui/refresh.rs
+msgid "Direct messages"
+msgstr "Direktnachrichten"
+
+#: ui/rail.slint
+msgid "Direct messages{}"
+msgstr "Direktnachrichten{}"
+
+#: src/tray.rs
+msgid "Disconnect"
+msgstr "Trennen"
+
+#: ui/settings.slint ui/yapfast/settings-nav.slint
+msgid "Discord"
+msgstr "Discord"
+
+#: ui/settings.slint
+msgid "Discord and Matrix show"
+msgstr "Discord und Matrix zeigen"
+
+#: src/ui/refresh.rs
+msgid "Discord asks for a captcha first. Solve it in your browser."
+msgstr "Discord verlangt zuerst ein Captcha. Löse es in deinem Browser."
+
+#: src/ui/server_settings.rs
+msgid "Discord asks for a passkey or security key, which Yapfast can't use. Confirm in Discord's app, then try again."
+msgstr "Discord verlangt einen Passkey oder Sicherheitsschlüssel, den Yapfast nicht verwenden kann. Bestätige in der Discord-App und versuche es dann erneut."
+
+#: ui/discord.slint
+msgid "Discord doesn't allow apps like Yapfast on personal accounts. Linking puts your account at some risk of being suspended."
+msgstr "Discord erlaubt Apps wie Yapfast nicht für persönliche Konten. Beim Verknüpfen riskierst du, dass dein Konto gesperrt wird."
+
+#: src/ui/refresh.rs
+msgid "Discord is disconnected. Yapfast is reconnecting."
+msgstr "Discord ist getrennt. Yapfast verbindet sich neu."
+
+#: src/ui/server_settings.rs
+msgid "Discord is sending a code to your phone."
+msgstr "Discord sendet einen Code an dein Handy."
+
+#: ui/settings.slint
+msgid "Discord shows"
+msgstr "Discord zeigt"
+
+#: src/ui/refresh.rs
+msgid "Discord thinks {} may be spam"
+msgstr "Discord vermutet, dass {} Spam sein könnte"
+
+#: ui/discord.slint
+msgid "Discord token"
+msgstr "Discord-Token"
+
+#: src/ui/callbacks.rs
+msgid "Discord voice and its level aren't available on this system yet."
+msgstr "Discord-Sprache und ihr Pegel sind auf diesem System noch nicht verfügbar."
+
+#: ui/discord.slint
+msgid "Discord wants to check you're a person before it links your account. Yapfast opened the check in your browser; linking finishes once it's solved."
+msgstr "Discord möchte prüfen, ob du ein Mensch bist, bevor dein Konto verknüpft wird. Yapfast hat die Prüfung in deinem Browser geöffnet; das Verknüpfen wird abgeschlossen, sobald sie gelöst ist."
+
+#: src/ui/refresh.rs
+msgid "Discord · not end-to-end encrypted."
+msgstr "Discord · nicht Ende-zu-Ende-verschlüsselt."
+
+#: src/ui/refresh.rs
+msgid "Discord · not end-to-end encrypted. Enter to send, Shift+Enter for a new line."
+msgstr "Discord · nicht Ende-zu-Ende-verschlüsselt. Enter zum Senden, Umschalt+Enter für eine neue Zeile."
+
+#: ui/settings.slint
+msgid "discord:// links from other apps and shortcuts open here instead of Discord. Turning it off gives them back to the app that had them."
+msgstr "discord://-Links aus anderen Apps und Verknüpfungen werden hier statt in Discord geöffnet. Wenn du das ausschaltest, gehen sie an die App zurück, die sie vorher hatte."
+
+#: src/ui/messages.rs
+msgid "Discoverable Server"
+msgstr "Auffindbarer Server"
+
+#: ui/controls.slint ui/voice.slint
+msgid "Dismiss"
+msgstr "Verwerfen"
+
+#: ui/roles.slint
+msgid "Display"
+msgstr "Anzeige"
+
+#: ui/server.slint
+msgid "Display name"
+msgstr "Anzeigename"
+
+#: ui/server.slint
+msgid "Display Name Style"
+msgstr "Anzeigenamen-Stil"
+
+#: ui/roles.slint
+msgid "Display role members separately from online members"
+msgstr "Rollenmitglieder getrennt von Online-Mitgliedern anzeigen"
+
+#: ui/dialogs.slint ui/friends.slint ui/yapfast/account-popover.slint
+msgid "Do Not Disturb"
+msgstr "Bitte nicht stören"
+
+#: ui/rail.slint
+msgid "Do not disturb"
+msgstr "Bitte nicht stören"
+
+#: src/ui/server_settings.rs
+msgid "Do not filter"
+msgstr "Nicht filtern"
+
+#: ui/server.slint
+msgid "does anyone read this?"
+msgstr "liest das jemand?"
+
+#: src/ui/refresh.rs
+msgid "Don't ask again"
+msgstr "Nicht erneut fragen"
+
+#: src/ui/refresh.rs
+msgid "Don't delete any"
+msgstr "Nichts löschen"
+
+#: ui/moderation.slint ui/server.slint
+msgid "Done"
+msgstr "Fertig"
+
+#: ui/settings.slint
+msgid "Drop-down lists and scroll bars draw dark to match."
+msgstr "Dropdown-Listen und Scrollleisten werden dunkel dargestellt, passend dazu."
+
+#: src/ui/menus.rs src/ui/refresh.rs
+msgid "Duplicate channel"
+msgstr "Kanal duplizieren"
+
+#: ui/roles.slint
+msgid "Duplicate Role"
+msgstr "Rolle duplizieren"
+
+#: ui/dialogs.slint src/ui/refresh.rs
+msgid "DURATION"
+msgstr "DAUER"
+
+#: ui/dialogs.slint ui/server_people.slint
+msgid "Duration"
+msgstr "Dauer"
+
+#: ui/server_expressions.slint
+msgid "e.g.: cat hug"
+msgstr "z. B.: Katzenumarmung"
+
+#: ui/settings.slint
+msgid "Each as #rgb, #rrggbb or #rrggbbaa. The window shows a change as you type it."
+msgstr "Jeweils als #rgb, #rrggbb oder #rrggbbaa. Das Fenster zeigt eine Änderung schon beim Tippen."
+
+#: ui/settings.slint
+msgid "Each Discord server's notification settings and your Matrix notification rules decide"
+msgstr "Die Benachrichtigungseinstellungen jedes Discord-Servers und deine Matrix-Benachrichtigungsregeln entscheiden darüber,"
+
+#: ui/settings.slint
+msgid "Each Discord server's notification settings decide"
+msgstr "Die Benachrichtigungseinstellungen jedes Discord-Servers entscheiden darüber,"
+
+#: ui/messages.slint
+msgid "Earlier messages"
+msgstr "Frühere Nachrichten"
+
+#: ui/roles.slint ui/server_expressions.slint ui/settings.slint ui/thread.slint ui/yapfast.slint
+msgid "Edit"
+msgstr "Bearbeiten"
+
+#: ui/server.slint
+msgid "Edit bio"
+msgstr "Bio bearbeiten"
+
+#: src/ui/menus.rs
+msgid "Edit category"
+msgstr "Kategorie bearbeiten"
+
+#: src/ui/menus.rs
+msgid "Edit channel"
+msgstr "Kanal bearbeiten"
+
+#: ui/server.slint
+msgid "Edit display name"
+msgstr "Anzeigenamen bearbeiten"
+
+#: ui/settings.slint
+msgid "Edit keybind"
+msgstr "Tastenkombination bearbeiten"
+
+#: ui/messages.slint
+msgid "Edit message"
+msgstr "Nachricht bearbeiten"
+
+#: ui/dialogs.slint ui/people.slint ui/yapfast/account-popover.slint ui/yapfast/settings-nav.slint
+msgid "Edit Profile"
+msgstr "Profil bearbeiten"
+
+#: ui/settings.slint src/ui/refresh.rs
+msgid "Edit profile"
+msgstr "Profil bearbeiten"
+
+#: ui/server.slint
+msgid "Edit pronouns"
+msgstr "Pronomen bearbeiten"
+
+#: src/ui/server_settings.rs
+msgid "Edit Role — {}"
+msgstr "Rolle bearbeiten: {}"
+
+#: ui/server.slint
+msgid "Edit server nickname"
+msgstr "Server-Nickname bearbeiten"
+
+#: src/ui/menus.rs src/ui/refresh.rs
+msgid "Edit server profile"
+msgstr "Serverprofil bearbeiten"
+
+#: ui/server_expressions.slint
+msgid "Edit Sticker"
+msgstr "Sticker bearbeiten"
+
+#: ui/settings.slint
+msgid "EDIT THEME"
+msgstr "DESIGN BEARBEITEN"
+
+#: ui/thread.slint ui/yapfast.slint
+msgid "Edit your message"
+msgstr "Deine Nachricht bearbeiten"
+
+#: ui/settings.slint
+msgid "Edit {}"
+msgstr "{} bearbeiten"
+
+#: ui/thread.slint ui/yapfast.slint src/ui/refresh.rs
+msgid "Editing your message"
+msgstr "Du bearbeitest deine Nachricht"
+
+#: ui/server.slint
+msgid "Effect"
+msgstr "Effekt"
+
+#: ui/server.slint
+msgid "Effect on"
+msgstr "Effekt an"
+
+#: ui/roles.slint ui/server_expressions.slint ui/yapfast.slint
+msgid "Emoji"
+msgstr "Emoji"
+
+#: ui/composer.slint
+msgid "EMOJI MATCHING :{}"
+msgstr "PASSENDE EMOJIS :{}"
+
+#: ui/server_expressions.slint
+msgid "Emoji name"
+msgstr "Emoji-Name"
+
+#: ui/dialogs.slint
+msgid "Emoji, {}. Change it"
+msgstr "Emoji, {}. Ändern"
+
+#: ui/server_people.slint
+msgid "Enable Invites"
+msgstr "Einladungen aktivieren"
+
+#: ui/settings.slint
+msgid "Encode streams with the GPU"
+msgstr "Streams mit der GPU kodieren"
+
+#: ui/voice.slint
+msgid "Encoder:"
+msgstr "Encoder:"
+
+#: ui/voice.slint
+msgid "ENCODING"
+msgstr "KODIERUNG"
+
+#: ui/messages.slint
+msgid "End Poll Now"
+msgstr "Umfrage jetzt beenden"
+
+#: ui/messages.slint
+msgid "End the poll now? This will close it immediately and reveal the results."
+msgstr "Umfrage jetzt beenden? Sie wird sofort geschlossen und die Ergebnisse werden angezeigt."
+
+#: ui/voice.slint
+msgid "End-to-end encrypted"
+msgstr "Ende-zu-Ende-verschlüsselt"
+
+#: src/ui/refresh.rs
+msgid "End-to-end encrypted. Enter to send, Shift+Enter for a new line."
+msgstr "Ende-zu-Ende-verschlüsselt. Enter zum Senden, Umschalt+Enter für eine neue Zeile."
+
+#: ui/server_people.slint
+msgid "Engaged in suspected spam activity"
+msgstr "An verdächtigen Spam-Aktivitäten beteiligt"
+
+#: ui/server_settings.slint
+msgid "Engagement"
+msgstr "Interaktion"
+
+#: src/ui/refresh.rs
+msgid "Enjoy this moment. Then jump in when you're ready."
+msgstr "Genieße den Moment. Steig dann ein, wenn du bereit bist."
+
+#: ui/thread.slint
+msgid "Enter a message to start the conversation!"
+msgstr "Schreib eine Nachricht, um die Unterhaltung zu beginnen!"
+
+#: ui/forum.slint
+msgid "Enter a message..."
+msgstr "Nachricht eingeben ..."
+
+#: ui/settings.slint
+msgid "Enter an executable and a name of up to 128 characters, without line breaks."
+msgstr "Gib eine ausführbare Datei und einen Namen mit bis zu 128 Zeichen ohne Zeilenumbrüche ein."
+
+#: src/ui/server_settings.rs
+msgid "Enter one of your 8-digit backup codes. Each works only once."
+msgstr "Gib einen deiner 8-stelligen Backup-Codes ein. Jeder funktioniert nur einmal."
+
+#: ui/server_ownership.slint
+msgid "ENTER SERVER NAME"
+msgstr "SERVERNAMEN EINGEBEN"
+
+#: ui/server_ownership.slint
+msgid "Enter server name"
+msgstr "Servernamen eingeben"
+
+#: src/ui/server_settings.rs
+msgid "Enter the 6-digit code Discord sent to {}."
+msgstr "Gib den 6-stelligen Code ein, den Discord an {} gesendet hat."
+
+#: src/ui/server_settings.rs
+msgid "Enter the 6-digit code from your authenticator app."
+msgstr "Gib den 6-stelligen Code aus deiner Authentifizierungs-App ein."
+
+#: src/ui/server_settings.rs
+msgid "Enter your password."
+msgstr "Gib dein Passwort ein."
+
+#: ui/settings.slint
+msgid "Entrance sound"
+msgstr "Beitrittssound"
+
+#: ui/settings.slint
+msgid "Entrance sound for"
+msgstr "Beitrittssound für"
+
+#: ui/settings.slint
+msgid "ENTRANCE SOUNDS"
+msgstr "BEITRITTSSOUNDS"
+
+#: ui/settings.slint
+msgid "Entrance sounds play to everyone as you join a voice channel. They need Nitro."
+msgstr "Beitrittssounds werden für alle abgespielt, wenn du einem Sprachkanal beitrittst. Sie benötigen Nitro."
+
+#: ui/settings.slint
+msgid "Even out your voice"
+msgstr "Deine Stimme ausgleichen"
+
+#: ui/yapfast.slint
+msgid "Events"
+msgstr "Events"
+
+#: src/ui/refresh.rs
+msgid "Everyone in this channel"
+msgstr "Alle in diesem Kanal"
+
+#: src/ui/refresh.rs
+msgid "Everyone in this server sees it. Leave it empty to go by your name."
+msgstr "Alle auf diesem Server sehen ihn. Lass das Feld leer, um deinen Namen zu verwenden."
+
+#: src/ui/refresh.rs
+msgid "Everyone in this server sees it. Leave it empty to reset it to their name."
+msgstr "Alle auf diesem Server sehen ihn. Lass das Feld leer, um den Namen der Person wiederherzustellen."
+
+#: src/ui/refresh.rs
+msgid "Everyone online here"
+msgstr "Alle, die hier online sind"
+
+#: ui/settings.slint
+msgid "Executable name or full path"
+msgstr "Name der ausführbaren Datei oder vollständiger Pfad"
+
+#: ui/forum.slint ui/thread.slint
+msgid "Exit"
+msgstr "Verlassen"
+
+#: ui/messages.slint ui/voice.slint
+msgid "Exit full screen"
+msgstr "Vollbild beenden"
+
+#: ui/yapfast/settings-nav.slint
+msgid "Experience"
+msgstr "Erlebnis"
+
+#: ui/server.slint
+msgid "EXPIRE AFTER"
+msgstr "LÄUFT AB NACH"
+
+#: ui/server.slint
+msgid "Expire after"
+msgstr "Läuft ab nach"
+
+#: ui/server_people.slint
+msgid "EXPIRES"
+msgstr "LÄUFT AB"
+
+#: src/ui/refresh.rs
+msgid "expires in 30 minutes"
+msgstr "läuft in 30 Minuten ab"
+
+#: src/ui/refresh.rs
+msgid "expires in a day"
+msgstr "läuft in einem Tag ab"
+
+#: src/ui/refresh.rs
+msgid "expires in an hour"
+msgstr "läuft in einer Stunde ab"
+
+#: src/ui/refresh.rs
+msgid "expires in {n} day"
+msgid_plural "expires in {n} days"
+msgstr[0] "läuft in {n} Tag ab"
+msgstr[1] "läuft in {n} Tagen ab"
+
+#: src/ui/refresh.rs
+msgid "expires in {n} hour"
+msgid_plural "expires in {n} hours"
+msgstr[0] "läuft in {n} Stunde ab"
+msgstr[1] "läuft in {n} Stunden ab"
+
+#: ui/sign-in.slint
+msgid "Explore local preview"
+msgstr "Lokale Vorschau erkunden"
+
+#: ui/yapfast.slint
+msgid "Expression Picker"
+msgstr "Auswahl für Ausdrücke"
+
+#: ui/settings.slint
+msgid "Felt piano"
+msgstr "Filz-Klavier"
+
+#: ui/server_expressions.slint
+msgid "FILE"
+msgstr "DATEI"
+
+#: ui/server_expressions.slint
+msgid "File should be APNG, JPG, PNG or GIF (512 KB max)"
+msgstr "Die Datei sollte APNG, JPG, PNG oder GIF sein (max. 512 KB)"
+
+#: ui/moderation.slint
+msgid "Filter by Action"
+msgstr "Nach Aktion filtern"
+
+#: ui/moderation.slint
+msgid "Filter by User"
+msgstr "Nach Benutzer filtern"
+
+#: src/ui/server_settings.rs
+msgid "Filter messages from all members"
+msgstr "Nachrichten aller Mitglieder filtern"
+
+#: src/ui/server_settings.rs
+msgid "Filter messages from server members without roles"
+msgstr "Nachrichten von Servermitgliedern ohne Rollen filtern"
+
+#: src/ui/refresh.rs
+msgid "Find a channel"
+msgstr "Kanal suchen"
+
+#: ui/yapfast.slint
+msgid "Find a conversation"
+msgstr "Unterhaltung suchen"
+
+#: src/ui/refresh.rs
+msgid "Find a DM"
+msgstr "DM suchen"
+
+#: ui/dialogs.slint ui/header.slint
+msgid "Find a friend"
+msgstr "Freund suchen"
+
+#: ui/dialogs.slint
+msgid "Find a friend, or type a Matrix id"
+msgstr "Freund suchen oder eine Matrix-ID eingeben"
+
+#: ui/messages.slint
+msgid "Find an emoji"
+msgstr "Emoji suchen"
+
+#: ui/interactions.slint
+msgid "Find an option"
+msgstr "Option finden"
+
+#: src/ui/refresh.rs
+msgid "Find Invite"
+msgstr "Einladung finden"
+
+#: ui/dialogs.slint
+msgid "Find people"
+msgstr "Personen suchen"
+
+#: ui/stickers.slint
+msgid "Find the perfect sticker"
+msgstr "Finde den perfekten Sticker"
+
+#: ui/thread.slint
+msgid "First message"
+msgstr "Erste Nachricht"
+
+#: src/emoji.rs
+msgid "Flags"
+msgstr "Flaggen"
+
+#: ui/settings.slint
+msgid "Flash the taskbar"
+msgstr "Taskleiste blinken lassen"
+
+#: ui/settings.slint
+msgid "Flute"
+msgstr "Flöte"
+
+#: ui/yapfast.slint
+msgid "Follow"
+msgstr "Folgen"
+
+#: ui/browse.slint
+msgid "Follow category"
+msgstr "Kategorie folgen"
+
+#: ui/yapfast.slint
+msgid "Following"
+msgstr "Gefolgt"
+
+#: ui/server.slint
+msgid "Font"
+msgstr "Schriftart"
+
+#: src/emoji.rs
+msgid "Food & drink"
+msgstr "Essen & Trinken"
+
+#: src/ui/menus.rs
+msgid "For 1 hour"
+msgstr "Für 1 Stunde"
+
+#: src/ui/menus.rs
+msgid "For 15 minutes"
+msgstr "Für 15 Minuten"
+
+#: ui/settings.slint
+msgid "For a bare or echoey room that makes your voice sound far away. Uses a little more processing, and your voice goes out 10 ms later."
+msgstr "Für einen kahlen oder hallenden Raum, in dem deine Stimme weit weg klingt. Braucht etwas mehr Rechenleistung, und deine Stimme geht 10 ms später raus."
+
+#: ui/settings.slint
+msgid "For a message that notifies while Yapfast isn't in front. The window's title counts mentions and DMs waiting either way."
+msgstr "Für eine Nachricht, die dich benachrichtigt, wenn Yapfast nicht im Vordergrund ist. Der Titel des Fensters zählt wartende Erwähnungen und DMs in jedem Fall."
+
+#: ui/settings.slint
+msgid "For new messages while Yapfast isn't in front. {} which: usually DMs and mentions. Clicking one opens the conversation."
+msgstr "Für neue Nachrichten, während Yapfast nicht im Vordergrund ist. {}, welche: meist DMs und Erwähnungen. Ein Klick darauf öffnet die Unterhaltung."
+
+#: src/ui/profile.rs
+msgid "for {} d"
+msgstr "für {} T"
+
+#: src/ui/menus.rs
+msgid "For {} hours"
+msgstr "Für {} Stunden"
+
+#: src/ui/profile.rs
+msgid "for {} hr"
+msgstr "für {} Std."
+
+#: src/ui/profile.rs
+msgid "for {} min"
+msgstr "für {} Min."
+
+#: src/ui/menus.rs
+msgid "For {} minutes"
+msgstr "Für {} Minuten"
+
+#: ui/messages.slint ui/thread.slint ui/yapfast/window-bar.slint ui/yapfast.slint
+msgid "Forward"
+msgstr "Weiterleiten"
+
+#: ui/dialogs.slint
+msgid "Forward To"
+msgstr "Weiterleiten an"
+
+#: ui/messages.slint
+msgid "Forwarded"
+msgstr "Weitergeleitet"
+
+#: ui/server.slint
+msgid "Frame on"
+msgstr "Rahmen an"
+
+#: ui/voice.slint
+msgid "FRAME RATE"
+msgstr "BILDRATE"
+
+#: src/ui/server_settings.rs
+msgid "Free Slots"
+msgstr "Freie Slots"
+
+#: ui/people.slint
+msgid "Friend Request Sent"
+msgstr "Freundschaftsanfrage gesendet"
+
+#: ui/friends.slint
+msgid "Friend requests and messages from people you don't know show up here."
+msgstr "Freundschaftsanfragen und Nachrichten von Personen, die du nicht kennst, erscheinen hier."
+
+#: ui/people.slint ui/rail.slint ui/yapfast.slint
+msgid "Friends"
+msgstr "Freunde"
+
+#: src/ui/refresh.rs
+msgid "from {}"
+msgstr "von {}"
+
+#: ui/settings.slint
+msgid "Full"
+msgstr "Vollständig"
+
+#: ui/messages.slint ui/voice.slint
+msgid "Full screen"
+msgstr "Vollbild"
+
+#: ui/settings.slint
+msgid "Full takes out the most noise, but can cut off giggles and breathy laughs. Medium and Light leave a little of the room's sound in, which can sound more natural, and let a little more noise through."
+msgstr "Vollständig filtert am meisten Rauschen heraus, kann aber Kichern und hauchiges Lachen abschneiden. Mittel und Leicht lassen etwas vom Raumklang drin, was natürlicher klingen kann, und lassen etwas mehr Rauschen durch."
+
+#: ui/settings.slint ui/yapfast/settings-nav.slint
+msgid "Game Activity"
+msgstr "Spielaktivität"
+
+#: ui/settings.slint
+msgid "Game activity"
+msgstr "Spielaktivität"
+
+#: ui/settings.slint
+msgid "Game activity text"
+msgstr "Text der Spielaktivität"
+
+#: ui/settings.slint
+msgid "Game executable"
+msgstr "Ausführbare Datei des Spiels"
+
+#: ui/server.slint
+msgid "Generate a new link"
+msgstr "Neuen Link erzeugen"
+
+#: ui/server_expressions.slint
+msgid "Get the party started by uploading an emoji"
+msgstr "Bring die Party in Schwung, indem du ein Emoji hochlädst"
+
+#: ui/discord.slint
+msgid "Getting a code..."
+msgstr "Code wird abgerufen ..."
+
+#: ui/server.slint
+msgid "Gg"
+msgstr "Gg"
+
+#: ui/gifs.slint
+msgid "GIF"
+msgstr "GIF"
+
+#: ui/yapfast.slint
+msgid "GIFs"
+msgstr "GIFs"
+
+#: ui/settings.slint
+msgid "Glow"
+msgstr "Leuchten"
+
+#: ui/dialogs.slint
+msgid "Go back"
+msgstr "Zurück"
+
+#: ui/messages.slint
+msgid "Go back to vote"
+msgstr "Zurück zur Abstimmung"
+
+#: ui/voice.slint
+msgid "Go Live"
+msgstr "Live gehen"
+
+#: ui/people.slint
+msgid "Go to server"
+msgstr "Zum Server"
+
+#: ui/controls.slint
+msgid "Go to {0} in {1}"
+msgstr "Zu {0} in {1}"
+
+#: ui/yapfast.slint
+msgid "Got It"
+msgstr "Verstanden"
+
+#: ui/server.slint
+msgid "Gradient"
+msgstr "Verlauf"
+
+#: ui/server.slint
+msgid "Gummy"
+msgstr "Gummy"
+
+#: src/ui/menus.rs
+msgid "Happening now"
+msgstr "Gerade aktiv"
+
+#: ui/settings.slint
+msgid "Hardware acceleration. Off, Yapfast draws on the processor, which uses about half the memory."
+msgstr "Hardwarebeschleunigung. Aus zeichnet Yapfast auf dem Prozessor, was etwa halb so viel Speicher braucht."
+
+#: ui/server.slint
+msgid "Headbang"
+msgstr "Headbang"
+
+#: ui/yapfast/window-bar.slint
+msgid "Help"
+msgstr "Hilfe"
+
+#: ui/people.slint
+msgid "Hide Activity Cards"
+msgstr "Aktivitätskarten ausblenden"
+
+#: ui/yapfast.slint
+msgid "Hide member list"
+msgstr "Mitgliederliste ausblenden"
+
+#: ui/settings.slint
+msgid "Hide messages from people you blocked"
+msgstr "Nachrichten von blockierten Personen ausblenden"
+
+#: src/ui/menus.rs
+msgid "Hide muted channels"
+msgstr "Stummgeschaltete Kanäle ausblenden"
+
+#: ui/forum.slint
+msgid "Hide post guidelines"
+msgstr "Beitragsrichtlinien ausblenden"
+
+#: ui/yapfast.slint
+msgid "Hide profile"
+msgstr "Profil ausblenden"
+
+#: ui/server.slint
+msgid "Hide Styles"
+msgstr "Stile ausblenden"
+
+#: ui/voice.slint
+msgid "Higher quality"
+msgstr "Höhere Qualität"
+
+#: src/push_to_talk.rs
+msgid "Hold the key in any app to talk."
+msgstr "Halte die Taste in einer beliebigen App gedrückt, um zu sprechen."
+
+#: ui/sign-in.slint
+msgid "HOMESERVER"
+msgstr "HOMESERVER"
+
+#: ui/sign-in.slint
+msgid "Homeserver"
+msgstr "Homeserver"
+
+#: ui/settings.slint
+msgid "How long your microphone keeps sending after you let go of the key, so the end of a word isn't cut off."
+msgstr "Wie lange dein Mikrofon weitersendet, nachdem du die Taste loslässt, damit das Ende eines Wortes nicht abgeschnitten wird."
+
+#: ui/settings.slint
+msgid "How loud soundboard sounds play in Discord calls, yours and everyone else's. Discord keeps it for all your devices."
+msgstr "Wie laut Soundboard-Sounds in Discord-Anrufen abgespielt werden, deine und die von allen anderen. Discord merkt sich das für alle deine Geräte."
+
+#: ui/server_settings.slint
+msgid "ICON"
+msgstr "ICON"
+
+#: ui/settings.slint
+msgid "Icons from Solar by 480 Design (CC BY 4.0), many of them adapted, and from Lucide (ISC)."
+msgstr "Icons von Solar von 480 Design (CC BY 4.0), viele davon angepasst, und von Lucide (ISC)."
+
+#: ui/dialogs.slint ui/friends.slint ui/rail.slint ui/yapfast/account-popover.slint
+msgid "Idle"
+msgstr "Abwesend"
+
+#: ui/mfa.slint
+msgid "If you do not have access to any other methods, the button below will activate in {} seconds."
+msgstr "Wenn du keinen Zugriff auf andere Methoden hast, wird die Schaltfläche unten in {} Sekunden aktiv."
+
+#: ui/mfa.slint
+msgid "If you do not have access to any other methods, use the other button below to proceed."
+msgstr "Wenn du keinen Zugriff auf andere Methoden hast, nutze die andere Schaltfläche unten, um fortzufahren."
+
+#: ui/mfa.slint
+msgid "If you have access to any of your other methods, select ‘Verify with something else’ to go back."
+msgstr "Wenn du Zugriff auf eine deiner anderen Methoden hast, wähle „Mit etwas anderem verifizieren“, um zurückzugehen."
+
+#: ui/composer.slint ui/friends.slint
+msgid "Ignore"
+msgstr "Ignorieren"
+
+#: ui/composer.slint
+msgid "Ignore the message request"
+msgstr "Nachrichtenanfrage ignorieren"
+
+#: ui/friends.slint
+msgid "Ignore {}'s friend request"
+msgstr "Freundschaftsanfrage von {} ignorieren"
+
+#: ui/server_expressions.slint
+msgid "IMAGE"
+msgstr "BILD"
+
+#: ui/messages.slint
+msgid "Image viewer"
+msgstr "Bildbetrachter"
+
+#: ui/rail.slint
+msgid "In a call"
+msgstr "In einem Anruf"
+
+#: src/ui/server_settings.rs
+msgid "In order to change this setting, you must have 2FA enabled on your account."
+msgstr "Um diese Einstellung zu ändern, musst du die 2FA für dein Konto aktiviert haben."
+
+#: ui/server.slint
+msgid "In this server"
+msgstr "Auf diesem Server"
+
+#: src/ui/refresh.rs
+msgid "In {}"
+msgstr "In {}"
+
+#: ui/server_settings.slint
+msgid "INACTIVE CHANNEL"
+msgstr "INAKTIVER KANAL"
+
+#: ui/server_settings.slint
+msgid "Inactive Channel"
+msgstr "Inaktiver Kanal"
+
+#: ui/server_settings.slint
+msgid "Inactive Timeout"
+msgstr "Inaktivitäts-Timeout"
+
+#: ui/yapfast/inbox.slint ui/yapfast/window-bar.slint
+msgid "Inbox"
+msgstr "Posteingang"
+
+#: src/ui.rs
+msgid "Incoming call"
+msgstr "Eingehender Anruf"
+
+#: ui/voice.slint
+msgid "Incoming call from {}"
+msgstr "Eingehender Anruf von {}"
+
+#: src/ui/refresh.rs
+msgid "Incoming call."
+msgstr "Eingehender Anruf."
+
+#: ui/voice.slint
+msgid "INPUT LEVEL"
+msgstr "EINGABEPEGEL"
+
+#: ui/voice.slint
+msgid "Input level"
+msgstr "Eingabepegel"
+
+#: ui/settings.slint
+msgid "INPUT MODE"
+msgstr "EINGABEMODUS"
+
+#: ui/settings.slint
+msgid "Input mode"
+msgstr "Eingabemodus"
+
+#: ui/yapfast.slint
+msgid "Input options"
+msgstr "Eingabeoptionen"
+
+#: ui/settings.slint
+msgid "Input sensitivity"
+msgstr "Eingabeempfindlichkeit"
+
+#: ui/settings.slint
+msgid "INPUT SENSITIVITY IN DISCORD CALLS"
+msgstr "EINGABEEMPFINDLICHKEIT IN DISCORD-ANRUFEN"
+
+#: ui/messages.slint
+msgid "Insert"
+msgstr "Einfügen"
+
+#: ui/dialogs.slint ui/yapfast/account-popover.slint
+msgid "Invisible"
+msgstr "Unsichtbar"
+
+#: ui/server_people.slint
+msgid "INVITE CODE"
+msgstr "EINLADUNGSCODE"
+
+#: src/ui/refresh.rs
+msgid "Invite friends to {}"
+msgstr "Freunde zu {} einladen"
+
+#: ui/server.slint
+msgid "INVITE LINK"
+msgstr "EINLADUNGSLINK"
+
+#: ui/server.slint
+msgid "Invite link"
+msgstr "Einladungslink"
+
+#: ui/yapfast.slint
+msgid "Invite people"
+msgstr "Personen einladen"
+
+#: src/ui/menus.rs
+msgid "Invite to channel"
+msgstr "In Kanal einladen"
+
+#: src/ui/menus.rs
+msgid "Invite to server"
+msgstr "Auf Server einladen"
+
+#: ui/server_people.slint
+msgid "INVITER"
+msgstr "EINLADENDER"
+
+#: ui/server_people.slint
+msgid "Invites"
+msgstr "Einladungen"
+
+#: ui/mfa.slint
+msgid "I’m sure, use a backup code"
+msgstr "Ich bin sicher, einen Backup-Code verwenden"
+
+#: ui/server.slint
+msgid "Jellybean"
+msgstr "Jellybean"
+
+#: ui/browse.slint ui/voice.slint
+msgid "Join"
+msgstr "Beitreten"
+
+#: src/ui/refresh.rs
+msgid "Join a Server"
+msgstr "Server beitreten"
+
+#: ui/rail.slint
+msgid "Join a server"
+msgstr "Einem Server beitreten"
+
+#: src/ui/refresh.rs
+msgid "Join and hang out."
+msgstr "Beitreten und abhängen."
+
+#: src/ui/menus.rs
+msgid "Join call"
+msgstr "Anruf beitreten"
+
+#: ui/yapfast.slint
+msgid "Join calls deafened"
+msgstr "Anrufen taubgeschaltet beitreten"
+
+#: ui/yapfast.slint
+msgid "Join calls muted"
+msgstr "Anrufen stummgeschaltet beitreten"
+
+#: ui/yapfast.slint
+msgid "Join calls undeafened"
+msgstr "Anrufen nicht taubgeschaltet beitreten"
+
+#: ui/yapfast.slint
+msgid "Join calls unmuted"
+msgstr "Anrufen nicht stummgeschaltet beitreten"
+
+#: ui/server_people.slint
+msgid "JOIN METHOD"
+msgstr "BEITRITTSMETHODE"
+
+#: src/ui/refresh.rs
+msgid "Join muted and hang out."
+msgstr "Stumm beitreten und abhängen."
+
+#: src/ui/refresh.rs
+msgid "Join Server"
+msgstr "Server beitreten"
+
+#: ui/voice.slint
+msgid "Join the call"
+msgstr "Dem Anruf beitreten"
+
+#: src/ui/menus.rs
+msgid "Join thread"
+msgstr "Thread beitreten"
+
+#: ui/voice.slint src/ui/menus.rs
+msgid "Join voice"
+msgstr "Sprachkanal beitreten"
+
+#: ui/yapfast.slint
+msgid "Join Voice Call"
+msgstr "Sprachanruf beitreten"
+
+#: src/ui/refresh.rs
+msgid "Join {0} to watch {1}'s stream?"
+msgstr "{0} beitreten, um den Stream von {1} anzusehen?"
+
+#: ui/server_people.slint
+msgid "JOINED DISCORD"
+msgstr "DISCORD BEIGETRETEN"
+
+#: ui/server_people.slint
+msgid "Joined Discord (Newest first)"
+msgstr "Discord beigetreten (Neueste zuerst)"
+
+#: ui/server_people.slint
+msgid "Joined Discord (Oldest first)"
+msgstr "Discord beigetreten (Älteste zuerst)"
+
+#: src/ui/refresh.rs
+msgid "Joining voice..."
+msgstr "Trete dem Sprachkanal bei..."
+
+#: src/ui/refresh.rs
+msgid "Joining..."
+msgstr "Trete bei..."
+
+#: ui/server.slint
+msgid "Journal"
+msgstr "Journal"
+
+#: ui/header.slint
+msgid "Jump"
+msgstr "Springen"
+
+#: ui/messages.slint
+msgid "Jump to present"
+msgstr "Zur neuesten Nachricht springen"
+
+#: ui/header.slint
+msgid "Jump to the message"
+msgstr "Zur Nachricht springen"
+
+#: ui/messages.slint
+msgid "Jump to the original message: {}"
+msgstr "Zur ursprünglichen Nachricht springen: {}"
+
+#: ui/sign-in.slint
+msgid "Just looking?"
+msgstr "Nur mal gucken?"
+
+#: src/ui/profile.rs
+msgid "Just now"
+msgstr "Gerade eben"
+
+#: src/ui/server_settings.rs
+msgid "just now"
+msgstr "gerade eben"
+
+#: src/ui/profile.rs
+msgid "just started"
+msgstr "gerade gestartet"
+
+#: ui/channel_settings.slint src/ui/refresh.rs
+msgid "Keep Current Permissions"
+msgstr "Aktuelle Berechtigungen beibehalten"
+
+#: ui/settings.slint
+msgid "Keeps your voice steady as you lean towards the microphone or away from it. Whispers and shouts still come through as they are."
+msgstr "Hält deine Stimme gleichmäßig, wenn du dich zum Mikrofon beugst oder davon weg. Flüstern und Rufen kommen weiterhin so durch, wie sie sind."
+
+#: ui/voice.slint
+msgid "Keyframes viewers asked for:"
+msgstr "Keyframes, die Zuschauer angefordert haben:"
+
+#: src/ui/menus.rs
+msgid "Kick {}"
+msgstr "{} kicken"
+
+#: src/ui/refresh.rs
+msgid "Kick {}?"
+msgstr "{} kicken?"
+
+#: ui/settings.slint
+msgid "LANGUAGE"
+msgstr "SPRACHE"
+
+#: ui/settings.slint
+msgid "Language"
+msgstr "Sprache"
+
+#: ui/settings.slint
+msgid "Large"
+msgstr "Groß"
+
+#: src/ui/refresh.rs
+msgid "Last active {}"
+msgstr "Zuletzt aktiv {}"
+
+#: ui/voice.slint
+msgid "Last ping:"
+msgstr "Letzter Ping:"
+
+#: crates/yapfast-core/src/clock.rs
+msgid "Last {weekday} at {time}"
+msgstr "Letzten {weekday} um {time} Uhr"
+
+#: src/ui/refresh.rs
+msgid "Leave '{}'"
+msgstr "„{}“ verlassen"
+
+#: src/ui/menus.rs
+msgid "Leave group"
+msgstr "Gruppe verlassen"
+
+#: src/ui/menus.rs
+msgid "Leave server"
+msgstr "Server verlassen"
+
+#: src/ui/menus.rs
+msgid "Leave thread"
+msgstr "Thread verlassen"
+
+#: ui/voice.slint
+msgid "Leave voice"
+msgstr "Sprachkanal verlassen"
+
+#: src/ui/refresh.rs
+msgid "Leave without notifying other members"
+msgstr "Verlassen, ohne andere Mitglieder zu benachrichtigen"
+
+#: src/ui/refresh.rs
+msgid "Leave {}"
+msgstr "{} verlassen"
+
+#: ui/settings.slint
+msgid "Leaves them out entirely, rather than showing a line you can open."
+msgstr "Lässt sie ganz weg, statt eine Zeile anzuzeigen, die du öffnen kannst."
+
+#: src/ui/refresh.rs
+msgid "Leaving voice..."
+msgstr "Verlasse den Sprachkanal..."
+
+#: ui/dialogs.slint
+msgid "Leaving Yapfast"
+msgstr "Yapfast wird verlassen"
+
+#: src/ui/games.rs
+msgid "less than a minute"
+msgstr "weniger als eine Minute"
+
+#: ui/channel_settings.slint
+msgid "Let everyone know how to use this channel!"
+msgstr "Lass alle wissen, wie dieser Kanal zu verwenden ist!"
+
+#: ui/settings.slint
+msgid "Let others see when you're typing"
+msgstr "Andere sehen lassen, wenn du tippst"
+
+#: ui/settings.slint
+msgid "Let Windows process your microphone in Discord calls"
+msgstr "Windows dein Mikrofon in Discord-Anrufen verarbeiten lassen"
+
+#: src/ui/server_settings.rs
+msgid "Level {}"
+msgstr "Stufe {}"
+
+#: ui/server.slint ui/settings.slint
+msgid "Light"
+msgstr "Leicht"
+
+#: ui/discord.slint
+msgid "Link"
+msgstr "Verknüpfen"
+
+#: ui/settings.slint
+msgid "Link a Discord account first."
+msgstr "Verknüpfe zuerst ein Discord-Konto."
+
+#: ui/settings.slint
+msgid "Link your Discord account to see its servers and DMs in Yapfast, and join its calls. The login stays on this computer, in the system's credential store."
+msgstr "Verknüpfe dein Discord-Konto, um seine Server und DMs in Yapfast zu sehen und seinen Anrufen beizutreten. Die Anmeldung bleibt auf diesem Computer, im Anmeldeinformationsspeicher des Systems."
+
+#: ui/sign-in.slint
+msgid "Link your Discord account with your phone."
+msgstr "Verknüpfe dein Discord-Konto mit deinem Handy."
+
+#: src/ui/server_settings.rs
+msgid "Linked Channel"
+msgstr "Verknüpfter Kanal"
+
+#: ui/discord.slint
+msgid "Linking {}. Tap Log in on your phone to finish."
+msgstr "{} wird verknüpft. Tippe auf deinem Handy auf „Anmelden“, um abzuschließen."
+
+#: ui/voice.slint
+msgid "Listening"
+msgstr "Hört zu"
+
+#: ui/voice.slint
+msgid "LIVE"
+msgstr "LIVE"
+
+#: ui/voice.slint
+msgid "Live"
+msgstr "Live"
+
+#: ui/moderation.slint
+msgid "Load More"
+msgstr "Mehr laden"
+
+#: ui/controls.slint
+msgid "Loading"
+msgstr "Wird geladen"
+
+#: ui/messages.slint
+msgid "Loading conversation..."
+msgstr "Unterhaltung wird geladen ..."
+
+#: src/ui/refresh.rs
+msgid "Loading members..."
+msgstr "Lade Mitglieder..."
+
+#: src/ui/refresh.rs
+msgid "Loading pinned messages..."
+msgstr "Lade angeheftete Nachrichten..."
+
+#: ui/voice.slint
+msgid "Loading sounds..."
+msgstr "Sounds werden geladen ..."
+
+#: src/ui/profile.rs src/ui/refresh.rs
+msgid "Loading the board..."
+msgstr "Board wird geladen ..."
+
+#: src/ui/refresh.rs
+msgid "Loading the full image..."
+msgstr "Lade das vollständige Bild..."
+
+#: src/ui/profile.rs
+msgid "Loading the profile..."
+msgstr "Lade das Profil..."
+
+#: src/ui/profile.rs
+msgid "Loading the wishlist..."
+msgstr "Wunschliste wird geladen ..."
+
+#: src/ui/refresh.rs
+msgid "Loading threads..."
+msgstr "Lade Threads..."
+
+#: ui/messages.slint
+msgid "Loading {} messages"
+msgstr "{} Nachrichten werden geladen"
+
+#: ui/messages.slint
+msgid "Loading {} messages..."
+msgstr "{} Nachrichten werden geladen ..."
+
+#: ui/channel_settings.slint ui/dialogs.slint ui/forum.slint ui/header.slint ui/messages.slint ui/moderation.slint ui/roles.slint ui/server.slint ui/server_people.slint ui/server_settings.slint src/ui/refresh.rs
+msgid "Loading..."
+msgstr "Wird geladen ..."
+
+#: src/ui/refresh.rs
+msgid "Local only"
+msgstr "Nur lokal"
+
+#: ui/yapfast.slint
+msgid "Local preview: sample data. Nothing leaves this computer."
+msgstr "Lokale Vorschau: Beispieldaten. Nichts verlässt diesen Computer."
+
+#: ui/messages.slint ui/stickers.slint
+msgid "Locked, Nitro only: {}"
+msgstr "Gesperrt, nur mit Nitro: {}"
+
+#: ui/settings.slint
+msgid "Long messages and code show their first lines, with Show more to see the rest."
+msgstr "Lange Nachrichten und Code zeigen ihre ersten Zeilen, mit „Mehr anzeigen“ siehst du den Rest."
+
+#: ui/channel_settings.slint
+msgid "Longer slowmode"
+msgstr "Längerer Langsammodus"
+
+#: src/ui/refresh.rs
+msgid "Looking up the application..."
+msgstr "Suche die Anwendung..."
+
+#: src/ui/refresh.rs
+msgid "Looking up the event..."
+msgstr "Suche das Event..."
+
+#: src/ui/refresh.rs
+msgid "Looking up the gift..."
+msgstr "Suche das Geschenk..."
+
+#: src/ui/refresh.rs
+msgid "Looking up the invite..."
+msgstr "Suche die Einladung..."
+
+#: ui/server.slint
+msgid "Main Profile"
+msgstr "Hauptprofil"
+
+#: ui/server.slint
+msgid "Mainframe"
+msgstr "Mainframe"
+
+#: ui/server.slint
+msgid "Make unique profiles for each server"
+msgstr "Eigene Profile für jeden Server erstellen"
+
+#: ui/server.slint
+msgid "Making a link..."
+msgstr "Link wird erstellt ..."
+
+#: src/ui/server_settings.rs
+msgid "Manage Members ({})"
+msgstr "Mitglieder verwalten ({})"
+
+#: src/ui/server_settings.rs
+msgid "Manual Verification"
+msgstr "Manuelle Verifizierung"
+
+#: src/ui/server_settings.rs
+msgid "Manual Verification ({})"
+msgstr "Manuelle Verifizierung ({})"
+
+#: src/ui/menus.rs
+msgid "Mark as read"
+msgstr "Als gelesen markieren"
+
+#: ui/settings.slint
+msgid "Mark messages read on Discord"
+msgstr "Nachrichten auf Discord als gelesen markieren"
+
+#: ui/composer.slint
+msgid "Mark {} as a spoiler"
+msgstr "{} als Spoiler markieren"
+
+#: ui/sign-in.slint
+msgid "MATRIX ID"
+msgstr "MATRIX-ID"
+
+#: ui/sign-in.slint
+msgid "Matrix ID"
+msgstr "Matrix-ID"
+
+#: ui/sign-in.slint
+msgid "Matrix recovery key"
+msgstr "Matrix-Wiederherstellungsschlüssel"
+
+#: ui/settings.slint
+msgid "Matrix shows"
+msgstr "Matrix zeigt"
+
+#: ui/server.slint
+msgid "MAX NUMBER OF USES"
+msgstr "MAXIMALE ANZAHL AN NUTZUNGEN"
+
+#: ui/server.slint
+msgid "Max number of uses"
+msgstr "Maximale Anzahl an Nutzungen"
+
+#: ui/title_bar.slint ui/yapfast/window-bar.slint
+msgid "Maximize"
+msgstr "Maximieren"
+
+#: ui/dialogs.slint
+msgid "Maximum {} places at once."
+msgstr "Höchstens {} Plätze gleichzeitig."
+
+#: ui/friends.slint
+msgid "Maybe spam"
+msgstr "Möglicherweise Spam"
+
+#: ui/server.slint
+msgid "Medieval"
+msgstr "Mittelalter"
+
+#: ui/settings.slint
+msgid "Medium"
+msgstr "Mittel"
+
+#: ui/settings.slint
+msgid "Mellow Rhodes"
+msgstr "Sanftes Rhodes"
+
+#: ui/server_people.slint
+msgid "MEMBER SINCE"
+msgstr "MITGLIED SEIT"
+
+#: ui/people.slint ui/server.slint
+msgid "Member since"
+msgstr "Mitglied seit"
+
+#: ui/server_people.slint
+msgid "Member Since (Newest first)"
+msgstr "Mitglied seit (Neueste zuerst)"
+
+#: ui/server_people.slint
+msgid "Member Since (Oldest first)"
+msgstr "Mitglied seit (Älteste zuerst)"
+
+#: ui/people.slint
+msgid "Member since {}"
+msgstr "Mitglied seit {}"
+
+#: ui/channel_settings.slint ui/roles.slint src/ui/refresh.rs
+msgid "MEMBERS"
+msgstr "MITGLIEDER"
+
+#: ui/people.slint
+msgid "Members"
+msgstr "Mitglieder"
+
+#: ui/roles.slint
+msgid "Members cannot be manually added or removed from this role"
+msgstr "Mitglieder können dieser Rolle nicht manuell hinzugefügt oder davon entfernt werden"
+
+#: src/ui/server_settings.rs
+msgid "Members of the server must meet the following criteria before they can send messages in text channels or initiate a direct message conversation. If a member has an assigned role and server onboarding is not enabled, this does not apply. We recommend setting a verification level for a Community Server."
+msgstr "Mitglieder des Servers müssen die folgenden Kriterien erfüllen, bevor sie in Textkanälen Nachrichten senden oder eine Direktnachricht beginnen können. Hat ein Mitglied eine zugewiesene Rolle und das Server-Onboarding ist nicht aktiviert, gilt das nicht. Wir empfehlen, für einen Community-Server eine Verifizierungsstufe festzulegen."
+
+#: src/ui/server_settings.rs
+msgid "Members of the server must meet the following criteria before they can send messages. If a member has an assigned role and server onboarding is not enabled, this does not apply."
+msgstr "Mitglieder des Servers müssen die folgenden Kriterien erfüllen, bevor sie Nachrichten senden können. Hat ein Mitglied eine zugewiesene Rolle und das Server-Onboarding ist nicht aktiviert, gilt das nicht."
+
+#: ui/server_people.slint
+msgid "members of {}"
+msgstr "Mitglieder von {}"
+
+#: ui/server_people.slint
+msgid "Members per page"
+msgstr "Mitglieder pro Seite"
+
+#: ui/roles.slint
+msgid "Members use the color of the highest role they have on the roles list."
+msgstr "Mitglieder verwenden die Farbe der höchsten Rolle, die sie in der Rollenliste haben."
+
+#: ui/roles.slint
+msgid "Members use the color of the highest role they have on this list. Drag roles to reorder them."
+msgstr "Mitglieder verwenden die Farbe der höchsten Rolle, die sie in dieser Liste haben. Ziehe Rollen, um sie neu anzuordnen."
+
+#: ui/channel_settings.slint
+msgid "Members will be restricted to sending one message and creating one thread per this interval, unless they have Bypass Slowmode, Manage Channel or Manage Messages permissions."
+msgstr "Mitglieder dürfen pro Intervall nur eine Nachricht senden und einen Thread erstellen, es sei denn, sie haben die Berechtigung „Langsammodus umgehen“, „Kanal verwalten“ oder „Nachrichten verwalten“."
+
+#: ui/settings.slint
+msgid "Mention people you reply to"
+msgstr "Personen erwähnen, auf die du antwortest"
+
+#: ui/controls.slint
+msgid "Mention the person you reply to"
+msgstr "Die Person erwähnen, auf die du antwortest"
+
+#: ui/yapfast/inbox.slint
+msgid "Mentions"
+msgstr "Erwähnungen"
+
+#: ui/settings.slint
+msgid "Menus offer Copy ID for servers, channels and people, which helps when you write apps that use the Discord API."
+msgstr "Menüs bieten „ID kopieren“ für Server, Kanäle und Personen an, was hilft, wenn du Apps für die Discord-API schreibst."
+
+#: ui/dialogs.slint ui/forum.slint ui/friends.slint ui/server.slint ui/yapfast.slint
+msgid "Message"
+msgstr "Nachricht"
+
+#: src/ui/refresh.rs
+msgid "Message #{}"
+msgstr "Nachricht an #{}"
+
+#: src/ui/profile.rs src/ui/refresh.rs
+msgid "Message @{}"
+msgstr "Nachricht an @{}"
+
+#: ui/messages.slint
+msgid "Message from {0}: {1}"
+msgstr "Nachricht von {0}: {1}"
+
+#: ui/settings.slint
+msgid "Message times show them, as 21:41:05."
+msgstr "Die Nachrichtenzeiten zeigen sie an, etwa 21:41:05."
+
+#: ui/dialogs.slint
+msgid "Message {0}, {1}"
+msgstr "Nachricht {0}, {1}"
+
+#: ui/people.slint ui/thread.slint src/ui/refresh.rs
+msgid "Message {}"
+msgstr "Nachricht an {}"
+
+#: ui/settings.slint ui/yapfast/settings-nav.slint ui/yapfast.slint
+msgid "Messages"
+msgstr "Nachrichten"
+
+#: src/ui/server_settings.rs
+msgid "Messages will not be filtered for sensitive image-based media."
+msgstr "Nachrichten werden nicht auf sensible Bildinhalte gefiltert."
+
+#: ui/settings.slint
+msgid "MICROPHONE"
+msgstr "MIKROFON"
+
+#: ui/settings.slint
+msgid "Microphone device"
+msgstr "Mikrofongerät"
+
+#: src/ui/refresh.rs
+msgid "Microphone live"
+msgstr "Mikrofon an"
+
+#: src/ui/refresh.rs
+msgid "Microphone muted"
+msgstr "Mikrofon stummgeschaltet"
+
+#: ui/settings.slint
+msgid "Microphone volume"
+msgstr "Mikrofonlautstärke"
+
+#: ui/title_bar.slint ui/yapfast/window-bar.slint
+msgid "Minimize"
+msgstr "Minimieren"
+
+#: src/ui/refresh.rs
+msgid "MODERATORS"
+msgstr "MODERATOREN"
+
+#: ui/server.slint
+msgid "Modern"
+msgstr "Modern"
+
+#: ui/server.slint src/ui/name_style.rs
+msgid "Monkey Bars"
+msgstr "Monkey Bars"
+
+#: ui/settings.slint
+msgid "Month/Day/Year"
+msgstr "Monat/Tag/Jahr"
+
+#: ui/roles.slint ui/server.slint ui/thread.slint ui/yapfast.slint
+msgid "More"
+msgstr "Mehr"
+
+#: ui/people.slint
+msgid "More actions"
+msgstr "Weitere Aktionen"
+
+#: ui/server_people.slint
+msgid "More Options"
+msgstr "Weitere Optionen"
+
+#: ui/yapfast.slint
+msgid "More options"
+msgstr "Weitere Optionen"
+
+#: src/ui/profile.rs
+msgid "Most played: {}h"
+msgstr "Am meisten gespielt: {} Std."
+
+#: ui/roles.slint
+msgid "Move Down"
+msgstr "Nach unten"
+
+#: src/ui/menus.rs
+msgid "Move to"
+msgstr "Verschieben nach"
+
+#: ui/roles.slint
+msgid "Move Up"
+msgstr "Nach oben"
+
+#: ui/mfa.slint
+msgid "Multi-Factor Authentication"
+msgstr "Mehrstufige Authentifizierung"
+
+#: src/ui/server_settings.rs
+msgid "Must also be a member of this server for longer than 10 minutes."
+msgstr "Muss außerdem länger als 10 Minuten Mitglied dieses Servers sein."
+
+#: src/ui/server_settings.rs
+msgid "Must also be registered on Discord for longer than 5 minutes."
+msgstr "Muss außerdem länger als 5 Minuten bei Discord registriert sein."
+
+#: src/ui/server_settings.rs
+msgid "Must have a verified email on their Discord account."
+msgstr "Muss eine verifizierte E-Mail-Adresse im Discord-Konto haben."
+
+#: src/ui/server_settings.rs
+msgid "Must have a verified phone on their Discord account."
+msgstr "Muss eine verifizierte Telefonnummer im Discord-Konto haben."
+
+#: ui/messages.slint ui/voice.slint ui/yapfast.slint
+msgid "Mute"
+msgstr "Stummschalten"
+
+#: src/ui/menus.rs
+msgid "Mute server"
+msgstr "Server stummschalten"
+
+#: src/ui/menus.rs
+msgid "Mute Soundboard"
+msgstr "Soundboard stummschalten"
+
+#: ui/voice.slint
+msgid "Muted"
+msgstr "Stummgeschaltet"
+
+#: src/ui/menus.rs
+msgid "Muted until {}"
+msgstr "Stummgeschaltet bis {}"
+
+#: ui/voice.slint
+msgid "Muted. Nothing you say is sent."
+msgstr "Stummgeschaltet. Nichts, was du sagst, wird gesendet."
+
+#: ui/settings.slint
+msgid "Muting"
+msgstr "Stummschaltung"
+
+#: ui/people.slint
+msgid "MUTUAL FRIENDS — {}"
+msgstr "GEMEINSAME FREUNDE: {}"
+
+#: ui/people.slint
+msgid "MUTUAL SERVERS — {}"
+msgstr "GEMEINSAME SERVER: {}"
+
+#: ui/settings.slint ui/yapfast/settings-nav.slint
+msgid "My Account"
+msgstr "Mein Konto"
+
+#: ui/settings.slint
+msgid "My account"
+msgstr "Mein Konto"
+
+#: src/ui/appearance.rs
+msgid "My theme"
+msgstr "Mein Theme"
+
+#: ui/server_expressions.slint ui/server_people.slint ui/server_settings.slint
+msgid "NAME"
+msgstr "NAME"
+
+#: ui/people.slint ui/settings.slint
+msgid "Name"
+msgstr "Name"
+
+#: ui/settings.slint
+msgid "Name a game by its executable, a file name or a full path, and what to show after Playing. These come before the games Yapfast knows, but a game's Rich Presence comes first."
+msgstr "Benenne ein Spiel nach seiner ausführbaren Datei, einem Dateinamen oder einem vollständigen Pfad und lege fest, was nach „Spielt“ angezeigt wird. Diese kommen vor den Spielen, die Yapfast kennt, aber die Rich Presence eines Spiels hat Vorrang."
+
+#: ui/server.slint
+msgid "Nameplate"
+msgstr "Namensschild"
+
+#: ui/server.slint
+msgid "Neon"
+msgstr "Neon"
+
+#: ui/dialogs.slint ui/server.slint ui/server_people.slint ui/settings.slint
+msgid "Never"
+msgstr "Nie"
+
+#: src/ui/refresh.rs
+msgid "never expires"
+msgstr "läuft nie ab"
+
+#: ui/forum.slint
+msgid "NEW"
+msgstr "NEU"
+
+#: ui/friends.slint ui/yapfast.slint
+msgid "New"
+msgstr "Neu"
+
+#: src/ui/refresh.rs
+msgid "New Category"
+msgstr "Neue Kategorie"
+
+#: ui/settings.slint
+msgid "New Kalimba"
+msgstr "Neue Kalimba"
+
+#: ui/dialogs.slint ui/yapfast/dm-heading.slint ui/yapfast.slint src/notify.rs
+msgid "New message"
+msgstr "Neue Nachricht"
+
+#: ui/yapfast.slint
+msgid "New messages start here"
+msgstr "Neue Nachrichten beginnen hier"
+
+#: ui/forum.slint
+msgid "New Post"
+msgstr "Neuer Beitrag"
+
+#: ui/settings.slint
+msgid "NEW THEME"
+msgstr "NEUES DESIGN"
+
+#: ui/settings.slint
+msgid "New theme"
+msgstr "Neues Design"
+
+#: ui/thread.slint src/ui/refresh.rs
+msgid "New Thread"
+msgstr "Neuer Thread"
+
+#: ui/messages.slint
+msgid "Newer messages"
+msgstr "Neuere Nachrichten"
+
+#: ui/moderation.slint ui/server_people.slint
+msgid "Next"
+msgstr "Weiter"
+
+#: ui/messages.slint
+msgid "Next image"
+msgstr "Nächstes Bild"
+
+#: src/ui/refresh.rs
+msgid "Nickname for {}"
+msgstr "Spitzname für {}"
+
+#: ui/server_people.slint
+msgid "NO ACTIVE INVITE LINKS"
+msgstr "KEINE AKTIVEN EINLADUNGSLINKS"
+
+#: ui/settings.slint
+msgid "No audio devices found. Connect one, then refresh."
+msgstr "Keine Audiogeräte gefunden. Schließe eines an und aktualisiere dann."
+
+#: ui/server.slint
+msgid "No banner"
+msgstr "Kein Banner"
+
+#: ui/moderation.slint
+msgid "No Bans"
+msgstr "Keine Bans"
+
+#: ui/settings.slint
+msgid "No camera found. Connect one, then refresh."
+msgstr "Keine Kamera gefunden. Schließe eine an und aktualisiere dann."
+
+#: ui/browse.slint
+msgid "No channel's name matches that."
+msgstr "Kein Kanalname passt dazu."
+
+#: src/ui/refresh.rs
+msgid "No conversations match."
+msgstr "Keine Unterhaltungen gefunden."
+
+#: ui/server_expressions.slint
+msgid "No Emoji"
+msgstr "Kein Emoji"
+
+#: ui/messages.slint
+msgid "No emoji match \"{}\"."
+msgstr "Kein Emoji passt zu „{}“."
+
+#: src/ui/gifs.rs
+msgid "No favorite GIFs match your search."
+msgstr "Keine favorisierten GIFs passen zu deiner Suche."
+
+#: ui/friends.slint
+msgid "No friend's name matches that."
+msgstr "Kein Freundesname passt dazu."
+
+#: ui/people.slint
+msgid "No friends in common."
+msgstr "Keine gemeinsamen Freunde."
+
+#: ui/header.slint
+msgid "No friends match."
+msgstr "Keine Freunde passen."
+
+#: ui/friends.slint
+msgid "No friends yet"
+msgstr "Noch keine Freunde"
+
+#: ui/people.slint
+msgid "No friends."
+msgstr "Keine Freunde."
+
+#: src/ui/gifs.rs
+msgid "No GIFs match your search."
+msgstr "Keine GIFs passen zu deiner Suche."
+
+#: ui/server_settings.slint
+msgid "No image"
+msgstr "Kein Bild"
+
+#: src/ui/server_settings.rs
+msgid "No Inactive Channel"
+msgstr "Kein AFK-Kanal"
+
+#: src/ui/refresh.rs
+msgid "No joined channels in this server. Join a channel in another Matrix client to see it here."
+msgstr "Auf diesem Server gibt es keine beigetretenen Kanäle. Tritt in einem anderen Matrix-Client einem Kanal bei, damit er hier erscheint."
+
+#: ui/settings.slint
+msgid "No keybind set"
+msgstr "Keine Tastenkombination festgelegt"
+
+#: src/ui/server_settings.rs
+msgid "No Level"
+msgstr "Keine Stufe"
+
+#: ui/server.slint
+msgid "No limit"
+msgstr "Kein Limit"
+
+#: ui/moderation.slint
+msgid "No Logs Yet"
+msgstr "Noch keine Protokolle"
+
+#: src/ui/refresh.rs
+msgid "No matching conversations."
+msgstr "Keine passenden Unterhaltungen."
+
+#: ui/interactions.slint
+msgid "No matching options."
+msgstr "Keine passenden Optionen."
+
+#: ui/server_people.slint
+msgid "No members match these search results."
+msgstr "Keine Mitglieder passen zu diesen Suchergebnissen."
+
+#: ui/roles.slint
+msgid "No members were found."
+msgstr "Es wurden keine Mitglieder gefunden."
+
+#: src/ui/messages.rs
+msgid "No messages yet"
+msgstr "Noch keine Nachrichten"
+
+#: ui/yapfast.slint
+msgid "No microphones found. Connect one, then reopen this menu."
+msgstr "Keine Mikrofone gefunden. Schließe eines an und öffne dann dieses Menü erneut."
+
+#: src/ui/refresh.rs
+msgid "No one else has joined yet."
+msgstr "Noch ist niemand sonst beigetreten."
+
+#: src/ui/refresh.rs
+msgid "No one found."
+msgstr "Niemand gefunden."
+
+#: src/ui/refresh.rs
+msgid "No one found. For Matrix, type a full id such as @name:example.org."
+msgstr "Niemand gefunden. Für Matrix gib eine vollständige ID wie @name:example.org ein."
+
+#: ui/roles.slint
+msgid "No permissions found"
+msgstr "Keine Berechtigungen gefunden"
+
+#: src/ui/server_settings.rs
+msgid "No reason provided"
+msgstr "Kein Grund angegeben"
+
+#: src/ui/refresh.rs
+msgid "No recent messages"
+msgstr "Keine neuen Nachrichten"
+
+#: ui/friends.slint
+msgid "No requests"
+msgstr "Keine Anfragen"
+
+#: ui/forum.slint
+msgid "No results found"
+msgstr "Keine Ergebnisse gefunden"
+
+#: ui/roles.slint
+msgid "No roles"
+msgstr "Keine Rollen"
+
+#: ui/server.slint
+msgid "No Server Tag"
+msgstr "Kein Server-Tag"
+
+#: ui/people.slint
+msgid "No servers in common."
+msgstr "Keine gemeinsamen Server."
+
+#: ui/people.slint
+msgid "No servers."
+msgstr "Keine Server."
+
+#: src/ui/server_settings.rs
+msgid "no slots available"
+msgstr "keine Plätze frei"
+
+#: ui/yapfast.slint
+msgid "No speakers found. Connect one, then reopen this menu."
+msgstr "Keine Lautsprecher gefunden. Schließe welche an und öffne dann dieses Menü erneut."
+
+#: src/ui/stickers.rs
+msgid "No stickers match your search."
+msgstr "Keine Sticker passen zu deiner Suche."
+
+#: src/ui/server_settings.rs
+msgid "No System Messages"
+msgstr "Keine Systemnachrichten"
+
+#: ui/settings.slint
+msgid "No system tray is running, so closing the window quits Yapfast."
+msgstr "Es läuft kein Infobereich der Taskleiste, daher beendet das Schließen des Fensters Yapfast."
+
+#: src/ui/menus.rs
+msgid "No upcoming events"
+msgstr "Keine anstehenden Events"
+
+#: src/ui/refresh.rs
+msgid "Nobody else is in the call yet."
+msgstr "Noch ist niemand sonst im Anruf."
+
+#: ui/yapfast.slint
+msgid "NOISE SUPPRESSION"
+msgstr "RAUSCHUNTERDRÜCKUNG"
+
+#: ui/settings.slint
+msgid "NOISE SUPPRESSION IN DISCORD CALLS"
+msgstr "RAUSCHUNTERDRÜCKUNG IN DISCORD-ANRUFEN"
+
+#: ui/settings.slint ui/yapfast.slint
+msgid "Noise suppression in Discord calls"
+msgstr "Rauschunterdrückung in Discord-Anrufen"
+
+#: ui/settings.slint
+msgid "NOISE SUPPRESSION STRENGTH"
+msgstr "STÄRKE DER RAUSCHUNTERDRÜCKUNG"
+
+#: ui/settings.slint
+msgid "Noise suppression strength"
+msgstr "Stärke der Rauschunterdrückung"
+
+#: ui/settings.slint
+msgid "None"
+msgstr "Keine"
+
+#: ui/controls.slint
+msgid "None found"
+msgstr "Nichts gefunden"
+
+#: ui/friends.slint
+msgid "None of your friends are around right now."
+msgstr "Im Moment ist keiner deiner Freunde in der Nähe."
+
+#: ui/server.slint ui/settings.slint
+msgid "Not a colour"
+msgstr "Keine Farbe"
+
+#: ui/roles.slint
+msgid "Not all members are shown, use Search to find specific members"
+msgstr "Nicht alle Mitglieder werden angezeigt, nutze die Suche, um bestimmte Mitglieder zu finden"
+
+#: ui/controls.slint
+msgid "Not sending"
+msgstr "Wird nicht gesendet"
+
+#: src/ui/messages.rs
+msgid "Not sent yet. Yapfast sends it when the connection returns."
+msgstr "Noch nicht gesendet. Yapfast sendet sie, sobald die Verbindung zurück ist."
+
+#: src/ui/messages.rs
+msgid "Not sent. The server refused this message."
+msgstr "Nicht gesendet. Der Server hat diese Nachricht abgelehnt."
+
+#: ui/people.slint ui/server.slint
+msgid "Note (only visible to you)"
+msgstr "Notiz (nur für dich sichtbar)"
+
+#: src/ui/refresh.rs
+msgid "Note on {}"
+msgstr "Notiz zu {}"
+
+#: ui/roles.slint
+msgid "Note: Members with the \"Mention @everyone, @here, and All Roles\" permission will always be able to ping this role."
+msgstr "Hinweis: Mitglieder mit der Berechtigung „@everyone, @here und alle Rollen erwähnen“ können diese Rolle immer anpingen."
+
+#: ui/dialogs.slint
+msgid "Nothing goes by that name."
+msgstr "Unter diesem Namen gibt es nichts."
+
+#: ui/server.slint
+msgid "Nothing going on right now."
+msgstr "Gerade ist nichts los."
+
+#: src/ui/refresh.rs
+msgid "Nothing in this conversation matches. Try other words."
+msgstr "In dieser Unterhaltung passt nichts. Versuche andere Wörter."
+
+#: src/ui/refresh.rs
+msgid "Nothing in this server matches. Try other words."
+msgstr "Auf diesem Server passt nichts. Versuche andere Wörter."
+
+#: ui/yapfast/inbox.slint
+msgid "Nothing mentions you right now."
+msgstr "Gerade erwähnt dich nichts."
+
+#: ui/people.slint
+msgid "Nothing on the board yet."
+msgstr "Noch nichts auf dem Board."
+
+#: ui/people.slint
+msgid "Nothing on their wishlist."
+msgstr "Nichts auf der Wunschliste."
+
+#: ui/server.slint
+msgid "Nothing on your board yet."
+msgstr "Noch nichts auf deinem Board."
+
+#: ui/people.slint ui/server.slint
+msgid "Nothing on your wishlist yet."
+msgstr "Noch nichts auf deiner Wunschliste."
+
+#: ui/people.slint
+msgid "Nothing to show here right now."
+msgstr "Im Moment gibt es hier nichts anzuzeigen."
+
+#: ui/yapfast.slint src/ui/menus.rs
+msgid "Notification settings"
+msgstr "Benachrichtigungseinstellungen"
+
+#: ui/yapfast.slint
+msgid "Notification settings, muted"
+msgstr "Benachrichtigungseinstellungen, stummgeschaltet"
+
+#: ui/settings.slint ui/yapfast/settings-nav.slint
+msgid "Notifications"
+msgstr "Benachrichtigungen"
+
+#: src/ui/call_link.rs
+msgid "NVENC on the GPU"
+msgstr "NVENC auf der GPU"
+
+#: src/emoji.rs
+msgid "Objects"
+msgstr "Objekte"
+
+#: ui/channel_settings.slint ui/settings.slint ui/yapfast.slint
+msgid "Off"
+msgstr "Aus"
+
+#: ui/settings.slint
+msgid "Off shows only who wrote and where, for a screen others can see."
+msgstr "Aus zeigt nur, wer geschrieben hat und wo, für einen Bildschirm, den andere sehen können."
+
+#: ui/rail.slint
+msgid "OFFICIAL"
+msgstr "OFFIZIELL"
+
+#: ui/rail.slint
+msgid "Official Discord Message"
+msgstr "Offizielle Discord-Nachricht"
+
+#: ui/friends.slint ui/rail.slint
+msgid "Offline"
+msgstr "Offline"
+
+#: src/ui/refresh.rs
+msgid "Offline, sync paused"
+msgstr "Offline, Synchronisierung pausiert"
+
+#: ui/channel_settings.slint
+msgid "Okay"
+msgstr "Okay"
+
+#: src/ui/refresh.rs
+msgid "OLDER POSTS"
+msgstr "ÄLTERE BEITRÄGE"
+
+#: src/ui/refresh.rs
+msgid "OLDER THREADS"
+msgstr "ÄLTERE THREADS"
+
+#: ui/server.slint
+msgid "On Discord"
+msgstr "Auf Discord"
+
+#: ui/discord.slint
+msgid "On your phone, open Discord, go to Settings, tap Scan QR Code, and point the camera here. A new code replaces this one after a couple of minutes."
+msgstr "Öffne auf deinem Handy Discord, gehe zu den Einstellungen, tippe auf „QR-Code scannen“ und richte die Kamera hierher. Nach ein paar Minuten ersetzt ein neuer Code diesen."
+
+#: ui/moderation.slint
+msgid "Once moderators begin moderating, you can moderate the moderation here."
+msgstr "Sobald Moderatoren anfangen zu moderieren, kannst du hier die Moderation moderieren."
+
+#: ui/dialogs.slint ui/friends.slint ui/rail.slint ui/yapfast/account-popover.slint ui/yapfast.slint
+msgid "Online"
+msgstr "Online"
+
+#: ui/rail.slint
+msgid "Online on mobile"
+msgstr "Mobil online"
+
+#: ui/friends.slint
+msgid "ONLINE — "
+msgstr "ONLINE: "
+
+#: ui/server_settings.slint src/ui/menus.rs
+msgid "Only @mentions"
+msgstr "Nur @Erwähnungen"
+
+#: ui/thread.slint
+msgid "Only people you invite and moderators can see"
+msgstr "Nur eingeladene Personen und Moderatoren können das sehen"
+
+#: ui/thread.slint
+msgid "Only people you invite and moderators can see. You can invite new people by @mentioning them."
+msgstr "Nur eingeladene Personen und Moderatoren können das sehen. Du kannst neue Personen einladen, indem du sie @erwähnst."
+
+#: src/ui/menus.rs
+msgid "Only visible to you"
+msgstr "Nur für dich sichtbar"
+
+#: ui/voice.slint
+msgid "Only you and the others in this call can hear you. Nobody else, not even Discord, can listen in."
+msgstr "Nur du und die anderen in diesem Anruf können dich hören. Sonst niemand, nicht einmal Discord, kann mithören."
+
+#: src/ui/refresh.rs
+msgid "Only you see the nickname you give a friend. Leave it empty to remove it."
+msgstr "Nur du siehst den Spitznamen, den du einem Freund gibst. Lass das Feld leer, um ihn zu entfernen."
+
+#: src/ui/refresh.rs
+msgid "Only you see your note, in Discord too."
+msgstr "Nur du siehst deine Notiz, auch in Discord."
+
+#: ui/browse.slint
+msgid "Open"
+msgstr "Öffnen"
+
+#: ui/rail.slint ui/yapfast.slint src/ui/menus.rs
+msgid "Open chat"
+msgstr "Chat öffnen"
+
+#: ui/settings.slint
+msgid "Open Discord links in Yapfast"
+msgstr "Discord-Links in Yapfast öffnen"
+
+#: ui/yapfast.slint
+msgid "Open GIF picker"
+msgstr "GIF-Auswahl öffnen"
+
+#: src/ui/refresh.rs
+msgid "Open in Browser"
+msgstr "Im Browser öffnen"
+
+#: src/ui/refresh.rs
+msgid "Open in browser"
+msgstr "Im Browser öffnen"
+
+#: ui/thread.slint
+msgid "Open in full view"
+msgstr "In Vollansicht öffnen"
+
+#: ui/discord.slint
+msgid "Open it again"
+msgstr "Erneut öffnen"
+
+#: ui/messages.slint
+msgid "Open Link"
+msgstr "Link öffnen"
+
+#: src/ui/refresh.rs
+msgid "Open Server"
+msgstr "Server öffnen"
+
+#: ui/voice.slint
+msgid "Open Soundboard"
+msgstr "Soundboard öffnen"
+
+#: ui/yapfast.slint
+msgid "Open sticker picker"
+msgstr "Sticker-Auswahl öffnen"
+
+#: ui/server.slint
+msgid "Open the captcha again"
+msgstr "Das Captcha erneut öffnen"
+
+#: ui/friends.slint
+msgid "Open to read their message"
+msgstr "Öffnen, um die Nachricht zu lesen"
+
+#: src/tray.rs
+msgid "Open Yapfast"
+msgstr "Yapfast öffnen"
+
+#: ui/friends.slint
+msgid "Open {0}'s message{1}{2}"
+msgstr "Nachricht von {0} öffnen{1}{2}"
+
+#: ui/people.slint
+msgid "Open {0}{1}"
+msgstr "{0}{1} öffnen"
+
+#: ui/people.slint
+msgid "Open {}"
+msgstr "{} öffnen"
+
+#: src/ui/refresh.rs
+msgid "Original message was deleted"
+msgstr "Ursprüngliche Nachricht wurde gelöscht"
+
+#: ui/settings.slint
+msgid "Otherwise you join muted, and unmute when you're ready."
+msgstr "Sonst trittst du stummgeschaltet bei und hebst die Stummschaltung auf, wenn du bereit bist."
+
+#: ui/voice.slint
+msgid "Outbound packet loss rate:"
+msgstr "Paketverlustrate ausgehend:"
+
+#: ui/yapfast.slint
+msgid "Output options"
+msgstr "Ausgabeoptionen"
+
+#: ui/channel_settings.slint
+msgid "Overview"
+msgstr "Übersicht"
+
+#: ui/voice.slint
+msgid "Packets resent:"
+msgstr "Erneut gesendete Pakete:"
+
+#: ui/moderation.slint
+msgid "Page {0} of {1}"
+msgstr "Seite {0} von {1}"
+
+#: ui/server_ownership.slint
+msgid "Partnered or Verified servers must reach out to the Community team for ownership transfer requests. However, our Partner and Verified Server Programs are currently paused and not able to handle any requests."
+msgstr "Server mit Partner- oder Verifiziert-Status müssen sich für Anfragen zur Eigentumsübertragung an das Community-Team wenden. Unsere Partner- und Verifizierte-Server-Programme sind derzeit jedoch pausiert und können keine Anfragen bearbeiten."
+
+#: ui/channel_settings.slint
+msgid "Passthrough"
+msgstr "Durchreichen"
+
+#: ui/sign-in.slint
+msgid "PASSWORD"
+msgstr "PASSWORT"
+
+#: ui/sign-in.slint
+msgid "Password"
+msgstr "Passwort"
+
+#: ui/composer.slint
+msgid "Paste"
+msgstr "Einfügen"
+
+#: ui/server.slint
+msgid "Paste an invite link or code to join a server you were invited to."
+msgstr "Füge einen Einladungslink oder -code ein, um einem Server beizutreten, zu dem du eingeladen wurdest."
+
+#: ui/messages.slint
+msgid "Pause"
+msgstr "Pausieren"
+
+#: ui/messages.slint
+msgid "Pause "
+msgstr "Pausieren "
+
+#: ui/server_people.slint
+msgid "Pause DMs"
+msgstr "DMs pausieren"
+
+#: ui/server_people.slint
+msgid "Pause Invites"
+msgstr "Einladungen pausieren"
+
+#: src/emoji.rs
+msgid "People & body"
+msgstr "Menschen & Körper"
+
+#: ui/roles.slint
+msgid "Permissions"
+msgstr "Berechtigungen"
+
+#: ui/channel_settings.slint
+msgid "Permissions not synced with category: "
+msgstr "Berechtigungen nicht mit der Kategorie synchronisiert: "
+
+#: ui/channel_settings.slint
+msgid "Permissions synced with category: "
+msgstr "Berechtigungen mit der Kategorie synchronisiert: "
+
+#: ui/messages.slint
+msgid "Pick a conversation"
+msgstr "Unterhaltung auswählen"
+
+#: ui/dialogs.slint
+msgid "Pick an emoji"
+msgstr "Emoji auswählen"
+
+#: ui/messages.slint
+msgid "Pick an emoji for your message."
+msgstr "Wähle ein Emoji für deine Nachricht."
+
+#: ui/messages.slint
+msgid "Pick an emoji for your status."
+msgstr "Wähle ein Emoji für deinen Status."
+
+#: ui/messages.slint
+msgid "Pick an emoji to react with."
+msgstr "Wähle ein Emoji zum Reagieren."
+
+#: ui/voice.slint
+msgid "Picked in the system's dialog"
+msgstr "Im Systemdialog ausgewählt"
+
+#: ui/thread.slint ui/yapfast.slint
+msgid "Pin"
+msgstr "Anheften"
+
+#: src/ui/menus.rs
+msgid "Pin channel to top"
+msgstr "Kanal oben anheften"
+
+#: ui/messages.slint
+msgid "Pin message"
+msgstr "Nachricht anpinnen"
+
+#: ui/voice.slint
+msgid "Ping over the last five minutes, up to {} ms"
+msgstr "Ping der letzten fünf Minuten, bis zu {} ms"
+
+#: ui/forum.slint
+msgid "Pinned"
+msgstr "Angepinnt"
+
+#: ui/header.slint
+msgid "Pinned Messages"
+msgstr "Angepinnte Nachrichten"
+
+#: ui/yapfast.slint
+msgid "Pinned messages"
+msgstr "Angepinnte Nachrichten"
+
+#: src/ui/messages.rs
+msgid "pinned messages"
+msgstr "angeheftete Nachrichten"
+
+#: ui/messages.slint ui/voice.slint
+msgid "Play"
+msgstr "Abspielen"
+
+#: ui/messages.slint
+msgid "Play "
+msgstr "Abspielen "
+
+#: ui/settings.slint
+msgid "PLAY GIFS, EMOJI AND STICKERS"
+msgstr "GIFS, EMOJIS UND STICKER ABSPIELEN"
+
+#: ui/settings.slint
+msgid "Play GIFs, emoji and stickers"
+msgstr "GIFs, Emojis und Sticker abspielen"
+
+#: ui/settings.slint
+msgid "Play profile effects"
+msgstr "Profileffekte abspielen"
+
+#: ui/settings.slint
+msgid "Play {}"
+msgstr "{} abspielen"
+
+#: ui/messages.slint
+msgid "Playback speed"
+msgstr "Wiedergabegeschwindigkeit"
+
+#: ui/messages.slint
+msgid "Played"
+msgstr "Gespielt"
+
+#: ui/yapfast/account-popover.slint
+msgid "Playing"
+msgstr "Spielt"
+
+#: ui/dialogs.slint
+msgid "Playing for {}"
+msgstr "Spielt seit {}"
+
+#: ui/dialogs.slint
+msgid "Playing now"
+msgstr "Spielt gerade"
+
+#: ui/settings.slint
+msgid "Plays to everyone in a voice channel or DM call as you join it, outside stage channels. A server's own comes before the one for all servers."
+msgstr "Wird für alle in einem Sprachkanal oder DM-Anruf abgespielt, wenn du beitrittst, außer in Stage-Kanälen. Der Sound eines Servers hat Vorrang vor dem für alle Server."
+
+#: src/ui/polls.rs
+msgid "Poll closed"
+msgstr "Umfrage beendet"
+
+#: ui/messages.slint
+msgid "Poll: {}"
+msgstr "Umfrage: {}"
+
+#: ui/server.slint
+msgid "Pop"
+msgstr "Pop"
+
+#: ui/messages.slint
+msgid "Position"
+msgstr "Position"
+
+#: ui/dialogs.slint ui/forum.slint
+msgid "Post"
+msgstr "Beitrag"
+
+#: ui/forum.slint
+msgid "Post Guidelines"
+msgstr "Beitragsrichtlinien"
+
+#: ui/forum.slint
+msgid "POST TITLE"
+msgstr "BEITRAGSTITEL"
+
+#: ui/forum.slint
+msgid "Post title"
+msgstr "Beitragstitel"
+
+#: ui/dialogs.slint ui/forum.slint
+msgid "Posting..."
+msgstr "Wird gepostet ..."
+
+#: ui/forum.slint
+msgid "Posts"
+msgstr "Beiträge"
+
+#: ui/settings.slint
+msgid "Press a key..."
+msgstr "Drücke eine Taste ..."
+
+#: ui/settings.slint
+msgid "Press the key to hold while you talk. Escape stops without changing it."
+msgstr "Drücke die Taste, die du beim Sprechen gedrückt halten möchtest. Mit Escape brichst du ab, ohne sie zu ändern."
+
+#: ui/channel_settings.slint
+msgid "Pretty sure you don't want to do this"
+msgstr "Du willst das wahrscheinlich nicht tun"
+
+#: ui/settings.slint
+msgid "PREVIEW"
+msgstr "VORSCHAU"
+
+#: ui/server_expressions.slint ui/settings.slint
+msgid "Preview"
+msgstr "Vorschau"
+
+#: src/ui/messages.rs
+msgid "Preview unavailable"
+msgstr "Vorschau nicht verfügbar"
+
+#: src/ui/refresh.rs
+msgid "Preview voice"
+msgstr "Sprache testen"
+
+#: ui/voice.slint
+msgid "Preview {}"
+msgstr "Vorschau {}"
+
+#: ui/moderation.slint ui/server_people.slint
+msgid "Previous"
+msgstr "Zurück"
+
+#: ui/dialogs.slint
+msgid "PREVIOUS CHANNELS"
+msgstr "FRÜHERE KANÄLE"
+
+#: ui/messages.slint
+msgid "Previous image"
+msgstr "Vorheriges Bild"
+
+#: ui/server.slint
+msgid "Prism"
+msgstr "Prisma"
+
+#: ui/voice.slint
+msgid "Privacy"
+msgstr "Datenschutz"
+
+#: src/ui/channel_settings.rs
+msgid "Private Category"
+msgstr "Private Kategorie"
+
+#: src/ui/channel_settings.rs
+msgid "Private Channel"
+msgstr "Privater Kanal"
+
+#: ui/thread.slint
+msgid "Private Thread"
+msgstr "Privater Thread"
+
+#: ui/server.slint
+msgid "Profile Effect & Frame"
+msgstr "Profileffekt & Rahmen"
+
+#: ui/settings.slint
+msgid "PROFILES"
+msgstr "PROFILE"
+
+#: ui/server_settings.slint
+msgid "Prompt members to reply to welcome messages with a sticker."
+msgstr "Fordere Mitglieder auf, auf Willkommensnachrichten mit einem Sticker zu antworten."
+
+#: ui/server.slint
+msgid "Pronouns"
+msgstr "Pronomen"
+
+#: src/ui/refresh.rs
+msgid "Pronouns can be up to {} characters."
+msgstr "Pronomen dürfen bis zu {} Zeichen lang sein."
+
+#: ui/settings.slint
+msgid "Push to talk"
+msgstr "Push-to-Talk"
+
+#: ui/settings.slint
+msgid "Push to talk is on, but no keybind is set, so your microphone sends nothing."
+msgstr "Push-to-Talk ist an, aber es ist keine Tastenkombination festgelegt, daher sendet dein Mikrofon nichts."
+
+#: ui/settings.slint
+msgid "PUSH TO TALK KEYBIND"
+msgstr "PUSH-TO-TALK-TASTENKOMBINATION"
+
+#: ui/settings.slint
+msgid "Push to talk keybind"
+msgstr "Push-to-Talk-Tastenkombination"
+
+#: ui/settings.slint
+msgid "PUSH TO TALK RELEASE DELAY"
+msgstr "PUSH-TO-TALK-NACHLAUFZEIT"
+
+#: ui/settings.slint
+msgid "Push to talk release delay"
+msgstr "Push-to-Talk-Nachlaufzeit"
+
+#: ui/discord.slint
+msgid "QR code that links Discord"
+msgstr "QR-Code, der Discord verknüpft"
+
+#: ui/dialogs.slint
+msgid "QUESTION"
+msgstr "FRAGE"
+
+#: ui/dialogs.slint
+msgid "Question"
+msgstr "Frage"
+
+#: ui/dialogs.slint
+msgid "Quick switcher"
+msgstr "Schnellwechsler"
+
+#: src/tray.rs
+msgid "Quit"
+msgstr "Beenden"
+
+#: ui/yapfast.slint
+msgid "React to post"
+msgstr "Auf Beitrag reagieren"
+
+#: ui/messages.slint
+msgid "React with"
+msgstr "Reagieren mit"
+
+#: ui/dialogs.slint
+msgid "Reactions"
+msgstr "Reaktionen"
+
+#: ui/roles.slint ui/server_settings.slint
+msgid "Reading the picture..."
+msgstr "Bild wird gelesen ..."
+
+#: ui/server.slint
+msgid "Reading..."
+msgstr "Wird gelesen ..."
+
+#: src/ui/refresh.rs
+msgid "Ready to start a call?"
+msgstr "Bereit für einen Anruf?"
+
+#: src/ui/refresh.rs
+msgid "Reason (optional)"
+msgstr "Grund (optional)"
+
+#: ui/people.slint
+msgid "Recent activity"
+msgstr "Letzte Aktivität"
+
+#: ui/server_people.slint
+msgid "Recent Members"
+msgstr "Neueste Mitglieder"
+
+#: ui/settings.slint ui/yapfast.slint
+msgid "Reconnect"
+msgstr "Neu verbinden"
+
+#: src/ui/refresh.rs
+msgid "Reconnecting voice..."
+msgstr "Verbinde den Sprachkanal neu..."
+
+#: ui/settings.slint
+msgid "Record keybind"
+msgstr "Tastenkombination aufnehmen"
+
+#: ui/sign-in.slint
+msgid "Recover"
+msgstr "Wiederherstellen"
+
+#: ui/sign-in.slint
+msgid "Recovery key"
+msgstr "Wiederherstellungsschlüssel"
+
+#: src/ui/refresh.rs
+msgid "Redeem Gift"
+msgstr "Geschenk einlösen"
+
+#: src/ui/refresh.rs
+msgid "Redeemed. Enjoy!"
+msgstr "Eingelöst. Viel Spaß!"
+
+#: src/ui/refresh.rs
+msgid "Redeeming..."
+msgstr "Löse ein..."
+
+#: ui/settings.slint
+msgid "Refresh devices"
+msgstr "Geräte aktualisieren"
+
+#: ui/server_expressions.slint
+msgid "RELATED EMOJI"
+msgstr "ZUGEHÖRIGES EMOJI"
+
+#: ui/server_expressions.slint
+msgid "Related Emoji"
+msgstr "Zugehöriges Emoji"
+
+#: ui/roles.slint ui/server_people.slint ui/settings.slint
+msgid "Remove"
+msgstr "Entfernen"
+
+#: ui/dialogs.slint
+msgid "Remove answer {}"
+msgstr "Antwort {} entfernen"
+
+#: ui/server_settings.slint
+msgid "Remove Background"
+msgstr "Hintergrund entfernen"
+
+#: src/ui/menus.rs src/ui/refresh.rs
+msgid "Remove friend"
+msgstr "Freund entfernen"
+
+#: src/ui/menus.rs
+msgid "Remove from channel list"
+msgstr "Aus der Kanalliste entfernen"
+
+#: ui/gifs.slint ui/messages.slint ui/stickers.slint ui/voice.slint
+msgid "Remove from Favorites"
+msgstr "Aus Favoriten entfernen"
+
+#: ui/roles.slint ui/server_settings.slint
+msgid "Remove Icon"
+msgstr "Icon entfernen"
+
+#: src/ui/refresh.rs
+msgid "Remove interest"
+msgstr "Interesse entfernen"
+
+#: ui/roles.slint
+msgid "Remove member"
+msgstr "Mitglied entfernen"
+
+#: ui/dialogs.slint
+msgid "Remove Reaction"
+msgstr "Reaktion entfernen"
+
+#: ui/forum.slint
+msgid "Remove tag {}"
+msgstr "Tag {} entfernen"
+
+#: ui/dialogs.slint
+msgid "Remove the emoji"
+msgstr "Emoji entfernen"
+
+#: src/ui/menus.rs
+msgid "Remove timeout"
+msgstr "Timeout aufheben"
+
+#: ui/settings.slint
+msgid "Remove tracking from links you send"
+msgstr "Tracking aus gesendeten Links entfernen"
+
+#: ui/messages.slint
+msgid "Remove Vote"
+msgstr "Stimme entfernen"
+
+#: ui/roles.slint
+msgid "Remove {0} from role {1}?"
+msgstr "{0} aus der Rolle {1} entfernen?"
+
+#: ui/channel_settings.slint ui/composer.slint
+msgid "Remove {}"
+msgstr "{} entfernen"
+
+#: src/ui/refresh.rs
+msgid "Remove {} as a friend?"
+msgstr "{} als Freund entfernen?"
+
+#: ui/settings.slint
+msgid "Render with the GPU"
+msgstr "Mit der GPU rendern"
+
+#: ui/messages.slint ui/thread.slint ui/yapfast.slint
+msgid "Reply"
+msgstr "Antworten"
+
+#: src/ui/refresh.rs
+msgid "Replying to {0}: {1}"
+msgstr "Antwort an {0}: {1}"
+
+#: ui/rail.slint ui/yapfast.slint
+msgid "Requests"
+msgstr "Anfragen"
+
+#: ui/friends.slint
+msgid "REQUESTS — {}"
+msgstr "ANFRAGEN: {}"
+
+#: ui/rail.slint
+msgid "Requests{}"
+msgstr "Anfragen{}"
+
+#: ui/moderation.slint
+msgid "Require 2FA for moderator actions"
+msgstr "2FA für Moderationsaktionen verlangen"
+
+#: ui/mfa.slint
+msgid "Resend Code"
+msgstr "Code erneut senden"
+
+#: ui/settings.slint
+msgid "Reset"
+msgstr "Zurücksetzen"
+
+#: ui/voice.slint
+msgid "RESOLUTION"
+msgstr "AUFLÖSUNG"
+
+#: ui/voice.slint
+msgid "Resolution:"
+msgstr "Auflösung:"
+
+#: ui/settings.slint
+msgid "Restart Yapfast"
+msgstr "Yapfast neu starten"
+
+#: ui/title_bar.slint ui/yapfast/window-bar.slint
+msgid "Restore"
+msgstr "Wiederherstellen"
+
+#: ui/messages.slint
+msgid "Retry"
+msgstr "Erneut versuchen"
+
+#: ui/sign-in.slint
+msgid "Retry saved session"
+msgstr "Gespeicherte Sitzung erneut versuchen"
+
+#: ui/moderation.slint
+msgid "Revoke Ban"
+msgstr "Ban aufheben"
+
+#: ui/moderation.slint
+msgid "Revoking..."
+msgstr "Ban wird aufgehoben ..."
+
+#: ui/settings.slint ui/yapfast.slint
+msgid "RNNoise"
+msgstr "RNNoise"
+
+#: ui/roles.slint
+msgid "ROLE COLOR"
+msgstr "ROLLENFARBE"
+
+#: ui/roles.slint
+msgid "ROLE ICON"
+msgstr "ROLLENICON"
+
+#: ui/roles.slint
+msgid "Role icon emoji"
+msgstr "Emoji für das Rollenicon"
+
+#: src/ui/server_settings.rs
+msgid "Role is locked because it is a higher rank than your highest role."
+msgstr "Die Rolle ist gesperrt, weil sie einen höheren Rang hat als deine höchste Rolle."
+
+#: ui/roles.slint
+msgid "ROLE NAME"
+msgstr "ROLLENNAME"
+
+#: ui/roles.slint
+msgid "Role name"
+msgstr "Rollenname"
+
+#: ui/channel_settings.slint
+msgid "Role or member"
+msgstr "Rolle oder Mitglied"
+
+#: ui/people.slint
+msgid "Role {}"
+msgstr "Rolle {}"
+
+#: ui/channel_settings.slint
+msgid "Role/Member"
+msgstr "Rolle/Mitglied"
+
+#: ui/channel_settings.slint ui/server_people.slint
+msgid "ROLES"
+msgstr "ROLLEN"
+
+#: ui/people.slint ui/roles.slint
+msgid "Roles"
+msgstr "Rollen"
+
+#: src/ui/server_settings.rs
+msgid "ROLES – {}"
+msgstr "ROLLEN – {}"
+
+#: ui/channel_settings.slint
+msgid "ROLES/MEMBERS"
+msgstr "ROLLEN/MITGLIEDER"
+
+#: ui/settings.slint
+msgid "Runs the effects Windows and your sound driver add to the microphone, such as their own noise suppression. Off, Yapfast skips them, as they can muffle your voice on top of Yapfast's. Turn it on if your microphone sounds worse without them, as some laptop microphones can."
+msgstr "Wendet die Effekte an, die Windows und dein Soundtreiber auf das Mikrofon legen, etwa deren eigene Rauschunterdrückung. Aus: Yapfast überspringt sie, da sie deine Stimme zusätzlich zu Yapfasts Verarbeitung dumpf machen können. Schalte sie ein, wenn dein Mikrofon ohne sie schlechter klingt, wie bei manchen Laptop-Mikrofonen."
+
+#: ui/moderation.slint src/ui/server_settings.rs
+msgid "Safety Setup"
+msgstr "Sicherheitseinrichtung"
+
+#: ui/server.slint
+msgid "Sakura"
+msgstr "Sakura"
+
+#: ui/settings.slint
+msgid "Sam"
+msgstr "Sam"
+
+#: ui/dialogs.slint ui/server_people.slint ui/settings.slint ui/thread.slint ui/yapfast.slint
+msgid "Save"
+msgstr "Speichern"
+
+#: src/ui/callbacks.rs
+msgid "Save attachment"
+msgstr "Anhang speichern"
+
+#: ui/settings.slint
+msgid "Save Changes"
+msgstr "Änderungen speichern"
+
+#: ui/settings.slint
+msgid "Save game"
+msgstr "Spiel speichern"
+
+#: ui/messages.slint
+msgid "Save Image"
+msgstr "Bild speichern"
+
+#: ui/messages.slint
+msgid "Save Video"
+msgstr "Video speichern"
+
+#: ui/messages.slint
+msgid "Save {}"
+msgstr "{} speichern"
+
+#: ui/dialogs.slint ui/server_expressions.slint ui/server_people.slint ui/settings.slint src/ui/refresh.rs
+msgid "Saving..."
+msgstr "Wird gespeichert ..."
+
+#: ui/discord.slint
+msgid "Scan it with the Discord app"
+msgstr "Scanne ihn mit der Discord-App"
+
+#: ui/discord.slint
+msgid "Scanned"
+msgstr "Gescannt"
+
+#: ui/voice.slint
+msgid "SCREEN"
+msgstr "BILDSCHIRM"
+
+#: ui/voice.slint
+msgid "Screen or window"
+msgstr "Bildschirm oder Fenster"
+
+#: ui/settings.slint
+msgid "Screen sharing uses the graphics card's video encoder, which takes almost no processor time and looks better at low bitrates. Off, or without one, Yapfast encodes on the processor."
+msgstr "Die Bildschirmfreigabe nutzt den Video-Encoder der Grafikkarte, der kaum Prozessorzeit braucht und bei niedrigen Bitraten besser aussieht. Aus, oder ohne Grafikkarte, kodiert Yapfast auf dem Prozessor."
+
+#: ui/voice.slint
+msgid "SCREENS"
+msgstr "BILDSCHIRME"
+
+#: ui/dialogs.slint ui/friends.slint ui/moderation.slint ui/server.slint
+msgid "Search"
+msgstr "Suchen"
+
+#: ui/moderation.slint
+msgid "Search Bans by User Id or Username"
+msgstr "Bans nach Benutzer-ID oder Benutzername durchsuchen"
+
+#: ui/server_people.slint
+msgid "Search by username or id"
+msgstr "Nach Benutzername oder ID suchen"
+
+#: ui/browse.slint
+msgid "Search channels"
+msgstr "Kanäle durchsuchen"
+
+#: ui/gifs.slint
+msgid "Search Favorites"
+msgstr "Favoriten durchsuchen"
+
+#: ui/header.slint
+msgid "Search for Thread Name"
+msgstr "Nach Thread-Namen suchen"
+
+#: ui/friends.slint
+msgid "Search friends"
+msgstr "Freunde durchsuchen"
+
+#: ui/gifs.slint
+msgid "Search Klipy"
+msgstr "Klipy durchsuchen"
+
+#: ui/roles.slint
+msgid "Search Members"
+msgstr "Mitglieder durchsuchen"
+
+#: ui/roles.slint ui/server_people.slint
+msgid "Search members"
+msgstr "Mitglieder durchsuchen"
+
+#: ui/interactions.slint
+msgid "Search options"
+msgstr "Optionen durchsuchen"
+
+#: ui/roles.slint
+msgid "Search permissions"
+msgstr "Berechtigungen durchsuchen"
+
+#: ui/forum.slint
+msgid "Search posts"
+msgstr "Beiträge durchsuchen"
+
+#: ui/server_people.slint
+msgid "Search Results"
+msgstr "Suchergebnisse"
+
+#: ui/header.slint
+msgid "Search results"
+msgstr "Suchergebnisse"
+
+#: ui/roles.slint
+msgid "Search Roles"
+msgstr "Rollen durchsuchen"
+
+#: ui/server.slint
+msgid "Search server tags"
+msgstr "Server-Tags durchsuchen"
+
+#: ui/yapfast/settings-nav.slint
+msgid "Search settings"
+msgstr "Einstellungen durchsuchen"
+
+#: src/ui/refresh.rs
+msgid "Search {}"
+msgstr "{} durchsuchen"
+
+#: src/ui/refresh.rs
+msgid "Searching..."
+msgstr "Suche..."
+
+#: ui/voice.slint
+msgid "Secure connection"
+msgstr "Sichere Verbindung"
+
+#: ui/server_people.slint
+msgid "Security Actions"
+msgstr "Sicherheitsaktionen"
+
+#: ui/settings.slint
+msgid "See {} more"
+msgstr "{} weitere anzeigen"
+
+#: ui/composer.slint
+msgid "Select All"
+msgstr "Alles auswählen"
+
+#: ui/header.slint
+msgid "Select Friends"
+msgstr "Freunde auswählen"
+
+#: src/ui/polls.rs
+msgid "Select one answer"
+msgstr "Wähle eine Antwort"
+
+#: src/ui/polls.rs
+msgid "Select one or more answers"
+msgstr "Wähle eine oder mehrere Antworten"
+
+#: ui/roles.slint
+msgid "Select up to 30 members to add to role {}"
+msgstr "Wähle bis zu 30 Mitglieder aus, die zur Rolle {} hinzugefügt werden sollen"
+
+#: ui/forum.slint
+msgid "Select up to 5 tags"
+msgstr "Wähle bis zu 5 Tags aus"
+
+#: ui/dialogs.slint
+msgid "Select where you want to share this message."
+msgstr "Wähle aus, wohin du diese Nachricht teilen möchtest."
+
+#: ui/dialogs.slint ui/thread.slint ui/yapfast.slint
+msgid "Send"
+msgstr "Senden"
+
+#: ui/dialogs.slint
+msgid "Send ({})"
+msgstr "Senden ({})"
+
+#: ui/server_settings.slint
+msgid "Send a message when someone boosts this server."
+msgstr "Eine Nachricht senden, wenn jemand diesen Server boostet."
+
+#: ui/server_settings.slint
+msgid "Send a random welcome message when someone joins this server."
+msgstr "Eine zufällige Willkommensnachricht senden, wenn jemand diesem Server beitritt."
+
+#: ui/yapfast.slint
+msgid "Send friend request"
+msgstr "Freundschaftsanfrage senden"
+
+#: ui/server_settings.slint
+msgid "Send helpful tips for server setup."
+msgstr "Hilfreiche Tipps zur Servereinrichtung senden."
+
+#: ui/friends.slint
+msgid "Send request"
+msgstr "Anfrage senden"
+
+#: ui/friends.slint
+msgid "Send someone a friend request on Discord with their username."
+msgstr "Sende jemandem auf Discord mit dem Benutzernamen eine Freundschaftsanfrage."
+
+#: ui/controls.slint
+msgid "Sending"
+msgstr "Sendet"
+
+#: src/ui/refresh.rs
+msgid "Sending is locked until this device is verified."
+msgstr "Das Senden ist gesperrt, bis dieses Gerät verifiziert ist."
+
+#: ui/thread.slint ui/yapfast.slint src/ui/messages.rs src/ui/refresh.rs
+msgid "Sending..."
+msgstr "Wird gesendet ..."
+
+#: ui/voice.slint
+msgid "Sending:"
+msgstr "Sendet:"
+
+#: ui/moderation.slint
+msgid "SENSITIVE CONTENT FILTERS"
+msgstr "FILTER FÜR SENSIBLE INHALTE"
+
+#: ui/moderation.slint
+msgid "Sensitive content filters"
+msgstr "Filter für sensible Inhalte"
+
+#: ui/server_people.slint
+msgid "Sent excessive DMs to non-friend server members in last 24 hrs"
+msgstr "In den letzten 24 Std. übermäßig viele DMs an Servermitglieder gesendet, die keine Freunde sind"
+
+#: ui/friends.slint
+msgid "Sent you a friend request"
+msgstr "Hat dir eine Freundschaftsanfrage gesendet"
+
+#: ui/friends.slint
+msgid "Sent you a friend request and a message"
+msgstr "Hat dir eine Freundschaftsanfrage und eine Nachricht gesendet"
+
+#: src/ui/refresh.rs
+msgid "Sent {} a friend request."
+msgstr "Freundschaftsanfrage an {} gesendet."
+
+#: ui/friends.slint
+msgid "SENT — {}"
+msgstr "GESENDET: {}"
+
+#: ui/moderation.slint
+msgid "Server Ban List"
+msgstr "Server-Bannliste"
+
+#: ui/server_settings.slint
+msgid "SERVER BANNER BACKGROUND"
+msgstr "HINTERGRUND DES SERVERBANNERS"
+
+#: src/ui/refresh.rs
+msgid "Server boosting since {}"
+msgstr "Server-Boost seit {}"
+
+#: src/ui/menus.rs
+msgid "Server deafen"
+msgstr "Server-Taubschaltung"
+
+#: src/ui/server_settings.rs
+msgid "Server Discovery"
+msgstr "Server-Entdeckung"
+
+#: ui/server_settings.slint
+msgid "SERVER INVITE BACKGROUND"
+msgstr "HINTERGRUND DER SERVEREINLADUNG"
+
+#: ui/server_people.slint
+msgid "Server Members"
+msgstr "Servermitglieder"
+
+#: src/ui/menus.rs
+msgid "Server mute"
+msgstr "Server-Stummschaltung"
+
+#: ui/server_settings.slint
+msgid "Server name"
+msgstr "Servername"
+
+#: ui/server.slint
+msgid "Server nickname"
+msgstr "Server-Nickname"
+
+#: ui/people.slint
+msgid "Server Owner"
+msgstr "Servereigentümer"
+
+#: ui/server_settings.slint src/ui/server_settings.rs
+msgid "Server Profile"
+msgstr "Serverprofil"
+
+#: ui/server_settings.slint src/ui/menus.rs
+msgid "Server settings"
+msgstr "Servereinstellungen"
+
+#: ui/server.slint
+msgid "Server Tag"
+msgstr "Server-Tag"
+
+#: ui/controls.slint
+msgid "Server tag {}"
+msgstr "Server-Tag {}"
+
+#: ui/server_settings.slint
+msgid "Servers who reach Boosting Level 1 and above get unique invite embeds with custom Server Invite Backgrounds. The recommended minimum size is 1920x1080 and recommended aspect ratio is 16:9."
+msgstr "Server, die Boost-Stufe 1 oder höher erreichen, erhalten einzigartige Einladungs-Embeds mit eigenen Hintergründen für Servereinladungen. Die empfohlene Mindestgröße ist 1920x1080 und das empfohlene Seitenverhältnis 16:9."
+
+#: ui/dialogs.slint ui/server.slint ui/settings.slint ui/yapfast/account-popover.slint
+msgid "Set a custom status"
+msgstr "Benutzerdefinierten Status festlegen"
+
+#: ui/settings.slint
+msgid "Set how loud each one is, as a share of the volume above. 0% turns a sound off."
+msgstr "Lege fest, wie laut jeder ist, als Anteil der obigen Lautstärke. 0 % schaltet einen Sound aus."
+
+#: ui/settings.slint
+msgid "SETTINGS"
+msgstr "EINSTELLUNGEN"
+
+#: ui/settings.slint ui/yapfast.slint
+msgid "Settings"
+msgstr "Einstellungen"
+
+#: ui/settings.slint
+msgid "Share the game you play"
+msgstr "Teile das Spiel, das du spielst"
+
+#: ui/voice.slint
+msgid "Share your screen"
+msgstr "Bildschirm teilen"
+
+#: ui/voice.slint
+msgid "Sharper, at twice the CPU"
+msgstr "Schärfer, bei doppelter CPU-Last"
+
+#: ui/server.slint
+msgid "Shop"
+msgstr "Shop"
+
+#: ui/channel_settings.slint
+msgid "Shorter slowmode"
+msgstr "Kürzerer Langsammodus"
+
+#: ui/people.slint
+msgid "Show Activity Cards"
+msgstr "Aktivitätskarten anzeigen"
+
+#: src/ui/menus.rs
+msgid "Show all channels"
+msgstr "Alle Kanäle anzeigen"
+
+#: ui/settings.slint
+msgid "Show avatar decorations"
+msgstr "Avatardekorationen anzeigen"
+
+#: ui/settings.slint
+msgid "Show boost gems"
+msgstr "Boost-Edelsteine anzeigen"
+
+#: ui/server_settings.slint
+msgid "Show Boost progress bar"
+msgstr "Boost-Fortschrittsbalken anzeigen"
+
+#: ui/settings.slint
+msgid "Show channels you can't access"
+msgstr "Kanäle anzeigen, auf die du keinen Zugriff hast"
+
+#: ui/settings.slint
+msgid "Show desktop notifications"
+msgstr "Desktop-Benachrichtigungen anzeigen"
+
+#: ui/people.slint
+msgid "Show friends and servers in the full profile"
+msgstr "Freunde und Server im vollständigen Profil anzeigen"
+
+#: ui/messages.slint
+msgid "Show less"
+msgstr "Weniger anzeigen"
+
+#: ui/settings.slint
+msgid "Show link previews"
+msgstr "Linkvorschauen anzeigen"
+
+#: ui/settings.slint
+msgid "Show me as idle when I'm away"
+msgstr "Als abwesend anzeigen, wenn ich weg bin"
+
+#: ui/yapfast.slint
+msgid "Show member list"
+msgstr "Mitgliederliste anzeigen"
+
+#: ui/header.slint ui/messages.slint
+msgid "Show more"
+msgstr "Mehr anzeigen"
+
+#: ui/people.slint
+msgid "Show mutual friends and servers in the full profile"
+msgstr "Gemeinsame Freunde und Server im vollständigen Profil anzeigen"
+
+#: ui/settings.slint
+msgid "Show name styles"
+msgstr "Namensstile anzeigen"
+
+#: ui/settings.slint
+msgid "Show nameplates"
+msgstr "Namensschilder anzeigen"
+
+#: ui/forum.slint
+msgid "Show post guidelines"
+msgstr "Beitragsrichtlinien anzeigen"
+
+#: ui/yapfast.slint
+msgid "Show profile"
+msgstr "Profil anzeigen"
+
+#: ui/messages.slint
+msgid "Show results"
+msgstr "Ergebnisse anzeigen"
+
+#: ui/settings.slint
+msgid "Show seconds"
+msgstr "Sekunden anzeigen"
+
+#: ui/settings.slint
+msgid "Show server tags"
+msgstr "Server-Tags anzeigen"
+
+#: ui/server.slint
+msgid "Show Styles"
+msgstr "Stile anzeigen"
+
+#: ui/discord.slint
+msgid "Show the code"
+msgstr "Den Code anzeigen"
+
+#: ui/rail.slint
+msgid "Show their profile"
+msgstr "Profil anzeigen"
+
+#: ui/yapfast.slint
+msgid "Show voice channel"
+msgstr "Sprachkanal anzeigen"
+
+#: ui/settings.slint
+msgid "Show what messages say"
+msgstr "Anzeigen, was Nachrichten sagen"
+
+#: ui/server_people.slint
+msgid "Showing"
+msgstr "Angezeigt"
+
+#: ui/server_people.slint
+msgid "Showing {0}{1}"
+msgstr "{0}{1} werden angezeigt"
+
+#: src/ui/menus.rs
+msgid "Sidebar Overflow"
+msgstr "Seitenleiste: Überlauf"
+
+#: ui/sign-in.slint
+msgid "Sign in"
+msgstr "Anmelden"
+
+#: ui/sign-in.slint
+msgid "Sign in to Yapfast"
+msgstr "Bei Yapfast anmelden"
+
+#: ui/sign-in.slint
+msgid "Sign in with your Matrix password. Single sign-on isn't available yet."
+msgstr "Melde dich mit deinem Matrix-Passwort an. Single Sign-on ist noch nicht verfügbar."
+
+#: ui/settings.slint
+msgid "Sign out"
+msgstr "Abmelden"
+
+#: ui/server_people.slint
+msgid "SIGNALS"
+msgstr "SIGNALE"
+
+#: ui/mfa.slint
+msgid "Slow down! Are you sure?"
+msgstr "Langsam! Bist du sicher?"
+
+#: ui/channel_settings.slint
+msgid "SLOWMODE"
+msgstr "LANGSAMMODUS"
+
+#: ui/channel_settings.slint
+msgid "Slowmode {}"
+msgstr "Langsammodus {}"
+
+#: ui/settings.slint
+msgid "Small"
+msgstr "Klein"
+
+#: src/emoji.rs
+msgid "Smileys & emotion"
+msgstr "Smileys & Emotionen"
+
+#: ui/settings.slint
+msgid "Soft marimba"
+msgstr "Sanfte Marimba"
+
+#: ui/server.slint
+msgid "Solid"
+msgstr "Einfarbig"
+
+#: ui/discord.slint
+msgid "Solve the captcha in your browser"
+msgstr "Löse das Captcha in deinem Browser"
+
+#: ui/settings.slint
+msgid "Someone joins the call"
+msgstr "Jemand tritt dem Anruf bei"
+
+#: ui/settings.slint
+msgid "Someone leaves the call"
+msgstr "Jemand verlässt den Anruf"
+
+#: ui/settings.slint
+msgid "Someone starts streaming"
+msgstr "Jemand startet einen Stream"
+
+#: ui/settings.slint
+msgid "Someone starts watching a stream"
+msgstr "Jemand schaut einen Stream"
+
+#: ui/settings.slint
+msgid "Someone stops streaming"
+msgstr "Jemand beendet einen Stream"
+
+#: ui/settings.slint
+msgid "Someone stops watching a stream"
+msgstr "Jemand hört auf, einen Stream zu schauen"
+
+#: ui/server_people.slint
+msgid "Sort"
+msgstr "Sortieren"
+
+#: ui/settings.slint
+msgid "SOUND SET"
+msgstr "SOUNDSET"
+
+#: ui/settings.slint
+msgid "Sound set"
+msgstr "Soundset"
+
+#: ui/voice.slint
+msgid "Soundboard"
+msgstr "Soundboard"
+
+#: src/ui/refresh.rs
+msgid "Soundboard disabled when deafened"
+msgstr "Soundboard bei Taubschaltung deaktiviert"
+
+#: src/ui/refresh.rs
+msgid "Soundboard disabled when server muted"
+msgstr "Soundboard bei Server-Stummschaltung deaktiviert"
+
+#: ui/settings.slint
+msgid "SOUNDBOARD VOLUME"
+msgstr "SOUNDBOARD-LAUTSTÄRKE"
+
+#: ui/settings.slint
+msgid "Soundboard volume"
+msgstr "Soundboard-Lautstärke"
+
+#: ui/settings.slint ui/yapfast/settings-nav.slint
+msgid "Sounds"
+msgstr "Sounds"
+
+#: ui/voice.slint
+msgid "Source"
+msgstr "Quelle"
+
+#: ui/friends.slint
+msgid "SPAM — {}"
+msgstr "SPAM: {}"
+
+#: ui/friends.slint
+msgid "Spam, {0}{1}"
+msgstr "Spam, {0}{1}"
+
+#: ui/settings.slint
+msgid "Speaker device"
+msgstr "Lautsprechergerät"
+
+#: ui/settings.slint
+msgid "Speaker volume"
+msgstr "Lautsprecherlautstärke"
+
+#: ui/settings.slint
+msgid "SPEAKERS"
+msgstr "LAUTSPRECHER"
+
+#: ui/voice.slint
+msgid "Speaking"
+msgstr "Spricht"
+
+#: ui/controls.slint ui/forum.slint
+msgid "SPOILER"
+msgstr "SPOILER"
+
+#: ui/header.slint ui/messages.slint
+msgid "Spoiler"
+msgstr "Spoiler"
+
+#: ui/dialogs.slint
+msgid "Start a search with @ for people, # for text channels, ! for voice channels or * for servers."
+msgstr "Starte eine Suche mit @ für Personen, # für Textkanäle, ! für Sprachkanäle oder * für Server."
+
+#: src/ui/refresh.rs
+msgid "Start Call"
+msgstr "Anruf starten"
+
+#: src/ui/menus.rs
+msgid "Start call"
+msgstr "Anruf starten"
+
+#: ui/settings.slint
+msgid "START FROM"
+msgstr "STARTEN AB"
+
+#: ui/settings.slint
+msgid "Start from"
+msgstr "Starten ab"
+
+#: ui/yapfast.slint
+msgid "Start Video Call"
+msgstr "Videoanruf starten"
+
+#: ui/yapfast.slint
+msgid "Start Voice Call"
+msgstr "Sprachanruf starten"
+
+#: ui/settings.slint
+msgid "Start when you sign in"
+msgstr "Beim Anmelden starten"
+
+#: src/ui/refresh.rs
+msgid "Started by "
+msgstr "Gestartet von "
+
+#: ui/voice.slint
+msgid "Starting camera..."
+msgstr "Kamera wird gestartet ..."
+
+#: src/ui/refresh.rs
+msgid "Starting the conversation..."
+msgstr "Unterhaltung wird gestartet..."
+
+#: ui/settings.slint
+msgid "Starting Yapfast while it runs opens another Yapfast, with its own window and tray icon. Off, it brings the open window forward."
+msgstr "Wenn du Yapfast startest, während es läuft, öffnet sich ein weiteres Yapfast mit eigenem Fenster und Taskleistensymbol. Aus holt stattdessen das geöffnete Fenster nach vorn."
+
+#: ui/settings.slint
+msgid "Starting your camera..."
+msgstr "Deine Kamera wird gestartet ..."
+
+#: src/ui/refresh.rs
+msgid "Starting your stream..."
+msgstr "Dein Stream wird gestartet..."
+
+#: ui/dialogs.slint
+msgid "Status"
+msgstr "Status"
+
+#: ui/yapfast.slint
+msgid "Status: {}"
+msgstr "Status: {}"
+
+#: ui/header.slint
+msgid "Stay focused on a conversation with a thread - a temporary text channel."
+msgstr "Bleib bei einer Unterhaltung, indem du einen Thread nutzt, einen temporären Textkanal."
+
+#: ui/server_expressions.slint
+msgid "STICKER NAME"
+msgstr "STICKERNAME"
+
+#: ui/server_expressions.slint
+msgid "Sticker Name"
+msgstr "Stickername"
+
+#: ui/messages.slint
+msgid "Sticker: {}"
+msgstr "Sticker: {}"
+
+#: ui/server_expressions.slint ui/yapfast.slint
+msgid "Stickers"
+msgstr "Sticker"
+
+#: ui/server_expressions.slint
+msgid "Stickers can be static (JPG, PNG) or animated (APNG, GIF). Stickers must be exactly 320 x 320 pixels and no larger than 512 KB. We will automatically resize static JPG, PNG and animated GIF stickers for you."
+msgstr "Sticker können statisch (JPG, PNG) oder animiert (APNG, GIF) sein. Sticker müssen genau 320 x 320 Pixel groß und höchstens 512 KB schwer sein. Statische JPG-, PNG- und animierte GIF-Sticker passen wir automatisch für dich an."
+
+#: ui/composer.slint
+msgid "Stop covering {}"
+msgstr "{} nicht mehr verdecken"
+
+#: src/ui/menus.rs
+msgid "Stop ignoring"
+msgstr "Nicht mehr ignorieren"
+
+#: ui/settings.slint
+msgid "Stop recording"
+msgstr "Aufnahme beenden"
+
+#: ui/voice.slint ui/yapfast.slint
+msgid "Stop sharing"
+msgstr "Teilen beenden"
+
+#: ui/settings.slint
+msgid "Stop video"
+msgstr "Video beenden"
+
+#: ui/voice.slint ui/yapfast.slint
+msgid "Stop watching"
+msgstr "Nicht mehr zuschauen"
+
+#: ui/voice.slint
+msgid "Stream"
+msgstr "Stream"
+
+#: ui/voice.slint
+msgid "Stream volume"
+msgstr "Streamlautstärke"
+
+#: ui/voice.slint
+msgid "Streaming to {0} · {1} watching"
+msgstr "Streamt für {0} · {1} schauen zu"
+
+#: ui/voice.slint
+msgid "Streaming to {}"
+msgstr "Streamt für {}"
+
+#: src/ui/server_settings.rs
+msgid "Student Hub"
+msgstr "Student Hub"
+
+#: ui/interactions.slint
+msgid "Submit"
+msgstr "Absenden"
+
+#: ui/interactions.slint
+msgid "Submitting…"
+msgstr "Wird gesendet …"
+
+#: src/ui/menus.rs
+msgid "Suppress @everyone and @here"
+msgstr "@everyone und @here unterdrücken"
+
+#: src/ui/menus.rs
+msgid "Suppress all role @mentions"
+msgstr "Alle Rollen-@Erwähnungen unterdrücken"
+
+#: ui/server.slint
+msgid "Surprise Me"
+msgstr "Überrasch mich"
+
+#: ui/voice.slint
+msgid "Switch"
+msgstr "Wechseln"
+
+#: ui/voice.slint
+msgid "Switch channel"
+msgstr "Kanal wechseln"
+
+#: ui/voice.slint
+msgid "Switch screen or window"
+msgstr "Bildschirm oder Fenster wechseln"
+
+#: ui/voice.slint
+msgid "Switch voice channel"
+msgstr "Sprachkanal wechseln"
+
+#: ui/voice.slint
+msgid "Switch voice channel?"
+msgstr "Sprachkanal wechseln?"
+
+#: src/emoji.rs
+msgid "Symbols"
+msgstr "Symbole"
+
+#: ui/channel_settings.slint
+msgid "Sync Now"
+msgstr "Jetzt synchronisieren"
+
+#: ui/channel_settings.slint src/ui/refresh.rs
+msgid "Sync Permissions"
+msgstr "Berechtigungen synchronisieren"
+
+#: ui/channel_settings.slint src/ui/refresh.rs
+msgid "Sync permissions?"
+msgstr "Berechtigungen synchronisieren?"
+
+#: ui/controls.slint
+msgid "System default"
+msgstr "Systemstandard"
+
+#: ui/server_settings.slint
+msgid "SYSTEM MESSAGES CHANNEL"
+msgstr "KANAL FÜR SYSTEMNACHRICHTEN"
+
+#: ui/server_settings.slint
+msgid "System Messages Channel"
+msgstr "Kanal für Systemnachrichten"
+
+#: ui/forum.slint
+msgid "TAGS"
+msgstr "TAGS"
+
+#: ui/forum.slint
+msgid "TAGS (REQUIRED)"
+msgstr "TAGS (ERFORDERLICH)"
+
+#: ui/settings.slint
+msgid "Take out your room's echo in Discord calls"
+msgstr "Das Echo deines Raums in Discord-Anrufen entfernen"
+
+#: ui/settings.slint
+msgid "Takes out tags like utm_source and fbclid, and share ids from YouTube, Spotify and X. The links still go to the same page."
+msgstr "Entfernt Tags wie utm_source und fbclid sowie Freigabe-IDs von YouTube, Spotify und X. Die Links führen weiterhin zur selben Seite."
+
+#: src/ui/refresh.rs
+msgid "Tell everyone a bit about yourself"
+msgstr "Erzähl allen ein bisschen über dich"
+
+#: ui/server_settings.slint
+msgid "Tell people what your server is about."
+msgstr "Erzähle den Leuten, worum es auf deinem Server geht."
+
+#: src/ui/refresh.rs
+msgid "Tell this server a bit about yourself"
+msgstr "Erzähl diesem Server ein bisschen über dich"
+
+#: ui/server.slint
+msgid "Tempo"
+msgstr "Tempo"
+
+#: ui/server_people.slint
+msgid "Temporarily stop new direct messages from being sent between members in your server. Friends can still DM each other, moderators can still DM members, and your Apps can still DM members."
+msgstr "Beende vorübergehend das Senden neuer Direktnachrichten zwischen Mitgliedern deines Servers. Freunde können sich weiterhin DMs schreiben, Moderatoren können Mitgliedern weiterhin DMs schreiben, und deine Apps können Mitgliedern weiterhin DMs schreiben."
+
+#: ui/server_people.slint
+msgid "Temporarily stop new members from joining this server via invite or vanity links."
+msgstr "Verhindere vorübergehend, dass neue Mitglieder diesem Server über Einladungs- oder Vanity-Links beitreten."
+
+#: ui/settings.slint
+msgid "Test video"
+msgstr "Testvideo"
+
+#: ui/server.slint
+msgid "Text"
+msgstr "Text"
+
+#: ui/settings.slint
+msgid "Text after Playing (up to 128 characters)"
+msgstr "Text nach „Spielt“ (bis zu 128 Zeichen)"
+
+#: src/ui/refresh.rs
+msgid "TEXT CHANNELS"
+msgstr "TEXTKANÄLE"
+
+#: ui/settings.slint
+msgid "TEXT SIZE"
+msgstr "TEXTGRÖSSE"
+
+#: ui/settings.slint
+msgid "Text size"
+msgstr "Textgröße"
+
+#: ui/settings.slint
+msgid "The animations some people put over their profile cards."
+msgstr "Die Animationen, die manche über ihre Profilkarten legen."
+
+#: ui/voice.slint
+msgid "The bitrate follows what Discord estimates your connection carries. Fast motion at a low bitrate looks blocky to viewers."
+msgstr "Die Bitrate folgt dem, was Discord für deine Verbindung schätzt. Schnelle Bewegung bei niedriger Bitrate sieht für Zuschauer blockig aus."
+
+#: src/ui/refresh.rs
+msgid "The call stays connected while you browse other conversations."
+msgstr "Der Anruf bleibt verbunden, während du andere Unterhaltungen durchsuchst."
+
+#: ui/settings.slint
+msgid "The fonts and colours people give their display names."
+msgstr "Die Schriftarten und Farben, die Leute ihren Anzeigenamen geben."
+
+#: ui/settings.slint
+msgid "the GPU"
+msgstr "der GPU"
+
+#: src/ui/refresh.rs
+msgid "The last hour"
+msgstr "Die letzte Stunde"
+
+#: src/ui/refresh.rs
+msgid "The last {} days"
+msgstr "Die letzten {} Tage"
+
+#: src/ui/refresh.rs
+msgid "The last {} hours"
+msgstr "Die letzten {} Stunden"
+
+#: src/ui/callbacks.rs
+msgid "The level meter isn't available on this system yet."
+msgstr "Der Pegelmesser ist auf diesem System noch nicht verfügbar."
+
+#: src/ui/refresh.rs
+msgid "The message you added will not be sent to slowmode channel: {}."
+msgstr "Die hinzugefügte Nachricht wird nicht in diesen Slowmode-Kanal gesendet: {}."
+
+#: src/ui/refresh.rs
+msgid "The message you added will not be sent to slowmode channels: {}."
+msgstr "Die hinzugefügte Nachricht wird nicht in diese Slowmode-Kanäle gesendet: {}."
+
+#: src/ui/refresh.rs
+msgid "the other channel"
+msgstr "der andere Kanal"
+
+#: ui/settings.slint
+msgid "The pictures around people's avatars."
+msgstr "Die Bilder rund um die Avatare der Leute."
+
+#: ui/settings.slint
+msgid "The pictures Discord members equip behind their rows in the member list and on your account card."
+msgstr "Die Bilder, die Discord-Mitglieder hinter ihren Zeilen in der Mitgliederliste und auf ihrer Kontokarte ausrüsten."
+
+#: ui/settings.slint
+msgid "the processor"
+msgstr "dem Prozessor"
+
+#: ui/server_settings.slint
+msgid "The recommended minimum size is 960x540 and recommended aspect ratio is 16:9."
+msgstr "Die empfohlene Mindestgröße ist 960x540 und das empfohlene Seitenverhältnis 16:9."
+
+#: ui/settings.slint
+msgid "The tag and its badge beside people's names."
+msgstr "Der Tag und sein Abzeichen neben den Namen der Leute."
+
+#: ui/people.slint
+msgid "THEIR NICKNAME"
+msgstr "IHR NICKNAME"
+
+#: ui/settings.slint
+msgid "THEME"
+msgstr "DESIGN"
+
+#: ui/server.slint
+msgid "Theme & Banner"
+msgstr "Design & Banner"
+
+#: ui/settings.slint
+msgid "Theme name"
+msgstr "Designname"
+
+#: ui/server.slint
+msgid "Theme's bottom colour"
+msgstr "Untere Farbe des Designs"
+
+#: ui/server.slint
+msgid "Theme's top colour"
+msgstr "Obere Farbe des Designs"
+
+#: ui/settings.slint
+msgid "Themes"
+msgstr "Designs"
+
+#: ui/browse.slint
+msgid "There are no channels to browse."
+msgstr "Es gibt keine Kanäle zum Durchsuchen."
+
+#: ui/forum.slint
+msgid "There are no posts yet."
+msgstr "Es gibt noch keine Beiträge."
+
+#: ui/header.slint
+msgid "There are no threads."
+msgstr "Es gibt keine Threads."
+
+#: src/ui/refresh.rs
+msgid "There's nowhere to forward to yet. Yapfast forwards Matrix messages only into encrypted conversations."
+msgstr "Es gibt noch kein Ziel zum Weiterleiten. Yapfast leitet Matrix-Nachrichten nur in verschlüsselte Unterhaltungen weiter."
+
+#: ui/settings.slint
+msgid "They appear locked. Server admins hid them on purpose."
+msgstr "Sie erscheinen gesperrt. Server-Admins haben sie absichtlich ausgeblendet."
+
+#: ui/settings.slint
+msgid "They get notified of your reply. Switch it for one reply with @ On on the reply bar."
+msgstr "Sie werden über deine Antwort benachrichtigt. Ändere das für eine Antwort mit @ an in der Antwortleiste."
+
+#: ui/settings.slint
+msgid "They play when pointed at, as in Discord. Off, they hold still."
+msgstr "Sie spielen ab, wenn man darauf zeigt, wie in Discord. Aus bleiben sie still stehen."
+
+#: src/ui/refresh.rs
+msgid "They'll land in {}."
+msgstr "Sie landen in {}."
+
+#: ui/settings.slint
+msgid "Thinking co-op after nine, if people are up for it."
+msgstr "Ich denke an Koop nach neun, wenn die Leute Lust haben."
+
+#: src/ui/refresh.rs
+msgid "This channel doesn't have any pinned messages yet."
+msgstr "In diesem Kanal gibt es noch keine angehefteten Nachrichten."
+
+#: ui/voice.slint
+msgid "This channel is unencrypted. Yapfast only joins encrypted voice channels."
+msgstr "Dieser Kanal ist unverschlüsselt. Yapfast tritt nur verschlüsselten Sprachkanälen bei."
+
+#: src/ui/refresh.rs
+msgid "This conversation doesn't have any pinned messages yet."
+msgstr "In dieser Unterhaltung gibt es noch keine angehefteten Nachrichten."
+
+#: ui/messages.slint
+msgid "This emoji is from"
+msgstr "Dieses Emoji stammt von"
+
+#: src/ui/refresh.rs
+msgid "This event has ended."
+msgstr "Dieses Event ist vorbei."
+
+#: src/ui/refresh.rs
+msgid "This event is going on now."
+msgstr "Dieses Event läuft gerade."
+
+#: ui/interactions.slint
+msgid "This form has a field Yapfast cannot submit yet. Open it in Discord to continue."
+msgstr "Dieses Formular hat ein Feld, das Yapfast noch nicht absenden kann. Öffne es in Discord, um fortzufahren."
+
+#: src/ui/refresh.rs
+msgid "This gift has already been redeemed."
+msgstr "Dieses Geschenk wurde bereits eingelöst."
+
+#: ui/header.slint
+msgid "This group has no room for more."
+msgstr "In dieser Gruppe ist kein Platz für weitere Personen."
+
+#: ui/moderation.slint
+msgid "This is Awkward"
+msgstr "Das ist unangenehm"
+
+#: src/ui/refresh.rs
+msgid "This is the beginning of this server."
+msgstr "Das ist der Anfang dieses Servers."
+
+#: ui/messages.slint
+msgid "This is the beginning of your messages with {}."
+msgstr "Das ist der Anfang deiner Nachrichten mit {}."
+
+#: ui/server_settings.slint
+msgid "This is the channel we send system event messages to. These can be turned off at any time."
+msgstr "In diesen Kanal senden wir Systemereignis-Nachrichten. Sie können jederzeit ausgeschaltet werden."
+
+#: ui/messages.slint
+msgid "This is the start of #{}."
+msgstr "Das ist der Anfang von #{}."
+
+#: ui/messages.slint
+msgid "This is the start of #{}. No messages here yet."
+msgstr "Das ist der Anfang von #{}. Hier gibt es noch keine Nachrichten."
+
+#: src/ui/refresh.rs
+msgid "This is the start of the #{} channel."
+msgstr "Das ist der Anfang des Kanals #{}."
+
+#: ui/messages.slint ui/thread.slint
+msgid "This is the start of the {} thread."
+msgstr "Das ist der Anfang des Threads {}."
+
+#: ui/messages.slint
+msgid "This is the start of the {} thread. No messages here yet."
+msgstr "Das ist der Anfang des Threads {}. Hier gibt es noch keine Nachrichten."
+
+#: ui/dialogs.slint
+msgid "This link goes to"
+msgstr "Dieser Link führt zu"
+
+#: src/ui/refresh.rs
+msgid "This link {0}{1}."
+msgstr "Dieser Link {0}{1}."
+
+#: ui/people.slint
+msgid "This one only shows in Discord for now."
+msgstr "Das wird vorerst nur in Discord angezeigt."
+
+#: ui/server_settings.slint
+msgid "This progress bar will display in your channel list, attached to your server name (or server banner if you have one set)."
+msgstr "Dieser Fortschrittsbalken wird in deiner Kanalliste angezeigt, angehängt an deinen Servernamen (oder dein Serverbanner, falls du eines festgelegt hast)."
+
+#: src/ui/server_settings.rs
+msgid "This role is automatically managed by an integration."
+msgstr "Diese Rolle wird automatisch von einer Integration verwaltet."
+
+#: src/ui/server_settings.rs
+msgid "This role is automatically managed by Discord for Server Boosting. It cannot be manually assigned to members or deleted."
+msgstr "Diese Rolle wird von Discord automatisch für Server-Boosts verwaltet. Sie kann nicht manuell Mitgliedern zugewiesen oder gelöscht werden."
+
+#: ui/messages.slint
+msgid "This sticker is from"
+msgstr "Dieser Sticker ist von"
+
+#: ui/server_settings.slint
+msgid "This will determine whether members who have not explicitly set their notification settings receive a notification for every message sent in this server or not."
+msgstr "Das legt fest, ob Mitglieder, die ihre Benachrichtigungseinstellungen nicht ausdrücklich festgelegt haben, für jede auf diesem Server gesendete Nachricht eine Benachrichtigung erhalten oder nicht."
+
+#: src/ui/server_settings.rs
+msgid "This will transfer ownership of {0} to {1}. This cannot be undone!"
+msgstr "Damit überträgst du den Besitz von {0} an {1}. Das kann nicht rückgängig gemacht werden!"
+
+#: src/ui/profile.rs
+msgid "This wishlist is private."
+msgstr "Diese Wunschliste ist privat."
+
+#: ui/thread.slint
+msgid "THREAD NAME"
+msgstr "THREADNAME"
+
+#: ui/thread.slint
+msgid "Thread Name"
+msgstr "Threadname"
+
+#: ui/thread.slint
+msgid "THREAD NAME (OPTIONAL)"
+msgstr "THREADNAME (OPTIONAL)"
+
+#: ui/messages.slint
+msgid "Thread {0}{1}"
+msgstr "Thread {0}{1}"
+
+#: ui/header.slint ui/yapfast.slint
+msgid "Threads"
+msgstr "Threads"
+
+#: ui/messages.slint
+msgid "Thumbnail"
+msgstr "Vorschaubild"
+
+#: src/ui/menus.rs src/ui/refresh.rs
+msgid "Time out"
+msgstr "Timeout geben"
+
+#: src/ui/menus.rs src/ui/refresh.rs
+msgid "Time out {}"
+msgstr "Timeout für {}"
+
+#: ui/people.slint
+msgid "Timed out"
+msgstr "Timeout"
+
+#: src/ui/server_settings.rs
+msgid "Timed out for {}"
+msgstr "Im Timeout für {}"
+
+#: ui/forum.slint
+msgid "Title"
+msgstr "Titel"
+
+#: ui/dialogs.slint
+msgid "Today"
+msgstr "Heute"
+
+#: crates/yapfast-core/src/clock.rs
+msgid "Today at {time}"
+msgstr "Heute um {time} Uhr"
+
+#: ui/discord.slint
+msgid "TOKEN"
+msgstr "TOKEN"
+
+#: crates/yapfast-core/src/clock.rs
+msgid "Tomorrow at {time}"
+msgstr "Morgen um {time} Uhr"
+
+#: ui/server.slint ui/server_settings.slint
+msgid "Too long by {}"
+msgstr "Um {} zu lang"
+
+#: src/ui/menus.rs
+msgid "Toolbar Overflow"
+msgstr "Symbolleiste: Überlauf"
+
+#: ui/server.slint
+msgid "Toon"
+msgstr "Toon"
+
+#: ui/server_ownership.slint src/ui/menus.rs src/ui/server_settings.rs
+msgid "Transfer Ownership"
+msgstr "Besitz übertragen"
+
+#: ui/server_ownership.slint
+msgid "Transferring..."
+msgstr "Wird übertragen ..."
+
+#: src/emoji.rs
+msgid "Travel & places"
+msgstr "Reisen & Orte"
+
+#: ui/gifs.slint src/ui/gifs.rs
+msgid "Trending GIFs"
+msgstr "Angesagte GIFs"
+
+#: ui/discord.slint
+msgid "Try again"
+msgstr "Erneut versuchen"
+
+#: ui/sign-in.slint
+msgid "Try the layout with sample conversations. Nothing leaves this computer."
+msgstr "Probiere das Layout mit Beispielunterhaltungen aus. Nichts verlässt diesen Computer."
+
+#: ui/voice.slint
+msgid "Turn off camera"
+msgstr "Kamera ausschalten"
+
+#: ui/voice.slint
+msgid "Turn off noise suppression"
+msgstr "Rauschunterdrückung ausschalten"
+
+#: ui/voice.slint
+msgid "Turn on camera"
+msgstr "Kamera einschalten"
+
+#: ui/voice.slint
+msgid "Turn on noise suppression"
+msgstr "Rauschunterdrückung einschalten"
+
+#: ui/settings.slint
+msgid "Turn on your microphone when you join a call"
+msgstr "Mikrofon einschalten, wenn du einem Anruf beitrittst"
+
+#: src/ui/server_settings.rs
+msgid "Twitch (Integration)"
+msgstr "Twitch (Integration)"
+
+#: src/ui/refresh.rs
+msgid "Type a name to find people you know on Discord, or a full Matrix id such as @name:example.org."
+msgstr "Gib einen Namen ein, um Leute zu finden, die du auf Discord kennst, oder eine vollständige Matrix-ID wie @name:example.org."
+
+#: src/ui/refresh.rs
+msgid "Type a name to find people you know on Discord."
+msgstr "Gib einen Namen ein, um Leute zu finden, die du auf Discord kennst."
+
+#: ui/server_expressions.slint
+msgid "Type or paste an emoji"
+msgstr "Emoji eingeben oder einfügen"
+
+#: ui/header.slint
+msgid "Type the name of a friend"
+msgstr "Gib den Namen eines Freundes ein"
+
+#: ui/dialogs.slint
+msgid "Type your answer"
+msgstr "Gib deine Antwort ein"
+
+#: ui/settings.slint
+msgid "Unblock"
+msgstr "Blockierung aufheben"
+
+#: ui/settings.slint
+msgid "Unblock {}"
+msgstr "Blockierung von {} aufheben"
+
+#: ui/voice.slint ui/yapfast.slint
+msgid "Undeafen"
+msgstr "Taubschaltung aufheben"
+
+#: ui/settings.slint
+msgid "Undeafening"
+msgstr "Taubschaltung wird aufgehoben"
+
+#: src/ui/refresh.rs
+msgid "Unencrypted room. Reading only in this build."
+msgstr "Unverschlüsselter Raum. In diesem Build nur Lesen."
+
+#: src/ui/menus.rs
+msgid "Unfollow channel category"
+msgstr "Kanalkategorie nicht mehr folgen"
+
+#: ui/voice.slint
+msgid "Unknown"
+msgstr "Unbekannt"
+
+#: src/push_to_talk.rs
+msgid "Unknown key"
+msgstr "Unbekannte Taste"
+
+#: ui/settings.slint
+msgid "Unlink Discord"
+msgstr "Discord trennen"
+
+#: ui/settings.slint
+msgid "Unlinking signs Yapfast out of Discord on this computer."
+msgstr "Beim Trennen wird Yapfast auf diesem Computer von Discord abgemeldet."
+
+#: ui/server.slint
+msgid "Unlock with Nitro"
+msgstr "Mit Nitro freischalten"
+
+#: src/ui/server_settings.rs
+msgid "Unlocks at Level 2"
+msgstr "Wird bei Stufe 2 freigeschaltet"
+
+#: src/ui/server_settings.rs
+msgid "Unlocks at Level {}"
+msgstr "Wird bei Stufe {} freigeschaltet"
+
+#: ui/messages.slint ui/voice.slint ui/yapfast.slint
+msgid "Unmute"
+msgstr "Stummschaltung aufheben"
+
+#: src/ui/menus.rs
+msgid "Unmute server"
+msgstr "Server nicht mehr stummschalten"
+
+#: ui/settings.slint
+msgid "Unmuting"
+msgstr "Stummschaltung wird aufgehoben"
+
+#: ui/thread.slint ui/yapfast.slint
+msgid "Unpin"
+msgstr "Nicht mehr anheften"
+
+#: src/ui/menus.rs
+msgid "Unpin channel"
+msgstr "Kanal nicht mehr anheften"
+
+#: ui/messages.slint
+msgid "Unpin message"
+msgstr "Nachricht lösen"
+
+#: src/tray.rs
+msgid "Unread messages"
+msgstr "Ungelesene Nachrichten"
+
+#: ui/yapfast/inbox.slint
+msgid "Unread messages from your unmuted channels show up here."
+msgstr "Ungelesene Nachrichten aus deinen nicht stummgeschalteten Kanälen erscheinen hier."
+
+#: ui/yapfast/inbox.slint
+msgid "Unreads"
+msgstr "Ungelesen"
+
+#: src/ui/menus.rs
+msgid "Until I turn it back on"
+msgstr "Bis ich es wieder einschalte"
+
+#: ui/server_expressions.slint
+msgid "Update"
+msgstr "Aktualisieren"
+
+#: ui/server.slint
+msgid "Upgrade Nitro"
+msgstr "Nitro upgraden"
+
+#: ui/server_expressions.slint
+msgid "Upload"
+msgstr "Hochladen"
+
+#: ui/yapfast.slint
+msgid "Upload a File"
+msgstr "Datei hochladen"
+
+#: ui/roles.slint
+msgid "Upload an image under 256 KB or use an emoji. We recommend at least 64x64 pixels. Members will see the icon for their highest role if they have multiple roles."
+msgstr "Lade ein Bild unter 256 KB hoch oder verwende ein Emoji. Wir empfehlen mindestens 64x64 Pixel. Mitglieder sehen das Icon ihrer höchsten Rolle, wenn sie mehrere Rollen haben."
+
+#: ui/server_settings.slint
+msgid "Upload Background"
+msgstr "Hintergrund hochladen"
+
+#: ui/server_expressions.slint src/ui/server_settings.rs
+msgid "Upload Emoji"
+msgstr "Emoji hochladen"
+
+#: src/ui/server_settings.rs
+msgid "Upload Invite Background"
+msgstr "Einladungshintergrund hochladen"
+
+#: src/ui/server_settings.rs
+msgid "Upload Server Banner"
+msgstr "Serverbanner hochladen"
+
+#: ui/server_expressions.slint src/ui/server_settings.rs
+msgid "Upload Sticker"
+msgstr "Sticker hochladen"
+
+#: ui/yapfast.slint
+msgid "Upload to "
+msgstr "Hochladen nach "
+
+#: ui/yapfast.slint
+msgid "Upload to {}"
+msgstr "Hochladen nach {}"
+
+#: ui/server_expressions.slint
+msgid "UPLOADED BY"
+msgstr "HOCHGELADEN VON"
+
+#: ui/server_expressions.slint
+msgid "Uploading..."
+msgstr "Wird hochgeladen ..."
+
+#: src/ui/server_settings.rs
+msgid "Use a backup code"
+msgstr "Einen Backup-Code verwenden"
+
+#: src/ui/server_settings.rs
+msgid "Use a code sent to your phone"
+msgstr "Einen an dein Handy gesendeten Code verwenden"
+
+#: src/ui/server_settings.rs
+msgid "Use a passkey or security key"
+msgstr "Einen Passkey oder Sicherheitsschlüssel verwenden"
+
+#: ui/discord.slint
+msgid "Use a token"
+msgstr "Token verwenden"
+
+#: src/ui/menus.rs
+msgid "Use category default"
+msgstr "Kategorie-Standard verwenden"
+
+#: ui/roles.slint
+msgid "Use Emoji"
+msgstr "Emojis verwenden"
+
+#: src/ui/channel_settings.rs
+msgid "Use permissions to customize who can do what in this category."
+msgstr "Mit Berechtigungen legst du fest, wer in dieser Kategorie was tun darf."
+
+#: src/ui/channel_settings.rs
+msgid "Use permissions to customize who can do what in this channel."
+msgstr "Mit Berechtigungen legst du fest, wer in diesem Kanal was tun darf."
+
+#: ui/roles.slint
+msgid "Use roles to group your server members and assign permissions."
+msgstr "Nutze Rollen, um deine Servermitglieder zu gruppieren und Berechtigungen zuzuweisen."
+
+#: src/ui/menus.rs
+msgid "Use server default"
+msgstr "Server-Standard verwenden"
+
+#: ui/settings.slint
+msgid "Use the system title bar"
+msgstr "Die Titelleiste des Systems verwenden"
+
+#: src/ui/server_settings.rs
+msgid "Use your authenticator app"
+msgstr "Deine Authentifizierungs-App verwenden"
+
+#: ui/sign-in.slint
+msgid "Use your existing Matrix account."
+msgstr "Verwende dein vorhandenes Matrix-Konto."
+
+#: ui/sign-in.slint
+msgid "Use your Matrix recovery key, or verify Yapfast in another client and check again."
+msgstr "Verwende deinen Matrix-Wiederherstellungsschlüssel oder verifiziere Yapfast in einem anderen Client und prüfe dann erneut."
+
+#: src/ui/server_settings.rs
+msgid "Use your password"
+msgstr "Dein Passwort verwenden"
+
+#: ui/server_people.slint
+msgid "User can't talk in server until they change their member name"
+msgstr "Benutzer kann auf dem Server nicht sprechen, bis er seinen Mitgliedsnamen ändert"
+
+#: ui/yapfast/account-popover.slint
+msgid "User Settings"
+msgstr "Benutzereinstellungen"
+
+#: ui/voice.slint
+msgid "User volume"
+msgstr "Benutzerlautstärke"
+
+#: ui/friends.slint ui/people.slint
+msgid "Username"
+msgstr "Benutzername"
+
+#: ui/channel_settings.slint
+msgid "Users will need to confirm they are of over legal age to view the content in this channel. Age-restricted channels are exempt from the explicit content filter."
+msgstr "Benutzer müssen bestätigen, dass sie volljährig sind, um die Inhalte in diesem Kanal zu sehen. Altersbeschränkte Kanäle sind vom Filter für explizite Inhalte ausgenommen."
+
+#: ui/server_people.slint
+msgid "USES"
+msgstr "NUTZUNGEN"
+
+#: ui/server.slint
+msgid "Usual font"
+msgstr "Übliche Schriftart"
+
+#: src/ui/call_link.rs
+msgid "VA-API on the GPU"
+msgstr "VA-API auf der GPU"
+
+#: src/ui/call_link.rs
+msgid "VA-API on the GPU ({})"
+msgstr "VA-API auf der GPU ({})"
+
+#: ui/server.slint
+msgid "Vampyre"
+msgstr "Vampyre"
+
+#: ui/server_ownership.slint
+msgid "VERIFICATION CODE"
+msgstr "BESTÄTIGUNGSCODE"
+
+#: ui/server_ownership.slint
+msgid "Verification Code"
+msgstr "Bestätigungscode"
+
+#: ui/server_ownership.slint
+msgid "Verification code sent."
+msgstr "Bestätigungscode gesendet."
+
+#: ui/moderation.slint
+msgid "VERIFICATION LEVEL"
+msgstr "VERIFIZIERUNGSSTUFE"
+
+#: ui/moderation.slint
+msgid "Verification Level"
+msgstr "Verifizierungsstufe"
+
+#: ui/sign-in.slint
+msgid "Verify this device to send messages"
+msgstr "Verifiziere dieses Gerät, um Nachrichten zu senden"
+
+#: ui/mfa.slint
+msgid "Verify with something else"
+msgstr "Mit etwas anderem verifizieren"
+
+#: ui/messages.slint
+msgid "Video viewer"
+msgstr "Videobetrachter"
+
+#: ui/browse.slint ui/roles.slint
+msgid "View"
+msgstr "Ansehen"
+
+#: ui/people.slint
+msgid "View full bio"
+msgstr "Vollständige Bio anzeigen"
+
+#: ui/people.slint
+msgid "View Full Profile"
+msgstr "Vollständiges Profil anzeigen"
+
+#: ui/people.slint
+msgid "View full profile"
+msgstr "Vollständiges Profil anzeigen"
+
+#: ui/messages.slint
+msgid "View offer"
+msgstr "Angebot ansehen"
+
+#: src/ui/polls.rs
+msgid "View original message to interact"
+msgstr "Ursprüngliche Nachricht ansehen, um zu interagieren"
+
+#: ui/messages.slint
+msgid "View Reactions"
+msgstr "Reaktionen ansehen"
+
+#: ui/messages.slint
+msgid "View Thread"
+msgstr "Thread ansehen"
+
+#: ui/dialogs.slint
+msgid "Visit site"
+msgstr "Website besuchen"
+
+#: ui/server.slint
+msgid "Voice"
+msgstr "Sprache"
+
+#: ui/settings.slint ui/yapfast/settings-nav.slint
+msgid "Voice & Video"
+msgstr "Sprache & Video"
+
+#: ui/settings.slint
+msgid "Voice & video"
+msgstr "Sprache & Video"
+
+#: ui/settings.slint
+msgid "Voice activity"
+msgstr "Sprachaktivität"
+
+#: src/ui/refresh.rs
+msgid "VOICE CHANNELS"
+msgstr "SPRACHKANÄLE"
+
+#: src/ui/refresh.rs
+msgid "Voice connected"
+msgstr "Sprache verbunden"
+
+#: ui/voice.slint ui/yapfast.slint
+msgid "Voice details"
+msgstr "Sprachdetails"
+
+#: src/ui/refresh.rs
+msgid "Voice disconnected"
+msgstr "Sprache getrennt"
+
+#: ui/messages.slint
+msgid "Voice message controls"
+msgstr "Steuerung der Sprachnachricht"
+
+#: ui/messages.slint
+msgid "Voice message, {}"
+msgstr "Sprachnachricht, {}"
+
+#: ui/voice.slint
+msgid "Voice Privacy Code"
+msgstr "Sprach-Datenschutzcode"
+
+#: ui/controls.slint
+msgid "Voice Settings"
+msgstr "Spracheinstellungen"
+
+#: src/ui/refresh.rs
+msgid "Voice stays connected while you browse other conversations."
+msgstr "Die Sprache bleibt verbunden, während du andere Unterhaltungen durchsuchst."
+
+#: ui/messages.slint ui/settings.slint
+msgid "Volume"
+msgstr "Lautstärke"
+
+#: ui/messages.slint
+msgid "Vote"
+msgstr "Abstimmen"
+
+#: ui/dialogs.slint
+msgid "Votes"
+msgstr "Stimmen"
+
+#: src/ui/refresh.rs
+msgid "Waiting for {}'s picture..."
+msgstr "Warte auf das Bild von {}..."
+
+#: ui/friends.slint
+msgid "Wants to message you"
+msgstr "Möchte dir schreiben"
+
+#: ui/people.slint ui/voice.slint
+msgid "Watch stream"
+msgstr "Stream ansehen"
+
+#: ui/voice.slint
+msgid "Watch stream?"
+msgstr "Stream ansehen?"
+
+#: ui/rail.slint ui/voice.slint
+msgid "Watch {}'s stream"
+msgstr "Stream von {} ansehen"
+
+#: src/ui/refresh.rs
+msgid "Watching: {}"
+msgstr "Du siehst zu: {}"
+
+#: ui/rail.slint
+msgid "Wave"
+msgstr "Winken"
+
+#: ui/moderation.slint
+msgid "We broke something. Come back later."
+msgstr "Etwas ist kaputtgegangen. Komm später wieder."
+
+#: ui/server_settings.slint
+msgid "We recommend an image of at least 512x512."
+msgstr "Wir empfehlen ein Bild mit mindestens 512x512."
+
+#: src/ui/refresh.rs
+msgid "We searched far and wide. Unfortunately, no results were found."
+msgstr "Wir haben überall gesucht. Leider wurden keine Ergebnisse gefunden."
+
+#: src/ui/refresh.rs
+msgid "Welcome to"
+msgstr "Willkommen bei"
+
+#: ui/messages.slint
+msgid "Welcome to #{}"
+msgstr "Willkommen in #{}"
+
+#: src/ui/refresh.rs
+msgid "Welcome to #{}!"
+msgstr "Willkommen in #{}!"
+
+#: ui/dialogs.slint
+msgid "What question do you want to ask?"
+msgstr "Welche Frage möchtest du stellen?"
+
+#: ui/dialogs.slint
+msgid "What's happening?"
+msgstr "Was gibt's Neues?"
+
+#: ui/dialogs.slint
+msgid "Where would you like to go?"
+msgstr "Wohin möchtest du?"
+
+#: ui/settings.slint
+msgid "While Yapfast is focused"
+msgstr "Solange Yapfast im Fokus ist"
+
+#: ui/voice.slint
+msgid "WINDOWS"
+msgstr "FENSTER"
+
+#: ui/people.slint ui/server.slint
+msgid "Wishlist"
+msgstr "Wunschliste"
+
+#: ui/channel_settings.slint src/ui/refresh.rs
+msgid "Would you like to sync {0} permissions with {1}?"
+msgstr "Möchtest du die Berechtigungen von {0} mit {1} synchronisieren?"
+
+#: ui/yapfast.slint
+msgid "Write a message"
+msgstr "Nachricht schreiben"
+
+#: ui/thread.slint ui/yapfast.slint
+msgid "Write a reply"
+msgstr "Antwort schreiben"
+
+#: ui/sign-in.slint ui/yapfast.slint
+msgid "Yapfast"
+msgstr "Yapfast"
+
+#: src/ui/callbacks.rs
+msgid "Yapfast can't read this microphone. Check that it's connected, or choose another."
+msgstr "Yapfast kann dieses Mikrofon nicht lesen. Prüfe, ob es angeschlossen ist, oder wähle ein anderes."
+
+#: ui/messages.slint
+msgid "Yapfast can't show this part of the message yet."
+msgstr "Yapfast kann diesen Teil der Nachricht noch nicht anzeigen."
+
+#: src/ui/refresh.rs
+msgid "Yapfast hasn't seen anyone with this role yet."
+msgstr "Yapfast hat noch niemanden mit dieser Rolle gesehen."
+
+#: ui/settings.slint
+msgid "Yapfast looks for games among the programs running, and on Linux takes the Rich Presence games send. Your Discord account keeps this setting, so it's the same in Discord's apps."
+msgstr "Yapfast sucht unter den laufenden Programmen nach Spielen und übernimmt unter Linux die Rich Presence, die Spiele senden. Dein Discord-Konto speichert diese Einstellung, sie ist also in den Discord-Apps dieselbe."
+
+#: src/push_to_talk.rs
+msgid "Yapfast lost the X server's keys"
+msgstr "Yapfast hat die Tasten des X-Servers verloren"
+
+#: ui/settings.slint
+msgid "Yapfast plays these as you and others join and leave a call, as you mute and deafen, as others start and stop streaming, as they start and stop watching your stream or the one you watch, and for messages that notify, except in the conversation in front of you. They play on the speakers chosen for calls."
+msgstr "Yapfast spielt diese ab, wenn du und andere einem Anruf beitreten oder ihn verlassen, wenn du dich stumm- oder taubschaltest, wenn andere einen Stream starten oder beenden, wenn sie anfangen oder aufhören, deinen oder den Stream zu schauen, den du schaust, und bei Nachrichten, die benachrichtigen, außer in der Unterhaltung vor dir. Sie laufen über die für Anrufe gewählten Lautsprecher."
+
+#: ui/settings.slint
+msgid "Yapfast sends your microphone only while you hold a key."
+msgstr "Yapfast sendet dein Mikrofon nur, solange du eine Taste hältst."
+
+#: ui/settings.slint
+msgid "Yapfast sends your voice when it hears you speak."
+msgstr "Yapfast sendet deine Stimme, wenn es dich sprechen hört."
+
+#: ui/settings.slint
+msgid "Yapfast sends your voice when it's louder than the handle, and other sounds when they're 18 dB louder still. The bar is your microphone after noise suppression and at its volume, as Yapfast hears it to decide."
+msgstr "Yapfast sendet deine Stimme, wenn sie lauter als der Regler ist, und andere Geräusche, wenn sie noch 18 dB lauter sind. Die Leiste zeigt dein Mikrofon nach der Rauschunterdrückung und in seiner Lautstärke, so wie Yapfast es zur Entscheidung hört."
+
+#: ui/settings.slint
+msgid "Yapfast starts in the system tray when you sign in to your computer, so messages and calls reach you."
+msgstr "Yapfast startet im Infobereich der Taskleiste, wenn du dich an deinem Computer anmeldest, damit dich Nachrichten und Anrufe erreichen."
+
+#: ui/settings.slint
+msgid "Yapfast switches to {} when it restarts. Restarting leaves any call."
+msgstr "Yapfast wechselt beim Neustart zu {}. Ein Neustart verlässt jeden Anruf."
+
+#: ui/settings.slint
+msgid "Year-Month-Day"
+msgstr "Jahr-Monat-Tag"
+
+#: crates/yapfast-core/src/clock.rs
+msgid "Yesterday at {time}"
+msgstr "Gestern um {time} Uhr"
+
+#: ui/yapfast.slint
+msgid "You can add comments before uploading."
+msgstr "Du kannst Kommentare hinzufügen, bevor du hochlädst."
+
+#: ui/header.slint
+msgid "You can add {0} more {1}"
+msgstr "Du kannst noch {0} {1} hinzufügen"
+
+#: ui/server.slint
+msgid "You can use markdown and links if you'd like."
+msgstr "Du kannst Markdown und Links verwenden, wenn du möchtest."
+
+#: src/ui/refresh.rs
+msgid "You can't send messages in this Discord channel."
+msgstr "Du kannst in diesem Discord-Kanal keine Nachrichten senden."
+
+#: src/ui/server_settings.rs
+msgid "You cannot clear permissions because it would remove one or more permissions from you."
+msgstr "Du kannst die Berechtigungen nicht löschen, weil dir dadurch eine oder mehrere Berechtigungen entzogen würden."
+
+#: ui/channel_settings.slint
+msgid "You cannot deny this permission to {} because it will deny it to you as well. Allow another role or yourself before trying again."
+msgstr "Du kannst {} diese Berechtigung nicht verweigern, weil sie dir damit ebenfalls verweigert würde. Erlaube sie einer anderen Rolle oder dir selbst, bevor du es erneut versuchst."
+
+#: src/ui/server_settings.rs
+msgid "You cannot modify this permission because none of your roles have it."
+msgstr "Du kannst diese Berechtigung nicht ändern, weil keine deiner Rollen sie hat."
+
+#: src/ui/server_settings.rs
+msgid "You cannot modify this permission because removing it would remove it from you."
+msgstr "Du kannst diese Berechtigung nicht ändern, weil sie dir dadurch entzogen würde."
+
+#: ui/server_ownership.slint
+msgid "You didn't enter the server name correctly"
+msgstr "Du hast den Servernamen nicht richtig eingegeben"
+
+#: src/ui/refresh.rs
+msgid "You do not have permission to send messages in this channel."
+msgstr "Du hast keine Berechtigung, in diesem Kanal Nachrichten zu versenden."
+
+#: src/ui/refresh.rs
+msgid "You don't manage any server it can be added to."
+msgstr "Du verwaltest keinen Server, zu dem sie hinzugefügt werden kann."
+
+#: ui/moderation.slint
+msgid "You haven't banned anybody...\nbut if and when you must, do not hesitate!"
+msgstr "Du hast noch niemanden gebannt ...\naber wenn es sein muss, zögere nicht!"
+
+#: ui/voice.slint
+msgid "You may notice delayed audio at 250 ms or higher. If the problem persists, disconnect and try again.{}"
+msgstr "Ab 250 ms oder mehr kann der Ton verzögert klingen. Falls das Problem bleibt, trenne die Verbindung und versuche es erneut.{}"
+
+#: ui/browse.slint
+msgid "You must unfollow this category to add or remove specific channels."
+msgstr "Du musst dieser Kategorie entfolgen, um bestimmte Kanäle hinzuzufügen oder zu entfernen."
+
+#: ui/friends.slint
+msgid "You sent a friend request"
+msgstr "Du hast eine Freundschaftsanfrage gesendet"
+
+#: ui/messages.slint
+msgid "You voted for this answer"
+msgstr "Du hast für diese Antwort abgestimmt"
+
+#: ui/dialogs.slint ui/yapfast/account-popover.slint
+msgid "You won't get message notifications."
+msgstr "Du erhältst keine Nachrichtenbenachrichtigungen."
+
+#: ui/yapfast/account-popover.slint
+msgid "You'll appear offline."
+msgstr "Du erscheinst offline."
+
+#: src/ui/refresh.rs
+msgid "You'll need to send {} a friend request to be friends again."
+msgstr "Du musst {} eine Freundschaftsanfrage senden, um wieder befreundet zu sein."
+
+#: ui/dialogs.slint
+msgid "You'll show as offline, but can use Yapfast as usual."
+msgstr "Du wirst als offline angezeigt, kannst Yapfast aber wie gewohnt nutzen."
+
+#: src/ui/refresh.rs
+msgid "You're already in this server."
+msgstr "Du bist bereits auf diesem Server."
+
+#: src/ui/refresh.rs
+msgid "You're already in {0}. Leave it and join {1} to watch {2}'s stream?{3}"
+msgstr "Du bist bereits in {0}. Verlasse den Kanal und tritt {1} bei, um den Stream von {2} anzusehen?{3}"
+
+#: src/ui/refresh.rs
+msgid "You're already in {0}. Leave it and join {1}?{2}"
+msgstr "Du bist bereits in {0}. Verlasse den Kanal und tritt {1} bei?{2}"
+
+#: src/ui/refresh.rs
+msgid "You're here alone. Stay as long as you like; others can join later."
+msgstr "Du bist allein hier. Bleib, so lange du magst; andere können später beitreten."
+
+#: src/ui/refresh.rs
+msgid "You're interested in this event."
+msgstr "Dich interessiert dieses Event."
+
+#: src/ui/refresh.rs
+msgid "You're timed out in this server until {}."
+msgstr "Du bist auf diesem Server bis {} im Timeout."
+
+#: ui/messages.slint
+msgid "You're viewing older messages"
+msgstr "Du siehst ältere Nachrichten"
+
+#: ui/messages.slint
+msgid "You're viewing older messages. Jump to present"
+msgstr "Du siehst ältere Nachrichten. Zur neuesten springen"
+
+#: src/ui/refresh.rs
+msgid "You've already redeemed this gift."
+msgstr "Du hast dieses Geschenk bereits eingelöst."
+
+#: src/ui/refresh.rs
+msgid "You've authorized this before. Authorizing again is fine."
+msgstr "Du hast das schon einmal autorisiert. Du kannst es bedenkenlos erneut tun."
+
+#: src/ui/refresh.rs
+msgid "You've been invited to join a server"
+msgstr "Du wurdest zu einem Server eingeladen"
+
+#: src/ui/refresh.rs
+msgid "You've been sent a gift"
+msgstr "Dir wurde ein Geschenk gesendet"
+
+#: ui/settings.slint
+msgid "Your camera"
+msgstr "Deine Kamera"
+
+#: ui/settings.slint
+msgid "Your camera is off."
+msgstr "Deine Kamera ist aus."
+
+#: ui/settings.slint
+msgid "Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own."
+msgstr "Dein Desktop zeichnet die Titelleiste und die Schaltflächen des Fensters, wie bei seinen anderen Fenstern. Aus zeichnet Yapfast sie selbst."
+
+#: src/push_to_talk.rs
+msgid "Your desktop gave push to talk the shortcut {}. Hold it in any app to talk; change it in your system's global shortcuts settings."
+msgstr "Dein Desktop hat Push-to-Talk das Tastenkürzel {} gegeben. Halte es in einer beliebigen App gedrückt, um zu sprechen; ändere es in den globalen Tastenkürzel-Einstellungen deines Systems."
+
+#: src/push_to_talk.rs
+msgid "Your desktop hasn't allowed this shortcut yet. Approve it in your system's global shortcuts settings."
+msgstr "Dein Desktop hat dieses Tastenkürzel noch nicht erlaubt. Bestätige es in den globalen Tastenkürzel-Einstellungen deines Systems."
+
+#: ui/settings.slint
+msgid "Your Matrix notification rules decide"
+msgstr "Deine Matrix-Benachrichtigungsregeln entscheiden darüber,"
+
+#: ui/server.slint
+msgid "Your own colour"
+msgstr "Deine eigene Farbe"
+
+#: ui/gifs.slint
+msgid "Your perfect GIF is in another castle. Try the suggested keywords below!"
+msgstr "Dein perfektes GIF ist in einer anderen Burg. Probiere die vorgeschlagenen Stichwörter unten!"
+
+#: src/ui/refresh.rs
+msgid "Your profile"
+msgstr "Dein Profil"
+
+#: src/ui/refresh.rs
+msgid "Your profile in {}"
+msgstr "Dein Profil in {}"
+
+#: src/ui/refresh.rs
+msgid "Your roles on this Discord server don't let you join this channel."
+msgstr "Mit deinen Rollen auf diesem Discord-Server kannst du diesem Kanal nicht beitreten."
+
+#: ui/voice.slint ui/yapfast.slint
+msgid "Your screen"
+msgstr "Dein Bildschirm"
+
+#: ui/voice.slint
+msgid "Your screen, {}"
+msgstr "Dein Bildschirm, {}"
+
+#: ui/server.slint
+msgid "Your Widgets"
+msgstr "Deine Widgets"
+
+#: src/ui/profile.rs
+msgid "Your wishlist is private: only you can see it."
+msgstr "Deine Wunschliste ist privat: Nur du kannst sie sehen."
+
+#: src/ui/server_settings.rs
+msgid "YouTube (Integration)"
+msgstr "YouTube (Integration)"
+
+#: ui/yapfast.slint
+msgid "Zoom {}"
+msgstr "{} zoomen"
+
+#: src/ui/messages.rs src/ui/refresh.rs
+msgid "{0} and {1}"
+msgstr "{0} und {1}"
+
+#: src/ui.rs
+msgid "{0} and {1} are"
+msgstr "{0} und {1} sind"
+
+#: ui/rail.slint
+msgid "{0} folder, {1}{2}{3}"
+msgstr "Ordner {0}, {1}{2}{3}"
+
+#: src/ui/refresh.rs
+msgid "{0} here. {1}"
+msgstr "{0} hier. {1}"
+
+#: src/ui/games.rs
+msgid "{0} hr {1} min"
+msgstr "{0} Std. {1} Min."
+
+#: src/ui/refresh.rs
+msgid "{0} new {1}"
+msgstr "{0} neue {1}"
+
+#: src/ui/refresh.rs
+msgid "{0} new {1} since {2}"
+msgstr "{0} neue {1} seit {2}"
+
+#: src/ui/refresh.rs
+msgid "{0} new {1} since {2} on {3}"
+msgstr "{0} neue {1} seit {2} um {3}"
+
+#: ui/server_people.slint
+msgid "{0} of {1}"
+msgstr "{0} von {1}"
+
+#: src/ui/server_settings.rs
+msgid "{0} of {1} {2} available"
+msgstr "{0} von {1} {2} verfügbar"
+
+#: ui/people.slint
+msgid "{0} on {1}"
+msgstr "{0} am {1}"
+
+#: src/ui/refresh.rs
+msgid "{0} online, {1} members"
+msgstr "{0} online, {1} Mitglieder"
+
+#: src/ui/messages.rs
+msgid "{0} reacted by {1}"
+msgstr "{0} reagierte, von {1}"
+
+#: src/ui.rs
+msgid "{0}, {1} and {2} are"
+msgstr "{0}, {1} und {2} sind"
+
+#: src/ui.rs
+msgid "{0}, {1} and {2} others are"
+msgstr "{0}, {1} und {2} andere sind"
+
+#: src/ui/messages.rs
+msgid "{0}, {1}, and {2}"
+msgstr "{0}, {1} und {2}"
+
+#: ui/header.slint
+msgid "{0}, {1}, jump to the message"
+msgstr "{0}, {1}, zur Nachricht springen"
+
+#: ui/people.slint
+msgid "{0}, {1}, show profile"
+msgstr "{0}, {1}, Profil anzeigen"
+
+#: src/ui/messages.rs
+msgid "{0}, {1}, {2}, and {3}"
+msgstr "{0}, {1}, {2} und {3}"
+
+#: ui/people.slint
+msgid "{0}, {1}, {2}, show profile"
+msgstr "{0}, {1}, {2}, Profil anzeigen"
+
+#: ui/friends.slint
+msgid "{0}, {1}{2}{3}, message"
+msgstr "{0}, {1}{2}{3}, Nachricht"
+
+#: ui/forum.slint
+msgid "{0}{1}{2}, {3} replies, {4}"
+msgstr "{0}{1}{2}, {3} Antworten, {4}"
+
+#: crates/yapfast-core/src/clock.rs
+msgid "{day} at {time}"
+msgstr "{day} um {time} Uhr"
+
+#: src/ui/profile.rs
+msgid "{n} friend"
+msgid_plural "{n} friends"
+msgstr[0] "{n} Freund"
+msgstr[1] "{n} Freunde"
+
+#: src/ui/refresh.rs
+msgid "{n} joined thread"
+msgid_plural "{n} joined threads"
+msgstr[0] "{n} beigetretener Thread"
+msgstr[1] "{n} beigetretene Threads"
+
+#: src/ui/messages.rs
+msgid "{n} message"
+msgid_plural "{n} messages"
+msgstr[0] "{n} Nachricht"
+msgstr[1] "{n} Nachrichten"
+
+#: src/ui/profile.rs
+msgid "{n} mutual friend"
+msgid_plural "{n} mutual friends"
+msgstr[0] "{n} gemeinsamer Freund"
+msgstr[1] "{n} gemeinsame Freunde"
+
+#: src/ui/profile.rs
+msgid "{n} mutual server"
+msgid_plural "{n} mutual servers"
+msgstr[0] "{n} gemeinsamer Server"
+msgstr[1] "{n} gemeinsame Server"
+
+#: src/ui/refresh.rs
+msgid "{n} other active thread"
+msgid_plural "{n} other active threads"
+msgstr[0] "{n} weiterer aktiver Thread"
+msgstr[1] "{n} weitere aktive Threads"
+
+#: src/ui/profile.rs
+msgid "{n} server"
+msgid_plural "{n} servers"
+msgstr[0] "{n} Server"
+msgstr[1] "{n} Server"
+
+#: src/ui/server_settings.rs
+msgid "{n} slot available"
+msgid_plural "{n} slots available"
+msgstr[0] "{n} Platz verfügbar"
+msgstr[1] "{n} Plätze verfügbar"
+
+#: crates/yapfast-core/src/clock.rs
+msgid "{weekday} at {time}"
+msgstr "{weekday} um {time} Uhr"
+
+#: ui/settings.slint
+msgid "{} \"typing...\" while you write. Others still show here when they type."
+msgstr "{} „Schreibt ...“, während du schreibst. Andere werden hier weiterhin angezeigt, wenn sie tippen."
+
+#: ui/rail.slint
+msgid "{} (Discord)"
+msgstr "{} (Discord)"
+
+#: src/ui.rs
+msgid "{} (not connected)"
+msgstr "{} (nicht verbunden)"
+
+#: ui/rail.slint
+msgid "{} (unavailable in a Discord outage)"
+msgstr "{} (bei einem Discord-Ausfall nicht verfügbar)"
+
+#: src/ui/profile.rs
+msgid "{} ({} of {})"
+msgstr "{} ({} von {})"
+
+#: ui/server.slint
+msgid "{} Avatar"
+msgstr "{} Avatar"
+
+#: ui/server.slint
+msgid "{} Banner"
+msgstr "{} Banner"
+
+#: src/ui/server_settings.rs
+msgid "{} Boosts"
+msgstr "{} Boosts"
+
+#: src/ui.rs
+msgid "{} calling"
+msgstr "{} ruft an"
+
+#: src/ui/refresh.rs
+msgid "{} calling you."
+msgstr "{} ruft dich an."
+
+#: src/ui/appearance.rs
+msgid "{} copy"
+msgstr "{} Kopie"
+
+#: ui/controls.slint
+msgid "{} dB"
+msgstr "{} dB"
+
+#: ui/controls.slint
+msgid "{} Device"
+msgstr "{}-Gerät"
+
+#: ui/people.slint
+msgid "{} elapsed"
+msgstr "{} vergangen"
+
+#: ui/yapfast.slint
+msgid "{} Events"
+msgstr "{} Events"
+
+#: ui/yapfast.slint
+msgid "{} events"
+msgstr "{} Events"
+
+#: ui/voice.slint
+msgid "{} fps"
+msgstr "{} fps"
+
+#: src/ui/games.rs
+msgid "{} hr"
+msgstr "{} Std."
+
+#: src/ui/refresh.rs
+msgid "{} in the call."
+msgstr "{} im Anruf."
+
+#: src/ui/refresh.rs
+msgid "{} interested"
+msgstr "{} interessiert"
+
+#: ui/people.slint ui/server.slint ui/server_settings.slint
+msgid "{} left"
+msgstr "{} übrig"
+
+#: src/ui/refresh.rs src/ui.rs
+msgid "{} members"
+msgstr "{} Mitglieder"
+
+#: src/ui/games.rs
+msgid "{} min"
+msgstr "{} Min."
+
+#: src/ui/refresh.rs
+msgid "{} more permissions"
+msgstr "{} weitere Berechtigungen"
+
+#: ui/voice.slint
+msgid "{} ms"
+msgstr "{} ms"
+
+#: src/ui/profile.rs
+msgid "{} of {}"
+msgstr "{} von {}"
+
+#: src/ui/call_link.rs
+msgid "{} on the CPU"
+msgstr "{} auf der CPU"
+
+#: src/ui/messages.rs
+msgid "{} Online"
+msgstr "{} online"
+
+#: src/ui/server_settings.rs
+msgid "{} Only the server owner can change this setting if they have 2FA enabled."
+msgstr "{} Nur der Serverbesitzer kann diese Einstellung ändern, wenn er die 2FA aktiviert hat."
+
+#: src/ui/messages.rs
+msgid "{} others"
+msgstr "{} weitere"
+
+#: src/ui/messages.rs
+msgid "{} people"
+msgstr "{} Personen"
+
+#: src/ui/refresh.rs
+msgid "{} permissions Yapfast can't name"
+msgstr "{} Berechtigungen, die Yapfast nicht benennen kann"
+
+#: ui/server.slint
+msgid "{} preview"
+msgstr "{}-Vorschau"
+
+#: src/ui/refresh.rs
+msgid "{} Results"
+msgstr "{} Ergebnisse"
+
+#: src/ui/refresh.rs
+msgid "{} The channel stays here when empty."
+msgstr "{} Der Kanal bleibt bestehen, wenn er leer ist."
+
+#: ui/thread.slint
+msgid "{} thread"
+msgstr "{} Thread"
+
+#: src/ui/server_settings.rs
+msgid "{} To change this setting, first enable 2FA on your account."
+msgstr "{} Um diese Einstellung zu ändern, aktiviere zuerst die 2FA für dein Konto."
+
+#: src/ui/profile.rs
+msgid "{} tracks this week"
+msgstr "{} Titel diese Woche"
+
+#: ui/controls.slint
+msgid "{} Volume"
+msgstr "{} Lautstärke"
+
+#: src/ui/polls.rs
+msgid "{} votes"
+msgstr "{} Stimmen"
+
+#: src/ui/refresh.rs
+msgid "{} wants to message you"
+msgstr "{} möchte dir schreiben"
+
+#: src/ui/refresh.rs
+msgid "{} · End-to-end encrypted"
+msgstr "{} · Ende-zu-Ende-verschlüsselt"
+
+#: src/ui/messages.rs
+msgid "{} · Preview unavailable"
+msgstr "{} · Vorschau nicht verfügbar"
+
+#: src/ui/refresh.rs
+msgid "{} · Sample"
+msgstr "{} · Beispiel"
+
+#: src/ui/refresh.rs
+msgid "{} · Secure connection"
+msgstr "{} · Sichere Verbindung"
+
+#: src/ui/refresh.rs
+msgid "{} — {}"
+msgstr "{} – {}"
+
+#: ui/roles.slint
+msgid "{} • applies to all server members"
+msgstr "{} • gilt für alle Servermitglieder"
+
+#: ui/rail.slint
+msgid "{}'s camera is on"
+msgstr "Kamera von {} ist an"
+
+#: ui/people.slint
+msgid "{}'s full profile"
+msgstr "Vollständiges Profil von {}"
+
+#: ui/people.slint
+msgid "{}'s profile"
+msgstr "Profil von {}"
+
+#: ui/voice.slint src/ui/refresh.rs
+msgid "{}'s screen"
+msgstr "Bildschirm von {}"
+
+#: ui/voice.slint
+msgid "{}'s volume"
+msgstr "Lautstärke von {}"
+
+#: src/ui/messages.rs
+msgid "{}, archived"
+msgstr "{}, archiviert"
+
+#: ui/settings.slint
+msgid "{}, chosen"
+msgstr "{}, ausgewählt"
+
+#: ui/rail.slint
+msgid "{}, connected on another client"
+msgstr "{}, mit einem anderen Client verbunden"
+
+#: ui/rail.slint
+msgid "{}, server menu"
+msgstr "{}, Servermenü"
+
+#: src/push_to_talk.rs
+msgid "{}, so push to talk works only while Yapfast's window is in front."
+msgstr "{}, daher funktioniert Push-to-Talk nur, solange das Yapfast-Fenster im Vordergrund ist."
+
+#: ui/rail.slint
+msgid "{}, thread"
+msgstr "{}, Thread"
+
+#: ui/messages.slint
+msgid "{}. Jump to the first unread message"
+msgstr "{}. Zur ersten ungelesenen Nachricht springen"
+
+#: ui/voice.slint
+msgid "{}. Open the call"
+msgstr "{}. Anruf öffnen"
+
+#: ui/voice.slint
+msgid "{}. Return to the call"
+msgstr "{}. Zurück zum Anruf"
+
+#: ui/yapfast.slint
+msgid "{}/33 Boosts"
+msgstr "{}/33 Boosts"
+
+#: src/ui/profile.rs src/ui/refresh.rs
+msgid "{}d ago"
+msgstr "vor {} T"
+
+#: src/ui/polls.rs
+msgid "{}d left"
+msgstr "noch {} T"
+
+#: src/ui/profile.rs src/ui/refresh.rs
+msgid "{}h ago"
+msgstr "vor {} Std."
+
+#: src/ui/polls.rs
+msgid "{}h left"
+msgstr "noch {} Std."
+
+#: src/ui/profile.rs src/ui/refresh.rs
+msgid "{}m ago"
+msgstr "vor {} Min."
+
+#: src/ui/polls.rs
+msgid "{}m left"
+msgstr "noch {} Min."
+
+#: src/ui/profile.rs
+msgid "{}mo ago"
+msgstr "vor {} Mon."
+
+#: src/ui/profile.rs src/ui/refresh.rs
+msgid "{}s ago"
+msgstr "vor {} Sek."
+
+#: src/ui/profile.rs
+msgid "{}w ago"
+msgstr "vor {} Wo."
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "12-hour time"
+msgid "{time} {period}"
+msgstr "{time} {period}"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "long date"
+msgid "{day} {month} {year}"
+msgstr "{day}. {month} {year}"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "long date"
+msgid "{month} {day}, {year}"
+msgstr "{month} {day}, {year}"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "long date"
+msgid "{year}-{month}-{day}"
+msgstr "{year}-{month}-{day}"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "April"
+msgstr "April"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "August"
+msgstr "August"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "December"
+msgstr "Dezember"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "February"
+msgstr "Februar"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "January"
+msgstr "Januar"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "July"
+msgstr "Juli"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "June"
+msgstr "Juni"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "March"
+msgstr "März"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "May"
+msgstr "Mai"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "November"
+msgstr "November"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "October"
+msgstr "Oktober"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "September"
+msgstr "September"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "period"
+msgid "AM"
+msgstr "AM"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "period"
+msgid "PM"
+msgstr "PM"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "short date"
+msgid "{day}/{month}/{year}"
+msgstr "{day}.{month}.{year}"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "short date"
+msgid "{month}/{day}/{year}"
+msgstr "{month}/{day}/{year}"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "short date"
+msgid "{year}-{month}-{day}"
+msgstr "{year}-{month}-{day}"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "weekday"
+msgid "Friday"
+msgstr "Freitag"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "weekday"
+msgid "Monday"
+msgstr "Montag"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "weekday"
+msgid "Saturday"
+msgstr "Samstag"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "weekday"
+msgid "Sunday"
+msgstr "Sonntag"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "weekday"
+msgid "Thursday"
+msgstr "Donnerstag"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "weekday"
+msgid "Tuesday"
+msgstr "Dienstag"
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "weekday"
+msgid "Wednesday"
+msgstr "Mittwoch"

@@ -2,7 +2,9 @@
 
 use std::sync::atomic::{AtomicU8, Ordering};
 
-use chrono::{DateTime, Local, TimeZone};
+use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
+
+use crate::i18n::{Language, language, tr_ctx_in, tr_in};
 
 /// How a date's day, month and year are ordered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -22,6 +24,34 @@ impl DateFormat {
         DateFormat::YearMonthDay,
     ];
 
+    /// The pattern a date in digits follows, such as `{day}/{month}/{year}`,
+    /// in the language: German writes `{day}.{month}.{year}`.
+    fn short(self, language: Language) -> &'static str {
+        tr_ctx_in(
+            language,
+            "short date",
+            match self {
+                Self::DayMonthYear => "{day}/{month}/{year}",
+                Self::MonthDayYear => "{month}/{day}/{year}",
+                Self::YearMonthDay => "{year}-{month}-{day}",
+            },
+        )
+    }
+
+    /// The pattern a date in words follows, such as `{day} {month} {year}`.
+    fn words(self, language: Language) -> &'static str {
+        tr_ctx_in(
+            language,
+            "long date",
+            match self {
+                Self::DayMonthYear => "{day} {month} {year}",
+                Self::MonthDayYear => "{month} {day}, {year}",
+                Self::YearMonthDay => "{year}-{month}-{day}",
+            },
+        )
+    }
+
+    /// Discord's `<t:…>` timestamps in digits, in English.
     fn numeric(self) -> &'static str {
         match self {
             Self::DayMonthYear => "%d/%m/%Y",
@@ -30,6 +60,7 @@ impl DateFormat {
         }
     }
 
+    /// Discord's `<t:…>` timestamps in words, in English.
     fn long(self) -> &'static str {
         match self {
             Self::DayMonthYear => "%-d %B %Y",
@@ -57,9 +88,79 @@ pub fn set_date_format(format: Option<DateFormat>) {
 
 fn format_for(twelve_hour: bool) -> DateFormat {
     match FORMAT.load(Ordering::Relaxed) {
+        // A language of its own writes dates the way its people do.
+        AUTO_FORMAT if !language().is_english() => language().locale().dates,
         AUTO_FORMAT if twelve_hour => DateFormat::MonthDayYear,
         AUTO_FORMAT => DateFormat::DayMonthYear,
         chosen => DateFormat::ALL[usize::from(chosen - 1).min(2)],
+    }
+}
+
+/// A phrase of the catalog with its `{time}`, `{weekday}` and `{day}` filled in,
+/// in `language`.
+fn phrase(language: Language, text: &'static str, time: &str, weekday: &str, day: &str) -> String {
+    tr_in(language, text)
+        .replace("{time}", time)
+        .replace("{weekday}", weekday)
+        .replace("{day}", day)
+}
+
+/// A weekday's name in `language`.
+fn weekday_name(weekday: chrono::Weekday, language: Language) -> &'static str {
+    use chrono::Weekday::*;
+    tr_ctx_in(
+        language,
+        "weekday",
+        match weekday {
+            Mon => "Monday",
+            Tue => "Tuesday",
+            Wed => "Wednesday",
+            Thu => "Thursday",
+            Fri => "Friday",
+            Sat => "Saturday",
+            Sun => "Sunday",
+        },
+    )
+}
+
+/// A month's name in `language`.
+fn month_name(month: u32, language: Language) -> &'static str {
+    tr_ctx_in(
+        language,
+        "month",
+        match month.clamp(1, 12) {
+            1 => "January",
+            2 => "February",
+            3 => "March",
+            4 => "April",
+            5 => "May",
+            6 => "June",
+            7 => "July",
+            8 => "August",
+            9 => "September",
+            10 => "October",
+            11 => "November",
+            _ => "December",
+        },
+    )
+}
+
+/// A date in the pattern `dates` gives in the current language: in digits
+/// (`20/10/2026`) or with the month named (`20 October 2026`).
+fn date_text<Tz: TimeZone>(then: &DateTime<Tz>, dates: DateFormat, in_words: bool) -> String {
+    let language = language();
+    if in_words {
+        dates
+            .words(language)
+            .replace("{day}", &then.day().to_string())
+            .replace("{month}", month_name(then.month(), language))
+            .replace("{year}", &then.year().to_string())
+    } else {
+        dates
+            .short(language)
+            .replace("{day}", &format!("{:02}", then.day()))
+            .replace("{month}", &format!("{:02}", then.month()))
+            .replace("{year}", &then.year().to_string())
     }
 }
 
@@ -127,13 +228,27 @@ fn time_in<Tz: TimeZone>(zone: &Tz, seconds: u64, twelve_hour: bool, with_second
 where
     Tz::Offset: std::fmt::Display,
 {
+    let then = at(zone, seconds);
     let format = match (twelve_hour, with_seconds) {
-        (true, false) => "%-I:%M %p",
-        (true, true) => "%-I:%M:%S %p",
+        (true, false) => "%-I:%M",
+        (true, true) => "%-I:%M:%S",
         (false, false) => "%H:%M",
         (false, true) => "%H:%M:%S",
     };
-    at(zone, seconds).format(format).to_string()
+    let time = then.format(format).to_string();
+    if !twelve_hour {
+        return time;
+    }
+    // AM and PM, worded and placed as the language does.
+    let language = language();
+    let period = tr_ctx_in(
+        language,
+        "period",
+        if then.hour12().0 { "PM" } else { "AM" },
+    );
+    tr_ctx_in(language, "12-hour time", "{time} {period}")
+        .replace("{time}", &time)
+        .replace("{period}", period)
 }
 
 /// When a Unix time is from `now`, as Discord's client words an audit log
@@ -165,12 +280,15 @@ where
     let then = at(zone, seconds);
     let days = (then.date_naive() - at(zone, now).date_naive()).num_days();
     let time = time_in(zone, seconds, twelve_hour, false);
+    let language = language();
+    let weekday = weekday_name(then.weekday(), language);
+    let say = |text: &'static str| phrase(language, text, &time, weekday, "");
     Some(match days {
-        0 => format!("Today at {time}"),
-        -1 => format!("Yesterday at {time}"),
-        1 => format!("Tomorrow at {time}"),
-        -6..=-2 => format!("Last {} at {time}", then.format("%A")),
-        2..=6 => format!("{} at {time}", then.format("%A")),
+        0 => say("Today at {time}"),
+        -1 => say("Yesterday at {time}"),
+        1 => say("Tomorrow at {time}"),
+        -6..=-2 => say("Last {weekday} at {time}"),
+        2..=6 => say("{weekday} at {time}"),
         _ => return None,
     })
 }
@@ -204,7 +322,8 @@ where
     let when = |seconds: u64| {
         near_in(zone, seconds, now, twelve_hour).unwrap_or_else(|| {
             let time = time_in(zone, seconds, twelve_hour, false);
-            format!("{} at {time}", day_in(zone, seconds, dates))
+            let day = day_in(zone, seconds, dates);
+            phrase(language(), "{day} at {time}", &time, "", &day)
         })
     };
     let start = when(starts);
@@ -249,9 +368,9 @@ where
     let time = time_in(zone, seconds, twelve_hour, with_seconds);
     match days {
         0 => time,
-        -1 => format!("Yesterday at {time}"),
-        1 => format!("Tomorrow at {time}"),
-        _ => format!("{} {time}", then.format(dates.numeric())),
+        -1 => phrase(language(), "Yesterday at {time}", &time, "", ""),
+        1 => phrase(language(), "Tomorrow at {time}", &time, "", ""),
+        _ => format!("{} {time}", date_text(&then, dates, false)),
     }
 }
 
@@ -264,7 +383,7 @@ fn day_in<Tz: TimeZone>(zone: &Tz, seconds: u64, dates: DateFormat) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    at(zone, seconds).format(dates.long()).to_string()
+    date_text(&at(zone, seconds), dates, true)
 }
 
 fn at<Tz: TimeZone>(zone: &Tz, seconds: u64) -> DateTime<Tz> {

@@ -13,9 +13,18 @@ fn main() {
         }
     }
     // The interface stays in the repository's ui/ folder, beside its fonts and icons.
+    // Its `@tr` texts are translated from translations/<language>/LC_MESSAGES/yapfast-ui.po,
+    // which the program carries and switches between with
+    // `slint::select_bundled_translation`; see docs/i18n.md.
+    println!("cargo:rerun-if-changed=../../translations");
     slint_build::compile_with_config(
         "../../ui/yapfast.slint",
-        slint_build::CompilerConfiguration::new().with_style("fluent".into()),
+        slint_build::CompilerConfiguration::new()
+            .with_style("fluent".into())
+            .with_bundled_translations("../../translations")
+            // The texts are keyed by their English wording alone, as in the
+            // translation files `scripts/i18n` writes.
+            .with_default_translation_context(slint_build::DefaultTranslationContext::None),
     )
     .expect("could not compile Yapfast's Slint UI");
 }

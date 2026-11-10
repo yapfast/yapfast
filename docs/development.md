@@ -51,6 +51,13 @@ Discord runs only against the fake server, `testing/fake_discord.ts`, in
 development; `scripts/ui-session start --discord` starts both on a private
 display ([seeing the app](building.md#seeing-the-app)).
 
+## Languages
+
+The interface reads in English, German and French. A new `.slint` or Rust text
+is written in English inside `@tr(...)` or `tr(...)`; `scripts/i18n update`
+then `scripts/i18n check` keep the translations in step
+([languages](i18n.md)).
+
 ## Renderer
 
 Yapfast renders with Skia Software, which uses about half the memory of Skia

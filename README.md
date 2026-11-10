@@ -432,6 +432,7 @@ tables are the same.
 | [Building](docs/building.md) | Toolchain, Cargo features, checks, releases |
 | [Discord](docs/discord/README.md) | What's done, what's next, and the fake server the tests use |
 | [Voice](docs/voice.md) | Calls, devices and audio processing |
+| [Languages](docs/i18n.md) | How texts are translated, adding a language, what stays English |
 | [Windows](docs/windows-beta.md) | Packaging, the installer and Windows checks |
 | [Measurements](docs/measurements/README.md) | How memory and CPU are measured |
 
