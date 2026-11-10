@@ -162,7 +162,7 @@ export component ManageAccountsDialog inherits Rectangle {
             content := VerticalLayout {
                 padding: 24px; spacing: 16px;
                 VerticalLayout {
-                    spacing: 8px;
+                    spacing: 8px; padding-bottom: 5px;
                     HorizontalLayout {
                         Text {
                             text: root.linking ? "Add Account" : "Manage Accounts"; color: Theme.text;
@@ -176,7 +176,7 @@ export component ManageAccountsDialog inherits Rectangle {
                     }
                 }
                 if !root.linking: VerticalLayout {
-                    spacing: 8px;
+                    spacing: 8px; padding-bottom: 8px;
                     for account in root.accounts: ManagedAccount {
                         account: account;
                         more(y) => { root.menu-y = y - card.absolute-position.y; root.open-menu(account.id); }

@@ -2118,15 +2118,8 @@ export component YapfastWindow inherits Window {
         x: max(8px, min(root.width - root.status-menu-width - 8px, root.menu-x));
         y: max(8px, root.menu-y - self.height - 4px);
         close-policy: PopupClosePolicy.close-on-click-outside;
-        if ClientStyle.enabled && root.account-switcher-open: AccountFlyout {
-            x: root.status-menu-width + 6px;
-            y: max(0px, min(root.account-switch-y, status-menu.height - self.height));
-            accounts: root.accounts;
-            choose(id) => { root.switch-discord-account(id); status-menu.close(); }
-            manage => { root.open-manage-accounts(); status-menu.close(); }
-        }
         status-menu-content := VerticalLayout {
-            width: root.status-menu-width;
+            x: 0px; width: root.status-menu-width;
             if ClientStyle.enabled: AccountPopover {
                 can-switch: root.accounts.length > 0;
                 switch-accounts(y) => { root.account-switch-y = y; root.account-switcher-open = true; }
@@ -2154,6 +2147,13 @@ export component YapfastWindow inherits Window {
                 custom-status => { root.open-status(); status-menu.close(); }
                 edit-profile => { root.edit-profile(); status-menu.close(); }
             }
+        }
+        if ClientStyle.enabled && root.account-switcher-open: AccountFlyout {
+            x: root.status-menu-width - 11px;
+            y: max(0px, min(root.account-switch-y, status-menu.height - self.height));
+            accounts: root.accounts;
+            choose(id) => { root.switch-discord-account(id); status-menu.close(); }
+            manage => { root.open-manage-accounts(); status-menu.close(); }
         }
     }
 
