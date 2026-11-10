@@ -1157,7 +1157,7 @@ export component MessageSettings inherits VerticalLayout {
         spacing: 8px;
         SettingsHeading { text: @tr("CLOCK"); }
         Choices {
-            label: @tr("Clock"); options: ["24-hour", "12-hour"];
+            label: @tr("Clock"); options: [@tr("24-hour"), @tr("12-hour")];
             current: root.twelve-hour-clock ? 1 : 0;
             chosen(index) => { root.twelve-hour-clock = index == 1; root.preferences-changed(); }
         }

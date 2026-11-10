@@ -241,6 +241,10 @@ msgstr "12 Stunden"
 msgid "12 hr"
 msgstr "12 Std."
 
+#: ui/settings.slint
+msgid "12-hour"
+msgstr "12-Stunden"
+
 #: ui/server_settings.slint
 msgid "15 minutes"
 msgstr "15 Minuten"
@@ -256,6 +260,10 @@ msgstr "2 Wochen"
 #: ui/server_people.slint
 msgid "24 hours"
 msgstr "24 Stunden"
+
+#: ui/settings.slint
+msgid "24-hour"
+msgstr "24-Stunden"
 
 #: ui/dialogs.slint
 msgid "3 days"
