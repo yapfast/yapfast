@@ -395,3 +395,107 @@ async fn a_slow_bot_holds_up_only_its_own_interaction() {
         .collect();
     assert_eq!(nonces, ["4000", "4001"]);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn an_ephemeral_answer_never_comes_back_after_a_reconnect_or_history() {
+    let fixture =
+        Fixture::start("an_ephemeral_answer_never_comes_back_after_a_reconnect_or_history").await;
+    let (discord, guild) = (&fixture.discord, fixture.guild.as_str());
+    let channel = fixture.deploy.channel_id.as_str();
+    let marks = |snapshot: &Snapshot| {
+        snapshot.servers[0]
+            .text_channels()
+            .find(|shown| shown.channel.id == channel)
+            .unwrap()
+            .marks
+    };
+    discord.mark_read(guild, channel, true);
+    snapshot_where(discord, |snapshot| !marks(snapshot).unread).await;
+    let mut live = discord.live();
+    assert!(
+        discord
+            .interact(&fixture.click("5000", 2, "form"))
+            .await
+            .unwrap()
+    );
+    let form = live_where(&mut live, |live| match live {
+        Live::InteractionModal(form) if form["nonce"] == "5000" => Some(form),
+        _ => None,
+    })
+    .await;
+    let submit = Interaction::Modal {
+        nonce: "5001".into(),
+        guild: Some(fixture.guild.clone()),
+        channel: channel.into(),
+        application: form["application"]["id"].as_str().unwrap().into(),
+        id: form["id"].as_str().unwrap().into(),
+        custom_id: form["custom_id"].as_str().unwrap().into(),
+        components: json!([
+            {"type": 18, "component": {"type": 4, "custom_id": "summary", "value": "Quiet"}},
+            {"type": 18, "component": {"type": 3, "custom_id": "environment", "values": ["staging"]}},
+        ]),
+    };
+    assert!(discord.interact(&submit).await.unwrap());
+    // Discord sends it without its server, to Alice alone.
+    let reply = live_where(&mut live, |live| match live {
+        Live::Created(message) if message.content.starts_with("Noted") => Some(message),
+        _ => None,
+    })
+    .await;
+    assert!(reply.ephemeral && !reply.loading);
+    assert_eq!(reply.channel_id, channel);
+    // It's placed in its server's channel, not taken for a DM's message,
+    // and isn't unread there: the channel's history doesn't have it.
+    assert!(
+        discord
+            .interact(&fixture.click("5002", 2, "ok"))
+            .await
+            .unwrap()
+    );
+    live_where(&mut live, |live| match live {
+        Live::Updated(message) if message.id == fixture.deploy.id => Some(()),
+        _ => None,
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let shown = marks(&discord.snapshots().borrow());
+    assert!(!shown.unread && shown.mentions == 0, "{shown:?}");
+    let in_history = |page: yapfast_discord::message::Page| {
+        page.messages.iter().any(|message| message.id == reply.id)
+    };
+    let latest = discord
+        .history(guild, channel, yapfast_discord::api::Span::Latest)
+        .await
+        .unwrap();
+    assert!(!in_history(latest));
+
+    // Nor does a resumed session bring it back.
+    control(fixture.server, "POST", "/_control/gateway-reconnect", "");
+    timeout(WAIT, async {
+        while !control(fixture.server, "GET", "/_control/sessions", "").contains("\"resumes\":1") {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the session didn't resume");
+    assert!(
+        discord
+            .interact(&fixture.click("5003", 2, "ok"))
+            .await
+            .unwrap()
+    );
+    live_where(&mut live, |live| match live {
+        Live::Created(message) if message.id == reply.id => {
+            panic!("the ephemeral answer came again")
+        }
+        Live::Updated(message) if message.id == fixture.deploy.id => Some(()),
+        _ => None,
+    })
+    .await;
+    let latest = discord
+        .history(guild, channel, yapfast_discord::api::Span::Latest)
+        .await
+        .unwrap();
+    assert!(!in_history(latest));
+}

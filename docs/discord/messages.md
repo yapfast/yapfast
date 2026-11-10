@@ -535,6 +535,17 @@ click or a submit sends one, and none is sent again on its own.
   page in the browser; nothing is bought through Yapfast.
 - An app that answers with a web page in a window
   (INTERACTION_IFRAME_MODAL_CREATE) says to use Discord for it.
+- An app's answer only this account sees (message flag EPHEMERAL, `1 << 6`)
+  shows "Only you can see this · Dismiss message" under it, and can't be
+  replied to, reacted to, pinned, deleted or forwarded. Discord sends it to
+  this account's session alone, perhaps without `guild_id`, so it's placed in
+  the server of its channel rather than taken for a DM's message, and it
+  counts as neither unread nor read up to. Its channel's history never lists
+  it: it stays until it's dismissed or Yapfast closes, and it's never kept on
+  disk. Dismiss message hides it for good without asking Discord, which has
+  no endpoint for it.
+- An answer still to come (flag LOADING, `1 << 7`) shows "{app} is
+  thinking…" until Discord updates the message with the answer.
 
 ## GIFs
 

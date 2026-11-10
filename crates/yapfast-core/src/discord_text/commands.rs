@@ -32,6 +32,14 @@ pub fn command(
         send_poll(discord, room, poll, events);
         return;
     }
+    if let Command::Discord(DiscordCommand::DismissEphemeral { room, item }) = &command {
+        if let (Ok(discord), Some(channel)) = (discord, channels.shown_mut(room))
+            && channel.dismiss(item)
+        {
+            publish(channel, discord, done, events);
+        }
+        return;
+    }
     if let Command::MarkRead { room, sync } = &command {
         if let (Ok(discord), Some((guild, channel))) = (discord, discord::parse_room(room)) {
             discord.mark_read(guild, channel, *sync);

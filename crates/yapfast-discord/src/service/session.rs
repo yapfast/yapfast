@@ -550,8 +550,31 @@ impl Session<'_> {
         }
     }
 
+    /// Gives an answer only this account sees the server of its channel,
+    /// which Discord may leave off it, so it isn't taken for a DM's.
+    fn place_ephemeral(&self, dispatch: &mut Dispatch) {
+        let data = &mut dispatch.data;
+        if !matches!(dispatch.event, Event::MessageCreate | Event::MessageUpdate)
+            || !data["guild_id"].is_null()
+            || data["flags"].as_u64().unwrap_or_default() & message::EPHEMERAL == 0
+        {
+            return;
+        }
+        let channel = data["channel_id"].as_str().unwrap_or_default();
+        let guild = self
+            .tracker
+            .servers
+            .iter()
+            .find(|server| server.channel(channel).is_some())
+            .map(|server| Value::from(server.id.as_str()));
+        if let (Some(guild), Some(data)) = (guild, data.as_object_mut()) {
+            data.insert("guild_id".into(), guild);
+        }
+    }
+
     /// Takes in a dispatched event; an error ends the session.
-    async fn event(&mut self, dispatch: Dispatch) -> Result<()> {
+    async fn event(&mut self, mut dispatch: Dispatch) -> Result<()> {
+        self.place_ephemeral(&mut dispatch);
         let (event, data) = (&dispatch.event, &dispatch.data);
         // A server update that no join or stream waits for moves one
         // under way.
