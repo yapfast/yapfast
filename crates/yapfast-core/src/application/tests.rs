@@ -5195,7 +5195,10 @@ fn a_login_linked_before_accounts_were_several_gets_its_name_from_the_connection
     let row = &app.state.discord_accounts[0];
     assert_eq!(row.label(), "derfayberr");
     assert_eq!(row.name, "Fayber");
-    assert_eq!(row.avatar.as_deref(), Some("https://cdn.test/avatars/1/a.png"));
+    assert_eq!(
+        row.avatar.as_deref(),
+        Some("https://cdn.test/avatars/1/a.png")
+    );
 
     // The stored list read again, before the profile was stored, keeps it.
     app.apply(stored());

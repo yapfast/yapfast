@@ -614,17 +614,39 @@ mod tests {
             panic!("one account");
         };
         assert_eq!(account.id, "1400000000000000001");
-        assert!(account.username.is_empty() && account.name.is_empty() && account.avatar.is_empty());
+        assert!(
+            account.username.is_empty() && account.name.is_empty() && account.avatar.is_empty()
+        );
         assert!(vault.read(ACCOUNT).unwrap().is_none(), "moved, not copied");
 
         // What the connection says of the account is kept with it, and kept
         // current when it changes.
-        let id = locate(&vault, &read_index(&vault).unwrap(), &token).unwrap().unwrap();
-        describe_in(&vault, &id, "derfayberr", "Fayber", "https://cdn.test/a.png").unwrap();
-        describe_in(&vault, &id, "derfayberr", "Fabian", "https://cdn.test/a.png").unwrap();
+        let id = locate(&vault, &read_index(&vault).unwrap(), &token)
+            .unwrap()
+            .unwrap();
+        describe_in(
+            &vault,
+            &id,
+            "derfayberr",
+            "Fayber",
+            "https://cdn.test/a.png",
+        )
+        .unwrap();
+        describe_in(
+            &vault,
+            &id,
+            "derfayberr",
+            "Fabian",
+            "https://cdn.test/a.png",
+        )
+        .unwrap();
         let account = &listing_in(&vault).unwrap().accounts[0];
         assert_eq!(
-            (account.username.as_str(), account.name.as_str(), account.avatar.as_str()),
+            (
+                account.username.as_str(),
+                account.name.as_str(),
+                account.avatar.as_str()
+            ),
             ("derfayberr", "Fabian", "https://cdn.test/a.png")
         );
         assert_eq!(read_saved(&vault, &id).unwrap().unwrap().token, token);
