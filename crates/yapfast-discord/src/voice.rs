@@ -306,8 +306,8 @@ impl Microphone {
 }
 
 /// A live microphone input for [`Call::play`], and its writer. The call
-/// takes 20 ms of it every 20 ms while it plays, and silence when the
-/// writer is behind.
+/// takes 20 ms of it every 20 ms while it plays, and sends nothing on a
+/// tick when less than that waits, as when the writer is behind.
 pub fn live_microphone() -> (Microphone, Input) {
     let buffer: Arc<Mutex<VecDeque<f32>>> =
         Arc::new(Mutex::new(VecDeque::with_capacity(MICROPHONE_BACKLOG)));
