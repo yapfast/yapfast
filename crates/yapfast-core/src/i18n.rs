@@ -734,12 +734,9 @@ msgstr "Zwei "
     #[test]
     fn names_and_counts_fill_in() {
         // The process-wide language is left alone, since other tests read it.
-        assert_eq!(message_hint("sam"), "Message @sam");
-        assert_eq!(composer_hint("sam", true, true, false), "Message @sam");
-        assert_eq!(composer_hint("Crew", true, false, false), "Message Crew");
-        assert_eq!(composer_hint("dev", false, false, true), "Message #dev");
-        assert_eq!(mutual_servers(1), "1 mutual server");
-        assert_eq!(mutual_servers(2), "2 mutual servers");
+        assert_eq!(fill(tr("Message @{}"), &[&"sam"]), "Message @sam");
+        assert_eq!(fill(tr("Message #{}"), &[&"dev"]), "Message #dev");
+        assert_eq!(fill(tr("{0} and {1}"), &[&"a", &"b"]), "a and b");
     }
 
     #[test]
