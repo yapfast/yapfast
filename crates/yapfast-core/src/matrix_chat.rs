@@ -886,6 +886,7 @@ impl Matrix {
             | Command::PlayVideo { .. }
             | Command::Video(_)
             | Command::PlayVoiceMessage { .. }
+            | Command::MoveVoiceMessage { .. }
             | Command::PauseVoiceMessage
             | Command::TuneVoiceMessage(_) => {}
         }

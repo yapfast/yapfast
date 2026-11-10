@@ -2230,6 +2230,16 @@ pub enum Command {
         speakers: Option<String>,
         tuning: VoiceTuning,
     },
+    /// Move a voice message to `at_ms` into its recording, playing or
+    /// paused as it was; in place of any other, it loads to wait there
+    /// paused on `speakers`.
+    MoveVoiceMessage {
+        room: String,
+        item: String,
+        at_ms: u64,
+        speakers: Option<String>,
+        tuning: VoiceTuning,
+    },
     /// Pause the voice message playing.
     PauseVoiceMessage,
     /// Play the voice message playing as fast and loud as this says.
@@ -3792,6 +3802,7 @@ impl Command {
             | Command::ViewImage { room, .. }
             | Command::PlayVideo { room, .. }
             | Command::PlayVoiceMessage { room, .. }
+            | Command::MoveVoiceMessage { room, .. }
             | Command::Typing { room, .. }
             | Command::MarkRead { room, .. }
             | Command::SaveDraft { room, .. }

@@ -1530,6 +1530,14 @@ fn a_voice_message_shows_its_player_which_plays_and_pauses() {
     assert_eq!((player.get_muted(), player.get_volume()), (true, 0.25));
     player.invoke_mute(false);
     assert!(!player.get_muted());
+
+    // Its waveform moves it, still paused, the time counting from there.
+    player.invoke_seek("d:1".into(), 0.25);
+    assert!(!player.get_playing());
+    assert_eq!(
+        (player.get_progress(), player.get_time().as_str()),
+        (0.25, "0:05")
+    );
 }
 
 #[test]
@@ -1619,6 +1627,101 @@ fn a_voice_messages_speed_and_volume_slide_out_while_pointed_at() {
     wait(300);
     click(speed.0, speed.1);
     assert_eq!(cycled.get(), before + 1, "folded again once it left");
+}
+
+#[test]
+fn a_voice_messages_waveform_moves_it_where_pressed_and_dragged() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    let window = showing(vec![ChatMessage {
+        author: "Sam".into(),
+        attachments: vec![yapfast_core::chat::Attachment {
+            name: "voice-message.ogg".into(),
+            size: Some(36_000),
+            image: false,
+            dimensions: None,
+            preview: None,
+            preview_failed: false,
+            placement: Placement::Message,
+            gif: None,
+            spoiler: false,
+            video: false,
+            url: None,
+        }],
+        voice: Some(yapfast_core::chat::VoiceMessage {
+            duration_ms: 5_000,
+            waveform: [128; 64].into(),
+        }),
+        ..Default::default()
+    }]);
+    let moves = Rc::new(RefCell::new(Vec::new()));
+    let kept = moves.clone();
+    window
+        .global::<VoicePlayer>()
+        .on_seek(move |item, fraction| kept.borrow_mut().push((item.to_string(), fraction)));
+    let dispatch = |event| window.window().dispatch_event(event);
+    let at = |x: f32, y: f32| slint::LogicalPosition::new(x, y);
+    let button = PointerEventButton::Left;
+    let press = |x, y| {
+        dispatch(WindowEvent::PointerPressed {
+            position: at(x, y),
+            button,
+        })
+    };
+    let release = |x, y| {
+        dispatch(WindowEvent::PointerReleased {
+            position: at(x, y),
+            button,
+        })
+    };
+    let pointed = |x, y| dispatch(WindowEvent::PointerMoved { position: at(x, y) });
+
+    // Its waveform's left edge, found from the left: 32 bars 6 pixels
+    // apart, less the last gap.
+    let (left, y) = (300..1000)
+        .step_by(3)
+        .flat_map(|x| (60..680).step_by(6).map(move |y| (x as f32, y as f32)))
+        .find(|&(x, y)| {
+            press(x, y);
+            release(x, y);
+            !moves.borrow().is_empty()
+        })
+        .expect("the waveform shows");
+    let width = 32. * 6. - 3.;
+    let last = || moves.borrow().last().unwrap().clone();
+    assert_eq!(last().0, "i0");
+    assert!(last().1 < 0.01, "{:?}", last());
+
+    // Pressed a quarter along, it moves there at once.
+    moves.borrow_mut().clear();
+    press(left + width / 4., y);
+    assert_eq!(moves.borrow().len(), 1);
+    assert!((last().1 - 0.25).abs() < 0.01, "{:?}", last());
+    // Dragged, it follows, past its end too; let go, it stays.
+    pointed(left + width / 2., y);
+    assert!((last().1 - 0.5).abs() < 0.01, "{:?}", last());
+    pointed(left + width + 50., y);
+    assert_eq!(last().1, 1.0);
+    release(left + width + 50., y);
+    let count = moves.borrow().len();
+    pointed(left + width / 4., y);
+    assert_eq!(moves.borrow().len(), count, "only while held");
+
+    // Playing, it pauses while held and plays on once let go.
+    let toggled = Rc::new(Cell::new(0));
+    let count = toggled.clone();
+    let player = window.global::<VoicePlayer>();
+    player.on_toggle(move |_| count.set(count.get() + 1));
+    player.set_item("i0".into());
+    player.set_playing(true);
+    press(left + width / 2., y);
+    settle(&window);
+    assert_eq!(toggled.get(), 1, "paused while held");
+    player.set_playing(false);
+    pointed(left + width / 4., y);
+    release(left + width / 4., y);
+    settle(&window);
+    assert_eq!(toggled.get(), 2, "played on once let go");
+    assert!((last().1 - 0.25).abs() < 0.01, "{:?}", last());
 }
 
 #[test]

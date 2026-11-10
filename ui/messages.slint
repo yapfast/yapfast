@@ -375,6 +375,8 @@ export global VoicePlayer {
     /// Sets how loud they play, unmuting them; 0 mutes them.
     callback change-volume(float);
     callback mute(bool);
+    /// Moves an item's voice message this far through it, from 0 to 1.
+    callback seek(string, float);
 }
 
 // A playing video's controls: play or pause, its time, a bar to move
@@ -1607,7 +1609,9 @@ export component FileCard inherits HorizontalLayout {
                     }
                 }
                 // A round bar of 3 pixels every 6 for each point of its
-                // waveform; a quiet one is a dot.
+                // waveform; a quiet one is a dot. Pressed, it moves there,
+                // and follows the pointer while held, as Discord's does;
+                // playing, it pauses while held and plays on once let go.
                 Rectangle {
                     width: root.file.waveform.length * 6px - 3px;
                     accessible-role: progress-indicator; accessible-label: "Played";
@@ -1617,6 +1621,24 @@ export component FileCard inherits HorizontalLayout {
                         y: (parent.height - self.height) / 2;
                         border-radius: 1.5px;
                         background: (index + 0.5) / root.file.waveform.length <= root.played ? Theme.text : Theme.muted;
+                    }
+                    TouchArea {
+                        property <bool> resume;
+                        enabled: !root.preview && root.delivery == "";
+                        mouse-cursor: MouseCursor.pointer;
+                        changed pressed => {
+                            if self.pressed {
+                                self.resume = root.active && VoicePlayer.playing;
+                                if self.resume { VoicePlayer.toggle(root.item); }
+                                VoicePlayer.seek(root.item, clamp(self.mouse-x / self.width, 0, 1));
+                            } else if self.resume {
+                                self.resume = false;
+                                VoicePlayer.toggle(root.item);
+                            }
+                        }
+                        moved => {
+                            if self.pressed { VoicePlayer.seek(root.item, clamp(self.mouse-x / self.width, 0, 1)); }
+                        }
                     }
                 }
                 // As wide as its widest time, so the card keeps its width as

@@ -357,7 +357,13 @@ Yapfast is back, rather than showing an error.
   has no filters), and plays on the call's speakers through `audio_io.rs`,
   on Linux and Windows. One plays at a time: playing another stops it, as
   does closing its channel, or its thread beside the channel. Paused, it
-  plays on from there; at its end it goes back to its start.
+  plays on from there; at its end it goes back to its start. Pressing the
+  waveform moves it there, and it follows the pointer while held, as in
+  Discord: playing, it pauses while held and plays on once let go; paused,
+  it stays paused; another voice message waits there paused in place of the
+  one playing. Moved, its thread seeks the
+  recording 80 ms early, Opus's pre-roll, and leaves out what's before the
+  time.
 - Markdown shows as Discord's client shows it. Bold, italics, strikethrough,
   inline code, lists and links are Slint's Markdown. Headings (`#` to `###`),
   subtext (`-# `), quotes (`> ` lines, or `>>> ` and the rest) and code fenced

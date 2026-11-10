@@ -3329,8 +3329,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 .action(&window, Action::Video(VideoCommand::Volume(volume)));
         }
     });
-    // A voice message's card plays and pauses it, and sets how fast and
-    // loud voice messages play.
+    // A voice message's card plays, pauses and moves it, and sets how fast
+    // and loud voice messages play.
     let voice = window.global::<VoicePlayer>();
     let state = adapter.clone();
     let weak = window.as_weak();
@@ -3366,6 +3366,15 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             state
                 .borrow_mut()
                 .action(&window, Action::MuteVoiceMessages(muted));
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    voice.on_seek(move |item, fraction| {
+        if let Some(window) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .action(&window, Action::MoveVoiceMessage(item.into(), fraction));
         }
     });
     let state = adapter.clone();

@@ -1653,6 +1653,8 @@ pub enum Action {
     VoiceMessageVolume(f32),
     /// Mute voice messages, or unmute them at the volume they had.
     MuteVoiceMessages(bool),
+    /// Move an item's voice message this far through it, from 0 to 1.
+    MoveVoiceMessage(String, f32),
     /// Show the message's next image, or with -1 its previous one, wrapping around.
     StepImage(isize),
     CloseImage,
@@ -3312,6 +3314,7 @@ impl Application {
                 vec![Effect::Backend(Command::Video(command))]
             }
             Action::ToggleVoiceMessage(item) => self.toggle_voice_message(item),
+            Action::MoveVoiceMessage(item, fraction) => self.move_voice_message(item, fraction),
             Action::CycleVoiceMessageSpeed => {
                 let speed = &mut self.state.voice_tuning.speed;
                 *speed = if *speed < 1.25 {
