@@ -466,11 +466,12 @@ impl Gateway {
     /// Asks when the session of each of a server's busy voice channels
     /// started, as the web client does when the server opens. Discord
     /// answers with CHANNEL_INFO, and says when one starts or ends with
-    /// VOICE_CHANNEL_START_TIME_UPDATE.
+    /// VOICE_CHANNEL_START_TIME_UPDATE. It asks for the channels' statuses
+    /// too, unused, as the web client always asks for both.
     pub async fn request_channel_info(&mut self, guild_id: &str) -> Result<()> {
         self.send(
             REQUEST_CHANNEL_INFO,
-            json!({"guild_id": guild_id, "fields": ["voice_start_time"]}),
+            json!({"guild_id": guild_id, "fields": ["status", "voice_start_time"]}),
         )
         .await
     }

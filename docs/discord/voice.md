@@ -95,7 +95,8 @@ As in Discord's client, a voice channel with people in it says in the
 channel list how long its call has gone on, counted from when its first
 person joined: `<1m`, `42m`, `1h 05m`, `2d 3h`. Discord keeps that time,
 not Yapfast. Opening a server asks for its voice channels' start times with
-op 43 (Request Channel Info, `fields: ["voice_start_time"]`), once a
+op 43 (Request Channel Info, `fields: ["status", "voice_start_time"]`, the
+web client's own request, whose statuses Yapfast doesn't use), once a
 session, and again when the server comes back from an outage or is joined
 again; a new session asks again only for the server on screen, and the
 others as they're opened. Discord answers with CHANNEL_INFO, which lists the

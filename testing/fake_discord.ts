@@ -165,7 +165,8 @@
 // A server voice channel's session starts as its first person joins and ends
 // as its last leaves, which VOICE_CHANNEL_START_TIME_UPDATE says; the Lounge's
 // started 47 minutes before the fake did. Op 43 answers CHANNEL_INFO with the
-// server's voice channels and their `voice_start_time`, and GET
+// server's voice channels and the fields asked for, `voice_start_time` and a
+// `status` that's always null, and GET
 // /_control/channel-info lists the servers it was asked about.
 // The soundboard: GET /soundboard-default-sounds gives six of Discord's own,
 // and op 31 "Server"'s two, Bob's laugh with :talk: and Carol's applause.
@@ -3356,7 +3357,12 @@ function gatewayMessage(ws: Socket, text: string) {
       break;
     case 43: {
       // Request channel info: each of the server's voice channels, with when
-      // its session started while someone is in it.
+      // its session started while someone is in it. Only the web client's own
+      // request is answered, so a test notices one that differs from it.
+      if (JSON.stringify(d.fields) !== JSON.stringify(["status", "voice_start_time"])) {
+        console.warn(`op 43 asked for ${JSON.stringify(d.fields)}, not the web client's fields`);
+        break;
+      }
       channelInfoRequests.push(d.guild_id);
       const ids = new Set<string>(
         (d.guild_id === GUILD ? guild().channels : [])
@@ -3365,10 +3371,12 @@ function gatewayMessage(ws: Socket, text: string) {
       );
       for (const [channel, started] of voiceStarted) if (started.guild === d.guild_id) ids.add(channel);
       const wanted = (d.fields ?? []).includes("voice_start_time");
+      const statuses = (d.fields ?? []).includes("status");
       send(ws, 0, {
         guild_id: d.guild_id,
         channels: [...ids].map((id) => ({
           id,
+          ...(statuses ? { status: null } : {}),
           ...(wanted ? { voice_start_time: voiceStarted.get(id)?.at ?? null } : {}),
         })),
       }, "CHANNEL_INFO");
