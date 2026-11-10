@@ -61,6 +61,10 @@ tungstenite, plus x264's and FFmpeg's C source; see
 [dependency sources](building.md#dependency-sources). LiveKit itself comes
 from crates.io, not `vendor/`.
 
+Plugins, behind the `plugins` feature, are in
+`crates/yapfast-core/src/plugins.rs` and `plugins/`, `src/ui/plugins.rs` and
+`ui/plugins.slint`; see [plugins](plugins.md).
+
 Two experiments stay in the tree: `experiment.rs` behind `--call-experiment`
 and `voice_demo.rs` behind `--voice-demo`, both in yapfast-core and
 dispatched from `src/main.rs`.

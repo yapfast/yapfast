@@ -1,0 +1,894 @@
+import { ScrollView, ListView } from "scrollview.slint";
+import { Theme, Middle, Label } from "theme.slint";
+import { ActionButton, Avatar, IconButton, TextField, VolumeSlider } from "controls.slint";
+import { SettingsTitle, SettingsHeading, SettingsSwitch, Choices, Picker } from "settings.slint";
+import { PluginPart, PluginWidgets } from "plugins.slint";
+
+// Settings → Plugins: the marketplace, the installed plugins and installing
+// from a git URL, each a choice at the top; a plugin's own page; and the
+// review that asks before anything is installed. Rust fills PluginPage from
+// the plugin runtime only while the page is open; see
+// src/ui/plugin_settings.rs.
+
+/// A line of what a plugin can do. `permission` is what Revoke takes
+/// away, as `capability:messages.read` or `host:api.example.com`; empty for
+/// a line that only explains.
+export struct PluginLine { text: string, tone: int, permission: string }
+
+/// An installed plugin, as Installed lists it.
+export struct InstalledRow {
+    id: string,
+    name: string,
+    initial: string,
+    icon-url: string,
+    /// "by Ada · v1.4.0".
+    byline: string,
+    status: string,
+    tone: int,
+    enabled: bool,
+    /// The newer version, when there is one.
+    update: string,
+}
+
+/// One control of a plugin's settings form: a setting's own, or one field
+/// of a list's row.
+export struct PluginControl {
+    /// The setting's key, or the field's.
+    key: string,
+    label: string,
+    /// 0 switch, 1 text, 2 select, 3 slider, 4 number, 5 whole number.
+    kind: int,
+    enabled: bool,
+    checked: bool,
+    /// Its value as text, or what was typed and refused.
+    text: string,
+    placeholder: string,
+    options: [string],
+    selected: int,
+    /// A slider's last position, where it is, its low end and its step.
+    steps: int,
+    position: int,
+    minimum: float,
+    step: float,
+    /// Why what was typed was refused, in plain words; empty when it wasn't.
+    error: string,
+}
+
+/// A line of a plugin's settings form, which Rust keeps in one model and
+/// changes row by row, so a field keeps its focus as the form changes.
+export struct PluginFormRow {
+    /// 0 a setting, 1 a list's heading, 2 a list's row, 3 a list's foot,
+    /// 4 a setting the plugin draws.
+    shape: int,
+    /// The setting's key.
+    key: string,
+    label: string,
+    description: string,
+    enabled: bool,
+    /// A setting's control.
+    control: PluginControl,
+    /// A list's row: its index, how many there are, and its fields; a
+    /// heading's fields name its columns.
+    row: int,
+    rows: int,
+    cells: [PluginControl],
+    /// A list's foot: whether another row fits.
+    can-add: bool,
+    /// What the plugin draws; no rows until the runtime gives some.
+    widget: PluginPart,
+}
+
+export struct PluginLogRow { at: string, text: string, error: bool }
+
+/// The plugin whose page is open.
+export struct PluginDetail {
+    id: string,
+    name: string,
+    initial: string,
+    icon-url: string,
+    byline: string,
+    description: string,
+    status: string,
+    tone: int,
+    enabled: bool,
+    update: string,
+    /// The version Roll back goes to; empty without one.
+    previous: string,
+    source: string,
+    commit: string,
+    license: string,
+    /// Marketplace, URL or folder, in words.
+    origin: string,
+    memory: string,
+    /// Requests denied without asking, in words; empty for none.
+    quiet: string,
+    permissions: [PluginLine],
+    log: [PluginLogRow],
+}
+
+/// A plugin in the marketplace.
+export struct ListingRow {
+    id: string,
+    name: string,
+    initial: string,
+    icon-url: string,
+    description: string,
+    /// "by Ada · v1.4.0 · messages, 1 host".
+    byline: string,
+    reviewed: bool,
+    installed: bool,
+}
+
+/// What a plugin would be, before it's installed.
+export struct PluginReview {
+    shown: bool,
+    name: string,
+    initial: string,
+    icon-url: string,
+    version: string,
+    source: string,
+    commit: string,
+    reviewed: bool,
+    lines: [PluginLine],
+    memory: PluginLine,
+    dependencies: [PluginLine],
+    /// The version this replaces, for an update.
+    replaces: string,
+}
+
+export global PluginPage {
+    /// This build has plugins: Settings lists the page.
+    in property <bool> available;
+    /// 0 Marketplace, 1 Installed, 2 Add from URL.
+    in property <int> tab: 1;
+    in property <[InstalledRow]> installed;
+    /// What's wrong with the helper, in words, and its tone; empty while
+    /// it's well.
+    in property <string> helper;
+    in property <int> helper-tone;
+    /// The helper's memory, under Installed while it runs.
+    in property <string> memory;
+    in property <bool> detail-open;
+    in property <PluginDetail> detail;
+    /// The open plugin's settings form; empty while no plugin's page is.
+    in property <[PluginFormRow]> form;
+    in-out property <string> query;
+    in property <[ListingRow]> listings;
+    in property <[string]> categories;
+    in property <int> category;
+    /// Loading, a failure, or no match; empty while rows show.
+    in property <string> catalog-note;
+    in-out property <string> url;
+    in property <bool> finding;
+    in property <string> find-progress;
+    in property <string> find-error;
+    in property <PluginReview> review;
+    in property <[string]> budgets;
+    in property <int> budget;
+    in property <[string]> idle-times;
+    in property <int> idle;
+    /// Said under Advanced when the OS sandbox couldn't be applied.
+    in property <string> sandbox;
+    callback opened();
+    callback closed();
+    callback tab-chosen(int);
+    callback search(string);
+    callback category-chosen(int);
+    callback set-enabled(string, bool);
+    callback open-plugin(string);
+    callback close-plugin();
+    /// Fetches a marketplace entry, for its review.
+    callback install(string);
+    callback find(string);
+    callback confirm();
+    callback cancel();
+    /// Uninstalls a plugin, and deletes its data if asked.
+    callback uninstall(string, bool);
+    callback revoke(string, string);
+    callback update(string);
+    callback roll-back(string);
+    /// A setting of the open plugin changed: its key, and "true" or
+    /// "false" for a switch, the option's index for a select, the
+    /// position for a slider, and the text for the rest.
+    callback setting(string, string);
+    /// A field of a list's row changed: the list's key, the row, the
+    /// field's key and its value, as for `setting`.
+    callback field(string, int, string, string);
+    callback add-row(string);
+    callback remove-row(string, int);
+    /// Moves a list's row: the key, from, to.
+    callback move-row(string, int, int);
+    callback reset-settings();
+    /// A widget a setting draws was used: the setting's key, the widget's
+    /// id and its value.
+    callback setting-widget(string, string, string);
+    callback load-folder();
+    callback budget-chosen(int);
+    callback idle-chosen(int);
+
+    /// A tone's colour: 0 normal, 1 strong, 2 muted, 3 success, 4 warning,
+    /// 5 danger.
+    public pure function ink(tone: int) -> color {
+        return tone == 2 ? Theme.muted : tone == 3 ? Theme.live : tone == 4 ? Theme.loud
+            : tone == 5 ? Theme.danger-text : Theme.text;
+    }
+}
+
+// A plugin's icon: its picture while on screen, or its initial.
+component PluginIcon inherits Avatar {
+    size: 40px; corner: 10px; tint: Theme.avatar;
+}
+
+// A small marker, as "Reviewed" or "Unreviewed source".
+component Badge inherits Rectangle {
+    in property <string> text;
+    in property <color> ink: Theme.live;
+    in property <image> icon;
+    height: 22px; width: badge.preferred-width;
+    border-radius: 11px; background: root.ink.with-alpha(0.14);
+    accessible-role: AccessibleRole.text; accessible-label: root.text;
+    badge := HorizontalLayout {
+        padding-left: 8px; padding-right: 8px; spacing: 4px;
+        if root.icon.width > 0: Middle { Image { source: root.icon; width: 12px; height: 12px; colorize: root.ink; } }
+        Text { text: root.text; color: root.ink; font-size: 12px; font-weight: 700; vertical-alignment: center; }
+    }
+}
+
+// What a plugin can do, a line each, with Revoke beside those it can lose.
+component PermissionLines inherits VerticalLayout {
+    in property <[PluginLine]> lines;
+    in property <bool> revocable;
+    callback revoke(string);
+    spacing: 8px;
+    for line in root.lines: HorizontalLayout {
+        spacing: 12px;
+        Rectangle {
+            width: 6px; horizontal-stretch: 0;
+            Rectangle { y: 7px; width: 6px; height: 6px; border-radius: 3px; background: PluginPage.ink(line.tone == 0 || line.tone == 1 ? 2 : line.tone); }
+        }
+        Text {
+            text: line.text; wrap: word-wrap; horizontal-stretch: 1; vertical-alignment: center;
+            color: PluginPage.ink(line.tone); font-size: 14px;
+            font-weight: line.tone == 1 || line.tone == 5 ? 700 : 400;
+        }
+        if root.revocable && line.permission != "": ActionButton {
+            text: "Revoke"; label: "Revoke: " + line.text; small: true; ghost: true;
+            clicked => { root.revoke(line.permission); }
+        }
+    }
+}
+
+// A dialog over the page, which Escape cancels. Its shade reaches past the
+// page, to the edges of the settings' content, which clip it.
+component PageDialog inherits Rectangle {
+    in property <string> label;
+    callback cancel;
+    shade := Rectangle {
+        x: -1000px; y: -1000px; width: root.width + 2000px; height: root.height + 2000px;
+        background: #00000099;
+        TouchArea { clicked => { root.cancel(); } }
+    }
+    keys := FocusScope {
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if event.text == Key.Escape { root.cancel(); return accept; }
+            return reject;
+        }
+    }
+    card := Rectangle {
+        width: min(root.width - 32px, 480px);
+        height: min(root.height - 32px, body.preferred-height);
+        border-radius: 12px; background: Theme.chat; border-width: 1px; border-color: Theme.edge;
+        drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+        clip: true;
+        accessible-role: groupbox; accessible-label: root.label;
+        TouchArea { }
+        body := VerticalLayout {
+            padding: 20px; spacing: 14px;
+            @children
+        }
+    }
+}
+
+// The review: what Find plugin or Install found, before it's installed.
+// Nothing of it has run.
+component ReviewDialog inherits PageDialog {
+    label: "Install " + PluginPage.review.name;
+    cancel => { PluginPage.cancel(); }
+    HorizontalLayout {
+        spacing: 12px;
+        PluginIcon { size: 48px; corner: 12px; initial: PluginPage.review.initial; picture-url: PluginPage.review.icon-url; }
+        VerticalLayout {
+            alignment: center; spacing: 4px;
+            Text { text: PluginPage.review.name; color: Theme.text; font-size: 18px; font-weight: 700; overflow: elide; }
+            Text {
+                text: PluginPage.review.replaces != ""
+                    ? "Updates v" + PluginPage.review.replaces + " to v" + PluginPage.review.version
+                    : "v" + PluginPage.review.version;
+                color: Theme.secondary; font-size: 13px;
+            }
+        }
+    }
+    if PluginPage.review.reviewed: Badge { text: "Reviewed"; icon: @image-url("icons/check.svg"); }
+    if !PluginPage.review.reviewed: Rectangle {
+        border-radius: 8px; background: Theme.loud.with-alpha(0.12);
+        HorizontalLayout {
+            padding: 10px; spacing: 10px;
+            Image { source: @image-url("icons/triangle-alert.svg"); width: 18px; height: 18px; colorize: Theme.loud; }
+            VerticalLayout {
+                spacing: 2px;
+                Text { text: "Unreviewed source"; color: Theme.loud; font-size: 14px; font-weight: 700; }
+                Label { text: "Nobody from Yapfast has read this plugin's code. Install it only if you trust where it comes from."; color: Theme.secondary; }
+            }
+        }
+    }
+    details-scroll := ScrollView {
+        vertical-stretch: 1; min-height: min(details.preferred-height, 80px);
+        preferred-height: details.preferred-height;
+        content-height: details.preferred-height;
+        details := VerticalLayout {
+            width: details-scroll.visible-width;
+            spacing: 12px; padding-right: 12px;
+            VerticalLayout {
+                spacing: 2px;
+                Text { text: PluginPage.review.source; color: Theme.text; font-size: 13px; wrap: word-wrap; }
+                Text { text: "Commit " + PluginPage.review.commit; color: Theme.muted; font-size: 12px; font-family: "monospace"; }
+            }
+            SettingsHeading { text: "WHAT IT CAN DO"; }
+            if PluginPage.review.lines.length == 0: Label { text: "Nothing beyond adding its own commands and buttons."; }
+            PermissionLines { lines: PluginPage.review.lines; }
+            PermissionLines { lines: [PluginPage.review.memory]; }
+            if PluginPage.review.dependencies.length > 0: SettingsHeading { text: "NEEDS"; }
+            PermissionLines { lines: PluginPage.review.dependencies; }
+        }
+    }
+    HorizontalLayout {
+        spacing: 8px; alignment: end;
+        ActionButton { text: "Cancel"; ghost: true; clicked => { PluginPage.cancel(); } }
+        ActionButton {
+            text: PluginPage.review.replaces != "" ? "Update" : "Install"; primary: true;
+            clicked => { PluginPage.confirm(); }
+        }
+    }
+}
+
+// Uninstall, which asks whether to delete the plugin's data too.
+component UninstallDialog inherits PageDialog {
+    in property <string> plugin;
+    in property <string> name;
+    callback done;
+    property <bool> delete-data;
+    label: "Uninstall " + root.name;
+    cancel => { root.done(); }
+    Text { text: "Uninstall " + root.name + "?"; color: Theme.text; font-size: 18px; font-weight: 700; wrap: word-wrap; }
+    Label { text: "It stops at once, and its files are removed."; color: Theme.secondary; }
+    SettingsSwitch {
+        text: "Also delete its data";
+        description: "Its settings and what it stored. Kept, they come back if you install it again.";
+        checked <=> root.delete-data;
+    }
+    HorizontalLayout {
+        spacing: 8px; alignment: end;
+        ActionButton { text: "Cancel"; ghost: true; clicked => { root.done(); } }
+        ActionButton {
+            text: "Uninstall"; danger: true;
+            clicked => { PluginPage.uninstall(root.plugin, root.delete-data); root.done(); }
+        }
+    }
+}
+
+// An installed plugin's row: its switch, which takes effect at once, its
+// status, and Update when there is one. A click opens its page.
+component InstalledRow inherits Rectangle {
+    in property <InstalledRow> plugin;
+    min-height: 64px; border-radius: 8px;
+    background: open.has-hover || focus.has-focus ? Theme.hover : Theme.sidebar;
+    border-width: focus.has-focus ? 2px : 0px; border-color: Theme.accent;
+    focus := FocusScope {
+        accessible-role: button;
+        accessible-label: root.plugin.name + ", " + root.plugin.status;
+        accessible-description: "Opens its page";
+        accessible-action-default => { PluginPage.open-plugin(root.plugin.id); }
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" { PluginPage.open-plugin(root.plugin.id); return accept; }
+            return reject;
+        }
+        open := TouchArea { mouse-cursor: pointer; clicked => { PluginPage.open-plugin(root.plugin.id); } }
+    }
+    HorizontalLayout {
+        padding: 12px; spacing: 12px;
+        Middle { PluginIcon { initial: root.plugin.initial; picture-url: root.plugin.icon-url; } }
+        VerticalLayout {
+            alignment: center; spacing: 2px; horizontal-stretch: 1;
+            Text { text: root.plugin.name; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; }
+            Text { text: root.plugin.status; color: PluginPage.ink(root.plugin.tone); font-size: 13px; overflow: elide; }
+        }
+        if root.plugin.update != "": Middle {
+            ActionButton {
+                text: "Update"; label: "Update " + root.plugin.name + " to v" + root.plugin.update; small: true;
+                clicked => { PluginPage.update(root.plugin.id); }
+            }
+        }
+        Middle {
+            SettingsSwitch {
+                horizontal-stretch: 0; checked: root.plugin.enabled; controlled: true;
+                label: "Enable " + root.plugin.name;
+                toggled(on) => { PluginPage.set-enabled(root.plugin.id, on); }
+            }
+        }
+    }
+}
+
+// Why a field refused what was typed, under it.
+component FormError inherits Rectangle {
+    in property <string> text;
+    accessible-role: AccessibleRole.text; accessible-label: "Error: " + root.text;
+    HorizontalLayout {
+        spacing: 6px;
+        VerticalLayout {
+            alignment: start; padding-top: 2px;
+            Image { source: @image-url("icons/triangle-alert.svg"); width: 14px; height: 14px; colorize: Theme.danger-text; }
+        }
+        Text { text: root.text; color: Theme.danger-text; font-size: 13px; wrap: word-wrap; horizontal-stretch: 1; }
+    }
+}
+
+// A control of a plugin's settings form, by its kind. A field Rust changes,
+// as Reset to defaults does, shows the new value even after it was typed in.
+component FormControl inherits VerticalLayout {
+    in property <PluginControl> control;
+    /// What a screen reader calls it.
+    in property <string> label: root.control.label;
+    /// In a list's row, where the column names it: a switch alone.
+    in property <bool> compact;
+    callback edited(string);
+    if root.control.kind == 0: SettingsSwitch {
+        text: root.compact ? "" : root.control.label; label: root.label;
+        checked: root.control.checked; enabled: root.control.enabled; controlled: true;
+        toggled(on) => { root.edited(on ? "true" : "false"); }
+    }
+    if root.control.kind == 1 || root.control.kind == 4 || root.control.kind == 5: TextField {
+        property <string> stored: root.control.text;
+        changed stored => { self.text = self.stored; }
+        text: root.control.text; label: root.label; placeholder: root.control.placeholder;
+        enabled: root.control.enabled; text-size: 14px; pad: 8px; min-height: 36px;
+        accepted => { root.edited(self.text); }
+        // A field left with a change keeps it, as Enter would.
+        changed focused => {
+            if !self.focused && self.text != root.control.text { root.edited(self.text); }
+        }
+    }
+    if root.control.kind == 2: Picker {
+        model: root.control.options; chosen: root.control.selected; enabled: root.control.enabled;
+        accessible-label: root.label;
+        selected => { root.edited("" + self.current-index); }
+    }
+    if root.control.kind == 3: VolumeSlider {
+        property <int> stored: root.control.position;
+        changed stored => { self.value = self.stored; }
+        label: root.label; maximum: root.control.steps; value: root.control.position; step: 1; full-mark: false;
+        shown: round((root.control.minimum + self.value * root.control.step) * 100) / 100;
+        opacity: root.control.enabled ? 1 : 0.5;
+        committed(position) => {
+            if root.control.enabled { root.edited("" + position); } else { self.value = root.control.position; }
+        }
+    }
+}
+
+// A line of a plugin's settings form: a setting with its label, what it
+// does and why it refused a value; a list's heading, row or foot; or what
+// the plugin draws.
+component FormRow inherits VerticalLayout {
+    in property <PluginFormRow> item;
+    // The width of a list row's buttons, which its heading leaves free.
+    property <length> buttons: 3 * 32px + 2 * 4px;
+    spacing: 6px;
+    padding-top: root.item.shape == 2 || root.item.shape == 3 ? 6px : 14px;
+    if root.item.shape == 0 && root.item.control.kind == 0: SettingsSwitch {
+        text: root.item.label; description: root.item.description;
+        checked: root.item.control.checked; enabled: root.item.enabled; controlled: true;
+        toggled(on) => { PluginPage.setting(root.item.key, on ? "true" : "false"); }
+    }
+    if (root.item.shape == 0 && root.item.control.kind != 0) || root.item.shape == 1 || root.item.shape == 4: VerticalLayout {
+        spacing: 2px;
+        Text { text: root.item.label; color: root.item.enabled ? Theme.text : Theme.muted; font-size: 15px; wrap: word-wrap; }
+        if root.item.description != "": Label { text: root.item.description; }
+    }
+    if root.item.shape == 0 && root.item.control.kind != 0: FormControl {
+        control: root.item.control;
+        edited(value) => { PluginPage.setting(root.item.key, value); }
+    }
+    if root.item.shape == 0 && root.item.control.error != "": FormError { text: root.item.control.error; }
+    if root.item.shape == 1: HorizontalLayout {
+        spacing: 8px;
+        for cell in root.item.cells: Text {
+            horizontal-stretch: cell.kind == 0 ? 0 : 1;
+            min-width: cell.kind == 0 ? 104px : 60px; max-width: cell.kind == 0 ? 104px : 4000px;
+            text: cell.label; color: Theme.muted; font-size: 12px; font-weight: 700; overflow: elide;
+            accessible-role: none;
+        }
+        Rectangle { width: root.buttons; horizontal-stretch: 0; }
+    }
+    if root.item.shape == 2: HorizontalLayout {
+        spacing: 8px;
+        for cell in root.item.cells: FormControl {
+            horizontal-stretch: cell.kind == 0 ? 0 : 1;
+            min-width: cell.kind == 0 ? 104px : 60px; max-width: cell.kind == 0 ? 104px : 4000px;
+            control: cell; compact: true; label: cell.label + ", row " + (root.item.row + 1);
+            edited(value) => { PluginPage.field(root.item.key, root.item.row, cell.key, value); }
+        }
+        HorizontalLayout {
+            spacing: 4px; horizontal-stretch: 0; width: root.buttons;
+            IconButton {
+                icon: @image-url("icons/arrow-up.svg"); glyph: 16px; label: "Move row " + (root.item.row + 1) + " up";
+                enabled: root.item.enabled && root.item.row > 0;
+                clicked => { PluginPage.move-row(root.item.key, root.item.row, root.item.row - 1); }
+            }
+            IconButton {
+                icon: @image-url("icons/arrow-down.svg"); glyph: 16px; label: "Move row " + (root.item.row + 1) + " down";
+                enabled: root.item.enabled && root.item.row < root.item.rows - 1;
+                clicked => { PluginPage.move-row(root.item.key, root.item.row, root.item.row + 1); }
+            }
+            IconButton {
+                icon: @image-url("icons/x.svg"); glyph: 16px; label: "Remove row " + (root.item.row + 1); danger: true;
+                enabled: root.item.enabled;
+                clicked => { PluginPage.remove-row(root.item.key, root.item.row); }
+            }
+        }
+    }
+    if root.item.shape == 2 && root.item.description != "": FormError { text: root.item.description; }
+    if root.item.shape == 3: HorizontalLayout {
+        spacing: 12px; alignment: start;
+        ActionButton {
+            text: "Add"; label: "Add a row to " + root.item.label; icon: @image-url("icons/plus.svg"); small: true;
+            enabled: root.item.enabled && root.item.can-add;
+            clicked => { PluginPage.add-row(root.item.key); }
+        }
+        if root.item.description != "": Middle { Label { text: root.item.description; } }
+    }
+    if root.item.shape == 4 && root.item.widget.rows.length > 0: PluginWidgets {
+        part: root.item.widget;
+        acted(plugin, slot, id, value, subject) => { PluginPage.setting-widget(root.item.key, id, value); }
+    }
+    if root.item.shape == 4 && root.item.widget.rows.length == 0: Rectangle {
+        border-radius: 8px; border-width: 1px; border-color: Theme.edge; min-height: 48px;
+        Label { text: "The plugin draws this while it runs."; }
+    }
+}
+
+// Reset to defaults, which asks first: a list's rows go with it.
+component ResetDialog inherits PageDialog {
+    callback done;
+    label: "Reset " + PluginPage.detail.name + "'s settings";
+    cancel => { root.done(); }
+    Text { text: "Reset " + PluginPage.detail.name + "'s settings?"; color: Theme.text; font-size: 18px; font-weight: 700; wrap: word-wrap; }
+    Label { text: "Each goes back to what the plugin starts with, and its lists lose the rows you added."; color: Theme.secondary; }
+    HorizontalLayout {
+        spacing: 8px; alignment: end;
+        ActionButton { text: "Cancel"; ghost: true; clicked => { root.done(); } }
+        ActionButton { text: "Reset"; danger: true; clicked => { PluginPage.reset-settings(); root.done(); } }
+    }
+}
+
+// A plugin's own page: its settings, what it can do, where it came from,
+// and its log.
+component PluginDetailView inherits VerticalLayout {
+    callback uninstall;
+    callback reset;
+    spacing: 16px; alignment: start;
+    HorizontalLayout {
+        alignment: start;
+        ActionButton {
+            text: "Installed"; label: "Back to installed plugins"; icon: @image-url("icons/arrow-left.svg"); small: true; ghost: true;
+            clicked => { PluginPage.close-plugin(); }
+        }
+    }
+    HorizontalLayout {
+        spacing: 12px;
+        Middle { PluginIcon { size: 56px; corner: 14px; initial: PluginPage.detail.initial; picture-url: PluginPage.detail.icon-url; } }
+        VerticalLayout {
+            alignment: center; spacing: 2px; horizontal-stretch: 1;
+            Text { text: PluginPage.detail.name; color: Theme.text; font-size: 20px; font-weight: 700; overflow: elide; }
+            Text { text: PluginPage.detail.byline; color: Theme.secondary; font-size: 13px; overflow: elide; }
+            Text { text: PluginPage.detail.status; color: PluginPage.ink(PluginPage.detail.tone); font-size: 13px; overflow: elide; }
+        }
+        Middle {
+            SettingsSwitch {
+                horizontal-stretch: 0; checked: PluginPage.detail.enabled; controlled: true;
+                label: "Enable " + PluginPage.detail.name;
+                toggled(on) => { PluginPage.set-enabled(PluginPage.detail.id, on); }
+            }
+        }
+    }
+    if PluginPage.detail.description != "": Label { text: PluginPage.detail.description; color: Theme.secondary; font-size: 14px; }
+
+    if PluginPage.form.length > 0: SettingsHeading { text: "SETTINGS"; }
+    if PluginPage.form.length > 0: VerticalLayout {
+        for item in PluginPage.form: FormRow { item: item; }
+        HorizontalLayout {
+            alignment: start; padding-top: 12px;
+            ActionButton {
+                text: "Reset to defaults"; label: "Reset " + PluginPage.detail.name + "'s settings to their defaults";
+                icon: @image-url("icons/history.svg"); small: true; ghost: true;
+                clicked => { root.reset(); }
+            }
+        }
+    }
+
+    SettingsHeading { text: "PERMISSIONS"; }
+    if PluginPage.detail.permissions.length == 0: Label { text: "It adds its own commands and buttons, and reaches nothing else."; }
+    PermissionLines {
+        lines: PluginPage.detail.permissions; revocable: true;
+        revoke(permission) => { PluginPage.revoke(PluginPage.detail.id, permission); }
+    }
+    if PluginPage.detail.quiet != "": Label { text: PluginPage.detail.quiet; }
+    Label { text: PluginPage.detail.memory; }
+
+    SettingsHeading { text: "SOURCE"; }
+    VerticalLayout {
+        spacing: 4px;
+        for fact in [
+            { name: "From", value: PluginPage.detail.origin },
+            { name: "Repository", value: PluginPage.detail.source },
+            { name: "Commit", value: PluginPage.detail.commit },
+            { name: "License", value: PluginPage.detail.license },
+        ]: HorizontalLayout {
+            spacing: 12px;
+            Text { text: fact.name; width: 96px; color: Theme.muted; font-size: 14px; }
+            Text { text: fact.value == "" ? "—" : fact.value; color: Theme.text; font-size: 14px; wrap: word-wrap; horizontal-stretch: 1; }
+        }
+    }
+    if PluginPage.detail.update != "" || PluginPage.detail.previous != "": HorizontalLayout {
+        spacing: 8px; alignment: start;
+        if PluginPage.detail.update != "": ActionButton {
+            text: "Update to v" + PluginPage.detail.update; primary: true;
+            clicked => { PluginPage.update(PluginPage.detail.id); }
+        }
+        if PluginPage.detail.previous != "": ActionButton {
+            text: "Roll back to v" + PluginPage.detail.previous; icon: @image-url("icons/history.svg");
+            clicked => { PluginPage.roll-back(PluginPage.detail.id); }
+        }
+    }
+
+    SettingsHeading { text: "RECENT LOG"; }
+    if PluginPage.detail.log.length == 0: Label { text: "Nothing logged this session."; }
+    if PluginPage.detail.log.length > 0: Rectangle {
+        border-radius: 8px; background: Theme.sunken;
+        VerticalLayout {
+            padding: 10px; spacing: 2px;
+            for line in PluginPage.detail.log: HorizontalLayout {
+                spacing: 10px;
+                Text { text: line.at; color: Theme.faint; font-size: 12px; font-family: "monospace"; }
+                Text {
+                    text: line.text; wrap: word-wrap; horizontal-stretch: 1; font-size: 12px; font-family: "monospace";
+                    color: line.error ? Theme.danger-text : Theme.secondary;
+                }
+            }
+        }
+    }
+    HorizontalLayout {
+        alignment: start; padding-top: 8px;
+        ActionButton { text: "Uninstall"; danger: true; icon: @image-url("icons/trash-2.svg"); clicked => { root.uninstall(); } }
+    }
+}
+
+// A marketplace row: its icon, name, Reviewed, what it does and reaches,
+// and Install.
+component ListingFace inherits Rectangle {
+    in property <ListingRow> listing;
+    height: 80px;
+    HorizontalLayout {
+        padding-top: 8px; padding-bottom: 8px; padding-right: 16px; spacing: 12px;
+        Middle { PluginIcon { initial: root.listing.initial; picture-url: root.listing.icon-url; } }
+        VerticalLayout {
+            alignment: center; spacing: 2px; horizontal-stretch: 1;
+            HorizontalLayout {
+                spacing: 8px;
+                Text { text: root.listing.name; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; horizontal-stretch: 0; vertical-alignment: center; }
+                if root.listing.reviewed: Middle { Badge { text: "Reviewed"; icon: @image-url("icons/check.svg"); } }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            Text { text: root.listing.description; color: Theme.secondary; font-size: 14px; overflow: elide; }
+            Text { text: root.listing.byline; color: Theme.muted; font-size: 12px; overflow: elide; }
+        }
+        Middle {
+            ActionButton {
+                text: root.listing.installed ? "Installed" : "Install"; small: true; enabled: !root.listing.installed;
+                label: root.listing.installed ? root.listing.name + " is installed" : "Install " + root.listing.name;
+                clicked => { PluginPage.install(root.listing.id); }
+            }
+        }
+    }
+    Rectangle { y: parent.height - 1px; width: parent.width - 16px; x: 0px; height: 1px; background: Theme.line; }
+}
+
+// Advanced, which the page's foot opens: loading a plugin from a folder,
+// the memory budget, and how long an idle plugin is kept.
+component AdvancedDialog inherits PageDialog {
+    callback done;
+    label: "Advanced plugin settings";
+    cancel => { root.done(); }
+    Text { text: "Advanced"; color: Theme.text; font-size: 18px; font-weight: 700; }
+    HorizontalLayout {
+        spacing: 12px;
+        VerticalLayout {
+            alignment: center; horizontal-stretch: 1;
+            Text { text: "Load folder"; color: Theme.text; font-size: 15px; }
+            Label { text: "Runs a plugin from a folder on this computer, and reloads it each time you save, for writing one."; }
+        }
+        Middle {
+            ActionButton {
+                text: "Load folder"; icon: @image-url("icons/folder.svg");
+                clicked => { PluginPage.load-folder(); root.done(); }
+            }
+        }
+    }
+    HorizontalLayout {
+        spacing: 12px;
+        VerticalLayout {
+            alignment: center; horizontal-stretch: 1;
+            Text { text: "Memory budget"; color: Theme.text; font-size: 15px; }
+            Label { text: "Above this, the plugin left idle longest is stopped first."; }
+        }
+        Middle {
+            Picker {
+                width: 140px; model: PluginPage.budgets; chosen: PluginPage.budget;
+                accessible-label: "Memory budget";
+                selected => { PluginPage.budget-chosen(self.current-index); }
+            }
+        }
+    }
+    HorizontalLayout {
+        spacing: 12px;
+        VerticalLayout {
+            alignment: center; horizontal-stretch: 1;
+            Text { text: "Stop idle plugins after"; color: Theme.text; font-size: 15px; }
+            Label { text: "A stopped plugin starts again the next time it's needed, and its memory goes back meanwhile."; }
+        }
+        Middle {
+            Picker {
+                width: 140px; model: PluginPage.idle-times; chosen: PluginPage.idle;
+                accessible-label: "Stop idle plugins after";
+                selected => { PluginPage.idle-chosen(self.current-index); }
+            }
+        }
+    }
+    if PluginPage.sandbox != "": Label { text: PluginPage.sandbox; }
+    HorizontalLayout {
+        alignment: end;
+        ActionButton { text: "Done"; primary: true; clicked => { root.done(); } }
+    }
+}
+
+// The page's foot, which opens Advanced.
+component AdvancedFooter inherits VerticalLayout {
+    callback open;
+    spacing: 8px;
+    Rectangle { height: 1px; background: Theme.line; }
+    HorizontalLayout {
+        alignment: start;
+        ActionButton {
+            text: "Advanced"; label: "Advanced plugin settings"; icon: @image-url("icons/settings.svg");
+            small: true; ghost: true;
+            clicked => { root.open(); }
+        }
+    }
+}
+
+export component PluginSettings inherits Rectangle {
+    /// Settings are open; the page tells Rust once they close.
+    in property <bool> open;
+    property <string> uninstalling;
+    property <string> uninstalling-name;
+    property <bool> advanced;
+    property <bool> resetting;
+    changed open => { if !self.open { PluginPage.closed(); } }
+    init => { PluginPage.opened(); }
+    vertical-stretch: 1;
+    page := VerticalLayout {
+        spacing: 16px;
+        SettingsTitle { text: "Plugins"; }
+        Choices {
+            label: "Plugins"; options: ["Marketplace", "Installed", "Add from URL"];
+            current: PluginPage.tab; controlled: true;
+            chosen(index) => { PluginPage.tab-chosen(index); }
+        }
+        if PluginPage.helper != "": Text {
+            text: PluginPage.helper; color: PluginPage.ink(PluginPage.helper-tone); font-size: 13px; wrap: word-wrap;
+        }
+
+        if PluginPage.tab == 0: VerticalLayout {
+            spacing: 12px; vertical-stretch: 1;
+            HorizontalLayout {
+                spacing: 8px; height: 40px;
+                TextField {
+                    text <=> PluginPage.query; label: "Search plugins"; placeholder: "Search plugins"; text-size: 14px;
+                    trailing-icon: @image-url("icons/search.svg");
+                    edited(text) => { PluginPage.search(text); }
+                }
+                Picker {
+                    width: 180px; model: PluginPage.categories; chosen: PluginPage.category;
+                    accessible-label: "Category";
+                    selected => { PluginPage.category-chosen(self.current-index); }
+                }
+            }
+            if PluginPage.catalog-note != "": Label { text: PluginPage.catalog-note; font-size: 14px; }
+            if PluginPage.listings.length > 0: ListView {
+                vertical-stretch: 1; min-height: 160px;
+                for listing in PluginPage.listings: ListingFace { listing: listing; }
+            }
+            if PluginPage.listings.length == 0: Rectangle { vertical-stretch: 1; }
+        }
+
+        if PluginPage.tab == 1 && !PluginPage.detail-open: installed-scroll := ScrollView {
+            vertical-stretch: 1;
+            content-height: installed.preferred-height;
+            installed := VerticalLayout {
+                width: installed-scroll.visible-width;
+                spacing: 8px; alignment: start; padding-right: 12px;
+                if PluginPage.installed.length == 0: Label {
+                    text: "No plugins yet. Find one in the Marketplace, or add one from its git repository.";
+                    font-size: 14px;
+                }
+                for plugin in PluginPage.installed: InstalledRow { plugin: plugin; }
+                if PluginPage.memory != "": Label { text: PluginPage.memory; }
+            }
+        }
+        if PluginPage.tab == 1 && PluginPage.detail-open: detail-scroll := ScrollView {
+            vertical-stretch: 1;
+            content-height: detail.preferred-height;
+            detail := PluginDetailView {
+                width: detail-scroll.visible-width;
+                padding-right: 12px;
+                uninstall => {
+                    root.uninstalling = PluginPage.detail.id;
+                    root.uninstalling-name = PluginPage.detail.name;
+                }
+                reset => { root.resetting = true; }
+            }
+        }
+
+        if PluginPage.tab == 2: VerticalLayout {
+            spacing: 12px; vertical-stretch: 1; alignment: start;
+            Label { text: "Paste the https:// address of a plugin's git repository. Yapfast fetches it and shows what it can do before anything is installed. Nothing runs until you install it."; font-size: 14px; }
+            VerticalLayout {
+                spacing: 6px;
+                Text { text: "Git repository"; color: Theme.text; font-size: 15px; font-weight: 600; }
+                TextField {
+                    text <=> PluginPage.url; label: "Git repository"; text-size: 14px;
+                    placeholder: "https://codeberg.org/ada/word-filter";
+                    enabled: !PluginPage.finding;
+                    accepted => { if PluginPage.url != "" { PluginPage.find(PluginPage.url); } }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px; alignment: end;
+                if PluginPage.finding: ActionButton { text: "Cancel"; ghost: true; clicked => { PluginPage.cancel(); } }
+                ActionButton {
+                    text: PluginPage.finding ? "Finding..." : "Find plugin"; primary: true;
+                    enabled: PluginPage.url != "" && !PluginPage.finding;
+                    clicked => { PluginPage.find(PluginPage.url); }
+                }
+            }
+            if PluginPage.find-progress != "": Label { text: PluginPage.find-progress; font-size: 14px; color: Theme.secondary; }
+            if PluginPage.find-error != "": Rectangle {
+                border-radius: 8px; background: Theme.danger.with-alpha(0.12);
+                accessible-role: AccessibleRole.text; accessible-label: PluginPage.find-error;
+                HorizontalLayout {
+                    padding: 10px; spacing: 10px;
+                    Image { source: @image-url("icons/triangle-alert.svg"); width: 18px; height: 18px; colorize: Theme.danger-text; }
+                    Text { text: PluginPage.find-error; color: Theme.danger-text; font-size: 14px; wrap: word-wrap; horizontal-stretch: 1; vertical-alignment: center; }
+                }
+            }
+        }
+
+        AdvancedFooter { open => { root.advanced = true; } }
+    }
+    if root.advanced: AdvancedDialog { done => { root.advanced = false; } }
+    if root.resetting && PluginPage.detail-open: ResetDialog { done => { root.resetting = false; } }
+    if PluginPage.review.shown: ReviewDialog { }
+    if root.uninstalling != "": UninstallDialog {
+        plugin: root.uninstalling; name: root.uninstalling-name;
+        done => { root.uninstalling = ""; }
+    }
+}

@@ -1,0 +1,14 @@
+// Parts of the interface plugins can hide, one switch each, named by the
+// IDs in crates/yapfast-core/src/plugins/ui.rs. A hidden part sits behind an
+// `if`, so it isn't made at all; each was checked so its neighbours close
+// the gap it leaves.
+export global UiParts {
+    /// The server's banner picture at the top of its channel list.
+    in property <bool> sidebar-banner: true;
+    /// Who's typing, above the composer.
+    in property <bool> timeline-typing: true;
+    /// The message hover bar's Reply, its reactions and Add Reaction, and More.
+    in property <bool> message-reply: true;
+    in property <bool> message-react: true;
+    in property <bool> message-more: true;
+}

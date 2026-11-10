@@ -13647,6 +13647,7 @@ dependencies = [
  "pulldown-cmark",
  "rand 0.9.5",
  "realfft",
+ "regex",
  "resvg",
  "rustls",
  "serde",

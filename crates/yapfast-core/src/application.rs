@@ -752,6 +752,10 @@ pub struct AppState {
     compose: HashMap<String, Compose>,
     /// Files waiting in each room's composer for the next message.
     staged: HashMap<String, Vec<chat::Staged>>,
+    /// What plugins draw in the interface's slots; `None` with no plugin
+    /// enabled.
+    #[cfg(feature = "plugins")]
+    pub plugin_slots: Option<Box<crate::plugins::slots::Slots>>,
 }
 
 impl AppState {
@@ -2271,6 +2275,9 @@ pub enum Action {
     /// Show the members of a role mentioned in a message, or stop.
     ShowRole(String),
     CloseRole,
+    /// The person used a plugin's menu row or widget.
+    #[cfg(feature = "plugins")]
+    PluginInput(crate::plugins::Input),
     /// Something asked of the plugin system; see [`plugins::Action`].
     #[cfg(feature = "plugins")]
     Plugin(plugins::Action),
@@ -2300,6 +2307,9 @@ pub enum Effect {
     /// Film for a preview call with the camera with this id, or the first,
     /// into this feed; or stop filming.
     PreviewCamera(Option<(Option<String>, crate::picture::Feed)>),
+    /// Hand what the person did to the plugin runtime.
+    #[cfg(feature = "plugins")]
+    PluginInput(crate::plugins::Input),
     /// Something the plugin system did, for the interface to show; see
     /// [`plugins::Effect`].
     #[cfg(feature = "plugins")]
@@ -2817,6 +2827,26 @@ fn shelved(messages: &[Arc<ChatMessage>]) -> Vec<Arc<ChatMessage>> {
 }
 
 impl Application {
+    /// Keeps track of what these plugins draw, by their ids and names; none
+    /// drops it all.
+    #[cfg(feature = "plugins")]
+    pub fn enable_plugins(&mut self, names: Vec<crate::plugins::ui::PluginName>) {
+        self.state.plugin_slots =
+            (!names.is_empty()).then(|| Box::new(crate::plugins::slots::Slots::new(names)));
+    }
+
+    /// What the person did with a plugin's row or widget goes to its
+    /// runtime; a closed notice or toast goes from the interface at once.
+    #[cfg(feature = "plugins")]
+    fn plugin_input(&mut self, input: crate::plugins::Input) -> Vec<Effect> {
+        if let crate::plugins::Input::Dismissed { plugin, slot } = &input
+            && let Some(slots) = &mut self.state.plugin_slots
+        {
+            slots.clear(plugin, *slot);
+        }
+        vec![Effect::PluginInput(input)]
+    }
+
     pub fn dispatch(&mut self, action: Action) -> Vec<Effect> {
         // A keystroke in the composer shows no picture that wasn't on screen.
         let composing = matches!(action, Action::SetDraft(_) | Action::MentionQuery(_));
@@ -3189,6 +3219,8 @@ impl Application {
                 })]
             }
             Action::Navigate(navigation) => self.navigate(navigation),
+            #[cfg(feature = "plugins")]
+            Action::PluginInput(input) => self.plugin_input(input),
             Action::OpenDmScreen(screen) => self.open_dm_screen(screen),
             Action::BrowseChannels => self.open_browse(),
             Action::BrowseFollow { room, follow } => self.browse_follow(room, follow),
@@ -4045,6 +4077,12 @@ impl Application {
             Event::InteractionSucceeded(nonce) => self.interaction_succeeded(&nonce),
             Event::InteractionSettled(nonce) => {
                 self.interaction_failed(&nonce, "The application did not respond".into());
+            }
+            #[cfg(feature = "plugins")]
+            Event::PluginSlot(output) => {
+                if let Some(slots) = &mut self.state.plugin_slots {
+                    slots.apply(output);
+                }
             }
             Event::Voice(state) => {
                 let sounds = call_sounds(&self.state.voice, &state);

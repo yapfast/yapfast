@@ -606,6 +606,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         .global::<EmojiFavorites>()
         .on_is_favorite(|key, _| EMOJI_FAVORITES.with_borrow(|set| set.contains(key.as_str())));
     super::polls::bind(window, adapter);
+    #[cfg(feature = "plugins")]
+    super::plugin_settings::bind(window, adapter);
     super::call_link::bind(window, adapter);
     super::server_settings::bind(window, adapter);
     super::channel_settings::bind(window, adapter);
@@ -1114,6 +1116,30 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 adapter
                     .borrow_mut()
                     .action(&window, Action::JumpInRoom { room, item });
+            }
+        });
+    }
+    #[cfg(feature = "plugins")]
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_plugin_acted(move |plugin, slot, id, value, subject| {
+            if let Some(window) = weak.upgrade() {
+                adapter
+                    .borrow_mut()
+                    .plugin_acted(&window, &plugin, &slot, &id, &value, &subject);
+            }
+        });
+    }
+    #[cfg(feature = "plugins")]
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
+        window.on_plugin_dismissed(move |plugin, slot| {
+            if let Some(window) = weak.upgrade() {
+                adapter
+                    .borrow_mut()
+                    .plugin_dismissed(&window, &plugin, &slot);
             }
         });
     }
@@ -2093,6 +2119,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             if let Some(window) = weak.upgrade() {
                 window.set_leaving_site(links::host(masked).into());
                 window.set_leaving_link(masked.into());
+                theme::protect(&window, true);
             }
             return;
         }
@@ -2103,11 +2130,13 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         let Some(window) = weak.upgrade() else { return };
         open_web_page(&window.get_leaving_link());
         window.set_leaving_link(SharedString::default());
+        theme::protect(&window, false);
     });
     let weak = window.as_weak();
     window.on_close_leaving_link(move || {
         if let Some(window) = weak.upgrade() {
             window.set_leaving_link(SharedString::default());
+            theme::protect(&window, false);
         }
     });
     let state = adapter.clone();

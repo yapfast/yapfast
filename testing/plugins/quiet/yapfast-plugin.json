@@ -1,0 +1,22 @@
+{
+  "api": 1,
+  "id": "com.example.quiet",
+  "name": "Quiet",
+  "version": "1.0.0",
+  "description": "Hides the typing indicator and Add Reaction, and tidies a person's menu.",
+  "permissions": { "capabilities": ["ui.modify"] },
+  "menus": [
+    { "target": "user", "label": "Wave", "action": "wave" },
+    { "target": "channel", "label": "Summarise channel", "action": "summarise", "when": { "network": "discord" } }
+  ],
+  "ui": {
+    "menu": [
+      { "target": "user", "row": "copy-id", "label": "Copy user ID" },
+      { "target": "user", "row": "message", "before": "profile" },
+      { "target": "server", "row": "hide-muted", "hide": true }
+    ],
+    "parts": { "hide": ["timeline.typing", "message.actions.react"] },
+    "colors": { "accent": "#7aa2ff", "accent-hover": "#94b4ff", "on-accent": "#0b1430" },
+    "sizes": { "message-group-gap": 22 }
+  }
+}

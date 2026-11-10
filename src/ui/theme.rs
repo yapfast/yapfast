@@ -808,10 +808,113 @@ pub fn muted_color() -> u32 {
     MUTED.get()
 }
 
+/// Plugins' colours over whichever theme is chosen, and whether a dialog
+/// no plugin may restyle is open, which shows the theme as it is.
+#[cfg(feature = "plugins")]
+mod overlay {
+    use std::cell::{Cell, RefCell};
+
+    use super::{Color, Theme, token_index};
+
+    thread_local! {
+        /// Each colour a plugin sets, by its name in `ui/theme.slint`.
+        static COLOURS: RefCell<Vec<(&'static str, u32)>> = const { RefCell::new(Vec::new()) };
+        static PROTECTED: Cell<bool> = const { Cell::new(false) };
+        /// The theme last applied, without the overlay.
+        static CHOSEN: Cell<Option<Theme>> = const { Cell::new(None) };
+    }
+
+    pub fn set(colours: Vec<(&'static str, u32)>) {
+        COLOURS.set(colours);
+    }
+
+    pub fn chosen(theme: &Theme) {
+        CHOSEN.set(Some(*theme));
+    }
+
+    pub fn last_chosen() -> Option<Theme> {
+        CHOSEN.get()
+    }
+
+    /// Whether a protected dialog is open; it was before when this returns
+    /// false for a change.
+    pub fn protect(on: bool) -> bool {
+        PROTECTED.replace(on) != on
+    }
+
+    /// `theme` with the plugins' colours over it, leaving out any that
+    /// would make text hard to read on it.
+    pub fn over(theme: &Theme) -> Theme {
+        if PROTECTED.get() {
+            return *theme;
+        }
+        COLOURS.with_borrow(|colours| {
+            if colours.is_empty() {
+                return *theme;
+            }
+            let named = |name: &str| {
+                token_index(name)
+                    .and_then(|index| theme.colour(index))
+                    .map(|colour| colour.as_argb_encoded())
+            };
+            let refused = yapfast_core::plugins::ui::unreadable(named, colours);
+            for (token, why) in &refused {
+                tracing::info!(token, why, "a plugin's colour was left out");
+            }
+            let mut shown = *theme;
+            for (token, colour) in colours {
+                if refused.iter().any(|(gone, _)| gone == token) {
+                    continue;
+                }
+                if let Some(slot) = token_index(token).and_then(|index| shown.colour_mut(index)) {
+                    *slot = Color::from_argb_encoded(*colour);
+                }
+            }
+            shown
+        })
+    }
+}
+
+/// Sets the colours plugins lay over every theme, shown the next time a
+/// theme is applied.
+#[cfg(feature = "plugins")]
+pub fn set_overlay(colours: Vec<(&'static str, u32)>) {
+    overlay::set(colours);
+}
+
+/// Shows the chosen theme without plugins' colours while a dialog no plugin
+/// may restyle is open, such as the question before leaving for a link, and
+/// with them again once it closes.
+#[cfg(feature = "plugins")]
+pub fn protect(window: &YapfastWindow, open: bool) {
+    if overlay::protect(open)
+        && let Some(theme) = overlay::last_chosen()
+    {
+        overlay::over(&theme).set(&window.global::<yapfast_ui::Theme>());
+    }
+}
+
+#[cfg(not(feature = "plugins"))]
+pub fn protect(_: &YapfastWindow, _: bool) {}
+
 impl Theme {
-    /// Shows the window in these colours. Returns whether colours that rows
-    /// carry in their markup change, as rows built before have the old ones.
+    /// Shows the window in these colours, with plugins' colours over them.
+    /// Returns whether colours that rows carry in their markup change, as
+    /// rows built before have the old ones.
     pub fn apply(&self, window: &YapfastWindow) -> bool {
+        #[cfg(feature = "plugins")]
+        let shown = {
+            overlay::chosen(self);
+            overlay::over(self)
+        };
+        #[cfg(feature = "plugins")]
+        let this = &shown;
+        #[cfg(not(feature = "plugins"))]
+        let this = self;
+        this.set_shown(window)
+    }
+
+    fn set_shown(&self, window: &YapfastWindow) -> bool {
         self.set(&window.global::<yapfast_ui::Theme>());
         let rgb = |colour: Color| colour.as_argb_encoded() & 0xff_ffff;
         // Bonfire draws a mention's text as Discord's dark theme does, a light

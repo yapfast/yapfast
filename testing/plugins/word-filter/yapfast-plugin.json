@@ -1,0 +1,56 @@
+{
+  "api": 1,
+  "id": "com.example.word-filter",
+  "name": "Word Filter",
+  "version": "1.4.0",
+  "description": "Hides words you'd rather not read. Its settings use every type a setting can have; until the runtime exists, the Plugins page shows them in --preview.",
+  "settings": [
+    {
+      "key": "strict", "type": "bool", "label": "Match inside words",
+      "description": "Also filters a word inside a longer one, as heck in heckin."
+    },
+    {
+      "key": "mode", "type": "select", "label": "When a word matches", "default": "replace",
+      "options": [
+        { "value": "hide", "label": "Hide the message" },
+        { "value": "replace", "label": "Replace the word" },
+        { "value": "blur", "label": "Blur the word" }
+      ]
+    },
+    {
+      "key": "replacement", "type": "string", "label": "Replacement text", "default": "***",
+      "max_length": 16, "pattern": "[*#!?@$%&]+", "pattern_message": "Use symbols, such as * or #.",
+      "when": { "show": { "setting": "mode", "is": "replace" } }
+    },
+    {
+      "key": "blur", "type": "slider", "label": "Blur strength", "min": 0, "max": 100, "step": 5, "default": 60,
+      "when": { "show": { "setting": "mode", "is": "blur" } }
+    },
+    {
+      "key": "reveal", "type": "number", "label": "Seconds before a word shows on hover",
+      "min": 0, "max": 10, "step": 0.5, "default": 1.5,
+      "when": { "enable": { "setting": "mode", "not": "hide" } }
+    },
+    {
+      "key": "shortest", "type": "integer", "label": "Shortest word to match", "min": 1, "max": 20, "default": 3
+    },
+    {
+      "key": "words", "type": "list", "label": "Words", "max_rows": 50,
+      "description": "Each word, and what replaces it; an empty replacement uses the one above.",
+      "fields": [
+        { "key": "word", "type": "string", "label": "Word", "max_length": 32, "pattern": "\\S+", "pattern_message": "One word, without spaces." },
+        { "key": "with", "type": "string", "label": "Replace with", "max_length": 16, "placeholder": "***" },
+        { "key": "whole", "type": "bool", "label": "Whole word", "default": true }
+      ],
+      "default": [
+        { "word": "heck", "with": "h*ck" },
+        { "word": "darn", "whole": false }
+      ]
+    },
+    {
+      "key": "preview", "type": "widget", "label": "Preview",
+      "description": "Drawn by the plugin while it runs.",
+      "when": { "show": { "setting": "words", "empty": false } }
+    }
+  ]
+}

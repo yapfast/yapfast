@@ -9,6 +9,7 @@ import { BuildStamp } from "build-info.slint";
 export component SettingsNavigation inherits Rectangle {
     in property <int> selected;
     in property <bool> with-discord;
+    in property <bool> with-plugins;
     in property <bool> may-edit-profile;
     in property <string> account-name;
     in property <string> account-initial;
@@ -71,6 +72,7 @@ export component SettingsNavigation inherits Rectangle {
                     { heading: true, text: "App Settings", id: -1 },
                     { text: "Discord", icon: @image-url("../icons/discord.svg"), id: 4 },
                     { text: "Game Activity", icon: @image-url("../icons/play.svg"), id: 8 },
+                    { text: "Plugins", icon: @image-url("../icons/plugins.svg"), id: 9 },
                     { text: "Advanced", icon: @image-url("../icons/settings.svg"), id: 6 },
                 ]: VerticalLayout {
                     if entry.heading && root.query == "": VerticalLayout {
@@ -78,7 +80,7 @@ export component SettingsNavigation inherits Rectangle {
                         height: entry.text == "Account" ? 24px : 40px;
                         Text { x: 8px; text: entry.text; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
                     }
-                    if !entry.heading && root.matches(entry.text) && (root.with-discord || (entry.id != 4 && entry.id != 8)): ChannelRow {
+                    if !entry.heading && root.matches(entry.text) && (root.with-discord || (entry.id != 4 && entry.id != 8)) && (root.with-plugins || entry.id != 9): ChannelRow {
                         height: 40px; text: entry.text; icon: entry.icon;
                         selected: root.selected == entry.id;
                         clicked => { root.chose(entry.id); }
