@@ -202,8 +202,10 @@ and tell me there.
 
 ### Not for you?
 
-- [Vesktop](https://vesktop.dev) if you want plugins. Yapfast has none yet
-  (they're coming, dw), and Vesktop ships with Vencord's.
+- [Vesktop](https://vesktop.dev) if you want Vencord's plugin set as it is.
+  Yapfast's plugins are its own: WebAssembly modules installed from a git URL,
+  each with a permission list you agree to at install. See
+  [plugins](docs/plugins/README.md).
 - [Ripcord](https://cancel.fm/ripcord/) if you want something even plainer.
   It's native too, but closed source, and it does Slack on the side.
 
@@ -358,8 +360,10 @@ that.
 <br>
 
 Nope. They need a JavaScript runtime, and Yapfast's insides look nothing like
-what they expect. Yapfast will get plugins of its own, though, and open source
-Vencord ones could be ported once it does.
+what they expect. Yapfast's own plugins are WebAssembly modules installed from a
+git URL, with a small JSON API and a permission list shown at install; see
+[plugins](docs/plugins/README.md). An open source Vencord plugin could be ported
+to one.
 
 </details>
 

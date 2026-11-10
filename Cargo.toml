@@ -7,13 +7,16 @@ publish = false
 license = "GPL-3.0-or-later"
 
 [workspace]
-members = ["crates/feature-union", "crates/yapfast-core", "crates/yapfast-discord"]
+members = ["crates/feature-union", "crates/yapfast-core", "crates/yapfast-discord", "crates/yapfast-plugin-api", "crates/yapfast-plugin-host"]
 default-members = ["."]
 # crates/yapfast-ui is a path dependency outside the workspace: Clippy lints
 # every workspace member it compiles, even one --exclude leaves out, and
 # linting Slint's generated code took 190 s of a 253 s check after a UI change.
 # Outside, rustc checks it in 37 s.
-exclude = ["crates/yapfast-ui", "vendor/matrix-rtc-livekit", "vendor/webrtc-sys", "vendor/davey", "vendor/x264-src", "vendor/ffmpeg-src"]
+exclude = ["crates/yapfast-ui", "vendor/matrix-rtc-livekit", "vendor/webrtc-sys", "vendor/davey", "vendor/x264-src", "vendor/ffmpeg-src", "pdk"]
+# yapfast-plugin-host links Extism, wasmtime and gix, 17.6 MiB and 11.4 MiB of
+# binary for a helper that only runs while a plugin does. `cargo build` of the
+# default members leaves it out; `--workspace` and the packaging build it.
 resolver = "3"
 
 [features]
@@ -27,6 +30,9 @@ desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memma
 # The desktop app with a window that reloads ui/ on each save, for UI work;
 # see docs/building.md.
 live-preview = ["desktop", "yapfast-ui/live-preview"]
+# The plugin system. Off by default, and the helper is a separate binary, so
+# a build without it links neither wasmtime nor gix.
+plugins = ["yapfast-core/plugins"]
 
 [dependencies]
 anyhow.workspace = true
@@ -148,6 +154,14 @@ matrix-rtc-livekit = { path = "vendor/matrix-rtc-livekit", features = ["matrix-s
 matrix-rtc-core = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "5831af899f1e1744c21332613cdc9578a98c604f" }
 matrix-rtc-media = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "5831af899f1e1744c21332613cdc9578a98c604f" }
 rustls = { version = "0.23", features = ["aws_lc_rs"] }
+# Extism and wasmtime, for the plugin helper only; pinned exactly, as Slint is,
+# because the plugin system relies on internals such as how its limiter counts
+# memory.
+extism = { version = "=1.41.0", default-features = false, features = ["register-filesystem"] }
+# Shallow git fetches for plugin installs, in the helper's `fetch` subcommand.
+# reqwest over rustls matches the TLS stack the rest of Yapfast uses.
+gix = { version = "0.90", default-features = false, features = ["blocking-http-transport-reqwest-rust-tls", "revision", "sha1"] }
+sha2 = "0.10"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 slint = { version = "=1.19.0", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-skia", "renderer-skia-opengl", "accessibility", "unstable-winit-030", "unstable-fontique-012"] }

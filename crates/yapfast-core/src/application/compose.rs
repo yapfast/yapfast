@@ -200,6 +200,29 @@ impl Application {
         if !self.state.can_send_in(&id) {
             return vec![];
         }
+        #[cfg(feature = "plugins")]
+        {
+            // A `/name option…` the plugin system declares is that command, not
+            // a message; anything else typed with a slash goes as text.
+            if let Some(effects) = self.plugins_typed_command(&id) {
+                return effects;
+            }
+            // Plugins that intercept outgoing messages see the draft before
+            // any of the message is composed from it, and may hold or stop it.
+            if let Some(effects) = self.plugins_send(&id) {
+                return effects;
+            }
+        }
+        self.send_composed_in(id)
+    }
+
+    /// Sends what a room on screen holds, once [`Self::send_in`] has said it
+    /// may: from the text to the command the network receives.
+    ///
+    /// Each send reads the composer as it runs, so a message a plugin's chain
+    /// answers with, which reaches this after the composer emptied, is sent by
+    /// putting that text in the composer first.
+    pub(super) fn send_composed_in(&mut self, id: String) -> Vec<Effect> {
         let draft = self.state.drafts.get(&id).cloned().unwrap_or_default();
         let compose = self.state.compose.get(&id).cloned();
         // Discord's `@silent` at the start sends a message that notifies

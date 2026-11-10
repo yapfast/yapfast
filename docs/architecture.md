@@ -1,7 +1,8 @@
 # Application core and client UI
 
-Yapfast's Cargo workspace has five packages, all in one process. The root `yapfast`
-package is the executable: the Slint adapter and the command-line entry point.
+Yapfast's Cargo workspace has seven packages. Six of them are one process. The
+root `yapfast` package is the executable: the Slint adapter and the command-line
+entry point.
 [`crates/yapfast-core`](../crates/yapfast-core) holds application behavior and the
 native Matrix, Discord and voice backend.
 [`crates/yapfast-discord`](../crates/yapfast-discord) holds the Discord protocol:
@@ -11,6 +12,11 @@ any `.slint` file rebuilds only that crate, and in a
 [live-preview build](building.md#seeing-the-app) nothing at all.
 [`crates/feature-union`](../crates/feature-union) holds no code; `scripts/check`
 uses it (see [building](building.md#checks)).
+[`crates/yapfast-plugin-api`](../crates/yapfast-plugin-api) holds the wire types
+Yapfast and the plugin helper both build, and
+[`crates/yapfast-plugin-host`](../crates/yapfast-plugin-host) is the seventh: it
+builds `yapfast-plugins`, a process that runs plugins and nothing else, as
+[plugins](plugins/README.md) describes.
 
 ```mermaid
 flowchart LR
@@ -175,6 +181,57 @@ categories, which its backend sets
 ([`network.rs`](../crates/yapfast-core/src/network.rs)). The application and
 the UI ask a room for these rather than reading its id; code that holds
 only an id reads its network with `Network::of`.
+
+## Plugins
+
+Plugins are behind the `plugins` Cargo feature, and their code sits on both
+sides of a pipe. [`yapfast-plugin-api`](../crates/yapfast-plugin-api) is the
+contract: the frames, the payloads a guest's exports and imports carry, the
+manifest, the capabilities and the limits, with `serde` and no other dependency
+because both processes build it. [`yapfast-plugin-host`](../crates/yapfast-plugin-host)
+is the helper: `host.rs` is its main loop, `scheduler.rs` its mailboxes, lanes and
+deadlines, `runtime.rs` the Extism and wasmtime side, `pipe.rs` the frames on
+stdin and stdout, `logging.rs` the rule that the helper's own lines go to stderr,
+and `fetch/` the git install. The crate is deliberately outside `cargo build`'s
+default members, because it links Extism, wasmtime and `gix` for a process that
+only runs while a plugin does.
+
+The parent's half is `crates/yapfast-core/src/plugins/`: `bridge.rs` owns the
+helper's pipes as one Tokio task and turns frames into events,
+`registry.rs` holds what is enabled, `permissions.rs` checks each call against
+the manifest and `grants.rs` keeps the hosts a person allowed, `network.rs` is
+the gate a fetch goes through, `store.rs` reads the content-addressed store and
+its lock file, and `spawn.rs` starts the helper and counts its crashes. The
+application's side is `crates/yapfast-core/src/application/plugins.rs`, and the
+interface's is `src/ui/plugins.rs` with `ui/plugins.slint`.
+
+Nothing of it runs while no plugin is enabled: `AppState` carries no plugin
+state, the helper process doesn't exist, and the taps in the send path, the event
+path and the menus cost one check each.
+
+A change to what a plugin can do usually touches each of these steps:
+
+1. **Contract.** A new method, event kind or payload field goes in
+   `yapfast-plugin-api`. Adding one keeps `API_VERSION`; changing what an
+   existing one means raises it. See [the ABI](plugins/abi.md).
+2. **Parent.** A host method is answered in `plugins/bridge.rs`, which checks the
+   capability in `plugins/permissions.rs` and, for a request, the host in
+   `plugins/network.rs` before doing any work.
+3. **Helper.** What the guest's call becomes in the sandbox is
+   `yapfast-plugin-host`'s `runtime.rs`, and when it runs is the scheduler's.
+4. **Application.** An `Action` goes to `application/plugins.rs`, which decides
+   what the effect is and hands it to the bridge; the answer comes back as an
+   event, so a hook that looks synchronous is held in the application rather
+   than in a thread.
+5. **Interface.** Rows a plugin contributes are models in `src/ui/plugins.rs`,
+   drawn by precompiled components in `ui/plugins.slint`: a plugin sends data and
+   never a Slint element, since the interface is compiled ahead of time. The
+   consent dialog's lines are the manifest's capabilities, in the order
+   `Capability::ALL` gives them, so the dialog and the plugin's page can't
+   disagree.
+
+The pages under [docs/plugins](plugins/README.md) describe the manifest, the ABI,
+the permissions, the helper and how to write and test a plugin.
 
 ## Native backend ownership
 

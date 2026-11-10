@@ -636,6 +636,10 @@ pub fn live(
     done: &UnboundedSender<Done>,
     events: &UnboundedSender<Event>,
 ) {
+    // A plugin that subscribed hears of it here, where the gateway's own
+    // messages become this conversation's: one relaxed load while none did.
+    #[cfg(feature = "plugins")]
+    super::plugins_observed(&event, discord, channels, events);
     if let Ok(Live::ActivityFeedStale { refresh_after_ms }) = &event {
         let wait = discord.activity_feed_stale_wait(*refresh_after_ms);
         let events = events.clone();

@@ -20,6 +20,10 @@ discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "
 # Sample states other crates' tests start from, such as a Discord server
 # whose member menu they check.
 test-fixtures = []
+# The plugin system: a bridge to the `yapfast-plugins` helper, the registry of
+# what is enabled, and the permissions and network gate in front of it. Off by
+# default; a build without it carries no plugin state.
+plugins = ["dep:yapfast-plugin-api", "dep:sha2"]
 
 [dependencies]
 anyhow.workspace = true
@@ -63,6 +67,10 @@ mime = { version = "0.3", optional = true }
 pulldown-cmark = { version = "0.13", default-features = false }
 rustls.workspace = true
 serde.workspace = true
+# The wire types the plugin helper speaks; see `plugins`.
+yapfast-plugin-api = { path = "../yapfast-plugin-api", optional = true }
+# The SHA-256 the lock file records, checked before a module is loaded.
+sha2 = { workspace = true, optional = true }
 serde_json.workspace = true
 yapfast-discord = { path = "../yapfast-discord", optional = true }
 # Go Live's and the camera's H264 encoder, built from source; see native/h264.c.
