@@ -111,7 +111,8 @@ pub fn target_for(
             // was unpacked by hand or installed by something else.
             if !folder.join("unins000.exe").is_file() {
                 return Err(
-                    "This copy can't update itself. Get the new version from the release page.".into(),
+                    "This copy can't update itself. Get the new version from the release page."
+                        .into(),
                 );
             }
             if !writable(folder) {
@@ -352,9 +353,12 @@ async fn prepare_in(
     progress.stage(Stage::Starting);
     let sums = sums_of(release).ok_or("This release doesn't publish SHA256SUMS.txt.")?;
     let sums = fetch_sums(client, &sums.url).await?;
-    let expected = sums
-        .get(&asset.name)
-        .ok_or_else(|| format!("The download of {} couldn't be verified, so it wasn't installed.", asset.name))?;
+    let expected = sums.get(&asset.name).ok_or_else(|| {
+        format!(
+            "The download of {} couldn't be verified, so it wasn't installed.",
+            asset.name
+        )
+    })?;
     progress.stage(Stage::Downloading);
     let actual = download(client, &asset.url, part, asset.size, progress).await?;
     if &actual != expected {
