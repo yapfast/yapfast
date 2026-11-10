@@ -504,7 +504,7 @@ mod tests {
         );
         // An installed program needs the installer's uninstaller beside it.
         assert!(
-            reason(Source::Installer).contains("installed by Yapfast's installer"),
+            reason(Source::Installer).contains("can't update itself"),
             "no uninstaller"
         );
         std::fs::write(folder.path().join("unins000.exe"), b"").unwrap();
