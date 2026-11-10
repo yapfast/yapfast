@@ -386,6 +386,18 @@ impl std::fmt::Debug for SharedNames {
 /// A message event from the gateway, for any channel.
 #[derive(Clone, Debug)]
 pub enum Live {
+    /// An app answered this session's interaction with a form, as
+    /// INTERACTION_MODAL_CREATE has it.
+    InteractionModal(Value),
+    /// An interaction of this session failed, by its nonce.
+    InteractionFailure {
+        nonce: String,
+        reason: u64,
+    },
+    /// An app handled an interaction of this session, by its nonce.
+    InteractionSuccess {
+        nonce: String,
+    },
     /// The Activity panel's feed has something new, to fetch after this long.
     ActivityFeedStale {
         refresh_after_ms: Option<u64>,
@@ -994,6 +1006,23 @@ impl Discord {
     /// Votes for `answers` of a message's poll; none takes the vote back.
     pub async fn vote(&self, channel: &str, id: &str, answers: &[u64]) -> Result<()> {
         self.api.vote(channel, id, answers).await
+    }
+
+    /// Uses a message component or submits a modal, `body` being what
+    /// Discord's client sends, its session added: the gateway's
+    /// INTERACTION_SUCCESS or INTERACTION_FAILURE then tells how it went.
+    pub async fn interact(&self, mut body: Value) -> Result<()> {
+        let (reply, answer) = oneshot::channel();
+        self.requests
+            .send(Request::Session(reply))
+            .map_err(|_| anyhow!("Discord isn't connected. Restart Yapfast and try again."))?;
+        let session = answer
+            .await
+            .ok()
+            .flatten()
+            .context("Discord isn't connected yet. Try again in a moment.")?;
+        body["session_id"] = session.into();
+        self.api.interact(&body).await
     }
 
     /// Closes this account's poll now.
@@ -2200,16 +2229,18 @@ impl Discord {
     }
 
     /// Ends a friendship. The lists change when Discord confirms it.
-    pub async fn unfriend(&self, user: &str) -> Result<()> {
-        self.api.remove_relationship(user, "ContextMenu").await
+    /// `location` is where in Discord's client it happens, such as
+    /// "ContextMenu".
+    pub async fn unfriend(&self, user: &str, location: &str) -> Result<()> {
+        self.api.remove_relationship(user, location).await
     }
 
-    /// Blocks someone, or unblocks them.
-    pub async fn block(&self, user: &str, block: bool) -> Result<()> {
+    /// Blocks someone, or unblocks them, from `location` in Discord's client.
+    pub async fn block(&self, user: &str, block: bool, location: &str) -> Result<()> {
         if block {
-            self.api.block(user, "ContextMenu").await
+            self.api.block(user, location).await
         } else {
-            self.api.remove_relationship(user, "ContextMenu").await
+            self.api.remove_relationship(user, location).await
         }
     }
 

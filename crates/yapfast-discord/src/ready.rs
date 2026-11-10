@@ -216,6 +216,12 @@ pub struct Server {
     /// header counts; see [`ScheduledEvent`].
     #[serde(default)]
     pub events: Arc<Vec<ScheduledEvent>>,
+    /// How many boosts it has, and whether its owner shows the progress bar
+    /// toward the next goal at the top of its channel list.
+    #[serde(default)]
+    pub boosts: u32,
+    #[serde(default)]
+    pub boost_bar: bool,
     /// When this account joined it, as Discord's ISO 8601 time.
     pub joined_at: Option<String>,
     /// Out of reach in a Discord outage: still listed, with what was last
@@ -317,6 +323,9 @@ pub fn emojis(list: &Value) -> Vec<Emoji> {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Channel {
+    /// Discord's channel type, which an app's channel menu filters by.
+    #[serde(default)]
+    pub channel_type: Option<u8>,
     pub id: String,
     pub name: String,
     pub position: i64,
@@ -1410,6 +1419,14 @@ pub fn server(guild: &Value) -> Option<Server> {
         emojis: Arc::new(emojis(&guild["emojis"])),
         stickers: Arc::new(crate::stickers::parse_all(&guild["stickers"])),
         events: Arc::new(scheduled_events(&guild["guild_scheduled_events"])),
+        boosts: guild["premium_subscription_count"]
+            .as_u64()
+            .or_else(|| guild["properties"]["premium_subscription_count"].as_u64())
+            .map_or(0, |count| u32::try_from(count).unwrap_or(u32::MAX)),
+        boost_bar: guild["premium_progress_bar_enabled"]
+            .as_bool()
+            .or_else(|| guild["properties"]["premium_progress_bar_enabled"].as_bool())
+            .unwrap_or(false),
         joined_at: guild["joined_at"].as_str().map(str::to_owned),
         default_level: Level::from(&guild["properties"]["default_message_notifications"])
             .or_else(|| Level::from(&guild["default_message_notifications"]))
@@ -1540,6 +1557,9 @@ pub fn parse_thread(value: &Value) -> Option<Channel> {
 
 fn parse_channel(channel: &Value) -> Option<Channel> {
     Some(Channel {
+        channel_type: channel["type"]
+            .as_u64()
+            .and_then(|kind| u8::try_from(kind).ok()),
         id: channel["id"].as_str()?.to_owned(),
         name: channel["name"].as_str().unwrap_or_default().to_owned(),
         position: channel["position"].as_i64().unwrap_or_default(),
@@ -1767,6 +1787,14 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn preserves_exact_channel_types_for_component_filters() {
+        for kind in [0, 2, 5, 10, 11, 12, 13, 15, 16] {
+            let channel = parse_channel(&serde_json::json!({"id": "1", "type": kind})).unwrap();
+            assert_eq!(channel.channel_type, Some(kind as u8));
+        }
+    }
 
     #[test]
     fn servers_offer_their_tag_from_their_profile() {

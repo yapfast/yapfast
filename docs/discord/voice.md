@@ -54,6 +54,8 @@ a phone. Yapfast tells that client's voice state from its own by the
 state with another is the other client's. The voice channel lists the
 account there as Discord does: dimmed until hovered, without its icons, with
 the tooltip "Connected on another client". Joining here takes the call over,
+from the channel's row, from Move to in the account's menu there, or by
+[dragging it onto another channel](servers.md#dragging-someone-to-another-voice-channel),
 and the join waits for a voice state of this session. When the other client
 joins voice, Yapfast's call ends without sending op 4 with no channel, which
 would end the other client's call too; Yapfast sends that only for a join under
@@ -135,8 +137,8 @@ the loss are measured.
 While this account's screen is live, a Stream tab says how it goes out:
 the encoder and where it runs ("NVENC on the GPU", "x264 on the CPU"), the
 codec Discord chose, the size and frame rate sent, the bitrate sent over
-the last second beside the one aimed for, which follows Discord's bandwidth
-estimate, and the keyframes viewers asked for and the packets resent to
+the last second beside the one aimed for, which follows what the uplink
+carries ([Go Live](go-live.md)), and the keyframes viewers asked for and the packets resent to
 them. Discord's client shows its stream's numbers only in developer mode.
 The stream worker reports them once a second while live
 (`Report::Sending`), counting what `StreamSender` sends; the call keeps
@@ -254,7 +256,8 @@ SSRC, and Discord forwards a camera only to those who ask for it with op 15
 ladder Discord's clients work out from 1280×720: 100 is 1280×720 at up to
 2.5 Mbit/s, 90 896×504, 80 672×378, 70 640×360, 60 512×288, 50 416×234 at
 264 kbit/s, down to 20. Yapfast asks for each camera whose tile is in
-sight as Discord's desktop app does, with the tile's pixels: while more
+sight as Discord's desktop app does, with the tile's pixels (physical
+pixels, at the window's scale, whichever way the camera's frames come): while more
 than one camera films, the tile in focus at 100; in a call with one other person, the first step larger
 than the tile, as far as all the cameras fit in 1280×720 together; in a
 larger call, the largest step at which they fit (90 for two cameras, 80
@@ -267,6 +270,23 @@ tile's size. A tile that leaves the screen loses its decoder within a second,
 and its buffers at once; a new decoder starts from a keyframe. The others'
 voice states say `self_video`, which marks them with a camera in the channel
 list and gives their tile a feed.
+
+A phone films in its sensor's orientation, on its side when held upright,
+and says how to turn each frame in the RTP header extension
+`urn:3gpp:video-orientation` (CVO), which Discord's native clients number 4
+(their WebRTC SDP says 13; see docs.discord.food, Voice Connections). Its
+byte is `0000CFRR`: quarter turns clockwise in `RR`, a left-right flip in
+`F`, and the front or back camera in `C`, which changes nothing shown.
+libwebrtc sends it on a frame's last packet while the frame isn't upright,
+and once more when it turns back, so `rtp::parse` reads it from the
+one-byte (or two-byte) extension elements and `call_video.rs` keeps the
+last one each camera gave and hands it on with each frame. The decoding
+thread then fits the upright picture in the tile: a half turn or a flip
+works in the frame's own buffer, and a quarter turn scales the picture as
+it came into a buffer of the shown size, which it keeps while frames come
+turned, and turns it from there. An upright frame costs nothing more. The
+tile's image fits the upright picture, a portrait one with bars at its
+sides.
 
 `talks_to_the_fake_server` checks cameras both ways in a server's voice channel
 and in a DM call, against the fake's. `testing/measure_discord_cameras.py`
@@ -413,7 +433,8 @@ runs, in 10 ms blocks: WebRTC's echo cancellation and high-pass filter; if
 asked, taking the room's echo out; a noise suppressor, which also tells the
 gate which blocks are speech; WebRTC's gain control on what's left; then
 Yapfast's leveling and the microphone's volume, from
-[Settings](../voice.md#sounds).
+[Settings](../voice.md#sounds). On Windows the microphone skips the system's
+own effects unless asked; see [Windows](../windows-beta.md#discord-voice-on-windows).
 
 The suppressor is DeepFilterNet 3, through libDF, its Rust implementation on
 tract (crate `deep_filter`; the code and the model's weights are MIT or

@@ -948,6 +948,7 @@ fn server_rooms(
         pinned,
         banner: server.banner.clone(),
         verified: server.verified,
+        boosts: server.boost_bar.then_some(server.boosts),
         events: server
             .events
             .iter()

@@ -101,6 +101,7 @@ export component IconButton inherits Rectangle {
     in property <int> tip-side: 0;
     in property <length> radius: 6px;
     out property <bool> hovered: pointer.has-hover;
+    out property <bool> focused: focus.has-focus;
     callback clicked;
     // The root fills its row; the visible face stays square and centred.
     width: root.size; min-height: root.size;
@@ -238,8 +239,12 @@ export global AccountLook {
 }
 
 // Virtualized components resolve pixels on demand and queue missing URLs.
+// A picture's binding reads the revision of the slot its address falls in,
+// which moves when a picture in that slot comes, changes or goes. So one
+// that comes draws again the few pictures that share its slot rather than
+// every picture in the window.
 export global PictureStore {
-    in property <int> revision;
+    pure callback slot(string) -> int;
     pure callback picture(string, int) -> image;
     callback request(string);
     /// The address of the animated version of a still collectible picture,
@@ -250,12 +255,120 @@ export global PictureStore {
     /// How many times an animated picture plays before holding its last
     /// frame, as its file says; 0 for ever.
     pure callback plays(string, int) -> int;
+    /// The revision to pass with an address.
+    pure public function revision(url: string) -> int {
+        return root.revision-at(root.slot(url));
+    }
+    public function bump(slot: int) {
+        if slot == 0 { root.slot-0 += 1; }
+        if slot == 1 { root.slot-1 += 1; }
+        if slot == 2 { root.slot-2 += 1; }
+        if slot == 3 { root.slot-3 += 1; }
+        if slot == 4 { root.slot-4 += 1; }
+        if slot == 5 { root.slot-5 += 1; }
+        if slot == 6 { root.slot-6 += 1; }
+        if slot == 7 { root.slot-7 += 1; }
+        if slot == 8 { root.slot-8 += 1; }
+        if slot == 9 { root.slot-9 += 1; }
+        if slot == 10 { root.slot-10 += 1; }
+        if slot == 11 { root.slot-11 += 1; }
+        if slot == 12 { root.slot-12 += 1; }
+        if slot == 13 { root.slot-13 += 1; }
+        if slot == 14 { root.slot-14 += 1; }
+        if slot == 15 { root.slot-15 += 1; }
+        if slot == 16 { root.slot-16 += 1; }
+        if slot == 17 { root.slot-17 += 1; }
+        if slot == 18 { root.slot-18 += 1; }
+        if slot == 19 { root.slot-19 += 1; }
+        if slot == 20 { root.slot-20 += 1; }
+        if slot == 21 { root.slot-21 += 1; }
+        if slot == 22 { root.slot-22 += 1; }
+        if slot == 23 { root.slot-23 += 1; }
+        if slot == 24 { root.slot-24 += 1; }
+        if slot == 25 { root.slot-25 += 1; }
+        if slot == 26 { root.slot-26 += 1; }
+        if slot == 27 { root.slot-27 += 1; }
+        if slot == 28 { root.slot-28 += 1; }
+        if slot == 29 { root.slot-29 += 1; }
+        if slot == 30 { root.slot-30 += 1; }
+        if slot == 31 { root.slot-31 += 1; }
+    }
+    property <int> slot-0;
+    property <int> slot-1;
+    property <int> slot-2;
+    property <int> slot-3;
+    property <int> slot-4;
+    property <int> slot-5;
+    property <int> slot-6;
+    property <int> slot-7;
+    property <int> slot-8;
+    property <int> slot-9;
+    property <int> slot-10;
+    property <int> slot-11;
+    property <int> slot-12;
+    property <int> slot-13;
+    property <int> slot-14;
+    property <int> slot-15;
+    property <int> slot-16;
+    property <int> slot-17;
+    property <int> slot-18;
+    property <int> slot-19;
+    property <int> slot-20;
+    property <int> slot-21;
+    property <int> slot-22;
+    property <int> slot-23;
+    property <int> slot-24;
+    property <int> slot-25;
+    property <int> slot-26;
+    property <int> slot-27;
+    property <int> slot-28;
+    property <int> slot-29;
+    property <int> slot-30;
+    property <int> slot-31;
+    pure function revision-at(slot: int) -> int {
+        if slot == 0 { return root.slot-0; }
+        if slot == 1 { return root.slot-1; }
+        if slot == 2 { return root.slot-2; }
+        if slot == 3 { return root.slot-3; }
+        if slot == 4 { return root.slot-4; }
+        if slot == 5 { return root.slot-5; }
+        if slot == 6 { return root.slot-6; }
+        if slot == 7 { return root.slot-7; }
+        if slot == 8 { return root.slot-8; }
+        if slot == 9 { return root.slot-9; }
+        if slot == 10 { return root.slot-10; }
+        if slot == 11 { return root.slot-11; }
+        if slot == 12 { return root.slot-12; }
+        if slot == 13 { return root.slot-13; }
+        if slot == 14 { return root.slot-14; }
+        if slot == 15 { return root.slot-15; }
+        if slot == 16 { return root.slot-16; }
+        if slot == 17 { return root.slot-17; }
+        if slot == 18 { return root.slot-18; }
+        if slot == 19 { return root.slot-19; }
+        if slot == 20 { return root.slot-20; }
+        if slot == 21 { return root.slot-21; }
+        if slot == 22 { return root.slot-22; }
+        if slot == 23 { return root.slot-23; }
+        if slot == 24 { return root.slot-24; }
+        if slot == 25 { return root.slot-25; }
+        if slot == 26 { return root.slot-26; }
+        if slot == 27 { return root.slot-27; }
+        if slot == 28 { return root.slot-28; }
+        if slot == 29 { return root.slot-29; }
+        if slot == 30 { return root.slot-30; }
+        if slot == 31 { return root.slot-31; }
+        return 0;
+    }
 }
 
 // Whether animations play: only while Yapfast's window has the focus, as in
 // Discord, so GIFs on another screen hold still where they are.
 export global Motion {
     in property <bool> playing: true;
+    /// Animations are turned off in the settings: what would move into
+    /// view shows at once, or always.
+    in property <bool> never;
 }
 
 // A picture, or an animation's frames in turn while it shows.
@@ -314,9 +427,11 @@ export component ServerTagChip inherits Rectangle {
     in property <color> fill: #97979f33;
     in property <color> outline: transparent;
     in property <length> outline-width: 0px;
+    /// The text's colour, which a profile's theme sets on its card.
+    in property <color> text-color: Theme.text;
     property <length> badge-size: root.font-size + 2px;
     property <length> gap: 2px;
-    property <image> badge-picture: root.badge != "" ? PictureStore.picture(root.badge, PictureStore.revision) : @image-url("");
+    property <image> badge-picture: root.badge != "" ? PictureStore.picture(root.badge, PictureStore.revision(root.badge)) : @image-url("");
     function request() {
         if root.badge != "" && root.badge-picture.width == 0 {
             PictureStore.request(root.badge);
@@ -338,7 +453,7 @@ export component ServerTagChip inherits Rectangle {
             Image { source: root.badge-picture; width: root.badge-size; height: root.badge-size; image-fit: contain; }
         }
         tag-text := Text {
-            text: root.text; color: Theme.text; font-size: root.font-size; font-weight: root.font-weight;
+            text: root.text; color: root.text-color; font-size: root.font-size; font-weight: root.font-weight;
             vertical-alignment: center;
         }
     }
@@ -351,7 +466,7 @@ export component Avatar inherits Rectangle {
     in property <color> tint: Theme.avatar;
     in property <image> picture;
     in property <string> picture-url;
-    property <image> shown-picture: root.picture-url != "" ? PictureStore.picture(root.picture-url, PictureStore.revision) : root.picture;
+    property <image> shown-picture: root.picture-url != "" ? PictureStore.picture(root.picture-url, PictureStore.revision(root.picture-url)) : root.picture;
     function request-picture() {
         if root.picture-url != "" && root.shown-picture.width == 0 {
             PictureStore.request(root.picture-url);
@@ -378,7 +493,7 @@ export component Avatar inherits Rectangle {
     /// Discord's client animates a decoration while the pointer is on its row
     /// or message.
     in property <bool> animate;
-    property <image> decoration: root.decoration-url != "" ? PictureStore.picture(root.decoration-url, PictureStore.revision) : @image-url("");
+    property <image> decoration: root.decoration-url != "" ? PictureStore.picture(root.decoration-url, PictureStore.revision(root.decoration-url)) : @image-url("");
     property <string> animated-url: root.animate && root.decoration-url != "" ? PictureStore.animated(root.decoration-url) : "";
     function request-decoration() {
         if root.decoration-url != "" && root.decoration.width == 0 {
@@ -413,8 +528,8 @@ export component Avatar inherits Rectangle {
     if root.decoration.width > 0: Picture {
         x: -root.size / 10; y: -root.size / 10; width: root.size * 1.2; height: root.size * 1.2;
         still: root.decoration; image-fit: contain; accessible-role: none;
-        frames: root.animated-url != "" ? PictureStore.frames(root.animated-url, PictureStore.revision) : [];
-        delays: root.animated-url != "" ? PictureStore.delays(root.animated-url, PictureStore.revision) : [];
+        frames: root.animated-url != "" ? PictureStore.frames(root.animated-url, PictureStore.revision(root.animated-url)) : [];
+        delays: root.animated-url != "" ? PictureStore.delays(root.animated-url, PictureStore.revision(root.animated-url)) : [];
     }
     if root.speaking: Rectangle {
         x: -3px; y: -3px; width: root.size + 6px; height: root.size + 6px;
@@ -445,7 +560,7 @@ export component Nameplate inherits Rectangle {
     in property <color> ground;
     /// How wide the row's text is; the picture fades in after it.
     in property <length> content-width;
-    property <image> picture: root.picture-url != "" ? PictureStore.picture(root.picture-url, PictureStore.revision) : @image-url("");
+    property <image> picture: root.picture-url != "" ? PictureStore.picture(root.picture-url, PictureStore.revision(root.picture-url)) : @image-url("");
     // The animated picture is asked for when it's to play, so that a list of
     // plates holds and downloads only their stills.
     property <string> animated-url: root.animate && root.picture.width > 0 ? PictureStore.animated(root.picture-url) : "";
@@ -475,8 +590,8 @@ export component Nameplate inherits Rectangle {
         height: root.height; width: self.height * root.picture.width / root.picture.height;
         x: root.width - self.width;
         image-fit: fill; opacity: root.strength; accessible-role: none;
-        frames: root.animated-url != "" ? PictureStore.frames(root.animated-url, PictureStore.revision) : [];
-        delays: root.animated-url != "" ? PictureStore.delays(root.animated-url, PictureStore.revision) : [];
+        frames: root.animated-url != "" ? PictureStore.frames(root.animated-url, PictureStore.revision(root.animated-url)) : [];
+        delays: root.animated-url != "" ? PictureStore.delays(root.animated-url, PictureStore.revision(root.animated-url)) : [];
     }
     // The fade under the text: the picture shows at .3 of its strength there,
     // and in full a little after it.
@@ -636,13 +751,13 @@ component EffectLayerView inherits Rectangle {
         && (!root.layer.looped || root.layer.loop-delay <= 0 || mod(root.since, root.cycle) <= root.layer.duration);
     // Starts again from its first frame each time it shows.
     if root.active && root.shown: Picture {
-        property <image> first: PictureStore.picture(root.layer.url, PictureStore.revision);
+        property <image> first: PictureStore.picture(root.layer.url, PictureStore.revision(root.layer.url));
         x: root.layer.x * 1px; y: root.layer.y * 1px;
         width: root.width; height: self.width * self.first.height / max(1, self.first.width);
         still: self.first; image-fit: fill; accessible-role: none;
-        frames: PictureStore.frames(PictureStore.animated(root.layer.url), PictureStore.revision);
-        delays: PictureStore.delays(PictureStore.animated(root.layer.url), PictureStore.revision);
-        plays: PictureStore.plays(PictureStore.animated(root.layer.url), PictureStore.revision);
+        frames: PictureStore.frames(PictureStore.animated(root.layer.url), PictureStore.revision(PictureStore.animated(root.layer.url)));
+        delays: PictureStore.delays(PictureStore.animated(root.layer.url), PictureStore.revision(PictureStore.animated(root.layer.url)));
+        plays: PictureStore.plays(PictureStore.animated(root.layer.url), PictureStore.revision(PictureStore.animated(root.layer.url)));
         init => { if self.first.width == 0 { PictureStore.request(root.layer.url); } }
     }
 }
@@ -663,7 +778,7 @@ export component ProfileEffect inherits Rectangle {
     property <int> time;
     property <bool> finished: !root.loops && root.time > root.end;
     property <bool> playing: root.play && Motion.playing && !root.finished;
-    property <image> still: root.still-url != "" ? PictureStore.picture(root.still-url, PictureStore.revision) : @image-url("");
+    property <image> still: root.still-url != "" ? PictureStore.picture(root.still-url, PictureStore.revision(root.still-url)) : @image-url("");
     changed play => { root.time = 0; }
     clip: true;
     Timer {
@@ -695,7 +810,7 @@ export component StatusText inherits HorizontalLayout {
     in property <int> icon;
     /// A bullet follows the icon, before a custom status.
     in property <bool> bullet;
-    property <image> emoji: root.emoji-url != "" ? PictureStore.picture(root.emoji-url, PictureStore.revision) : @image-url("");
+    property <image> emoji: root.emoji-url != "" ? PictureStore.picture(root.emoji-url, PictureStore.revision(root.emoji-url)) : @image-url("");
     function request-emoji() {
         if root.emoji-url != "" && root.emoji.width == 0 {
             PictureStore.request(root.emoji-url);
@@ -787,6 +902,8 @@ export component TextField inherits Rectangle {
     in property <bool> ring: true;
     /// What the placeholder is drawn in.
     in property <color> placeholder-color: Theme.muted;
+    /// The text's colour, for a field on another ground than Yapfast's own.
+    in property <color> ink: Theme.text;
     /// A picture at the field's right end, such as a smiley, which the text
     /// stays clear of.
     in property <image> trailing-icon;
@@ -820,7 +937,7 @@ export component TextField inherits Rectangle {
             single-line: true;
             vertical-alignment: center;
             font-size: root.text-size;
-            color: root.enabled ? Theme.text : Theme.muted;
+            color: root.enabled ? root.ink : Theme.muted;
             input-type: root.password ? InputType.password : InputType.text;
             selection-background-color: Theme.accent.with-alpha(0.35);
             selection-foreground-color: Theme.text;
@@ -1457,6 +1574,67 @@ export component Banner inherits Rectangle {
         Image { source: @image-url("icons/triangle-alert.svg"); width: 18px; image-fit: contain; colorize: Theme.accent; }
         Text { text: root.text; color: Theme.text; font-size: 15px; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
         Middle { ActionButton { text: "Dismiss"; ghost: true; small: true; clicked => { root.dismissed(); } } }
+    }
+}
+
+// How loud something sounds, from 0% to 100%, on an upright track filled
+// from the bottom, as Discord's desktop voice message player has it. Up and
+// Down move 5% at a time, Page Up and Page Down 20%.
+export component UprightVolumeSlider inherits Rectangle {
+    in property <string> label;
+    in-out property <int> value: 100;
+    callback changed(int);
+    width: 24px;
+    accessible-role: slider;
+    accessible-label: root.label;
+    accessible-value: root.value + "%";
+    accessible-value-minimum: 0;
+    accessible-value-maximum: 100;
+    accessible-value-step: 5;
+    accessible-action-increment => { root.set(root.value + 5); }
+    accessible-action-decrement => { root.set(root.value - 5); }
+    forward-focus: focus;
+    function set(value: int) {
+        let clamped = max(0, min(100, value));
+        if clamped != root.value {
+            root.value = clamped;
+            root.changed(clamped);
+        }
+    }
+    function point(y: length) {
+        root.set(round((1 - max(0, min(1, (y - track.y) / track.height))) * 100));
+    }
+    track := Rectangle {
+        x: (parent.width - self.width) / 2; y: 8px; width: 4px; height: parent.height - 16px;
+        border-radius: 2px; background: Theme.field;
+        Rectangle {
+            y: parent.height * (1 - root.value / 100); height: parent.height * root.value / 100;
+            border-radius: 2px; background: Theme.accent;
+        }
+    }
+    Rectangle {
+        x: (parent.width - self.width) / 2; y: track.y + track.height * (1 - root.value / 100) - self.height / 2;
+        width: 14px; height: 14px; border-radius: 7px; background: Theme.text;
+        border-width: focus.has-focus ? 2px : 0px; border-color: Theme.accent;
+    }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.UpArrow { root.set(root.value + 5); return accept; }
+            if event.text == Key.DownArrow { root.set(root.value - 5); return accept; }
+            if event.text == Key.PageUp { root.set(root.value + 20); return accept; }
+            if event.text == Key.PageDown { root.set(root.value - 20); return accept; }
+            return reject;
+        }
+        TouchArea {
+            mouse-cursor: MouseCursor.pointer;
+            pointer-event(event) => {
+                if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                    focus.focus();
+                    root.point(self.mouse-y);
+                }
+            }
+            moved => { if self.pressed { root.point(self.mouse-y); } }
+        }
     }
 }
 

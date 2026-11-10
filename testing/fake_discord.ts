@@ -30,6 +30,10 @@
 // `--channels N` adds text channels room-1 to room-N to "Server", each with 60
 // messages, every third with a picture, written in turn by `--authors N`
 // people of their own (Bob without it), for a long session across channels.
+// `--members N` adds N people, online, to Server's member list, as a busy
+// server's first hundred rows are. POST /_control/churn-start takes one of
+// them offline or back online ten times a second, each a member list update,
+// and /_control/churn-stop stops it.
 // POST /_control/crowd-start makes someone new post in the last of them, or
 // in #general, 50 times a second, and /_control/crowd-stop stops them.
 // POST /_control/burst?count=N posts N messages, 150 every 10 ms, for
@@ -142,6 +146,14 @@
 // buttons and a menu under its text, and one of components outside a
 // container, with a gallery of its attachments and a file. It answers with
 // the notice's id.
+// POST /interactions takes Alice's use of Status Bot's controls, as
+// Discord's client sends it (its user's id is its app's), and answers 204;
+// the session named answers over the gateway with INTERACTION_CREATE, then:
+// "approve" succeeds and Status Bot says so, "rollback" opens a form with a
+// text display and a reason (INTERACTION_MODAL_CREATE), whose submission
+// succeeds with a reply, and choosing "production" in its menu fails
+// (INTERACTION_FAILURE); "staging" succeeds. GET /_control/interactions
+// lists what was sent, oldest first.
 // POST /_control/unlooked-reply?channel=ID&to=ID makes Bob reply to a message
 // in a channel, live and in its history without `referenced_message`, as when
 // Discord didn't look the original up, and answers with the reply's id.
@@ -195,8 +207,11 @@
 // it answers 80013.
 // From a DM's menu, PUT /users/@me/relationships/{id} with type 2 blocks,
 // DELETE ends a friendship or block, PUT and DELETE .../{id}/ignore ignore and
-// stop, and PATCH gives a friend a nickname. GET and PUT /users/@me/notes/{id}
-// read and write Alice's note on someone, GET /_control/note-reads counts the
+// stop, and PATCH gives a friend a nickname. GET
+// /_control/relationship-changes lists each PUT and DELETE on
+// /users/@me/relationships/{id}, oldest first: its method, the user, the
+// body's type or null, and the location its X-Context-Properties named.
+// GET and PUT /users/@me/notes/{id} read and write Alice's note on someone, GET /_control/note-reads counts the
 // reads, POST /_control/note-elsewhere?user=ID&note=TEXT changes a note as
 // another of her clients does, DELETE /channels/{id} closes a DM
 // or leaves a group, and GET /_control/group-leaves lists each group left
@@ -264,6 +279,8 @@
 // POST /_control/clip makes Bob attach clip.mp4, six seconds with sound, and
 // link a post whose card plays a video, as vxtwitter's do; Carol forwards
 // the clip. They go to #general, or with ?channel=ID to that channel or thread.
+// POST /_control/voice-message makes Bob send a voice message, the two
+// seconds of testing/fixtures/voice-tone.ogg, to #general or ?channel=ID.
 // POST /_control/bob-away makes Bob idle with a custom status,
 // /_control/bob-mobile puts him online on his phone alone, and
 // /_control/bob-offline takes him offline.
@@ -326,6 +343,7 @@ const { values: args } = parseArgs({
     images: { type: "string", default: "0" },
     channels: { type: "string", default: "0" },
     authors: { type: "string", default: "0" },
+    members: { type: "string", default: "0" },
     "name-styles": { type: "boolean", default: false },
     nitro: { type: "boolean", default: false },
     folders: { type: "boolean", default: false },
@@ -1186,6 +1204,8 @@ type File = {
   height?: number;
   /** Draws the image at a requested size, as Discord's media proxy does. */
   draw?: (width: number, height: number) => Uint8Array;
+  /** A voice message's recording: how long it plays, and its loudness. */
+  voice?: { seconds: number; waveform: Uint8Array };
 };
 const files = new Map<string, File>();
 const scaled = new Map<string, Uint8Array>();
@@ -1205,6 +1225,9 @@ function wireAttachment(file: File, origin: string) {
     proxy_url: `${origin}/media/${path}`,
     content_type: file.contentType,
     ...(file.width ? { width: file.width, height: file.height } : {}),
+    ...(file.voice
+      ? { duration_secs: file.voice.seconds, waveform: Buffer.from(file.voice.waveform).toString("base64") }
+      : {}),
   };
 }
 
@@ -1651,6 +1674,7 @@ const rooms = Array.from({ length: Number(args.channels) }, (_, n) => {
   return id;
 });
 let crowd: ReturnType<typeof setInterval> | undefined;
+let churn: ReturnType<typeof setInterval> | undefined;
 let crowdCount = 0;
 let burst: ReturnType<typeof setInterval> | undefined;
 let burstPosted = 0;
@@ -2274,6 +2298,11 @@ const deletedChannels = new Set<string>();
 // Each body of PATCH /guilds/{id}/channels, for GET /_control/channel-moves.
 const channelMoves: unknown[] = [];
 
+// Each PUT and DELETE on /users/@me/relationships/{id}, with the type its
+// body gave and the location its X-Context-Properties named, for GET
+// /_control/relationship-changes.
+const relationshipChanges: { method: string; user: string; type: number | null; location: string }[] = [];
+
 // Each group DM Alice left, with the `silent` query DELETE /channels/{id}
 // sent, or null, for GET /_control/group-leaves.
 const groupLeaves: { channel: string; silent: string | null }[] = [];
@@ -2882,6 +2911,18 @@ const presences: Record<string, { status: string; activities: unknown[]; client_
   [users.dave.id]: { status: "offline", activities: [] },
 };
 
+// The people of `--members`, in Server's member list alone.
+const listed: User[] = Array.from({ length: Number(args.members) }, (_, n) => ({
+  id: (1_750_000_000_000_000_000n + BigInt(n)).toString(),
+  username: `member${n}`,
+  global_name: `Member ${n}`,
+  avatar: `m${n}`,
+}));
+for (const person of listed) {
+  userById.set(person.id, person);
+  presences[person.id] = { status: "online", activities: [] };
+}
+
 // The member list's Activity feed, as /content-inventory/users/@me answers:
 // Bob and Carol now, Dave's game earlier, this week's top ones, then what no
 // panel here shows: someone in no server, and a custom status.
@@ -2952,7 +2993,7 @@ function listId(channelId: string): string {
 
 function memberList(id = "everyone") {
   const offline = (user: User) => presences[user.id]!.status === "offline";
-  const present = Object.values(users).filter((user) => !removed.has(user.id));
+  const present = [...Object.values(users), ...listed].filter((user) => !removed.has(user.id));
   const mods = present.filter((user) => memberRoles.get(user.id)?.includes(MODS));
   const others = present.filter((user) => !mods.includes(user));
   const groups = [
@@ -5057,6 +5098,7 @@ const DETECTABLE_GAMES = [{ id: "123456789012345680", name: "Detected Fixture",
   ], third_party_skus: [] }];
 
 async function api(req: Request, path: string, origin: string): Promise<Response> {
+  if (req.method === "POST" && path === "/interactions") return interact(await req.json(), origin);
   // A Rich Presence application and its images. Games leave out their name
   // and name images by key, which the client turns into the application's
   // name and image ids before the presence goes to the gateway.
@@ -6494,9 +6536,11 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     const id = m[1]!;
     const user = userById.get(id);
     if (!user || id === ALICE) return notFound("Unknown User", 10013);
-    if (!where()) return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    const location = where();
+    if (!location) return json({ message: "Invalid Form Body", code: 50035 }, 400);
     const before = relationships.get(id);
     if (method === "DELETE") {
+      relationshipChanges.push({ method, user: id, type: null, location });
       if (before === undefined) return notFound("Unknown Relationship", 10011);
       relationships.delete(id);
       nicknames.delete(id);
@@ -6504,6 +6548,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       return empty();
     }
     const body: any = await req.json().catch(() => ({}));
+    relationshipChanges.push({ method, user: id, type: typeof body.type === "number" ? body.type : null, location });
     if (body.type === 2) {
       nicknames.delete(id);
       befriend(user, 2);
@@ -7472,6 +7517,21 @@ function postShowcase(origin: string) {
 // drawn here instead.
 const clip = readFileSync(new URL("video-clip.mp4", fixtures));
 
+/** Bob's voice message: IS_VOICE_MESSAGE, and one Ogg Opus attachment. */
+function postVoiceMessage(origin: string, channel: string) {
+  const now = Date.now();
+  const recording = addFile({
+    id: snowflake(now, 1),
+    channel,
+    filename: "voice-message.ogg",
+    contentType: "audio/ogg",
+    data: new Uint8Array(readFileSync(new URL("voice-tone.ogg", fixtures))),
+    // A steady tone that swells in and fades out.
+    voice: { seconds: 2.0065, waveform: Uint8Array.from({ length: 40 }, (_, i) => Math.min(200, 40 * Math.min(i + 1, 40 - i))) },
+  });
+  dispatch("MESSAGE_CREATE", dispatched(post(channel, users.bob, "", now, { files: [recording], flags: 1 << 13 }), origin));
+}
+
 function postVideo(origin: string, channel: string) {
   const now = Date.now();
   const video = addFile({
@@ -7611,6 +7671,55 @@ function postComponents(origin: string): string {
   });
   dispatch("MESSAGE_CREATE", dispatched(report, origin));
   return notice.id;
+}
+
+/** What Alice's client sent to POST /interactions, oldest first. */
+const interactions: unknown[] = [];
+
+/** Status Bot answers its controls and forms, to the session that used them. */
+function interact(body: any, origin: string): Response {
+  interactions.push(body);
+  const session = [...sockets].find((ws) => ws.data.identified && ws.data.session === body.session_id);
+  if (!session) return json({ message: "Invalid Form Body", code: 50035 }, 400);
+  const message = (messages.get(body.channel_id) ?? []).find((each) => each.id === body.message_id);
+  const known = body.application_id === statusBot.id
+    && (body.type === 5 || (body.type === 3 && message?.author.id === statusBot.id));
+  if (!known) return json({ message: "Unknown Application", code: 10002 }, 404);
+  const now = Date.now();
+  const id = snowflake(now, interactions.length);
+  const nonce = body.nonce;
+  const reply = (content: string) => {
+    const said = post(body.channel_id, statusBot, content, now + 1);
+    dispatch("MESSAGE_CREATE", dispatched(said, origin));
+  };
+  queueMicrotask(() => {
+    send(session, 0, { id, nonce }, "INTERACTION_CREATE");
+    const data = body.data ?? {};
+    if (body.type === 5 && data.custom_id === "rollback") {
+      const why = data.components?.find((row: any) => row.type === 18)?.component?.value;
+      send(session, 0, { id, nonce }, "INTERACTION_SUCCESS");
+      reply(`Rolled back to **v2.3**: ${why}`);
+    } else if (data.custom_id === "approve") {
+      send(session, 0, { id, nonce }, "INTERACTION_SUCCESS");
+      reply("Approved by Alice.");
+    } else if (data.custom_id === "rollback") {
+      send(session, 0, {
+        id, nonce, channel_id: body.channel_id, custom_id: "rollback", title: "Roll back v2.4",
+        application: { id: statusBot.id, name: "Status Bot", icon: null, description: "", bot_public: true },
+        components: [
+          { type: 10, id: 1, content: "**This redeploys v2.3** to everyone." },
+          { type: 18, id: 2, label: "Why", component: { type: 4, id: 3, custom_id: "why", style: 2, required: true } },
+        ],
+      }, "INTERACTION_MODAL_CREATE");
+      send(session, 0, { id, nonce }, "INTERACTION_SUCCESS");
+    } else if (data.custom_id === "environment" && data.values?.[0] === "staging") {
+      send(session, 0, { id, nonce }, "INTERACTION_SUCCESS");
+      reply("Deploying to staging.");
+    } else {
+      send(session, 0, { id, nonce, reason_code: 1 }, "INTERACTION_FAILURE");
+    }
+  });
+  return new Response(null, { status: 204 });
 }
 
 // --- Environments -------------------------------------------------------------
@@ -8236,6 +8345,23 @@ const server = Bun.serve<SocketData>({
       dispatch("PRESENCE_UPDATE", { user: { id: users.bob.id }, ...presences[users.bob.id] });
       return new Response("Bob is on his phone\n");
     }
+    if (req.method === "POST" && path === "/_control/churn-start") {
+      let turn = 0;
+      clearInterval(churn);
+      churn = setInterval(() => {
+        const person = listed[(turn++ * 7) % listed.length]!;
+        changeMembers(() => {
+          const status = presences[person.id]!.status === "offline" ? "online" : "offline";
+          presences[person.id] = { status, activities: [] };
+          dispatch("PRESENCE_UPDATE", { user: { id: person.id }, client_status: {}, ...presences[person.id] });
+        });
+      }, 100);
+      return new Response("churn\n");
+    }
+    if (req.method === "POST" && path === "/_control/churn-stop") {
+      clearInterval(churn);
+      return new Response("no churn\n");
+    }
     if (req.method === "POST" && path === "/_control/bob-offline") {
       presences[users.bob.id] = { status: "offline", activities: [] };
       dispatch("PRESENCE_UPDATE", { user: { id: users.bob.id }, client_status: {}, ...presences[users.bob.id] });
@@ -8280,6 +8406,7 @@ const server = Bun.serve<SocketData>({
       return new Response(`${name}'s camera is ${state.self_video ? "on" : "off"} in ${calls.length} call(s)\n`);
     }
     if (path === "/_control/soundboard-sends") return Response.json(soundboardSends);
+    if (path === "/_control/interactions") return Response.json(interactions);
     if (path === "/_control/custom-call-sounds") return Response.json(customCallSounds);
     if (req.method === "POST" && path === "/_control/soundboard-play") {
       const who = url.searchParams.get("user") ?? "bob";
@@ -8586,6 +8713,10 @@ const server = Bun.serve<SocketData>({
       postVideo(origin, url.searchParams.get("channel") ?? GENERAL);
       return new Response("video posted\n");
     }
+    if (req.method === "POST" && path === "/_control/voice-message") {
+      postVoiceMessage(origin, url.searchParams.get("channel") ?? GENERAL);
+      return new Response("voice message posted\n");
+    }
     if (req.method === "POST" && path === "/_control/components") {
       return new Response(`${postComponents(origin)}\n`);
     }
@@ -8858,6 +8989,9 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/group-leaves") {
       return Response.json(groupLeaves);
+    }
+    if (req.method === "GET" && path === "/_control/relationship-changes") {
+      return Response.json(relationshipChanges);
     }
     if (req.method === "GET" && path === "/_control/invite-joins") {
       return Response.json(inviteJoins);

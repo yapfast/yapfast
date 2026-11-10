@@ -1,0 +1,80 @@
+import { Theme, Tip } from "../theme.slint";
+
+// Which build this is, set once by src/ui/yapfast.rs from src/build_info.rs.
+// An empty `headline` means it isn't known, as in the tests' windows.
+export global BuildInfo {
+    in property <string> headline;
+    /// Stable, Nightly, Pre-release or Development build.
+    in property <string> channel;
+    /// The commit and day, after the channel.
+    in property <string> details;
+    /// How loud the channel is drawn: 0 for a release, 1 for a prerelease, 2
+    /// for a development build.
+    in property <int> tone;
+    /// Everything on one line, which a click copies for a bug report.
+    in property <string> summary;
+}
+
+// The two lines under Settings' sections that say which build is running, such
+// as a stable release or a nightly, so a report says whether it has a feature.
+// A click copies them as one line.
+export component BuildStamp inherits Rectangle {
+    callback copy(string);
+    property <bool> copied;
+    property <color> tint: BuildInfo.tone == 0 ? Theme.live : BuildInfo.tone == 1 ? Theme.accent : Theme.danger-text;
+    height: BuildInfo.headline == "" ? 0px : 62px;
+    clip: true;
+    accessible-role: button;
+    accessible-label: "Copy the version: " + BuildInfo.summary;
+    accessible-action-default => { root.copy-version(); }
+    forward-focus: stamp-focus;
+    function copy-version() {
+        root.copy(BuildInfo.summary);
+        root.copied = true;
+    }
+    // A moment's confirmation, then the build again.
+    Timer { interval: 2s; running: root.copied; triggered => { root.copied = false; } }
+    Rectangle { x: 16px; y: 0px; width: parent.width - 32px; height: 1px; background: Theme.line; }
+    Rectangle {
+        x: 16px; y: 8px; width: parent.width - 32px; height: parent.height - 16px; border-radius: 4px;
+        border-width: stamp-focus.has-focus ? 2px : 0px; border-color: Theme.accent;
+        VerticalLayout {
+            padding-left: 8px; padding-right: 8px; padding-top: 4px; spacing: 4px; alignment: start;
+            Text {
+                text: BuildInfo.headline; color: touch.has-hover ? Theme.secondary : Theme.muted;
+                font-size: 12px; overflow: elide;
+            }
+            HorizontalLayout {
+                alignment: start;
+                Text {
+                    text: root.copied ? "Copied" : BuildInfo.channel;
+                    color: root.copied ? Theme.text : root.tint; font-size: 12px; font-weight: 700;
+                }
+                if !root.copied && BuildInfo.details != "": Text {
+                    text: " · " + BuildInfo.details; color: touch.has-hover ? Theme.secondary : Theme.muted;
+                    font-size: 12px; overflow: elide;
+                }
+            }
+        }
+    }
+    stamp-focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" { root.copy-version(); return accept; }
+            return reject;
+        }
+        touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.copy-version(); }
+            changed has-hover => {
+                if self.has-hover {
+                    Tip.text = "Click to copy";
+                    Tip.side = 0;
+                    Tip.x = self.absolute-position.x + self.width / 2;
+                    Tip.y = self.absolute-position.y;
+                } else if Tip.text == "Click to copy" {
+                    Tip.text = "";
+                }
+            }
+        }
+    }
+}

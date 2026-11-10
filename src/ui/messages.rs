@@ -633,10 +633,19 @@ pub(super) fn message_row_within(
                     (_, _, Some(size)) => size,
                     _ => String::new(),
                 };
+                // A voice message's recording is its first attachment.
+                let voice = message.voice.as_ref().filter(|_| index == 0);
                 FileCell {
                     index: index as i32,
                     name: attachment.name.clone().into(),
                     detail: detail.into(),
+                    voice: voice.is_some(),
+                    waveform: voice.map_or_else(ModelRc::default, |voice| {
+                        ModelRc::new(VecModel::from(waveform_bars(&voice.waveform)))
+                    }),
+                    duration: voice
+                        .map(|voice| super::refresh::video_time(voice.duration_ms, None).into())
+                        .unwrap_or_default(),
                 }
             })
             .collect()
@@ -687,6 +696,17 @@ pub(super) fn message_row_within(
         color: role_color(message.color),
         has_color: message.color.is_some(),
         bot: message.bot,
+        app_id: message
+            .application_id
+            .as_deref()
+            .or_else(|| {
+                message
+                    .bot
+                    .then(|| discord::sender_user(&message.sender))
+                    .flatten()
+            })
+            .unwrap_or_default()
+            .into(),
         initial: initial(&message.author),
         tint: tint(&message.author),
         // Virtualized avatars resolve their URLs when their components are built.
@@ -835,6 +855,23 @@ pub(super) fn message_row_within(
     row
 }
 
+/// How many bars a voice message's waveform shows, as Discord's client
+/// draws it.
+const WAVEFORM_BARS: usize = 32;
+
+/// A voice message's waveform as its card's bars, each the loudest of its
+/// stretch of the points, from 0 to 1. Without a waveform they're flat.
+pub(super) fn waveform_bars(waveform: &[u8]) -> Vec<f32> {
+    (0..WAVEFORM_BARS)
+        .map(|bar| {
+            let start = bar * waveform.len() / WAVEFORM_BARS;
+            let end = ((bar + 1) * waveform.len() / WAVEFORM_BARS).max(start + 1);
+            let loudest = waveform.get(start..end.min(waveform.len()));
+            f32::from(loudest.into_iter().flatten().copied().max().unwrap_or(0)) / 255.0
+        })
+        .collect()
+}
+
 /// A row of a Discord app's card, its pictures and files found among the
 /// message's attachments by slot.
 fn card_row<'a>(
@@ -908,9 +945,16 @@ fn card_row<'a>(
             )),
             ..Default::default()
         },
-        Row::Select { text, .. } => CardRow {
+        Row::Select {
+            text,
+            disabled,
+            custom_id,
+            ..
+        } => CardRow {
             kind: CardRowKind::Select,
             select: text.as_str().into(),
+            select_id: custom_id.as_str().into(),
+            select_enabled: !disabled && !custom_id.is_empty(),
             ..Default::default()
         },
         Row::Unknown => CardRow {
@@ -941,9 +985,13 @@ fn card_button(
             ButtonStyle::Success => CardButtonStyle::Success,
             ButtonStyle::Danger => CardButtonStyle::Danger,
             ButtonStyle::Link => CardButtonStyle::Link,
+            ButtonStyle::Premium => CardButtonStyle::Premium,
         },
         url: button.url.clone().unwrap_or_default().into(),
-        enabled: button.url.is_some() && !button.disabled,
+        custom_id: button.custom_id.clone().unwrap_or_default().into(),
+        sku_id: button.sku_id.clone().unwrap_or_default().into(),
+        enabled: !button.disabled
+            && (button.url.is_some() || button.custom_id.is_some() || button.sku_id.is_some()),
     }
 }
 
