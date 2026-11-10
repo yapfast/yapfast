@@ -10,6 +10,10 @@ impl Application {
             return vec![];
         }
         let open = self.state.dm_screen.is_some();
+        if !self.state.nav_walking {
+            let previous = self.state.place();
+            self.state.record_visit(previous, &HistoryPlace::Dm(screen));
+        }
         self.state.dm_screen = Some(screen);
         if open { vec![] } else { self.deselect() }
     }

@@ -529,6 +529,13 @@ impl Tracker {
                 known.verified = update.verified;
                 known.community = update.community;
                 known.rules_channel = update.rules_channel;
+                // A GUILD_UPDATE may leave these out; that isn't zero boosts.
+                if !data["premium_subscription_count"].is_null() {
+                    known.boosts = update.boosts;
+                }
+                if !data["premium_progress_bar_enabled"].is_null() {
+                    known.boost_bar = update.boost_bar;
+                }
                 self.sort_servers();
                 true
             }

@@ -632,6 +632,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     let weak = window.as_weak();
     window
         .global::<PictureStore>()
+        .on_slot(|url| picture_slot(url.as_str()) as i32);
+    window
+        .global::<PictureStore>()
         .on_picture(|url, _revision| avatar_picture(url.as_str()));
     // An animated emoji's frame, by the name the picker knows it by; a still
     // one has none and keeps its picture.
@@ -2136,6 +2139,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         yapfast_core::noise::set_strength(layout.noise_strength);
         layout.reduce_room_echo = window.get_dereverb();
         yapfast_core::noise::set_dereverb(layout.reduce_room_echo);
+        layout.windows_microphone_effects = window.get_windows_effects();
+        yapfast_core::set_windows_effects(layout.windows_microphone_effects);
         layout.input_sensitivity = Some(window.get_sensitivity());
         yapfast_core::noise::set_sensitivity(layout.sensitivity() as f32);
         layout.input_mode = chosen(&INPUT_MODES, window.get_input_mode());

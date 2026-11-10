@@ -1770,6 +1770,7 @@ mod tests {
             timestamp: 0,
             ssrc,
             payload: &[],
+            orientation: None,
         };
         assert_eq!(
             streamer.codec(&packet(11, rtp::VP8)),

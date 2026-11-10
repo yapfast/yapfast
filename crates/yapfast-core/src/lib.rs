@@ -17,6 +17,7 @@ mod audio_io;
 /// and the bound on when a decoded picture is shown; see src/av_timing.rs.
 #[cfg(feature = "discord")]
 pub mod av_timing;
+pub use audio_io::set_windows_effects;
 pub mod backend;
 pub mod blocks;
 #[cfg(feature = "matrix")]

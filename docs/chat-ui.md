@@ -71,6 +71,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   feed of what people there are doing and did lately; see
   [the Activity panel](discord/people.md#the-activity-panel). Yapfast subscribes to the list's
   first 100 rows while the channel is open, and Discord keeps them current.
+  The list shows a change at once, then holds for half a second and shows
+  the changes from that time together, so a busy server's list draws at most
+  twice a second.
 - Read live text messages. Earlier history loads once the timeline has
   stayed within a screen of its top for 50 ms, a page at a time (30 events
   for Matrix, 50 messages for Discord), until the conversation's first
@@ -457,9 +460,13 @@ in place of the desktop's, as Discord does (`src/ui/title_bar.rs`,
 `ui/title_bar.slint`): a 32px bar on the rail's ground across the top, with
 the server's name, "Direct messages" or "Yapfast" in the middle and
 minimize, maximize or restore, and close at the right. Signed in, it also has
-back and forward arrows at the left, which walk the conversations visited as
-Alt+Left and Alt+Right do, up to 50 of them and past any that are gone, and
-Inbox and Help before the window's buttons. Help opens Discord's support site.
+back and forward arrows at the left, which walk the places visited as
+Alt+Left and Alt+Right and a mouse's back and forward buttons do, up to 50 of
+them and past any that are gone, and Inbox and Help before the window's
+buttons. A place is a conversation, a screen of the direct messages (Friends,
+or the requests) or a server's Browse Channels, as in Discord's client; the
+settings open over the window and are not one. A thread beside a channel isn't
+one either. Help opens Discord's support site.
 Inbox opens a popout with Discord's first two tabs: Unreads, the channels and
 conversations with unread messages, muted ones only for a mention, and
 Mentions, those that mention this account, each with its count; Discord's own

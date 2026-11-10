@@ -1894,6 +1894,8 @@ mod tests {
             timestamp,
             ssrc,
             payload: &[],
+            // A test's packet says nothing about which way the camera was.
+            orientation: None,
         };
         ReceivedSound::new(&packet, opus, arrived)
     }

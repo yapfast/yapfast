@@ -285,6 +285,34 @@ fn the_composers_menu_cuts_copies_and_pastes_through_the_application() {
     assert_eq!(window.get_draft(), "hellohello");
 }
 
+#[test]
+fn the_typing_line_holds_still_while_animations_dont_play() {
+    use i_slint_core::item_tree::ItemRc;
+    use std::ops::ControlFlow;
+    let window = showing(vec![ChatMessage {
+        author: "Sam".into(),
+        body: "Hi".into(),
+        ..Default::default()
+    }]);
+    window.show().unwrap();
+    window.set_typing("Sam is typing...".into());
+    // Lays every item out, as a frame would, and says whether that asked
+    // for another frame: `animation-tick()` does whenever it's read.
+    let animating = |playing| {
+        window.global::<Motion>().set_playing(playing);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        slint::platform::update_timers_and_animations();
+        let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+        let _ = ItemRc::new_root(inner.component()).visit_descendants(|item| {
+            let _ = item.geometry();
+            ControlFlow::<()>::Continue(())
+        });
+        window.window().has_active_animations()
+    };
+    assert!(!animating(false), "nothing repaints while someone types");
+    assert!(animating(true), "the dots move while animations play");
+}
+
 /// Presses and lets go of a key, as typed.
 fn tap(window: &YapfastWindow, text: SharedString) {
     use slint::platform::WindowEvent;
@@ -803,6 +831,7 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
         capture: yapfast_core::capture::Preference::Duplication,
         input_sensitivity: Some(-45),
         reduce_room_echo: true,
+        windows_microphone_effects: true,
         ..Default::default()
     };
     let row = layout.restyle(&message, message_row(&message, &HashSet::new()));
@@ -867,6 +896,11 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
     assert_eq!(saved["noise_strength"], "light");
     assert_eq!(window.get_sensitivity(), -45);
     assert!(window.get_dereverb() && !defaults.reduce_room_echo);
+    // Microphones skip Windows' effects unless asked, and the switch shows
+    // only where there are any.
+    assert!(window.get_windows_effects() && !defaults.windows_microphone_effects);
+    assert_eq!(window.get_windows_effects_choice(), cfg!(windows));
+    yapfast_core::set_windows_effects(false);
     assert_eq!(defaults.sensitivity(), -60);
     let out_of_range = Layout {
         input_sensitivity: Some(12),
@@ -1513,6 +1547,7 @@ fn a_servers_icon_draws_on_its_heading_and_rail_button() {
             banner: None,
             verified: false,
             events: Vec::new(),
+            boosts: None,
             tag: None,
         })];
         state.stickers.open = true;
@@ -2868,7 +2903,7 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
     {
         let mut adapter = adapter.borrow_mut();
         let state = &mut adapter.app.state;
-        state.members = Some(Ok(vec![
+        state.members = Some(Ok(Arc::new(vec![
             ChatMember {
                 bot: false,
                 decoration: Some("ring.png".into()),
@@ -2888,14 +2923,17 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
                 }),
                 ..member("3", "Eve")
             },
-        ]));
+        ])));
         state.account_decoration = Some("mine.png".into());
         state.account_nameplate = Some(plate("mine-strip.png"));
         let window = window.clone_strong();
         adapter.refresh(&window);
     }
+    // The preview's people were shown just before, so these wait out the pause.
+    i_slint_backend_testing::mock_elapsed_time(refresh::ROSTER_PAUSE);
+    // Row 0 is their group's heading.
     let roster = window.get_roster();
-    let (bob, dave) = (roster.row_data(0).unwrap(), roster.row_data(1).unwrap());
+    let (bob, dave) = (roster.row_data(1).unwrap(), roster.row_data(2).unwrap());
     assert_eq!(bob.decoration_url, "ring.png");
     assert_eq!(bob.nameplate_url, "strip.png");
     assert_eq!(
@@ -2908,7 +2946,7 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
     );
     assert!(dave.decoration_url.is_empty() && dave.nameplate_url.is_empty());
     // A palette Yapfast doesn't know leaves the picture without a colour.
-    let eve = roster.row_data(2).unwrap();
+    let eve = roster.row_data(3).unwrap();
     assert_eq!(eve.nameplate_url, "bare.png");
     assert_eq!(eve.nameplate_color.alpha(), 0);
     // Bob's name is drawn neon in Mainframe; Dave's has no style.
@@ -2927,9 +2965,103 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
         adapter.refresh(&window);
     }
     let roster = window.get_roster();
-    assert!((0..3).all(|row| roster.row_data(row).unwrap().nameplate_url.is_empty()));
-    assert_eq!(roster.row_data(0).unwrap().decoration_url, "ring.png");
+    assert!((1..4).all(|row| roster.row_data(row).unwrap().nameplate_url.is_empty()));
+    assert_eq!(roster.row_data(1).unwrap().decoration_url, "ring.png");
     assert!(look.get_nameplate_url().is_empty());
+    window.hide().unwrap();
+}
+
+#[test]
+fn the_member_list_is_built_again_only_once_what_it_shows_changes() {
+    use yapfast_core::chat::{ChatMember, Role};
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    window.show().unwrap();
+    let now = yapfast_core::clock::now_ms();
+    let member = |id: &str, name: &str| ChatMember {
+        bot: false,
+        id: id.into(),
+        name: name.into(),
+        username: None,
+        role: Role::Member,
+        avatar: None,
+        decoration: None,
+        nameplate: None,
+        boosting_since: None,
+        style: None,
+        tag: None,
+        group: None,
+        presence: None,
+        color: None,
+        activity: None,
+        activities: Default::default(),
+        roles: Default::default(),
+        timed_out_until: None,
+        group_icon: None,
+        role_icon: None,
+    };
+    let list = vec![
+        member("1", "Bob"),
+        ChatMember {
+            timed_out_until: Some(now + 500),
+            ..member("2", "Dave")
+        },
+    ];
+    let refresh = |change: &dyn Fn(&mut AppState)| {
+        let mut adapter = adapter.borrow_mut();
+        change(&mut adapter.app.state);
+        let window = window.clone_strong();
+        adapter.refresh(&window);
+    };
+    refresh(&|state| state.members = Some(Ok(Arc::new(list.clone()))));
+    // The preview's people were shown just before, so these wait out the pause.
+    i_slint_backend_testing::mock_elapsed_time(refresh::ROSTER_PAUSE);
+    let roster = window.get_roster();
+    // Their group's heading is a row of its own.
+    assert_eq!(roster.row_data(0).unwrap().heading, "MEMBERS — 2");
+    assert_eq!(roster.row_data(1).unwrap().name, "Bob");
+    assert!(roster.row_data(2).unwrap().timed_out);
+    // A row set from elsewhere tells whether the list was built again.
+    let mark = || {
+        let row = MemberRow {
+            name: "marked".into(),
+            ..roster.row_data(1).unwrap()
+        };
+        adapter.borrow().models.roster.set_row_data(1, row);
+    };
+    mark();
+    // A refresh for anything else, such as a message, leaves the rows be.
+    refresh(&|state| state.picture_changes += 1);
+    assert_eq!(roster.row_data(1).unwrap().name, "marked");
+    // The same people, come again, are a new list, which waits out the pause
+    // after the list was built.
+    refresh(&|state| state.members = Some(Ok(Arc::new(list.clone()))));
+    assert_eq!(roster.row_data(1).unwrap().name, "marked");
+    i_slint_backend_testing::mock_elapsed_time(refresh::ROSTER_PAUSE);
+    assert_eq!(roster.row_data(1).unwrap().name, "Bob");
+    mark();
+    refresh(&|state| state.hide_nameplates = true);
+    assert_eq!(
+        roster.row_data(1).unwrap().name,
+        "Bob",
+        "a setting it shows"
+    );
+    // Dave's timeout ending shows without a new list.
+    mark();
+    std::thread::sleep(std::time::Duration::from_millis(
+        (now + 500).saturating_sub(yapfast_core::clock::now_ms()) + 1,
+    ));
+    refresh(&|state| state.picture_changes += 1);
+    assert!(!roster.row_data(2).unwrap().timed_out);
     window.hide().unwrap();
 }
 
@@ -3044,11 +3176,23 @@ fn the_member_list_shows_for_text_channels_and_remembers_being_closed() {
         .window()
         .set_size(slint::LogicalSize::new(1120., 760.));
     assert!(window.get_members_available() && window.get_member_list());
-    let roster = window.get_roster();
-    assert_eq!(roster.row_count(), 4);
-    assert_eq!(roster.row_data(0).unwrap().heading, "ADMINS — 1");
-    assert_eq!(roster.row_data(2).unwrap().heading, "MEMBERS — 2");
-    assert!(roster.row_data(3).unwrap().heading.is_empty());
+    // Each group's heading is a row of its own, before its people.
+    let roster: Vec<MemberRow> = window.get_roster().iter().collect();
+    let shown: Vec<&str> = roster
+        .iter()
+        .map(|row| match row.id.is_empty() {
+            true => row.heading.as_str(),
+            false => "member",
+        })
+        .collect();
+    assert_eq!(shown.iter().filter(|row| **row == "member").count(), 4);
+    assert_eq!(shown[0], "ADMINS — 1");
+    assert!(shown.contains(&"MEMBERS — 2"));
+    assert!(
+        roster
+            .iter()
+            .all(|row| row.id.is_empty() != row.heading.is_empty())
+    );
     let click = |x, y| {
         let position = slint::LogicalPosition::new(x, y);
         let button = slint::platform::PointerEventButton::Left;
@@ -3072,7 +3216,12 @@ fn the_member_list_shows_for_text_channels_and_remembers_being_closed() {
     assert!(!window.get_members_available());
     window.invoke_select_room("party".into());
     assert!(window.get_members_available());
-    assert_eq!(window.get_roster().row_count(), 3);
+    let people = window
+        .get_roster()
+        .iter()
+        .filter(|row| !row.id.is_empty())
+        .count();
+    assert_eq!(people, 3);
     window.hide().unwrap();
 }
 
@@ -4810,6 +4959,50 @@ fn a_right_click_on_a_folder_asks_for_its_menu() {
         toggled.borrow().len(),
         1,
         "a right click leaves it as it was"
+    );
+}
+
+#[test]
+fn a_profile_theme_is_light_by_its_first_colour_as_in_discord() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = classic_window();
+    let theme = window.global::<ProfileTheme>();
+    let rgb = slint::Color::from_rgb_u8;
+    // Discord's client: light when 0.299 red, 0.587 green and 0.114 blue come
+    // to at least half of full, whatever the second colour or the app's theme.
+    assert!(theme.invoke_light(rgb(0xfd, 0xe2, 0xe4)), "a pale pink");
+    assert!(theme.invoke_light(rgb(0x80, 0x80, 0x80)), "the middle grey");
+    assert!(!theme.invoke_light(rgb(0x7f, 0x7f, 0x7f)), "just under it");
+    assert!(
+        !theme.invoke_light(rgb(0x58, 0x65, 0xf2)),
+        "Discord's blurple"
+    );
+    assert!(!theme.invoke_light(rgb(0xff, 0x00, 0x00)), "red is dark");
+    assert!(theme.invoke_light(rgb(0x00, 0xff, 0x00)), "green is light");
+    // A light theme lies under 60% white and takes black text; a dark one
+    // under 60% black and takes white.
+    let channels = |colour: slint::Color| [colour.red(), colour.green(), colour.blue()];
+    let near = |a: slint::Color, b: slint::Color| {
+        channels(a)
+            .iter()
+            .zip(channels(b))
+            .all(|(a, b)| a.abs_diff(b) <= 1)
+    };
+    assert!(near(
+        theme.invoke_wash(rgb(0xff, 0x00, 0x00), true),
+        rgb(0xff, 0x99, 0x99)
+    ));
+    assert!(near(
+        theme.invoke_wash(rgb(0xff, 0x00, 0x00), false),
+        rgb(0x66, 0x00, 0x00)
+    ));
+    assert_eq!(
+        theme.invoke_ink(true),
+        slint::Color::from_argb_u8(0xf5, 0, 0, 0)
+    );
+    assert_eq!(
+        theme.invoke_ink(false),
+        slint::Color::from_argb_u8(0xf5, 0xff, 0xff, 0xff)
     );
 }
 
@@ -9156,6 +9349,59 @@ fn yapfast_settings_navigation_and_header_keep_the_existing_actions() {
 }
 
 #[test]
+fn yapfast_settings_name_the_build_and_copy_it_on_a_click() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    i_slint_backend_testing::init_no_event_loop();
+    let window = YapfastWindow::new().unwrap();
+    window.set_own_title_bar(true);
+    window.set_account_name("Alex".into());
+    window.set_account_initial("A".into());
+    let build = window.global::<BuildInfo>();
+    build.set_headline("Yapfast v0.4.0-nightly.20261107.12".into());
+    build.set_channel("Nightly".into());
+    build.set_details("59391f96 · 2026-11-07".into());
+    build.set_tone(1);
+    build
+        .set_summary("Yapfast v0.4.0-nightly.20261107.12 · Nightly · 59391f96 · 2026-11-07".into());
+    window.set_settings_open(true);
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1920., 1080.));
+    // The settings card fades in; let the animation finish so it takes clicks.
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(1000));
+    let clipboard = || {
+        i_slint_core::window::WindowInner::from_pub(window.window())
+            .context()
+            .platform()
+            .clipboard_text(i_slint_core::platform::Clipboard::DefaultClipboard)
+    };
+    assert_ne!(
+        clipboard().as_deref(),
+        Some("Yapfast v0.4.0-nightly.20261107.12 · Nightly · 59391f96 · 2026-11-07")
+    );
+    // Under the sections, at the foot of the navigation.
+    let position = slint::LogicalPosition::new(350., 980.);
+    window.window().dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    });
+    window
+        .window()
+        .dispatch_event(WindowEvent::PointerReleased {
+            position,
+            button: PointerEventButton::Left,
+        });
+    assert_eq!(
+        clipboard().as_deref(),
+        Some("Yapfast v0.4.0-nightly.20261107.12 · Nightly · 59391f96 · 2026-11-07"),
+        "a click on the build copies it as one line"
+    );
+    assert!(window.get_settings_open(), "and leaves settings open");
+    window.hide().unwrap();
+}
+
+#[test]
 fn yapfast_account_popover_copies_its_id_and_opens_settings_without_changing_status() {
     use slint::platform::{PointerEventButton, WindowEvent};
     let window = one_message("Synthetic message");
@@ -9500,4 +9746,25 @@ fn a_long_message_folds_until_show_more_only_with_the_switch_on() {
     // The switch is kept with the other preferences.
     window.invoke_preferences_changed();
     assert!(adapter.borrow().layout.collapse_long);
+}
+
+#[test]
+fn the_mouse_side_buttons_go_back_and_forward() {
+    use slint::winit_030::winit::event::MouseButton;
+    assert!(matches!(
+        side_button_action(MouseButton::Back),
+        Some(Action::NavigateBack)
+    ));
+    assert!(matches!(
+        side_button_action(MouseButton::Forward),
+        Some(Action::NavigateForward)
+    ));
+    for other in [
+        MouseButton::Left,
+        MouseButton::Right,
+        MouseButton::Middle,
+        MouseButton::Other(7),
+    ] {
+        assert!(side_button_action(other).is_none(), "{other:?}");
+    }
 }
