@@ -56,6 +56,16 @@ impl Options {
 
 /// Runs the helper until the parent goes away.
 pub fn run(options: Options) -> anyhow::Result<()> {
+    // First, before a pipe, a subscriber or the runtime starts a thread: a
+    // switch left in the environment would let a guest write into the frame
+    // stream, and the parent's cleared environment is no help to a helper
+    // started by hand or by the measurement harness.
+    //
+    // Safety: nothing else in this process exists to read the environment yet.
+    let dropped = unsafe { crate::environment::clear_extism_variables() };
+    if dropped > 0 {
+        warn!(dropped, "dropped Extism's environment switches");
+    }
     let pipe = Pipe::stdio().context("setting up the pipe to Yapfast")?;
     // Logging comes after the pipe, because a plugin's own lines travel as
     // frames: the subscriber files them under their plugin instead of letting

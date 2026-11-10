@@ -83,6 +83,24 @@ pub fn check(bytes: &[u8], wasi: bool) -> Result<Shape, Fault> {
                 .to_owned(),
         ));
     }
+    // The magic alone accepts anything called WebAssembly: the four bytes after
+    // it name the version, and this helper speaks the core binary format's 1.
+    // A component-model module or a truncated download is refused here, where
+    // the sentence can say so.
+    match bytes.get(4..8) {
+        Some([0x01, 0x00, 0x00, 0x00]) => {}
+        Some(other) => {
+            return Err(bad(format!(
+                "it is WebAssembly but names version {:02x?}, and this helper runs version 1",
+                other
+            )));
+        }
+        None => {
+            return Err(bad(
+                "it is shorter than a WebAssembly header, so it was not written whole".to_owned(),
+            ));
+        }
+    }
     // The magic and the version are the first eight bytes; the sections follow.
     let mut reader = Reader::new(bytes.get(8..).unwrap_or_default());
     let mut shape = Shape::default();
@@ -371,6 +389,32 @@ mod tests {
         assert!(
             fault.reason.contains("asm"),
             "the reason names the magic: {}",
+            fault.reason
+        );
+    }
+
+    #[test]
+    fn a_module_of_another_webassembly_version_is_refused_by_name() {
+        let mut bytes = MAGIC.to_vec();
+        // The component model's version, which the core format's runtime can't
+        // run: the magic passes and the version is what refuses it.
+        bytes.extend_from_slice(&[0x0d, 0x00, 0x01, 0x00]);
+        let fault = check(&bytes, false).expect_err("another version is refused");
+        assert_eq!(fault.kind, FaultKind::BadModule);
+        assert!(
+            fault.reason.contains("version"),
+            "the reason names the version: {}",
+            fault.reason
+        );
+    }
+
+    #[test]
+    fn a_truncated_header_says_the_file_is_short() {
+        let fault = check(b"\0asm".as_slice(), false).expect_err("half a header is no header");
+        assert_eq!(fault.kind, FaultKind::BadModule);
+        assert!(
+            fault.reason.contains("shorter than a WebAssembly header"),
+            "{}",
             fault.reason
         );
     }

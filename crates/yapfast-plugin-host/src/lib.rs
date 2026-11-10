@@ -6,6 +6,7 @@
 //! ordering rather than WebAssembly.
 
 pub mod backend;
+pub mod environment;
 pub mod fetch;
 pub mod host;
 pub mod logging;
