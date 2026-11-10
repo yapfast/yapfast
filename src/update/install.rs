@@ -404,19 +404,31 @@ async fn prepare_in(
 }
 
 /// The command line `cmd` runs on Windows: the installer, silent and waited
-/// for, then the program again, then the installer's file removed. `None` when
-/// a path holds a character `cmd` would read as more than a name (`"` can't
-/// be in a Windows path; `%` would expand a variable).
+/// for, then the program again with the arguments it was started with (the
+/// data folder it used, say), then the installer's file removed. `None` when a
+/// path or argument holds a character `cmd` would read as more than a name
+/// (`"` can't be in a Windows path; `%` would expand a variable).
 #[cfg_attr(
     not(windows),
     allow(dead_code, reason = "only Windows runs an installer")
 )]
-pub fn windows_command(installer: &Path, program: &Path, log: &Path) -> Option<String> {
+pub fn windows_command(
+    installer: &Path,
+    program: &Path,
+    arguments: &[String],
+    log: &Path,
+) -> Option<String> {
     let quoted = |path: &Path| {
         let text = path.to_str()?;
         (!text.contains(['"', '%', '\r', '\n'])).then(|| format!("\"{text}\""))
     };
     let (installer, program, log) = (quoted(installer)?, quoted(program)?, quoted(log)?);
+    let mut program = program;
+    for argument in arguments {
+        let argument = quoted(Path::new(argument))?;
+        program.push(' ');
+        program.push_str(&argument);
+    }
     // Inno Setup's own switches: no pages, no message boxes, no restart, and
     // the running program closed (it has quit already, so it's belt and braces).
     let log_switch = format!("/LOG={log}");
@@ -428,11 +440,11 @@ pub fn windows_command(installer: &Path, program: &Path, log: &Path) -> Option<S
 /// Runs the installer once Yapfast has quit, then starts the program again.
 /// The caller returns right after, so the files can be replaced.
 #[cfg(windows)]
-pub fn run_installer(installer: &Path, program: &Path) -> Result<(), String> {
+pub fn run_installer(installer: &Path, program: &Path, arguments: &[String]) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let log = installer.with_extension("log");
-    let line = windows_command(installer, program, &log)
+    let line = windows_command(installer, program, arguments, &log)
         .ok_or("The update's path has a character the installer can't be started with.")?;
     // `/S` makes `cmd` strip the outer quotes only, leaving the inner ones.
     std::process::Command::new("cmd.exe")
@@ -449,7 +461,7 @@ pub fn run_installer(installer: &Path, program: &Path) -> Result<(), String> {
 
 /// Only Windows has an installer to run.
 #[cfg(not(windows))]
-pub fn run_installer(_: &Path, _: &Path) -> Result<(), String> {
+pub fn run_installer(_: &Path, _: &Path, _: &[String]) -> Result<(), String> {
     Err("Installers are for Windows.".into())
 }
 
@@ -571,6 +583,7 @@ mod tests {
         let line = windows_command(
             Path::new(r"C:\Temp\yapfast-update\Setup.exe"),
             Path::new(r"C:\Users\Jörg Müller\AppData\Local\Programs\Yapfast\yapfast.exe"),
+            &[],
             Path::new(r"C:\Temp\yapfast-update\Setup.log"),
         )
         .unwrap();
@@ -580,10 +593,31 @@ mod tests {
         );
         for odd in [r"C:\100%\yapfast.exe", "C:\\a\"b\\yapfast.exe"] {
             assert_eq!(
-                windows_command(Path::new("s.exe"), Path::new(odd), Path::new("s.log")),
+                windows_command(Path::new("s.exe"), Path::new(odd), &[], Path::new("s.log")),
                 None
             );
         }
+        // The arguments the program had come back with it, quoted the same way.
+        let line = windows_command(
+            Path::new("s.exe"),
+            Path::new("y.exe"),
+            &["--data-dir".into(), r"D:\My data".into()],
+            Path::new("s.log"),
+        )
+        .unwrap();
+        assert!(
+            line.contains(r#"start "" "y.exe" "--data-dir" "D:\My data" & del"#),
+            "{line}"
+        );
+        assert_eq!(
+            windows_command(
+                Path::new("s.exe"),
+                Path::new("y.exe"),
+                &["100%".into()],
+                Path::new("s.log")
+            ),
+            None
+        );
     }
 
     /// A small HTTP server on this computer that answers each request from `files`.

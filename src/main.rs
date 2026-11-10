@@ -282,7 +282,7 @@ fn finish_update(prepared: update::install::Prepared, arguments: &[String]) -> R
     match prepared {
         Prepared::Replaced(program) => relaunch_program(&program, arguments, None, None),
         Prepared::Installer { installer, program } => {
-            match update::install::run_installer(&installer, &program) {
+            match update::install::run_installer(&installer, &program, arguments) {
                 Ok(()) => Ok(()),
                 Err(error) => {
                     tracing::error!(%error, "could not run the installer; starting the old version");
