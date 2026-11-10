@@ -499,7 +499,13 @@ async fn a_deferred_answer_shows_thinking_then_its_content() {
     let run = fixture.run("6000", "echo", options);
     assert!(fixture.discord.run_command(run, vec![]).await.unwrap());
     let thinking = live_where(&mut live, |live| match live {
-        Live::Created(message) if message.author_id == fixture.deploy.author_id => Some(message),
+        // The components control may still be posting Status Bot's other
+        // messages, so this waits for the one still loading.
+        Live::Created(message)
+            if message.author_id == fixture.deploy.author_id && message.flags & (1 << 7) != 0 =>
+        {
+            Some(message)
+        }
         _ => None,
     })
     .await;
