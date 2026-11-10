@@ -1316,9 +1316,9 @@ mod tests {
             "https://media.tenor.com/b.mp4",
         );
         assert_eq!(kept_gif(gif), None);
-        let (downloaded, mut file) = gif_download(gif).unwrap();
-        std::io::Write::write_all(&mut file, b"gif").unwrap();
-        drop(file);
+        let (downloaded, mut output) = gif_download(gif).unwrap();
+        std::io::Write::write_all(&mut output, b"gif").unwrap();
+        drop(output);
         let kept = keep_gif(gif, KeptGif::File(&downloaded)).unwrap();
         assert!(!downloaded.exists());
         assert_eq!(kept_gif(gif), Some(kept.clone()));
