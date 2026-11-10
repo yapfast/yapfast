@@ -30,7 +30,7 @@ use crate::{
         Event, History, MAX_PREVIEW_DOWNLOAD_BYTES, MentionGroup, Notification, OutgoingFile,
         Picture, Placement, Poll, PollAnswer, Profile, ProfileBadge, ProfileBadgeLevel,
         ProfileConnection, ProfileFriend, ProfileRole, ProfileServer, Reaction, Reply, Role,
-        SearchHit, ThreadLink, Topic, Video, VideoCommand, plain_snippet,
+        SearchHit, ThreadLink, Topic, Video, VideoCommand, VoicePlayback, plain_snippet,
     },
     discord::{self, KEPT_CHANNELS, KEPT_MESSAGES},
     mention::{Mentioned, Target},
@@ -43,6 +43,7 @@ mod channels;
 mod commands;
 mod expressions;
 mod gifs;
+mod interactions;
 mod open_channel;
 mod overwrites;
 mod own_profile;
@@ -72,6 +73,9 @@ const SAVE_EVERY: Duration = Duration::from_secs(20);
 const MAX_SAVE_BYTES: usize = 100 * 1024 * 1024;
 /// The largest video that plays, past Discord's 500 MB limit for Nitro.
 const MAX_VIDEO_BYTES: u64 = 1024 * 1024 * 1024;
+/// The largest voice message that plays: Discord's are Opus at a few
+/// kilobytes a second, so this holds an hour of one.
+const MAX_VOICE_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 
 /// Work for the open channel that finished in the background.
 pub enum Done {
@@ -145,6 +149,7 @@ pub(crate) enum Wake {
     /// Time to put changed channels on disk.
     Save,
     Video(crate::playback::Wake),
+    VoiceMessage(Option<crate::voice_message::Report>),
 }
 
 /// The linked Discord account in the chat actor: its connection and the open
@@ -165,6 +170,9 @@ pub(crate) struct Chat {
     /// How loud the last video played, and whether muted: the next plays
     /// the same.
     video_sound: (f32, bool),
+    /// The voice message playing, or paused, in the open channel or the
+    /// thread beside it.
+    voice_message: Option<crate::voice_message::Player>,
 }
 
 impl Drop for Chat {
@@ -211,6 +219,7 @@ impl Chat {
             },
             video: None,
             video_sound: (1.0, false),
+            voice_message: None,
         }))
     }
 
@@ -255,16 +264,50 @@ impl Chat {
                 }
                 return;
             }
-            // A video plays only while its channel is open, or its thread
-            // beside it.
-            Command::Open(_) | Command::CloseRoom => self.stop_video(events),
+            Command::PlayVoiceMessage {
+                room,
+                item,
+                speakers,
+                tuning,
+            } => {
+                self.play_voice_message(room, item, speakers, tuning, events);
+                return;
+            }
+            Command::TuneVoiceMessage(tuning) => {
+                if let Some(player) = &self.voice_message {
+                    player.tune(tuning);
+                }
+                return;
+            }
+            Command::PauseVoiceMessage => {
+                if let Some(player) = &mut self.voice_message {
+                    player.set_playing(false);
+                    let _ = events.send(Event::VoiceMessage(Some(player.playback.clone())));
+                }
+                return;
+            }
+            // A video or voice message plays only while its channel is
+            // open, or its thread beside it.
+            Command::Open(_) | Command::CloseRoom => {
+                self.stop_video(events);
+                self.stop_voice_message(events);
+            }
             Command::Aside(ref beside) => {
                 let shown = self.channels.aside.as_ref().map(|aside| &aside.room);
-                if self.video.as_ref().is_some_and(|playback| {
-                    shown == Some(&playback.video.room)
-                        && beside.as_ref() != Some(&playback.video.room)
-                }) {
+                let closes = |room: &String| shown == Some(room) && beside.as_ref() != Some(room);
+                let video = self
+                    .video
+                    .as_ref()
+                    .is_some_and(|playback| closes(&playback.video.room));
+                let voice_message = self
+                    .voice_message
+                    .as_ref()
+                    .is_some_and(|player| closes(&player.playback.room));
+                if video {
                     self.stop_video(events);
+                }
+                if voice_message {
+                    self.stop_voice_message(events);
                 }
             }
             _ => {}
@@ -282,6 +325,58 @@ impl Chat {
         if self.video.take().is_some() {
             let _ = events.send(Event::Video(None));
         }
+    }
+
+    fn stop_voice_message(&mut self, events: &UnboundedSender<Event>) {
+        if self.voice_message.take().is_some() {
+            let _ = events.send(Event::VoiceMessage(None));
+        }
+    }
+
+    /// Plays a voice message on from where it paused, or from the start in
+    /// place of any other once its recording downloads.
+    fn play_voice_message(
+        &mut self,
+        room: String,
+        item: String,
+        speakers: Option<String>,
+        tuning: crate::chat::VoiceTuning,
+        events: &UnboundedSender<Event>,
+    ) {
+        if let Some(player) = self
+            .voice_message
+            .as_mut()
+            .filter(|player| player.playback.room == room && player.playback.item == item)
+        {
+            player.tune(tuning);
+            player.set_playing(true);
+            let _ = events.send(Event::VoiceMessage(Some(player.playback.clone())));
+            return;
+        }
+        self.voice_message = None;
+        let url = self
+            .channels
+            .shown_mut(&room)
+            .and_then(|channel| channel.attachment(&item, 0))
+            .map(|recording| recording.url.clone());
+        let playback = VoicePlayback {
+            room,
+            item,
+            ..Default::default()
+        };
+        let Some(url) = url else {
+            let _ = events.send(Event::VoiceMessage(Some(VoicePlayback {
+                error: Some("This voice message is no longer available.".into()),
+                ..playback
+            })));
+            return;
+        };
+        let discord = self.discord.clone();
+        let player = crate::voice_message::Player::start(playback, speakers, tuning, async move {
+            discord.download_now(&url, MAX_VOICE_MESSAGE_BYTES).await
+        });
+        let _ = events.send(Event::VoiceMessage(Some(player.playback.clone())));
+        self.voice_message = Some(player);
     }
 
     /// Plays an attachment's video in place of its poster, as it downloads,
@@ -359,6 +454,7 @@ impl Chat {
             Some(finished) = self.finished.recv() => Wake::Finished(finished),
             _ = self.saving.tick() => Wake::Save,
             wake = next_video(&mut self.video) => Wake::Video(wake),
+            report = next_voice_message(&mut self.voice_message) => Wake::VoiceMessage(report),
         }
     }
 
@@ -414,6 +510,18 @@ impl Chat {
                     let _ = events.send(Event::Video(Some(playback.video.clone())));
                 }
             }
+            Wake::VoiceMessage(report) => {
+                if let Some(player) = &mut self.voice_message {
+                    let gone = report.is_none();
+                    let playing = player.handle(report);
+                    let _ = events.send(Event::VoiceMessage(
+                        (!gone).then(|| player.playback.clone()),
+                    ));
+                    if !playing {
+                        self.voice_message = None;
+                    }
+                }
+            }
             Wake::Snapshot(None) | Wake::Live(None) => {}
         }
     }
@@ -423,6 +531,16 @@ impl Chat {
 async fn next_video(video: &mut Option<crate::playback::Playback>) -> crate::playback::Wake {
     match video {
         Some(playback) => playback.wait().await,
+        None => std::future::pending().await,
+    }
+}
+
+/// What the voice message playing next tells, or never without one.
+async fn next_voice_message(
+    player: &mut Option<crate::voice_message::Player>,
+) -> Option<crate::voice_message::Report> {
+    match player {
+        Some(player) => player.wait().await,
         None => std::future::pending().await,
     }
 }

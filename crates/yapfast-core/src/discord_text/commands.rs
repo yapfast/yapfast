@@ -97,6 +97,9 @@ pub fn command(
     let Some(command) = super::stickers::command(command, discord, events) else {
         return;
     };
+    let Some(command) = super::interactions::command(command, discord, events) else {
+        return;
+    };
     let Some(command) = super::ownership::command(command, discord, events) else {
         return;
     };
@@ -636,6 +639,21 @@ pub fn live(
     done: &UnboundedSender<Done>,
     events: &UnboundedSender<Event>,
 ) {
+    if let Ok(Live::InteractionModal(modal)) = &event {
+        let _ = events.send(Event::InteractionModal(modal.clone()));
+        return;
+    }
+    if let Ok(Live::InteractionFailure { nonce, .. }) = &event {
+        let _ = events.send(Event::InteractionFailed {
+            nonce: nonce.clone(),
+            reason: super::interactions::FAILED.into(),
+        });
+        return;
+    }
+    if let Ok(Live::InteractionSuccess { nonce }) = &event {
+        let _ = events.send(Event::InteractionSucceeded(nonce.clone()));
+        return;
+    }
     if let Ok(Live::ActivityFeedStale { refresh_after_ms }) = &event {
         let wait = discord.activity_feed_stale_wait(*refresh_after_ms);
         let events = events.clone();

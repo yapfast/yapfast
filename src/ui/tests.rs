@@ -285,6 +285,34 @@ fn the_composers_menu_cuts_copies_and_pastes_through_the_application() {
     assert_eq!(window.get_draft(), "hellohello");
 }
 
+#[test]
+fn the_typing_line_holds_still_while_animations_dont_play() {
+    use i_slint_core::item_tree::ItemRc;
+    use std::ops::ControlFlow;
+    let window = showing(vec![ChatMessage {
+        author: "Sam".into(),
+        body: "Hi".into(),
+        ..Default::default()
+    }]);
+    window.show().unwrap();
+    window.set_typing("Sam is typing...".into());
+    // Lays every item out, as a frame would, and says whether that asked
+    // for another frame: `animation-tick()` does whenever it's read.
+    let animating = |playing| {
+        window.global::<Motion>().set_playing(playing);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        slint::platform::update_timers_and_animations();
+        let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+        let _ = ItemRc::new_root(inner.component()).visit_descendants(|item| {
+            let _ = item.geometry();
+            ControlFlow::<()>::Continue(())
+        });
+        window.window().has_active_animations()
+    };
+    assert!(!animating(false), "nothing repaints while someone types");
+    assert!(animating(true), "the dots move while animations play");
+}
+
 /// Presses and lets go of a key, as typed.
 fn tap(window: &YapfastWindow, text: SharedString) {
     use slint::platform::WindowEvent;
@@ -800,6 +828,7 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
         noise_strength: yapfast_core::noise::Strength::Light,
         input_sensitivity: Some(-45),
         reduce_room_echo: true,
+        windows_microphone_effects: true,
         ..Default::default()
     };
     let row = layout.restyle(&message, message_row(&message, &HashSet::new()));
@@ -856,6 +885,11 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
     assert_eq!(saved["noise_strength"], "light");
     assert_eq!(window.get_sensitivity(), -45);
     assert!(window.get_dereverb() && !defaults.reduce_room_echo);
+    // Microphones skip Windows' effects unless asked, and the switch shows
+    // only where there are any.
+    assert!(window.get_windows_effects() && !defaults.windows_microphone_effects);
+    assert_eq!(window.get_windows_effects_choice(), cfg!(windows));
+    yapfast_core::set_windows_effects(false);
     assert_eq!(defaults.sensitivity(), -60);
     let out_of_range = Layout {
         input_sensitivity: Some(12),
@@ -1388,6 +1422,187 @@ fn pictures_on_their_way_hold_their_place_as_skeletons() {
 }
 
 #[test]
+fn a_voice_message_shows_its_player_which_plays_and_pauses() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    adapter
+        .borrow_mut()
+        .action(&window, Action::SelectRoom("general".into()));
+    let message = ChatMessage {
+        item: "d:1".into(),
+        author: "Sam".into(),
+        attachments: vec![yapfast_core::chat::Attachment {
+            name: "voice-message.ogg".into(),
+            size: Some(36_000),
+            image: false,
+            dimensions: None,
+            preview: None,
+            preview_failed: false,
+            placement: Placement::Message,
+            gif: None,
+            spoiler: false,
+            video: false,
+            url: Some("https://cdn.example/voice-message.ogg".into()),
+        }],
+        voice: Some(yapfast_core::chat::VoiceMessage {
+            duration_ms: 5_480,
+            waveform: [0, 255, 51].into(),
+        }),
+        ..Default::default()
+    };
+    let row = message_row_plain(&message);
+    let file = row.files.row_data(0).unwrap();
+    assert!(file.voice);
+    assert_eq!(file.duration, "0:05");
+    let bars: Vec<f32> = file.waveform.iter().collect();
+    assert_eq!(bars.len(), 32);
+    assert_eq!((bars[0], bars[31]), (0.0, 0.2));
+    assert!(bars.contains(&1.0));
+    adapter.borrow_mut().app.state.messages = Arc::new(vec![Arc::new(message)]);
+    adapter.borrow_mut().refresh(&window);
+    let player = window.global::<VoicePlayer>();
+    assert_eq!(player.get_item(), "", "nothing plays yet");
+
+    // Its button plays it, which the backend does; meanwhile it shows as
+    // started.
+    player.invoke_toggle("d:1".into());
+    assert_eq!(player.get_item(), "d:1");
+    assert!(player.get_playing() && player.get_loading());
+    assert_eq!(player.get_time(), "0:00 / 0:05");
+    let reach = adapter.borrow_mut().apply(Event::VoiceMessage(Some(
+        yapfast_core::chat::VoicePlayback {
+            room: "general".into(),
+            item: "d:1".into(),
+            loading: false,
+            playing: true,
+            position_ms: 2_740,
+            error: None,
+        },
+    )));
+    adapter.borrow_mut().show(&window, reach);
+    assert!(!player.get_loading());
+    assert_eq!(player.get_progress(), 0.5);
+    assert_eq!(player.get_time(), "0:02 / 0:05");
+
+    // Again, it pauses where it is.
+    player.invoke_toggle("d:1".into());
+    assert!(!player.get_playing());
+    assert_eq!(player.get_progress(), 0.5);
+    // At its end it goes back to its start, showing how long it is.
+    let reach = adapter.borrow_mut().apply(Event::VoiceMessage(Some(
+        yapfast_core::chat::VoicePlayback {
+            room: "general".into(),
+            item: "d:1".into(),
+            ..Default::default()
+        },
+    )));
+    adapter.borrow_mut().show(&window, reach);
+    assert!(!player.get_playing());
+    assert_eq!(
+        (player.get_progress(), player.get_time().as_str()),
+        (0.0, "")
+    );
+
+    // Its speed button goes from 1x to 1.5x to 2x and back; its volume
+    // stays as set.
+    let speeds: Vec<String> = (0..4)
+        .map(|_| {
+            let speed = player.get_speed().to_string();
+            player.invoke_cycle_speed();
+            speed
+        })
+        .collect();
+    assert_eq!(speeds, ["1x", "1.5x", "2x", "1x"]);
+    player.invoke_change_volume(0.25);
+    assert_eq!(player.get_volume(), 0.25);
+}
+
+#[test]
+fn a_voice_messages_speed_and_volume_slide_out_while_pointed_at() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    let window = showing(vec![ChatMessage {
+        author: "Sam".into(),
+        attachments: vec![yapfast_core::chat::Attachment {
+            name: "voice-message.ogg".into(),
+            size: Some(36_000),
+            image: false,
+            dimensions: None,
+            preview: None,
+            preview_failed: false,
+            placement: Placement::Message,
+            gif: None,
+            spoiler: false,
+            video: false,
+            url: None,
+        }],
+        voice: Some(yapfast_core::chat::VoiceMessage {
+            duration_ms: 5_000,
+            waveform: [128; 64].into(),
+        }),
+        ..Default::default()
+    }]);
+    let cycled = Rc::new(Cell::new(0));
+    let count = cycled.clone();
+    window
+        .global::<VoicePlayer>()
+        .on_cycle_speed(move || count.set(count.get() + 1));
+    let wait = |ms| {
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(ms));
+        settle(&window);
+    };
+    let point = |x: f32, y: f32| {
+        window.window().dispatch_event(WindowEvent::PointerMoved {
+            position: slint::LogicalPosition::new(x, y),
+        });
+    };
+    let click = |x: f32, y: f32| {
+        let (position, button) = (slint::LogicalPosition::new(x, y), PointerEventButton::Left);
+        let dispatch = |event| window.window().dispatch_event(event);
+        dispatch(WindowEvent::PointerPressed { position, button });
+        dispatch(WindowEvent::PointerReleased { position, button });
+    };
+
+    // With animations off they always show: the speed button is somewhere
+    // along the message, found from the left, before the volume button.
+    window.global::<Motion>().set_never(true);
+    settle(&window);
+    let speed = (300..1000)
+        .step_by(6)
+        .flat_map(|x| (60..680).step_by(6).map(move |y| (x as f32, y as f32)))
+        .find(|&(x, y)| {
+            click(x, y);
+            cycled.get() > 0
+        })
+        .expect("the speed button shows");
+
+    // With them on, they're folded away until the pointer comes, then slide
+    // out.
+    window.global::<Motion>().set_never(false);
+    window.invoke_focus_composer();
+    point(1100., 40.);
+    wait(300);
+    let before = cycled.get();
+    click(speed.0, speed.1);
+    assert_eq!(cycled.get(), before, "folded away as the pointer comes");
+    wait(300);
+    click(speed.0, speed.1);
+    assert_eq!(cycled.get(), before + 1, "out while pointed at");
+    point(1100., 40.);
+    wait(300);
+    click(speed.0, speed.1);
+    assert_eq!(cycled.get(), before + 1, "folded again once it left");
+}
+
+#[test]
 fn the_sticker_picker_lists_the_servers_stickers_above_the_packs() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();
@@ -1502,6 +1717,7 @@ fn a_servers_icon_draws_on_its_heading_and_rail_button() {
             banner: None,
             verified: false,
             events: Vec::new(),
+            boosts: None,
             tag: None,
         })];
         state.stickers.open = true;
@@ -2380,6 +2596,82 @@ fn invite_to_server_lists_the_servers_in_a_submenu() {
 }
 
 #[test]
+#[cfg(feature = "discord")]
+fn someone_dragged_onto_another_voice_channel_moves_as_move_to_does() {
+    const LOUNGE: &str = "discord:10:12";
+    const DEN: &str = "discord:10:13";
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    // Alice is Staff, who may move members; Dave and she, on another
+    // client, are in Lounge.
+    adapter.borrow_mut().app = yapfast_core::application::member_server(&["30"]);
+    adapter.borrow_mut().refresh(&window);
+    let droppable = || -> Vec<String> {
+        window
+            .get_rooms()
+            .iter()
+            .zip(window.get_person_droppable().iter())
+            .filter(|(_, droppable)| *droppable)
+            .map(|(row, _)| row.name.to_string())
+            .collect()
+    };
+    let stopped = || {
+        !window.get_person_moving()
+            && window.get_person_droppable().row_count() == 0
+            && adapter.borrow().moving_person.is_none()
+    };
+
+    // Dave may be dragged onto Den, the one other channel his menu's Move
+    // to offers; Lounge, where he is, Vault and #general dim.
+    assert!(window.invoke_start_moving_person(LOUNGE.into(), "4".into()));
+    assert!(window.get_person_moving());
+    assert_eq!(droppable(), ["Den"]);
+    // Let go anywhere else, nothing is sent.
+    window.invoke_move_person("discord:10:11".into());
+    assert!(stopped());
+    assert!(adapter.borrow().app.state.notice.is_none());
+    // Escape, or letting go outside the list, stops it; winit's Escape,
+    // which this backend doesn't send, calls the same stop.
+    assert!(window.invoke_start_moving_person(LOUNGE.into(), "4".into()));
+    window.invoke_stop_moving_person();
+    assert!(stopped());
+    // Dropped on Den, the move goes out, as from his menu; here, with no
+    // Discord connection, it fails.
+    assert!(window.invoke_start_moving_person(LOUNGE.into(), "4".into()));
+    window.invoke_move_person(DEN.into());
+    assert!(stopped());
+    assert!(adapter.borrow().app.state.notice.is_some());
+    // Another list showing, with nowhere to drop him, stops it.
+    assert!(window.invoke_start_moving_person(LOUNGE.into(), "4".into()));
+    let navigate = |to| adapter.borrow_mut().action(&window, Action::Navigate(to));
+    navigate(Navigation::DirectMessages);
+    assert!(stopped());
+    navigate(Navigation::Server("discord:10".into()));
+
+    // Alice, on another client, joins Den from here.
+    assert!(window.invoke_start_moving_person(LOUNGE.into(), "1".into()));
+    assert_eq!(droppable(), ["Den"]);
+    window.invoke_move_person(DEN.into());
+    assert!(stopped());
+    assert!(adapter.borrow().app.state.voice.error.is_some());
+
+    // Without Move Members, Dave stays put; Cara isn't in voice.
+    adapter.borrow_mut().app = yapfast_core::application::member_server(&["20"]);
+    adapter.borrow_mut().refresh(&window);
+    assert!(!window.invoke_start_moving_person(LOUNGE.into(), "4".into()));
+    assert!(!window.invoke_start_moving_person(LOUNGE.into(), "3".into()));
+    assert!(stopped());
+}
+
+#[test]
 fn an_event_shows_when_it_runs_and_where() {
     use yapfast_core::{application::EventDialog, chat::EventPreview, clock};
     i_slint_backend_testing::init_no_event_loop();
@@ -2857,7 +3149,7 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
     {
         let mut adapter = adapter.borrow_mut();
         let state = &mut adapter.app.state;
-        state.members = Some(Ok(vec![
+        state.members = Some(Ok(Arc::new(vec![
             ChatMember {
                 bot: false,
                 decoration: Some("ring.png".into()),
@@ -2877,14 +3169,17 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
                 }),
                 ..member("3", "Eve")
             },
-        ]));
+        ])));
         state.account_decoration = Some("mine.png".into());
         state.account_nameplate = Some(plate("mine-strip.png"));
         let window = window.clone_strong();
         adapter.refresh(&window);
     }
+    // The preview's people were shown just before, so these wait out the pause.
+    i_slint_backend_testing::mock_elapsed_time(refresh::ROSTER_PAUSE);
+    // Row 0 is their group's heading.
     let roster = window.get_roster();
-    let (bob, dave) = (roster.row_data(0).unwrap(), roster.row_data(1).unwrap());
+    let (bob, dave) = (roster.row_data(1).unwrap(), roster.row_data(2).unwrap());
     assert_eq!(bob.decoration_url, "ring.png");
     assert_eq!(bob.nameplate_url, "strip.png");
     assert_eq!(
@@ -2897,7 +3192,7 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
     );
     assert!(dave.decoration_url.is_empty() && dave.nameplate_url.is_empty());
     // A palette Yapfast doesn't know leaves the picture without a colour.
-    let eve = roster.row_data(2).unwrap();
+    let eve = roster.row_data(3).unwrap();
     assert_eq!(eve.nameplate_url, "bare.png");
     assert_eq!(eve.nameplate_color.alpha(), 0);
     // Bob's name is drawn neon in Mainframe; Dave's has no style.
@@ -2916,9 +3211,103 @@ fn decorations_and_nameplates_reach_the_member_list_and_the_account_card() {
         adapter.refresh(&window);
     }
     let roster = window.get_roster();
-    assert!((0..3).all(|row| roster.row_data(row).unwrap().nameplate_url.is_empty()));
-    assert_eq!(roster.row_data(0).unwrap().decoration_url, "ring.png");
+    assert!((1..4).all(|row| roster.row_data(row).unwrap().nameplate_url.is_empty()));
+    assert_eq!(roster.row_data(1).unwrap().decoration_url, "ring.png");
     assert!(look.get_nameplate_url().is_empty());
+    window.hide().unwrap();
+}
+
+#[test]
+fn the_member_list_is_built_again_only_once_what_it_shows_changes() {
+    use yapfast_core::chat::{ChatMember, Role};
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    window.show().unwrap();
+    let now = yapfast_core::clock::now_ms();
+    let member = |id: &str, name: &str| ChatMember {
+        bot: false,
+        id: id.into(),
+        name: name.into(),
+        username: None,
+        role: Role::Member,
+        avatar: None,
+        decoration: None,
+        nameplate: None,
+        boosting_since: None,
+        style: None,
+        tag: None,
+        group: None,
+        presence: None,
+        color: None,
+        activity: None,
+        activities: Default::default(),
+        roles: Default::default(),
+        timed_out_until: None,
+        group_icon: None,
+        role_icon: None,
+    };
+    let list = vec![
+        member("1", "Bob"),
+        ChatMember {
+            timed_out_until: Some(now + 500),
+            ..member("2", "Dave")
+        },
+    ];
+    let refresh = |change: &dyn Fn(&mut AppState)| {
+        let mut adapter = adapter.borrow_mut();
+        change(&mut adapter.app.state);
+        let window = window.clone_strong();
+        adapter.refresh(&window);
+    };
+    refresh(&|state| state.members = Some(Ok(Arc::new(list.clone()))));
+    // The preview's people were shown just before, so these wait out the pause.
+    i_slint_backend_testing::mock_elapsed_time(refresh::ROSTER_PAUSE);
+    let roster = window.get_roster();
+    // Their group's heading is a row of its own.
+    assert_eq!(roster.row_data(0).unwrap().heading, "MEMBERS — 2");
+    assert_eq!(roster.row_data(1).unwrap().name, "Bob");
+    assert!(roster.row_data(2).unwrap().timed_out);
+    // A row set from elsewhere tells whether the list was built again.
+    let mark = || {
+        let row = MemberRow {
+            name: "marked".into(),
+            ..roster.row_data(1).unwrap()
+        };
+        adapter.borrow().models.roster.set_row_data(1, row);
+    };
+    mark();
+    // A refresh for anything else, such as a message, leaves the rows be.
+    refresh(&|state| state.picture_changes += 1);
+    assert_eq!(roster.row_data(1).unwrap().name, "marked");
+    // The same people, come again, are a new list, which waits out the pause
+    // after the list was built.
+    refresh(&|state| state.members = Some(Ok(Arc::new(list.clone()))));
+    assert_eq!(roster.row_data(1).unwrap().name, "marked");
+    i_slint_backend_testing::mock_elapsed_time(refresh::ROSTER_PAUSE);
+    assert_eq!(roster.row_data(1).unwrap().name, "Bob");
+    mark();
+    refresh(&|state| state.hide_nameplates = true);
+    assert_eq!(
+        roster.row_data(1).unwrap().name,
+        "Bob",
+        "a setting it shows"
+    );
+    // Dave's timeout ending shows without a new list.
+    mark();
+    std::thread::sleep(std::time::Duration::from_millis(
+        (now + 500).saturating_sub(yapfast_core::clock::now_ms()) + 1,
+    ));
+    refresh(&|state| state.picture_changes += 1);
+    assert!(!roster.row_data(2).unwrap().timed_out);
     window.hide().unwrap();
 }
 
@@ -3033,11 +3422,23 @@ fn the_member_list_shows_for_text_channels_and_remembers_being_closed() {
         .window()
         .set_size(slint::LogicalSize::new(1120., 760.));
     assert!(window.get_members_available() && window.get_member_list());
-    let roster = window.get_roster();
-    assert_eq!(roster.row_count(), 4);
-    assert_eq!(roster.row_data(0).unwrap().heading, "ADMINS — 1");
-    assert_eq!(roster.row_data(2).unwrap().heading, "MEMBERS — 2");
-    assert!(roster.row_data(3).unwrap().heading.is_empty());
+    // Each group's heading is a row of its own, before its people.
+    let roster: Vec<MemberRow> = window.get_roster().iter().collect();
+    let shown: Vec<&str> = roster
+        .iter()
+        .map(|row| match row.id.is_empty() {
+            true => row.heading.as_str(),
+            false => "member",
+        })
+        .collect();
+    assert_eq!(shown.iter().filter(|row| **row == "member").count(), 4);
+    assert_eq!(shown[0], "ADMINS — 1");
+    assert!(shown.contains(&"MEMBERS — 2"));
+    assert!(
+        roster
+            .iter()
+            .all(|row| row.id.is_empty() != row.heading.is_empty())
+    );
     let click = |x, y| {
         let position = slint::LogicalPosition::new(x, y);
         let button = slint::platform::PointerEventButton::Left;
@@ -3061,7 +3462,12 @@ fn the_member_list_shows_for_text_channels_and_remembers_being_closed() {
     assert!(!window.get_members_available());
     window.invoke_select_room("party".into());
     assert!(window.get_members_available());
-    assert_eq!(window.get_roster().row_count(), 3);
+    let people = window
+        .get_roster()
+        .iter()
+        .filter(|row| !row.id.is_empty())
+        .count();
+    assert_eq!(people, 3);
     window.hide().unwrap();
 }
 
@@ -4799,6 +5205,50 @@ fn a_right_click_on_a_folder_asks_for_its_menu() {
         toggled.borrow().len(),
         1,
         "a right click leaves it as it was"
+    );
+}
+
+#[test]
+fn a_profile_theme_is_light_by_its_first_colour_as_in_discord() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = classic_window();
+    let theme = window.global::<ProfileTheme>();
+    let rgb = slint::Color::from_rgb_u8;
+    // Discord's client: light when 0.299 red, 0.587 green and 0.114 blue come
+    // to at least half of full, whatever the second colour or the app's theme.
+    assert!(theme.invoke_light(rgb(0xfd, 0xe2, 0xe4)), "a pale pink");
+    assert!(theme.invoke_light(rgb(0x80, 0x80, 0x80)), "the middle grey");
+    assert!(!theme.invoke_light(rgb(0x7f, 0x7f, 0x7f)), "just under it");
+    assert!(
+        !theme.invoke_light(rgb(0x58, 0x65, 0xf2)),
+        "Discord's blurple"
+    );
+    assert!(!theme.invoke_light(rgb(0xff, 0x00, 0x00)), "red is dark");
+    assert!(theme.invoke_light(rgb(0x00, 0xff, 0x00)), "green is light");
+    // A light theme lies under 60% white and takes black text; a dark one
+    // under 60% black and takes white.
+    let channels = |colour: slint::Color| [colour.red(), colour.green(), colour.blue()];
+    let near = |a: slint::Color, b: slint::Color| {
+        channels(a)
+            .iter()
+            .zip(channels(b))
+            .all(|(a, b)| a.abs_diff(b) <= 1)
+    };
+    assert!(near(
+        theme.invoke_wash(rgb(0xff, 0x00, 0x00), true),
+        rgb(0xff, 0x99, 0x99)
+    ));
+    assert!(near(
+        theme.invoke_wash(rgb(0xff, 0x00, 0x00), false),
+        rgb(0x66, 0x00, 0x00)
+    ));
+    assert_eq!(
+        theme.invoke_ink(true),
+        slint::Color::from_argb_u8(0xf5, 0, 0, 0)
+    );
+    assert_eq!(
+        theme.invoke_ink(false),
+        slint::Color::from_argb_u8(0xf5, 0xff, 0xff, 0xff)
     );
 }
 
@@ -7929,6 +8379,8 @@ fn a_card_of_components_shows_headings_files_and_only_link_buttons_working() {
         label: "Go".into(),
         style,
         url: url.map(str::to_owned),
+        custom_id: None,
+        sku_id: None,
         disabled: false,
     };
     let message = ChatMessage {
@@ -9531,6 +9983,140 @@ fn an_avatars_colour_is_worked_out_once_it_has_arrived() {
 }
 
 #[test]
+fn bot_modal_summaries_show_default_entity_names_and_unknown_ids() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    let mut adapter = adapter.borrow_mut();
+    adapter.app.state.messages = Arc::new(vec![Arc::new(ChatMessage {
+        sender: "discord:11".into(),
+        author: "Alex".into(),
+        ..Default::default()
+    })]);
+    adapter.apply(Event::InteractionModal(serde_json::json!({
+        "id": "42", "channel_id": "7", "guild_id": "10", "custom_id": "assign",
+        "application": {"id": "3"}, "title": "Assign", "nonce": "click",
+        "components": [
+            {"type": 18, "label": "User", "component": {
+                "type": 5, "custom_id": "user", "default_values": [{"id": "11", "type": "user"}]
+            }},
+            {"type": 18, "label": "Mentionable", "component": {
+                "type": 7, "custom_id": "mention", "default_values": [{"id": "11", "type": "user"}]
+            }},
+            {"type": 18, "label": "Role", "component": {
+                "type": 6, "custom_id": "role", "default_values": [{"id": "12", "type": "role"}]
+            }},
+            {"type": 18, "label": "Channel", "component": {
+                "type": 8, "custom_id": "channel", "default_values": [{"id": "13", "type": "channel"}]
+            }}
+        ]
+    })));
+    adapter.refresh(&window);
+    let fields = window.get_bot_modal_fields();
+    assert_eq!(fields.row_data(0).unwrap().summary, "Alex");
+    assert_eq!(fields.row_data(1).unwrap().summary, "Alex");
+    assert_eq!(fields.row_data(2).unwrap().summary, "12");
+    assert_eq!(fields.row_data(3).unwrap().summary, "13");
+}
+
+#[test]
+fn bot_modal_keeps_input_model_while_typing() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    {
+        let mut adapter = adapter.borrow_mut();
+        adapter.apply(Event::InteractionModal(serde_json::json!({
+            "id": "42", "channel_id": "7", "custom_id": "ticket",
+            "application": {"id": "3"}, "title": "Open ticket", "nonce": "click",
+            "components": [{"type": 1, "components": [{
+                "type": 4, "custom_id": "reason", "label": "Reason", "style": 1
+            }]}]
+        })));
+        adapter.refresh(&window);
+    }
+    let original = window.get_bot_modal_fields();
+    for value in ["t", "te", "tes", "test"] {
+        window.invoke_bot_modal_field_edited(0, value.into());
+        let current = window.get_bot_modal_fields();
+        assert!(std::ptr::eq(original.as_any(), current.as_any()));
+        assert_eq!(current.row_data(0).unwrap().value, value);
+    }
+}
+
+#[test]
+fn bot_select_keeps_its_model_and_filters_original_choice_indices() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    {
+        let mut adapter = adapter.borrow_mut();
+        adapter.apply(Event::InteractionModal(serde_json::json!({
+            "id": "42", "channel_id": "7", "custom_id": "ticket",
+            "application": {"id": "3"}, "title": "Choose", "nonce": "click",
+            "components": [{"type": 18, "label": "Choice", "component": {
+                "type": 3, "custom_id": "choice", "required": false,
+                "options": [
+                    {"label": "Alpha", "value": "a"},
+                    {"label": "Beta", "value": "b"}
+                ]
+            }}]
+        })));
+        adapter.refresh(&window);
+    }
+    window.invoke_bot_modal_open_select(0);
+    let original = window.get_bot_select_choices();
+    assert_eq!(original.row_count(), 2);
+    adapter.borrow_mut().refresh(&window);
+    assert!(std::ptr::eq(
+        original.as_any(),
+        window.get_bot_select_choices().as_any()
+    ));
+    window.invoke_bot_select_search("BETA".into());
+    let filtered = window.get_bot_select_choices();
+    assert!(std::ptr::eq(original.as_any(), filtered.as_any()));
+    assert_eq!(filtered.row_count(), 1);
+    assert_eq!(filtered.row_data(0).unwrap().index, 1);
+    window.invoke_bot_select_toggle(1);
+    assert!(filtered.row_data(0).unwrap().selected);
+    window.invoke_bot_select_submit();
+    assert_eq!(
+        adapter
+            .borrow()
+            .app
+            .state
+            .interaction_modal
+            .as_ref()
+            .unwrap()
+            .fields[0]
+            .values,
+        ["b"]
+    );
+    assert!(!window.get_bot_select_open());
+    assert_eq!(window.get_bot_select_choices().row_count(), 0);
+}
+
+#[test]
 fn a_long_message_folds_until_show_more_only_with_the_switch_on() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();
@@ -9600,6 +10186,145 @@ fn a_long_message_folds_until_show_more_only_with_the_switch_on() {
     // The switch is kept with the other preferences.
     window.invoke_preferences_changed();
     assert!(adapter.borrow().layout.collapse_long);
+}
+
+#[test]
+fn many_reactions_wrap_onto_more_lines_in_the_messages_width() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    let settle = |window: &YapfastWindow| {
+        for _ in 0..5 {
+            i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(1));
+            slint::platform::update_timers_and_animations();
+            let _ = window.invoke_timeline_extent();
+        }
+    };
+    // Past a screen of messages, so the list is as tall as its rows.
+    let long: String = (1..=40).map(|line| format!("Line {line}\n")).collect();
+    adapter
+        .borrow_mut()
+        .action(&window, Action::SetDraft(long.trim_end().into()));
+    adapter.borrow_mut().action(&window, Action::Send);
+    settle(&window);
+    let before = window.invoke_timeline_extent();
+    let item = window.get_messages().iter().last().unwrap().item;
+    let emoji = [
+        "👍", "❤️", "😂", "🎉", "🔥", "👀", "🙏", "💯", "😮", "😢", "🚀", "✨", "🍕", "🌈", "🎧",
+        "🐢",
+    ];
+    for key in emoji {
+        window.invoke_react(item.clone(), key.into());
+    }
+    settle(&window);
+    let row = window.get_messages().iter().last().unwrap();
+    assert_eq!(row.reactions.row_count(), emoji.len());
+    // Sixteen chips are wider than the timeline: in one row they'd add one
+    // chip's height and run past its edge; wrapped, the row grows by each line.
+    let chip = 28.;
+    let grown = window.invoke_timeline_extent() - before;
+    assert!(grown > chip * 2. + 6., "the reactions add {grown}px");
+    // A wider window fits more to a line, so the row is shorter again.
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1900., 760.));
+    settle(&window);
+    let wide = window.invoke_timeline_extent();
+    for key in emoji {
+        window.invoke_react(item.clone(), key.into());
+    }
+    settle(&window);
+    let wide_grown = wide - window.invoke_timeline_extent();
+    assert!(wide_grown < grown, "{wide_grown}px wide, {grown}px narrow");
+}
+
+#[test]
+fn the_mouse_side_buttons_go_back_and_forward() {
+    use slint::winit_030::winit::event::MouseButton;
+    assert!(matches!(
+        side_button_action(MouseButton::Back),
+        Some(Action::NavigateBack)
+    ));
+    assert!(matches!(
+        side_button_action(MouseButton::Forward),
+        Some(Action::NavigateForward)
+    ));
+    for other in [
+        MouseButton::Left,
+        MouseButton::Right,
+        MouseButton::Middle,
+        MouseButton::Other(7),
+    ] {
+        assert!(side_button_action(other).is_none(), "{other:?}");
+    }
+}
+
+#[test]
+fn a_profiles_more_menu_blocks_from_the_profile() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    // Alice, "1", has #general open; Dave, "4", is her friend there.
+    adapter.borrow_mut().app = yapfast_core::application::member_server(&["30"]);
+    let texts = |window: &YapfastWindow| -> Vec<String> {
+        window
+            .get_menu_rows()
+            .iter()
+            .map(|row| row.text.to_string())
+            .collect()
+    };
+    // The profile's More button opens the person's own menu.
+    window.invoke_prepare_menu("profile-more:4".into(), true);
+    let from_profile = texts(&window);
+    window.invoke_prepare_menu("4".into(), true);
+    assert_eq!(from_profile, texts(&window));
+    assert!(from_profile.iter().any(|text| text == "Block"));
+    // Alice's own profile offers no Block.
+    window.invoke_prepare_menu("profile-more:1".into(), true);
+    assert!(!texts(&window).iter().any(|text| text == "Block"));
+
+    // Block asks first, and the dialog remembers it came from the profile.
+    window.invoke_choose_menu("profile-more:4".into(), true, "block".into());
+    let dialog = adapter.borrow().app.state.person_dialog.clone().unwrap();
+    assert_eq!(
+        (dialog.user.as_str(), dialog.ask, dialog.location),
+        ("4", PersonAsk::Block, "user profile overflow menu")
+    );
+    // A right click's says it came from a menu.
+    adapter.borrow_mut().app.state.person_dialog = None;
+    window.invoke_choose_menu("4".into(), true, "block".into());
+    let dialog = adapter.borrow().app.state.person_dialog.clone().unwrap();
+    assert_eq!(dialog.location, "ContextMenu");
+    adapter.borrow_mut().app.state.person_dialog = None;
+    // Its changes to a relationship, Unblock included, name the same place.
+    assert_eq!(
+        menus::relationship_place("profile-more:4"),
+        ("4", "user profile overflow menu")
+    );
+    assert_eq!(menus::relationship_place("4"), ("4", "ContextMenu"));
+    // The rest of the menu acts on the person, not on the prefixed target.
+    window.invoke_choose_menu("profile-more:4".into(), true, "profile".into());
+    let shown = adapter.borrow().app.state.profile.clone();
+    assert_eq!(shown.map(|view| view.profile.id), Some("4".into()));
 }
 
 #[test]

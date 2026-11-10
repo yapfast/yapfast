@@ -3,6 +3,12 @@
 //! records; reading and writing wait for it on the caller's thread, and copy
 //! straight between the caller's samples and the engine's buffer.
 //!
+//! Microphones open in raw mode unless [`super::set_windows_effects`] says
+//! otherwise: Windows then skips the effects it, or a driver, would run on
+//! them ("device default effects", "audio enhancements"), whose noise
+//! suppression muffles a voice that Yapfast's own suppressor works on again.
+//! A device without raw mode opens with its effects.
+//!
 //! WebRTC's Windows device module names each device by its endpoint id, as
 //! `IMMDevice::GetId` gives it, so a device id opens the endpoint directly.
 
@@ -19,8 +25,9 @@ use windows::{
             Audio::{
                 AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED,
                 AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-                AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, DEVICE_STATE_ACTIVE, EDataFlow,
-                IAudioCaptureClient, IAudioClient, IAudioRenderClient, IMMDevice,
+                AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, AUDCLNT_STREAMOPTIONS_RAW,
+                AudioCategory_Other, AudioClientProperties, DEVICE_STATE_ACTIVE, EDataFlow,
+                IAudioCaptureClient, IAudioClient, IAudioClient2, IAudioRenderClient, IMMDevice,
                 IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEX, WAVEFORMATEXTENSIBLE,
                 WAVEFORMATEXTENSIBLE_0, eCapture, eConsole, eRender,
             },
@@ -216,6 +223,29 @@ impl Stream {
         Self::initialize(client, format, buffer, 0)
     }
 
+    /// As [`Self::open`], skipping the device's effects where it can, or
+    /// with them where it can't.
+    fn open_raw(device: &IMMDevice, format: Format, buffer: Duration) -> Result<Self> {
+        let raw = AudioClientProperties {
+            cbSize: size_of::<AudioClientProperties>() as u32,
+            bIsOffload: false.into(),
+            eCategory: AudioCategory_Other,
+            Options: AUDCLNT_STREAMOPTIONS_RAW,
+        };
+        // SAFETY: plain COM calls; the properties outlive the call.
+        let client = unsafe { device.Activate::<IAudioClient2>(CLSCTX_ALL, None) }
+            .and_then(|client| unsafe { client.SetClientProperties(&raw) }.map(|()| client))
+            .context("no raw mode")
+            .and_then(|client| Self::initialize(client.into(), format, buffer, 0));
+        client.or_else(|error| {
+            tracing::debug!(
+                error = format!("{error:#}"),
+                "opening with the device's effects"
+            );
+            Self::open(device, format, buffer)
+        })
+    }
+
     /// Starts `client` as a stream, with `flags` besides the usual ones.
     fn initialize(
         client: IAudioClient,
@@ -407,7 +437,12 @@ impl Input {
     ) -> Result<Self> {
         let device =
             device(microphone, eCapture).context("this microphone is no longer connected")?;
-        let mut stream = Stream::open(&device, format, (fragment * 4).max(RECORDING))?;
+        let buffer = (fragment * 4).max(RECORDING);
+        let mut stream = if super::windows_effects() {
+            Stream::open(&device, format, buffer)?
+        } else {
+            Stream::open_raw(&device, format, buffer)?
+        };
         // SAFETY: an initialized client.
         let capture = unsafe { stream.client.GetService::<IAudioCaptureClient>() }?;
         let left = Vec::with_capacity(stream.buffer as usize * format.frame_bytes());

@@ -1,7 +1,7 @@
 import { ClientStyle } from "yapfast/style.slint";
 import { ListView, ScrollView } from "scrollview.slint";
 import { Theme, Tip, ReactionHover, Middle, Label, Twemoji } from "theme.slint";
-import { ActionButton, IconButton, Avatar, Picture, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField, ContextMenu, MenuRow, StyledName, NameStyleRow, ServerTagChip } from "controls.slint";
+import { ActionButton, IconButton, Avatar, Motion, Picture, UprightVolumeSlider, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField, ContextMenu, MenuRow, StyledName, NameStyleRow, ServerTagChip } from "controls.slint";
 import { FavoriteStar, GifFavorites } from "gifs.slint";
 
 /// An emoji: what shows, its name, and the reaction it adds, which for a custom
@@ -352,6 +352,27 @@ export global VideoPlayer {
     callback change-volume(float);
 }
 
+/// The voice message playing, or paused, in the conversation view.
+export global VoicePlayer {
+    in property <string> item;
+    in property <bool> loading;
+    in property <bool> playing;
+    /// How far it has played, from 0 to 1, and as text, such as
+    /// "0:02 / 0:05"; empty at its start.
+    in property <float> progress;
+    in property <string> time;
+    in property <string> error;
+    /// How fast voice messages play, as their speed button says, such as
+    /// "1.5x", and how loud, from 0 to 1 as the slider stands.
+    in property <string> speed: "1x";
+    in property <float> volume: 1;
+    /// Plays an item's voice message, or pauses it while it plays.
+    callback toggle(string);
+    /// Plays them at the next speed: 1x, 1.5x, then 2x.
+    callback cycle-speed();
+    callback change-volume(float);
+}
+
 // A playing video's controls: play or pause, its time, a bar to move
 // through it, mute, and full screen. A narrow video, such as one filmed
 // upright, leaves out the time and then mute, so full screen stays in it.
@@ -517,8 +538,10 @@ component VideoCell inherits Rectangle {
     }
 }
 
-/// A file, or an image without a preview, as a card.
-export struct FileCell { index: int, name: string, detail: string }
+/// A file, or an image without a preview, as a card. A Discord voice
+/// message's recording is a `voice` card instead: its `waveform`, a bar's
+/// height from 0 to 1 each, and how long it plays, as "0:05".
+export struct FileCell { index: int, name: string, detail: string, voice: bool, waveform: [float], duration: string }
 /// A block of a message's or card's text, as Discord's client lays them
 /// out: Markdown (0), a heading (1 to 3), subtext (4) or fenced code (5).
 /// Slint's Markdown draws none but the first. A `quoted` block is behind a
@@ -548,10 +571,8 @@ export struct EmbedCard {
     images: [ImageCell], gallery-width: int, gallery-height: int,
     video: bool,
 }
-/// A Discord app's button. Only a link's is `enabled`: the others would ask
-/// the app, which Yapfast can't yet.
-export enum CardButtonStyle { primary, secondary, success, danger, link }
-export struct CardButton { label: string, style: CardButtonStyle, url: string, enabled: bool }
+export enum CardButtonStyle { primary, secondary, success, danger, link, premium }
+export struct CardButton { label: string, style: CardButtonStyle, url: string, custom-id: string, sku-id: string, enabled: bool }
 export enum CardRowKind { text, media, separator, buttons, select, unknown }
 /// A row of a Discord app's card, of one `kind`, with the fields it uses:
 /// text and what a section shows beside it; pictures in a gallery and file
@@ -566,7 +587,7 @@ export struct CardRow {
     images: [ImageCell], gallery-width: int, gallery-height: int, files: [FileCell],
     divider: bool, large: bool,
     buttons: [CardButton],
-    select: string,
+    select: string, select-id: string, select-enabled: bool,
 }
 /// A container of a Discord message's components, framed with a bar of its
 /// colour, or the components outside one.
@@ -780,6 +801,7 @@ export struct MessageRow {
     embeds: [EmbedCard],
     /// A Discord app's buttons and menus, or a message made of components.
     cards: [ComponentCard],
+    app-id: string,
     /// The body in blocks, when it has headings, subtext, quotes or code;
     /// otherwise empty, and the body is `styled`.
     blocks: [TextBlock],
@@ -863,7 +885,7 @@ export component MessageStickerCardView inherits Rectangle {
     callback open-server(string);
     /// Its picture, at the 48px the card draws it, asked for as it shows.
     property <image> sticker-picture: root.card.picture-url != ""
-        ? PictureStore.picture(root.card.picture-url, PictureStore.revision)
+        ? PictureStore.picture(root.card.picture-url, PictureStore.revision(root.card.picture-url))
         : @image-url("");
     function request-sticker-picture() {
         if root.card.picture-url != "" && root.sticker-picture.width == 0 {
@@ -872,7 +894,7 @@ export component MessageStickerCardView inherits Rectangle {
     }
     changed sticker-picture => { root.request-sticker-picture(); }
     /// The server's icon, asked for as it shows.
-    property <image> server-picture: PictureStore.picture(root.card.server-picture-url, PictureStore.revision);
+    property <image> server-picture: PictureStore.picture(root.card.server-picture-url, PictureStore.revision(root.card.server-picture-url));
     function request-server-picture() {
         if root.card.server-picture-url != "" && root.server-picture.width == 0 {
             PictureStore.request(root.card.server-picture-url);
@@ -984,7 +1006,7 @@ export component EmojiCardView inherits Rectangle {
     callback open-server(string);
     /// Its picture, asked for as the card shows it, as `Avatar` asks for one.
     property <image> emoji-picture: root.card.picture-url != ""
-        ? PictureStore.picture(root.card.picture-url, PictureStore.revision)
+        ? PictureStore.picture(root.card.picture-url, PictureStore.revision(root.card.picture-url))
         : root.card.picture;
     function request-emoji-picture() {
         if root.card.picture-url != "" && root.emoji-picture.width == 0 {
@@ -998,7 +1020,7 @@ export component EmojiCardView inherits Rectangle {
         ? @image-url("")
         : EmojiAnimations.frame(root.card.picture-key, EmojiAnimations.revision);
     /// The server's icon, asked for as it shows, as `Avatar` asks for one.
-    property <image> server-picture: PictureStore.picture(root.card.server-picture-url, PictureStore.revision);
+    property <image> server-picture: PictureStore.picture(root.card.server-picture-url, PictureStore.revision(root.card.server-picture-url));
     function request-server-picture() {
         if root.card.server-picture-url != "" && root.server-picture.width == 0 {
             PictureStore.request(root.card.server-picture-url);
@@ -1430,10 +1452,15 @@ export component MessageGallery inherits HorizontalLayout {
     /// index, whether it's a video, and where in the window.
     callback media-menu(string, int, bool, length, length);
     padding-top: 4px;
+    // As laid out when there's room; narrower, it shrinks to the width it gets,
+    // keeping its shape, so a narrow timeline doesn't cut it off.
     Rectangle {
-        width: root.gallery-width * 1px; height: root.gallery-height * 1px;
+        property <float> scale: self.width / max(1px, root.gallery-width * 1px);
+        min-width: 0px; preferred-width: root.gallery-width * 1px; max-width: root.gallery-width * 1px;
+        height: root.gallery-height * 1px * self.scale;
         for cell in root.images: Rectangle {
-            x: cell.x * 1px; y: cell.y * 1px; width: cell.width * 1px; height: cell.height * 1px;
+            x: cell.x * 1px * parent.scale; y: cell.y * 1px * parent.scale;
+            width: cell.width * 1px * parent.scale; height: cell.height * 1px * parent.scale;
             border-radius: 8px; clip: true;
             // Discord draws a transparent picture straight on the message background.
             background: ClientStyle.enabled && !cell.loading ? transparent : Theme.sunken;
@@ -1500,15 +1527,173 @@ export component MessageStickers inherits HorizontalLayout {
     Rectangle { horizontal-stretch: 1; }
 }
 
+// A voice message's round play button, its accent shading towards the
+// bottom right.
+component VoicePlayButton inherits Rectangle {
+    in property <bool> playing;
+    in property <bool> enabled;
+    out property <bool> focused: focus.has-focus;
+    callback clicked;
+    width: 36px; height: 36px; border-radius: 18px;
+    background: @linear-gradient(135deg, Theme.accent.brighter(0.2) 0%, Theme.accent 100%);
+    border-width: focus.has-focus ? 2px : 0px; border-color: Theme.text;
+    opacity: root.enabled ? (touch.has-hover ? 0.9 : 1) : 0.5;
+    accessible-role: button; accessible-label: root.playing ? "Pause" : "Play";
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    Image {
+        source: root.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg");
+        width: 17px; height: 17px; colorize: #ffffff;
+    }
+    focus := FocusScope {
+        enabled: root.enabled;
+        // A click plays it; only the keyboard keeps the speed and volume out.
+        focus-on-click: false;
+        key-pressed(event) => {
+            if event.text == "\n" || event.text == " " {
+                root.clicked(); return accept;
+            }
+            return reject;
+        }
+        touch := TouchArea {
+            enabled: root.enabled;
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { root.clicked(); }
+        }
+    }
+}
+
 // A file, or an image without a preview, as a card with a way to save it.
+// A voice message is a pill instead, mixing Discord's phone and desktop
+// players: a round button that plays or pauses it, its waveform, filled up
+// to where it has played, and its time. While the pointer or the keyboard
+// is on it, or its volume is open, the desktop's speed and volume buttons
+// slide out after the time; with animations off they always show.
 export component FileCard inherits HorizontalLayout {
     in property <FileCell> file;
+    /// The message's item, which plays its voice message.
+    in property <string> item;
     in property <bool> preview;
     /// The message's delivery state, empty once it's sent.
     in property <string> delivery;
     callback save;
+    property <bool> active: root.file.voice && VoicePlayer.item == root.item && root.item != "";
+    property <float> played: root.active ? VoicePlayer.progress : 0;
     padding-top: 4px;
-    Rectangle {
+    if root.file.voice: pill := Rectangle {
+        property <bool> focused: play.focused || speed-focus.has-focus || volume.focused;
+        // Its volume popup keeps them out too, though the pointer is on it.
+        property <bool> expanded: Motion.never || pill-touch.has-hover || self.focused || volume-popup.is-open;
+        height: 52px; width: voice-card.preferred-width;
+        background: Theme.sidebar; border-radius: 26px;
+        accessible-role: groupbox; accessible-label: "Voice message, " + root.file.duration;
+        pill-touch := TouchArea {
+            voice-card := HorizontalLayout {
+                padding-left: 8px; padding-right: 16px; spacing: 12px;
+                Middle {
+                    play := VoicePlayButton {
+                        playing: root.active && VoicePlayer.playing;
+                        enabled: !root.preview && root.delivery == "";
+                        clicked => { VoicePlayer.toggle(root.item); }
+                    }
+                }
+                // A round bar of 3 pixels every 6 for each point of its
+                // waveform; a quiet one is a dot.
+                Rectangle {
+                    width: root.file.waveform.length * 6px - 3px;
+                    accessible-role: progress-indicator; accessible-label: "Played";
+                    accessible-value: round(root.played * 100) + "%";
+                    for level[index] in root.file.waveform: Rectangle {
+                        x: index * 6px; width: 3px; height: max(3px, level * 24px);
+                        y: (parent.height - self.height) / 2;
+                        border-radius: 1.5px;
+                        background: (index + 0.5) / root.file.waveform.length <= root.played ? Theme.text : Theme.muted;
+                    }
+                }
+                Text {
+                    text: root.active && VoicePlayer.error != "" ? VoicePlayer.error
+                        : root.active && VoicePlayer.loading ? "Loading..."
+                        : root.active && VoicePlayer.time != "" ? VoicePlayer.time : root.file.duration;
+                    color: root.active && VoicePlayer.error != "" ? Theme.danger : Theme.muted;
+                    font-size: 14px; vertical-alignment: center;
+                }
+                // Speed and volume, folded away until wanted.
+                extras := Rectangle {
+                    clip: true;
+                    width: pill.expanded ? extra-row.preferred-width : 0px;
+                    opacity: pill.expanded ? 1 : 0;
+                    animate width, opacity { duration: Motion.never ? 0ms : 150ms; easing: ease-out; }
+                    accessible-role: groupbox; accessible-label: "Voice message controls";
+                    extra-row := HorizontalLayout {
+                        x: 0; width: self.preferred-width;
+                        spacing: 4px;
+                        Middle {
+                            Rectangle {
+                                width: speed-text.preferred-width + 12px; height: 22px; border-radius: 11px;
+                                background: speed-touch.has-hover ? Theme.hover : Theme.raised;
+                                border-width: speed-focus.has-focus ? 2px : 0px; border-color: Theme.accent;
+                                accessible-role: button; accessible-label: "Playback speed";
+                                accessible-value: VoicePlayer.speed;
+                                accessible-action-default => { VoicePlayer.cycle-speed(); }
+                                speed-text := Text { text: VoicePlayer.speed; color: Theme.text; font-size: 12px; font-weight: 700; }
+                                speed-focus := FocusScope {
+                                    focus-on-click: false;
+                                    key-pressed(event) => {
+                                        if event.text == "\n" || event.text == " " {
+                                            VoicePlayer.cycle-speed(); return accept;
+                                        }
+                                        return reject;
+                                    }
+                                    speed-touch := TouchArea {
+                                        mouse-cursor: MouseCursor.pointer;
+                                        clicked => { VoicePlayer.cycle-speed(); }
+                                    }
+                                }
+                            }
+                        }
+                        Middle {
+                            volume := IconButton {
+                                size: 28px; glyph: 18px; tint: Theme.muted;
+                                icon: VoicePlayer.volume == 0 ? @image-url("icons/volume-x.svg") : @image-url("icons/volume-2.svg");
+                                label: "Volume";
+                                clicked => { volume-popup.show(); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // The volume over its button, upright as Discord's desktop player
+        // has it, or under it without room above; a popup, so nothing clips
+        // it.
+        volume-popup := PopupWindow {
+            property <length> above: volume.absolute-position.y - self.height - 6px;
+            width: 40px; height: 120px;
+            x: volume.absolute-position.x - pill.absolute-position.x + (volume.width - self.width) / 2;
+            y: (self.above >= 8px ? self.above : volume.absolute-position.y + volume.height + 6px)
+                - pill.absolute-position.y;
+            close-policy: PopupClosePolicy.close-on-click-outside;
+            FocusScope {
+                key-pressed(event) => {
+                    if event.text == Key.Escape {
+                        volume-popup.close(); return accept;
+                    }
+                    return reject;
+                }
+                Rectangle {
+                    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
+                    drop-shadow-blur: 16px; drop-shadow-color: #00000060;
+                    UprightVolumeSlider {
+                        x: (parent.width - self.width) / 2; y: 6px; height: parent.height - 12px;
+                        label: "Volume";
+                        value: round(VoicePlayer.volume * 100);
+                        changed(level) => { VoicePlayer.change-volume(level / 100); }
+                    }
+                }
+            }
+        }
+    }
+    if !root.file.voice: Rectangle {
         min-height: file-card.preferred-height; max-width: 432px; horizontal-stretch: 100;
         background: Theme.sidebar; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
         file-card := HorizontalLayout {
@@ -1700,11 +1885,15 @@ export component EmbedView inherits HorizontalLayout {
                     }
                 }
                 // A video's poster opens the video; other pictures open in the viewer.
+                // Shrinking to fit as a message's gallery does.
                 if root.embed.images.length > 0: HorizontalLayout {
                     Rectangle {
-                        width: root.embed.gallery-width * 1px; height: root.embed.gallery-height * 1px;
+                        property <float> scale: self.width / max(1px, root.embed.gallery-width * 1px);
+                        min-width: 0px; preferred-width: root.embed.gallery-width * 1px; max-width: root.embed.gallery-width * 1px;
+                        height: root.embed.gallery-height * 1px * self.scale;
                         for cell in root.embed.images: Rectangle {
-                            x: cell.x * 1px; y: cell.y * 1px; width: cell.width * 1px; height: cell.height * 1px;
+                            x: cell.x * 1px * parent.scale; y: cell.y * 1px * parent.scale;
+                            width: cell.width * 1px * parent.scale; height: cell.height * 1px * parent.scale;
                             border-radius: 4px; clip: true; background: ClientStyle.enabled && !cell.loading ? transparent : Theme.sunken;
                             if cell.loading: Skeleton { width: parent.width; height: parent.height; }
                             if !cell.loading: Picture { still: cell.image; frames: cell.frames; delays: cell.delays; width: parent.width; height: parent.height; image-fit: cover; accessible-role: image; accessible-label: cell.spoiler ? "Spoiler" : cell.name; }
@@ -1761,20 +1950,28 @@ export component EmbedView inherits HorizontalLayout {
     Rectangle { horizontal-stretch: 1; }
 }
 
-// A Discord app's button. A link's opens its page; the others show what the
-// app offers, but would ask the app, which Yapfast can't yet.
+// A Discord app's button: invoke its component, open a link, or view its offer.
 component CardButtonView inherits ActionButton {
     in property <CardButton> button;
+    in property <string> item;
+    in property <string> app-id;
+    in property <bool> busy;
     callback open-link(string);
+    callback use-button(string, string);
     property <image> no-icon;
-    text: root.button.label;
+    text: root.button.style == CardButtonStyle.premium ? "View offer" : root.button.label;
     icon: root.button.style == CardButtonStyle.link ? @image-url("icons/external-link.svg") : root.no-icon;
     primary: root.button.style == CardButtonStyle.primary;
     success: root.button.style == CardButtonStyle.success;
     danger: root.button.style == CardButtonStyle.danger;
-    enabled: root.button.enabled;
+    enabled: root.button.enabled && !root.busy && (root.button.style != CardButtonStyle.premium || root.app-id != "");
     small: true;
-    clicked => { root.open-link(root.button.url); }
+    clicked => {
+        if root.button.custom-id != "" { root.use-button(root.item, root.button.custom-id); }
+        else if root.button.sku-id != "" && root.app-id != "" {
+            root.open-link("https://discord.com/application-directory/" + root.app-id + "/store/" + root.button.sku-id);
+        } else { root.open-link(root.button.url); }
+    }
 }
 
 // A Discord message's container of components, or those outside one: text
@@ -1784,11 +1981,15 @@ export component CardView inherits HorizontalLayout {
     /// The message's item, which its pictures open by, and its delivery
     /// state, empty once it's sent.
     in property <string> item;
+    in property <string> app-id;
+    in property <bool> busy;
     in property <string> delivery;
     in property <string> active-item;
     in property <bool> preview;
     in property <length> message-font-size;
     callback open-link(string);
+    callback use-button(string, string);
+    callback open-select(string, string);
     callback reveal-attachment(string, int);
     callback view-image(string, int);
     callback save-attachment(string, int);
@@ -1838,7 +2039,7 @@ export component CardView inherits HorizontalLayout {
                     }
                     if row.has-button: VerticalLayout {
                         alignment: start;
-                        CardButtonView { button: row.button; open-link(link) => { root.open-link(link); } }
+                        CardButtonView { button: row.button; item: root.item; app-id: root.app-id; busy: root.busy; open-link(link) => { root.open-link(link); } use-button(item, id) => { root.use-button(item, id); } }
                     }
                 }
                 if row.kind == CardRowKind.media && row.images.length > 0: MessageGallery {
@@ -1862,18 +2063,22 @@ export component CardView inherits HorizontalLayout {
                 }
                 if row.kind == CardRowKind.buttons: HorizontalLayout {
                     spacing: 8px; alignment: start;
-                    for button in row.buttons: CardButtonView { button: button; open-link(link) => { root.open-link(link); } }
+                    for button in row.buttons: CardButtonView { button: button; item: root.item; app-id: root.app-id; busy: root.busy; open-link(link) => { root.open-link(link); } use-button(item, id) => { root.use-button(item, id); } }
                 }
                 if row.kind == CardRowKind.select: HorizontalLayout {
-                    // It doesn't open, so it shows as disabled.
                     Rectangle {
-                        max-width: 400px; horizontal-stretch: 100; height: 40px; border-radius: 8px; opacity: 0.5;
+                        max-width: 400px; horizontal-stretch: 100; height: 40px; border-radius: 8px; opacity: row.select-enabled && !root.busy ? 1 : 0.5;
                         background: Theme.field; border-width: 1px; border-color: Theme.edge;
-                        accessible-role: combobox; accessible-label: row.select; accessible-enabled: false;
+                        accessible-role: combobox; accessible-label: row.select; accessible-enabled: row.select-enabled && !root.busy;
+                        accessible-action-default => { if row.select-enabled && !root.busy { root.open-select(root.item, row.select-id); } }
                         HorizontalLayout {
                             padding-left: 12px; padding-right: 12px; spacing: 8px;
                             Text { text: row.select; color: Theme.secondary; font-weight: 500; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                             Image { source: @image-url("icons/chevron-down.svg"); width: 18px; image-fit: contain; colorize: Theme.secondary; }
+                        }
+                        TouchArea {
+                            enabled: row.select-enabled && !root.busy; mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.open-select(root.item, row.select-id); }
                         }
                     }
                     Rectangle { horizontal-stretch: 1; }
@@ -2332,6 +2537,11 @@ export component MessageContent inherits VerticalLayout {
     /// The message the pointer or keyboard is on, whose time shows.
     in property <string> active-item;
     in property <bool> preview;
+    /// The message whose bot control waits for its bot, and the one whose
+    /// control failed, with why.
+    in property <string> bot-busy-item;
+    in property <string> bot-failed-item;
+    in property <string> bot-failed-text;
     /// Adding to the message's reactions, or taking one's own back.
     in property <bool> reactions-enabled;
     in property <string> emoji-font;
@@ -2345,6 +2555,8 @@ export component MessageContent inherits VerticalLayout {
     /// A link in the text, which opens beside the pointer; and one in an embed.
     callback link-clicked(string);
     callback open-link(string);
+    callback use-button(string, string);
+    callback open-select(string, string);
     callback open-thread(string);
     callback react(string, string);
     callback retry(string);
@@ -2559,7 +2771,7 @@ export component MessageContent inherits VerticalLayout {
                 open(index, x, y, width, height) => { root.open-sticker(message.item, index, x, y, width, height); }
             }
             for file in message.files: FileCard {
-                file: file; preview: root.preview; delivery: message.delivery;
+                file: file; item: message.item; preview: root.preview; delivery: message.delivery;
                 save => { root.save-attachment(message.item, file.index); }
             }
             if message.hidden-card != "": Text {
@@ -2574,20 +2786,30 @@ export component MessageContent inherits VerticalLayout {
                 media-menu(id, index, video, x, y) => { root.media-menu(id, index, video, x, y); }
             }
             for card in message.cards: CardView {
-                card: card; item: message.item; delivery: message.delivery; active-item: root.active-item; preview: root.preview;
+                card: card; item: message.item; app-id: message.app-id; busy: root.bot-busy-item == message.item; delivery: message.delivery; active-item: root.active-item; preview: root.preview;
                 message-font-size: root.message-font-size;
                 open-link(link) => { root.open-link(link); }
+                use-button(item, id) => { root.use-button(item, id); }
+                open-select(item, id) => { root.open-select(item, id); }
                 reveal-attachment(id, index) => { root.reveal-attachment(id, index); }
                 view-image(id, index) => { root.view-image(id, index); }
                 save-attachment(id, index) => { root.save-attachment(id, index); }
                 media-menu(id, index, video, x, y) => { root.media-menu(id, index, video, x, y); }
             }
+            // Under the controls, why the last one used failed, as Discord's client.
+            if root.bot-failed-item != "" && root.bot-failed-item == message.item: HorizontalLayout {
+                padding-top: 4px; spacing: 6px;
+                Image { source: @image-url("icons/triangle-alert.svg"); width: 16px; colorize: Theme.danger; image-fit: contain; }
+                Text { text: root.bot-failed-text; color: Theme.danger; font-size: 14px; wrap: word-wrap; horizontal-stretch: 1; }
+            }
             if message.thread-room != "": ThreadChip {
                 name: message.thread-name; detail: message.thread-detail;
                 clicked => { root.open-thread(message.thread-room); }
             }
-            if message.reactions.length > 0: HorizontalLayout {
-                spacing: 6px; alignment: start; padding-top: 4px;
+            // The reactions wrap onto more lines, as Discord's do: a row would
+            // make the message as wide as all of them, past the timeline's edge.
+            if message.reactions.length > 0: FlexboxLayout {
+                spacing: 6px; alignment: start; cross-axis-line-alignment: start; padding-top: 4px;
                 for reaction in message.reactions: ReactionToggle {
                     item: message.item; key: reaction.key; label: reaction.label; count: reaction.count; mine: reaction.mine; emoji-font: root.emoji-font;
                     enabled: message.can-react && root.reactions-enabled;

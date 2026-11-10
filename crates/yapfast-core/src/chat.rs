@@ -516,6 +516,9 @@ pub struct ChatServer {
     /// Its scheduled events that haven't ended, soonest first, which its
     /// channel list counts in an "N Events" row.
     pub events: Vec<ServerEvent>,
+    /// How many boosts it has, when its owner shows the boost progress bar
+    /// above its channels.
+    pub boosts: Option<u32>,
 }
 
 /// A Discord server's scheduled event, as its events list shows it.
@@ -1670,6 +1673,48 @@ pub struct Video {
     pub error: Option<String>,
 }
 
+/// A voice message's recording as its sender's client described it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct VoiceMessage {
+    /// How long it plays, in milliseconds.
+    pub duration_ms: u64,
+    /// How loud it is along its length, from 0 to 255.
+    pub waveform: Arc<[u8]>,
+}
+
+/// The voice message playing, or paused, in the conversation view.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct VoicePlayback {
+    pub room: String,
+    pub item: String,
+    /// Until its file downloads.
+    pub loading: bool,
+    pub playing: bool,
+    /// How far it has played, in milliseconds.
+    pub position_ms: u64,
+    /// Why it stopped, for the person.
+    pub error: Option<String>,
+}
+
+/// How fast and loud voice messages play, as the person last chose while
+/// Yapfast runs.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VoiceTuning {
+    /// 1, 1.5 or 2 times as fast, at the same pitch.
+    pub speed: f32,
+    /// From 0 to 1 as the slider stands.
+    pub volume: f32,
+}
+
+impl Default for VoiceTuning {
+    fn default() -> Self {
+        Self {
+            speed: 1.0,
+            volume: 1.0,
+        }
+    }
+}
+
 /// Where an attachment's picture shows.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Placement {
@@ -1745,6 +1790,13 @@ pub enum CardRow {
     Select {
         text: String,
         disabled: bool,
+        kind: u64,
+        custom_id: String,
+        options: Vec<CardOption>,
+        defaults: Vec<String>,
+        channel_types: Vec<u64>,
+        min_values: u64,
+        max_values: u64,
     },
     /// Components of a kind Yapfast can't show.
     Unknown,
@@ -1767,7 +1819,20 @@ pub struct CardButton {
     pub style: ButtonStyle,
     /// Where a link button leads.
     pub url: Option<String>,
+    /// What its app knows it by, when using it asks the app.
+    pub custom_id: Option<String>,
+    /// What a premium button offers in its app's store.
+    pub sku_id: Option<String>,
     pub disabled: bool,
+}
+
+/// An option of a select menu in an app's message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CardOption {
+    pub label: String,
+    pub value: String,
+    pub description: Option<String>,
+    pub default: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1777,6 +1842,7 @@ pub enum ButtonStyle {
     Success,
     Danger,
     Link,
+    Premium,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1785,6 +1851,9 @@ pub struct ChatMessage {
     pub id: String,
     /// The timeline item that actions apply to: `e:` event ID or `t:` transaction ID.
     pub item: String,
+    /// The Discord app that owns interactive components, when one is known.
+    pub application_id: Option<String>,
+    pub flags: u64,
     pub author: String,
     /// The author's Matrix user ID, which tells apart people sharing a display name.
     pub sender: String,
@@ -1850,6 +1919,9 @@ pub struct ChatMessage {
     pub thread: Option<ThreadLink>,
     /// The Discord poll it asks.
     pub poll: Option<Poll>,
+    /// A Discord voice message's recording, its first attachment, which
+    /// plays in place of a file card: [`Command::PlayVoiceMessage`].
+    pub voice: Option<VoiceMessage>,
     /// What it tells of, when it's a notice in place of a message, such as
     /// Discord's that someone pinned one; its body says it after its
     /// author's name.
@@ -2147,6 +2219,19 @@ pub enum Command {
     },
     /// Control the video playing.
     Video(VideoCommand),
+    /// Play a voice message's recording on `speakers`, from where it was
+    /// paused, or from the start in place of any other; it goes as
+    /// [`Event::VoiceMessage`].
+    PlayVoiceMessage {
+        room: String,
+        item: String,
+        speakers: Option<String>,
+        tuning: VoiceTuning,
+    },
+    /// Pause the voice message playing.
+    PauseVoiceMessage,
+    /// Play the voice message playing as fast and loud as this says.
+    TuneVoiceMessage(VoiceTuning),
     /// Look for people to start a DM with; each network answers with
     /// [`Event::People`].
     FindPeople {
@@ -2468,6 +2553,8 @@ pub enum DiscordCommand {
     /// holding none in memory: what a start prefetches so that the picker's
     /// first look finds its emoji kept. See [`Pictures::prefetch`].
     PrefetchPictures(Vec<String>),
+    /// Use a bot's message component or submit a modal as this account.
+    Interact(serde_json::Value),
     /// The GIF picker's home: trending terms with a GIF each, and a GIF for
     /// "Trending GIFs"; [`Event::GifCategories`] follows.
     GifCategories,
@@ -2553,11 +2640,14 @@ pub enum DiscordCommand {
     AddFriend {
         username: String,
     },
-    /// Change how this account stands with a Discord user. The lists change
-    /// when Discord confirms it; a failure comes back as [`Event::Error`].
+    /// Change how this account stands with a Discord user, from `location`
+    /// in Discord's client, such as "ContextMenu"; ignoring sends none. The
+    /// lists change when Discord confirms it; a failure comes back as
+    /// [`Event::Error`].
     Relationship {
         user: String,
         change: RelationshipChange,
+        location: &'static str,
     },
     /// Fetch this account's note on a Discord user; [`Event::Note`] follows.
     Note {
@@ -3675,8 +3765,12 @@ impl Command {
         };
         match self {
             Command::Voice(_) => Route::Voice,
-            // Only Discord's videos play for now.
-            Command::Discord(_) | Command::Video(_) | Command::Aside(_) => Route::Discord,
+            // Only Discord's videos and voice messages play for now.
+            Command::Discord(_)
+            | Command::Video(_)
+            | Command::PauseVoiceMessage
+            | Command::TuneVoiceMessage(_)
+            | Command::Aside(_) => Route::Discord,
             Command::Open(_) | Command::CloseRoom | Command::FindPeople { .. } => Route::Every,
             Command::Send { room, .. }
             | Command::Edit { room, .. }
@@ -3695,6 +3789,7 @@ impl Command {
             | Command::CopyAttachment { room, .. }
             | Command::ViewImage { room, .. }
             | Command::PlayVideo { room, .. }
+            | Command::PlayVoiceMessage { room, .. }
             | Command::Typing { room, .. }
             | Command::MarkRead { room, .. }
             | Command::SaveDraft { room, .. }
@@ -3728,6 +3823,19 @@ pub enum ForwardFailure {
 }
 
 pub enum Event {
+    /// A bot answered an interaction of this session with a form, as
+    /// Discord's INTERACTION_MODAL_CREATE has it.
+    InteractionModal(serde_json::Value),
+    /// An interaction, by its nonce, failed, and what its message says.
+    InteractionFailed {
+        nonce: String,
+        reason: String,
+    },
+    /// The bot answered an interaction, by its nonce.
+    InteractionSucceeded(String),
+    /// An interaction was sent a while ago: if nothing answered it, the bot
+    /// didn't respond.
+    InteractionSettled(String),
     /// The GIF picker's home, or why it couldn't load.
     GifCategories(Result<(Vec<GifCategory>, Option<Gif>), String>),
     /// GIFs for a search, or with `None` those trending, or why not.
@@ -3820,6 +3928,9 @@ pub enum Event {
     Discord(Arc<yapfast_discord::service::Snapshot>),
     /// The video [`Command::PlayVideo`] plays, as it changes; none once it stops.
     Video(Option<Video>),
+    /// The voice message [`Command::PlayVoiceMessage`] plays, as it
+    /// changes; none once it stops.
+    VoiceMessage(Option<VoicePlayback>),
     /// An image [`Command::ViewImage`] asked for, or why it can't show.
     Image {
         room: String,
