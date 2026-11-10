@@ -395,11 +395,12 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   close button or a click outside the image closes it. It can save the image
   too.
 - Send through the SDK's persistent send queue. A message appears at once,
-  faint until the server has it, with nothing under it. After a connection
-  problem it shows "Not sent yet" and goes out
-  by itself when sync recovers. Sync uses the SDK's offline mode, which keeps
-  probing the homeserver. A refused message shows "Not sent" with Retry. Queued
-  messages can be cancelled, and they survive closing Yapfast.
+  faint until the server has it, with nothing under it; one with files says
+  "Sending..." with Cancel while they upload. After a connection problem it
+  shows "Not sent yet" and goes out by itself when sync recovers. Sync uses
+  the SDK's offline mode, which keeps probing the homeserver. A refused
+  message shows "Not sent" with Retry. Queued messages can be cancelled, and
+  they survive closing Yapfast.
 - Save each room's draft in the encrypted session store, so drafts survive
   restarts. Sending clears the saved draft.
 - Show unread channels in bold with a short pill at the sidebar edge, and the

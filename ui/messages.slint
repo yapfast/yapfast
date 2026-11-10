@@ -817,7 +817,8 @@ export struct MessageRow {
     /// Says a card is hidden, for a message that is only one, with link previews off.
     hidden-card: string,
     delivery: string, delivery-failed: bool, can-retry: bool, can-cancel: bool,
-    /// Still going out: drawn faint, with no line under it.
+    /// Still going out, with no files to upload: drawn faint, with no line
+    /// under it.
     sending: bool,
     can-reply: bool, can-edit: bool, can-delete: bool, can-react: bool, can-forward: bool,
     /// Among the conversation's pinned messages, and whether this account

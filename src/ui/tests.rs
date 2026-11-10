@@ -22,6 +22,27 @@ fn a_message_still_sending_is_only_faint() {
         ..Default::default()
     });
     assert!(sending.sending);
+    // Files uploading keep the line and its Cancel.
+    let uploading = message_row_plain(&ChatMessage {
+        item: "n:2".into(),
+        delivery: Delivery::Sending,
+        attachments: vec![yapfast_core::chat::Attachment {
+            name: "clip.mp4".into(),
+            size: Some(40_000_000),
+            image: false,
+            dimensions: None,
+            preview: None,
+            preview_failed: false,
+            placement: Placement::Message,
+            gif: None,
+            spoiler: false,
+            video: true,
+            url: None,
+        }],
+        ..Default::default()
+    });
+    assert!(!uploading.sending);
+    assert!(uploading.can_cancel && uploading.delivery == "Sending...");
     let waiting = message_row_plain(&ChatMessage {
         item: "d:2".into(),
         body: "Hi".into(),
