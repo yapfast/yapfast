@@ -4442,6 +4442,19 @@ impl Application {
             Event::DiscordAccounts { accounts, active } => {
                 self.state.discord_accounts = accounts;
                 self.state.discord_active = active;
+                // The list is what was stored, which may not have the connected
+                // account's name yet.
+                let own = self.discord.as_deref().and_then(|snapshot| {
+                    let account = snapshot.account.as_ref()?;
+                    Some((
+                        account.username.clone(),
+                        account.name.clone(),
+                        account.avatar.clone(),
+                    ))
+                });
+                if let Some((username, name, avatar)) = own {
+                    self.describe_active_account(&username, &name, &avatar);
+                }
                 if self.state.discord_accounts.is_empty() {
                     self.state.manage_accounts = None;
                 }

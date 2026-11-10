@@ -5157,6 +5157,72 @@ fn switches_between_linked_discord_accounts() {
 
 #[test]
 #[cfg(feature = "discord")]
+fn a_login_linked_before_accounts_were_several_gets_its_name_from_the_connection() {
+    use yapfast_discord::service::{Account, Snapshot, Status};
+    let mut app = connected();
+    app.state.discord_linked = true;
+    // As stored for a migrated login: the id, and nothing of the account.
+    let stored = || Event::DiscordAccounts {
+        accounts: vec![chat::DiscordAccount {
+            id: "1400000000000000001".into(),
+            ..Default::default()
+        }],
+        active: "1400000000000000001".into(),
+    };
+    app.apply(stored());
+    // Never blank: the id stands in for the name.
+    assert_eq!(app.state.discord_accounts[0].label(), "1400000000000000001");
+
+    let account = |name: &str| Account {
+        username: "derfayberr".into(),
+        name: name.into(),
+        avatar: "https://cdn.test/avatars/1/a.png".into(),
+        decoration: None,
+        nameplate: None,
+        premium_type: 0,
+        mfa_enabled: false,
+        has_email: true,
+    };
+    let snapshot = |name: &str| {
+        discord_event(Snapshot {
+            status: Status::Online,
+            user_id: Some("1400000000000000001".into()),
+            account: Some(account(name)),
+            ..Default::default()
+        })
+    };
+    app.apply(snapshot("Fayber"));
+    let row = &app.state.discord_accounts[0];
+    assert_eq!(row.label(), "derfayberr");
+    assert_eq!(row.name, "Fayber");
+    assert_eq!(row.avatar.as_deref(), Some("https://cdn.test/avatars/1/a.png"));
+
+    // The stored list read again, before the profile was stored, keeps it.
+    app.apply(stored());
+    assert_eq!(app.state.discord_accounts[0].name, "Fayber");
+    // A change of name shows.
+    app.apply(snapshot("Fabian"));
+    assert_eq!(app.state.discord_accounts[0].name, "Fabian");
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn an_account_row_is_never_blank() {
+    let row = |id: &str, username: &str, name: &str| chat::DiscordAccount {
+        id: id.into(),
+        username: username.into(),
+        name: name.into(),
+        avatar: None,
+    };
+    assert_eq!(row("1", "bea", "Bea").label(), "bea");
+    assert_eq!(row("1", "", "Bea").label(), "Bea");
+    assert_eq!(row("14", "", "").label(), "14");
+    assert_eq!(row("login-00ff", "", "").label(), "Account");
+    assert_eq!(row("", "", "").label(), "Account");
+}
+
+#[test]
+#[cfg(feature = "discord")]
 fn manages_linked_discord_accounts() {
     use crate::discord_link::Progress;
     let mut app = connected();

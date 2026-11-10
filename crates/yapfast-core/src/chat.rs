@@ -4944,6 +4944,23 @@ pub struct DiscordAccount {
     pub avatar: Option<String>,
 }
 
+impl DiscordAccount {
+    /// What the switcher calls the account: its username, as Discord lists
+    /// accounts, else its name. An account that hasn't said either yet is
+    /// shown by its user id, and as "Account" when it hasn't even one, so a
+    /// row is never blank.
+    pub fn label(&self) -> &str {
+        [self.username.as_str(), self.name.as_str()]
+            .into_iter()
+            .find(|label| !label.is_empty())
+            .or_else(|| {
+                Some(self.id.as_str())
+                    .filter(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()))
+            })
+            .unwrap_or("Account")
+    }
+}
+
 /// A new message that should notify the person, by their notification settings on its
 /// network.
 #[derive(Clone, Debug, PartialEq, Eq)]

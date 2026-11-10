@@ -112,13 +112,19 @@ impl Vault for Memory {
 /// [`crate::client::TEST_TOKEN`] linked, unless `YAPFAST_DISCORD_TEST_UNLINKED`
 /// is set, which shows linking against the fake. With
 /// `YAPFAST_DISCORD_TEST_SECOND_ACCOUNT` set, [`crate::client::TEST_SECOND_TOKEN`]
-/// is linked too, which shows the account switcher with two.
+/// is linked too, which shows the account switcher with two. With
+/// `YAPFAST_DISCORD_TEST_LEGACY_ACCOUNT` set, only the login an earlier version
+/// kept is there, which shows an account that has no profile stored yet.
 fn test_vault() -> &'static Memory {
     static VAULT: OnceLock<Memory> = OnceLock::new();
     VAULT.get_or_init(|| {
         let memory = Memory::default();
         let set = |name: &str| std::env::var_os(name).is_some_and(|value| !value.is_empty());
-        if !set("YAPFAST_DISCORD_TEST_UNLINKED") {
+        if set("YAPFAST_DISCORD_TEST_LEGACY_ACCOUNT") {
+            // The login of an install from before there could be several,
+            // which the first read moves, with no profile kept for it.
+            let _ = memory.write(ACCOUNT, crate::client::TEST_TOKEN);
+        } else if !set("YAPFAST_DISCORD_TEST_UNLINKED") {
             let id = id_of(crate::client::TEST_TOKEN);
             let _ = link(&memory, crate::client::TEST_TOKEN, true);
             let _ = describe_in(
@@ -595,6 +601,33 @@ mod tests {
         assert!(test.starts_with("login-"));
         assert_eq!(test, id_of("yapfast-test-token"));
         assert_ne!(test, id_of("yapfast-test-token-two"));
+    }
+
+    #[test]
+    fn a_migrated_login_is_listed_without_a_profile_until_described() {
+        let vault = Memory::default();
+        let token = login("1400000000000000001", "abc.def");
+        vault.write(ACCOUNT, &token).unwrap();
+        let listed = listing_in(&vault).unwrap();
+        assert_eq!(listed.active.as_deref(), Some("1400000000000000001"));
+        let [account] = listed.accounts.as_slice() else {
+            panic!("one account");
+        };
+        assert_eq!(account.id, "1400000000000000001");
+        assert!(account.username.is_empty() && account.name.is_empty() && account.avatar.is_empty());
+        assert!(vault.read(ACCOUNT).unwrap().is_none(), "moved, not copied");
+
+        // What the connection says of the account is kept with it, and kept
+        // current when it changes.
+        let id = locate(&vault, &read_index(&vault).unwrap(), &token).unwrap().unwrap();
+        describe_in(&vault, &id, "derfayberr", "Fayber", "https://cdn.test/a.png").unwrap();
+        describe_in(&vault, &id, "derfayberr", "Fabian", "https://cdn.test/a.png").unwrap();
+        let account = &listing_in(&vault).unwrap().accounts[0];
+        assert_eq!(
+            (account.username.as_str(), account.name.as_str(), account.avatar.as_str()),
+            ("derfayberr", "Fabian", "https://cdn.test/a.png")
+        );
+        assert_eq!(read_saved(&vault, &id).unwrap().unwrap().token, token);
     }
 
     #[test]

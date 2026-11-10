@@ -432,6 +432,33 @@ impl Application {
         vec![Effect::Backend(Command::Discord(command))]
     }
 
+    /// Takes what the connected account says of itself into its row of the
+    /// switcher. The list is read when Yapfast starts, before the account
+    /// has connected, so a login linked before there could be several has
+    /// no name or picture in it until now; the connection's own data fills
+    /// them in, and keeps them current when they change.
+    #[cfg(feature = "discord")]
+    pub(super) fn describe_active_account(&mut self, username: &str, name: &str, avatar: &str) {
+        let active = self.state.discord_active.as_str();
+        let Some(row) = self
+            .state
+            .discord_accounts
+            .iter_mut()
+            .find(|account| account.id == active)
+        else {
+            return;
+        };
+        if !username.is_empty() && row.username != username {
+            username.clone_into(&mut row.username);
+        }
+        if !name.is_empty() && row.name != name {
+            name.clone_into(&mut row.name);
+        }
+        if !avatar.is_empty() && row.avatar.as_deref() != Some(avatar) {
+            row.avatar = Some(avatar.to_owned());
+        }
+    }
+
     /// Shows what a Discord snapshot says about the account and its lists.
     #[cfg(feature = "discord")]
     pub(super) fn show_snapshot(
@@ -442,6 +469,7 @@ impl Application {
         if let Some(account) = &snapshot.account {
             self.state.account_username =
                 Some(account.username.clone()).filter(|name| !name.is_empty());
+            self.describe_active_account(&account.username, &account.name, &account.avatar);
         }
         // Without Matrix, the account is Discord's.
         #[cfg(not(feature = "matrix"))]

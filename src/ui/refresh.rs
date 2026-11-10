@@ -3494,14 +3494,10 @@ impl Adapter {
                 .discord_accounts
                 .iter()
                 .map(|account| {
-                    let label = if account.username.is_empty() {
-                        &account.name
-                    } else {
-                        &account.username
-                    };
+                    let label = account.label();
                     AccountRow {
                         id: account.id.as_str().into(),
-                        name: label.as_str().into(),
+                        name: label.into(),
                         initial: initial(label),
                         tint: tint(label),
                         picture_url: account.avatar.as_deref().unwrap_or_default().into(),
