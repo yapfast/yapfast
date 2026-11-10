@@ -397,6 +397,9 @@ pub(crate) async fn call(
             return Err(join_failed(guild, step, error));
         }
     };
+    // The call goes on at full speed with Yapfast's window minimized or
+    // hidden, behind a game or a shared screen.
+    let _full_speed = crate::audio_io::FullSpeed::hold();
     let (played, reverse) = std::sync::mpsc::sync_channel(8);
     let reverse = std::sync::Arc::new(std::sync::Mutex::new(reverse));
     let (microphone, input) = live_microphone();

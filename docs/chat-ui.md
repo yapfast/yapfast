@@ -62,7 +62,10 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   since sync loads members lazily, and membership changes refresh it. Voice
   channels and one-to-one DMs have no member list; a one-to-one DM shows the
   other person's profile there instead, which the person icon in its header
-  hides or shows. A Discord text channel
+  hides or shows. Dragging the list's edge makes it 200 to 480px wide,
+  leaving the conversation 420px, and Yapfast keeps the width
+  (`members_width` in `layout.json`); a double click on the edge goes back to
+  the style's width. A Discord text channel
   lists whoever can read it, grouped as in Discord: under hoisted roles, then
   ONLINE and OFFLINE, with counts, avatars, status dots, role colours,
   custom statuses, and a red clock beside someone timed out. An app has an APP
@@ -175,7 +178,10 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   Delete appears on your own messages, and on anyone's for a Discord moderator
   with Manage Messages. Until you have reacted, the most used reactions are 👍,
   ❤️, 😂 and 🎉. Yapfast counts the reactions you add, not the ones you remove,
-  in `layout.json` on this computer. The icons have tooltips and accessible
+  in `layout.json` on this computer. A custom emoji among them shows the
+  picture the application keeps of it, fetched for the toolbar when it isn't
+  there yet, as after a restart, rather than the picker's own, which goes when
+  the picker closes. The icons have tooltips and accessible
   names. Add reaction opens a picker with a search field, favourite emoji,
   frequently used emoji and every category of the `emojis` crate up to
   Unicode 15.0, which Noto Color
@@ -394,11 +400,13 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   the message's other images, a counter shows which one it is, and Escape, the
   close button or a click outside the image closes it. It can save the image
   too.
-- Send through the SDK's persistent send queue. A message appears at once with
-  "Sending...". After a connection problem it shows "Not sent yet" and goes out
-  by itself when sync recovers. Sync uses the SDK's offline mode, which keeps
-  probing the homeserver. A refused message shows "Not sent" with Retry. Queued
-  messages can be cancelled, and they survive closing Yapfast.
+- Send through the SDK's persistent send queue. A message appears at once,
+  faint until the server has it, with nothing under it; one with files says
+  "Sending..." with Cancel while they upload. After a connection problem it
+  shows "Not sent yet" and goes out by itself when sync recovers. Sync uses
+  the SDK's offline mode, which keeps probing the homeserver. A refused
+  message shows "Not sent" with Retry. Queued messages can be cancelled, and
+  they survive closing Yapfast.
 - Save each room's draft in the encrypted session store, so drafts survive
   restarts. Sending clears the saved draft.
 - Show unread channels in bold with a short pill at the sidebar edge, and the

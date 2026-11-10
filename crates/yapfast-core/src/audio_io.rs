@@ -44,8 +44,99 @@ pub use lasting::{LastingInput, LastingOutput};
 /// threads take, and real-time scheduling on Linux where the user's limits
 /// allow it. Otherwise the thread carries on as it was. It lasts until the
 /// thread ends.
-pub fn raise_thread_priority() {
-    platform::raise_priority();
+///
+/// `thread` names it for the log, which says at info level whether it was
+/// raised, and for [`NO_PRIORITY`], which leaves it at normal priority.
+pub fn raise_thread_priority(thread: &str) {
+    raise(thread, Priority::Playback);
+}
+
+/// Raises the calling thread as [`raise_thread_priority`] does, a step below
+/// the threads that play, for a microphone's thread and its processing:
+/// MMCSS's "Audio" task on Windows. Above every ordinary thread, such as
+/// a game's or a stream's encoder, it doesn't hold up what plays.
+/// [`NO_PRIORITY`] knows it as `microphone`.
+#[cfg(feature = "discord")]
+pub fn raise_capture_priority() {
+    raise("microphone", Priority::Capture);
+}
+
+fn raise(thread: &str, priority: Priority) {
+    if priority_off(std::env::var(NO_PRIORITY).ok().as_deref(), thread) {
+        tracing::info!(
+            thread,
+            "an audio thread stays at normal priority, as {NO_PRIORITY} says"
+        );
+        return;
+    }
+    match platform::raise_priority(priority) {
+        Ok(how) => tracing::info!(thread, how, "an audio thread raised its priority"),
+        Err(error) => tracing::info!(thread, %error, "an audio thread stays at normal priority"),
+    }
+}
+
+/// Which audio threads a thread joins in priority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(feature = "discord"), allow(dead_code))]
+enum Priority {
+    /// Threads that play: a call's and the speakers'.
+    Playback,
+    /// A microphone's.
+    Capture,
+}
+
+/// Leaves audio threads at normal priority, to tell whether raising them is
+/// what goes wrong on a machine: `1` or `all` for every one, or a list of
+/// them, such as `call,speakers,microphone`.
+pub const NO_PRIORITY: &str = "YAPFAST_VOICE_NO_PRIORITY";
+
+/// Whether [`NO_PRIORITY`]'s value leaves `thread` at normal priority.
+fn priority_off(value: Option<&str>, thread: &str) -> bool {
+    match value.map(str::trim) {
+        None | Some("" | "0") => false,
+        Some("1" | "all") => true,
+        Some(list) => list.split(',').any(|name| name.trim() == thread),
+    }
+}
+
+/// Keeps the whole process running at full speed while held, as a call
+/// needs with its window in the background: on Windows the process opts
+/// out of power throttling (EcoQoS), which Windows 11 may otherwise give a
+/// minimized or hidden window's process, putting its threads on efficient
+/// cores at a low clock, and Windows' timer wakes it every millisecond
+/// rather than every 15.6, minimized or not. Elsewhere it changes nothing.
+/// Holds nest; the last one dropped gives the system its default back.
+#[cfg(feature = "discord")]
+pub struct FullSpeed(());
+
+#[cfg(feature = "discord")]
+static FULL_SPEED: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
+
+#[cfg(feature = "discord")]
+impl FullSpeed {
+    pub fn hold() -> Self {
+        let mut held = FULL_SPEED
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if *held == 0 {
+            platform::full_speed(true);
+        }
+        *held += 1;
+        Self(())
+    }
+}
+
+#[cfg(feature = "discord")]
+impl Drop for FullSpeed {
+    fn drop(&mut self) {
+        let mut held = FULL_SPEED
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *held -= 1;
+        if *held == 0 {
+            platform::full_speed(false);
+        }
+    }
 }
 
 static WINDOWS_EFFECTS: AtomicBool = AtomicBool::new(false);
@@ -260,6 +351,18 @@ type Hear = Box<dyn FnMut(Heard<'_>) + Send>;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_priority_switch_names_threads() {
+        for unset in [None, Some(""), Some("0")] {
+            assert!(!priority_off(unset, "call"));
+        }
+        assert!(priority_off(Some("1"), "speakers"));
+        assert!(priority_off(Some("all"), "call"));
+        assert!(priority_off(Some("call"), "call"));
+        assert!(!priority_off(Some("call"), "speakers"));
+        assert!(priority_off(Some("call, speakers"), "speakers"));
+    }
 
     #[test]
     fn formats_count_their_bytes() {

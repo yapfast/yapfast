@@ -3149,13 +3149,47 @@ fn a_voice_message_plays_and_pauses_one_at_a_time() {
     ));
     let other = app.state.voice_message.clone().unwrap();
     assert_eq!((other.item.as_str(), other.position_ms), ("d:2", 0));
+    // Its waveform moves it, playing as it was; another's waits there
+    // paused in its place.
+    let moved = |app: &mut Application, item: &str, fraction| {
+        app.dispatch(Action::MoveVoiceMessage(item.into(), fraction))
+    };
+    assert!(matches!(
+        moved(&mut app, "d:2", 0.5).as_slice(),
+        [Effect::Backend(Command::MoveVoiceMessage { item, at_ms: 2500, .. })] if item == "d:2"
+    ));
+    let playback = app.state.voice_message.clone().unwrap();
+    assert!(playback.playing && playback.position_ms == 2500);
+    assert!(matches!(
+        moved(&mut app, "d:1", 2.0).as_slice(),
+        [Effect::Backend(Command::MoveVoiceMessage { item, at_ms: 5000, .. })] if item == "d:1"
+    ));
+    let playback = app.state.voice_message.clone().unwrap();
+    assert_eq!(playback.item, "d:1");
+    assert!(!playback.playing && playback.position_ms == 5000);
+    assert!(
+        moved(&mut app, "d:3", 0.5).is_empty(),
+        "not a voice message"
+    );
+    app.state.voice_message = Some(other.clone());
     // Its speed and volume change as it plays, and last for the next.
     app.dispatch(Action::CycleVoiceMessageSpeed);
     assert!(matches!(
         app.dispatch(Action::VoiceMessageVolume(0.5)).as_slice(),
         [Effect::Backend(Command::TuneVoiceMessage(tuning))]
-            if *tuning == chat::VoiceTuning { speed: 1.5, volume: 0.5 }
+            if *tuning == chat::VoiceTuning { speed: 1.5, volume: 0.5, muted: false }
     ));
+    // Muting keeps its volume to unmute to; the slider at 0 mutes it too.
+    app.dispatch(Action::MuteVoiceMessages(true));
+    assert!(app.state.voice_tuning.muted);
+    app.dispatch(Action::VoiceMessageVolume(0.25));
+    assert!(!app.state.voice_tuning.muted, "turning it up unmutes it");
+    app.dispatch(Action::VoiceMessageVolume(0.0));
+    assert_eq!(
+        (app.state.voice_tuning.muted, app.state.voice_tuning.volume),
+        (true, 0.25)
+    );
+    app.dispatch(Action::MuteVoiceMessages(false));
     app.dispatch(Action::CycleVoiceMessageSpeed);
     assert_eq!(app.state.voice_tuning.speed, 2.0);
     app.dispatch(Action::CycleVoiceMessageSpeed);
