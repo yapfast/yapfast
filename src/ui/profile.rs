@@ -170,16 +170,10 @@ pub(super) fn activity_panel(
     Vec::new()
 }
 
-/// "1 mutual friend" or "5 mutual servers"; this account's own profile shares
-/// its friends and servers with nobody, so there it says "1 friend" or
-/// "5 servers".
-fn mutual_count(count: usize, what: &str, shared: bool) -> String {
+/// "1 mutual friend" or "5 mutual servers".
+fn mutual_count(count: usize, what: &str) -> String {
     let plural = if count == 1 { "" } else { "s" };
-    if shared {
-        format!("{count} mutual {what}{plural}")
-    } else {
-        format!("{count} {what}{plural}")
-    }
+    format!("{count} mutual {what}{plural}")
 }
 
 /// Only mentions get a number; plain unread activity is a dot, because sync
@@ -523,8 +517,8 @@ pub(super) fn profile_data(
     let banner = cached_picture(pictures, state, profile.banner.as_deref());
     // Matrix IDs start with `@`; Discord user ids are numbers.
     let discord = !profile.id.is_empty() && !profile.id.starts_with('@');
-    // This account's own profile lists all its friends and servers, not the
-    // ones it shares with anyone, so its card names them without "mutual".
+    // This account's own profile shows no mutual friends or servers, as
+    // Discord's client doesn't: it shares them with nobody.
     let own = discord && state.relation(&profile.id) == Relation::Me;
     let (wishlist, wishlist_note) = wishlist_rows(profile);
     // With no banner, accent colour or theme, Discord tints the banner area
@@ -723,8 +717,8 @@ pub(super) fn profile_data(
                     && (state.relation(&profile.id) == Relation::Friend
                         || !profile.servers.is_empty()))),
         own,
-        mutual_friends_text: mutual_count(profile.friends.len(), "friend", !own).into(),
-        mutual_servers_text: mutual_count(profile.servers.len(), "server", !own).into(),
+        mutual_friends_text: mutual_count(profile.friends.len(), "friend").into(),
+        mutual_servers_text: mutual_count(profile.servers.len(), "server").into(),
         note_text: profile.note.as_str().into(),
         note_editable: !profile.id.starts_with('@') && !own,
         can_message: state
