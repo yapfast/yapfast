@@ -9601,3 +9601,33 @@ fn a_long_message_folds_until_show_more_only_with_the_switch_on() {
     window.invoke_preferences_changed();
     assert!(adapter.borrow().layout.collapse_long);
 }
+
+#[test]
+fn a_new_setting_is_tagged_until_settings_leaves_its_section() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    // A layout from before the tags existed has met no tagged setting.
+    std::fs::write(directory.path().join("layout.json"), b"{}").unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    let tags = window.global::<NewTags>();
+    assert!(tags.invoke_is_new("check-updates".into(), tags.get_revision()));
+    assert!(!tags.invoke_is_new("no-such-setting".into(), tags.get_revision()));
+    assert!(tags.invoke_section_new(9, tags.get_revision()));
+    assert!(!tags.invoke_section_new(6, tags.get_revision()));
+    // Looking at About and leaving it clears its tags, for good.
+    let revision = tags.get_revision();
+    tags.invoke_left(9);
+    assert!(tags.get_revision() > revision);
+    assert!(!tags.invoke_is_new("check-updates".into(), tags.get_revision()));
+    assert!(!tags.invoke_section_new(9, tags.get_revision()));
+    assert!(!tags.invoke_is_new("update-nightlies".into(), tags.get_revision()));
+    let layout = Layout::read(directory.path());
+    assert!(layout.seen_new.contains(&"check-updates".to_owned()));
+}
