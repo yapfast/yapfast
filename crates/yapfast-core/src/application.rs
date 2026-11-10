@@ -62,7 +62,9 @@ pub use cosmetics::Cosmetics;
 pub use forum::{ForumInfo, ForumPost, ForumPosts, ForumView};
 pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
 pub use gift::GiftDialog;
-pub use interactions::{InteractionModal, ModalField, SelectChoice, SelectMenu};
+pub use interactions::{
+    InteractionModal, ModalField, PendingInteraction, SelectChoice, SelectMenu,
+};
 pub use join::JoinDialog;
 pub use members::{BAN_HISTORY, RoleChoice, TIMEOUT_TIMES};
 #[cfg(all(feature = "discord", any(test, feature = "test-fixtures")))]
@@ -434,11 +436,14 @@ pub enum Compose {
 
 #[derive(Default)]
 pub struct AppState {
-    /// The bot control currently awaiting Discord's response.
-    pub pending_interaction: Option<String>,
-    pub recent_interaction: Option<String>,
-    pub pending_interaction_guild: Option<String>,
+    /// Bots' controls used and not yet answered, at most one a message, as
+    /// Discord's client allows.
+    pub pending_interactions: Vec<PendingInteraction>,
+    /// The message whose control last failed, and what its components say.
+    pub interaction_failed: Option<(String, String)>,
+    /// A bot's form, open.
     pub interaction_modal: Option<InteractionModal>,
+    /// The choices of a bot's select menu, in a message or a form, open.
     pub select_menu: Option<SelectMenu>,
     pub voice: voice::State,
     /// Discord is linked on this device and connected.
@@ -3099,11 +3104,12 @@ impl Application {
             Action::SetModalField { index, value } => self.set_modal_field(index, value),
             Action::SubmitModal => self.submit_modal(),
             Action::CloseModal => {
-                if !self
+                // A form being sent stays until Discord answers.
+                if self
                     .state
                     .interaction_modal
                     .as_ref()
-                    .is_some_and(|modal| modal.saving)
+                    .is_none_or(|modal| modal.nonce.is_none())
                 {
                     self.state.interaction_modal = None;
                 }
@@ -3951,50 +3957,10 @@ impl Application {
     fn apply_event(&mut self, event: Event) -> Vec<Effect> {
         match event {
             Event::InteractionModal(modal) => self.open_interaction_modal(modal),
-            Event::InteractionFailed { nonce, reason } => {
-                if self.state.pending_interaction.as_deref() == Some(&nonce) {
-                    self.state.pending_interaction = None;
-                    if let Some(modal) = self
-                        .state
-                        .interaction_modal
-                        .as_mut()
-                        .filter(|modal| modal.saving)
-                    {
-                        modal.saving = false;
-                        modal.error = Some(reason);
-                    } else {
-                        self.state.notice = Some(reason);
-                    }
-                }
-            }
-            Event::InteractionSucceeded(nonce) => {
-                if self.state.pending_interaction.as_deref() == Some(&nonce) {
-                    self.state.pending_interaction = None;
-                    self.state.recent_interaction = Some(nonce);
-                    if self
-                        .state
-                        .interaction_modal
-                        .as_ref()
-                        .is_some_and(|modal| modal.saving)
-                    {
-                        self.state.interaction_modal = None;
-                    }
-                }
-            }
+            Event::InteractionFailed { nonce, reason } => self.interaction_failed(&nonce, reason),
+            Event::InteractionSucceeded(nonce) => self.interaction_succeeded(&nonce),
             Event::InteractionSettled(nonce) => {
-                if self.state.pending_interaction.as_deref() == Some(&nonce) {
-                    self.state.pending_interaction = None;
-                    self.state.recent_interaction = Some(nonce);
-                    if let Some(modal) = self
-                        .state
-                        .interaction_modal
-                        .as_mut()
-                        .filter(|modal| modal.saving)
-                    {
-                        modal.saving = false;
-                        modal.error = Some("Discord has not confirmed this submission. Check the bot before trying again.".into());
-                    }
-                }
+                self.interaction_failed(&nonce, "The application did not respond".into());
             }
             Event::Voice(state) => {
                 let sounds = call_sounds(&self.state.voice, &state);

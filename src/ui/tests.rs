@@ -9684,7 +9684,6 @@ fn bot_modal_summaries_show_default_entity_names_and_unknown_ids() {
         author: "Alex".into(),
         ..Default::default()
     })]);
-    adapter.app.state.pending_interaction = Some("click".into());
     adapter.apply(Event::InteractionModal(serde_json::json!({
         "id": "42", "channel_id": "7", "guild_id": "10", "custom_id": "assign",
         "application": {"id": "3"}, "title": "Assign", "nonce": "click",
@@ -9725,7 +9724,6 @@ fn bot_modal_keeps_input_model_while_typing() {
     bind_callbacks(&window, &adapter);
     {
         let mut adapter = adapter.borrow_mut();
-        adapter.app.state.pending_interaction = Some("click".into());
         adapter.apply(Event::InteractionModal(serde_json::json!({
             "id": "42", "channel_id": "7", "custom_id": "ticket",
             "application": {"id": "3"}, "title": "Open ticket", "nonce": "click",
@@ -9758,7 +9756,6 @@ fn bot_select_keeps_its_model_and_filters_original_choice_indices() {
     bind_callbacks(&window, &adapter);
     {
         let mut adapter = adapter.borrow_mut();
-        adapter.app.state.pending_interaction = Some("click".into());
         adapter.apply(Event::InteractionModal(serde_json::json!({
             "id": "42", "channel_id": "7", "custom_id": "ticket",
             "application": {"id": "3"}, "title": "Choose", "nonce": "click",

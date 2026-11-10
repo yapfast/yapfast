@@ -43,6 +43,7 @@ mod channels;
 mod commands;
 mod expressions;
 mod gifs;
+mod interactions;
 mod open_channel;
 mod overwrites;
 mod own_profile;

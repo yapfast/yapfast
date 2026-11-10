@@ -36,28 +36,6 @@ authors' member profiles. A profile that's opened and a member list that
 arrives teach them too, and the open channel and the thread beside it
 re-render with the colours.
 
-Bot message controls can be used in the timeline and threads. Yapfast sends
-ordinary button clicks, string and user/role/mentionable/channel selections,
-and modal form submissions through the linked account's Discord session. A
-modal can contain text inputs or selection fields. Failed submissions keep the
-form and its answers available to retry. Pending controls unlock after 15 seconds
-if Discord never confirms the interaction, including during a reconnect. When a
-bot message omits its application ID, Yapfast refreshes the message and asks for
-the bot's profile to identify its application. Webhook authors are never used as
-guessed application IDs; unresolved controls show a notice. Optional single
-selections can be cleared, and channel menus respect the bot's channel-type restrictions, including
-visible categories. Default entity selections show their known names, or their
-IDs when a name is unavailable.
-Entity menus use the people,
-roles and channels Yapfast knows, and searching people also asks Discord for
-matching server members. Link buttons open their URL. Premium buttons open the
-bot's store offer in Discord's App Directory; purchasing happens there.
-Embedded activities and any modal field Yapfast cannot represent still need
-Discord's client. Modals containing informational text also require Discord;
-Yapfast blocks submission so instructions or warnings cannot be skipped.
-These user interaction endpoints are not covered by Discord's
-public bot API, so live compatibility should be checked against a test bot.
-
 Yapfast keeps the open channel's messages in memory, and those of the 40
 channels open before it, so going back to one shows it at once. A closed
 channel keeps its newest 200 messages as metadata and follows new messages,
@@ -516,6 +494,44 @@ Yapfast is back, rather than showing an error.
   shows the status to others itself, so Yapfast sends it with opcode 3 once
   connected, whenever the settings change, and clears it when it ends. A
   custom emoji in a status needs Nitro.
+
+## Bots' buttons, menus and forms
+
+An app's buttons and select menus work in channels, DMs and the thread
+beside a channel, as Discord's client uses them (`interactions.rs` in the
+core and in `discord_text`):
+
+- A click sends `POST /interactions` with the message's id and flags, the
+  gateway session and a snowflake nonce. The app is the message's
+  `application_id`, or else its author's id, which a bot's user shares with
+  its app; Discord's client asks nothing more. A menu's choices go as
+  `values`, with its kind as `type`.
+- A message's controls wait while one of them waits for its bot, and only
+  that message's, as Discord's client queues one interaction a message. The
+  gateway's `INTERACTION_SUCCESS` or `INTERACTION_FAILURE`, by nonce, ends
+  the wait; a failure says "This interaction failed" under the message's
+  controls, or "Slow down! You're clicking too fast." when Discord refused
+  for that, until the channel changes or the control is used again. With no
+  answer in 15 s, through a gateway that reconnected meanwhile, the bot
+  "did not respond", in Discord's words; Discord itself fails a bot after
+  3 s.
+- A select menu opens its options in a dialog, with a search; Discord's
+  drops down under the menu. User, role, mentionable and channel menus offer
+  the people, roles and channels Yapfast knows, and a search of two letters
+  or more asks Discord for the server's members; a channel menu offers only
+  the channel kinds the app allows.
+- `INTERACTION_MODAL_CREATE` opens the app's form, wherever Yapfast is, since
+  Discord sends it only to the session that asked. A form shows text inputs,
+  its text (Markdown, as a component's) and select menus, and goes back in
+  the shape it came, a text display as `{"type": 10}`. A form with a kind of
+  field Yapfast lacks, such as a file upload, says so and isn't sent. One
+  that fails stays open with what was typed and why.
+- A premium button opens its offer in Discord's App Directory in the
+  browser, where the purchase happens. Link buttons open their link.
+
+Yapfast doesn't unarchive a thread before a control in it is used, as
+Discord's client does, and doesn't count a bot's reply carrying the nonce as
+its answer; Discord sends `INTERACTION_SUCCESS` as well.
 
 ## GIFs
 

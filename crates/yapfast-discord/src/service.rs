@@ -386,11 +386,15 @@ impl std::fmt::Debug for SharedNames {
 /// A message event from the gateway, for any channel.
 #[derive(Clone, Debug)]
 pub enum Live {
+    /// An app answered this session's interaction with a form, as
+    /// INTERACTION_MODAL_CREATE has it.
     InteractionModal(Value),
+    /// An interaction of this session failed, by its nonce.
     InteractionFailure {
         nonce: String,
         reason: u64,
     },
+    /// An app handled an interaction of this session, by its nonce.
     InteractionSuccess {
         nonce: String,
     },
@@ -1004,22 +1008,10 @@ impl Discord {
         self.api.vote(channel, id, answers).await
     }
 
-    /// Use a message component or submit a modal in this Gateway session.
-    /// `body` contains the interaction's application, target and data.
+    /// Uses a message component or submits a modal, `body` being what
+    /// Discord's client sends, its session added: the gateway's
+    /// INTERACTION_SUCCESS or INTERACTION_FAILURE then tells how it went.
     pub async fn interact(&self, mut body: Value) -> Result<()> {
-        if body["application_id"].is_null() {
-            let channel = body["channel_id"]
-                .as_str()
-                .context("Missing interaction channel.")?;
-            let message = body["message_id"]
-                .as_str()
-                .context("Missing interaction message.")?;
-            body["application_id"] = self
-                .api
-                .component_application(channel, message)
-                .await?
-                .into();
-        }
         let (reply, answer) = oneshot::channel();
         self.requests
             .send(Request::Session(reply))

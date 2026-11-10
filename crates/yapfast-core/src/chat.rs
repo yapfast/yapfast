@@ -1777,11 +1777,14 @@ pub struct CardButton {
     pub style: ButtonStyle,
     /// Where a link button leads.
     pub url: Option<String>,
+    /// What its app knows it by, when using it asks the app.
     pub custom_id: Option<String>,
+    /// What a premium button offers in its app's store.
     pub sku_id: Option<String>,
     pub disabled: bool,
 }
 
+/// An option of a select menu in an app's message.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CardOption {
     pub label: String,
@@ -3754,14 +3757,18 @@ pub enum ForwardFailure {
 }
 
 pub enum Event {
-    /// A bot responded to an interaction with a modal for this account.
+    /// A bot answered an interaction of this session with a form, as
+    /// Discord's INTERACTION_MODAL_CREATE has it.
     InteractionModal(serde_json::Value),
-    /// Discord or the bot refused an interaction identified by its nonce.
+    /// An interaction, by its nonce, failed, and what its message says.
     InteractionFailed {
         nonce: String,
         reason: String,
     },
+    /// The bot answered an interaction, by its nonce.
     InteractionSucceeded(String),
+    /// An interaction was sent a while ago: if nothing answered it, the bot
+    /// didn't respond.
     InteractionSettled(String),
     /// The GIF picker's home, or why it couldn't load.
     GifCategories(Result<(Vec<GifCategory>, Option<Gif>), String>),

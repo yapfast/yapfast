@@ -16,6 +16,25 @@ fn interaction_nonce() -> String {
     }
 }
 
+/// A bot's control used, or its form sent, that Discord hasn't answered.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PendingInteraction {
+    pub nonce: String,
+    /// The message whose control it was, or empty for a form.
+    pub item: String,
+    pub room: String,
+}
+
+impl AppState {
+    /// Whether a control of the message `item` waits for its bot, which
+    /// holds back its other controls, as in Discord's client.
+    pub fn interaction_pending(&self, item: &str) -> bool {
+        self.pending_interactions
+            .iter()
+            .any(|pending| pending.item == item)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SelectChoice {
     pub label: String,
@@ -66,12 +85,21 @@ pub struct InteractionModal {
     pub custom_id: String,
     pub fields: Vec<ModalField>,
     pub supported: bool,
-    pub saving: bool,
     pub error: Option<String>,
+    /// The nonce it was sent with, until Discord answers.
+    pub(super) nonce: Option<String>,
     shape: Value,
 }
 
+/// A text display's kind, which a form shows and sends back empty.
+const TEXT_DISPLAY: u64 = 10;
+
 impl InteractionModal {
+    /// Whether it was sent and waits for Discord.
+    pub fn saving(&self) -> bool {
+        self.nonce.is_some()
+    }
+
     fn parse(value: Value) -> Option<Self> {
         let fields = value["components"].as_array()?;
         let mut parsed = Vec::new();
@@ -80,6 +108,25 @@ impl InteractionModal {
             let (outer_label, inner) = match row["type"].as_u64() {
                 Some(1) => (None, row["components"].as_array()?.first()?),
                 Some(18) => (row["label"].as_str(), &row["component"]),
+                Some(TEXT_DISPLAY) => {
+                    parsed.push(ModalField {
+                        label: row["content"].as_str().unwrap_or_default().to_owned(),
+                        custom_id: String::new(),
+                        value: String::new(),
+                        placeholder: String::new(),
+                        required: false,
+                        min_length: 0,
+                        max_length: 0,
+                        paragraph: false,
+                        kind: TEXT_DISPLAY,
+                        options: Vec::new(),
+                        values: Vec::new(),
+                        min_values: 0,
+                        max_values: 0,
+                        channel_types: Vec::new(),
+                    });
+                    continue;
+                }
                 _ => {
                     supported = false;
                     continue;
@@ -155,8 +202,8 @@ impl InteractionModal {
             custom_id: value["custom_id"].as_str()?.to_owned(),
             fields: parsed,
             supported,
-            saving: false,
             error: None,
+            nonce: None,
             shape: value["components"].clone(),
         })
     }
@@ -164,7 +211,9 @@ impl InteractionModal {
     fn valid(&self) -> bool {
         self.supported
             && self.fields.iter().all(|field| {
-                if matches!(field.kind, 3 | 5..=8) {
+                if field.kind == TEXT_DISPLAY {
+                    true
+                } else if matches!(field.kind, 3 | 5..=8) {
                     (!field.required && field.values.is_empty())
                         || (field.values.len() >= field.min_values
                             && field.values.len() <= field.max_values)
@@ -180,8 +229,12 @@ impl InteractionModal {
 
     fn submitted(&self) -> Value {
         let mut rows = self.shape.clone();
-        rows.as_array_mut().unwrap().retain(|row| row["type"] != 10);
         for row in rows.as_array_mut().into_iter().flatten() {
+            // Discord's client sends a text display back as its kind alone.
+            if row["type"] == TEXT_DISPLAY {
+                *row = json!({"type": TEXT_DISPLAY});
+                continue;
+            }
             let label = row["type"] == 18;
             let inner = if label {
                 &mut row["component"]
@@ -211,7 +264,7 @@ impl InteractionModal {
 
 impl Application {
     pub(super) fn use_button(&mut self, item: String, custom_id: String) -> Vec<Effect> {
-        if self.state.pending_interaction.is_some() {
+        if self.state.interaction_pending(&item) {
             return vec![];
         }
         let known = self.state.message(&item).is_some_and(|message| {
@@ -235,7 +288,7 @@ impl Application {
     }
 
     pub(super) fn open_select(&mut self, item: String, custom_id: String) -> Vec<Effect> {
-        if self.state.pending_interaction.is_some() {
+        if self.state.interaction_pending(&item) {
             return vec![];
         }
         let Some(message) = self.state.message(&item) else {
@@ -399,7 +452,7 @@ impl Application {
                     .filter(|channel| {
                         channel
                             .channel_type
-                            .is_some_and(|kind| types.contains(&kind))
+                            .is_some_and(|kind| types.contains(&u64::from(kind)))
                     })
                     .map(|channel| channel.id.as_str())
                     .collect(),
@@ -482,12 +535,12 @@ impl Application {
     }
 
     pub(super) fn submit_select(&mut self) -> Vec<Effect> {
-        if self.state.pending_interaction.is_some() {
-            return vec![];
-        }
         let Some(menu) = self.state.select_menu.as_ref() else {
             return vec![];
         };
+        if menu.modal_field.is_none() && self.state.interaction_pending(&menu.item) {
+            return vec![];
+        }
         let values: Vec<String> = menu
             .choices
             .iter()
@@ -531,7 +584,7 @@ impl Application {
             .state
             .interaction_modal
             .as_ref()
-            .filter(|modal| !modal.saving)
+            .filter(|modal| !modal.saving())
         else {
             return vec![];
         };
@@ -584,102 +637,178 @@ impl Application {
         custom_id: String,
         values: Option<Vec<String>>,
     ) -> Vec<Effect> {
-        let Some(room) = self.state.room_of(&item) else {
+        let Some(room) = self.state.room_of(&item).cloned() else {
             return vec![];
         };
-        let Some((guild, channel)) = discord::parse_room(room) else {
+        let Some((guild, channel)) = discord::parse_room(&room) else {
             return vec![];
         };
-        let Some(message) = self.state.message(&item) else {
+        let (Some(message), Some(message_id)) =
+            (self.state.message(&item), item.strip_prefix("d:"))
+        else {
             return vec![];
         };
-        let Some(message_id) = item.strip_prefix("d:") else {
+        // As in Discord's client: the message's app, or else its author,
+        // a bot's user having its app's id.
+        let Some(application) = message
+            .application_id
+            .as_deref()
+            .or_else(|| discord::sender_user(&message.sender))
+        else {
             return vec![];
         };
-        let application_id = message.application_id.as_deref();
-        if application_id.is_none() && !message.bot {
-            self.state.notice = Some("Discord didn't identify the bot for this control.".into());
-            return vec![];
-        }
-        let guild = guild.to_owned();
         let nonce = interaction_nonce();
         let mut data = json!({"component_type": kind, "custom_id": custom_id});
         if let Some(values) = values {
+            // Discord's client names a select's kind beside its values.
+            data["type"] = json!(kind);
             data["values"] = json!(values);
         }
         let mut body = json!({
-            "type": 3, "application_id": application_id, "channel_id": channel,
-            "message_id": message_id, "message_flags": message.flags,
-            "data": data, "nonce": nonce,
+            "type": 3, "nonce": nonce, "channel_id": channel,
+            "message_flags": message.flags, "message_id": message_id,
+            "application_id": application, "data": data,
         });
         if guild != discord::DM_GUILD {
             body["guild_id"] = json!(guild);
         }
-        self.state.pending_interaction = Some(nonce);
-        self.state.recent_interaction = None;
-        self.state.pending_interaction_guild = (guild != discord::DM_GUILD).then_some(guild);
+        if self
+            .state
+            .interaction_failed
+            .as_ref()
+            .is_some_and(|(failed, _)| *failed == item)
+        {
+            self.state.interaction_failed = None;
+        }
+        self.state
+            .pending_interactions
+            .push(PendingInteraction { nonce, item, room });
         vec![Effect::Backend(Command::Discord(DiscordCommand::Interact(
             body,
         )))]
     }
 
-    pub(super) fn open_interaction_modal(&mut self, raw: Value) {
-        if raw["nonce"].as_str() != self.state.pending_interaction.as_deref()
-            && raw["nonce"].as_str() != self.state.recent_interaction.as_deref()
-        {
-            return;
-        }
-        self.state.pending_interaction = None;
-        self.state.recent_interaction = None;
-        self.state.interaction_modal = InteractionModal::parse(raw).map(|mut modal| {
-            if modal.guild_id.is_none() {
-                modal.guild_id = self.state.pending_interaction_guild.take();
-            }
-            let room = discord::room_id(
-                modal.guild_id.as_deref().unwrap_or(discord::DM_GUILD),
-                &modal.channel_id,
-            );
-            for field in &mut modal.fields {
-                if matches!(field.kind, 5..=8) && !field.values.is_empty() {
-                    let choices = self.entity_choices(field.kind, &room, &field.channel_types);
-                    for choice in choices {
-                        if field.values.contains(&choice.value)
-                            && !field
-                                .options
-                                .iter()
-                                .any(|option| option.value == choice.value)
-                        {
-                            field.options.push(choice);
-                        }
-                    }
-                }
-            }
-            modal
-        });
+    /// Takes back the interaction sent with `nonce`, once Discord answers it.
+    fn take_pending(&mut self, nonce: &str) -> Option<PendingInteraction> {
+        let at = self
+            .state
+            .pending_interactions
+            .iter()
+            .position(|pending| pending.nonce == nonce)?;
+        Some(self.state.pending_interactions.remove(at))
     }
 
-    pub(super) fn set_modal_field(&mut self, index: usize, value: String) -> Vec<Effect> {
-        if let Some(field) = self
+    pub(super) fn interaction_succeeded(&mut self, nonce: &str) {
+        self.take_pending(nonce);
+        if self
+            .state
+            .interaction_modal
+            .as_ref()
+            .is_some_and(|modal| modal.nonce.as_deref() == Some(nonce))
+        {
+            self.state.interaction_modal = None;
+        }
+    }
+
+    /// A form that failed stays open with what was typed and why; a
+    /// control's message says why under its components.
+    pub(super) fn interaction_failed(&mut self, nonce: &str, reason: String) {
+        let Some(pending) = self.take_pending(nonce) else {
+            return;
+        };
+        if let Some(modal) = self
             .state
             .interaction_modal
             .as_mut()
-            .and_then(|modal| modal.fields.get_mut(index))
-            && self.state.pending_interaction.is_none()
+            .filter(|modal| modal.nonce.as_deref() == Some(nonce))
         {
-            field.value = value;
+            modal.nonce = None;
+            modal.error = Some(reason);
+        } else if !pending.item.is_empty() {
+            self.state.interaction_failed = Some((pending.item, reason));
+        }
+    }
+
+    /// Opens a bot's form. Discord sends it only to the session whose
+    /// interaction it answers, so it opens even after its control gave up.
+    pub(super) fn open_interaction_modal(&mut self, raw: Value) {
+        let pending = raw["nonce"]
+            .as_str()
+            .and_then(|nonce| self.take_pending(nonce));
+        let Some(mut modal) = InteractionModal::parse(raw) else {
+            return;
+        };
+        if modal.guild_id.is_none() {
+            // The event leaves the server out: the control's room has it,
+            // or else the room of the form's channel.
+            let room = pending
+                .as_ref()
+                .map(|pending| pending.room.as_str())
+                .or_else(|| {
+                    self.state
+                        .rooms
+                        .iter()
+                        .map(|room| room.id.as_str())
+                        .find(|room| {
+                            discord::parse_room(room)
+                                .is_some_and(|(_, channel)| channel == modal.channel_id)
+                        })
+                });
+            modal.guild_id = room
+                .and_then(discord::parse_room)
+                .map(|(guild, _)| guild)
+                .filter(|guild| *guild != discord::DM_GUILD)
+                .map(str::to_owned);
+        }
+        let room = discord::room_id(
+            modal.guild_id.as_deref().unwrap_or(discord::DM_GUILD),
+            &modal.channel_id,
+        );
+        for field in &mut modal.fields {
+            if matches!(field.kind, 5..=8) && !field.values.is_empty() {
+                let choices = self.entity_choices(field.kind, &room, &field.channel_types);
+                for choice in choices {
+                    if field.values.contains(&choice.value)
+                        && !field
+                            .options
+                            .iter()
+                            .any(|option| option.value == choice.value)
+                    {
+                        field.options.push(choice);
+                    }
+                }
+            }
+        }
+        self.state.interaction_modal = Some(modal);
+    }
+
+    pub(super) fn set_modal_field(&mut self, index: usize, value: String) -> Vec<Effect> {
+        if let Some(modal) = self
+            .state
+            .interaction_modal
+            .as_mut()
+            .filter(|modal| !modal.saving())
+        {
+            // What's typed next answers the error.
+            modal.error = None;
+            if let Some(field) = modal.fields.get_mut(index) {
+                field.value = value;
+            }
         }
         vec![]
     }
 
     pub(super) fn submit_modal(&mut self) -> Vec<Effect> {
-        if self.state.pending_interaction.is_some() {
-            return vec![];
-        }
-        let Some(modal) = self.state.interaction_modal.as_ref() else {
+        let Some(modal) = self
+            .state
+            .interaction_modal
+            .as_mut()
+            .filter(|modal| !modal.saving())
+        else {
             return vec![];
         };
         if !modal.valid() {
-            self.state.notice = Some("Complete the required fields before submitting.".into());
+            modal.error = Some("Complete the required fields before submitting.".into());
             return vec![];
         }
         let nonce = interaction_nonce();
@@ -691,14 +820,17 @@ impl Application {
         if let Some(guild) = &modal.guild_id {
             body["guild_id"] = json!(guild);
         }
-        let guild = modal.guild_id.clone();
-        if let Some(modal) = &mut self.state.interaction_modal {
-            modal.saving = true;
-            modal.error = None;
-        }
-        self.state.pending_interaction = Some(nonce);
-        self.state.recent_interaction = None;
-        self.state.pending_interaction_guild = guild;
+        let room = discord::room_id(
+            modal.guild_id.as_deref().unwrap_or(discord::DM_GUILD),
+            &modal.channel_id,
+        );
+        modal.nonce = Some(nonce.clone());
+        modal.error = None;
+        self.state.pending_interactions.push(PendingInteraction {
+            nonce,
+            item: String::new(),
+            room,
+        });
         vec![Effect::Backend(Command::Discord(DiscordCommand::Interact(
             body,
         )))]
@@ -760,22 +892,23 @@ mod tests {
                 _
             ))))
         ));
-        assert!(app.state.interaction_modal.as_ref().unwrap().saving);
+        assert!(app.state.interaction_modal.as_ref().unwrap().saving());
         assert!(app.dispatch(Action::SubmitModal).is_empty());
         app.dispatch(Action::CloseModal);
         assert!(app.state.interaction_modal.is_some());
-        let nonce = app.state.pending_interaction.clone().unwrap();
+        let nonce = app.state.pending_interactions[0].nonce.clone();
         app.apply(Event::InteractionFailed {
             nonce,
             reason: "Offline".into(),
         });
         let modal = app.state.interaction_modal.as_ref().unwrap();
-        assert!(!modal.saving);
+        assert!(!modal.saving());
         assert_eq!(modal.fields[0].value, "Keep this answer");
         assert_eq!(modal.error.as_deref(), Some("Offline"));
-        assert!(app.state.pending_interaction.is_none());
+        assert!(app.state.pending_interactions.is_empty());
+        assert!(app.state.interaction_failed.is_none(), "the form says why");
         app.dispatch(Action::SubmitModal);
-        let nonce = app.state.pending_interaction.clone().unwrap();
+        let nonce = app.state.pending_interactions[0].nonce.clone();
         app.apply(Event::InteractionSucceeded(nonce));
         assert!(app.state.interaction_modal.is_none());
     }
@@ -787,11 +920,14 @@ mod tests {
             "type": 4, "custom_id": "reason", "value": "Keep this answer"
         })));
         app.dispatch(Action::SubmitModal);
-        let nonce = app.state.pending_interaction.clone().unwrap();
+        let nonce = app.state.pending_interactions[0].nonce.clone();
         app.apply(Event::InteractionSettled(nonce));
         let modal = app.state.interaction_modal.as_ref().unwrap();
-        assert!(!modal.saving);
-        assert!(modal.error.is_some());
+        assert!(!modal.saving());
+        assert_eq!(
+            modal.error.as_deref(),
+            Some("The application did not respond")
+        );
         assert_eq!(modal.fields[0].value, "Keep this answer");
     }
 
@@ -814,24 +950,44 @@ mod tests {
     }
 
     #[test]
-    fn informational_text_blocks_incomplete_modal_submission() {
-        let mut app = Application::default();
-        let raw = json!({
+    fn a_forms_text_shows_and_goes_back_as_its_kind() {
+        let modal = InteractionModal::parse(json!({
             "id": "42", "channel_id": "7", "custom_id": "edit",
             "application": {"id": "3"}, "title": "Edit",
             "components": [
-                {"type": 10, "content": "Warning: this action is permanent."},
+                {"type": 10, "id": 1, "content": "**This can't be undone.**"},
                 {"type": 1, "components": [{
                     "type": 4, "custom_id": "answer", "value": "Ready"
                 }]}
             ]
-        });
-        let modal = InteractionModal::parse(raw).unwrap();
+        }))
+        .unwrap();
+        assert!(modal.supported);
+        assert!(modal.valid());
+        assert_eq!(modal.fields[0].kind, TEXT_DISPLAY);
+        assert_eq!(modal.fields[0].label, "**This can't be undone.**");
+        assert_eq!(
+            modal.submitted(),
+            json!([
+                {"type": 10},
+                {"type": 1, "components": [{"type": 4, "custom_id": "answer", "value": "Ready"}]}
+            ])
+        );
+    }
+
+    #[test]
+    fn a_form_with_a_field_yapfast_lacks_isnt_sent() {
+        let mut app = Application::default();
+        let modal = InteractionModal::parse(json!({
+            "id": "42", "channel_id": "7", "custom_id": "edit",
+            "application": {"id": "3"}, "title": "Edit",
+            "components": [{"type": 18, "label": "Proof", "component": {"type": 19, "custom_id": "file"}}]
+        }))
+        .unwrap();
         assert!(!modal.supported);
-        assert!(!modal.valid());
         app.state.interaction_modal = Some(modal);
         assert!(app.dispatch(Action::SubmitModal).is_empty());
-        assert!(app.state.pending_interaction.is_none());
+        assert!(app.state.pending_interactions.is_empty());
     }
 
     #[cfg(feature = "discord")]
@@ -965,57 +1121,163 @@ mod tests {
         assert!(current - nonce < (1 << 22) * 1000);
     }
 
-    #[test]
-    fn unidentified_non_bot_message_controls_are_rejected() {
-        let mut app = Application::default();
-        app.state.selected = Some("discord:10:7".into());
-        app.state.messages = Arc::new(vec![Arc::new(ChatMessage {
-            item: "d:1".into(),
-            sender: "discord:3".into(),
-            ..Default::default()
-        })]);
-        assert!(
-            app.component("d:1".into(), 2, "click".into(), None)
-                .is_empty()
-        );
-        assert_eq!(
-            app.state.notice.as_deref(),
-            Some("Discord didn't identify the bot for this control.")
-        );
-        assert!(app.state.pending_interaction.is_none());
-    }
-
-    #[test]
-    fn bot_controls_without_application_ids_are_resolved_by_the_backend() {
-        let mut app = Application::default();
-        app.state.selected = Some("discord:10:7".into());
-        app.state.messages = Arc::new(vec![Arc::new(ChatMessage {
-            item: "d:1".into(),
+    /// An app's message in #7 of server 10 with a button, by the bot
+    /// user 3, naming its app when `application` is given.
+    fn bot_message(item: &str, application: Option<&str>) -> Arc<ChatMessage> {
+        Arc::new(ChatMessage {
+            item: item.into(),
             sender: "discord:3".into(),
             bot: true,
+            application_id: application.map(str::to_owned),
+            flags: 1 << 15,
+            cards: vec![chat::Card {
+                rows: vec![chat::CardRow::Buttons(vec![chat::CardButton {
+                    label: "Approve".into(),
+                    style: chat::ButtonStyle::Success,
+                    url: None,
+                    custom_id: Some("approve".into()),
+                    sku_id: None,
+                    disabled: false,
+                }])],
+                ..Default::default()
+            }],
             ..Default::default()
-        })]);
-        let effects = app.component("d:1".into(), 2, "click".into(), None);
-        let [Effect::Backend(Command::Discord(DiscordCommand::Interact(body)))] =
-            effects.as_slice()
-        else {
-            panic!("the backend should resolve the application");
-        };
-        assert!(body["application_id"].is_null());
-        assert_eq!(body["message_id"], "1");
-        assert!(app.state.pending_interaction.is_some());
-        assert!(app.state.notice.is_none());
+        })
+    }
+
+    fn with_messages(messages: Vec<Arc<ChatMessage>>) -> Application {
+        let mut app = Application::default();
+        app.state.selected = Some("discord:10:7".into());
+        app.state.messages = Arc::new(messages);
+        app
+    }
+
+    fn click(app: &mut Application, item: &str) -> Option<Value> {
+        let effects = app.dispatch(Action::UseButton {
+            item: item.into(),
+            custom_id: "approve".into(),
+        });
+        match effects.as_slice() {
+            [Effect::Backend(Command::Discord(DiscordCommand::Interact(body)))] => {
+                Some(body.clone())
+            }
+            _ => None,
+        }
     }
 
     #[test]
-    fn expired_interactions_release_controls_without_clearing_a_newer_request() {
-        let mut app = Application::default();
-        app.state.pending_interaction = Some("first".into());
-        app.apply(Event::InteractionSettled("first".into()));
-        assert!(app.state.pending_interaction.is_none());
-        app.state.pending_interaction = Some("second".into());
-        app.apply(Event::InteractionSettled("first".into()));
-        assert_eq!(app.state.pending_interaction.as_deref(), Some("second"));
+    fn a_control_names_its_app_or_else_its_bot_author() {
+        // Discord's client sends the message's application_id, or else its
+        // author's id, which a bot's user shares with its app.
+        let mut app = with_messages(vec![
+            bot_message("d:1", None),
+            bot_message("d:2", Some("8")),
+        ]);
+        let body = click(&mut app, "d:1").unwrap();
+        assert_eq!(body["type"], 3);
+        assert_eq!(body["application_id"], "3");
+        assert_eq!(body["guild_id"], "10");
+        assert_eq!(body["channel_id"], "7");
+        assert_eq!(body["message_id"], "1");
+        assert_eq!(body["message_flags"], 1 << 15);
+        assert_eq!(
+            body["data"],
+            json!({"component_type": 2, "custom_id": "approve"})
+        );
+        assert_eq!(click(&mut app, "d:2").unwrap()["application_id"], "8");
+    }
+
+    #[test]
+    fn a_waiting_control_holds_back_only_its_own_message() {
+        let mut app = with_messages(vec![bot_message("d:1", None), bot_message("d:2", None)]);
+        let first = click(&mut app, "d:1").unwrap();
+        assert!(click(&mut app, "d:1").is_none(), "one at a time a message");
+        assert!(click(&mut app, "d:2").is_some());
+        assert!(app.state.interaction_pending("d:1"));
+        app.apply(Event::InteractionSucceeded(
+            first["nonce"].as_str().unwrap().into(),
+        ));
+        assert!(!app.state.interaction_pending("d:1"));
+        assert!(app.state.interaction_pending("d:2"));
+        assert!(click(&mut app, "d:1").is_some());
+    }
+
+    #[test]
+    fn a_failed_control_says_why_under_its_message() {
+        let mut app = with_messages(vec![bot_message("d:1", None)]);
+        let nonce = click(&mut app, "d:1").unwrap()["nonce"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        app.apply(Event::InteractionFailed {
+            nonce: nonce.clone(),
+            reason: "This interaction failed".into(),
+        });
+        assert_eq!(
+            app.state.interaction_failed,
+            Some(("d:1".into(), "This interaction failed".into()))
+        );
+        assert!(app.state.notice.is_none());
+        // What comes after for the same nonce changes nothing.
+        app.apply(Event::InteractionSettled(nonce));
+        assert_eq!(
+            app.state
+                .interaction_failed
+                .as_ref()
+                .map(|(_, why)| why.as_str()),
+            Some("This interaction failed")
+        );
+        // Trying again takes the line away.
+        let nonce = click(&mut app, "d:1").unwrap()["nonce"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(app.state.interaction_failed.is_none());
+        // A bot that never answers: Discord's client says so.
+        app.apply(Event::InteractionSettled(nonce));
+        assert_eq!(
+            app.state.interaction_failed,
+            Some(("d:1".into(), "The application did not respond".into()))
+        );
+    }
+
+    #[test]
+    fn a_form_takes_the_server_of_the_control_that_asked_for_it() {
+        let mut app = with_messages(vec![bot_message("d:1", None)]);
+        let nonce = click(&mut app, "d:1").unwrap()["nonce"].clone();
+        // Discord's INTERACTION_MODAL_CREATE names no server.
+        app.apply(Event::InteractionModal(json!({
+            "id": "42", "channel_id": "7", "custom_id": "rollback", "nonce": nonce,
+            "application": {"id": "3"}, "title": "Roll back",
+            "components": [{"type": 18, "label": "Why", "component": {"type": 4, "custom_id": "why", "style": 2}}]
+        })));
+        assert!(!app.state.interaction_pending("d:1"));
+        let modal = app.state.interaction_modal.as_ref().unwrap();
+        assert_eq!(modal.guild_id.as_deref(), Some("10"));
+        assert_eq!(modal.title, "Roll back");
+        app.dispatch(Action::SetModalField {
+            index: 0,
+            value: "Broke the login".into(),
+        });
+        let sent = app.dispatch(Action::SubmitModal);
+        let [Effect::Backend(Command::Discord(DiscordCommand::Interact(body)))] = sent.as_slice()
+        else {
+            panic!("the form is sent");
+        };
+        assert_eq!(body["type"], 5);
+        assert_eq!(body["guild_id"], "10");
+        assert_eq!(body["application_id"], "3");
+        assert_eq!(
+            body["data"],
+            json!({"id": "42", "custom_id": "rollback", "components": [
+                {"type": 18, "component": {"type": 4, "custom_id": "why", "value": "Broke the login"}}
+            ]})
+        );
+        assert!(app.state.interaction_modal.as_ref().unwrap().saving());
+        app.apply(Event::InteractionSucceeded(
+            body["nonce"].as_str().unwrap().into(),
+        ));
+        assert!(app.state.interaction_modal.is_none());
     }
 
     #[test]

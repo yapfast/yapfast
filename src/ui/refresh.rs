@@ -746,7 +746,21 @@ impl Adapter {
     }
 
     pub(super) fn show_bot_interactions(&mut self, window: &YapfastWindow) {
-        window.set_bot_control_busy(self.app.state.pending_interaction.is_some());
+        let state = &self.app.state;
+        // The newest control waiting shows so; the core holds back any.
+        window.set_bot_busy_item(
+            state
+                .pending_interactions
+                .last()
+                .map_or("", |pending| pending.item.as_str())
+                .into(),
+        );
+        let (failed, why) = state
+            .interaction_failed
+            .as_ref()
+            .map_or(("", ""), |(item, why)| (item.as_str(), why.as_str()));
+        window.set_bot_failed_item(failed.into());
+        window.set_bot_failed_text(why.into());
         let select = self.app.state.select_menu.as_ref();
         window.set_bot_select_open(select.is_some());
         if let Some(select) = select {
@@ -793,7 +807,7 @@ impl Adapter {
         if let Some(modal) = modal {
             window.set_bot_modal_heading(modal.title.as_str().into());
             window.set_bot_modal_supported(modal.supported);
-            window.set_bot_modal_saving(modal.saving);
+            window.set_bot_modal_saving(modal.saving());
             window.set_bot_modal_error(modal.error.as_deref().unwrap_or_default().into());
             let fields = modal
                 .fields
@@ -805,6 +819,11 @@ impl Adapter {
                     required: field.required,
                     paragraph: field.paragraph,
                     kind: field.kind as i32,
+                    blocks: if field.kind == 10 {
+                        ModelRc::new(VecModel::from(messages::text_blocks(&field.label)))
+                    } else {
+                        ModelRc::default()
+                    },
                     summary: field
                         .values
                         .iter()

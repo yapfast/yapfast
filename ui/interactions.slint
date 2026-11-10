@@ -1,9 +1,12 @@
 import { Theme } from "theme.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { ActionButton, IconButton, TextField } from "controls.slint";
+import { TextBlock, TextBlocks } from "messages.slint";
 
 export struct SelectChoice { index: int, label: string, value: string, description: string, selected: bool }
-export struct ModalField { label: string, value: string, placeholder: string, required: bool, paragraph: bool, kind: int, summary: string }
+/// A field of a bot's form, by its component `kind`: 4 a text input, 3 and
+/// 5–8 select menus, 10 text the form shows, in `blocks`.
+export struct ModalField { label: string, value: string, placeholder: string, required: bool, paragraph: bool, kind: int, summary: string, blocks: [TextBlock] }
 
 export component BotSelectDialog inherits Rectangle {
     in property <string> heading;
@@ -18,7 +21,7 @@ export component BotSelectDialog inherits Rectangle {
     background: #00000099;
     TouchArea { clicked => { root.close(); } }
     Rectangle {
-        width: min(480px, root.width - 40px); height: min(560px, root.height - 80px);
+        width: min(480px, root.width - 40px); height: min(select-layout.preferred-height, 560px, root.height - 80px);
         background: Theme.raised; border-radius: 12px; border-width: 1px; border-color: Theme.edge;
         drop-shadow-blur: 28px; drop-shadow-color: #00000077;
         accessible-role: groupbox; accessible-label: root.heading;
@@ -26,7 +29,7 @@ export component BotSelectDialog inherits Rectangle {
         FocusScope {
             init => { self.focus(); }
             key-pressed(event) => { if event.text == Key.Escape { root.close(); return accept; } return reject; }
-            VerticalLayout {
+            select-layout := VerticalLayout {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
                     Text { text: root.heading; color: Theme.text; font-size: 18px; font-weight: 700; horizontal-stretch: 1; overflow: elide; }
@@ -43,6 +46,8 @@ export component BotSelectDialog inherits Rectangle {
                 }
                 ListView {
                     vertical-stretch: 1;
+                    // As tall as its rows, a description's being taller.
+                    preferred-height: root.choices.length * 56px;
                     for choice[index] in root.choices: Rectangle {
                         height: choice.description != "" ? 64px : 48px;
                         border-radius: 6px; background: choice-touch.has-hover ? Theme.hover : Theme.sunken;
@@ -50,11 +55,14 @@ export component BotSelectDialog inherits Rectangle {
                         accessible-action-default => { root.toggle(choice.index); }
                         HorizontalLayout {
                             padding-left: 12px; padding-right: 12px; spacing: 10px;
-                            Rectangle {
-                                width: 18px; height: 18px; border-width: 1px; border-radius: 4px;
-                                border-color: choice.selected ? Theme.accent : Theme.secondary;
-                                background: choice.selected ? Theme.accent : transparent;
-                                if choice.selected: Text { text: "✓"; color: Theme.on-accent; horizontal-alignment: center; vertical-alignment: center; font-size: 14px; }
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 18px; height: 18px; border-width: 1px; border-radius: 4px;
+                                    border-color: choice.selected ? Theme.accent : Theme.secondary;
+                                    background: choice.selected ? Theme.accent : transparent;
+                                    if choice.selected: Text { text: "✓"; color: Theme.on-accent; horizontal-alignment: center; vertical-alignment: center; font-size: 14px; }
+                                }
                             }
                             VerticalLayout {
                                 alignment: center; horizontal-stretch: 1;
@@ -109,8 +117,9 @@ export component BotModalDialog inherits Rectangle {
                         spacing: 16px; alignment: start;
                         for field[index] in root.fields: VerticalLayout {
                             spacing: 8px;
-                            Text { text: field.label + (field.required ? " *" : ""); color: Theme.text; font-size: 14px; font-weight: 700; }
-                            if field.kind != 4: ActionButton {
+                            if field.kind == 10: TextBlocks { blocks: field.blocks; font-size: 15px; }
+                            if field.kind != 10: Text { text: field.label + (field.required ? " *" : ""); color: Theme.text; font-size: 14px; font-weight: 700; }
+                            if field.kind != 4 && field.kind != 10: ActionButton {
                                 enabled: !root.saving;
                                 text: field.summary != "" ? field.summary : "Choose an option";
                                 clicked => { root.open-select(index); }
