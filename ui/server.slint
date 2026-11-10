@@ -57,23 +57,23 @@ export component InviteDialog inherits Rectangle {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
                     Text { text: root.prompt.title; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                    IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close"); size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
                 if root.prompt.detail != "": Label { text: root.prompt.detail; }
-                Text { text: "INVITE LINK"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                Text { text: @tr("INVITE LINK"); color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                 Rectangle {
                     height: 44px; border-radius: 8px; background: Theme.sunken;
                     HorizontalLayout {
                         padding-left: 12px; padding-right: 4px; spacing: 8px;
                         Text {
-                            text: root.prompt.making ? "Making a link..." : root.prompt.link;
+                            text: root.prompt.making ? @tr("Making a link...") : root.prompt.link;
                             color: root.prompt.making ? Theme.muted : Theme.text; font-size: 15px;
                             vertical-alignment: center; horizontal-stretch: 1; overflow: elide;
                         }
                         VerticalLayout {
                             alignment: center;
                             ActionButton {
-                                text: root.copied ? "Copied" : "Copy"; primary: !root.copied;
+                                text: root.copied ? @tr("Copied") : @tr("Copy"); primary: !root.copied;
                                 enabled: root.prompt.link != "";
                                 clicked => { root.copy(root.prompt.link); root.copied-link = root.prompt.link; }
                             }
@@ -82,21 +82,21 @@ export component InviteDialog inherits Rectangle {
                 }
                 if root.prompt.note != "": Label { text: root.prompt.note; }
                 if root.prompt.error != "": Text { text: root.prompt.error; color: Theme.danger; font-size: 14px; wrap: word-wrap; }
-                Text { text: "EXPIRE AFTER"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                Text { text: @tr("EXPIRE AFTER"); color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                 Choices {
-                    label: "Expire after"; options: ["30 min", "1 hr", "6 hr", "12 hr", "1 day", "7 days", "Never"];
+                    label: @tr("Expire after"); options: [@tr("30 min"), @tr("1 hr"), @tr("6 hr"), @tr("12 hr"), @tr("1 day"), @tr("7 days"), @tr("Never")];
                     current <=> root.age;
                 }
-                Text { text: "MAX NUMBER OF USES"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                Text { text: @tr("MAX NUMBER OF USES"); color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                 Choices {
-                    label: "Max number of uses"; options: ["No limit", "1", "5", "10", "25", "50", "100"];
+                    label: @tr("Max number of uses"); options: [@tr("No limit"), "1", "5", "10", "25", "50", "100"];
                     current <=> root.uses;
                 }
                 HorizontalLayout {
                     alignment: end; spacing: 8px; padding-top: 4px;
-                    ActionButton { text: "Done"; ghost: true; clicked => { root.close(); } }
+                    ActionButton { text: @tr("Done"); ghost: true; clicked => { root.close(); } }
                     ActionButton {
-                        text: "Generate a new link"; enabled: !root.prompt.making;
+                        text: @tr("Generate a new link"); enabled: !root.prompt.making;
                         clicked => { root.remake(root.age, root.uses); }
                     }
                 }
@@ -162,14 +162,14 @@ export component JoinDialog inherits Rectangle {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
                     Text { text: root.prompt.title; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                    IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close"); size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
-                if root.prompt.field: Label { text: "Paste an invite link or code to join a server you were invited to."; }
-                if root.prompt.field: Text { text: "INVITE LINK"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                if root.prompt.field: Label { text: @tr("Paste an invite link or code to join a server you were invited to."); }
+                if root.prompt.field: Text { text: @tr("INVITE LINK"); color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                 if root.prompt.field: TextField {
                     init => { self.focus-input(); }
                     min-height: 36px; text-size: 15px; pad: 10px;
-                    placeholder: "https://discord.gg/yapfast"; label: "Invite link";
+                    placeholder: "https://discord.gg/yapfast"; label: @tr("Invite link");
                     text <=> root.link;
                     accepted => { if !root.prompt.busy { root.find(root.link); } }
                 }
@@ -190,8 +190,8 @@ export component JoinDialog inherits Rectangle {
                 if root.prompt.error != "": Text { text: root.prompt.error; color: Theme.danger; font-size: 14px; wrap: word-wrap; }
                 HorizontalLayout {
                     alignment: end; spacing: 8px; padding-top: 4px;
-                    ActionButton { text: root.prompt.form || root.prompt.confirm == "" ? "Close" : "Cancel"; ghost: true; clicked => { root.close(); } }
-                    if root.prompt.captcha: ActionButton { text: "Open the captcha again"; clicked => { root.open-captcha(); } }
+                    ActionButton { text: root.prompt.form || root.prompt.confirm == "" ? @tr("Close") : @tr("Cancel"); ghost: true; clicked => { root.close(); } }
+                    if root.prompt.captcha: ActionButton { text: @tr("Open the captcha again"); clicked => { root.open-captcha(); } }
                     if root.prompt.confirm != "": ActionButton {
                         text: root.prompt.confirm; primary: true; enabled: !root.prompt.busy;
                         clicked => {
@@ -253,7 +253,7 @@ export component EventDialog inherits Rectangle {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
                     Text { text: root.prompt.title; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                    IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close"); size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
                 if root.prompt.found: Rectangle {
                     border-radius: 8px; background: Theme.sunken;
@@ -270,7 +270,7 @@ export component EventDialog inherits Rectangle {
                 if root.prompt.error != "": Text { text: root.prompt.error; color: Theme.danger; font-size: 14px; wrap: word-wrap; }
                 HorizontalLayout {
                     alignment: end; spacing: 8px; padding-top: 4px;
-                    ActionButton { text: root.prompt.confirm == "" ? "Close" : "Cancel"; ghost: true; clicked => { root.close(); } }
+                    ActionButton { text: root.prompt.confirm == "" ? @tr("Close") : @tr("Cancel"); ghost: true; clicked => { root.close(); } }
                     if root.prompt.confirm != "": ActionButton {
                         text: root.prompt.confirm; primary: true; enabled: !root.prompt.busy;
                         clicked => { root.toggle-interest(); }
@@ -328,7 +328,7 @@ export component GiftDialog inherits Rectangle {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
                     Text { text: root.prompt.title; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                    IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close"); size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
                 if root.prompt.found: Rectangle {
                     border-radius: 8px; background: Theme.sunken;
@@ -343,7 +343,7 @@ export component GiftDialog inherits Rectangle {
                 if root.prompt.error != "": Text { text: root.prompt.error; color: Theme.danger; font-size: 14px; wrap: word-wrap; }
                 HorizontalLayout {
                     alignment: end; spacing: 8px; padding-top: 4px;
-                    ActionButton { text: root.prompt.confirm == "" ? "Close" : "Cancel"; ghost: true; clicked => { root.close(); } }
+                    ActionButton { text: root.prompt.confirm == "" ? @tr("Close") : @tr("Cancel"); ghost: true; clicked => { root.close(); } }
                     if root.prompt.confirm != "": ActionButton {
                         text: root.prompt.confirm; primary: true; enabled: !root.prompt.busy;
                         clicked => { if root.prompt.browser { root.open-in-browser(); } else { root.redeem(); } }
@@ -417,7 +417,7 @@ export component OAuthDialog inherits Rectangle {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
                     Text { text: root.prompt.title; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                    IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close"); size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
                 if root.prompt.found: Rectangle {
                     border-radius: 8px; background: Theme.sunken;
@@ -434,10 +434,10 @@ export component OAuthDialog inherits Rectangle {
                 }
                 if root.prompt.warning != "": Text { text: root.prompt.warning; color: Theme.danger; font-size: 14px; font-weight: 700; wrap: word-wrap; }
                 if root.prompt.wants != "": Text { text: root.prompt.wants; color: Theme.text; font-size: 14px; wrap: word-wrap; }
-                if root.prompt.guild-picker || root.prompt.guild-name != "": Text { text: "ADD TO SERVER"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                if root.prompt.guild-picker || root.prompt.guild-name != "": Text { text: @tr("ADD TO SERVER"); color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                 if root.prompt.guild-picker: Picker {
                     model: root.guilds; chosen: root.guild-chosen; enabled: !root.prompt.busy;
-                    accessible-label: "Add to server";
+                    accessible-label: @tr("Add to server");
                     selected => { root.choose-guild(self.current-index); }
                 }
                 if !root.prompt.guild-picker && root.prompt.guild-name != "": Rectangle {
@@ -456,7 +456,7 @@ export component OAuthDialog inherits Rectangle {
                         VerticalLayout {
                             alignment: center;
                             ActionButton {
-                                text: root.copied-address == root.prompt.address ? "Copied" : "Copy";
+                                text: root.copied-address == root.prompt.address ? @tr("Copied") : @tr("Copy");
                                 primary: root.copied-address != root.prompt.address;
                                 clicked => { root.copy(root.prompt.address); root.copied-address = root.prompt.address; }
                             }
@@ -466,7 +466,7 @@ export component OAuthDialog inherits Rectangle {
                 if root.prompt.error != "": Text { text: root.prompt.error; color: Theme.danger; font-size: 14px; wrap: word-wrap; }
                 HorizontalLayout {
                     alignment: end; spacing: 8px; padding-top: 4px;
-                    ActionButton { text: root.prompt.confirm == "" ? "Close" : "Cancel"; ghost: true; clicked => { root.close(); } }
+                    ActionButton { text: root.prompt.confirm == "" ? @tr("Close") : @tr("Cancel"); ghost: true; clicked => { root.close(); } }
                     if root.prompt.confirm != "": ActionButton {
                         text: root.prompt.confirm; primary: true; enabled: !root.prompt.busy;
                         clicked => { root.authorize(); }
@@ -539,12 +539,12 @@ export component ChannelDialog inherits Rectangle {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
                     Text { text: root.prompt.title; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                    IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close"); size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
                 if root.prompt.detail != "": Label { text: root.prompt.detail; }
-                if root.prompt.kinds: Text { text: "CHANNEL TYPE"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                if root.prompt.kinds: Text { text: @tr("CHANNEL TYPE"); color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                 if root.prompt.kinds: Choices {
-                    label: "Channel type"; options: ["Text", "Voice"];
+                    label: @tr("Channel type"); options: [@tr("Text"), @tr("Voice")];
                     current <=> root.kind;
                 }
                 if root.prompt.named: Text { text: root.prompt.field; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
@@ -583,7 +583,7 @@ export component ChannelDialog inherits Rectangle {
                 HorizontalLayout {
                     alignment: end; spacing: 8px; padding-top: 4px;
                     ActionButton {
-                        text: root.prompt.alternative != "" ? root.prompt.alternative : "Cancel"; ghost: true;
+                        text: root.prompt.alternative != "" ? root.prompt.alternative : @tr("Cancel"); ghost: true;
                         clicked => { if root.prompt.alternative != "" { root.alternative(); } else { root.close(); } }
                     }
                     ActionButton {
@@ -781,10 +781,10 @@ component ProfileCustomize inherits Rectangle {
     VerticalLayout {
         Rectangle {
             height: 50px;
-            Text { x: 16px; text: "Main Profile"; color: Theme.text; font-size: 16px; font-weight: 600; vertical-alignment: center; height: 100%; }
+            Text { x: 16px; text: @tr("Main Profile"); color: Theme.text; font-size: 16px; font-weight: 600; vertical-alignment: center; height: 100%; }
             IconButton {
                 x: parent.width - self.width - 8px; y: (parent.height - self.height) / 2; height: self.width;
-                icon: @image-url("icons/chevrons-right.svg"); label: "Hide Styles"; size: 30px; glyph: 16px;
+                icon: @image-url("icons/chevrons-right.svg"); label: @tr("Hide Styles"); size: 30px; glyph: 16px;
                 clicked => { root.collapse(); }
             }
             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
@@ -795,7 +795,7 @@ component ProfileCustomize inherits Rectangle {
             column := VerticalLayout {
                 padding: 16px; spacing: 16px; alignment: start;
                 CustomizeGroup {
-                    title: "Nameplate";
+                    title: @tr("Nameplate");
                     CustomizeCell {
                         height: 42px; enabled: true;
                         clicked => { root.open-link("https://discord.com/shop"); }
@@ -808,7 +808,7 @@ component ProfileCustomize inherits Rectangle {
                     }
                 }
                 CustomizeGroup {
-                    title: "Avatar & Decoration";
+                    title: @tr("Avatar & Decoration");
                     HorizontalLayout {
                         spacing: 8px;
                         CustomizeCell {
@@ -820,13 +820,13 @@ component ProfileCustomize inherits Rectangle {
                             enabled: true;
                             clicked => { root.open-link("https://discord.com/shop"); }
                             if root.data.decoration-url != "": Avatar { width: 64px; height: 64px; size: 64px; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; decoration-url: root.data.decoration-url; }
-                            if root.data.decoration-url == "" && root.decoration-set: Text { text: "Decoration on"; color: Theme.text; font-size: 13px; }
+                            if root.data.decoration-url == "" && root.decoration-set: Text { text: @tr("Decoration on"); color: Theme.text; font-size: 13px; }
                             if !root.decoration-set: SlotPlus { }
                         }
                     }
                 }
                 CustomizeGroup {
-                    title: "Display Name Style";
+                    title: @tr("Display Name Style");
                     CustomizeCell {
                         height: 42px; enabled: root.look-enabled;
                         clicked => { root.open-style(); }
@@ -837,7 +837,7 @@ component ProfileCustomize inherits Rectangle {
                     }
                 }
                 CustomizeGroup {
-                    title: "Theme & Banner";
+                    title: @tr("Theme & Banner");
                     HorizontalLayout {
                         spacing: 8px;
                         // The card's two colours, top and bottom, each on its handle.
@@ -845,12 +845,12 @@ component ProfileCustomize inherits Rectangle {
                             background: root.data.has-theme ? @linear-gradient(180deg, root.data.theme-primary, root.data.theme-secondary) : Theme.raised;
                             if root.look-enabled: ThemeHandle {
                                 y: 4px; fill: root.data.theme-primary; open: root.open-handle == 1;
-                                accessible-label: "Theme's top colour";
+                                accessible-label: @tr("Theme's top colour");
                                 clicked => { root.open-handle-at(1); }
                             }
                             if root.look-enabled: ThemeHandle {
                                 y: parent.height - self.height - 4px; fill: root.data.theme-secondary; open: root.open-handle == 2;
-                                accessible-label: "Theme's bottom colour";
+                                accessible-label: @tr("Theme's bottom colour");
                                 clicked => { root.open-handle-at(2); }
                             }
                         }
@@ -859,24 +859,24 @@ component ProfileCustomize inherits Rectangle {
                             clicked => { root.pick(1); }
                             background: root.data.has-accent ? root.data.accent : Theme.raised;
                             if root.data.banner.width > 0: Image { width: parent.width; height: parent.height; source: root.data.banner; image-fit: cover; }
-                            if root.data.banner.width == 0 && !root.data.has-accent: Text { text: "No banner"; color: Theme.muted; font-size: 13px; }
+                            if root.data.banner.width == 0 && !root.data.has-accent: Text { text: @tr("No banner"); color: Theme.muted; font-size: 13px; }
                         }
                     }
                 }
                 CustomizeGroup {
-                    title: "Profile Effect & Frame";
+                    title: @tr("Profile Effect & Frame");
                     HorizontalLayout {
                         spacing: 8px;
                         CustomizeCell {
                             enabled: true;
                             clicked => { root.open-link("https://discord.com/shop"); }
-                            if root.effect-set: Text { text: "Effect on"; color: Theme.text; font-size: 13px; }
+                            if root.effect-set: Text { text: @tr("Effect on"); color: Theme.text; font-size: 13px; }
                             if !root.effect-set: SlotPlus { }
                         }
                         CustomizeCell {
                             enabled: true;
                             clicked => { root.open-link("https://discord.com/shop"); }
-                            if root.frame-set: Text { text: "Frame on"; color: Theme.text; font-size: 13px; }
+                            if root.frame-set: Text { text: @tr("Frame on"); color: Theme.text; font-size: 13px; }
                             if !root.frame-set: SlotPlus { }
                         }
                     }
@@ -946,7 +946,7 @@ component ColourPopover inherits Rectangle {
     }
     field := TextField {
         x: 10px; y: 194px; width: parent.width - 20px; height: 42px;
-        placeholder: "#rrggbb"; label: "Colour code"; text-size: 14px; border-radius: 10px;
+        placeholder: "#rrggbb"; label: @tr("Colour code"); text-size: 14px; border-radius: 10px;
         edited(text) => { root.load(root.parse-hex(text)); root.chosen(text); }
     }
 }
@@ -969,7 +969,7 @@ component ProfileTabs inherits Rectangle {
     property <length> list-y: headings.y + headings.height + 16px;
     property <length> list-width: self.width - 18px;
     property <length> list-height: self.height - self.list-y - 8px;
-    property <string> coming-soon: "Adding more from Yapfast is coming soon.";
+    property <string> coming-soon: @tr("Adding more from Yapfast is coming soon.");
     horizontal-stretch: 1;
     preferred-width: 0px;
     min-width: 280px;
@@ -979,7 +979,7 @@ component ProfileTabs inherits Rectangle {
             spacing: 0px;
             HorizontalLayout {
                 spacing: 24px; alignment: start;
-                for tab[index] in ["Board", "Activity", "Wishlist"]: VerticalLayout {
+                for tab[index] in [@tr("Board"), @tr("Activity"), @tr("Wishlist")]: VerticalLayout {
                     spacing: 8px;
                     Text {
                         text: tab; font-size: 14px; font-weight: 600; color: root.page == index ? root.ink : root.ink2;
@@ -998,8 +998,8 @@ component ProfileTabs inherits Rectangle {
         }
         if root.page == 1: VerticalLayout {
             spacing: 10px;
-            Text { text: "Current activity"; color: root.ink2; font-size: 13px; font-weight: 600; }
-            if root.data.activities.length == 0: Text { text: "Nothing going on right now."; color: root.ink3; font-size: 13px; }
+            Text { text: @tr("Current activity"); color: root.ink2; font-size: 13px; font-weight: 600; }
+            if root.data.activities.length == 0: Text { text: @tr("Nothing going on right now."); color: root.ink3; font-size: 13px; }
             for activity in root.data.activities: ActivityCard {
                 activity: activity; ink: root.ink; ink2: root.ink2; ink3: root.ink3;
                 open-link(url) => { root.open-link(url); }
@@ -1013,8 +1013,8 @@ component ProfileTabs inherits Rectangle {
         board := VerticalLayout {
             width: board-scroll.visible-width; padding-right: 14px; padding-bottom: 14px; spacing: 12px; alignment: start;
             if root.data.board-note != "": Text { text: root.data.board-note; color: root.ink2; font-size: 13px; wrap: word-wrap; }
-            if root.data.board-note == "" && root.data.widgets.length == 0: Text { text: "Nothing on your board yet."; color: root.ink2; font-size: 13px; wrap: word-wrap; }
-            if root.data.widgets.length > 0: Text { text: "Your Widgets"; color: root.ink2; font-size: 13px; font-weight: 600; }
+            if root.data.board-note == "" && root.data.widgets.length == 0: Text { text: @tr("Nothing on your board yet."); color: root.ink2; font-size: 13px; wrap: word-wrap; }
+            if root.data.widgets.length > 0: Text { text: @tr("Your Widgets"); color: root.ink2; font-size: 13px; font-weight: 600; }
             if root.data.board-note == "": Text { text: root.coming-soon; color: root.ink3; font-size: 12px; wrap: word-wrap; }
             for widget in root.data.widgets: BoardCard { widget: widget; tile: root.tile; ink: root.ink; ink2: root.ink2; ink3: root.ink3; }
         }
@@ -1030,9 +1030,9 @@ component ProfileTabs inherits Rectangle {
         content-height: wishlist.preferred-height;
         wishlist := VerticalLayout {
             width: wishlist-scroll.visible-width; padding-right: 14px; padding-bottom: 14px; spacing: 12px; alignment: start;
-            if wishlist-scroll.count > 0: Text { text: wishlist-scroll.count + (wishlist-scroll.count == 1 ? " Item" : " Items"); color: root.ink2; font-size: 13px; font-weight: 600; }
+            if wishlist-scroll.count > 0: Text { text: wishlist-scroll.count + (wishlist-scroll.count == 1 ? @tr(" Item") : @tr(" Items")); color: root.ink2; font-size: 13px; font-weight: 600; }
             if root.data.wishlist-note != "": Text { text: root.data.wishlist-note; color: root.ink2; font-size: 13px; wrap: word-wrap; }
-            if root.data.wishlist-note == "" && wishlist-scroll.count == 0: Text { text: "Nothing on your wishlist yet."; color: root.ink2; font-size: 13px; wrap: word-wrap; }
+            if root.data.wishlist-note == "" && wishlist-scroll.count == 0: Text { text: @tr("Nothing on your wishlist yet."); color: root.ink2; font-size: 13px; wrap: word-wrap; }
             if root.data.wishlist-note == "" || wishlist-scroll.count > 0: Text { text: root.coming-soon; color: root.ink3; font-size: 12px; wrap: word-wrap; }
             if wishlist-scroll.count > 0: Rectangle {
                 height: ceil(wishlist-scroll.count / 2) * (wishlist-scroll.card-height + wishlist-scroll.gap) - wishlist-scroll.gap;
@@ -1072,13 +1072,13 @@ component NameStyleWindow inherits Rectangle {
     callback apply(int, int, string);
     pure callback parse-hex(string) -> color;
     property <[{ id: int, family: string, weight: int, label: string }]> faces: [
-        { id: 11, family: "", weight: 500, label: "Default" }, { id: 12, family: "Tempo", weight: 600, label: "Tempo" }, { id: 3, family: "Sakura", weight: 400, label: "Sakura" }, { id: 4, family: "Jellybean", weight: 400, label: "Jellybean" },
-        { id: 6, family: "Modern", weight: 500, label: "Modern" }, { id: 7, family: "Néo-castel", weight: 400, label: "Medieval" }, { id: 8, family: "8Bit", weight: 500, label: "8Bit" }, { id: 10, family: "Sinistre", weight: 548, label: "Vampyre" },
-        { id: 13, family: "Monkey Bars", weight: 700, label: "Monkey Bars" }, { id: 14, family: "Mainframe", weight: 700, label: "Mainframe" }, { id: 15, family: "Headbang", weight: 400, label: "Headbang" }, { id: 16, family: "Journal", weight: 700, label: "Journal" },
+        { id: 11, family: "", weight: 500, label: @tr("Default") }, { id: 12, family: "Tempo", weight: 600, label: @tr("Tempo") }, { id: 3, family: "Sakura", weight: 400, label: @tr("Sakura") }, { id: 4, family: "Jellybean", weight: 400, label: @tr("Jellybean") },
+        { id: 6, family: "Modern", weight: 500, label: @tr("Modern") }, { id: 7, family: "Néo-castel", weight: 400, label: @tr("Medieval") }, { id: 8, family: "8Bit", weight: 500, label: @tr("8Bit") }, { id: 10, family: "Sinistre", weight: 548, label: @tr("Vampyre") },
+        { id: 13, family: "Monkey Bars", weight: 700, label: @tr("Monkey Bars") }, { id: 14, family: "Mainframe", weight: 700, label: @tr("Mainframe") }, { id: 15, family: "Headbang", weight: 400, label: @tr("Headbang") }, { id: 16, family: "Journal", weight: 700, label: @tr("Journal") },
     ];
     property <[{ id: int, label: string }]> effects: [
-        { id: 1, label: "Solid" }, { id: 2, label: "Gradient" }, { id: 3, label: "Neon" }, { id: 4, label: "Toon" },
-        { id: 5, label: "Pop" }, { id: 8, label: "Gummy" }, { id: 7, label: "Prism" },
+        { id: 1, label: @tr("Solid") }, { id: 2, label: @tr("Gradient") }, { id: 3, label: @tr("Neon") }, { id: 4, label: @tr("Toon") },
+        { id: 5, label: @tr("Pop") }, { id: 8, label: @tr("Gummy") }, { id: 7, label: @tr("Prism") },
     ];
     property <[NamePreset]> solid: [{ key: "f0f0f2", c1: #f0f0f2, c2: #f0f0f2, c3: #f0f0f2, c4: #f0f0f2, c5: #f0f0f2 }, { key: "26e36e", c1: #26e36e, c2: #26e36e, c3: #26e36e, c4: #26e36e, c5: #26e36e }, { key: "1f99ec", c1: #1f99ec, c2: #1f99ec, c3: #1f99ec, c4: #1f99ec, c5: #1f99ec }, { key: "c32cfe", c1: #c32cfe, c2: #c32cfe, c3: #c32cfe, c4: #c32cfe, c5: #c32cfe }, { key: "da034a", c1: #da034a, c2: #da034a, c3: #da034a, c4: #da034a, c5: #da034a }, { key: "f93824", c1: #f93824, c2: #f93824, c3: #f93824, c4: #f93824, c5: #f93824 }, { key: "c6a617", c1: #c6a617, c2: #c6a617, c3: #c6a617, c4: #c6a617, c5: #c6a617 }];
     property <[NamePreset]> neon: [{ key: "6b20ee", c1: #6b20ee, c2: #6b20ee, c3: #6b20ee, c4: #6b20ee, c5: #6b20ee }, { key: "26e36e", c1: #26e36e, c2: #26e36e, c3: #26e36e, c4: #26e36e, c5: #26e36e }, { key: "1f99ec", c1: #1f99ec, c2: #1f99ec, c3: #1f99ec, c4: #1f99ec, c5: #1f99ec }, { key: "c32cfe", c1: #c32cfe, c2: #c32cfe, c3: #c32cfe, c4: #c32cfe, c5: #c32cfe }, { key: "da034a", c1: #da034a, c2: #da034a, c3: #da034a, c4: #da034a, c5: #da034a }, { key: "f93824", c1: #f93824, c2: #f93824, c3: #f93824, c4: #f93824, c5: #f93824 }, { key: "c6a617", c1: #c6a617, c2: #c6a617, c3: #c6a617, c4: #c6a617, c5: #c6a617 }];
@@ -1212,7 +1212,7 @@ component NameStyleWindow inherits Rectangle {
     background: Theme.sidebar; border-radius: 16px;
     drop-shadow-blur: 48px; drop-shadow-color: #000000b3; drop-shadow-offset-y: 16px;
     accessible-role: groupbox;
-    accessible-label: "Change Display Name Style";
+    accessible-label: @tr("Change Display Name Style");
     TouchArea { }
     Rectangle { border-radius: 16px; clip: true;
     VerticalLayout {
@@ -1222,8 +1222,8 @@ component NameStyleWindow inherits Rectangle {
                 width: 424px;
                 VerticalLayout {
                     padding: 24px; spacing: 12px; alignment: start;
-                    Text { text: "Change Display Name Style"; color: Theme.text; font-size: 22px; font-weight: 700; }
-                    Text { text: "Font"; color: Theme.secondary; font-size: 13px; font-weight: 600; }
+                    Text { text: @tr("Change Display Name Style"); color: Theme.text; font-size: 22px; font-weight: 700; }
+                    Text { text: @tr("Font"); color: Theme.secondary; font-size: 13px; font-weight: 600; }
                     Rectangle {
                         height: 3 * 68px + 2 * 8px;
                         for face[index] in root.faces: Rectangle {
@@ -1234,8 +1234,8 @@ component NameStyleWindow inherits Rectangle {
                             border-width: root.font == face.id ? 2px : 0px; border-color: Theme.accent;
                             transform-scale: face-touch.has-hover ? 1.04 : 1;
                             animate transform-scale { duration: 120ms; easing: ease-out; }
-                            accessible-role: button; accessible-label: face.family == "" ? "Usual font" : face.family;
-                            Text { text: "Gg"; font-family: face.family; font-weight: face.weight; font-size: 22px; color: Theme.text; }
+                            accessible-role: button; accessible-label: face.family == "" ? @tr("Usual font") : face.family;
+                            Text { text: @tr("Gg"); font-family: face.family; font-weight: face.weight; font-size: 22px; color: Theme.text; }
                             face-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.font = face.id; } }
                             // Its name, over it while pointed at.
                             z: face-touch.has-hover ? 10 : 0;
@@ -1246,7 +1246,7 @@ component NameStyleWindow inherits Rectangle {
                             }
                         }
                     }
-                    Text { text: "Effect"; color: Theme.secondary; font-size: 13px; font-weight: 600; }
+                    Text { text: @tr("Effect"); color: Theme.secondary; font-size: 13px; font-weight: 600; }
                     Rectangle {
                         height: 2 * 68px + 8px;
                         for item[index] in root.effects: Rectangle {
@@ -1262,14 +1262,14 @@ component NameStyleWindow inherits Rectangle {
                             effect-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.pick-effect(item.id); } }
                         }
                     }
-                    Text { text: "Colour"; color: Theme.secondary; font-size: 13px; font-weight: 600; }
+                    Text { text: @tr("Colour"); color: Theme.secondary; font-size: 13px; font-weight: 600; }
                     colour-row := HorizontalLayout {
                         spacing: 8px; alignment: start; height: 40px;
                         if !root.bar-shown: Rectangle {
                             width: 40px; border-radius: 12px;
                             background: hex-touch.has-hover || root.hex-open ? Theme.hover : Theme.raised;
                             animate background { duration: 120ms; }
-                            accessible-role: button; accessible-label: "Your own colour";
+                            accessible-role: button; accessible-label: @tr("Your own colour");
                             Image { source: @image-url("icons/eyedropper.svg"); width: 16px; colorize: Theme.text; }
                             hex-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.open-handle = 0; root.hex-open = !root.hex-open; root.load-pick(root.paint.c1); } }
                         }
@@ -1288,7 +1288,7 @@ component NameStyleWindow inherits Rectangle {
                                 background: root.parse-hex(root.slot-hex(self.number));
                                 border-width: root.open-handle == self.number ? 3px : 2px; border-color: #ffffff;
                                 drop-shadow-blur: 4px; drop-shadow-color: #00000080;
-                                accessible-role: button; accessible-label: "Colour " + self.number;
+                                accessible-role: button; accessible-label: @tr("Colour {}", self.number);
                                 TouchArea {
                                     mouse-cursor: MouseCursor.pointer;
                                     clicked => {
@@ -1309,7 +1309,7 @@ component NameStyleWindow inherits Rectangle {
                             border-width: root.paint.key == preset.key ? 3px : 0px; border-color: Theme.text;
                             transform-scale: swatch-touch.has-hover ? 1.08 : 1;
                             animate transform-scale { duration: 120ms; easing: ease-out; }
-                            accessible-role: button; accessible-label: "Colour " + preset.key;
+                            accessible-role: button; accessible-label: @tr("Colour {}", preset.key);
                             swatch-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.paint = preset; root.hex-open = false; root.open-handle = 0; } }
                         }
                     }
@@ -1349,7 +1349,7 @@ component NameStyleWindow inherits Rectangle {
                         x: 72px; y: 20px; text: root.name; color: root.sample-ink; font-size: 17px; font-weight: 600;
                         font-family: root.style[0].family;
                     }
-                    Text { x: 72px; y: 46px; text: "does anyone read this?"; color: root.sample-ink; font-size: 15px; }
+                    Text { x: 72px; y: 46px; text: @tr("does anyone read this?"); color: root.sample-ink; font-size: 15px; }
                 }
                 Rectangle {
                     x: 40px; y: 418px; width: 282px; height: 50px; border-radius: 10px;
@@ -1363,18 +1363,18 @@ component NameStyleWindow inherits Rectangle {
                 Rectangle {
                     x: parent.width - self.width - 24px; y: parent.height - 64px; width: 76px; height: 40px; border-radius: 12px;
                     background: #00000059;
-                    for mode[index] in [{ light: false, icon: @image-url("icons/moon.svg"), label: "Dark" }, { light: true, icon: @image-url("icons/sun.svg"), label: "Light" }]: Rectangle {
+                    for mode[index] in [{ light: false, icon: @image-url("icons/moon.svg"), label: @tr("Dark") }, { light: true, icon: @image-url("icons/sun.svg"), label: @tr("Light") }]: Rectangle {
                         x: 4px + index * 36px; y: 4px; width: 32px; height: 32px; border-radius: 9px;
                         background: root.light-preview == mode.light ? #ffffff26 : mode-touch.has-hover ? #ffffff14 : transparent;
                         animate background { duration: 120ms; }
-                        accessible-role: button; accessible-label: mode.label + " preview";
+                        accessible-role: button; accessible-label: @tr("{} preview", mode.label);
                         Image { source: mode.icon; width: 16px; image-fit: contain; colorize: root.light-preview == mode.light ? #ffffff : #ffffffa6; }
                         mode-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.light-preview = mode.light; } }
                     }
                 }
                 Text {
                     x: 28px; y: parent.height - 72px; width: parent.width - 56px - 92px;
-                    text: "Colours and effects don't show in servers, and may look different across Discord."; color: Theme.muted; font-size: 12px; wrap: word-wrap;
+                    text: @tr("Colours and effects don't show in servers, and may look different across Discord."); color: Theme.muted; font-size: 12px; wrap: word-wrap;
                 }
             }
         }
@@ -1382,7 +1382,7 @@ component NameStyleWindow inherits Rectangle {
         HorizontalLayout {
             padding: 16px; spacing: 8px; alignment: end;
             ActionButton {
-                text: "Surprise Me";
+                text: @tr("Surprise Me");
                 clicked => {
                     let tick = floor(animation-tick() / 1ms);
                     root.font = root.faces[mod(tick, root.faces.length)].id;
@@ -1391,13 +1391,13 @@ component NameStyleWindow inherits Rectangle {
                     root.paint = list[mod(floor(tick / 53), list.length)];
                 }
             }
-            ActionButton { text: "Apply"; primary: true; enabled: root.changed-any; clicked => { root.apply(root.font, root.effect, root.paint.key); } }
+            ActionButton { text: @tr("Apply"); primary: true; enabled: root.changed-any; clicked => { root.apply(root.font, root.effect, root.paint.key); } }
         }
     }
     }
     IconButton {
         x: root.width - self.width - 12px; y: 12px; height: self.width;
-        icon: @image-url("icons/x.svg"); label: "Close";
+        icon: @image-url("icons/x.svg"); label: @tr("Close");
         clicked => { root.close(); }
     }
     // Clicking away closes the colour picker.
@@ -1448,7 +1448,7 @@ component NameStyleWindow inherits Rectangle {
         }
         pick-field := TextField {
             x: 10px; y: 194px; width: parent.width - 20px; height: 42px;
-            placeholder: "#rrggbb"; label: "Colour code"; text-size: 14px; border-radius: 10px;
+            placeholder: "#rrggbb"; label: @tr("Colour code"); text-size: 14px; border-radius: 10px;
             edited(text) => {
                 let c = root.parse-hex(text);
                 let hsv = c.to-hsv();
@@ -1565,14 +1565,14 @@ export component ProfileEditorDialog inherits Rectangle {
         x: card.x - 30px; y: card.y + 40px; width: 42px; height: 36px;
         opacity: 1 - root.side-out;
         border-radius: 10px; background: #000000; border-color: Theme.edge; border-width: 1px;
-        accessible-role: button; accessible-label: "Show Styles";
+        accessible-role: button; accessible-label: @tr("Show Styles");
         accessible-action-default => { root.side-open = true; }
         Image { x: 7px; y: 9px; width: 18px; height: 18px; source: @image-url("icons/brush.svg"); colorize: #ffffff; }
         show-styles := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.side-open = true; } }
         if show-styles.has-hover: Rectangle {
             x: -8px; y: -40px; width: tip-text.preferred-width + 20px; height: 32px;
             border-radius: 8px; background: Theme.raised;
-            tip-text := Text { text: "Show Styles"; color: Theme.text; font-size: 14px; font-weight: 600; }
+            tip-text := Text { text: @tr("Show Styles"); color: Theme.text; font-size: 14px; font-weight: 600; }
         }
     }
     // Its top stays where a card of a usual height starts, so what's under
@@ -1650,7 +1650,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                         x: parent.width - self.width - 60px; y: 18px; locked: root.banner-locked;
                                     }
                                     if root.prompt.reading == "banner": Text {
-                                        text: "Reading..."; color: #ffffff; font-size: 14px; font-weight: 700;
+                                        text: @tr("Reading..."); color: #ffffff; font-size: 14px; font-weight: 700;
                                     }
                                     banner-touch := TouchArea {
                                         enabled: root.banner-editable || root.banner-locked;
@@ -1664,8 +1664,8 @@ export component ProfileEditorDialog inherits Rectangle {
                                             drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
                                             VerticalLayout {
                                                 padding: 6px; spacing: 2px;
-                                                MenuItem { text: "Change Banner"; icon: @image-url("icons/image.svg"); clicked => { banner-menu.close(); root.pick(1); } }
-                                                MenuItem { text: root.prompt.reset-word + " Banner"; icon: @image-url("icons/x.svg"); danger: true; clicked => { banner-menu.close(); root.reset(1); } }
+                                                MenuItem { text: @tr("Change Banner"); icon: @image-url("icons/image.svg"); clicked => { banner-menu.close(); root.pick(1); } }
+                                                MenuItem { text: @tr("{} Banner", root.prompt.reset-word); icon: @image-url("icons/x.svg"); danger: true; clicked => { banner-menu.close(); root.reset(1); } }
                                             }
                                         }
                                     }
@@ -1679,7 +1679,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                 if !root.prompt.main: Rectangle {
                                     x: parent.width - self.width - 16px; y: 16px; width: 36px; height: 36px;
                                     IconButton {
-                                        icon: @image-url("icons/x.svg"); label: "Close"; size: 36px; glyph: 18px; radius: 18px;
+                                        icon: @image-url("icons/x.svg"); label: @tr("Close"); size: 36px; glyph: 18px; radius: 18px;
                                         fill: #000000b3; tint: #ffffff;
                                         clicked => { root.close(); }
                                     }
@@ -1708,14 +1708,14 @@ export component ProfileEditorDialog inherits Rectangle {
                                         height: thought.preferred-width > 154px ? 54px : 36px;
                                         border-radius: 16px; background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
                                         accessible-role: button;
-                                        accessible-label: root.has-status ? "Change custom status" : "Set a custom status";
+                                        accessible-label: root.has-status ? @tr("Change custom status") : @tr("Set a custom status");
                                         // The bump joins the bubble with no line between them.
                                         Rectangle { x: 11px; y: 0px; width: 18px; height: 2px; background: root.bubble; }
                                         VerticalLayout {
                                             alignment: center;
                                             padding-left: 13px; padding-right: 13px;
                                             thought := StatusText {
-                                                text: root.has-status ? root.status-text : "Set a custom status";
+                                                text: root.has-status ? root.status-text : @tr("Set a custom status");
                                                 emoji-url: root.has-status ? root.status-emoji : "";
                                                 color: root.has-status ? root.ink : root.ink2; font-size: 14px; wrap: word-wrap; max-height: 40px;
                                             }
@@ -1730,7 +1730,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                     if root.prompt.reading == "avatar": Rectangle {
                                         width: root.avatar-size; height: root.avatar-size; border-radius: root.avatar-size / 2;
                                         background: #00000099;
-                                        Text { text: "Reading..."; color: #ffffff; font-size: 13px; font-weight: 700; }
+                                        Text { text: @tr("Reading..."); color: #ffffff; font-size: 13px; font-weight: 700; }
                                     }
                                     avatar-touch := TouchArea {
                                         enabled: root.ready;
@@ -1744,8 +1744,8 @@ export component ProfileEditorDialog inherits Rectangle {
                                             drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
                                             VerticalLayout {
                                                 padding: 6px; spacing: 2px;
-                                                MenuItem { text: "Change Avatar"; icon: @image-url("icons/image.svg"); clicked => { avatar-menu.close(); root.pick(0); } }
-                                                MenuItem { text: root.prompt.reset-word + " Avatar"; icon: @image-url("icons/x.svg"); danger: true; clicked => { avatar-menu.close(); root.reset(0); } }
+                                                MenuItem { text: @tr("Change Avatar"); icon: @image-url("icons/image.svg"); clicked => { avatar-menu.close(); root.pick(0); } }
+                                                MenuItem { text: @tr("{} Avatar", root.prompt.reset-word); icon: @image-url("icons/x.svg"); danger: true; clicked => { avatar-menu.close(); root.reset(0); } }
                                             }
                                         }
                                     }
@@ -1761,7 +1761,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                     padding: 10px; spacing: 10px;
                                     HorizontalLayout {
                                         spacing: 10px;
-                                        Middle { Text { text: "Banner color"; color: Theme.text; font-size: 14px; font-weight: 600; } }
+                                        Middle { Text { text: @tr("Banner color"); color: Theme.text; font-size: 14px; font-weight: 600; } }
                                         Middle {
                                             Rectangle {
                                                 width: 28px; height: 28px; border-radius: 6px;
@@ -1774,17 +1774,17 @@ export component ProfileEditorDialog inherits Rectangle {
                                                 init => { self.focus-input(); }
                                                 width: 116px; min-height: 32px; text-size: 14px; pad: 8px;
                                                 fill: root.prompt.colour-wrong ? Theme.danger.with-alpha(0.16) : Theme.raised;
-                                                placeholder: "Default"; label: "Banner color";
+                                                placeholder: @tr("Default"); label: @tr("Banner color");
                                                 text <=> root.colour;
                                                 edited(text) => { root.write(3, text); }
                                                 accepted => { root.colour-open = false; scope.focus(); }
                                             }
                                         }
-                                        if root.prompt.colour-wrong: Middle { Text { text: "Not a colour"; color: Theme.danger; font-size: 13px; } }
+                                        if root.prompt.colour-wrong: Middle { Text { text: @tr("Not a colour"); color: Theme.danger; font-size: 13px; } }
                                         Rectangle { horizontal-stretch: 1; }
                                         if root.colour != "": Middle {
                                             ActionButton {
-                                                small: true; ghost: true; text: "Default";
+                                                small: true; ghost: true; text: @tr("Default");
                                                 clicked => { root.colour = ""; root.write(3, ""); }
                                             }
                                         }
@@ -1803,7 +1803,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                             border-width: root.colour == swatch.hex ? 2px : swatch-touch.has-hover ? 1px : 0px;
                                             border-color: Theme.text;
                                             accessible-role: button;
-                                            accessible-label: "Banner color " + swatch.hex;
+                                            accessible-label: @tr("Banner color {}", swatch.hex);
                                             accessible-action-default => { root.colour = swatch.hex; root.write(3, swatch.hex); }
                                             swatch-touch := TouchArea {
                                                 mouse-cursor: MouseCursor.pointer;
@@ -1819,13 +1819,13 @@ export component ProfileEditorDialog inherits Rectangle {
                                     if root.editing != 1: HorizontalLayout {
                                         spacing: 6px; alignment: start;
                                         StyledName {
-                                            text: root.prompt.loading ? "Loading..." : root.prompt.preview.name;
+                                            text: root.prompt.loading ? @tr("Loading...") : root.prompt.preview.name;
                                             styles: root.prompt.preview.name-style; ink: root.ink; font-weight: 700;
                                             font-size: root.prompt.main ? 24px : 26px;
                                             HoverEdit {
                                                 x: -7px; y: (parent.height - self.height) / 2; width: max(136px, parent.width + 14px + 28px); height: 40px;
                                                 enabled: root.ready && root.prompt.name-enabled; pencil: true;
-                                                label: root.prompt.main ? "Edit display name" : "Edit server nickname";
+                                                label: root.prompt.main ? @tr("Edit display name") : @tr("Edit server nickname");
                                                 clicked => { root.edit(1); }
                                             }
                                         }
@@ -1834,7 +1834,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                         init => { self.focus-input(); }
                                         min-height: 40px; text-size: 22px; pad: 8px;
                                         placeholder: root.prompt.name-placeholder;
-                                        label: root.prompt.main ? "Display name" : "Server nickname";
+                                        label: root.prompt.main ? @tr("Display name") : @tr("Server nickname");
                                         text <=> root.name;
                                         edited(text) => { root.write(0, text); }
                                         accepted => { root.stop-editing(); }
@@ -1845,12 +1845,12 @@ export component ProfileEditorDialog inherits Rectangle {
                                         Middle { Text { text: root.prompt.handle + " ·"; color: root.ink2; font-size: 14px; font-weight: 500; } }
                                         if root.editing != 2: Middle {
                                             Text {
-                                                text: root.pronouns != "" ? root.pronouns : root.prompt.pronouns-fallback != "" ? root.prompt.pronouns-fallback : "Add pronouns";
+                                                text: root.pronouns != "" ? root.pronouns : root.prompt.pronouns-fallback != "" ? root.prompt.pronouns-fallback : @tr("Add pronouns");
                                                 color: root.pronouns != "" || root.prompt.pronouns-fallback != "" ? root.ink2 : root.ink3;
                                                 font-size: 14px; font-weight: 500; overflow: elide;
                                                 HoverEdit {
                                                     x: -5px; y: (parent.height - self.height) / 2; width: parent.width + 10px; height: 32px;
-                                                    enabled: root.ready; label: "Edit pronouns";
+                                                    enabled: root.ready; label: @tr("Edit pronouns");
                                                     clicked => { root.edit(2); }
                                                 }
                                             }
@@ -1858,8 +1858,8 @@ export component ProfileEditorDialog inherits Rectangle {
                                         if root.editing == 2: TextField {
                                             init => { self.focus-input(); }
                                             width: 220px; min-height: 30px; text-size: 14px; pad: 8px;
-                                            placeholder: root.prompt.pronouns-fallback != "" ? root.prompt.pronouns-fallback : "Add your pronouns";
-                                            label: "Pronouns";
+                                            placeholder: root.prompt.pronouns-fallback != "" ? root.prompt.pronouns-fallback : @tr("Add your pronouns");
+                                            label: @tr("Pronouns");
                                             text <=> root.pronouns;
                                             edited(text) => { root.write(1, text); }
                                             accepted => { root.stop-editing(); }
@@ -1870,10 +1870,10 @@ export component ProfileEditorDialog inherits Rectangle {
                                                 height: 24px; width: tag-row.preferred-width; border-radius: 7px;
                                                 background: tag-touch.has-hover ? root.ink.with-alpha(0.12) : root.ink.with-alpha(0.07);
                                                 animate background { duration: 120ms; }
-                                                accessible-role: button; accessible-label: "Change server tag";
+                                                accessible-role: button; accessible-label: @tr("Change server tag");
                                                 tag-row := HorizontalLayout {
                                                     padding-left: 7px; padding-right: 5px; spacing: 4px;
-                                                    if root.prompt.tag-text == "": Text { text: "Server Tag"; color: root.ink2; font-size: 12px; font-italic: true; vertical-alignment: center; }
+                                                    if root.prompt.tag-text == "": Text { text: @tr("Server Tag"); color: root.ink2; font-size: 12px; font-italic: true; vertical-alignment: center; }
                                                     if root.prompt.tag-text != "": Middle { ServerTagChip { text: root.prompt.tag-text; badge: root.prompt.tag-icon; } }
                                                     Image { source: @image-url("icons/chevron-down.svg"); width: 14px; image-fit: contain; colorize: root.ink2; }
                                                 }
@@ -1885,7 +1885,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                                         background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 10px; clip: true;
                                                         VerticalLayout {
                                                             padding: 8px; spacing: 6px;
-                                                            tag-search := TextField { placeholder: "Search"; label: "Search server tags"; text-size: 13px; min-height: 32px; border-radius: 8px; }
+                                                            tag-search := TextField { placeholder: @tr("Search"); label: @tr("Search server tags"); text-size: 13px; min-height: 32px; border-radius: 8px; }
                                                             ScrollView {
                                                                 vertical-stretch: 1;
                                                                 content-height: tag-list.preferred-height;
@@ -1894,7 +1894,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                                                     Rectangle {
                                                                         height: 36px; border-radius: 6px;
                                                                         background: none-touch.has-hover ? Theme.hover : transparent;
-                                                                        Text { x: 8px; height: 100%; text: "No Server Tag"; color: Theme.muted; font-size: 13px; font-italic: true; vertical-alignment: center; }
+                                                                        Text { x: 8px; height: 100%; text: @tr("No Server Tag"); color: Theme.muted; font-size: 13px; font-italic: true; vertical-alignment: center; }
                                                                         none-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.choose-tag(""); tag-menu.close(); } }
                                                                     }
                                                                     for row in root.prompt.server-tags: Rectangle {
@@ -1936,13 +1936,13 @@ export component ProfileEditorDialog inherits Rectangle {
                                 // What others would see to press: Message can't be sent to oneself.
                                 if root.prompt.main: HorizontalLayout {
                                     spacing: 8px; alignment: start;
-                                    ActionButton { text: "Message"; enabled: false; }
+                                    ActionButton { text: @tr("Message"); enabled: false; }
                                     IconButton {
-                                        icon: @image-url("icons/shop.svg"); label: "Shop"; size: 34px; glyph: 18px; radius: 8px; fill: Theme.raised;
+                                        icon: @image-url("icons/shop.svg"); label: @tr("Shop"); size: 34px; glyph: 18px; radius: 8px; fill: Theme.raised;
                                         clicked => { root.open-link("https://discord.com/shop"); }
                                     }
                                     more-button := IconButton {
-                                        icon: @image-url("icons/ellipsis.svg"); label: "More"; size: 34px; glyph: 18px; radius: 8px; fill: Theme.raised;
+                                        icon: @image-url("icons/ellipsis.svg"); label: @tr("More"); size: 34px; glyph: 18px; radius: 8px; fill: Theme.raised;
                                         clicked => { more-menu.show(); }
                                     }
                                     more-menu := PopupWindow {
@@ -1951,7 +1951,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                             background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
                                             VerticalLayout {
                                                 padding: 6px;
-                                                MenuItem { text: "Copy User ID"; icon: @image-url("icons/copy.svg"); clicked => { root.copy-id(); more-menu.close(); } }
+                                                MenuItem { text: @tr("Copy User ID"); icon: @image-url("icons/copy.svg"); clicked => { root.copy-id(); more-menu.close(); } }
                                             }
                                         }
                                     }
@@ -1965,13 +1965,13 @@ export component ProfileEditorDialog inherits Rectangle {
                                         Middle { Image { source: @image-url("icons/lock.svg"); width: 20px; height: 20px; colorize: Theme.accent; } }
                                         VerticalLayout {
                                             horizontal-stretch: 1; spacing: 2px; alignment: center;
-                                            Text { text: "Make unique profiles for each server"; color: Theme.text; font-size: 14px; font-weight: 700; wrap: word-wrap; }
-                                            Label { text: "Customize your profile for every server, from avatar decorations to bios. Only with Nitro."; }
+                                            Text { text: @tr("Make unique profiles for each server"); color: Theme.text; font-size: 14px; font-weight: 700; wrap: word-wrap; }
+                                            Label { text: @tr("Customize your profile for every server, from avatar decorations to bios. Only with Nitro."); }
                                         }
                                         Middle {
                                             ActionButton {
                                                 small: true; primary: true;
-                                                text: root.prompt.upgrade ? "Upgrade Nitro" : "Unlock with Nitro";
+                                                text: root.prompt.upgrade ? @tr("Upgrade Nitro") : @tr("Unlock with Nitro");
                                                 clicked => { root.unlock-nitro(); }
                                             }
                                         }
@@ -1982,7 +1982,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                     spacing: 6px;
                                     HorizontalLayout {
                                         spacing: 6px; alignment: start;
-                                        Middle { ProfileHeading { text: root.prompt.main ? "Bio" : "ABOUT ME"; color: root.prompt.main ? root.ink : root.ink3; font-size: root.prompt.main ? 13px : 12px; font-weight: root.prompt.main ? 500 : 700; letter-spacing: root.prompt.main ? 0px : 0.6px; } }
+                                        Middle { ProfileHeading { text: root.prompt.main ? @tr("Bio") : @tr("ABOUT ME"); color: root.prompt.main ? root.ink : root.ink3; font-size: root.prompt.main ? 13px : 12px; font-weight: root.prompt.main ? 500 : 700; letter-spacing: root.prompt.main ? 0px : 0.6px; } }
                                         if !root.prompt.bio-enabled && !root.prompt.loading: Middle {
                                             Image { source: @image-url("icons/lock.svg"); width: 13px; height: 13px; colorize: root.ink3; }
                                         }
@@ -1999,7 +1999,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                         }
                                         HoverEdit {
                                             x: -7px; y: round((parent.height - self.height) / 2px) * 1px; width: root.prompt.main ? 281px : parent.width + 14px; height: max(28px, parent.height + 7px);
-                                            enabled: root.ready && root.prompt.bio-enabled; label: "Edit bio"; cursor: MouseCursor.text;
+                                            enabled: root.ready && root.prompt.bio-enabled; label: @tr("Edit bio"); cursor: MouseCursor.text;
                                             clicked => { root.edit(3); }
                                         }
                                     }
@@ -2022,53 +2022,53 @@ export component ProfileEditorDialog inherits Rectangle {
                                                 font-size: 14px; color: Theme.text;
                                                 selection-background-color: Theme.accent.with-alpha(0.35);
                                                 selection-foreground-color: Theme.text;
-                                                accessible-label: "Bio";
+                                                accessible-label: @tr("Bio");
                                                 edited => { root.write(2, self.text); }
                                             }
                                         }
                                         HorizontalLayout {
-                                            Label { text: "You can use markdown and links if you'd like."; horizontal-stretch: 1; color: root.ink3; }
+                                            Label { text: @tr("You can use markdown and links if you'd like."); horizontal-stretch: 1; color: root.ink3; }
                                             Text {
-                                                text: root.prompt.bio-left < 0 ? "Too long by " + (-root.prompt.bio-left) : root.prompt.bio-left + " left";
+                                                text: root.prompt.bio-left < 0 ? @tr("Too long by {}", (-root.prompt.bio-left)) : @tr("{} left", root.prompt.bio-left);
                                                 color: root.prompt.bio-left < 0 ? Theme.danger : root.ink3; font-size: 12px;
                                             }
                                         }
                                     }
                                     if root.editing != 3 && root.prompt.bio-left < 0: Text {
-                                        text: "Too long by " + (-root.prompt.bio-left); color: Theme.danger; font-size: 12px;
+                                        text: @tr("Too long by {}", (-root.prompt.bio-left)); color: Theme.danger; font-size: 12px;
                                     }
                                 }
                                 if root.prompt.preview.created != "" || root.prompt.preview.joined != "": VerticalLayout {
                                     spacing: 6px;
-                                    ProfileTitle { text: "Member since"; color: root.ink; }
+                                    ProfileTitle { text: @tr("Member since"); color: root.ink; }
                                     HorizontalLayout {
                                         spacing: 24px; alignment: start;
                                         if root.prompt.preview.created != "": VerticalLayout {
                                             Text { text: root.prompt.preview.created; color: root.ink; font-size: root.prompt.main ? 15px : 14px; font-weight: root.prompt.main ? 400 : 500; }
-                                            if !root.prompt.main: Text { text: "On Discord"; color: root.ink3; font-size: 12px; }
+                                            if !root.prompt.main: Text { text: @tr("On Discord"); color: root.ink3; font-size: 12px; }
                                         }
                                         if root.prompt.preview.joined != "": VerticalLayout {
                                             Text { text: root.prompt.preview.joined; color: root.ink; font-size: 14px; font-weight: 500; }
-                                            Text { text: "In this server"; color: root.ink3; font-size: 12px; }
+                                            Text { text: @tr("In this server"); color: root.ink3; font-size: 12px; }
                                         }
                                     }
                                 }
                                 if root.prompt.main: VerticalLayout {
                                     spacing: 6px;
-                                    ProfileHeading { text: "Connections"; color: root.prompt.main ? root.ink : root.ink3; font-size: root.prompt.main ? 13px : 12px; font-weight: root.prompt.main ? 500 : 700; letter-spacing: root.prompt.main ? 0px : 0.6px; }
+                                    ProfileHeading { text: @tr("Connections"); color: root.prompt.main ? root.ink : root.ink3; font-size: root.prompt.main ? 13px : 12px; font-weight: root.prompt.main ? 500 : 700; letter-spacing: root.prompt.main ? 0px : 0.6px; }
                                     Text {
-                                        text: "+  Add Connection"; color: root.ink2; font-size: 14px; font-weight: 500;
+                                        text: @tr("+  Add Connection"); color: root.ink2; font-size: 14px; font-weight: 500;
                                         TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.open-link("https://discord.com/settings/connections"); } }
                                     }
                                 }
                                 if root.prompt.main: VerticalLayout {
                                     spacing: 6px;
-                                    ProfileHeading { text: "Note (only visible to you)"; color: root.prompt.main ? root.ink : root.ink3; font-size: root.prompt.main ? 13px : 12px; font-weight: root.prompt.main ? 500 : 700; letter-spacing: root.prompt.main ? 0px : 0.6px; }
+                                    ProfileHeading { text: @tr("Note (only visible to you)"); color: root.prompt.main ? root.ink : root.ink3; font-size: root.prompt.main ? 13px : 12px; font-weight: root.prompt.main ? 500 : 700; letter-spacing: root.prompt.main ? 0px : 0.6px; }
                                     Text {
-                                        text: "Click to add a note"; color: root.ink3; font-size: 15px; font-italic: true;
+                                        text: @tr("Click to add a note"); color: root.ink3; font-size: 15px; font-italic: true;
                                         HoverEdit {
                                             x: -7px; y: (parent.height - self.height) / 2; width: 281px; height: 28px;
-                                            label: "Add a note"; cursor: MouseCursor.text;
+                                            label: @tr("Add a note"); cursor: MouseCursor.text;
                                             clicked => { root.edit-note(); }
                                         }
                                     }
@@ -2101,7 +2101,7 @@ export component ProfileEditorDialog inherits Rectangle {
     // The main profile's column runs the whole card, so it closes from the corner.
     if root.prompt.main: IconButton {
         x: card.x + card.width - self.width - 12px; y: card.y + 12px; height: self.width;
-        icon: @image-url("icons/x.svg"); label: "Close"; size: 36px; glyph: 18px;
+        icon: @image-url("icons/x.svg"); label: @tr("Close"); size: 36px; glyph: 18px;
         clicked => { root.close(); }
     }
     // A theme colour's picker, beside its tile.

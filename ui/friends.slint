@@ -31,7 +31,7 @@ component RequestMessage inherits Rectangle {
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
     accessible-role: button;
-    accessible-label: "Open " + root.from + "'s message" + (root.unread ? ", unread" : "") + (root.text != "" ? ": " + root.text : "");
+    accessible-label: @tr("Open {0}'s message{1}{2}", root.from, (root.unread ? @tr(", unread") : ""), (root.text != "" ? ": " + root.text : ""));
     accessible-action-default => { root.clicked(); }
     forward-focus: focus;
     focus := FocusScope {
@@ -53,7 +53,7 @@ component RequestMessage inherits Rectangle {
             colorize: root.unread ? Theme.accent : Theme.muted;
         }
         Text {
-            text: root.text != "" ? root.text : "Open to read their message";
+            text: root.text != "" ? root.text : @tr("Open to read their message");
             color: root.text == "" ? Theme.muted : root.unread ? Theme.text : Theme.secondary;
             font-size: 14px; wrap: word-wrap; overflow: elide; max-height: 40px; horizontal-stretch: 1;
             font-italic: root.text == "";
@@ -64,7 +64,7 @@ component RequestMessage inherits Rectangle {
                 spacing: 6px; alignment: end;
                 if root.unread: Rectangle {
                     width: new-text.preferred-width + 10px; height: 16px; y: 2px; border-radius: 4px; background: Theme.accent;
-                    new-text := Text { text: "New"; color: Theme.on-accent; font-size: 11px; font-weight: 700; }
+                    new-text := Text { text: @tr("New"); color: Theme.on-accent; font-size: 11px; font-weight: 700; }
                 }
                 if root.time != "": Text { text: root.time; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
                 Image {
@@ -86,11 +86,11 @@ export component RequestItem inherits Rectangle {
     callback remove;
     callback open;
     property <bool> messaged: root.request.room != "";
-    property <string> about: root.spam ? "Maybe spam"
-        : root.request.friend == 1 && root.messaged ? "Sent you a friend request and a message"
-        : root.request.friend == 1 ? "Sent you a friend request"
-        : root.request.friend == 2 ? "You sent a friend request"
-        : "Wants to message you";
+    property <string> about: root.spam ? @tr("Maybe spam")
+        : root.request.friend == 1 && root.messaged ? @tr("Sent you a friend request and a message")
+        : root.request.friend == 1 ? @tr("Sent you a friend request")
+        : root.request.friend == 2 ? @tr("You sent a friend request")
+        : @tr("Wants to message you");
     height: layout.preferred-height; border-radius: 10px;
     background: pointer.has-hover ? Theme.row-hover : transparent;
     animate background { duration: Theme.quick; }
@@ -120,15 +120,15 @@ export component RequestItem inherits Rectangle {
                 }
                 if root.request.friend == 1: Middle {
                     ActionButton {
-                        text: "Accept"; label: "Accept " + root.request.name + "'s friend request";
+                        text: @tr("Accept"); label: @tr("Accept {}'s friend request", root.request.name);
                         icon: @image-url("icons/check.svg"); small: true; primary: true;
                         clicked => { root.accept(); }
                     }
                 }
                 if root.request.friend != 0: Middle {
                     ActionButton {
-                        text: root.request.friend == 1 ? "Ignore" : "Cancel";
-                        label: root.request.friend == 1 ? "Ignore " + root.request.name + "'s friend request" : "Cancel the friend request to " + root.request.name;
+                        text: root.request.friend == 1 ? @tr("Ignore") : @tr("Cancel");
+                        label: root.request.friend == 1 ? @tr("Ignore {}'s friend request", root.request.name) : @tr("Cancel the friend request to {}", root.request.name);
                         icon: @image-url("icons/x.svg"); small: true;
                         clicked => { root.remove(); }
                     }
@@ -171,12 +171,12 @@ export component FriendItem inherits Rectangle {
     callback context-menu(length, length);
     property <bool> in-voice: root.friend.voice-room != "";
     property <bool> has-activity: root.friend.activity != "" || root.friend.activity-emoji != "";
-    property <string> status: root.friend.presence == "dnd" ? "Do Not Disturb" : root.friend.presence == "idle" ? "Idle" : root.friend.presence == "online" || root.friend.presence == "mobile" ? "Online" : "Offline";
+    property <string> status: root.friend.presence == "dnd" ? @tr("Do Not Disturb") : root.friend.presence == "idle" ? @tr("Idle") : root.friend.presence == "online" || root.friend.presence == "mobile" ? @tr("Online") : @tr("Offline");
     property <brush> surface: pointer.has-hover ? Theme.hover : Theme.chat;
     height: 62px; border-radius: 8px;
     background: pointer.has-hover ? Theme.hover : transparent;
     accessible-role: button;
-    accessible-label: root.friend.name + ", " + root.status + (root.in-voice ? ", in " + root.friend.voice-channel + " in " + root.friend.voice-server : "") + (root.friend.activity != "" ? ", " + root.friend.activity : "") + ", message";
+    accessible-label: @tr("{0}, {1}{2}{3}, message", root.friend.name, root.status, (root.in-voice ? @tr(", in {0} in {1}", root.friend.voice-channel, root.friend.voice-server) : ""), (root.friend.activity != "" ? ", " + root.friend.activity : ""));
     accessible-action-default => { root.message(); }
     // Rows are ruled apart, as in Discord's list; hovering a row hides its rule.
     if !pointer.has-hover: Rectangle { x: 10px; y: 0px; width: parent.width - 20px; height: 1px; background: Theme.line; }
@@ -223,7 +223,7 @@ export component FriendItem inherits Rectangle {
             }
             Middle {
                 IconButton {
-                    icon: @image-url("icons/message-circle.svg"); label: "Message"; size: 36px; glyph: 20px; radius: 18px;
+                    icon: @image-url("icons/message-circle.svg"); label: @tr("Message"); size: 36px; glyph: 20px; radius: 18px;
                     fill: Theme.raised; tip-side: 2;
                     clicked => { root.message(); }
                 }
@@ -255,25 +255,25 @@ export component FriendsScreen inherits Rectangle {
                 Image { source: @image-url("icons/users.svg"); width: 36px; height: 36px; colorize: Theme.secondary; }
             }
         }
-        Text { text: "No friends yet"; color: Theme.text; font-size: 22px; font-weight: 700; horizontal-alignment: center; }
-        Text { text: "Add someone with their Discord username."; color: Theme.secondary; horizontal-alignment: center; wrap: word-wrap; }
+        Text { text: @tr("No friends yet"); color: Theme.text; font-size: 22px; font-weight: 700; horizontal-alignment: center; }
+        Text { text: @tr("Add someone with their Discord username."); color: Theme.secondary; horizontal-alignment: center; wrap: word-wrap; }
         HorizontalLayout {
             alignment: center;
-            ActionButton { text: "Add a friend"; primary: true; clicked => { root.add-friend(); } }
+            ActionButton { text: @tr("Add a friend"); primary: true; clicked => { root.add-friend(); } }
         }
     }
     if root.total > 0: VerticalLayout {
         padding: 16px; padding-bottom: 0px; spacing: 8px;
         TextField {
             min-height: 36px; text-size: 15px; pad: 10px; fill: Theme.sunken; ring: false;
-            placeholder: "Search"; label: "Search friends"; text <=> root.filter;
+            placeholder: @tr("Search"); label: @tr("Search friends"); text <=> root.filter;
             edited => { root.filter-edited(); }
         }
-        RequestsHeading { text: (root.all ? "ALL FRIENDS — " : "ONLINE — ") + root.rows.length; }
+        RequestsHeading { text: (root.all ? @tr("ALL FRIENDS — ") : @tr("ONLINE — ")) + root.rows.length; }
         if root.rows.length == 0: HorizontalLayout {
             padding-left: 8px;
             Label {
-                text: root.filter != "" ? "No friend's name matches that." : "None of your friends are around right now.";
+                text: root.filter != "" ? @tr("No friend's name matches that.") : @tr("None of your friends are around right now.");
             }
         }
         ListView {
@@ -342,20 +342,20 @@ export component RequestsScreen inherits Rectangle {
                 Image { source: @image-url("icons/inbox.svg"); width: 36px; height: 36px; colorize: Theme.secondary; }
             }
         }
-        Text { text: "No requests"; color: Theme.text; font-size: 22px; font-weight: 700; horizontal-alignment: center; }
-        Text { text: "Friend requests and messages from people you don't know show up here."; color: Theme.secondary; horizontal-alignment: center; wrap: word-wrap; }
+        Text { text: @tr("No requests"); color: Theme.text; font-size: 22px; font-weight: 700; horizontal-alignment: center; }
+        Text { text: @tr("Friend requests and messages from people you don't know show up here."); color: Theme.secondary; horizontal-alignment: center; wrap: word-wrap; }
     }
     if !root.empty: ScrollView {
         VerticalLayout {
             padding: 16px; padding-top: 8px; spacing: 2px; alignment: start;
-            if root.incoming.length > 0: RequestsHeading { text: "REQUESTS — " + root.incoming.length; }
+            if root.incoming.length > 0: RequestsHeading { text: @tr("REQUESTS — {}", root.incoming.length); }
             for request in root.incoming: RequestItem {
                 request: request;
                 accept => { root.accept(request.id); }
                 remove => { root.remove(request.id); }
                 open => { root.open(request.room); }
             }
-            if root.sent.length > 0: RequestsHeading { text: "SENT — " + root.sent.length; }
+            if root.sent.length > 0: RequestsHeading { text: @tr("SENT — {}", root.sent.length); }
             for request in root.sent: RequestItem {
                 request: request;
                 remove => { root.remove(request.id); }
@@ -365,13 +365,13 @@ export component RequestsScreen inherits Rectangle {
             if root.spam.length > 0: Rectangle {
                 height: 36px;
                 accessible-role: button;
-                accessible-label: "Spam, " + root.spam.length + (root.spam-open ? ", shown" : ", hidden");
+                accessible-label: @tr("Spam, {0}{1}", root.spam.length, (root.spam-open ? @tr(", shown") : @tr(", hidden")));
                 accessible-action-default => { root.spam-open = !root.spam-open; }
                 spam-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.spam-open = !root.spam-open; } }
                 HorizontalLayout {
                     padding-left: 8px; spacing: 4px; alignment: start;
                     Text {
-                        text: "SPAM — " + root.spam.length; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; vertical-alignment: center;
+                        text: @tr("SPAM — {}", root.spam.length); font-size: 12px; font-weight: 700; letter-spacing: 0.6px; vertical-alignment: center;
                         color: spam-touch.has-hover ? Theme.secondary : Theme.muted;
                     }
                     Image {
@@ -414,7 +414,7 @@ export component AddFriendDialog inherits Rectangle {
         background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
         drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
         accessible-role: groupbox;
-        accessible-label: "Add a friend";
+        accessible-label: @tr("Add a friend");
         TouchArea { }
         FocusScope {
             key-pressed(event) => {
@@ -424,20 +424,20 @@ export component AddFriendDialog inherits Rectangle {
             add-friend-content := VerticalLayout {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
-                    Text { text: "Add a friend"; color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-add-friend(); } }
+                    Text { text: @tr("Add a friend"); color: Theme.text; font-size: 18px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                    IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close"); size: 28px; glyph: 18px; clicked => { root.close-add-friend(); } }
                 }
-                Label { text: "Send someone a friend request on Discord with their username."; }
+                Label { text: @tr("Send someone a friend request on Discord with their username."); }
                 HorizontalLayout {
                     spacing: 8px;
                     TextField {
                         init => { self.focus-input(); }
                         min-height: 36px; text-size: 15px; pad: 10px; fill: Theme.sunken;
-                        placeholder: "Username"; label: "Username"; text <=> root.add-friend-name;
+                        placeholder: @tr("Username"); label: @tr("Username"); text <=> root.add-friend-name;
                         accepted => { root.add-friend(root.add-friend-name); }
                     }
                     ActionButton {
-                        text: "Send request"; primary: true;
+                        text: @tr("Send request"); primary: true;
                         enabled: !root.add-friend-sending && root.add-friend-name != "";
                         clicked => { root.add-friend(root.add-friend-name); }
                     }

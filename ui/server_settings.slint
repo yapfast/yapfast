@@ -126,7 +126,7 @@ component SettingsArea inherits VerticalLayout {
     }
     Text {
         horizontal-alignment: right;
-        text: root.left < 0 ? "Too long by " + (-root.left) : root.left + " left";
+        text: root.left < 0 ? @tr("Too long by {}", (-root.left)) : @tr("{} left", root.left);
         color: root.left < 0 ? Theme.danger : Theme.muted; font-size: 12px;
     }
 }
@@ -142,19 +142,19 @@ component ServerProfileSection inherits VerticalLayout {
     callback remove-icon;
     property <bool> ready: !root.prompt.saving;
     spacing: 16px;
-    SettingsTitle { text: "Server Profile"; }
-    Label { text: "Customize how your server appears in invite links and, if enabled, in Server Discovery and Announcement Channel messages."; }
+    SettingsTitle { text: @tr("Server Profile"); }
+    Label { text: @tr("Customize how your server appears in invite links and, if enabled, in Server Discovery and Announcement Channel messages."); }
     VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "NAME"; }
+        SettingsHeading { text: @tr("NAME"); }
         TextField {
-            text <=> root.name; label: "Server name"; enabled: root.ready;
+            text <=> root.name; label: @tr("Server name"); enabled: root.ready;
             edited(text) => { root.write(0, text); }
         }
     }
     VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "ICON"; }
+        SettingsHeading { text: @tr("ICON"); }
         HorizontalLayout {
             spacing: 16px; alignment: start;
             Avatar {
@@ -163,15 +163,15 @@ component ServerProfileSection inherits VerticalLayout {
             }
             VerticalLayout {
                 spacing: 8px; alignment: center;
-                Label { text: root.prompt.reading ? "Reading the picture..." : "We recommend an image of at least 512x512."; }
+                Label { text: root.prompt.reading ? @tr("Reading the picture...") : @tr("We recommend an image of at least 512x512."); }
                 HorizontalLayout {
                     spacing: 8px; alignment: start;
                     ActionButton {
-                        text: "Change Server Icon"; enabled: root.ready && !root.prompt.reading;
+                        text: @tr("Change Server Icon"); enabled: root.ready && !root.prompt.reading;
                         clicked => { root.pick-icon(); }
                     }
                     if root.prompt.profile.has-icon: ActionButton {
-                        text: "Remove Icon"; ghost: true; enabled: root.ready;
+                        text: @tr("Remove Icon"); ghost: true; enabled: root.ready;
                         clicked => { root.remove-icon(); }
                     }
                 }
@@ -180,10 +180,10 @@ component ServerProfileSection inherits VerticalLayout {
     }
     VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "DESCRIPTION"; }
+        SettingsHeading { text: @tr("DESCRIPTION"); }
         SettingsArea {
-            text <=> root.description; label: "Description"; enabled: root.ready;
-            placeholder: "Tell people what your server is about.";
+            text <=> root.description; label: @tr("Description"); enabled: root.ready;
+            placeholder: @tr("Tell people what your server is about.");
             left: root.prompt.profile.description-left;
             edited(text) => { root.write(1, text); }
         }
@@ -204,64 +204,64 @@ component EngagementSection inherits VerticalLayout {
     property <EngagementPrompt> page: root.prompt.engagement;
     property <bool> system: root.page.system-channel > 0;
     spacing: 16px;
-    SettingsTitle { text: "Engagement"; }
+    SettingsTitle { text: @tr("Engagement"); }
     VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "SYSTEM MESSAGES CHANNEL"; }
-        Label { text: "This is the channel we send system event messages to. These can be turned off at any time."; }
+        SettingsHeading { text: @tr("SYSTEM MESSAGES CHANNEL"); }
+        Label { text: @tr("This is the channel we send system event messages to. These can be turned off at any time."); }
         Picker {
             model: root.page.system-channels; chosen: root.page.system-channel; enabled: root.ready;
-            accessible-label: "System Messages Channel";
+            accessible-label: @tr("System Messages Channel");
             selected => { root.choose(0, self.current-index); }
         }
     }
     SettingsSwitch {
-        text: "Send a random welcome message when someone joins this server.";
+        text: @tr("Send a random welcome message when someone joins this server.");
         checked: root.page.welcome; controlled: true; enabled: root.ready && root.system;
         toggled => { root.toggle(0); }
     }
     SettingsSwitch {
-        text: "Prompt members to reply to welcome messages with a sticker.";
+        text: @tr("Prompt members to reply to welcome messages with a sticker.");
         checked: root.page.welcome-sticker; controlled: true; enabled: root.ready && root.system;
         toggled => { root.toggle(1); }
     }
     SettingsSwitch {
-        text: "Send a message when someone boosts this server.";
+        text: @tr("Send a message when someone boosts this server.");
         checked: root.page.boosted; controlled: true; enabled: root.ready && root.system;
         toggled => { root.toggle(2); }
     }
     SettingsSwitch {
-        text: "Send helpful tips for server setup.";
+        text: @tr("Send helpful tips for server setup.");
         checked: root.page.setup-tips; controlled: true; enabled: root.ready && root.system;
         toggled => { root.toggle(3); }
     }
     VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "DEFAULT NOTIFICATION SETTINGS"; }
-        Label { text: "This will determine whether members who have not explicitly set their notification settings receive a notification for every message sent in this server or not."; }
+        SettingsHeading { text: @tr("DEFAULT NOTIFICATION SETTINGS"); }
+        Label { text: @tr("This will determine whether members who have not explicitly set their notification settings receive a notification for every message sent in this server or not."); }
         Choices {
-            label: "Default Notification Settings"; options: ["All Messages", "Only @mentions"];
+            label: @tr("Default Notification Settings"); options: [@tr("All Messages"), @tr("Only @mentions")];
             current: root.page.notifications; controlled: true;
             chosen(index) => { root.choose(1, index); }
         }
     }
     VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "INACTIVE CHANNEL"; }
-        Label { text: "Automatically move members to this channel and mute them when they have been idle for longer than the inactive timeout. This does not affect browsers."; }
+        SettingsHeading { text: @tr("INACTIVE CHANNEL"); }
+        Label { text: @tr("Automatically move members to this channel and mute them when they have been idle for longer than the inactive timeout. This does not affect browsers."); }
         HorizontalLayout {
             spacing: 16px;
             Picker {
                 horizontal-stretch: 2;
                 model: root.page.afk-channels; chosen: root.page.afk-channel; enabled: root.ready;
-                accessible-label: "Inactive Channel";
+                accessible-label: @tr("Inactive Channel");
                 selected => { root.choose(2, self.current-index); }
             }
             Picker {
                 horizontal-stretch: 1;
-                model: ["1 minute", "5 minutes", "15 minutes", "30 minutes", "1 hour"];
+                model: [@tr("1 minute"), @tr("5 minutes"), @tr("15 minutes"), @tr("30 minutes"), @tr("1 hour")];
                 chosen: root.page.afk-timeout; enabled: root.ready && root.page.afk-channel > 0;
-                accessible-label: "Inactive Timeout";
+                accessible-label: @tr("Inactive Timeout");
                 selected => { root.choose(3, self.current-index); }
             }
         }
@@ -290,18 +290,18 @@ component BoostBackground inherits VerticalLayout {
             background: Theme.sunken;
             if root.shown.width > 0: Image { width: parent.width; height: parent.height; source: root.shown; image-fit: cover; }
             if root.shown.width == 0: Text {
-                text: root.picture.locked != "" ? root.picture.locked : "No image";
+                text: root.picture.locked != "" ? root.picture.locked : @tr("No image");
                 color: Theme.muted; font-size: 13px; font-weight: 600;
             }
         }
         VerticalLayout {
             spacing: 8px; alignment: center;
             ActionButton {
-                text: "Upload Background"; enabled: root.enabled && root.picture.locked == "";
+                text: @tr("Upload Background"); enabled: root.enabled && root.picture.locked == "";
                 clicked => { root.pick(); }
             }
             if root.picture.shown: ActionButton {
-                text: "Remove Background"; ghost: true; enabled: root.enabled;
+                text: @tr("Remove Background"); ghost: true; enabled: root.enabled;
                 clicked => { root.remove(); }
             }
         }
@@ -320,25 +320,25 @@ component BoostSection inherits VerticalLayout {
     property <BoostPrompt> page: root.prompt.boost;
     spacing: 16px;
     HorizontalLayout {
-        SettingsTitle { text: "Boost Perks"; horizontal-stretch: 1; }
+        SettingsTitle { text: @tr("Boost Perks"); horizontal-stretch: 1; }
         Middle { Text { text: root.page.level; color: Theme.muted; font-size: 14px; font-weight: 700; } }
     }
     SettingsSwitch {
-        text: "Show Boost progress bar";
-        description: "This progress bar will display in your channel list, attached to your server name (or server banner if you have one set).";
+        text: @tr("Show Boost progress bar");
+        description: @tr("This progress bar will display in your channel list, attached to your server name (or server banner if you have one set).");
         checked: root.page.progress-bar; controlled: true; enabled: !root.prompt.saving;
         toggled => { root.toggle-progress-bar(); }
     }
     BoostBackground {
-        heading: "SERVER BANNER BACKGROUND";
-        text: "The recommended minimum size is 960x540 and recommended aspect ratio is 16:9.";
+        heading: @tr("SERVER BANNER BACKGROUND");
+        text: @tr("The recommended minimum size is 960x540 and recommended aspect ratio is 16:9.");
         picture: root.page.banner; enabled: root.ready;
         pick => { root.pick(1); }
         remove => { root.remove(1); }
     }
     BoostBackground {
-        heading: "SERVER INVITE BACKGROUND";
-        text: "Servers who reach Boosting Level 1 and above get unique invite embeds with custom Server Invite Backgrounds. The recommended minimum size is 1920x1080 and recommended aspect ratio is 16:9.";
+        heading: @tr("SERVER INVITE BACKGROUND");
+        text: @tr("Servers who reach Boosting Level 1 and above get unique invite embeds with custom Server Invite Backgrounds. The recommended minimum size is 1920x1080 and recommended aspect ratio is 16:9.");
         picture: root.page.splash; enabled: root.ready;
         pick => { root.pick(2); }
         remove => { root.remove(2); }
@@ -408,13 +408,13 @@ export component ServerSettingsScreen inherits Rectangle {
         motion: root.motion;
         close => { root.close(); }
         frame := SettingsFrame {
-            rows: root.prompt.rows; selected: root.prompt.section; label: "Server settings";
+            rows: root.prompt.rows; selected: root.prompt.section; label: @tr("Server settings");
             bottom: root.bar ? 140px : 56px;
             // A role's permissions are a list view.
             fill: root.prompt.loaded && ((root.prompt.section == 3 && root.prompt.roles.open && root.prompt.roles.tab == 1) || root.prompt.section == 5 || root.prompt.section == 6 || root.prompt.section == 7 || root.prompt.section == 8 || root.prompt.section == 9);
             chose(id) => { root.choose(id); }
             close => { root.close(); }
-            if root.prompt.loading: Label { text: "Loading..."; }
+            if root.prompt.loading: Label { text: @tr("Loading..."); }
             if root.prompt.loaded && root.prompt.section == 0: ServerProfileSection {
                 prompt: root.prompt; name <=> root.name; description <=> root.description;
                 write(field, text) => { root.write(field, text); }

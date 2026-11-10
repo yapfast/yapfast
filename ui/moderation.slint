@@ -144,13 +144,13 @@ export component SafetySection inherits VerticalLayout {
     /// by its value.
     callback choose(int, int);
     spacing: 16px;
-    SettingsTitle { text: "Safety Setup"; }
+    SettingsTitle { text: @tr("Safety Setup"); }
     VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "VERIFICATION LEVEL"; }
+        SettingsHeading { text: @tr("VERIFICATION LEVEL"); }
         Label { text: root.page.verification-text; }
         SafetyChoices {
-            label: "Verification Level"; options: root.page.verification-options;
+            label: @tr("Verification Level"); options: root.page.verification-options;
             chosen: root.page.verification; enabled: !root.saving;
             choose(value) => { root.choose(0, value); }
         }
@@ -158,7 +158,7 @@ export component SafetySection inherits VerticalLayout {
     VerticalLayout {
         spacing: 8px;
         SettingsSwitch {
-            text: "Require 2FA for moderator actions"; description: root.page.mfa-text;
+            text: @tr("Require 2FA for moderator actions"); description: root.page.mfa-text;
             checked: root.page.mfa-on; controlled: true;
             enabled: !root.saving && root.page.mfa-lock == "";
             locked-tip: root.page.mfa-lock;
@@ -175,10 +175,10 @@ export component SafetySection inherits VerticalLayout {
     }
     VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "SENSITIVE CONTENT FILTERS"; }
-        Label { text: "Choose if server members can share image-based media detected by Discord's sensitive content filters. This setting will apply to channels that are not age-restricted."; }
+        SettingsHeading { text: @tr("SENSITIVE CONTENT FILTERS"); }
+        Label { text: @tr("Choose if server members can share image-based media detected by Discord's sensitive content filters. This setting will apply to channels that are not age-restricted."); }
         SafetyChoices {
-            label: "Sensitive content filters"; options: root.page.filter-options;
+            label: @tr("Sensitive content filters"); options: root.page.filter-options;
             chosen: root.page.filter; enabled: !root.saving;
             choose(value) => { root.choose(1, value); }
         }
@@ -193,27 +193,27 @@ export component BansSection inherits VerticalLayout {
     /// 0 the search's text, 1 search, 2 go to a page, 3 show a ban by id.
     callback act(int, string, int);
     spacing: 16px;
-    SettingsTitle { text: "Server Ban List"; }
-    Label { text: "Bans by default are by account and IP.\nA user can circumvent an IP ban by using a proxy.\nBan circumvention can be made very hard by enabling phone verification in Safety Setup."; }
+    SettingsTitle { text: @tr("Server Ban List"); }
+    Label { text: @tr("Bans by default are by account and IP.\nA user can circumvent an IP ban by using a proxy.\nBan circumvention can be made very hard by enabling phone verification in Safety Setup."); }
     HorizontalLayout {
         spacing: 8px;
         TextField {
-            text <=> root.query; placeholder: "Search Bans by User Id or Username";
-            label: "Search Bans by User Id or Username"; text-size: 14px;
+            text <=> root.query; placeholder: @tr("Search Bans by User Id or Username");
+            label: @tr("Search Bans by User Id or Username"); text-size: 14px;
             edited(text) => { root.act(0, text, 0); }
             accepted => { root.act(1, "", 0); }
         }
         ActionButton {
-            text: "Search"; primary: true; enabled: !root.page.fetching;
+            text: @tr("Search"); primary: true; enabled: !root.page.fetching;
             clicked => { root.act(1, "", 0); }
         }
     }
     if root.page.rows.length == 0 && !root.page.fetching: VerticalLayout {
         alignment: center; spacing: 8px; vertical-stretch: 1;
-        Text { text: "No Bans"; color: Theme.text; font-size: 17px; font-weight: 700; horizontal-alignment: center; }
-        Text { text: "You haven't banned anybody...\nbut if and when you must, do not hesitate!"; color: Theme.secondary; font-size: 14px; horizontal-alignment: center; }
+        Text { text: @tr("No Bans"); color: Theme.text; font-size: 17px; font-weight: 700; horizontal-alignment: center; }
+        Text { text: @tr("You haven't banned anybody...\nbut if and when you must, do not hesitate!"); color: Theme.secondary; font-size: 14px; horizontal-alignment: center; }
     }
-    if root.page.rows.length == 0 && root.page.fetching: Label { text: "Loading..."; vertical-stretch: 1; }
+    if root.page.rows.length == 0 && root.page.fetching: Label { text: @tr("Loading..."); vertical-stretch: 1; }
     if root.page.rows.length > 0: ListView {
         vertical-stretch: 1; min-height: 120px;
         for ban in root.page.rows: Rectangle {
@@ -239,12 +239,12 @@ export component BansSection inherits VerticalLayout {
     if root.page.pages > 1: HorizontalLayout {
         spacing: 12px; alignment: center;
         ActionButton {
-            text: "Previous"; ghost: true; enabled: root.page.page > 0;
+            text: @tr("Previous"); ghost: true; enabled: root.page.page > 0;
             clicked => { root.act(2, "", root.page.page - 1); }
         }
-        Middle { Text { text: "Page " + (root.page.page + 1) + " of " + root.page.pages; color: Theme.secondary; font-size: 14px; } }
+        Middle { Text { text: @tr("Page {0} of {1}", (root.page.page + 1), root.page.pages); color: Theme.secondary; font-size: 14px; } }
         ActionButton {
-            text: "Next"; ghost: true; enabled: root.page.page + 1 < root.page.pages;
+            text: @tr("Next"); ghost: true; enabled: root.page.page + 1 < root.page.pages;
             clicked => { root.act(2, "", root.page.page + 1); }
         }
     }
@@ -274,17 +274,17 @@ export component BanDialog inherits Rectangle {
                 Text { text: root.page.open-name; color: Theme.text; font-size: 20px; font-weight: 700; overflow: elide; }
                 VerticalLayout {
                     spacing: 4px;
-                    Text { text: "Ban Reason"; color: Theme.text; font-size: 15px; font-weight: 500; }
+                    Text { text: @tr("Ban Reason"); color: Theme.text; font-size: 15px; font-weight: 500; }
                     Text { text: root.page.open-reason; color: Theme.muted; font-size: 13px; wrap: word-wrap; }
                 }
                 if root.page.open-error != "": Text { text: root.page.open-error; color: Theme.danger; font-size: 14px; wrap: word-wrap; }
                 if root.page.may-unban: HorizontalLayout {
                     spacing: 8px; alignment: end;
                     ActionButton {
-                        text: root.page.unbanning ? "Revoking..." : "Revoke Ban"; danger: true; enabled: !root.page.unbanning;
+                        text: root.page.unbanning ? @tr("Revoking...") : @tr("Revoke Ban"); danger: true; enabled: !root.page.unbanning;
                         clicked => { root.unban(); }
                     }
-                    ActionButton { text: "Done"; primary: true; clicked => { root.close(); } }
+                    ActionButton { text: @tr("Done"); primary: true; clicked => { root.close(); } }
                 }
             }
         }
@@ -318,29 +318,29 @@ export component AuditLogSection inherits VerticalLayout {
     spacing: 16px;
     HorizontalLayout {
         spacing: 16px;
-        Middle { horizontal-stretch: 1; SettingsTitle { text: "Audit Log"; } }
+        Middle { horizontal-stretch: 1; SettingsTitle { text: @tr("Audit Log"); } }
         // Discord's client ignores a filter while it's fetching.
         AuditFilter {
-            label: "Filter by User"; options: root.page.users; chosen: root.page.user;
+            label: @tr("Filter by User"); options: root.page.users; chosen: root.page.user;
             enabled: !root.page.fetching;
             choose(index) => { root.act(0, index); }
         }
         AuditFilter {
-            label: "Filter by Action"; options: root.page.actions; chosen: root.page.action;
+            label: @tr("Filter by Action"); options: root.page.actions; chosen: root.page.action;
             enabled: !root.page.fetching;
             choose(index) => { root.act(1, index); }
         }
     }
     Rectangle { height: 1px; background: Theme.line; }
-    if root.page.rows.length == 0 && root.page.fetching: Label { text: "Loading..."; vertical-stretch: 1; }
+    if root.page.rows.length == 0 && root.page.fetching: Label { text: @tr("Loading..."); vertical-stretch: 1; }
     if root.page.rows.length == 0 && !root.page.fetching: VerticalLayout {
         alignment: center; spacing: 8px; vertical-stretch: 1;
         Text {
-            text: root.page.failed ? "This is Awkward" : "No Logs Yet";
+            text: root.page.failed ? @tr("This is Awkward") : @tr("No Logs Yet");
             color: Theme.text; font-size: 17px; font-weight: 700; horizontal-alignment: center;
         }
         Text {
-            text: root.page.failed ? "We broke something. Come back later." : "Once moderators begin moderating, you can moderate the moderation here.";
+            text: root.page.failed ? @tr("We broke something. Come back later.") : @tr("Once moderators begin moderating, you can moderate the moderation here.");
             color: Theme.secondary; font-size: 14px; horizontal-alignment: center; wrap: word-wrap;
         }
     }
@@ -413,7 +413,7 @@ export component AuditLogSection inherits VerticalLayout {
     if root.page.rows.length > 0 && root.page.older: HorizontalLayout {
         alignment: center;
         ActionButton {
-            text: root.page.fetching ? "Loading..." : "Load More"; enabled: !root.page.fetching;
+            text: root.page.fetching ? @tr("Loading...") : @tr("Load More"); enabled: !root.page.fetching;
             clicked => { root.act(2, 0); }
         }
     }

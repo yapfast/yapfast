@@ -347,10 +347,12 @@ pub(super) fn notice_text(
     let text = match &notice.kind {
         NoticeKind::Pinned(item) => {
             let jump = item.as_ref().map(|item| format!("{JUMP_LINK}{item}"));
-            format!(
-                " pinned {} to this channel. See all {}.",
-                strong("a message", theme::text_color(), jump.as_deref()),
-                strong("pinned messages", theme::text_color(), Some(PINS_LINK)),
+            fill(
+                tr(" pinned {} to this channel. See all {}."),
+                &[
+                    &strong(tr("a message"), theme::text_color(), jump.as_deref()),
+                    &strong(tr("pinned messages"), theme::text_color(), Some(PINS_LINK)),
+                ],
             )
         }
         // A possessive follows the name without a space.
@@ -628,8 +630,8 @@ pub(super) fn message_row_within(
             .map(|(index, attachment)| {
                 let size = attachment.size.map(file_size);
                 let detail = match (attachment.image, attachment.preview_failed, size) {
-                    (true, true, Some(size)) => format!("{size} · Preview unavailable"),
-                    (true, true, None) => "Preview unavailable".into(),
+                    (true, true, Some(size)) => fill(tr("{} · Preview unavailable"), &[&size]),
+                    (true, true, None) => tr("Preview unavailable").into(),
                     (_, _, Some(size)) => size,
                     _ => String::new(),
                 };
@@ -667,13 +669,13 @@ pub(super) fn message_row_within(
         .collect();
     let (delivery, can_retry, can_cancel) = match message.delivery {
         Delivery::Sent => ("", false, false),
-        Delivery::Sending => ("Sending...", false, true),
+        Delivery::Sending => (tr("Sending..."), false, true),
         Delivery::Waiting => (
-            "Not sent yet. Yapfast sends it when the connection returns.",
+            tr("Not sent yet. Yapfast sends it when the connection returns."),
             false,
             true,
         ),
-        Delivery::Failed => ("Not sent. The server refused this message.", true, true),
+        Delivery::Failed => (tr("Not sent. The server refused this message."), true, true),
     };
     let reply_author = message
         .reply
@@ -823,18 +825,18 @@ pub(super) fn message_row_within(
             message.item
         );
         return MessageRow {
-            author: "Blocked user".into(),
+            author: tr("Blocked user").into(),
             sender: SharedString::default(),
-            author_styled: bold("Blocked user"),
+            author_styled: bold(tr("Blocked user")),
             initial: "?".into(),
             tint: Default::default(),
             color: Default::default(),
             has_color: false,
             bot: false,
             forwarded: false,
-            body: "Blocked message.".into(),
+            body: tr("Blocked message.").into(),
             styled: slint::StyledText::from_markdown(&note)
-                .unwrap_or_else(|_| slint::StyledText::from_plain_text("Blocked message.")),
+                .unwrap_or_else(|_| slint::StyledText::from_plain_text(tr("Blocked message."))),
             has_reply: false,
             reactions: ModelRc::default(),
             images: ModelRc::default(),
@@ -1146,29 +1148,30 @@ pub(super) fn reaction_tip(emoji: &str, names: &[String], count: usize) -> Strin
     let others = count.saturating_sub(names.len());
     let more = match others {
         1 => "1 other".to_owned(),
-        others => format!("{others} others"),
+        others => fill(tr("{} others"), &[&others]),
     };
     let people = match (names, others) {
         ([one], 0) => one.clone(),
-        ([one], _) => format!("{one} and {more}"),
-        ([one, two], 0) => format!("{one} and {two}"),
-        ([one, two], _) => format!("{one}, {two}, and {more}"),
-        ([one, two, three], 0) => format!("{one}, {two}, and {three}"),
-        ([one, two, three, ..], _) => format!("{one}, {two}, {three}, and {more}"),
-        _ => format!("{count} people"),
+        ([one], _) => fill(tr("{0} and {1}"), &[&one, &more]),
+        ([one, two], 0) => fill(tr("{0} and {1}"), &[&one, &two]),
+        ([one, two], _) => fill(tr("{0}, {1}, and {2}"), &[&one, &two, &more]),
+        ([one, two, three], 0) => fill(tr("{0}, {1}, and {2}"), &[&one, &two, &three]),
+        ([one, two, three, ..], _) => {
+            fill(tr("{0}, {1}, {2}, and {3}"), &[&one, &two, &three, &more])
+        }
+        _ => fill(tr("{} people"), &[&count]),
     };
-    format!("{emoji} reacted by {people}")
+    fill(tr("{0} reacted by {1}"), &[&emoji, &people])
 }
 
 fn thread_detail(thread: &yapfast_core::chat::ThreadLink) -> String {
     let count = match thread.messages {
         None => None,
-        Some(0) => Some("No messages yet".to_owned()),
-        Some(1) => Some("1 message".to_owned()),
-        Some(count) => Some(format!("{count} messages")),
+        Some(0) => Some(tr("No messages yet").to_owned()),
+        Some(count) => Some(trn("{n} message", "{n} messages", count as usize)),
     };
     match (count, thread.archived) {
-        (Some(count), true) => format!("{count}, archived"),
+        (Some(count), true) => fill(tr("{}, archived"), &[&count]),
         (Some(count), false) => count,
         (None, true) => "Archived".into(),
         (None, false) => String::new(),
@@ -1290,7 +1293,7 @@ pub(super) fn expanded(item: &str, revealed: &HashSet<String>) -> bool {
 
 /// What `revealed` holds for a long message shown whole.
 pub(super) fn fold_key(item: &str) -> String {
-    format!("{item}/more")
+    format!("{}/more", item)
 }
 
 /// Whether a message shows collapsed, being from someone blocked.
@@ -1384,10 +1387,12 @@ pub(super) fn emoji_card(
         server_initial: server_letter,
         server_online: preview
             .and_then(|preview| preview.online)
-            .map_or_else(String::new, |online| format!("{} Online", grouped(online)))
+            .map_or_else(String::new, |online| {
+                fill(tr("{} Online"), &[&grouped(online)])
+            })
             .into(),
         server_note: if discoverable {
-            "Discoverable Server"
+            tr("Discoverable Server")
         } else {
             ""
         }
@@ -1459,10 +1464,12 @@ pub(super) fn sticker_card(app: &Application, item: &str, index: usize) -> Messa
         delays,
         server_online: preview
             .and_then(|preview| preview.online)
-            .map_or_else(String::new, |online| format!("{} Online", grouped(online)))
+            .map_or_else(String::new, |online| {
+                fill(tr("{} Online"), &[&grouped(online)])
+            })
             .into(),
         server_note: if discoverable {
-            "Discoverable Server"
+            tr("Discoverable Server")
         } else {
             ""
         }

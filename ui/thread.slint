@@ -135,10 +135,10 @@ export component ThreadPanel inherits Rectangle {
         root.follow-latest = true;
         thread-list.content-y = min(0px, thread-list.height - thread-list.content-height);
     }
-    property <bool> is-editing: root.compose-label == "Editing your message";
+    property <bool> is-editing: root.compose-label == @tr("Editing your message");
     background: Theme.chat;
     accessible-role: list;
-    accessible-label: root.name + " thread";
+    accessible-label: @tr("{} thread", root.name);
     Rectangle { x: 0; width: 1px; background: Theme.edge; }
 
     // The newest message stays in view as rows come, until scrolled away from,
@@ -175,12 +175,12 @@ export component ThreadPanel inherits Rectangle {
                 Text { text: root.name; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                 Middle {
                     IconButton {
-                        icon: @image-url("icons/ellipsis.svg"); label: "More"; size: 28px; glyph: 18px; tip-side: 2;
+                        icon: @image-url("icons/ellipsis.svg"); label: @tr("More"); size: 28px; glyph: 18px; tip-side: 2;
                         clicked => { root.more(self.absolute-position.x, self.absolute-position.y + self.height + 6px); }
                     }
                 }
-                Middle { IconButton { icon: @image-url("icons/maximize.svg"); label: "Open in full view"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.expand(); } } }
-                Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close thread"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
+                Middle { IconButton { icon: @image-url("icons/maximize.svg"); label: @tr("Open in full view"); size: 28px; glyph: 18px; tip-side: 2; clicked => { root.expand(); } } }
+                Middle { IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close thread"); size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
             }
             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
         }
@@ -287,19 +287,19 @@ export component ThreadPanel inherits Rectangle {
                             padding: 3px; spacing: 0px;
                             if root.confirm-delete == message.item: HorizontalLayout {
                                 spacing: 4px; padding-left: 8px;
-                                Text { text: "Delete for everyone?"; color: Theme.text; font-size: 14px; font-weight: 700; vertical-alignment: center; }
-                                ActionButton { text: "Delete"; danger: true; small: true; clicked => { root.confirm-delete-message(); } }
-                                ActionButton { text: "Cancel"; ghost: true; small: true; clicked => { root.cancel-delete(); } }
+                                Text { text: @tr("Delete for everyone?"); color: Theme.text; font-size: 14px; font-weight: 700; vertical-alignment: center; }
+                                ActionButton { text: @tr("Delete"); danger: true; small: true; clicked => { root.confirm-delete-message(); } }
+                                ActionButton { text: @tr("Cancel"); ghost: true; small: true; clicked => { root.cancel-delete(); } }
                             }
                             if root.confirm-delete != message.item: HorizontalLayout {
                                 spacing: 0px;
                                 if message-bar.quick && message.can-pin: IconButton {
                                     icon: message.pinned ? @image-url("icons/pin-off.svg") : @image-url("icons/pin.svg");
-                                    label: message.pinned ? "Unpin" : "Pin";
+                                    label: message.pinned ? @tr("Unpin") : @tr("Pin");
                                     clicked => { root.pin-message(message.item); }
                                 }
                                 if message-bar.quick && message.own && message.can-edit && message.can-reply && root.composer-enabled: IconButton {
-                                    icon: @image-url("icons/reply.svg"); label: "Reply";
+                                    icon: @image-url("icons/reply.svg"); label: @tr("Reply");
                                     clicked => { root.reply(message.item); root.focus-composer(); }
                                 }
                                 if message.can-react && root.new-reactions-enabled: HorizontalLayout {
@@ -311,23 +311,23 @@ export component ThreadPanel inherits Rectangle {
                                         clicked => { root.react(message.item, cell.key); }
                                     }
                                     IconButton {
-                                        icon: @image-url("icons/smile-plus.svg"); label: "Add reaction";
+                                        icon: @image-url("icons/smile-plus.svg"); label: @tr("Add reaction");
                                         clicked => { root.open-picker(message.item, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                                     }
                                 }
-                                if message.own && message.can-edit && root.composer-enabled: IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; clicked => { root.edit(message.item); root.focus-composer(); } }
-                                if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled: IconButton { icon: @image-url("icons/reply.svg"); label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
+                                if message.own && message.can-edit && root.composer-enabled: IconButton { icon: @image-url("icons/pencil.svg"); label: @tr("Edit"); clicked => { root.edit(message.item); root.focus-composer(); } }
+                                if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled: IconButton { icon: @image-url("icons/reply.svg"); label: @tr("Reply"); clicked => { root.reply(message.item); root.focus-composer(); } }
                                 // Beside Reply, as in Discord, whether or not Shift is held.
                                 if message.can-forward && root.forward-allowed: IconButton {
-                                    icon: @image-url("icons/forward.svg"); label: "Forward";
+                                    icon: @image-url("icons/forward.svg"); label: @tr("Forward");
                                     clicked => { root.start-forward(message.item); }
                                 }
                                 if message-bar.deletes: IconButton {
-                                    icon: @image-url("icons/trash-2.svg"); label: "Delete"; danger: true;
+                                    icon: @image-url("icons/trash-2.svg"); label: @tr("Delete"); danger: true;
                                     clicked => { root.delete-now(message.item); }
                                 }
                                 if !message-bar.deletes: IconButton {
-                                    icon: @image-url("icons/ellipsis.svg"); label: "More";
+                                    icon: @image-url("icons/ellipsis.svg"); label: @tr("More");
                                     clicked => { root.open-menu(message, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                                 }
                             }
@@ -340,7 +340,7 @@ export component ThreadPanel inherits Rectangle {
             }
             if root.messages.length == 0 && root.ready: Text {
                 x: 16px; width: parent.width - 32px;
-                text: "This is the start of the " + root.name + " thread.";
+                text: @tr("This is the start of the {} thread.", root.name);
                 color: Theme.muted; font-size: 14px; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
             }
         }
@@ -354,7 +354,7 @@ export component ThreadPanel inherits Rectangle {
                     Image { source: root.is-editing ? @image-url("icons/pencil.svg") : @image-url("icons/reply.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
                     Text { text: root.compose-label; color: Theme.secondary; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                     if !root.is-editing: VerticalLayout { alignment: center; PingToggle { on: root.reply-ping; toggled => { root.toggle-reply-ping(); } } }
-                    IconButton { icon: @image-url("icons/x.svg"); label: root.is-editing ? "Cancel editing" : "Cancel reply"; size: 28px; glyph: 16px; clicked => { root.cancel-compose(); } }
+                    IconButton { icon: @image-url("icons/x.svg"); label: root.is-editing ? @tr("Cancel editing") : @tr("Cancel reply"); size: 28px; glyph: 16px; clicked => { root.cancel-compose(); } }
                 }
             }
             composer-box := Rectangle {
@@ -383,14 +383,14 @@ export component ThreadPanel inherits Rectangle {
                         VerticalLayout {
                             alignment: end; padding-bottom: 8px;
                             IconButton {
-                                icon: @image-url("icons/circle-plus.svg"); label: "Attach files";
+                                icon: @image-url("icons/circle-plus.svg"); label: @tr("Attach files");
                                 glyph: 22px; enabled: root.can-attach;
                                 clicked => { root.attach(); }
                             }
                         }
                         composer := Composer {
-                            text <=> root.draft; enabled: root.composer-enabled; label: "Message " + root.name;
-                            placeholder: root.is-editing ? "Edit your message" : root.compose-label != "" ? "Write a reply" : "Message " + root.name;
+                            text <=> root.draft; enabled: root.composer-enabled; label: @tr("Message {}", root.name);
+                            placeholder: root.is-editing ? @tr("Edit your message") : root.compose-label != "" ? @tr("Write a reply") : @tr("Message {}", root.name);
                             edited(text) => { root.draft-edited(text); }
                             accepted => { root.send(); }
                             paste => { root.paste(); }
@@ -406,7 +406,7 @@ export component ThreadPanel inherits Rectangle {
                             alignment: end; padding-bottom: 8px;
                             IconButton {
                                 icon: @image-url("icons/send-horizontal.svg");
-                                label: root.sending ? "Sending..." : root.is-editing ? "Save" : "Send";
+                                label: root.sending ? @tr("Sending...") : root.is-editing ? @tr("Save") : @tr("Send");
                                 enabled: root.can-send; emphasis: root.can-send;
                                 clicked => { root.send(); }
                             }
@@ -472,7 +472,7 @@ export component NewThreadPanel inherits Rectangle {
     callback escape-composing() -> bool;
     background: Theme.chat;
     accessible-role: groupbox;
-    accessible-label: "New Thread";
+    accessible-label: @tr("New Thread");
     Rectangle { x: 0; width: 1px; background: Theme.edge; }
     VerticalLayout {
         Rectangle {
@@ -480,8 +480,8 @@ export component NewThreadPanel inherits Rectangle {
             HorizontalLayout {
                 padding-left: 16px; padding-right: 10px; spacing: 10px;
                 Middle { Image { source: @image-url("icons/thread.svg"); width: 18px; height: 18px; colorize: Theme.muted; } }
-                Text { text: "New Thread"; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
-                Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
+                Text { text: @tr("New Thread"); color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                Middle { IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close"); size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
             }
             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
         }
@@ -495,21 +495,21 @@ export component NewThreadPanel inherits Rectangle {
             VerticalLayout {
                 spacing: 8px;
                 Text {
-                    text: root.from-message ? "THREAD NAME (OPTIONAL)" : "THREAD NAME";
+                    text: root.from-message ? @tr("THREAD NAME (OPTIONAL)") : @tr("THREAD NAME");
                     color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
                 }
                 name-field := TextField {
-                    text <=> root.name; placeholder: root.name-placeholder; label: "Thread Name";
+                    text <=> root.name; placeholder: root.name-placeholder; label: @tr("Thread Name");
                     enabled: !root.starting;
                     edited(text) => { root.name-edited(text); }
                     accepted => { root.focus-composer(); }
                 }
             }
             if root.can-private: SettingsSwitch {
-                text: "Private Thread";
+                text: @tr("Private Thread");
                 description: root.private
-                    ? "Only people you invite and moderators can see. You can invite new people by @mentioning them."
-                    : "Only people you invite and moderators can see";
+                    ? @tr("Only people you invite and moderators can see. You can invite new people by @mentioning them.")
+                    : @tr("Only people you invite and moderators can see");
                 checked: root.private; enabled: !root.only-private && !root.starting;
                 toggled(checked) => { root.private-changed(checked); }
             }
@@ -522,8 +522,8 @@ export component NewThreadPanel inherits Rectangle {
                 HorizontalLayout {
                     padding-left: 8px; padding-right: 8px; spacing: 6px;
                     composer := Composer {
-                        text <=> root.body; enabled: !root.starting; label: "First message";
-                        placeholder: "Enter a message to start the conversation!";
+                        text <=> root.body; enabled: !root.starting; label: @tr("First message");
+                        placeholder: @tr("Enter a message to start the conversation!");
                         edited(text) => { root.body-edited(text); }
                         accepted => { root.create(); }
                         paste => { self.paste-text(); }
@@ -534,7 +534,7 @@ export component NewThreadPanel inherits Rectangle {
                         alignment: end; padding-bottom: 8px;
                         IconButton {
                             icon: @image-url("icons/send-horizontal.svg");
-                            label: root.starting ? "Creating..." : "Create Thread";
+                            label: root.starting ? @tr("Creating...") : @tr("Create Thread");
                             enabled: !root.starting; emphasis: !root.starting && root.body != "";
                             clicked => { root.create(); }
                         }
@@ -553,12 +553,12 @@ export component NewThreadPanel inherits Rectangle {
             background: Theme.sidebar; border-radius: 10px; border-width: 1px; border-color: Theme.edge;
             ask := VerticalLayout {
                 padding: 16px; spacing: 10px;
-                Text { text: "Are you sure you want to go?"; color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }
-                Text { text: "Any changes you made will be lost if you exit now."; color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
+                Text { text: @tr("Are you sure you want to go?"); color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }
+                Text { text: @tr("Any changes you made will be lost if you exit now."); color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
                 HorizontalLayout {
                     alignment: end; spacing: 8px; padding-top: 6px;
-                    ActionButton { text: "Back to editing"; ghost: true; clicked => { root.stay(); } }
-                    ActionButton { text: "Exit"; danger: true; clicked => { root.leave(); } }
+                    ActionButton { text: @tr("Back to editing"); ghost: true; clicked => { root.stay(); } }
+                    ActionButton { text: @tr("Exit"); danger: true; clicked => { root.leave(); } }
                 }
             }
         }

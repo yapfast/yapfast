@@ -38,7 +38,7 @@ export component FavoriteStar inherits Rectangle {
     opacity: root.shown ? 1 : 0;
     animate opacity { duration: Theme.quick; }
     accessible-role: button;
-    accessible-label: root.on ? "Remove from Favorites" : "Add to Favorites";
+    accessible-label: root.on ? @tr("Remove from Favorites") : @tr("Add to Favorites");
     accessible-action-default => { root.clicked(); }
     Image {
         width: 20px; height: 20px;
@@ -125,18 +125,18 @@ export component GifPicker inherits VerticalLayout {
         HorizontalLayout {
             padding-left: 16px; padding-right: 16px; padding-bottom: 12px; spacing: 8px;
             if root.view != 0: IconButton {
-                icon: @image-url("icons/chevron-left.svg"); label: "Back"; size: 34px;
+                icon: @image-url("icons/chevron-left.svg"); label: @tr("Back"); size: 34px;
                 clicked => { root.back(); }
             }
             if root.view == 1: Text {
-                text: "Trending GIFs"; color: Theme.text; font-size: 16px; font-weight: 700;
+                text: @tr("Trending GIFs"); color: Theme.text; font-size: 16px; font-weight: 700;
                 vertical-alignment: center; horizontal-stretch: 1;
             }
             // Out of sight in Trending, where typing still searches.
             field := TextField {
                 max-width: root.view == 1 ? 0px : 100000px; visible: root.view != 1;
                 min-height: 34px; text-size: 15px; pad: 10px; fill: Theme.sunken;
-                placeholder: root.view == 2 ? "Search Favorites" : "Search Klipy";
+                placeholder: root.view == 2 ? @tr("Search Favorites") : @tr("Search Klipy");
                 label: self.placeholder;
                 text <=> root.query;
                 edited(text) => {
@@ -159,7 +159,7 @@ export component GifPicker inherits VerticalLayout {
             border-radius: 5px; clip: true;
             background: tile.tint;
             accessible-role: button;
-            accessible-label: tile.kind == 0 ? "GIF" : tile.label;
+            accessible-label: tile.kind == 0 ? @tr("GIF") : tile.label;
             accessible-action-default => {
                 if tile.kind == 0 { root.pick(tile.url, false); }
                 else if tile.kind == 1 { root.show-view(2); }
@@ -207,7 +207,7 @@ export component GifPicker inherits VerticalLayout {
             x: 12px; y: root.note != "" ? 96px : root.grid-height + 4px; width: parent.width - 24px; height: self.preferred-height;
             spacing: 10px;
             Text {
-                text: "Your perfect GIF is in another castle. Try the suggested keywords below!";
+                text: @tr("Your perfect GIF is in another castle. Try the suggested keywords below!");
                 color: Theme.secondary; font-size: 14px; wrap: word-wrap; horizontal-alignment: center;
             }
             HorizontalLayout {

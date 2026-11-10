@@ -27,7 +27,7 @@ component BrowseItem inherits Rectangle {
     in property <BrowseRow> channel;
     callback toggled(bool);
     callback view;
-    property <string> locked-tip: "You must unfollow this category to add or remove specific channels.";
+    property <string> locked-tip: @tr("You must unfollow this category to add or remove specific channels.");
     height: 56px;
     border-radius: 8px;
     background: pointer.has-hover && !root.channel.by-category ? Theme.raised : transparent;
@@ -73,7 +73,7 @@ component BrowseItem inherits Rectangle {
         Middle {
             ActionButton {
                 small: true;
-                text: root.channel.voice ? "Join" : root.channel.forum ? "Open" : "View";
+                text: root.channel.voice ? @tr("Join") : root.channel.forum ? @tr("Open") : @tr("View");
                 label: self.text + " " + root.channel.name;
                 clicked => { root.view(); }
             }
@@ -109,12 +109,12 @@ export component BrowseScreen inherits Rectangle {
         padding: 16px; padding-bottom: 0px; spacing: 8px;
         TextField {
             min-height: 36px; text-size: 15px; pad: 10px; fill: Theme.sunken; ring: false;
-            placeholder: "Search channels"; label: "Search channels"; text <=> root.filter;
+            placeholder: @tr("Search channels"); label: @tr("Search channels"); text <=> root.filter;
             edited => { root.filter-edited(); }
         }
         if root.rows.length == 0: HorizontalLayout {
             padding-left: 8px; padding-top: 8px;
-            Label { text: root.filter != "" ? "No channel's name matches that." : "There are no channels to browse."; }
+            Label { text: root.filter != "" ? @tr("No channel's name matches that.") : @tr("There are no channels to browse."); }
         }
         ListView {
             vertical-stretch: 1;
@@ -131,7 +131,7 @@ export component BrowseScreen inherits Rectangle {
                     Middle {
                         SettingsSwitch {
                             width: 172px; horizontal-stretch: 0;
-                            text: "Follow category"; controlled: true; checked: row.followed;
+                            text: @tr("Follow category"); controlled: true; checked: row.followed;
                             toggled(on) => { root.follow(row.id, on); }
                         }
                     }

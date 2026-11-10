@@ -112,24 +112,24 @@ export component WindowBar inherits Rectangle {
     }
     HorizontalLayout {
         alignment: start; padding-left: 8px; spacing: 4px;
-        Middle { BarButton { icon: @image-url("../icons/arrow-left.svg"); label: "Back"; enabled: root.can-go-back; clicked => { root.go-back(); } } }
-        Middle { BarButton { icon: @image-url("../icons/arrow-right.svg"); label: "Forward"; enabled: root.can-go-forward; clicked => { root.go-forward(); } } }
+        Middle { BarButton { icon: @image-url("../icons/arrow-left.svg"); label: @tr("Back"); enabled: root.can-go-back; clicked => { root.go-back(); } } }
+        Middle { BarButton { icon: @image-url("../icons/arrow-right.svg"); label: @tr("Forward"); enabled: root.can-go-forward; clicked => { root.go-forward(); } } }
     }
     HorizontalLayout {
         alignment: end; spacing: 0px;
         if root.workspace: Middle {
             HorizontalLayout {
                 spacing: 4px; padding-right: 12px;
-                BarButton { icon: @image-url("../icons/inbox.svg"); label: "Inbox"; active: root.inbox-open; clicked => { root.toggle-inbox(); } }
-                BarButton { icon: @image-url("../icons/help-circle.svg"); label: "Help"; clicked => { root.open-help(); } }
+                BarButton { icon: @image-url("../icons/inbox.svg"); label: @tr("Inbox"); active: root.inbox-open; clicked => { root.toggle-inbox(); } }
+                BarButton { icon: @image-url("../icons/help-circle.svg"); label: @tr("Help"); clicked => { root.open-help(); } }
             }
         }
-        CaptionButton { icon: @image-url("../icons/minus.svg"); label: "Minimize"; clicked => { root.minimize-window(); } }
+        CaptionButton { icon: @image-url("../icons/minus.svg"); label: @tr("Minimize"); clicked => { root.minimize-window(); } }
         CaptionButton {
             icon: root.maximized ? @image-url("../icons/restore.svg") : @image-url("../icons/square.svg");
-            label: root.maximized ? "Restore" : "Maximize";
+            label: root.maximized ? @tr("Restore") : @tr("Maximize");
             clicked => { root.maximize-window(); }
         }
-        CaptionButton { icon: @image-url("../icons/x.svg"); label: "Close"; close: true; clicked => { root.close-window(); } }
+        CaptionButton { icon: @image-url("../icons/x.svg"); label: @tr("Close"); close: true; clicked => { root.close-window(); } }
     }
 }

@@ -75,10 +75,10 @@ export component PingToggle inherits Rectangle {
     background: touch.has-hover ? Theme.hover : transparent;
     accessible-role: checkbox;
     accessible-checked: root.on;
-    accessible-label: "Mention the person you reply to";
+    accessible-label: @tr("Mention the person you reply to");
     accessible-action-default => { root.toggled(); }
     label := Text {
-        text: root.on ? "@ On" : "@ Off";
+        text: root.on ? @tr("@ On") : @tr("@ Off");
         color: root.on ? Theme.accent : Theme.muted;
         font-size: 13px; font-weight: 700; vertical-alignment: center;
     }
@@ -446,7 +446,7 @@ export component ServerTagChip inherits Rectangle {
     height: root.chip-height; border-radius: root.radius;
     background: root.fill;
     border-width: root.outline-width; border-color: root.outline;
-    accessible-role: AccessibleRole.text; accessible-label: "Server tag " + root.text;
+    accessible-role: AccessibleRole.text; accessible-label: @tr("Server tag {}", root.text);
     HorizontalLayout {
         padding-left: root.pad; padding-right: root.pad; spacing: root.gap; alignment: center;
         if root.badge != "": Middle {
@@ -860,7 +860,7 @@ export component VoiceSpot inherits Rectangle {
     property <string> place: root.channel + " — " + root.server;
     horizontal-stretch: 0;
     accessible-role: button;
-    accessible-label: "Go to " + root.channel + " in " + root.server;
+    accessible-label: @tr("Go to {0} in {1}", root.channel, root.server);
     accessible-action-default => { root.clicked(); }
     HorizontalLayout {
         spacing: 4px;
@@ -993,7 +993,7 @@ export component Skeleton inherits Rectangle {
     background: Theme.raised;
     clip: true;
     accessible-role: image;
-    accessible-label: "Loading";
+    accessible-label: @tr("Loading");
     Rectangle {
         width: max(120px, parent.width * 0.5); height: parent.height;
         x: Math.mod(animation-tick() / 1ms, 1500) / 1500 * (parent.width + self.width) - self.width;
@@ -1029,7 +1029,7 @@ export component SpoilerCover inherits Rectangle {
     background: #00000059;
     Rectangle {
         width: label.preferred-width + 24px; height: 28px; border-radius: 14px; background: #000000b3;
-        label := Text { text: "SPOILER"; color: #ffffff; font-size: 13px; font-weight: 800; letter-spacing: 0.5px; vertical-alignment: center; }
+        label := Text { text: @tr("SPOILER"); color: #ffffff; font-size: 13px; font-weight: 800; letter-spacing: 0.5px; vertical-alignment: center; }
     }
 }
 
@@ -1481,9 +1481,9 @@ export component QuickDeviceMenu inherits Rectangle {
     VerticalLayout {
         padding: 6px; spacing: 4px;
         MenuItem {
-            text: root.kind + " Device"; submenu: true;
-            subtitle: root.devices.length == 0 ? "None found"
-                : root.current >= 0 && root.current < root.devices.length ? root.devices[root.current] : "System default";
+            text: @tr("{} Device", root.kind); submenu: true;
+            subtitle: root.devices.length == 0 ? @tr("None found")
+                : root.current >= 0 && root.current < root.devices.length ? root.devices[root.current] : @tr("System default");
             clicked => { root.listing = !root.listing; }
         }
         Rectangle {
@@ -1506,14 +1506,14 @@ export component QuickDeviceMenu inherits Rectangle {
         HorizontalLayout {
             padding-left: 8px; padding-right: 8px; padding-top: 4px; padding-bottom: 4px;
             VolumeSlider {
-                label: root.kind + " Volume"; value <=> root.volume;
+                label: @tr("{} Volume", root.kind); value <=> root.volume;
                 changed(value) => { root.volume-changed(value); }
                 committed(value) => { root.volume-committed(value); }
             }
         }
         @children
         Rectangle { height: 1px; background: Theme.line; }
-        MenuItem { text: "Voice Settings"; icon: @image-url("icons/settings.svg"); clicked => { root.settings(); } }
+        MenuItem { text: @tr("Voice Settings"); icon: @image-url("icons/settings.svg"); clicked => { root.settings(); } }
     }
 }
 
@@ -1573,7 +1573,7 @@ export component Banner inherits Rectangle {
         padding-left: 16px; padding-right: 8px; padding-top: 6px; padding-bottom: 6px; spacing: 12px;
         Image { source: @image-url("icons/triangle-alert.svg"); width: 18px; image-fit: contain; colorize: Theme.accent; }
         Text { text: root.text; color: Theme.text; font-size: 15px; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
-        Middle { ActionButton { text: "Dismiss"; ghost: true; small: true; clicked => { root.dismissed(); } } }
+        Middle { ActionButton { text: @tr("Dismiss"); ghost: true; small: true; clicked => { root.dismissed(); } } }
     }
 }
 
@@ -1656,7 +1656,7 @@ export component SensitivitySlider inherits Rectangle {
     height: column.preferred-height;
     accessible-role: slider;
     accessible-label: root.label;
-    accessible-value: root.value + " dB";
+    accessible-value: @tr("{} dB", root.value);
     accessible-value-minimum: -80;
     accessible-value-maximum: 0;
     accessible-value-step: 1;
@@ -1682,8 +1682,8 @@ export component SensitivitySlider inherits Rectangle {
         HorizontalLayout {
             spacing: 10px;
             Text { text: root.label; color: Theme.secondary; font-size: 13px; font-weight: 600; horizontal-stretch: 1; }
-            Text { text: root.sending ? "Sending" : "Not sending"; color: root.sending ? Theme.live : Theme.muted; font-size: 13px; font-weight: 600; }
-            Text { text: root.value + " dB"; color: Theme.text; font-size: 13px; font-weight: 600; }
+            Text { text: root.sending ? @tr("Sending") : @tr("Not sending"); color: root.sending ? Theme.live : Theme.muted; font-size: 13px; font-weight: 600; }
+            Text { text: @tr("{} dB", root.value); color: Theme.text; font-size: 13px; font-weight: 600; }
         }
         track := Rectangle {
             height: 18px;

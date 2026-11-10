@@ -232,13 +232,13 @@ component RoleListRow inherits Rectangle {
             Middle {
                 IconButton {
                     icon: root.role.locked ? @image-url("icons/eye.svg") : @image-url("icons/pencil.svg");
-                    label: root.role.locked ? "View" : "Edit"; fill: Theme.raised; radius: 16px;
+                    label: root.role.locked ? @tr("View") : @tr("Edit"); fill: Theme.raised; radius: 16px;
                     clicked => { root.open(); }
                 }
             }
             Middle {
                 IconButton {
-                    icon: @image-url("icons/ellipsis.svg"); label: "More"; fill: Theme.raised; radius: 16px;
+                    icon: @image-url("icons/ellipsis.svg"); label: @tr("More"); fill: Theme.raised; radius: 16px;
                     enabled: root.role.may-copy;
                     opacity: self.enabled ? 1 : 0.4;
                     clicked => { more.show(); }
@@ -253,10 +253,10 @@ component RoleListRow inherits Rectangle {
             VerticalLayout {
                 padding: 6px; spacing: 2px;
                 for item[index] in [
-                    { text: "Move Up", danger: false, enabled: root.may-drag && !root.role.locked && root.role.index > root.first-movable },
-                    { text: "Move Down", danger: false, enabled: root.may-drag && !root.role.locked && root.role.index < root.count - 1 },
-                    { text: "Duplicate Role", danger: false, enabled: root.role.may-copy },
-                    { text: "Delete", danger: true, enabled: root.role.may-copy },
+                    { text: @tr("Move Up"), danger: false, enabled: root.may-drag && !root.role.locked && root.role.index > root.first-movable },
+                    { text: @tr("Move Down"), danger: false, enabled: root.may-drag && !root.role.locked && root.role.index < root.count - 1 },
+                    { text: @tr("Duplicate Role"), danger: false, enabled: root.role.may-copy },
+                    { text: @tr("Delete"), danger: true, enabled: root.role.may-copy },
                 ]: Rectangle {
                     height: 32px; border-radius: 4px;
                     background: area.has-hover && item.enabled ? (item.danger ? Theme.danger : Theme.accent) : transparent;
@@ -317,7 +317,7 @@ component RoleMemberLine inherits Rectangle {
         }
         Middle {
             IconButton {
-                icon: @image-url("icons/x.svg"); label: root.removable ? "Remove member" : "Members cannot be manually added or removed from this role";
+                icon: @image-url("icons/x.svg"); label: root.removable ? @tr("Remove member") : @tr("Members cannot be manually added or removed from this role");
                 enabled: root.removable; opacity: self.enabled ? 1 : 0.4;
                 clicked => { root.remove(); }
             }
@@ -356,13 +356,13 @@ export component RolesSection inherits VerticalLayout {
     spacing: 16px;
     if !root.page.open: VerticalLayout {
         spacing: 16px;
-        SettingsTitle { text: "Roles"; }
-        Label { text: "Use roles to group your server members and assign permissions."; }
+        SettingsTitle { text: @tr("Roles"); }
+        Label { text: @tr("Use roles to group your server members and assign permissions."); }
         // @everyone's card.
         Rectangle {
             height: 64px; border-radius: 8px;
             background: everyone.has-hover ? Theme.raised.brighter(0.1) : Theme.raised;
-            accessible-role: button; accessible-label: "Default Permissions";
+            accessible-role: button; accessible-label: @tr("Default Permissions");
             everyone := TouchArea { clicked => { root.open(root.page.everyone-id); } }
             HorizontalLayout {
                 padding-left: 16px; padding-right: 16px; spacing: 12px;
@@ -376,8 +376,8 @@ export component RolesSection inherits VerticalLayout {
                     horizontal-stretch: 1;
                     VerticalLayout {
                         spacing: 2px;
-                        Text { text: "Default Permissions"; color: Theme.text; font-size: 15px; font-weight: 600; }
-                        Text { text: root.page.everyone-name + " • applies to all server members"; color: Theme.secondary; font-size: 13px; }
+                        Text { text: @tr("Default Permissions"); color: Theme.text; font-size: 15px; font-weight: 600; }
+                        Text { text: @tr("{} • applies to all server members", root.page.everyone-name); color: Theme.secondary; font-size: 13px; }
                     }
                 }
                 Middle { Image { width: 18px; height: 18px; source: @image-url("icons/chevron-right.svg"); colorize: Theme.secondary; } }
@@ -386,25 +386,25 @@ export component RolesSection inherits VerticalLayout {
         HorizontalLayout {
             spacing: 12px;
             TextField {
-                placeholder: "Search Roles"; label: "Search Roles"; text-size: 14px; text: root.page.search;
+                placeholder: @tr("Search Roles"); label: @tr("Search Roles"); text-size: 14px; text: root.page.search;
                 edited(text) => { root.write(0, text); }
             }
             ActionButton {
-                text: "Create Role"; primary: true; enabled: root.ready && root.page.may-create;
+                text: @tr("Create Role"); primary: true; enabled: root.ready && root.page.may-create;
                 clicked => { root.act(0, ""); }
             }
         }
-        Label { text: "Members use the color of the highest role they have on this list. Drag roles to reorder them."; }
+        Label { text: @tr("Members use the color of the highest role they have on this list. Drag roles to reorder them."); }
         VerticalLayout {
             spacing: 0px;
             HorizontalLayout {
                 padding-left: 4px; padding-right: 8px; padding-bottom: 6px; spacing: 10px;
                 Rectangle { width: 20px; }
                 SettingsHeading { text: root.page.heading; horizontal-stretch: 1; }
-                SettingsHeading { text: "MEMBERS"; width: 80px + 32px + 32px + 20px; }
+                SettingsHeading { text: @tr("MEMBERS"); width: 80px + 32px + 32px + 20px; }
             }
             Rectangle { height: 1px; background: Theme.line; }
-            if root.page.rows.length == 0: Label { text: "No roles"; }
+            if root.page.rows.length == 0: Label { text: @tr("No roles"); }
             for role in root.page.rows: RoleListRow {
                 role: role; may-drag: root.page.may-drag && root.ready; count: root.page.rows.length;
                 first-movable: root.page.first-movable;
@@ -421,11 +421,11 @@ export component RolesSection inherits VerticalLayout {
             alignment: start;
             Rectangle {
                 width: back.preferred-width + 24px; height: 28px;
-                accessible-role: button; accessible-label: "Back";
+                accessible-role: button; accessible-label: @tr("Back");
                 HorizontalLayout {
                     spacing: 4px;
                     Middle { Image { width: 16px; height: 16px; source: @image-url("icons/chevron-left.svg"); colorize: back-area.has-hover ? Theme.text : Theme.secondary; } }
-                    back := Text { text: "Back"; font-size: 14px; font-weight: 600; vertical-alignment: center; color: back-area.has-hover ? Theme.text : Theme.secondary; }
+                    back := Text { text: @tr("Back"); font-size: 14px; font-weight: 600; vertical-alignment: center; color: back-area.has-hover ? Theme.text : Theme.secondary; }
                 }
                 back-area := TouchArea { clicked => { root.open(""); } }
             }
@@ -437,8 +437,8 @@ export component RolesSection inherits VerticalLayout {
         }
         HorizontalLayout {
             spacing: 24px; alignment: start;
-            RoleTabButton { text: "Display"; selected: root.page.tab == 0; enabled: !root.page.everyone; clicked => { root.tab(0); } }
-            RoleTabButton { text: "Permissions"; selected: root.page.tab == 1; clicked => { root.tab(1); } }
+            RoleTabButton { text: @tr("Display"); selected: root.page.tab == 0; enabled: !root.page.everyone; clicked => { root.tab(0); } }
+            RoleTabButton { text: @tr("Permissions"); selected: root.page.tab == 1; clicked => { root.tab(1); } }
             RoleTabButton { text: root.page.members-title; selected: root.page.tab == 2; enabled: !root.page.everyone; clicked => { root.tab(2); } }
         }
         Rectangle { height: 1px; background: Theme.line; }
@@ -446,22 +446,22 @@ export component RolesSection inherits VerticalLayout {
             spacing: 20px;
             VerticalLayout {
                 spacing: 8px;
-                SettingsHeading { text: "ROLE NAME"; }
+                SettingsHeading { text: @tr("ROLE NAME"); }
                 TextField {
-                    text <=> root.name; label: "Role name"; enabled: root.editable;
+                    text <=> root.name; label: @tr("Role name"); enabled: root.editable;
                     edited(text) => { root.write(1, text); }
                 }
             }
             VerticalLayout {
                 spacing: 8px;
-                SettingsHeading { text: "ROLE COLOR"; }
-                Label { text: "Members use the color of the highest role they have on the roles list."; }
+                SettingsHeading { text: @tr("ROLE COLOR"); }
+                Label { text: @tr("Members use the color of the highest role they have on the roles list."); }
                 HorizontalLayout {
                     spacing: 10px; alignment: start;
                     // Discord's default, then its colours in two rows.
                     Rectangle {
                         width: 66px; height: 50px; border-radius: 4px; background: #99aab5;
-                        accessible-role: button; accessible-label: "Default";
+                        accessible-role: button; accessible-label: @tr("Default");
                         if root.page.default-color: Image { width: 20px; height: 20px; source: @image-url("icons/check.svg"); colorize: #ffffff; }
                         TouchArea { enabled: root.editable; clicked => { root.color(-1); } }
                     }
@@ -471,7 +471,7 @@ export component RolesSection inherits VerticalLayout {
                             spacing: 10px;
                             for swatch[index] in root.page.bright: Rectangle {
                                 width: 20px; height: 20px; border-radius: 4px; background: swatch.color;
-                                accessible-role: button; accessible-label: "Color " + (index + 1);
+                                accessible-role: button; accessible-label: @tr("Color {}", (index + 1));
                                 if swatch.chosen: Image { width: 14px; height: 14px; source: @image-url("icons/check.svg"); colorize: #ffffff; }
                                 TouchArea { enabled: root.editable; clicked => { root.color(index); } }
                             }
@@ -480,7 +480,7 @@ export component RolesSection inherits VerticalLayout {
                             spacing: 10px;
                             for swatch[index] in root.page.dark: Rectangle {
                                 width: 20px; height: 20px; border-radius: 4px; background: swatch.color;
-                                accessible-role: button; accessible-label: "Color " + (index + 11);
+                                accessible-role: button; accessible-label: @tr("Color {}", (index + 11));
                                 if swatch.chosen: Image { width: 14px; height: 14px; source: @image-url("icons/check.svg"); colorize: #ffffff; }
                                 TouchArea { enabled: root.editable; clicked => { root.color(index + 10); } }
                             }
@@ -489,7 +489,7 @@ export component RolesSection inherits VerticalLayout {
                     // Any other colour, as hex, in place of Discord's picker.
                     Rectangle {
                         width: 50px; height: 50px; border-radius: 4px; background: root.page.color;
-                        accessible-role: image; accessible-label: "Custom color";
+                        accessible-role: image; accessible-label: @tr("Custom color");
                         if root.page.custom-color: Image { width: 20px; height: 20px; source: @image-url("icons/check.svg"); colorize: #ffffff; }
                     }
                     VerticalLayout {
@@ -499,7 +499,7 @@ export component RolesSection inherits VerticalLayout {
                             changed shown => { self.text = self.shown; }
                             init => { self.text = self.shown; }
                             width: 110px; min-height: 36px; text-size: 14px; pad: 10px;
-                            placeholder: "#99aab5"; label: "Custom color"; enabled: root.editable;
+                            placeholder: "#99aab5"; label: @tr("Custom color"); enabled: root.editable;
                             accepted => { root.write(6, self.text); }
                         }
                     }
@@ -507,8 +507,8 @@ export component RolesSection inherits VerticalLayout {
             }
             VerticalLayout {
                 spacing: 8px;
-                SettingsHeading { text: "ROLE ICON"; }
-                Label { text: "Upload an image under 256 KB or use an emoji. We recommend at least 64x64 pixels. Members will see the icon for their highest role if they have multiple roles."; }
+                SettingsHeading { text: @tr("ROLE ICON"); }
+                Label { text: @tr("Upload an image under 256 KB or use an emoji. We recommend at least 64x64 pixels. Members will see the icon for their highest role if they have multiple roles."); }
                 HorizontalLayout {
                     spacing: 16px; alignment: start;
                     Rectangle {
@@ -522,15 +522,15 @@ export component RolesSection inherits VerticalLayout {
                     VerticalLayout {
                         spacing: 8px; alignment: center;
                         if root.page.icon-locked != "": Label { text: root.page.icon-locked; }
-                        if root.reading: Label { text: "Reading the picture..."; }
+                        if root.reading: Label { text: @tr("Reading the picture..."); }
                         HorizontalLayout {
                             spacing: 8px; alignment: start;
                             ActionButton {
-                                text: "Choose Image"; enabled: root.editable && !root.reading && root.page.icon-locked == "";
+                                text: @tr("Choose Image"); enabled: root.editable && !root.reading && root.page.icon-locked == "";
                                 clicked => { root.pick-icon(); }
                             }
                             if root.page.has-icon: ActionButton {
-                                text: "Remove Icon"; ghost: true; enabled: root.editable && root.page.icon-locked == "";
+                                text: @tr("Remove Icon"); ghost: true; enabled: root.editable && root.page.icon-locked == "";
                                 clicked => { root.remove-icon(); }
                             }
                         }
@@ -540,14 +540,14 @@ export component RolesSection inherits VerticalLayout {
                             spacing: 8px; alignment: start;
                             emoji := TextField {
                                 width: 110px; min-height: 36px; text-size: 14px; pad: 10px;
-                                placeholder: "Emoji"; label: "Role icon emoji";
+                                placeholder: @tr("Emoji"); label: @tr("Role icon emoji");
                                 enabled: root.editable && root.page.icon-locked == "";
                                 // The preview shows what was used; the field
                                 // empties for another.
                                 accepted => { root.write(5, self.text); self.text = ""; }
                             }
                             ActionButton {
-                                text: "Use Emoji"; ghost: true;
+                                text: @tr("Use Emoji"); ghost: true;
                                 enabled: root.editable && root.page.icon-locked == "" && emoji.text != "";
                                 clicked => { root.write(5, emoji.text); emoji.text = ""; }
                             }
@@ -556,13 +556,13 @@ export component RolesSection inherits VerticalLayout {
                 }
             }
             SettingsSwitch {
-                text: "Display role members separately from online members";
+                text: @tr("Display role members separately from online members");
                 checked: root.page.hoist; controlled: true; enabled: root.editable;
                 toggled => { root.toggle(0); }
             }
             SettingsSwitch {
-                text: "Allow anyone to @mention this role";
-                description: "Note: Members with the \"Mention @everyone, @here, and All Roles\" permission will always be able to ping this role.";
+                text: @tr("Allow anyone to @mention this role");
+                description: @tr("Note: Members with the \"Mention @everyone, @here, and All Roles\" permission will always be able to ping this role.");
                 checked: root.page.mentionable; controlled: true; enabled: root.editable;
                 toggled => { root.toggle(1); }
             }
@@ -572,11 +572,11 @@ export component RolesSection inherits VerticalLayout {
             HorizontalLayout {
                 spacing: 12px;
                 TextField {
-                    placeholder: "Search permissions"; label: "Search permissions"; text-size: 14px; text: root.page.permission-search;
+                    placeholder: @tr("Search permissions"); label: @tr("Search permissions"); text-size: 14px; text: root.page.permission-search;
                     edited(text) => { root.write(2, text); }
                 }
                 clear := ActionButton {
-                    text: "Clear permissions"; ghost: true; enabled: root.editable && root.page.may-clear;
+                    text: @tr("Clear permissions"); ghost: true; enabled: root.editable && root.page.may-clear;
                     clicked => { root.toggle(2); }
                     if root.page.clear-lock != "": TouchArea {
                         changed has-hover => {
@@ -592,7 +592,7 @@ export component RolesSection inherits VerticalLayout {
                     }
                 }
             }
-            if root.page.permissions.length == 0: Label { text: "No permissions found"; }
+            if root.page.permissions.length == 0: Label { text: @tr("No permissions found"); }
             // Only the rows in sight are made: all of them took 1.4 MiB.
             ListView {
                 vertical-stretch: 1; min-height: 120px;
@@ -618,18 +618,18 @@ export component RolesSection inherits VerticalLayout {
             HorizontalLayout {
                 spacing: 12px;
                 TextField {
-                    placeholder: "Search Members"; label: "Search Members"; text-size: 14px; text: root.page.member-search;
+                    placeholder: @tr("Search Members"); label: @tr("Search Members"); text-size: 14px; text: root.page.member-search;
                     edited(text) => { root.write(3, text); }
                 }
                 ActionButton {
-                    text: "Add Members"; primary: true; enabled: root.ready && root.page.may-add;
+                    text: @tr("Add Members"); primary: true; enabled: root.ready && root.page.may-add;
                     clicked => { root.act(6, ""); }
                 }
             }
-            if root.page.not-all: Label { text: "Not all members are shown, use Search to find specific members"; }
-            if root.page.members-loading: Label { text: "Loading..."; }
+            if root.page.not-all: Label { text: @tr("Not all members are shown, use Search to find specific members"); }
+            if root.page.members-loading: Label { text: @tr("Loading..."); }
             if root.page.members-error != "": Text { text: root.page.members-error; color: Theme.danger; font-size: 14px; wrap: word-wrap; }
-            if !root.page.members-loading && root.page.members-error == "" && root.page.members.length == 0: Label { text: "No members were found."; }
+            if !root.page.members-loading && root.page.members-error == "" && root.page.members.length == 0: Label { text: @tr("No members were found."); }
             for member in root.page.members: RoleMemberLine {
                 member: member; removable: root.ready && root.page.may-add;
                 remove => { root.act(3, member.id); }
@@ -660,20 +660,20 @@ export component RoleConfirmDialog inherits Rectangle {
             box := VerticalLayout {
                 padding: 16px; spacing: 12px;
                 Text {
-                    text: root.page.confirm == 1 ? "Delete Role" : "Remove member";
+                    text: root.page.confirm == 1 ? @tr("Delete Role") : @tr("Remove member");
                     color: Theme.text; font-size: 20px; font-weight: 700;
                 }
                 Text {
                     text: root.page.confirm == 1
-                        ? "Are you sure you want to delete the " + root.page.confirm-role + " role? This action cannot be undone."
-                        : "Remove " + root.page.confirm-member + " from role " + root.page.confirm-role + "?";
+                        ? @tr("Are you sure you want to delete the {} role? This action cannot be undone.", root.page.confirm-role)
+                        : @tr("Remove {0} from role {1}?", root.page.confirm-member, root.page.confirm-role);
                     color: Theme.secondary; font-size: 15px; wrap: word-wrap;
                 }
                 HorizontalLayout {
                     spacing: 8px; alignment: end;
-                    ActionButton { text: "Cancel"; ghost: true; clicked => { root.cancel(); } }
+                    ActionButton { text: @tr("Cancel"); ghost: true; clicked => { root.cancel(); } }
                     ActionButton {
-                        text: root.page.confirm == 1 ? "Delete" : "Remove"; danger: true;
+                        text: root.page.confirm == 1 ? @tr("Delete") : @tr("Remove"); danger: true;
                         clicked => { root.confirm(); }
                     }
                 }
@@ -705,10 +705,10 @@ export component AddMembersDialog inherits Rectangle {
             TouchArea { }
             VerticalLayout {
                 padding: 16px; spacing: 12px;
-                Text { text: "Add members"; color: Theme.text; font-size: 20px; font-weight: 700; }
-                Text { text: "Select up to 30 members to add to role " + root.role-name; color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
+                Text { text: @tr("Add members"); color: Theme.text; font-size: 20px; font-weight: 700; }
+                Text { text: @tr("Select up to 30 members to add to role {}", root.role-name); color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
                 field := TextField {
-                    placeholder: "Search members"; label: "Search members"; text-size: 14px;
+                    placeholder: @tr("Search members"); label: @tr("Search members"); text-size: 14px;
                     init => { self.focus-input(); }
                     edited(text) => { root.search(text); }
                 }
@@ -747,9 +747,9 @@ export component AddMembersDialog inherits Rectangle {
                 }
                 HorizontalLayout {
                     spacing: 8px; alignment: end;
-                    ActionButton { text: "Cancel"; ghost: true; clicked => { root.close(); } }
+                    ActionButton { text: @tr("Cancel"); ghost: true; clicked => { root.close(); } }
                     ActionButton {
-                        text: "Add"; primary: true; enabled: root.page.picked > 0 && root.page.picked <= 30;
+                        text: @tr("Add"); primary: true; enabled: root.page.picked > 0 && root.page.picked <= 30;
                         clicked => { root.add(); }
                     }
                 }

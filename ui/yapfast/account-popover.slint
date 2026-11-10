@@ -39,14 +39,14 @@ export component AccountPopover inherits Rectangle {
     callback settings;
     callback copy-id;
     callback game-duration-due;
-    property <string> presence-label: root.status == "idle" ? "Idle" : root.status == "dnd" ? "Do Not Disturb" : root.status == "invisible" ? "Invisible" : "Online";
+    property <string> presence-label: root.status == "idle" ? @tr("Idle") : root.status == "dnd" ? @tr("Do Not Disturb") : root.status == "invisible" ? @tr("Invisible") : @tr("Online");
     background: root.themed
         ? @linear-gradient(180deg, root.theme-start 0%, ProfileTheme.wash(root.profile.theme-secondary, root.light) 100%)
         : Theme.panel;
     border-radius: 8px;
     border-width: 1px; border-color: root.themed ? root.profile.theme-primary : Theme.line;
     drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
-    accessible-role: groupbox; accessible-label: "Account";
+    accessible-role: groupbox; accessible-label: @tr("Account");
     height: min(root.available-height, content.preferred-height);
     ScrollView {
         content-height: content.preferred-height;
@@ -97,7 +97,7 @@ export component AccountPopover inherits Rectangle {
                     height: 80px; border-radius: 8px; background: Theme.raised;
                     VerticalLayout {
                         padding: 12px; spacing: 4px; alignment: center;
-                        Text { text: "Playing"; color: Theme.secondary; font-size: 12px; font-weight: 700; }
+                        Text { text: @tr("Playing"); color: Theme.secondary; font-size: 12px; font-weight: 700; }
                         Text { text: root.game-name; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; }
                         if root.game-duration != "": Text { text: root.game-duration; color: Theme.live; font-size: 12px; }
                     }
@@ -107,13 +107,13 @@ export component AccountPopover inherits Rectangle {
                     background: Theme.raised; border-radius: 8px;
                     VerticalLayout {
                         padding: 8px; spacing: 4px;
-                        MenuItem { height: 40px; text: "Edit Profile"; icon: @image-url("../icons/pencil.svg"); clicked => { root.edit-profile(); } }
+                        MenuItem { height: 40px; text: @tr("Edit Profile"); icon: @image-url("../icons/pencil.svg"); clicked => { root.edit-profile(); } }
                         Rectangle { height: 1px; background: Theme.line; }
                         Rectangle {
                             height: 40px; border-radius: 4px;
                             background: status-touch.has-hover ? Theme.active : transparent;
                             border-width: status-focus.has-focus ? 2px : 0px; border-color: Theme.accent;
-                            accessible-role: button; accessible-label: "Change status"; accessible-description: root.presence-label;
+                            accessible-role: button; accessible-label: @tr("Change status"); accessible-description: root.presence-label;
                             accessible-expanded: root.expanded;
                             accessible-action-default => { root.expanded = !root.expanded; }
                             forward-focus: status-focus;
@@ -134,24 +134,24 @@ export component AccountPopover inherits Rectangle {
                         if root.expanded: VerticalLayout {
                             spacing: 2px;
                             for option in [
-                                { key: "online", name: "Online", note: "" },
-                                { key: "idle", name: "Idle", note: "" },
-                                { key: "dnd", name: "Do Not Disturb", note: "You won't get message notifications." },
-                                { key: "invisible", name: "Invisible", note: "You'll appear offline." },
+                                { key: "online", name: @tr("Online"), note: "" },
+                                { key: "idle", name: @tr("Idle"), note: "" },
+                                { key: "dnd", name: @tr("Do Not Disturb"), note: @tr("You won't get message notifications.") },
+                                { key: "invisible", name: @tr("Invisible"), note: @tr("You'll appear offline.") },
                             ]: StatusOption {
                                 key: option.key; name: option.name; note: option.note; checked: root.status == option.key;
                                 clicked => { root.choose(option.key); }
                             }
                         }
-                        MenuItem { height: 40px; text: root.has-custom-status ? "Change custom status" : "Set a custom status"; icon: @image-url("../icons/smile-plus.svg"); clicked => { root.custom-status(); } }
+                        MenuItem { height: 40px; text: root.has-custom-status ? @tr("Change custom status") : @tr("Set a custom status"); icon: @image-url("../icons/smile-plus.svg"); clicked => { root.custom-status(); } }
                     }
                 }
                 Rectangle {
                     background: Theme.raised; border-radius: 8px;
                     VerticalLayout {
                         padding: 8px; spacing: 4px;
-                        if root.user-id != "": MenuItem { height: 40px; text: "Copy User ID"; icon: @image-url("../icons/copy.svg"); clicked => { root.copy-id(); } }
-                        MenuItem { height: 40px; text: "User Settings"; icon: @image-url("../icons/settings.svg"); clicked => { root.settings(); } }
+                        if root.user-id != "": MenuItem { height: 40px; text: @tr("Copy User ID"); icon: @image-url("../icons/copy.svg"); clicked => { root.copy-id(); } }
+                        MenuItem { height: 40px; text: @tr("User Settings"); icon: @image-url("../icons/settings.svg"); clicked => { root.settings(); } }
                     }
                 }
             }

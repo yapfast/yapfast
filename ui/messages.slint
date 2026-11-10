@@ -172,7 +172,7 @@ export component EmojiButton inherits Rectangle {
     /// The emoji is one of this device's favorites.
     in property <bool> favorite: false;
     /// What clicking does with the emoji, for screen readers.
-    in property <string> verb: "React with";
+    in property <string> verb: @tr("React with");
     /// The key its animation is registered under, when it plays here; "" for
     /// a button that stays still.
     in property <string> animation-key;
@@ -189,7 +189,7 @@ export component EmojiButton inherits Rectangle {
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
     accessible-role: button;
-    accessible-label: root.usable ? root.verb + " " + root.emoji.name : "Locked, Nitro only: " + root.emoji.name;
+    accessible-label: root.usable ? root.verb + " " + root.emoji.name : @tr("Locked, Nitro only: {}", root.emoji.name);
     opacity: root.usable ? 1 : 0.4;
     accessible-action-default => { root.clicked(); }
     forward-focus: focus;
@@ -233,7 +233,7 @@ export component EmojiButton inherits Rectangle {
         width: 18px; height: 18px; border-radius: 4px;
         background: Theme.panel;
         accessible-role: button;
-        accessible-label: root.favorite ? "Remove from Favorites" : "Add to Favorites";
+        accessible-label: root.favorite ? @tr("Remove from Favorites") : @tr("Add to Favorites");
         accessible-action-default => { root.favorited(); }
         Image {
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
@@ -265,7 +265,7 @@ export component ReactionToggle inherits Rectangle {
     border-width: 1px;
     border-color: root.mine ? Theme.accent.with-alpha(0.7) : pointer.has-hover && root.enabled ? Theme.overlay.with-alpha(0.15) : transparent;
     accessible-role: button;
-    accessible-label: root.key + ", " + root.count + (root.mine ? ", including you. Remove your reaction" : ". Add this reaction");
+    accessible-label: root.key + ", " + root.count + (root.mine ? @tr(", including you. Remove your reaction") : @tr(". Add this reaction"));
     accessible-enabled: root.enabled;
     accessible-action-default => { if root.enabled { root.clicked(); } }
     chip := HorizontalLayout {
@@ -388,7 +388,7 @@ component VideoControls inherits Rectangle {
             IconButton {
                 size: 28px; glyph: 16px; tint: #ffffff; tip-side: 0;
                 icon: VideoPlayer.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg");
-                label: VideoPlayer.playing ? "Pause" : "Play";
+                label: VideoPlayer.playing ? @tr("Pause") : @tr("Play");
                 clicked => { VideoPlayer.toggle(); }
             }
         }
@@ -396,7 +396,7 @@ component VideoControls inherits Rectangle {
         Rectangle {
             horizontal-stretch: 1;
             accessible-role: slider;
-            accessible-label: "Position";
+            accessible-label: @tr("Position");
             accessible-value: round(VideoPlayer.progress * 100) + "%";
             Rectangle {
                 height: 4px; border-radius: 2px; background: #ffffff4d;
@@ -428,7 +428,7 @@ component VideoControls inherits Rectangle {
                     visible: sound.open;
                     border-radius: 6px; background: #000000cc;
                     accessible-role: slider;
-                    accessible-label: "Volume";
+                    accessible-label: @tr("Volume");
                     accessible-value: round(sound.shown * 100) + "%";
                     accessible-value-minimum: 0;
                     accessible-value-maximum: 100;
@@ -468,7 +468,7 @@ component VideoControls inherits Rectangle {
                     y: parent.height - 28px; height: 28px;
                     size: 28px; glyph: 16px; tint: #ffffff; tip-side: 2;
                     icon: VideoPlayer.muted ? @image-url("icons/volume-x.svg") : @image-url("icons/volume-2.svg");
-                    label: VideoPlayer.muted ? "Unmute" : "Mute";
+                    label: VideoPlayer.muted ? @tr("Unmute") : @tr("Mute");
                     clicked => { VideoPlayer.mute(!VideoPlayer.muted); }
                 }
             }
@@ -477,7 +477,7 @@ component VideoControls inherits Rectangle {
             IconButton {
                 size: 28px; glyph: 16px; tint: #ffffff; tip-side: 0;
                 icon: VideoPlayer.expanded ? @image-url("icons/minimize.svg") : @image-url("icons/maximize.svg");
-                label: VideoPlayer.expanded ? "Exit full screen" : "Full screen";
+                label: VideoPlayer.expanded ? @tr("Exit full screen") : @tr("Full screen");
                 clicked => { VideoPlayer.expand(!VideoPlayer.expanded); }
             }
         }
@@ -494,7 +494,7 @@ component VideoCell inherits Rectangle {
     property <bool> active: VideoPlayer.item == root.item && VideoPlayer.index == root.cell.index;
     property <bool> failed: root.active && VideoPlayer.error != "";
     accessible-role: button;
-    accessible-label: (root.active && VideoPlayer.playing ? "Pause " : "Play ") + root.cell.name;
+    accessible-label: (root.active && VideoPlayer.playing ? @tr("Pause ") : @tr("Play ")) + root.cell.name;
     accessible-action-default => { pointer.clicked(); }
     if root.active && VideoPlayer.has-frame: Rectangle {
         background: #000000;
@@ -529,7 +529,7 @@ component VideoCell inherits Rectangle {
     }
     if root.active && VideoPlayer.loading && !root.failed: Rectangle {
         width: loading.preferred-width + 20px; height: 28px; border-radius: 14px; background: #000000b3;
-        loading := Text { text: "Loading..."; color: #ffffff; font-size: 13px; }
+        loading := Text { text: @tr("Loading..."); color: #ffffff; font-size: 13px; }
     }
     if root.failed: Rectangle {
         y: parent.height - self.height - 8px; width: min(parent.width - 16px, problem.preferred-width + 20px); height: 28px;
@@ -657,7 +657,7 @@ export component PollView inherits HorizontalLayout {
         max-width: 480px; horizontal-stretch: 100;
         background: Theme.sidebar; border-radius: 8px; border-width: 1px; border-color: Theme.line;
         accessible-role: groupbox;
-        accessible-label: "Poll: " + root.poll.question;
+        accessible-label: @tr("Poll: {}", root.poll.question);
         VerticalLayout {
             padding: 16px; spacing: 8px;
             Text { text: root.poll.question; color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }
@@ -683,7 +683,7 @@ export component PollView inherits HorizontalLayout {
                     if answer.emoji != "": Text { text: Twemoji.text(answer.emoji); font-family: root.emoji-font; font-size: 20px; vertical-alignment: center; }
                     answer-text := Text { text: answer.text; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; wrap: word-wrap; horizontal-stretch: 1; }
                     if root.poll.results && answer.picked: Middle {
-                        Image { source: @image-url("icons/check.svg"); width: 16px; height: 16px; colorize: Theme.accent; accessible-label: "You voted for this answer"; }
+                        Image { source: @image-url("icons/check.svg"); width: 16px; height: 16px; colorize: Theme.accent; accessible-label: @tr("You voted for this answer"); }
                     }
                     if root.poll.results: Text { text: answer.votes; color: Theme.secondary; font-size: 13px; vertical-alignment: center; }
                     if root.poll.results: Text { text: answer.percent + "%"; color: Theme.text; font-size: 15px; font-weight: 700; min-width: 44px; horizontal-alignment: right; vertical-alignment: center; }
@@ -724,11 +724,11 @@ export component PollView inherits HorizontalLayout {
                 if root.poll.left != "": Text { text: "\u{00b7}  " + root.poll.left; color: Theme.muted; font-size: 14px; vertical-alignment: center; }
                 Rectangle { horizontal-stretch: 1; }
                 if root.poll.can-show-results: ActionButton {
-                    text: "Show results"; ghost: true; small: true;
+                    text: @tr("Show results"); ghost: true; small: true;
                     clicked => { Polls.show-results(root.item); }
                 }
                 if root.poll.action != PollAction.none: ActionButton {
-                    text: root.poll.action == PollAction.vote ? "Vote" : root.poll.action == PollAction.remove-vote ? "Remove Vote" : "Go back to vote";
+                    text: root.poll.action == PollAction.vote ? @tr("Vote") : root.poll.action == PollAction.remove-vote ? @tr("Remove Vote") : @tr("Go back to vote");
                     primary: root.poll.action == PollAction.vote; small: true;
                     enabled: root.poll.action-enabled;
                     clicked => { Polls.act(root.item, root.poll.action); }
@@ -738,11 +738,11 @@ export component PollView inherits HorizontalLayout {
             if root.poll.interactive && Polls.confirm-end == root.item: VerticalLayout {
                 spacing: 8px; padding-top: 4px;
                 Rectangle { height: 1px; background: Theme.line; }
-                Text { text: "End the poll now? This will close it immediately and reveal the results."; color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
+                Text { text: @tr("End the poll now? This will close it immediately and reveal the results."); color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
                 HorizontalLayout {
                     alignment: end; spacing: 8px;
-                    ActionButton { text: "Cancel"; ghost: true; small: true; clicked => { Polls.cancel-end(); } }
-                    ActionButton { text: "End Poll Now"; danger: true; small: true; clicked => { Polls.end(); } }
+                    ActionButton { text: @tr("Cancel"); ghost: true; small: true; clicked => { Polls.cancel-end(); } }
+                    ActionButton { text: @tr("End Poll Now"); danger: true; small: true; clicked => { Polls.end(); } }
                 }
             }
         }
@@ -949,7 +949,7 @@ export component MessageStickerCardView inherits Rectangle {
             VerticalLayout {
                 padding: 16px; spacing: 8px;
                 Text {
-                    text: "This sticker is from"; min-width: 0px;
+                    text: @tr("This sticker is from"); min-width: 0px;
                     font-size: 12px; font-weight: 500;
                     color: Theme.muted; horizontal-alignment: start;
                     overflow: elide;
@@ -1083,7 +1083,7 @@ export component EmojiCardView inherits Rectangle {
                 // The card's 16px, and the title's 8px below it.
                 padding: 16px; spacing: 8px;
                 Text {
-                    text: "This emoji is from"; min-width: 0px;
+                    text: @tr("This emoji is from"); min-width: 0px;
                     font-size: 12px; font-weight: 500;
                     color: Theme.muted; horizontal-alignment: start;
                     overflow: elide;
@@ -1186,7 +1186,7 @@ export component EmojiPicker inherits Rectangle {
     property <length> shown-height: grid.visible-height;
     // What a click on an emoji does with it, for screen readers: one string
     // all the buttons share.
-    property <string> verb: root.react-item == "yapfast:status" ? "Choose" : root.react-item == "yapfast:composer" ? "Insert" : "React with";
+    property <string> verb: root.react-item == "yapfast:status" ? @tr("Choose") : root.react-item == "yapfast:composer" ? @tr("Insert") : @tr("React with");
     function report() { root.scrolled-to(root.scrolled, root.shown-height); }
     init => { root.report(); }
     changed scrolled => { root.report(); }
@@ -1215,7 +1215,7 @@ export component EmojiPicker inherits Rectangle {
                 picker-field := TextField {
                     init => { self.focus-input(); }
                     min-height: 34px; text-size: 15px; pad: 10px; fill: Theme.sunken;
-                    placeholder: "Find an emoji"; label: "Find an emoji"; text <=> root.emoji-query;
+                    placeholder: @tr("Find an emoji"); label: @tr("Find an emoji"); text <=> root.emoji-query;
                     // The grid built for it starts at its top.
                     edited(text) => { grid.content-y = 0; root.emoji-search(text); }
                     // Enter picks the first match.
@@ -1279,7 +1279,7 @@ export component EmojiPicker inherits Rectangle {
                     }
                     if root.emoji-rows.length == 0: HorizontalLayout {
                         padding: 16px; vertical-stretch: 1;
-                        Label { text: "No emoji match \"" + root.emoji-query + "\"."; horizontal-alignment: center; }
+                        Label { text: @tr("No emoji match \"{}\".", root.emoji-query); horizontal-alignment: center; }
                     }
                 }
             }
@@ -1293,8 +1293,8 @@ export component EmojiPicker inherits Rectangle {
                     }
                     Text {
                         text: root.emoji-hover.glyph != "" ? root.emoji-hover.name
-                            : root.react-item == "yapfast:status" ? "Pick an emoji for your status."
-                            : root.react-item == "yapfast:composer" ? "Pick an emoji for your message." : "Pick an emoji to react with.";
+                            : root.react-item == "yapfast:status" ? @tr("Pick an emoji for your status.")
+                            : root.react-item == "yapfast:composer" ? @tr("Pick an emoji for your message.") : @tr("Pick an emoji to react with.");
                         color: root.emoji-hover.glyph != "" ? Theme.text : Theme.muted; font-size: 15px;
                         font-weight: root.emoji-hover.glyph != "" ? 700 : 400;
                         vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
@@ -1361,73 +1361,73 @@ export component MessageMenu inherits Rectangle {
             }
         }
         if root.menu-can-react: MenuItem {
-            text: "Add reaction"; icon: @image-url("icons/smile-plus.svg");
+            text: @tr("Add reaction"); icon: @image-url("icons/smile-plus.svg");
             clicked => { root.open-picker(root.menu-message.item); }
         }
         if root.menu-message.reactions.length > 0: MenuItem {
-            text: "View Reactions"; icon: @image-url("icons/smile.svg");
+            text: @tr("View Reactions"); icon: @image-url("icons/smile.svg");
             clicked => { root.view-reactions(root.menu-message.item); }
         }
         if root.menu-message.can-edit && root.composer-enabled: MenuItem {
-            text: "Edit message"; icon: @image-url("icons/pencil.svg");
+            text: @tr("Edit message"); icon: @image-url("icons/pencil.svg");
             clicked => { root.edit(root.menu-message.item); }
         }
         if root.menu-message.can-reply && root.composer-enabled: MenuItem {
-            text: "Reply"; icon: @image-url("icons/reply.svg");
+            text: @tr("Reply"); icon: @image-url("icons/reply.svg");
             clicked => { root.reply(root.menu-message.item); }
         }
         if root.menu-message.can-forward && root.forward-allowed: MenuItem {
-            text: "Forward"; icon: @image-url("icons/forward.svg");
+            text: @tr("Forward"); icon: @image-url("icons/forward.svg");
             clicked => { root.start-forward(root.menu-message.item); }
         }
         // A message someone wrote starts a thread, or leads to its own.
         if root.can-start-thread && root.menu-message.can-reply && root.menu-message.delivery == ""
             && root.menu-message.thread-room == "": MenuItem {
-            text: "Create Thread"; icon: @image-url("icons/thread.svg");
+            text: @tr("Create Thread"); icon: @image-url("icons/thread.svg");
             clicked => { root.start-thread(root.menu-message.item); }
         }
         if root.menu-message.can-reply && root.menu-message.thread-room != "": MenuItem {
-            text: "View Thread"; icon: @image-url("icons/thread.svg");
+            text: @tr("View Thread"); icon: @image-url("icons/thread.svg");
             clicked => { root.view-thread(root.menu-message.thread-room); }
         }
         if root.menu-message.body != "": MenuItem {
-            text: "Copy text"; icon: @image-url("icons/copy.svg");
+            text: @tr("Copy text"); icon: @image-url("icons/copy.svg");
             clicked => { root.copy-text(root.menu-message.body); }
         }
         if root.selection != "": MenuItem {
-            text: "Copy selection"; icon: @image-url("icons/text-select.svg");
+            text: @tr("Copy selection"); icon: @image-url("icons/text-select.svg");
             clicked => { root.copy-text(root.selection); }
         }
         if root.menu-message.has-poll && root.menu-message.poll.can-end: MenuItem {
-            text: "End Poll Now"; icon: @image-url("icons/circle-stop.svg");
+            text: @tr("End Poll Now"); icon: @image-url("icons/circle-stop.svg");
             clicked => { root.end-poll(root.menu-message.item); }
         }
         if root.menu-message.can-pin && root.menu-message.delivery == "": MenuItem {
-            text: root.menu-message.pinned ? "Unpin message" : "Pin message";
+            text: root.menu-message.pinned ? @tr("Unpin message") : @tr("Pin message");
             icon: root.menu-message.pinned ? @image-url("icons/pin-off.svg") : @image-url("icons/pin.svg");
             clicked => { root.pin-message(root.menu-message.item); }
         }
         if root.link != "" || (root.media-index >= 0 && !root.preview): Rectangle { height: 1px; background: Theme.line; }
         if root.media-index >= 0 && root.link != "" && !root.media-video && !root.preview: MenuItem {
-            text: "Copy Image"; icon: @image-url("icons/image.svg");
+            text: @tr("Copy Image"); icon: @image-url("icons/image.svg");
             clicked => { root.copy-image(root.menu-message.item, root.media-index); }
         }
         if root.media-index >= 0 && !root.preview: MenuItem {
-            text: root.media-video ? "Save Video" : "Save Image"; icon: @image-url("icons/download.svg");
+            text: root.media-video ? @tr("Save Video") : @tr("Save Image"); icon: @image-url("icons/download.svg");
             clicked => { root.save-attachment(root.menu-message.item, root.media-index); }
         }
         if root.link != "": MenuItem {
-            text: "Copy Link"; icon: @image-url("icons/link.svg");
+            text: @tr("Copy Link"); icon: @image-url("icons/link.svg");
             clicked => { root.copy-text(root.link); }
         }
         // A link in the text opens with a click.
         if root.media-index >= 0 && root.link != "": MenuItem {
-            text: "Open Link"; icon: @image-url("icons/external-link.svg");
+            text: @tr("Open Link"); icon: @image-url("icons/external-link.svg");
             clicked => { root.open-link(root.link); }
         }
         if root.menu-message.can-delete && root.composer-enabled: Rectangle { height: 1px; background: Theme.line; }
         if root.menu-message.can-delete && root.composer-enabled: MenuItem {
-            text: "Delete message"; icon: @image-url("icons/trash-2.svg"); danger: true;
+            text: @tr("Delete message"); icon: @image-url("icons/trash-2.svg"); danger: true;
             clicked => { root.request-delete(root.menu-message.item); }
         }
     }
@@ -1465,7 +1465,7 @@ export component MessageGallery inherits HorizontalLayout {
             // Discord draws a transparent picture straight on the message background.
             background: ClientStyle.enabled && !cell.loading ? transparent : Theme.sunken;
             if cell.loading: Skeleton { width: parent.width; height: parent.height; }
-            if !cell.loading: Picture { still: cell.image; frames: cell.frames; delays: cell.delays; width: parent.width; height: parent.height; image-fit: cover; accessible-role: image; accessible-label: cell.spoiler ? "Spoiler" : cell.name; }
+            if !cell.loading: Picture { still: cell.image; frames: cell.frames; delays: cell.delays; width: parent.width; height: parent.height; image-fit: cover; accessible-role: image; accessible-label: cell.spoiler ? @tr("Spoiler") : cell.name; }
             if cell.spoiler: SpoilerCover {}
             cell-touch := TouchArea {
                 mouse-cursor: MouseCursor.pointer;
@@ -1492,7 +1492,7 @@ export component MessageGallery inherits HorizontalLayout {
             if root.active-item == root.item && !root.preview && root.delivery == "" && !cell.spoiler: Rectangle {
                 x: parent.width - self.width - 8px; y: 8px; width: 32px; height: 32px; border-radius: 6px; background: #000000b3;
                 IconButton {
-                    icon: @image-url("icons/download.svg"); label: "Save " + cell.name; tint: #ffffff;
+                    icon: @image-url("icons/download.svg"); label: @tr("Save {}", cell.name); tint: #ffffff;
                     clicked => { root.save-attachment(root.item, cell.index); }
                 }
             }
@@ -1519,7 +1519,7 @@ export component MessageStickers inherits HorizontalLayout {
             Picture {
                 still: cell.image; frames: cell.frames; delays: cell.delays;
                 width: parent.width; height: parent.height; image-fit: contain;
-                accessible-role: button; accessible-label: "Sticker: " + cell.name;
+                accessible-role: button; accessible-label: @tr("Sticker: {}", cell.name);
                 accessible-action-default => { root.open(cell.index, touch.absolute-position.x, touch.absolute-position.y, touch.width, touch.height); }
             }
         }
@@ -1538,7 +1538,7 @@ component VoicePlayButton inherits Rectangle {
     background: @linear-gradient(135deg, Theme.accent.brighter(0.2) 0%, Theme.accent 100%);
     border-width: focus.has-focus ? 2px : 0px; border-color: Theme.text;
     opacity: root.enabled ? (touch.has-hover ? 0.9 : 1) : 0.5;
-    accessible-role: button; accessible-label: root.playing ? "Pause" : "Play";
+    accessible-role: button; accessible-label: root.playing ? @tr("Pause") : @tr("Play");
     accessible-enabled: root.enabled;
     accessible-action-default => { if root.enabled { root.clicked(); } }
     Image {
@@ -1586,7 +1586,7 @@ export component FileCard inherits HorizontalLayout {
         property <bool> expanded: Motion.never || pill-touch.has-hover || self.focused || volume-popup.is-open;
         height: 52px; width: voice-card.preferred-width;
         background: Theme.sidebar; border-radius: 26px;
-        accessible-role: groupbox; accessible-label: "Voice message, " + root.file.duration;
+        accessible-role: groupbox; accessible-label: @tr("Voice message, {}", root.file.duration);
         pill-touch := TouchArea {
             voice-card := HorizontalLayout {
                 padding-left: 8px; padding-right: 16px; spacing: 12px;
@@ -1601,7 +1601,7 @@ export component FileCard inherits HorizontalLayout {
                 // waveform; a quiet one is a dot.
                 Rectangle {
                     width: root.file.waveform.length * 6px - 3px;
-                    accessible-role: progress-indicator; accessible-label: "Played";
+                    accessible-role: progress-indicator; accessible-label: @tr("Played");
                     accessible-value: round(root.played * 100) + "%";
                     for level[index] in root.file.waveform: Rectangle {
                         x: index * 6px; width: 3px; height: max(3px, level * 24px);
@@ -1612,7 +1612,7 @@ export component FileCard inherits HorizontalLayout {
                 }
                 Text {
                     text: root.active && VoicePlayer.error != "" ? VoicePlayer.error
-                        : root.active && VoicePlayer.loading ? "Loading..."
+                        : root.active && VoicePlayer.loading ? @tr("Loading...")
                         : root.active && VoicePlayer.time != "" ? VoicePlayer.time : root.file.duration;
                     color: root.active && VoicePlayer.error != "" ? Theme.danger : Theme.muted;
                     font-size: 14px; vertical-alignment: center;
@@ -1623,7 +1623,7 @@ export component FileCard inherits HorizontalLayout {
                     width: pill.expanded ? extra-row.preferred-width : 0px;
                     opacity: pill.expanded ? 1 : 0;
                     animate width, opacity { duration: Motion.never ? 0ms : 150ms; easing: ease-out; }
-                    accessible-role: groupbox; accessible-label: "Voice message controls";
+                    accessible-role: groupbox; accessible-label: @tr("Voice message controls");
                     extra-row := HorizontalLayout {
                         x: 0; width: self.preferred-width;
                         spacing: 4px;
@@ -1632,7 +1632,7 @@ export component FileCard inherits HorizontalLayout {
                                 width: speed-text.preferred-width + 12px; height: 22px; border-radius: 11px;
                                 background: speed-touch.has-hover ? Theme.hover : Theme.raised;
                                 border-width: speed-focus.has-focus ? 2px : 0px; border-color: Theme.accent;
-                                accessible-role: button; accessible-label: "Playback speed";
+                                accessible-role: button; accessible-label: @tr("Playback speed");
                                 accessible-value: VoicePlayer.speed;
                                 accessible-action-default => { VoicePlayer.cycle-speed(); }
                                 speed-text := Text { text: VoicePlayer.speed; color: Theme.text; font-size: 12px; font-weight: 700; }
@@ -1655,7 +1655,7 @@ export component FileCard inherits HorizontalLayout {
                             volume := IconButton {
                                 size: 28px; glyph: 18px; tint: Theme.muted;
                                 icon: VoicePlayer.volume == 0 ? @image-url("icons/volume-x.svg") : @image-url("icons/volume-2.svg");
-                                label: "Volume";
+                                label: @tr("Volume");
                                 clicked => { volume-popup.show(); }
                             }
                         }
@@ -1685,7 +1685,7 @@ export component FileCard inherits HorizontalLayout {
                     drop-shadow-blur: 16px; drop-shadow-color: #00000060;
                     UprightVolumeSlider {
                         x: (parent.width - self.width) / 2; y: 6px; height: parent.height - 12px;
-                        label: "Volume";
+                        label: @tr("Volume");
                         value: round(VoicePlayer.volume * 100);
                         changed(level) => { VoicePlayer.change-volume(level / 100); }
                     }
@@ -1705,7 +1705,7 @@ export component FileCard inherits HorizontalLayout {
                 if root.file.detail != "": Label { text: root.file.detail; }
             }
             IconButton {
-                icon: @image-url("icons/download.svg"); label: "Save " + root.file.name;
+                icon: @image-url("icons/download.svg"); label: @tr("Save {}", root.file.name);
                 enabled: !root.preview && root.delivery == "";
                 clicked => { root.save(); }
             }
@@ -1728,7 +1728,7 @@ export component ThreadChip inherits HorizontalLayout {
         border-color: focus.has-focus ? Theme.accent : Theme.edge; border-width: focus.has-focus ? 2px : 1px;
         border-radius: 8px;
         accessible-role: button;
-        accessible-label: "Thread " + root.name + (root.detail != "" ? ", " + root.detail : "");
+        accessible-label: @tr("Thread {0}{1}", root.name, (root.detail != "" ? ", " + root.detail : ""));
         accessible-action-default => { root.clicked(); }
         chip := HorizontalLayout {
             padding: 8px; padding-left: 12px; padding-right: 12px; spacing: 10px;
@@ -1760,8 +1760,8 @@ export component ThreadChip inherits HorizontalLayout {
 export component BotTag inherits Rectangle {
     width: tag-text.preferred-width + 8px; height: 16px; border-radius: 4px;
     background: #5865f2;
-    accessible-role: text; accessible-label: "App";
-    tag-text := Text { text: "APP"; color: #ffffff; font-size: 10px; font-weight: 700; letter-spacing: 0.3px; }
+    accessible-role: text; accessible-label: @tr("App");
+    tag-text := Text { text: @tr("APP"); color: #ffffff; font-size: 10px; font-weight: 700; letter-spacing: 0.3px; }
 }
 
 // A block of text: a heading or subtext at its size, or fenced code in its
@@ -1896,7 +1896,7 @@ export component EmbedView inherits HorizontalLayout {
                             width: cell.width * 1px * parent.scale; height: cell.height * 1px * parent.scale;
                             border-radius: 4px; clip: true; background: ClientStyle.enabled && !cell.loading ? transparent : Theme.sunken;
                             if cell.loading: Skeleton { width: parent.width; height: parent.height; }
-                            if !cell.loading: Picture { still: cell.image; frames: cell.frames; delays: cell.delays; width: parent.width; height: parent.height; image-fit: cover; accessible-role: image; accessible-label: cell.spoiler ? "Spoiler" : cell.name; }
+                            if !cell.loading: Picture { still: cell.image; frames: cell.frames; delays: cell.delays; width: parent.width; height: parent.height; image-fit: cover; accessible-role: image; accessible-label: cell.spoiler ? @tr("Spoiler") : cell.name; }
                             if cell.spoiler: SpoilerCover {}
                             if root.embed.video && !cell.spoiler && !cell.video: Rectangle {
                                 width: 48px; height: 48px; border-radius: 24px; background: #000000b3;
@@ -1933,7 +1933,7 @@ export component EmbedView inherits HorizontalLayout {
                 Rectangle {
                     width: 80px; height: 80px; border-radius: 4px; clip: true;
                     if root.embed.thumbnail-loading: Skeleton { width: parent.width; height: parent.height; }
-                    Image { source: root.embed.thumbnail; width: parent.width; height: parent.height; image-fit: contain; accessible-role: image; accessible-label: "Thumbnail"; }
+                    Image { source: root.embed.thumbnail; width: parent.width; height: parent.height; image-fit: contain; accessible-role: image; accessible-label: @tr("Thumbnail"); }
                     TouchArea {
                         mouse-cursor: MouseCursor.pointer;
                         clicked => { root.view-image(root.item, root.embed.thumbnail-index); }
@@ -1959,7 +1959,7 @@ component CardButtonView inherits ActionButton {
     callback open-link(string);
     callback use-button(string, string);
     property <image> no-icon;
-    text: root.button.style == CardButtonStyle.premium ? "View offer" : root.button.label;
+    text: root.button.style == CardButtonStyle.premium ? @tr("View offer") : root.button.label;
     icon: root.button.style == CardButtonStyle.link ? @image-url("icons/external-link.svg") : root.no-icon;
     primary: root.button.style == CardButtonStyle.primary;
     success: root.button.style == CardButtonStyle.success;
@@ -2020,7 +2020,7 @@ export component CardView inherits HorizontalLayout {
                             if row.thumbnail-loading: Skeleton { width: parent.width; height: parent.height; }
                             if !row.thumbnail-spoiler: Image {
                                 source: row.thumbnail; width: parent.width; height: parent.height; image-fit: cover;
-                                accessible-role: image; accessible-label: "Thumbnail";
+                                accessible-role: image; accessible-label: @tr("Thumbnail");
                             }
                             if row.thumbnail-spoiler: SpoilerCover {}
                             TouchArea {
@@ -2088,7 +2088,7 @@ export component CardView inherits HorizontalLayout {
                     border-width: 1px; border-color: Theme.accent; border-radius: 12px;
                     HorizontalLayout {
                         padding: 16px;
-                        Text { text: "Yapfast can't show this part of the message yet."; color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
+                        Text { text: @tr("Yapfast can't show this part of the message yet."); color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
                     }
                 }
             }
@@ -2107,8 +2107,8 @@ export component NoConversation inherits VerticalLayout {
             Image { source: @image-url("icons/message-circle.svg"); width: 36px; height: 36px; colorize: Theme.secondary; }
         }
     }
-    Text { text: "Pick a conversation"; color: Theme.text; font-size: 22px; font-weight: 700; horizontal-alignment: center; }
-    Text { text: "Choose a DM or a server channel on the left."; color: Theme.secondary; horizontal-alignment: center; wrap: word-wrap; }
+    Text { text: @tr("Pick a conversation"); color: Theme.text; font-size: 22px; font-weight: 700; horizontal-alignment: center; }
+    Text { text: @tr("Choose a DM or a server channel on the left."); color: Theme.secondary; horizontal-alignment: center; wrap: word-wrap; }
 }
 
 // What's above the oldest loaded message: earlier messages on their way, a way
@@ -2155,16 +2155,16 @@ export component HistoryEdge inherits HorizontalLayout {
         Text { text: root.intro-text; color: Theme.secondary; font-size: root.intro == "server" ? 14px : 16px; horizontal-alignment: center; overflow: elide; height: 20px; }
     }
     if root.start && !root.welcome: Text {
-        text: root.room-direct ? "This is the beginning of your messages with " + root.room-name + "."
-            : root.room-thread ? "This is the start of the " + root.room-name + " thread."
-            : "This is the start of #" + root.room-name + ".";
+        text: root.room-direct ? @tr("This is the beginning of your messages with {}.", root.room-name)
+            : root.room-thread ? @tr("This is the start of the {} thread.", root.room-name)
+            : @tr("This is the start of #{}.", root.room-name);
         color: Theme.muted; font-size: 14px; vertical-alignment: center; overflow: elide;
     }
     if !root.start: Rectangle {
         width: content.preferred-width; height: 30px; border-radius: 15px; clip: true;
         background: touch.has-hover && touch.enabled ? Theme.active : Theme.raised;
         accessible-role: button;
-        accessible-label: root.loading ? "Loading " + root.which + " messages" : root.failed ? "Couldn't load " + root.which + " messages. Retry" : root.newer ? "Newer messages" : "Earlier messages";
+        accessible-label: root.loading ? @tr("Loading {} messages", root.which) : root.failed ? @tr("Couldn't load {} messages. Retry", root.which) : root.newer ? @tr("Newer messages") : @tr("Earlier messages");
         accessible-enabled: touch.enabled;
         accessible-action-default => { if touch.enabled { root.earlier(); } }
         // The shimmer of the skeletons that stand in for other things loading.
@@ -2180,7 +2180,7 @@ export component HistoryEdge inherits HorizontalLayout {
                 width: 16px; image-fit: contain; colorize: root.failed ? Theme.danger : Theme.secondary;
             }
             Text {
-                text: root.loading ? "Loading " + root.which + " messages..." : root.failed ? "Couldn't load " + root.which + " messages. Retry" : root.newer ? "Newer messages" : "Earlier messages";
+                text: root.loading ? @tr("Loading {} messages...", root.which) : root.failed ? @tr("Couldn't load {} messages. Retry", root.which) : root.newer ? @tr("Newer messages") : @tr("Earlier messages");
                 color: Theme.secondary; font-size: 14px; font-weight: 500; vertical-alignment: center;
             }
         }
@@ -2199,7 +2199,7 @@ export component UnreadBar inherits Rectangle {
     background: touch.has-hover ? Theme.accent-hover : Theme.accent;
     drop-shadow-blur: 12px; drop-shadow-color: #00000060; drop-shadow-offset-y: 4px;
     accessible-role: button;
-    accessible-label: root.label + ". Jump to the first unread message";
+    accessible-label: @tr("{}. Jump to the first unread message", root.label);
     accessible-action-default => { root.jump(); }
     content := HorizontalLayout {
         padding-left: 14px; padding-right: 10px; spacing: 8px;
@@ -2220,16 +2220,16 @@ export component PresentBar inherits Rectangle {
     background: Theme.raised; border-color: Theme.edge; border-width: 1px;
     drop-shadow-blur: 12px; drop-shadow-color: #00000060; drop-shadow-offset-y: 4px;
     accessible-role: button;
-    accessible-label: "You're viewing older messages. Jump to present";
+    accessible-label: @tr("You're viewing older messages. Jump to present");
     accessible-action-default => { root.jump(); }
     HorizontalLayout {
         padding-left: 14px; padding-right: 12px; spacing: 8px;
         Text {
-            text: "You're viewing older messages"; color: Theme.secondary; font-size: 14px; font-weight: 500;
+            text: @tr("You're viewing older messages"); color: Theme.secondary; font-size: 14px; font-weight: 500;
             vertical-alignment: center; horizontal-stretch: 1; overflow: elide;
         }
         Text {
-            text: "Jump to present"; color: touch.has-hover ? Theme.accent-hover : Theme.accent;
+            text: @tr("Jump to present"); color: touch.has-hover ? Theme.accent-hover : Theme.accent;
             font-size: 14px; font-weight: 700; vertical-alignment: center;
         }
         Image {
@@ -2258,13 +2258,13 @@ export component ConversationStart inherits VerticalLayout {
         Image { source: root.room-icon; width: 36px; height: 36px; colorize: Theme.text; }
     }
     Text {
-        text: !root.room-ready ? "Loading conversation..." : root.room-direct || root.room-thread ? root.room-name : "Welcome to #" + root.room-name;
+        text: !root.room-ready ? @tr("Loading conversation...") : root.room-direct || root.room-thread ? root.room-name : @tr("Welcome to #{}", root.room-name);
         color: Theme.text; font-size: root.room-ready ? 28px : 18px; font-weight: 900; wrap: word-wrap;
     }
     if root.room-ready: Text {
-        text: root.room-direct ? "This is the beginning of your messages with " + root.room-name + "."
-            : root.room-thread ? "This is the start of the " + root.room-name + " thread. No messages here yet."
-            : "This is the start of #" + root.room-name + ". No messages here yet.";
+        text: root.room-direct ? @tr("This is the beginning of your messages with {}.", root.room-name)
+            : root.room-thread ? @tr("This is the start of the {} thread. No messages here yet.", root.room-name)
+            : @tr("This is the start of #{}. No messages here yet.", root.room-name);
         color: Theme.secondary; wrap: word-wrap;
     }
 }
@@ -2293,14 +2293,14 @@ component ViewerMenu inherits PopupWindow {
     /// The menu closed, by a choice or a key, for the viewer's keys to go on.
     callback done;
     property <MenuRow> save-row: {
-        id: "save", text: root.video ? "Save Video" : "Save Image", icon: @image-url("icons/download.svg")
+        id: "save", text: root.video ? @tr("Save Video") : @tr("Save Image"), icon: @image-url("icons/download.svg")
     };
-    property <MenuRow> copy-link-row: { id: "copy-link", text: "Copy Link", icon: @image-url("icons/link.svg") };
-    property <MenuRow> open-link-row: { id: "open-link", text: "Open Link", icon: @image-url("icons/external-link.svg") };
+    property <MenuRow> copy-link-row: { id: "copy-link", text: @tr("Copy Link"), icon: @image-url("icons/link.svg") };
+    property <MenuRow> open-link-row: { id: "open-link", text: @tr("Open Link"), icon: @image-url("icons/external-link.svg") };
     property <[MenuRow]> rows: root.link == "" ? [root.save-row]
         : root.preview ? [root.copy-link-row, root.open-link-row]
         : root.video ? [root.save-row, root.copy-link-row, root.open-link-row]
-        : [{ id: "copy-image", text: "Copy Image", icon: @image-url("icons/image.svg") }, root.save-row, root.copy-link-row, root.open-link-row];
+        : [{ id: "copy-image", text: @tr("Copy Image"), icon: @image-url("icons/image.svg") }, root.save-row, root.copy-link-row, root.open-link-row];
     x: max(8px, min(root.room-width - content.menu-width - 8px, root.at-x));
     y: root.at-y + content.main-height <= root.room-height - 8px
         ? root.at-y : max(8px, root.at-y - content.main-height);
@@ -2348,7 +2348,7 @@ export component ImageViewer inherits Rectangle {
     property <length> menu-y;
     background: #000000e6;
     accessible-role: groupbox;
-    accessible-label: "Image viewer";
+    accessible-label: @tr("Image viewer");
     TouchArea { clicked => { root.close-image(); } }
     viewer-keys := FocusScope {
         init => { self.focus(); }
@@ -2389,18 +2389,18 @@ export component ImageViewer inherits Rectangle {
             }
             if !root.preview: Middle {
                 IconButton {
-                    icon: @image-url("icons/download.svg"); label: "Save " + root.viewer-name; tint: #ffffff;
+                    icon: @image-url("icons/download.svg"); label: @tr("Save {}", root.viewer-name); tint: #ffffff;
                     clicked => { root.save-attachment(root.viewer-item, root.viewer-index); }
                 }
             }
-            Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close"; tint: #ffffff; clicked => { root.close-image(); } } }
+            Middle { IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close"); tint: #ffffff; clicked => { root.close-image(); } } }
         }
         if root.viewer-position != "": Rectangle {
             x: 20px; y: (parent.height - self.height) / 2; width: 48px; height: 48px; border-radius: 24px;
             background: previous-touch.has-hover ? #ffffff33 : #ffffff1a;
             Image { source: @image-url("icons/chevron-left.svg"); width: 28px; height: 28px; colorize: #ffffff; }
             previous-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.step-image(-1); } }
-            accessible-role: button; accessible-label: "Previous image";
+            accessible-role: button; accessible-label: @tr("Previous image");
             accessible-action-default => { root.step-image(-1); }
         }
         if root.viewer-position != "": Rectangle {
@@ -2408,7 +2408,7 @@ export component ImageViewer inherits Rectangle {
             background: next-touch.has-hover ? #ffffff33 : #ffffff1a;
             Image { source: @image-url("icons/chevron-right.svg"); width: 28px; height: 28px; colorize: #ffffff; }
             next-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.step-image(1); } }
-            accessible-role: button; accessible-label: "Next image";
+            accessible-role: button; accessible-label: @tr("Next image");
             accessible-action-default => { root.step-image(1); }
         }
         if root.viewer-note != "": Rectangle {
@@ -2445,7 +2445,7 @@ export component VideoViewer inherits Rectangle {
     property <length> menu-y;
     background: #000000e6;
     accessible-role: groupbox;
-    accessible-label: "Video viewer";
+    accessible-label: @tr("Video viewer");
     TouchArea { clicked => { VideoPlayer.expand(false); } }
     keys := FocusScope {
         init => { self.focus(); }
@@ -2472,7 +2472,7 @@ export component VideoViewer inherits Rectangle {
             changed width => { VideoPlayer.resize(self.width, self.height); }
             changed height => { VideoPlayer.resize(self.width, self.height); }
             accessible-role: button;
-            accessible-label: (VideoPlayer.playing ? "Pause " : "Play ") + VideoPlayer.name;
+            accessible-label: (VideoPlayer.playing ? @tr("Pause ") : @tr("Play ")) + VideoPlayer.name;
             accessible-action-default => { VideoPlayer.toggle(); }
             if VideoPlayer.has-frame: Image { width: parent.width; height: parent.height; source: VideoPlayer.frame; image-fit: contain; }
             TouchArea {
@@ -2489,7 +2489,7 @@ export component VideoViewer inherits Rectangle {
             }
             if VideoPlayer.loading && VideoPlayer.error == "": Rectangle {
                 width: loading.preferred-width + 20px; height: 28px; border-radius: 14px; background: #000000b3;
-                loading := Text { text: "Loading..."; color: #ffffff; font-size: 13px; }
+                loading := Text { text: @tr("Loading..."); color: #ffffff; font-size: 13px; }
             }
             if VideoPlayer.error != "": Rectangle {
                 width: min(parent.width - 16px, problem.preferred-width + 20px); height: 28px;
@@ -2511,11 +2511,11 @@ export component VideoViewer inherits Rectangle {
             }
             if !root.preview: Middle {
                 IconButton {
-                    icon: @image-url("icons/download.svg"); label: "Save " + VideoPlayer.name; tint: #ffffff;
+                    icon: @image-url("icons/download.svg"); label: @tr("Save {}", VideoPlayer.name); tint: #ffffff;
                     clicked => { root.save-attachment(VideoPlayer.item, VideoPlayer.index); }
                 }
             }
-            Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Exit full screen"; tint: #ffffff; clicked => { VideoPlayer.expand(false); } } }
+            Middle { IconButton { icon: @image-url("icons/x.svg"); label: @tr("Exit full screen"); tint: #ffffff; clicked => { VideoPlayer.expand(false); } } }
         }
     }
     video-menu := ViewerMenu {
@@ -2630,7 +2630,7 @@ export component MessageContent inherits VerticalLayout {
                 height: 22px;
                 accessible-role: button;
                 accessible-enabled: message.reply-item != "";
-                accessible-label: "Jump to the original message: " + message.reply-body;
+                accessible-label: @tr("Jump to the original message: {}", message.reply-body);
                 accessible-action-default => { if message.reply-item != "" { root.jump-to(message.reply-item); } }
                 HorizontalLayout {
                     spacing: 6px;
@@ -2701,7 +2701,7 @@ export component MessageContent inherits VerticalLayout {
             if message.forwarded: HorizontalLayout {
                 spacing: 4px; alignment: start;
                 Image { source: @image-url("icons/forward.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
-                Text { text: "Forwarded"; color: Theme.muted; font-size: 14px; font-italic: true; vertical-alignment: center; }
+                Text { text: @tr("Forwarded"); color: Theme.muted; font-size: 14px; font-italic: true; vertical-alignment: center; }
             }
             // The body, cut off at its folded height while it folds, with
             // Show more under it. The view keeps the message's top.
@@ -2722,10 +2722,10 @@ export component MessageContent inherits VerticalLayout {
                             default-font-size: message.jumbo ? root.message-font-size * 2.2 : root.message-font-size;
                             // A mention's card opens beside the pointer.
                             link-clicked(link) => { root.link-clicked(link); }
-                            accessible-role: text; accessible-label: "Message from " + message.author + ": " + message.body;
+                            accessible-role: text; accessible-label: @tr("Message from {0}: {1}", message.author, message.body);
                         }
                         if message.blocks.length > 0: Rectangle {
-                            accessible-role: text; accessible-label: "Message from " + message.author + ": " + message.body;
+                            accessible-role: text; accessible-label: @tr("Message from {0}: {1}", message.author, message.body);
                             TextBlocks {
                                 blocks: message.blocks; font-size: root.message-font-size;
                                 color: message.deleted || message.delivery != "" ? Theme.muted : Theme.text;
@@ -2744,7 +2744,7 @@ export component MessageContent inherits VerticalLayout {
                     visible: body-fold.long;
                     Text {
                         vertical-alignment: bottom;
-                        text: message.expanded ? "Show less" : "Show more";
+                        text: message.expanded ? @tr("Show less") : @tr("Show more");
                         color: fold-touch.has-hover ? Theme.text : Theme.link;
                         font-size: root.message-font-size * 0.875; font-weight: 600;
                         accessible-role: button; accessible-label: self.text;
@@ -2756,7 +2756,7 @@ export component MessageContent inherits VerticalLayout {
                     }
                 }
             }
-            if message.edited && !message.deleted: Text { text: "(edited)"; color: Theme.muted; font-size: 12px; }
+            if message.edited && !message.deleted: Text { text: @tr("(edited)"); color: Theme.muted; font-size: 12px; }
             // Fixed-size children sit beside a spacer, so they do not cap the column's width.
             if message.images.length > 0: MessageGallery {
                 images: message.images; gallery-width: message.gallery-width; gallery-height: message.gallery-height;
@@ -2819,8 +2819,8 @@ export component MessageContent inherits VerticalLayout {
             if message.delivery != "": HorizontalLayout {
                 spacing: 4px; alignment: start;
                 Text { text: message.delivery; color: message.delivery-failed ? Theme.danger : Theme.muted; font-size: 13px; vertical-alignment: center; wrap: word-wrap; }
-                if message.can-retry: ActionButton { text: "Retry"; ghost: true; small: true; clicked => { root.retry(message.item); } }
-                if message.can-cancel: ActionButton { text: "Cancel"; ghost: true; small: true; clicked => { root.cancel-send(message.item); } }
+                if message.can-retry: ActionButton { text: @tr("Retry"); ghost: true; small: true; clicked => { root.retry(message.item); } }
+                if message.can-cancel: ActionButton { text: @tr("Cancel"); ghost: true; small: true; clicked => { root.cancel-send(message.item); } }
             }
         }
     }

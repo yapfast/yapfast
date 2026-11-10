@@ -292,7 +292,7 @@ impl Adapter {
                 if picker.query.trim().is_empty() {
                     String::new()
                 } else {
-                    "No stickers match your search.".into()
+                    tr("No stickers match your search.").into()
                 }
             })
         } else {

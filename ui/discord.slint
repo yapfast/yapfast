@@ -52,7 +52,7 @@ export component DiscordLinkPanel inherits VerticalLayout {
                     Image { source: @image-url("icons/triangle-alert.svg"); width: 18px; height: 18px; colorize: Theme.danger; }
                 }
                 Text {
-                    text: "Discord doesn't allow apps like Yapfast on personal accounts. Linking puts your account at some risk of being suspended.";
+                    text: @tr("Discord doesn't allow apps like Yapfast on personal accounts. Linking puts your account at some risk of being suspended.");
                     color: Theme.text; font-size: 14px; wrap: word-wrap; horizontal-stretch: 1;
                 }
             }
@@ -61,43 +61,43 @@ export component DiscordLinkPanel inherits VerticalLayout {
         HorizontalLayout {
             alignment: start; spacing: 8px;
             ActionButton {
-                text: root.phase == 4 && !root.token-open ? "Try again" : "Show the code"; primary: !root.token-open;
+                text: root.phase == 4 && !root.token-open ? @tr("Try again") : @tr("Show the code"); primary: !root.token-open;
                 clicked => { root.begin(); }
             }
             if !root.token-open: ActionButton {
-                text: "Use a token";
+                text: @tr("Use a token");
                 clicked => { root.token-open = true; }
             }
         }
         if root.token-open: VerticalLayout {
             spacing: 8px;
-            Text { text: "TOKEN"; color: Theme.secondary; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+            Text { text: @tr("TOKEN"); color: Theme.secondary; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
             HorizontalLayout {
                 spacing: 8px;
                 TextField {
-                    text <=> root.token; password: true; placeholder: "Discord token"; label: "Discord token";
+                    text <=> root.token; password: true; placeholder: @tr("Discord token"); label: @tr("Discord token");
                     init => { self.focus-input(); }
                     accepted => { root.link-token(root.token); }
                 }
-                ActionButton { text: "Link"; primary: true; enabled: root.token != ""; clicked => { root.link-token(root.token); } }
+                ActionButton { text: @tr("Link"); primary: true; enabled: root.token != ""; clicked => { root.link-token(root.token); } }
             }
             Text {
-                text: "Anyone with your token can use your account. Paste it only here, and never share it.";
+                text: @tr("Anyone with your token can use your account. Paste it only here, and never share it.");
                 color: Theme.secondary; font-size: 13px; wrap: word-wrap;
             }
         }
     }
-    if root.phase == 6: Text { text: "Checking the token..."; color: Theme.secondary; font-size: 15px; wrap: word-wrap; }
+    if root.phase == 6: Text { text: @tr("Checking the token..."); color: Theme.secondary; font-size: 15px; wrap: word-wrap; }
     if root.phase == 5: VerticalLayout {
         spacing: 8px;
-        Text { text: "Solve the captcha in your browser"; color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }
+        Text { text: @tr("Solve the captcha in your browser"); color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }
         Text {
-            text: "Discord wants to check you're a person before it links your account. Yapfast opened the check in your browser; linking finishes once it's solved.";
+            text: @tr("Discord wants to check you're a person before it links your account. Yapfast opened the check in your browser; linking finishes once it's solved.");
             color: Theme.secondary; font-size: 14px; wrap: word-wrap;
         }
         HorizontalLayout {
             alignment: start; padding-top: 8px;
-            ActionButton { text: "Open it again"; clicked => { root.reopen(); } }
+            ActionButton { text: @tr("Open it again"); clicked => { root.reopen(); } }
         }
     }
     if root.phase >= 1 && root.phase <= 3: HorizontalLayout {
@@ -107,28 +107,28 @@ export component DiscordLinkPanel inherits VerticalLayout {
             background: root.phase == 2 ? #ffffff : Theme.sunken;
             if root.phase == 2: Image {
                 source: root.code; width: 176px; height: 176px; image-rendering: pixelated;
-                accessible-role: image; accessible-label: "QR code that links Discord";
+                accessible-role: image; accessible-label: @tr("QR code that links Discord");
             }
-            if root.phase == 1: Text { text: "Getting a code..."; color: Theme.muted; font-size: 14px; }
+            if root.phase == 1: Text { text: @tr("Getting a code..."); color: Theme.muted; font-size: 14px; }
             if root.phase == 3: VerticalLayout {
                 alignment: center; spacing: 8px;
                 HorizontalLayout {
                     alignment: center;
                     Image { source: @image-url("icons/check.svg"); width: 40px; height: 40px; colorize: Theme.live; }
                 }
-                Text { text: "Scanned"; color: Theme.text; font-size: 15px; font-weight: 700; horizontal-alignment: center; }
+                Text { text: @tr("Scanned"); color: Theme.text; font-size: 15px; font-weight: 700; horizontal-alignment: center; }
             }
         }
         VerticalLayout {
             alignment: center; spacing: 8px; horizontal-stretch: 1;
             Text {
-                text: root.phase == 3 ? "Confirm on your phone" : "Scan it with the Discord app";
+                text: root.phase == 3 ? @tr("Confirm on your phone") : @tr("Scan it with the Discord app");
                 color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap;
             }
             Text {
                 text: root.phase == 3
-                    ? "Linking " + root.name + ". Tap Log in on your phone to finish."
-                    : "On your phone, open Discord, go to Settings, tap Scan QR Code, and point the camera here. A new code replaces this one after a couple of minutes.";
+                    ? @tr("Linking {}. Tap Log in on your phone to finish.", root.name)
+                    : @tr("On your phone, open Discord, go to Settings, tap Scan QR Code, and point the camera here. A new code replaces this one after a couple of minutes.");
                 color: Theme.secondary; font-size: 14px; wrap: word-wrap;
             }
         }

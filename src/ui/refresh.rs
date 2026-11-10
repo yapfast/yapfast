@@ -715,7 +715,7 @@ impl Adapter {
             .flat_map(|group| &group.sounds)
         {
             if let Some(picture) = &sound.picture {
-                shown.push((format!("sound:{picture}"), None, picture.clone()));
+                shown.push((format!("sound:{}", picture), None, picture.clone()));
             }
         }
         self.animations.show(shown, &state.pictures);
@@ -984,7 +984,7 @@ impl Adapter {
         let cosmetics = state.cosmetics;
         let query = window.get_filter().to_lowercase();
         window.set_sidebar_title(match &state.navigation {
-            Navigation::DirectMessages => "Direct messages".into(),
+            Navigation::DirectMessages => tr("Direct messages").into(),
             Navigation::Server(id) => state
                 .servers
                 .iter()
@@ -1039,9 +1039,9 @@ impl Adapter {
         );
         window.set_filter_placeholder(
             if state.navigation == Navigation::DirectMessages {
-                "Find a DM"
+                tr("Find a DM")
             } else {
-                "Find a channel"
+                tr("Find a channel")
             }
             .into(),
         );
@@ -1214,10 +1214,10 @@ impl Adapter {
                     }
                 } else if room.voice && !listed_voice {
                     listed_voice = true;
-                    "VOICE CHANNELS".into()
+                    tr("VOICE CHANNELS").into()
                 } else if !room.voice && !listed_text {
                     listed_text = true;
-                    "TEXT CHANNELS".into()
+                    tr("TEXT CHANNELS").into()
                 } else {
                     String::new()
                 };
@@ -1361,10 +1361,10 @@ impl Adapter {
             _ => rows,
         };
         window.set_sidebar_empty(if !rows.is_empty() { "" }
-            else if state.scoped_rooms().next().is_some() { "No matching conversations." }
+            else if state.scoped_rooms().next().is_some() { tr("No matching conversations.") }
             else if state.navigation == Navigation::DirectMessages { "No direct messages yet. Existing DMs appear here after syncing." }
             else if state.servers.iter().any(|server| server.discord && state.navigation == Navigation::Server(server.id.clone())) { "No channels in this server that you can see." }
-            else { "No joined channels in this server. Join a channel in another Matrix client to see it here." }.into());
+            else { tr("No joined channels in this server. Join a channel in another Matrix client to see it here.") }.into());
         // A Discord server's channels and categories drag to move, by their
         // places in the list: each category, and each channel that shows
         // outside a collapsed one, as Discord's client lists them to drop
@@ -1564,7 +1564,7 @@ impl Adapter {
         window.set_account_activity_bullet(playing.is_some() && custom_status.is_some());
         window.set_account_status(
             if state.preview {
-                "Local only"
+                tr("Local only")
             } else if let Some(status) = &custom_status {
                 status
             } else if let Some(playing) = playing {
@@ -1574,7 +1574,7 @@ impl Adapter {
             } else if state.online {
                 "Online"
             } else {
-                "Offline, sync paused"
+                tr("Offline, sync paused")
             }
             .into(),
         );
@@ -1657,7 +1657,7 @@ impl Adapter {
         }
         window.set_new_thread_placeholder(
             match form.default_name.as_str() {
-                "" => "New Thread",
+                "" => tr("New Thread"),
                 name => name,
             }
             .into(),
@@ -1790,10 +1790,10 @@ impl Adapter {
         let found = list.search.as_ref().map(|search| &search.found);
         // While a search shows, its results stand in for the sections.
         let (note, empty) = match found {
-            Some(None) => ("Searching...".to_owned(), false),
+            Some(None) => (tr("Searching...").to_owned(), false),
             Some(Some(Err(error))) => (error.clone(), false),
             Some(Some(Ok(found))) => (String::new(), found.is_empty()),
-            None if sections.is_empty() && list.loading => ("Loading threads...".into(), false),
+            None if sections.is_empty() && list.loading => (tr("Loading threads...").into(), false),
             None if sections.is_empty() => {
                 (list.error.clone().unwrap_or_default(), list.error.is_none())
             }
@@ -1818,22 +1818,28 @@ impl Adapter {
                 rows.extend(found.iter().map(|thread| thread_row(thread, now)));
             }
             _ => {
-                let headed = [
-                    (&sections.joined, "joined thread", "joined threads"),
+                let headings = [
+                    (
+                        &sections.joined,
+                        trn(
+                            "{n} joined thread",
+                            "{n} joined threads",
+                            sections.joined.len(),
+                        ),
+                    ),
                     (
                         &sections.other,
-                        "other active thread",
-                        "other active threads",
+                        trn(
+                            "{n} other active thread",
+                            "{n} other active threads",
+                            sections.other.len(),
+                        ),
                     ),
                 ];
-                for (threads, one, many) in headed {
-                    let heading = match threads.len() {
-                        1 => format!("1 {one}"),
-                        count => format!("{count} {many}"),
-                    };
+                for (threads, heading) in headings {
                     push_section(&mut rows, threads, heading.to_uppercase(), now);
                 }
-                push_section(&mut rows, &sections.older, "OLDER THREADS".into(), now);
+                push_section(&mut rows, &sections.older, tr("OLDER THREADS").into(), now);
             }
         }
         let headings = rows.iter().filter(|row| !row.heading.is_empty()).count();
@@ -1865,7 +1871,7 @@ impl Adapter {
         window.set_posts_loading(forum.loading());
         window.set_posts_searching(posts.found.is_some());
         let (note, empty) = match &posts.found {
-            Some(None) => ("Searching...".to_owned(), false),
+            Some(None) => (tr("Searching...").to_owned(), false),
             Some(Some(Err(error))) => (error.clone(), false),
             Some(Some(Ok(found))) => (String::new(), found.is_empty()),
             None if cards == 0 && forum.list.loading => ("Loading posts...".into(), false),
@@ -1900,7 +1906,7 @@ impl Adapter {
                     .enumerate()
                     .map(|(index, mut row)| {
                         if index == 0 {
-                            row.heading = "OLDER POSTS".into();
+                            row.heading = tr("OLDER POSTS").into();
                         }
                         row
                     });
@@ -2007,37 +2013,37 @@ impl Adapter {
                     Some(server) if first => (
                         "server",
                         server.name.clone(),
-                        "This is the beginning of this server.".to_owned(),
+                        tr("This is the beginning of this server.").to_owned(),
                     ),
                     _ => (
                         "channel",
-                        format!("Welcome to #{name}!"),
-                        format!("This is the start of the #{name} channel."),
+                        fill(tr("Welcome to #{}!"), &[&name]),
+                        fill(tr("This is the start of the #{} channel."), &[&name]),
                     ),
                 }
             }
             _ => ("", String::new(), String::new()),
         };
         window.set_intro_kind(intro.into());
-        window.set_intro_welcome("Welcome to".into());
+        window.set_intro_welcome(tr("Welcome to").into());
         window.set_intro_title(intro_title.into());
         window.set_intro_text(intro_text.into());
         // Discord's words: `Message @sam` in a DM, `Message #general` in a
         // channel, and a group's or thread's own name as it is.
         window.set_composer_placeholder(room.map_or(SharedString::default(), |room| {
             match (room.direct, room.person.is_some(), room.parent.is_none()) {
-                (true, true, _) => format!("Message @{}", room.name),
-                (false, _, true) => format!("Message #{}", room.name),
-                _ => format!("Message {}", room.name),
+                (true, true, _) => fill(tr("Message @{}"), &[&room.name]),
+                (false, _, true) => fill(tr("Message #{}"), &[&room.name]),
+                _ => fill(tr("Message {}"), &[&room.name]),
             }
             .into()
         }));
         window.set_request_title(
             match room {
                 Some(room) if room.category == discord::SPAM => {
-                    format!("Discord thinks {} may be spam", room.name)
+                    fill(tr("Discord thinks {} may be spam"), &[&room.name])
                 }
-                Some(room) => format!("{} wants to message you", room.name),
+                Some(room) => fill(tr("{} wants to message you"), &[&room.name]),
                 None => String::new(),
             }
             .into(),
@@ -2093,7 +2099,7 @@ impl Adapter {
                 _ if room.forum => SharedString::default(),
                 0 => "Members".into(),
                 1 => "1 member".into(),
-                count => format!("{count} members").into(),
+                count => fill(tr("{} members"), &[&count]).into(),
             }),
         );
         window.set_members_available(state.lists_members());
@@ -2149,13 +2155,13 @@ impl Adapter {
         window.set_pins_open(pins.is_some());
         window.set_pins_note(
             match pins.map(|pins| &pins.messages) {
-                Some(None) => "Loading pinned messages...",
+                Some(None) => tr("Loading pinned messages..."),
                 Some(Some(Err(error))) => error.as_str(),
                 Some(Some(Ok(pinned))) if pinned.is_empty() => {
                     if state.selected_room().is_some_and(|room| room.direct) {
-                        "This conversation doesn't have any pinned messages yet."
+                        tr("This conversation doesn't have any pinned messages yet.")
                     } else {
-                        "This channel doesn't have any pinned messages yet."
+                        tr("This channel doesn't have any pinned messages yet.")
                     }
                 }
                 _ => "",
@@ -2178,20 +2184,20 @@ impl Adapter {
             .map(|server| server.name.as_str())
             .or(state.selected_room().map(|room| room.name.as_str()))
             .unwrap_or_default();
-        window.set_search_placeholder(format!("Search {looks_in}").into());
+        window.set_search_placeholder(fill(tr("Search {}"), &[&looks_in]).into());
         window.set_search_open(search.is_some());
         window.set_search_loading(search.is_some_and(|search| search.loading));
         window.set_search_more(search.is_some_and(Search::more));
         window.set_search_heading(
             match search {
                 Some(search) if search.results.is_empty() && search.loading => {
-                    "Searching...".into()
+                    tr("Searching...").into()
                 }
                 Some(search) if search.results.is_empty() && search.error.is_some() => {
                     "Search".into()
                 }
                 Some(Search { total: 1, .. }) => "1 Result".into(),
-                Some(search) => format!("{} Results", search.total),
+                Some(search) => fill(tr("{} Results"), &[&search.total]),
                 None => String::new(),
             }
             .into(),
@@ -2203,9 +2209,9 @@ impl Adapter {
                 }) => error.as_str(),
                 Some(search) if !search.loading && search.results.is_empty() => {
                     if server {
-                        "Nothing in this server matches. Try other words."
+                        tr("Nothing in this server matches. Try other words.")
                     } else {
-                        "Nothing in this conversation matches. Try other words."
+                        tr("Nothing in this conversation matches. Try other words.")
                     }
                 }
                 _ => "",
@@ -2361,9 +2367,9 @@ impl Adapter {
         let in_server = name_style::in_server(state.selected.as_deref());
         window.set_roster_note(
             match &state.members {
-                None => "Loading members...",
+                None => tr("Loading members..."),
                 Some(Err(error)) => *error,
-                Some(Ok(members)) if members.is_empty() => "No one else has joined yet.",
+                Some(Ok(members)) if members.is_empty() => tr("No one else has joined yet."),
                 Some(Ok(_)) => "",
             }
             .into(),
@@ -2389,11 +2395,11 @@ impl Adapter {
                             .filter(|other| other.role == member.role)
                             .count();
                         let role = match member.role {
-                            Role::Admin => "ADMINS",
-                            Role::Moderator => "MODERATORS",
-                            Role::Member => "MEMBERS",
+                            Role::Admin => tr("ADMINS"),
+                            Role::Moderator => tr("MODERATORS"),
+                            Role::Member => tr("MEMBERS"),
                         };
-                        format!("{role} — {count}").into()
+                        fill(tr("{} — {}"), &[&role, &count]).into()
                     } else {
                         SharedString::default()
                     };
@@ -2451,9 +2457,9 @@ impl Adapter {
                         boosting: member
                             .boosting_since
                             .map(|since| {
-                                format!(
-                                    "Server boosting since {}",
-                                    yapfast_core::clock::day(since / 1000)
+                                fill(
+                                    tr("Server boosting since {}"),
+                                    &[&(yapfast_core::clock::day(since / 1000))],
                                 )
                             })
                             .unwrap_or_default()
@@ -2509,9 +2515,9 @@ impl Adapter {
             window.set_role_has_color(role.color.is_some());
             window.set_role_note(
                 match &role.members {
-                    None => "Loading...",
+                    None => tr("Loading..."),
                     Some(members) if members.is_empty() => {
-                        "Yapfast hasn't seen anyone with this role yet."
+                        tr("Yapfast hasn't seen anyone with this role yet.")
                     }
                     Some(_) => "",
                 }
@@ -2557,17 +2563,25 @@ impl Adapter {
             return;
         };
         let lasts = match invite.max_age {
-            0 => "never expires".to_owned(),
-            1800 => "expires in 30 minutes".to_owned(),
-            3600 => "expires in an hour".to_owned(),
-            86_400 => "expires in a day".to_owned(),
-            age if age % 86_400 == 0 => format!("expires in {} days", age / 86_400),
-            age => format!("expires in {} hours", age / 3600),
+            0 => tr("never expires").to_owned(),
+            1800 => tr("expires in 30 minutes").to_owned(),
+            3600 => tr("expires in an hour").to_owned(),
+            86_400 => tr("expires in a day").to_owned(),
+            age if age % 86_400 == 0 => trn(
+                "expires in {n} day",
+                "expires in {n} days",
+                (age / 86_400) as usize,
+            ),
+            age => trn(
+                "expires in {n} hour",
+                "expires in {n} hours",
+                (age / 3600) as usize,
+            ),
         };
         let works = match invite.max_uses {
             0 => String::new(),
-            1 => " and works once".to_owned(),
-            uses => format!(" and works {uses} times"),
+            1 => tr(" and works once").to_owned(),
+            uses => trn(" and works {n} time", " and works {n} times", uses as usize),
         };
         let place = if invite.voice {
             invite.channel.clone()
@@ -2575,11 +2589,11 @@ impl Adapter {
             format!("#{}", invite.channel)
         };
         window.set_invite_prompt(InvitePrompt {
-            title: format!("Invite friends to {}", invite.server).into(),
-            detail: format!("They'll land in {place}.").into(),
+            title: fill(tr("Invite friends to {}"), &[&invite.server]).into(),
+            detail: fill(tr("They'll land in {}."), &[&place]).into(),
             link: invite.link.as_deref().unwrap_or_default().into(),
             note: if invite.link.is_some() {
-                format!("This link {lasts}{works}.").into()
+                fill(tr("This link {0}{1}."), &[&lasts, &works]).into()
             } else {
                 SharedString::default()
             },
@@ -2604,40 +2618,42 @@ impl Adapter {
         let preview = join.preview.as_ref();
         let detail = preview.map(|preview| match (preview.members, preview.online) {
             (Some(members), Some(online)) if members >= 5 || online > 0 => {
-                format!("{online} online, {members} members")
+                fill(tr("{0} online, {1} members"), &[&online, &members])
             }
             _ if preview.voice => preview.channel.clone(),
             _ => format!("#{}", preview.channel),
         });
         let confirm = if join.form.is_some() {
-            "Open in browser"
+            tr("Open in browser")
         } else if join.member {
-            "Open Server"
+            tr("Open Server")
         } else if preview.is_some() {
-            "Join Server"
+            tr("Join Server")
         } else if join.from_link {
             ""
         } else {
-            "Find Invite"
+            tr("Find Invite")
         };
         let status = if join.form.is_some() {
-            "You joined. This server asks new members to fill in a form before they can talk, which Yapfast can't show yet. Finish it in Discord's web app."
+            tr(
+                "You joined. This server asks new members to fill in a form before they can talk, which Yapfast can't show yet. Finish it in Discord's web app.",
+            )
         } else if join.captcha.is_some() {
-            "Discord asks for a captcha first. Solve it in your browser."
+            tr("Discord asks for a captcha first. Solve it in your browser.")
         } else if join.joining {
-            "Joining..."
+            tr("Joining...")
         } else if join.resolving {
-            "Looking up the invite..."
+            tr("Looking up the invite...")
         } else if join.member {
-            "You're already in this server."
+            tr("You're already in this server.")
         } else {
             ""
         };
         window.set_join_prompt(JoinPrompt {
             title: if join.from_link {
-                "You've been invited to join a server"
+                tr("You've been invited to join a server")
             } else {
-                "Join a Server"
+                tr("Join a Server")
             }
             .into(),
             field: !join.from_link,
@@ -2692,28 +2708,28 @@ impl Adapter {
                 parts.push(format!("#{}", found.name));
             }
             if let Some(creator) = &preview.creator {
-                parts.push(format!("by {creator}"));
+                parts.push(fill(tr("by {}"), &[&creator]));
             }
             if let Some(count) = preview.interested_count {
-                parts.push(format!("{count} interested"));
+                parts.push(fill(tr("{} interested"), &[&count]));
             }
             parts.join(" · ")
         });
         let confirm = match preview {
-            Some(preview) if !preview.over && preview.interested => "Remove interest",
+            Some(preview) if !preview.over && preview.interested => tr("Remove interest"),
             Some(preview) if !preview.over => "Interested",
             _ => "",
         };
         let status = if dialog.resolving {
-            "Looking up the event..."
+            tr("Looking up the event...")
         } else if dialog.marking {
-            "Saving..."
+            tr("Saving...")
         } else if preview.is_some_and(|preview| preview.over) {
-            "This event has ended."
+            tr("This event has ended.")
         } else if preview.is_some_and(|preview| preview.active) {
-            "This event is going on now."
+            tr("This event is going on now.")
         } else if preview.is_some_and(|preview| preview.interested) {
-            "You're interested in this event."
+            tr("You're interested in this event.")
         } else {
             ""
         };
@@ -2751,7 +2767,7 @@ impl Adapter {
                 parts.push(plan.clone());
             }
             if let Some(gifter) = &preview.gifter {
-                parts.push(format!("from {gifter}"));
+                parts.push(fill(tr("from {}"), &[&gifter]));
             }
             parts.join(" · ")
         });
@@ -2760,22 +2776,24 @@ impl Adapter {
             !gift.redeemed && preview.is_some_and(yapfast_core::chat::GiftPreview::redeemable);
         let in_discord = !gift.redeemed && preview.is_some_and(|preview| preview.in_discord);
         let status = if gift.redeemed {
-            "Redeemed. Enjoy!"
+            tr("Redeemed. Enjoy!")
         } else if redeeming {
-            "Redeeming..."
+            tr("Redeeming...")
         } else if gift.resolving {
-            "Looking up the gift..."
+            tr("Looking up the gift...")
         } else if preview.is_some_and(|preview| preview.redeemed) {
-            "You've already redeemed this gift."
+            tr("You've already redeemed this gift.")
         } else if preview.is_some_and(|preview| preview.spent) {
-            "This gift has already been redeemed."
+            tr("This gift has already been redeemed.")
         } else if in_discord {
-            "This gift can only be redeemed in Discord. Open it in the browser to redeem it there."
+            tr(
+                "This gift can only be redeemed in Discord. Open it in the browser to redeem it there.",
+            )
         } else {
             ""
         };
         window.set_gift_prompt(GiftPrompt {
-            title: "You've been sent a gift".into(),
+            title: tr("You've been sent a gift").into(),
             found: preview.is_some(),
             name: preview
                 .map(|preview| preview.name.as_str())
@@ -2783,9 +2801,9 @@ impl Adapter {
                 .into(),
             detail: detail.unwrap_or_default().into(),
             confirm: if redeemable {
-                "Redeem Gift"
+                tr("Redeem Gift")
             } else if in_discord {
-                "Open in Browser"
+                tr("Open in Browser")
             } else {
                 ""
             }
@@ -2844,7 +2862,10 @@ impl Adapter {
                 .map(|wants| format!("- {wants}"))
                 .collect();
             if let Some(bits) = preview.permissions.filter(|bits| *bits != 0) {
-                lines.push(format!("- Bot permissions: {}", permission_names(bits)));
+                lines.push(fill(
+                    tr("- Bot permissions: {}"),
+                    &[&permission_names(bits)],
+                ));
             }
             match preview.redirect.as_deref() {
                 Some(url) if links::openable(url) => {
@@ -2853,10 +2874,11 @@ impl Adapter {
                         .map(|(_, rest)| rest)
                         .and_then(|rest| rest.split(['/', '?', '#']).next())
                         .unwrap_or_default();
-                    lines.push(format!("Afterward, Discord sends you to {host}."));
+                    lines.push(fill(tr("Afterward, Discord sends you to {}."), &[&host]));
                 }
-                Some(url) => lines.push(format!(
-                    "Afterward, Discord hands its answer to {url}, which Yapfast won't open."
+                Some(url) => lines.push(fill(
+                    tr("Afterward, Discord hands its answer to {}, which Yapfast won't open."),
+                    &[&url],
                 )),
                 None => {}
             }
@@ -2890,26 +2912,26 @@ impl Adapter {
         let blocked =
             preview.is_some_and(|preview| preview.guild_install && dialog.guild.is_none());
         let status = if dialog.resolving {
-            "Looking up the application..."
+            tr("Looking up the application...")
         } else if dialog.authorizing {
-            "Authorizing..."
+            tr("Authorizing...")
         } else if dialog.done && dialog.next.is_some() {
             "Authorized. Discord sends you on to this address, which isn't a web page, \
              so Yapfast doesn't open it. Copy it if the app asks for it."
         } else if dialog.done {
-            "Authorized."
+            tr("Authorized.")
         } else if !locked
             && preview.is_some_and(|preview| preview.guild_install && addable.is_empty())
         {
-            "You don't manage any server it can be added to."
+            tr("You don't manage any server it can be added to.")
         } else if preview.is_some_and(|preview| preview.authorized) {
-            "You've authorized this before. Authorizing again is fine."
+            tr("You've authorized this before. Authorizing again is fine.")
         } else {
             ""
         };
         window.set_oauth_prompt(OAuthPrompt {
             title: match preview {
-                Some(preview) => format!("Authorize {}", preview.name),
+                Some(preview) => fill(tr("Authorize {}"), &[&preview.name]),
                 None => "Authorize".to_owned(),
             }
             .into(),
@@ -2970,29 +2992,29 @@ impl Adapter {
         };
         let (title, detail, confirm) = match &dialog.ask {
             ChannelAsk::Create { .. } => (
-                format!("Create {thing}"),
+                fill(tr("Create {}"), &[&thing]),
                 if dialog.name.is_empty() {
-                    format!("In {}", dialog.server_name)
+                    fill(tr("In {}"), &[&dialog.server_name])
                 } else {
-                    format!("In {}", dialog.name)
+                    fill(tr("In {}"), &[&dialog.name])
                 },
-                format!("Create {thing}"),
+                fill(tr("Create {}"), &[&thing]),
             ),
             ChannelAsk::Duplicate(_) => (
-                "Duplicate channel".to_owned(),
-                format!(
-                    "A copy of {}, with its settings and permissions, in the same category.",
-                    named(&dialog.name)
+                tr("Duplicate channel").to_owned(),
+                fill(
+                    tr("A copy of {}, with its settings and permissions, in the same category."),
+                    &[&named(&dialog.name)],
                 ),
-                "Create channel".to_owned(),
+                tr("Create channel").to_owned(),
             ),
             ChannelAsk::Delete(_) => (
-                format!("Delete {thing}"),
-                format!(
-                    "Are you sure you want to delete {}? This cannot be undone.",
-                    named(&dialog.name)
+                fill(tr("Delete {}"), &[&thing]),
+                fill(
+                    tr("Are you sure you want to delete {}? This cannot be undone."),
+                    &[&named(&dialog.name)],
                 ),
-                format!("Delete {thing}"),
+                fill(tr("Delete {}"), &[&thing]),
             ),
         };
         let deleting = matches!(dialog.ask, ChannelAsk::Delete(_));
@@ -3004,13 +3026,13 @@ impl Adapter {
             kinds: matches!(dialog.ask, ChannelAsk::Create { .. }) && !category,
             named: !deleting,
             field: if category {
-                "CATEGORY NAME"
+                tr("CATEGORY NAME")
             } else {
-                "CHANNEL NAME"
+                tr("CHANNEL NAME")
             }
             .into(),
             placeholder: if category {
-                "New Category"
+                tr("New Category")
             } else {
                 "new-channel"
             }
@@ -3138,9 +3160,9 @@ impl Adapter {
         preview.wishlist = same_list(&shown.wishlist, preview.wishlist);
         let cosmetics = self.app.state.cosmetics;
         if editor.loading() {
-            preview.board_note = "Loading the board...".into();
+            preview.board_note = tr("Loading the board...").into();
         } else if editor.profile.is_none() {
-            preview.board_note = "Couldn't load the board.".into();
+            preview.board_note = tr("Couldn't load the board.").into();
         }
         if let Some(picture) = new_avatar {
             preview.picture = slint_image(picture);
@@ -3155,12 +3177,18 @@ impl Adapter {
         };
         let too_long = if editor.name.chars().count() > NAME_LIMIT {
             if main {
-                format!("A display name can be up to {NAME_LIMIT} characters.")
+                fill(
+                    tr("A display name can be up to {} characters."),
+                    &[&NAME_LIMIT],
+                )
             } else {
-                format!("A nickname can be up to {NAME_LIMIT} characters.")
+                fill(tr("A nickname can be up to {} characters."), &[&NAME_LIMIT])
             }
         } else if editor.pronouns.chars().count() > PRONOUNS_LIMIT {
-            format!("Pronouns can be up to {PRONOUNS_LIMIT} characters.")
+            fill(
+                tr("Pronouns can be up to {} characters."),
+                &[&PRONOUNS_LIMIT],
+            )
         } else {
             String::new()
         };
@@ -3168,15 +3196,15 @@ impl Adapter {
         let handle = fallback_text(fallback.map(|fallback| &fallback.handle));
         let (title, detail, bio_placeholder) = if main {
             (
-                "Edit profile",
-                "Your profile".to_owned(),
-                "Tell everyone a bit about yourself",
+                tr("Edit profile"),
+                tr("Your profile").to_owned(),
+                tr("Tell everyone a bit about yourself"),
             )
         } else {
             (
-                "Edit server profile",
-                format!("Your profile in {}", editor.server_name),
-                "Tell this server a bit about yourself",
+                tr("Edit server profile"),
+                fill(tr("Your profile in {}"), &[&editor.server_name]),
+                tr("Tell this server a bit about yourself"),
             )
         };
         let own = fallback;
@@ -3302,15 +3330,12 @@ impl Adapter {
         };
         let what = if leave.group { "group" } else { "server" };
         window.set_leave_prompt(ChannelPrompt {
-            title: format!("Leave '{}'", leave.name).into(),
-            detail: format!(
-                "Are you sure you want to leave {}? You won't be able to rejoin this {what} unless you are re-invited.",
-                leave.name
-            )
+            title: fill(tr("Leave '{}'"), &[&leave.name]).into(),
+            detail: fill(tr("Are you sure you want to leave {0}? You won't be able to rejoin this {1} unless you are re-invited."), &[&leave.name, &what])
             .into(),
-            confirm: format!("Leave {what}").into(),
+            confirm: fill(tr("Leave {}"), &[&what]).into(),
             option: if leave.group {
-                "Leave without notifying other members".into()
+                tr("Leave without notifying other members").into()
             } else {
                 Default::default()
             },
@@ -3331,14 +3356,14 @@ impl Adapter {
             return;
         };
         window.set_move_sync_prompt(ChannelPrompt {
-            title: "Sync permissions?".into(),
-            detail: format!(
-                "Would you like to sync {} permissions with {}?",
-                asked.channel, asked.category
+            title: tr("Sync permissions?").into(),
+            detail: fill(
+                tr("Would you like to sync {0} permissions with {1}?"),
+                &[&asked.channel, &asked.category],
             )
             .into(),
-            confirm: "Sync Permissions".into(),
-            alternative: "Keep Current Permissions".into(),
+            confirm: tr("Sync Permissions").into(),
+            alternative: tr("Keep Current Permissions").into(),
             ..Default::default()
         });
     }
@@ -3359,95 +3384,112 @@ impl Adapter {
         let name = &dialog.name;
         let (title, text, field, confirm, danger) = match dialog.ask {
             PersonAsk::Note => (
-                format!("Note on {name}"),
-                "Only you see your note, in Discord too.".into(),
+                fill(tr("Note on {}"), &[&name]),
+                tr("Only you see your note, in Discord too.").into(),
                 "Note",
                 "Save",
                 false,
             ),
             PersonAsk::Call => (
-                "Ready to start a call?".into(),
-                "Enjoy this moment. Then jump in when you're ready.".into(),
+                tr("Ready to start a call?").into(),
+                tr("Enjoy this moment. Then jump in when you're ready.").into(),
                 "",
-                "Start Call",
+                tr("Start Call"),
                 false,
             ),
             PersonAsk::Nickname => (
-                format!("Nickname for {name}"),
-                "Only you see the nickname you give a friend. Leave it empty to remove it.".into(),
+                fill(tr("Nickname for {}"), &[&name]),
+                tr("Only you see the nickname you give a friend. Leave it empty to remove it.")
+                    .into(),
                 "Nickname",
                 "Save",
                 false,
             ),
             PersonAsk::Unfriend => (
-                format!("Remove {name} as a friend?"),
-                format!("You'll need to send {name} a friend request to be friends again."),
+                fill(tr("Remove {} as a friend?"), &[&name]),
+                fill(
+                    tr("You'll need to send {} a friend request to be friends again."),
+                    &[&name],
+                ),
                 "",
-                "Remove friend",
+                tr("Remove friend"),
                 true,
             ),
             PersonAsk::Block => (
-                format!("Block {name}?"),
-                format!(
-                    "Blocking {name} also removes them as a friend. Their messages show collapsed, and they can't message you."
+                fill(tr("Block {}?"), &[&name]),
+                fill(
+                    tr(
+                        "Blocking {} also removes them as a friend. Their messages show collapsed, and they can't message you.",
+                    ),
+                    &[&name],
                 ),
                 "",
                 "Block",
                 true,
             ),
             PersonAsk::ServerNickname if self.app.state.relation(&dialog.user) == Relation::Me => (
-                "Change your nickname".into(),
-                "Everyone in this server sees it. Leave it empty to go by your name.".into(),
+                tr("Change your nickname").into(),
+                tr("Everyone in this server sees it. Leave it empty to go by your name.").into(),
                 "Nickname",
                 "Save",
                 false,
             ),
             PersonAsk::ServerNickname => (
-                format!("Change {name}'s nickname"),
-                "Everyone in this server sees it. Leave it empty to reset it to their name.".into(),
+                fill(tr("Change {}'s nickname"), &[&name]),
+                tr("Everyone in this server sees it. Leave it empty to reset it to their name.")
+                    .into(),
                 "Nickname",
                 "Save",
                 false,
             ),
             PersonAsk::Timeout => (
-                format!("Time out {name}"),
-                format!(
-                    "Until it ends, {name} can read the server but can't send messages, react, or join voice. The reason goes in the server's audit log."
+                fill(tr("Time out {}"), &[&name]),
+                fill(
+                    tr(
+                        "Until it ends, {} can read the server but can't send messages, react, or join voice. The reason goes in the server's audit log.",
+                    ),
+                    &[&name],
                 ),
-                "Reason (optional)",
-                "Time out",
+                tr("Reason (optional)"),
+                tr("Time out"),
                 true,
             ),
             PersonAsk::Kick => (
-                format!("Kick {name}?"),
-                format!(
-                    "{name} can join again with a new invite. The reason goes in the server's audit log."
+                fill(tr("Kick {}?"), &[&name]),
+                fill(
+                    tr(
+                        "{} can join again with a new invite. The reason goes in the server's audit log.",
+                    ),
+                    &[&name],
                 ),
-                "Reason (optional)",
+                tr("Reason (optional)"),
                 "Kick",
                 true,
             ),
             PersonAsk::Ban => (
-                format!("Ban {name}?"),
-                format!(
-                    "{name} can't join again until unbanned. The reason goes in the server's audit log."
+                fill(tr("Ban {}?"), &[&name]),
+                fill(
+                    tr(
+                        "{} can't join again until unbanned. The reason goes in the server's audit log.",
+                    ),
+                    &[&name],
                 ),
-                "Reason (optional)",
+                tr("Reason (optional)"),
                 "Ban",
                 true,
             ),
         };
         let (heading, options) = match dialog.ask {
-            PersonAsk::Timeout => ("DURATION", TIMEOUT_TIMES.map(span).to_vec()),
+            PersonAsk::Timeout => (tr("DURATION"), TIMEOUT_TIMES.map(span).to_vec()),
             PersonAsk::Ban => (
-                "DELETE THEIR MESSAGES FROM",
+                tr("DELETE THEIR MESSAGES FROM"),
                 // As Discord's: hours up to a day, then days.
                 BAN_HISTORY
                     .map(|seconds| match seconds / 3600 {
-                        0 => "Don't delete any".to_owned(),
-                        1 => "The last hour".to_owned(),
-                        hours if hours <= 24 => format!("The last {hours} hours"),
-                        hours => format!("The last {} days", hours / 24),
+                        0 => tr("Don't delete any").to_owned(),
+                        1 => tr("The last hour").to_owned(),
+                        hours if hours <= 24 => fill(tr("The last {} hours"), &[&hours]),
+                        hours => fill(tr("The last {} days"), &[&(hours / 24)]),
                     })
                     .to_vec(),
             ),
@@ -3470,7 +3512,7 @@ impl Adapter {
             chosen: i32::try_from(dialog.choice).unwrap_or_default(),
             field: field.into(),
             tick: if dialog.ask == PersonAsk::Call {
-                "Don't ask again".into()
+                tr("Don't ask again").into()
             } else {
                 SharedString::default()
             },
@@ -3499,11 +3541,11 @@ impl Adapter {
         }
         window.set_add_friend_sent(sent);
         window.set_add_friend_note(match add_friend {
-            Some(AddFriend { sending: true, .. }) => "Sending...".into(),
+            Some(AddFriend { sending: true, .. }) => tr("Sending...").into(),
             Some(AddFriend {
                 outcome: Some(Ok(name)),
                 ..
-            }) => format!("Sent {name} a friend request.").into(),
+            }) => fill(tr("Sent {} a friend request."), &[&name]).into(),
             Some(AddFriend {
                 outcome: Some(Err(error)),
                 ..
@@ -3552,19 +3594,19 @@ impl Adapter {
             .collect();
         window.set_new_dm_note(match new_dm {
             Some(NewDm { error: Some(error), .. }) => error.as_str().into(),
-            Some(NewDm { starting: true, .. }) => "Starting the conversation...".into(),
+            Some(NewDm { starting: true, .. }) => tr("Starting the conversation...").into(),
             Some(new_dm) if people.is_empty() && new_dm.query.trim().is_empty() => {
                 if cfg!(feature = "matrix") {
-                    "Type a name to find people you know on Discord, or a full Matrix id such as @name:example.org."
+                    tr("Type a name to find people you know on Discord, or a full Matrix id such as @name:example.org.")
                 } else {
-                    "Type a name to find people you know on Discord."
+                    tr("Type a name to find people you know on Discord.")
                 }
                 .into()
             }
             Some(_) if people.is_empty() => if cfg!(feature = "matrix") {
-                "No one found. For Matrix, type a full id such as @name:example.org."
+                tr("No one found. For Matrix, type a full id such as @name:example.org.")
             } else {
-                "No one found."
+                tr("No one found.")
             }
             .into(),
             _ => SharedString::default(),
@@ -3604,11 +3646,11 @@ impl Adapter {
             forwarding.is_some_and(|forwarding| Network::of(&forwarding.room) == Network::Discord);
         window.set_forward_empty(
             if discord {
-                "We searched far and wide. Unfortunately, no results were found."
+                tr("We searched far and wide. Unfortunately, no results were found.")
             } else if !query.is_empty() {
-                "No conversations match."
+                tr("No conversations match.")
             } else {
-                "There's nowhere to forward to yet. Yapfast forwards Matrix messages only into encrypted conversations."
+                tr("There's nowhere to forward to yet. Yapfast forwards Matrix messages only into encrypted conversations.")
             }
             .into(),
         );
@@ -3624,12 +3666,13 @@ impl Adapter {
         window.set_forward_slowmode(
             match slowed.as_slice() {
                 [] => String::new(),
-                [one] => {
-                    format!("The message you added will not be sent to slowmode channel: {one}.")
-                }
-                many => format!(
-                    "The message you added will not be sent to slowmode channels: {}.",
-                    many.join(", ")
+                [one] => fill(
+                    tr("The message you added will not be sent to slowmode channel: {}."),
+                    &[&one],
+                ),
+                many => fill(
+                    tr("The message you added will not be sent to slowmode channels: {}."),
+                    &[&many.join(", ")],
                 ),
             }
             .into(),
@@ -3701,7 +3744,7 @@ impl Adapter {
             id: room.id.clone().into(),
             name: room.name.clone().into(),
             place: match server {
-                _ if room.direct => "Direct message".into(),
+                _ if room.direct => tr("Direct message").into(),
                 Some(server) => server.name.clone().into(),
                 None => "Channel".into(),
             },
@@ -3769,9 +3812,9 @@ impl Adapter {
         ));
         window.set_aside_compose_label(match state.aside_compose() {
             Some(Compose::Reply { author, body, .. }) => {
-                format!("Replying to {author}: {body}").into()
+                fill(tr("Replying to {0}: {1}"), &[&author, &body]).into()
             }
-            Some(Compose::Edit { .. }) => "Editing your message".into(),
+            Some(Compose::Edit { .. }) => tr("Editing your message").into(),
             None => SharedString::default(),
         });
         // Pictures and link previews fit the panel's width beside the avatar.
@@ -3921,9 +3964,9 @@ impl Adapter {
         ));
         window.set_compose_label(match state.compose() {
             Some(Compose::Reply { author, body, .. }) => {
-                format!("Replying to {author}: {body}").into()
+                fill(tr("Replying to {0}: {1}"), &[&author, &body]).into()
             }
-            Some(Compose::Edit { .. }) => "Editing your message".into(),
+            Some(Compose::Edit { .. }) => tr("Editing your message").into(),
             None => SharedString::default(),
         });
         window.set_sending(state.sending.is_some());
@@ -3953,8 +3996,8 @@ impl Adapter {
                     has_color: candidate.color.is_some(),
                     group: candidate.group,
                     detail: match candidate.mention.as_str() {
-                        "@everyone" => "Everyone in this channel".into(),
-                        "@here" => "Everyone online here".into(),
+                        "@everyone" => tr("Everyone in this channel").into(),
+                        "@here" => tr("Everyone online here").into(),
                         _ => candidate.username.clone().unwrap_or_default().into(),
                     },
                     name: candidate.name.as_str().into(),
@@ -3978,9 +4021,9 @@ impl Adapter {
             .and_then(|room| room.timed_out_until)
             .filter(|_| discord_room)
             .map(|until| {
-                format!(
-                    "You're timed out in this server until {}.",
-                    super::menus::until(until / 1000, self.layout.twelve_hour_clock)
+                fill(
+                    tr("You're timed out in this server until {}."),
+                    &[&(super::menus::until(until / 1000, self.layout.twelve_hour_clock))],
                 )
             });
         // Discord swaps the composer for one disabled bar saying so, with no
@@ -3992,37 +4035,37 @@ impl Adapter {
             && room.is_some_and(|room| !room.request && (room.read_only || room.locked));
         window.set_composer_locked(no_permission);
         window.set_composer_locked_text(
-            "You do not have permission to send messages in this channel.".into(),
+            tr("You do not have permission to send messages in this channel.").into(),
         );
         window.set_composer_hint(
             if room.is_none() {
-                "Choose a DM or server channel to write a message."
+                tr("Choose a DM or server channel to write a message.")
             } else if state.preview {
                 ""
             } else if room.is_some_and(|room| room.request) {
                 if discord_only {
                     ""
                 } else {
-                    "Discord · not end-to-end encrypted."
+                    tr("Discord · not end-to-end encrypted.")
                 }
             } else if let Some(timed_out) = &timed_out {
                 timed_out
             } else if no_permission {
                 ""
             } else if discord_room && room.is_some_and(|room| room.read_only || room.locked) {
-                "You can't send messages in this Discord channel."
+                tr("You can't send messages in this Discord channel.")
             } else if discord_room && !state.discord_online {
-                "Discord is disconnected. Yapfast is reconnecting."
+                tr("Discord is disconnected. Yapfast is reconnecting.")
             } else if discord_only {
                 ""
             } else if discord_room {
-                "Discord · not end-to-end encrypted. Enter to send, Shift+Enter for a new line."
+                tr("Discord · not end-to-end encrypted. Enter to send, Shift+Enter for a new line.")
             } else if !state.trusted {
-                "Sending is locked until this device is verified."
+                tr("Sending is locked until this device is verified.")
             } else if room.is_some_and(|room| room.encrypted) {
-                "End-to-end encrypted. Enter to send, Shift+Enter for a new line."
+                tr("End-to-end encrypted. Enter to send, Shift+Enter for a new line.")
             } else {
-                "Unencrypted room. Reading only in this build."
+                tr("Unencrypted room. Reading only in this build.")
             }
             .into(),
         );
@@ -4343,8 +4386,8 @@ impl Adapter {
         );
         window.set_share_status(
             match voice.sharing.as_ref().map(|sharing| sharing.phase) {
-                Some(voice::SharePhase::Choosing) => "Choose what to share",
-                Some(voice::SharePhase::Starting) => "Starting your stream...",
+                Some(voice::SharePhase::Choosing) => tr("Choose what to share"),
+                Some(voice::SharePhase::Starting) => tr("Starting your stream..."),
                 Some(voice::SharePhase::Live) => "Live",
                 None => "",
             }
@@ -4356,12 +4399,12 @@ impl Adapter {
         window.set_watching(voice.watching.is_some());
         match &voice.watching {
             Some(watching) => {
-                window.set_watch_title(format!("{}'s screen", watching.name).into());
+                window.set_watch_title(fill(tr("{}'s screen"), &[&watching.name]).into());
                 window.set_watch_status(
                     if watching.frames.is_none() {
-                        format!("Connecting to {}'s stream...", watching.name)
+                        fill(tr("Connecting to {}'s stream..."), &[&watching.name])
                     } else {
-                        format!("Waiting for {}'s picture...", watching.name)
+                        fill(tr("Waiting for {}'s picture..."), &[&watching.name])
                     }
                     .into(),
                 );
@@ -4383,11 +4426,11 @@ impl Adapter {
         });
         window.set_voice_detail(
             if state.preview {
-                format!("{} · Sample", voice.name)
+                fill(tr("{} · Sample"), &[&voice.name])
             } else if voice.end_to_end {
-                format!("{} · End-to-end encrypted", voice.name)
+                fill(tr("{} · End-to-end encrypted"), &[&voice.name])
             } else {
-                format!("{} · Secure connection", voice.name)
+                fill(tr("{} · Secure connection"), &[&voice.name])
             }
             .into(),
         );
@@ -4405,23 +4448,23 @@ impl Adapter {
         window.set_deafened(voice.deafened);
         window.set_voice_status(
             match voice.phase {
-                Phase::Disconnected => "Voice disconnected",
-                Phase::Joining => "Joining voice...",
-                Phase::Connected if state.preview => "Preview voice",
-                Phase::Connected => "Voice connected",
-                Phase::Reconnecting => "Reconnecting voice...",
-                Phase::Leaving => "Leaving voice...",
+                Phase::Disconnected => tr("Voice disconnected"),
+                Phase::Joining => tr("Joining voice..."),
+                Phase::Connected if state.preview => tr("Preview voice"),
+                Phase::Connected => tr("Voice connected"),
+                Phase::Reconnecting => tr("Reconnecting voice..."),
+                Phase::Leaving => tr("Leaving voice..."),
             }
             .into(),
         );
         window.set_voice_name(voice.name.clone().into());
         window.set_voice_microphone_status(
             if voice.deafened {
-                "Deafened and muted"
+                tr("Deafened and muted")
             } else if voice.muted {
-                "Microphone muted"
+                tr("Microphone muted")
             } else {
-                "Microphone live"
+                tr("Microphone live")
             }
             .into(),
         );
@@ -4445,9 +4488,9 @@ impl Adapter {
         window.set_call_incoming(incoming);
         window.set_call_note(
             match (incoming, present.is_empty()) {
-                (true, true) => "Incoming call.".into(),
-                (true, false) => format!("{} calling you.", who_is_here(present)),
-                (false, _) => format!("{} in the call.", who_is_here(present)),
+                (true, true) => tr("Incoming call.").into(),
+                (true, false) => fill(tr("{} calling you."), &[&who_is_here(present)]),
+                (false, _) => fill(tr("{} in the call."), &[&who_is_here(present)]),
             }
             .into(),
         );
@@ -4467,7 +4510,7 @@ impl Adapter {
         show_incoming(window, state, &mut self.pictures);
         window.set_voice_description(
             if room.is_some_and(|room| room.locked) {
-                "Your roles on this Discord server don't let you join this channel.".into()
+                tr("Your roles on this Discord server don't let you join this channel.").into()
             } else if let Some(room) = dm_call.filter(|_| voice_here) {
                 let ringing: Vec<&str> = room
                     .ringing
@@ -4475,26 +4518,26 @@ impl Adapter {
                     .map(|person| person.name.as_str())
                     .collect();
                 if !ringing.is_empty() {
-                    format!("Calling {}...", ringing.join(", "))
+                    fill(tr("Calling {}..."), &[&ringing.join(", ")])
                 } else if voice.participants.len() == 1 {
-                    "Nobody else is in the call yet.".into()
+                    tr("Nobody else is in the call yet.").into()
                 } else {
-                    "The call stays connected while you browse other conversations.".into()
+                    tr("The call stays connected while you browse other conversations.").into()
                 }
             } else if voice_here && voice.participants.len() == 1 {
-                "You're here alone. Stay as long as you like; others can join later.".into()
+                tr("You're here alone. Stay as long as you like; others can join later.").into()
             } else if voice_here {
-                "Voice stays connected while you browse other conversations.".into()
+                tr("Voice stays connected while you browse other conversations.").into()
             } else {
                 let join = if joins_muted(window) {
-                    "Join muted and hang out."
+                    tr("Join muted and hang out.")
                 } else {
-                    "Join and hang out."
+                    tr("Join and hang out.")
                 };
                 if present.is_empty() {
-                    format!("{join} The channel stays here when empty.")
+                    fill(tr("{} The channel stays here when empty."), &[&join])
                 } else {
-                    format!("{} here. {join}", who_is_here(present))
+                    fill(tr("{0} here. {1}"), &[&who_is_here(present), &join])
                 }
             }
             .into(),
@@ -4522,7 +4565,7 @@ impl Adapter {
                         status: if let Some(problem) = &person.problem {
                             problem.as_str()
                         } else if !person.connected {
-                            "Connection lost"
+                            tr("Connection lost")
                         } else if person.deafened {
                             "Deafened"
                         } else if person.muted {
@@ -4583,7 +4626,7 @@ impl Adapter {
                 return SharedString::new();
             }
             let names: Vec<String> = model.iter().map(|row| row.name.to_string()).collect();
-            format!("Watching: {}", names.join(", ")).into()
+            fill(tr("Watching: {}"), &[&names.join(", ")]).into()
         };
         window.set_share_viewer_names(names(&self.models.share_viewers));
         window.set_watch_viewer_names(names(&self.models.watch_viewers));
@@ -4629,7 +4672,7 @@ impl Adapter {
         );
         let prompt = state.switch_voice.as_ref().map(|id| {
             let room = state.rooms.iter().find(|room| &room.id == id);
-            let target = room.map_or("the other channel", |room| room.name.as_str());
+            let target = room.map_or(tr("the other channel"), |room| room.name.as_str());
             // Whose stream it joins to watch, if it's for one.
             let watch = state
                 .pending_watch
@@ -4643,23 +4686,15 @@ impl Adapter {
                 // Only the prompt shows how it joins; a fading one keeps it.
                 Some(name) if !voice.active() => {
                     window.set_switch_joins(true);
-                    format!("Join {target} to watch {name}'s stream?")
+                    fill(tr("Join {0} to watch {1}'s stream?"), &[&target, &name])
                 }
                 Some(name) => {
                     window.set_switch_joins(false);
-                    format!(
-                        "You're already in {}. Leave it and join {target} to watch {name}'s stream?{}",
-                        voice.name,
-                        joining_muted(window)
-                    )
+                    fill(tr("You're already in {0}. Leave it and join {1} to watch {2}'s stream?{3}"), &[&voice.name, &target, &name, &joining_muted(window)])
                 }
                 None => {
                     window.set_switch_joins(false);
-                    format!(
-                        "You're already in {}. Leave it and join {target}?{}",
-                        voice.name,
-                        joining_muted(window)
-                    )
+                    fill(tr("You're already in {0}. Leave it and join {1}?{2}"), &[&voice.name, &target, &joining_muted(window)])
                 }
             }
         });
@@ -4689,9 +4724,9 @@ impl Adapter {
             .any(|person| person.local && person.server_muted);
         window.set_soundboard_note(
             if voice.deafened {
-                "Soundboard disabled when deafened"
+                tr("Soundboard disabled when deafened")
             } else if server_muted {
-                "Soundboard disabled when server muted"
+                tr("Soundboard disabled when server muted")
             } else {
                 ""
             }
@@ -4743,7 +4778,7 @@ impl Adapter {
             let servers: Vec<Option<String>> = std::iter::once(None)
                 .chain(discord_servers().map(|(guild, _)| Some(guild.to_owned())))
                 .collect();
-            let names: Vec<SharedString> = std::iter::once("All servers".into())
+            let names: Vec<SharedString> = std::iter::once(tr("All servers").into())
                 .chain(discord_servers().map(|(_, server)| server.name.as_str().into()))
                 .collect();
             self.models.entrance_servers.set_vec(names);
@@ -4775,8 +4810,8 @@ impl Adapter {
                     .find(|sound| sound.id == join.sound && sound.guild == join.guild);
                 match (named, catalog) {
                     (Some(sound), _) => sound.name.as_str(),
-                    (None, None) => "Loading...",
-                    (None, Some(_)) => "A sound that's gone",
+                    (None, None) => tr("Loading..."),
+                    (None, Some(_)) => tr("A sound that's gone"),
                 }
             });
         window.set_entrance_sound(sound.unwrap_or_default().into());
@@ -4968,7 +5003,7 @@ impl Adapter {
         window.set_viewer_note(
             match loaded {
                 Some(Some(Err(error))) => error,
-                Some(None) => "Loading the full image...",
+                Some(None) => tr("Loading the full image..."),
                 _ => "",
             }
             .into(),
@@ -5343,7 +5378,7 @@ fn joins_muted(window: &YapfastWindow) -> bool {
 /// What a prompt to switch calls adds when the next one joins muted.
 fn joining_muted(window: &YapfastWindow) -> &'static str {
     if joins_muted(window) {
-        " You'll join muted."
+        tr(" You'll join muted.")
     } else {
         ""
     }
@@ -5418,17 +5453,17 @@ fn permission_names(bits: u64) -> String {
     let more = match (more, names.is_empty()) {
         (0, _) => None,
         (1, true) => Some("1 permission Yapfast can't name".to_owned()),
-        (count, true) => Some(format!("{count} permissions Yapfast can't name")),
+        (count, true) => Some(fill(tr("{} permissions Yapfast can't name"), &[&count])),
         (1, false) => Some("1 more permission".to_owned()),
-        (count, false) => Some(format!("{count} more permissions")),
+        (count, false) => Some(fill(tr("{} more permissions"), &[&count])),
     };
     match (names.pop(), more) {
         (Some(last), Some(more)) => {
             names.push(last);
-            format!("{} and {more}", names.join(", "))
+            fill(tr("{0} and {1}"), &[&names.join(", "), &more])
         }
         (Some(last), None) if names.is_empty() => last.to_owned(),
-        (Some(last), None) => format!("{} and {last}", names.join(", ")),
+        (Some(last), None) => fill(tr("{0} and {1}"), &[&names.join(", "), &last]),
         (None, more) => more.unwrap_or_default(),
     }
 }
@@ -5514,16 +5549,22 @@ pub(super) fn unread_label(unread: &[Arc<ChatMessage>], more: bool) -> String {
         count.to_string()
     };
     let Some(first) = unread.first().filter(|first| first.time.contains(':')) else {
-        return format!("{count} new {messages}");
+        return fill(tr("{0} new {1}"), &[&count, &messages]);
     };
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |now| now.as_secs());
     let on = day(first.timestamp);
     if on.is_empty() || on == day(now) {
-        format!("{count} new {messages} since {}", first.time)
+        fill(
+            tr("{0} new {1} since {2}"),
+            &[&count, &messages, &first.time],
+        )
     } else {
-        format!("{count} new {messages} since {} on {on}", first.time)
+        fill(
+            tr("{0} new {1} since {2} on {3}"),
+            &[&count, &messages, &first.time, &on],
+        )
     }
 }
 
@@ -5564,9 +5605,14 @@ fn thread_row(thread: &yapfast_core::chat::ListedThread, now: u64) -> ThreadRow 
     let ago = ago(thread.active_ms, now);
     let (person, lead, text, time) = match (&thread.recent, &thread.owner, thread.archived) {
         (Some(recent), _, false) => (Some(&recent.author), "", recent.text.as_str(), ago),
-        (None, _, false) => (None, "", "No recent messages", ago),
-        (_, Some(owner), true) => (Some(owner), "Started by ", "", format!("Last active {ago}")),
-        (_, None, true) => (None, "", "", format!("Last active {ago}")),
+        (None, _, false) => (None, "", tr("No recent messages"), ago),
+        (_, Some(owner), true) => (
+            Some(owner),
+            tr("Started by "),
+            "",
+            fill(tr("Last active {}"), &[&ago]),
+        ),
+        (_, None, true) => (None, "", "", fill(tr("Last active {}"), &[&ago])),
     };
     ThreadRow {
         room: thread.room.as_str().into(),
@@ -5633,7 +5679,7 @@ fn post_row(
     let first = starter.and_then(Option::as_ref);
     let (person, text) = match starter {
         Some(Some(first)) => (Some(&first.author), first.text.as_str()),
-        Some(None) => (None, "Original message was deleted"),
+        Some(None) => (None, tr("Original message was deleted")),
         None => (None, ""),
     };
     let reaction = match first.and_then(|first| first.reaction.as_ref()) {
@@ -5686,10 +5732,10 @@ fn post_row(
 pub(super) fn ago(at_ms: u64, now_ms: u64) -> String {
     let seconds = now_ms.saturating_sub(at_ms) / 1000;
     match seconds {
-        seconds if seconds < 60 => format!("{seconds}s ago"),
-        seconds if seconds < 3600 => format!("{}m ago", seconds / 60),
-        seconds if seconds < 86400 => format!("{}h ago", seconds / 3600),
-        seconds if seconds <= 30 * 86400 => format!("{}d ago", seconds / 86400),
+        seconds if seconds < 60 => fill(tr("{}s ago"), &[&seconds]),
+        seconds if seconds < 3600 => fill(tr("{}m ago"), &[&(seconds / 60)]),
+        seconds if seconds < 86400 => fill(tr("{}h ago"), &[&(seconds / 3600)]),
+        seconds if seconds <= 30 * 86400 => fill(tr("{}d ago"), &[&(seconds / 86400)]),
         seconds if seconds < 365 * 86400 => ">30d ago".into(),
         _ => ">1y ago".into(),
     }
@@ -5831,7 +5877,7 @@ fn sound_rows(
                             .picture
                             .as_deref()
                             .map_or_else(SharedString::new, |picture| {
-                                format!("sound:{picture}").into()
+                                format!("sound:{}", picture).into()
                             }),
                         picture: cached_picture(pictures, state, sound.picture.as_deref()),
                         usable: true,

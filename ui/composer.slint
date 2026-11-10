@@ -15,7 +15,7 @@ export component StagedTile inherits Rectangle {
     callback toggle-spoiler;
     width: 120px; height: 140px; border-radius: 8px; background: Theme.raised;
     accessible-role: groupbox;
-    accessible-label: root.file.name + ", " + root.file.size + (root.file.spoiler ? ", spoiler" : "");
+    accessible-label: root.file.name + ", " + root.file.size + (root.file.spoiler ? @tr(", spoiler") : "");
     VerticalLayout {
         padding: 6px; spacing: 2px;
         Rectangle {
@@ -35,7 +35,7 @@ export component StagedTile inherits Rectangle {
         background: #000000b3;
         IconButton {
             icon: root.file.spoiler ? @image-url("icons/eye-off.svg") : @image-url("icons/eye.svg");
-            label: root.file.spoiler ? "Stop covering " + root.file.name : "Mark " + root.file.name + " as a spoiler";
+            label: root.file.spoiler ? @tr("Stop covering {}", root.file.name) : @tr("Mark {} as a spoiler", root.file.name);
             size: 28px; glyph: 16px; radius: 14px; tint: #ffffff;
             clicked => { root.toggle-spoiler(); }
         }
@@ -44,7 +44,7 @@ export component StagedTile inherits Rectangle {
         x: parent.width - self.width - 4px; y: 4px; width: 28px; height: 28px; border-radius: 14px;
         background: #000000b3;
         IconButton {
-            icon: @image-url("icons/x.svg"); label: "Remove " + root.file.name;
+            icon: @image-url("icons/x.svg"); label: @tr("Remove {}", root.file.name);
             size: 28px; glyph: 16px; radius: 14px; tint: #ffffff;
             clicked => { root.remove(); }
         }
@@ -98,12 +98,12 @@ export component Composer inherits Rectangle {
     property <length> menu-x;
     property <length> menu-y;
     property <bool> has-selection: input.anchor-position-byte-offset != input.cursor-position-byte-offset;
-    property <MenuRow> paste-row: { id: "paste", text: "Paste", icon: @image-url("icons/clipboard-paste.svg") };
-    property <MenuRow> select-all-row: { id: "select-all", text: "Select All", icon: @image-url("icons/text-select.svg") };
+    property <MenuRow> paste-row: { id: "paste", text: @tr("Paste"), icon: @image-url("icons/clipboard-paste.svg") };
+    property <MenuRow> select-all-row: { id: "select-all", text: @tr("Select All"), icon: @image-url("icons/text-select.svg") };
     property <[MenuRow]> menu-rows: root.has-selection
         ? [
-            { id: "cut", text: "Cut", icon: @image-url("icons/scissors.svg") },
-            { id: "copy", text: "Copy", icon: @image-url("icons/copy.svg") },
+            { id: "cut", text: @tr("Cut"), icon: @image-url("icons/scissors.svg") },
+            { id: "copy", text: @tr("Copy"), icon: @image-url("icons/copy.svg") },
             root.paste-row, root.select-all-row,
         ]
         : [root.paste-row, root.select-all-row];
@@ -295,7 +295,7 @@ export component EmojiSuggestions inherits SuggestionFrame {
     height: suggestions.preferred-height;
     suggestions := VerticalLayout {
         padding: 6px; spacing: 0px;
-        HorizontalLayout { padding-left: 6px; SuggestionHeading { text: "EMOJI MATCHING :" + root.query; } }
+        HorizontalLayout { padding-left: 6px; SuggestionHeading { text: @tr("EMOJI MATCHING :{}", root.query); } }
         for cell[index] in root.emoji: Rectangle {
             height: 36px; border-radius: 6px;
             background: index == root.emoji-index ? Theme.active : pick.has-hover ? Theme.hover : transparent;
@@ -329,9 +329,9 @@ export component RequestBar inherits Rectangle {
             alignment: center; spacing: 2px; horizontal-stretch: 1;
             // One line each: a wrapped line would spill over the hint below.
             Text { text: root.request-title; color: Theme.text; font-size: 15px; font-weight: 700; overflow: elide; }
-            Text { text: "Accept to reply. Ignoring removes it without telling them."; color: Theme.secondary; font-size: 14px; overflow: elide; }
+            Text { text: @tr("Accept to reply. Ignoring removes it without telling them."); color: Theme.secondary; font-size: 14px; overflow: elide; }
         }
-        Middle { ActionButton { text: "Ignore"; label: "Ignore the message request"; clicked => { root.ignore-request(); } } }
-        Middle { ActionButton { text: "Accept"; label: "Accept the message request"; primary: true; clicked => { root.accept-request(); } } }
+        Middle { ActionButton { text: @tr("Ignore"); label: @tr("Ignore the message request"); clicked => { root.ignore-request(); } } }
+        Middle { ActionButton { text: @tr("Accept"); label: @tr("Accept the message request"); primary: true; clicked => { root.accept-request(); } } }
     }
 }

@@ -98,9 +98,9 @@ pub(super) fn played_for(elapsed_ms: u64) -> String {
     let minutes = elapsed_ms / 60_000;
     let (hours, minutes) = (minutes / 60, minutes % 60);
     match (hours, minutes) {
-        (0, 0) => "less than a minute".into(),
-        (0, minutes) => format!("{minutes} min"),
-        (hours, 0) => format!("{hours} hr"),
-        (hours, minutes) => format!("{hours} hr {minutes} min"),
+        (0, 0) => tr("less than a minute").into(),
+        (0, minutes) => fill(tr("{} min"), &[&minutes]),
+        (hours, 0) => fill(tr("{} hr"), &[&hours]),
+        (hours, minutes) => fill(tr("{0} hr {1} min"), &[&hours, &minutes]),
     }
 }

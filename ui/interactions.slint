@@ -33,15 +33,15 @@ export component BotSelectDialog inherits Rectangle {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
                     Text { text: root.heading; color: Theme.text; font-size: 18px; font-weight: 700; horizontal-stretch: 1; overflow: elide; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                    IconButton { icon: @image-url("icons/x.svg"); label: @tr("Close"); size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
-                Text { text: root.max-values > 1 ? "Choose " + root.min-values + " to " + root.max-values : root.min-values == 0 ? "Choose up to one option" : "Choose one option"; color: Theme.secondary; font-size: 13px; }
+                Text { text: root.max-values > 1 ? @tr("Choose {0} to {1}", root.min-values, root.max-values) : root.min-values == 0 ? @tr("Choose up to one option") : @tr("Choose one option"); color: Theme.secondary; font-size: 13px; }
                 TextField {
-                    text <=> root.query; placeholder: "Find an option"; label: "Search options";
+                    text <=> root.query; placeholder: @tr("Find an option"); label: @tr("Search options");
                     edited(value) => { root.search(value); }
                 }
                 if root.choices.length == 0: Text {
-                    text: "No matching options.";
+                    text: @tr("No matching options.");
                     color: Theme.secondary; font-size: 13px;
                 }
                 ListView {
@@ -75,8 +75,8 @@ export component BotSelectDialog inherits Rectangle {
                 }
                 HorizontalLayout {
                     Rectangle { horizontal-stretch: 1; }
-                    ActionButton { text: "Cancel"; ghost: true; clicked => { root.close(); } }
-                    ActionButton { text: "Submit"; primary: true; clicked => { root.submit(); } }
+                    ActionButton { text: @tr("Cancel"); ghost: true; clicked => { root.close(); } }
+                    ActionButton { text: @tr("Submit"); primary: true; clicked => { root.submit(); } }
                 }
             }
         }
@@ -108,7 +108,7 @@ export component BotModalDialog inherits Rectangle {
                 padding: 20px; spacing: 20px;
                 HorizontalLayout {
                     Text { text: root.heading; color: Theme.text; font-size: 18px; font-weight: 700; horizontal-stretch: 1; wrap: word-wrap; vertical-alignment: center; }
-                    IconButton { icon: @image-url("icons/x.svg"); enabled: !root.saving; label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                    IconButton { icon: @image-url("icons/x.svg"); enabled: !root.saving; label: @tr("Close"); size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
                 ScrollView {
                     min-height: 0px; preferred-height: fields-layout.preferred-height;
@@ -121,7 +121,7 @@ export component BotModalDialog inherits Rectangle {
                             if field.kind != 10: Text { text: field.label + (field.required ? " *" : ""); color: Theme.text; font-size: 14px; font-weight: 700; }
                             if field.kind != 4 && field.kind != 10: ActionButton {
                                 enabled: !root.saving;
-                                text: field.summary != "" ? field.summary : "Choose an option";
+                                text: field.summary != "" ? field.summary : @tr("Choose an option");
                                 clicked => { root.open-select(index); }
                             }
                             if field.kind == 4 && !field.paragraph: TextField {
@@ -141,7 +141,7 @@ export component BotModalDialog inherits Rectangle {
                             }
                         }
                         if !root.supported: Text {
-                            text: "This form has a field Yapfast cannot submit yet. Open it in Discord to continue.";
+                            text: @tr("This form has a field Yapfast cannot submit yet. Open it in Discord to continue.");
                             color: Theme.danger; wrap: word-wrap; font-size: 14px;
                         }
                     }
@@ -150,8 +150,8 @@ export component BotModalDialog inherits Rectangle {
                 HorizontalLayout {
                     spacing: 8px;
                     Rectangle { horizontal-stretch: 1; }
-                    ActionButton { text: "Cancel"; enabled: !root.saving; ghost: true; clicked => { root.close(); } }
-                    ActionButton { text: root.saving ? "Submitting…" : "Submit"; primary: true; enabled: root.supported && !root.saving; clicked => { root.submit(); } }
+                    ActionButton { text: @tr("Cancel"); enabled: !root.saving; ghost: true; clicked => { root.close(); } }
+                    ActionButton { text: root.saving ? @tr("Submitting…") : @tr("Submit"); primary: true; enabled: root.supported && !root.saving; clicked => { root.submit(); } }
                 }
             }
         }

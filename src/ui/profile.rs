@@ -21,10 +21,10 @@ fn bio_with_emoji(bio: &str, emoji: &[yapfast_core::chat::CustomEmoji]) -> Strin
 fn running_for(started_ms: u64, now_ms: u64) -> String {
     let minutes = now_ms.saturating_sub(started_ms) / 60_000;
     match minutes {
-        0 => "just started".to_owned(),
-        1..=59 => format!("for {minutes} min"),
-        60..=1439 => format!("for {} hr", minutes / 60),
-        _ => format!("for {} d", minutes / 1440),
+        0 => tr("just started").to_owned(),
+        1..=59 => fill(tr("for {} min"), &[&minutes]),
+        60..=1439 => fill(tr("for {} hr"), &[&(minutes / 60)]),
+        _ => fill(tr("for {} d"), &[&(minutes / 1440)]),
     }
 }
 
@@ -37,12 +37,12 @@ pub(super) fn finished_ago(at_ms: u64, now_ms: u64) -> String {
     const DAY: u64 = 24 * HOUR;
     let seconds = now_ms.saturating_sub(at_ms) / 1000;
     match seconds {
-        0..MINUTE => format!("{seconds}s ago"),
-        MINUTE..HOUR => format!("{}m ago", seconds / MINUTE),
-        _ if seconds < 12 * HOUR => format!("{}h ago", seconds / HOUR),
-        _ if seconds < 9 * DAY => format!("{}d ago", (seconds / DAY).max(1)),
-        _ if seconds < 28 * DAY => format!("{}w ago", seconds / (7 * DAY)),
-        _ => format!("{}mo ago", (seconds / (30 * DAY)).max(1)),
+        0..MINUTE => fill(tr("{}s ago"), &[&seconds]),
+        MINUTE..HOUR => fill(tr("{}m ago"), &[&(seconds / MINUTE)]),
+        _ if seconds < 12 * HOUR => fill(tr("{}h ago"), &[&(seconds / HOUR)]),
+        _ if seconds < 9 * DAY => fill(tr("{}d ago"), &[&((seconds / DAY).max(1))]),
+        _ if seconds < 28 * DAY => fill(tr("{}w ago"), &[&(seconds / (7 * DAY))]),
+        _ => fill(tr("{}mo ago"), &[&((seconds / (30 * DAY)).max(1))]),
     }
 }
 
@@ -99,10 +99,10 @@ pub(super) fn activity_panel(
             let activity = member.and_then(|member| doing(member, entry));
             let since = match (entry.hours, entry.tracks) {
                 (Some(hours), _) if entry.kind == Kind::TopGame => {
-                    format!("Most played: {hours}h")
+                    fill(tr("Most played: {}h"), &[&hours])
                 }
                 (_, Some(tracks)) if entry.kind == Kind::TopArtist => {
-                    format!("{tracks} tracks this week")
+                    fill(tr("{} tracks this week"), &[&tracks])
                 }
                 _ if live => running_for(
                     activity
@@ -173,12 +173,12 @@ pub(super) fn activity_panel(
 /// "1 mutual friend" or "5 mutual servers"; this account's own profile shares
 /// its friends and servers with nobody, so there it says "1 friend" or
 /// "5 servers".
-fn mutual_count(count: usize, what: &str, shared: bool) -> String {
-    let plural = if count == 1 { "" } else { "s" };
-    if shared {
-        format!("{count} mutual {what}{plural}")
-    } else {
-        format!("{count} {what}{plural}")
+fn mutual_count(count: usize, friends: bool, shared: bool) -> String {
+    match (friends, shared) {
+        (true, true) => trn("{n} mutual friend", "{n} mutual friends", count),
+        (true, false) => trn("{n} friend", "{n} friends", count),
+        (false, true) => trn("{n} mutual server", "{n} mutual servers", count),
+        (false, false) => trn("{n} server", "{n} servers", count),
     }
 }
 
@@ -257,8 +257,8 @@ fn activity_row(activity: &yapfast_core::chat::Activity) -> ActivityRow {
     };
     let (name_emoji, name) = yapfast_core::discord::status_parts(&name);
     let state = match (&activity.state, activity.party) {
-        (Some(state), Some((size, most))) => format!("{state} ({size} of {most})"),
-        (None, Some((size, most))) => format!("{size} of {most}"),
+        (Some(state), Some((size, most))) => fill(tr("{} ({} of {})"), &[state, &size, &most]),
+        (None, Some((size, most))) => fill(tr("{} of {}"), &[&size, &most]),
         (state, None) => state.as_deref().unwrap_or_default().to_owned(),
     };
     // Spotify's card is titled by the song, then by whom and on which album.
@@ -420,9 +420,11 @@ fn wishlist_rows(
         .as_ref()
         .is_some_and(|place| place.private);
     match &profile.wishlist {
-        Wishlist::Unasked | Wishlist::Loading => (ModelRc::default(), "Loading the wishlist..."),
-        Wishlist::Hidden => (ModelRc::default(), "This wishlist is private."),
-        Wishlist::Failed => (ModelRc::default(), "Couldn't load the wishlist."),
+        Wishlist::Unasked | Wishlist::Loading => {
+            (ModelRc::default(), tr("Loading the wishlist..."))
+        }
+        Wishlist::Hidden => (ModelRc::default(), tr("This wishlist is private.")),
+        Wishlist::Failed => (ModelRc::default(), tr("Couldn't load the wishlist.")),
         Wishlist::Loaded(items) => {
             let rows: Vec<ProfileWishlistRow> = items
                 .iter()
@@ -433,7 +435,7 @@ fn wishlist_rows(
                 })
                 .collect();
             let note = if private && !rows.is_empty() {
-                "Your wishlist is private: only you can see it."
+                tr("Your wishlist is private: only you can see it.")
             } else {
                 ""
             };
@@ -465,10 +467,10 @@ pub(super) fn same_widget_rows(
 fn time_ago(at: u64) -> String {
     let minutes = yapfast_core::clock::now_ms().saturating_sub(at) / 60_000;
     match minutes {
-        0 => "Just now".to_owned(),
-        1..60 => format!("{minutes}m ago"),
-        60..1440 => format!("{}h ago", minutes / 60),
-        _ => format!("{}d ago", minutes / 1440),
+        0 => tr("Just now").to_owned(),
+        1..60 => fill(tr("{}m ago"), &[&minutes]),
+        60..1440 => fill(tr("{}h ago"), &[&(minutes / 60)]),
+        _ => fill(tr("{}d ago"), &[&(minutes / 1440)]),
     }
 }
 
@@ -662,7 +664,7 @@ pub(super) fn profile_data(
                 .collect::<Vec<_>>(),
         )),
         note: if view.loading && !view.kept {
-            "Loading the profile...".into()
+            tr("Loading the profile...").into()
         } else {
             view.note.clone().unwrap_or_default().into()
         },
@@ -690,7 +692,7 @@ pub(super) fn profile_data(
         )),
         widgets: widget_rows(&profile.widgets),
         board_note: if profile.board_asked && !profile.board_named {
-            "Loading the board...".into()
+            tr("Loading the board...").into()
         } else {
             Default::default()
         },
@@ -723,8 +725,8 @@ pub(super) fn profile_data(
                     && (state.relation(&profile.id) == Relation::Friend
                         || !profile.servers.is_empty()))),
         own,
-        mutual_friends_text: mutual_count(profile.friends.len(), "friend", !own).into(),
-        mutual_servers_text: mutual_count(profile.servers.len(), "server", !own).into(),
+        mutual_friends_text: mutual_count(profile.friends.len(), true, !own).into(),
+        mutual_servers_text: mutual_count(profile.servers.len(), false, !own).into(),
         note_text: profile.note.as_str().into(),
         note_editable: !profile.id.starts_with('@') && !own,
         can_message: state
@@ -735,7 +737,7 @@ pub(super) fn profile_data(
             .person_choices(&profile.id)
             .contains(&MenuChoice::Message)
         {
-            format!("Message @{}", profile.name).into()
+            fill(tr("Message @{}"), &[&profile.name]).into()
         } else {
             Default::default()
         },

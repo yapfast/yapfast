@@ -82,7 +82,7 @@ export component StickerPicker inherits Rectangle {
                     // emoji picker's does.
                     init => { self.focus-input(); }
                     min-height: 34px; text-size: 15px; pad: 10px; fill: Theme.sunken;
-                    placeholder: "Find the perfect sticker"; label: "Find the perfect sticker";
+                    placeholder: @tr("Find the perfect sticker"); label: @tr("Find the perfect sticker");
                     text <=> root.query;
                     edited(text) => { root.search(text); }
                     // Enter picks the first sticker the search shows.
@@ -131,7 +131,7 @@ export component StickerPicker inherits Rectangle {
                             opacity: tile.usable ? 1 : 0.4;
                             background: tile-touch.has-hover ? Theme.hover : transparent;
                             accessible-role: button;
-                            accessible-label: tile.usable ? tile.label : "Locked, Nitro only: " + tile.label;
+                            accessible-label: tile.usable ? tile.label : @tr("Locked, Nitro only: {}", tile.label);
                             accessible-action-default => {
                                 if tile.usable { root.pick(tile.id); } else { root.unlock-nitro(); }
                             }
@@ -168,7 +168,7 @@ export component StickerPicker inherits Rectangle {
                                 opacity: tile-touch.has-hover ? 1 : 0;
                                 animate opacity { duration: Theme.quick; }
                                 accessible-role: button;
-                                accessible-label: tile.favorite ? "Remove from Favorites" : "Add to Favorites";
+                                accessible-label: tile.favorite ? @tr("Remove from Favorites") : @tr("Add to Favorites");
                                 accessible-action-default => { root.favorite(tile.id); }
                                 Image {
                                     x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
@@ -196,7 +196,7 @@ export component StickerPicker inherits Rectangle {
                 HorizontalLayout {
                     padding-left: 14px; padding-right: 14px;
                     Text {
-                        text: root.hovered != "" ? root.hovered : "Click a sticker to send it.";
+                        text: root.hovered != "" ? root.hovered : @tr("Click a sticker to send it.");
                         color: root.hovered != "" ? Theme.text : Theme.muted;
                         font-weight: root.hovered != "" ? 700 : 400;
                         font-size: 15px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1;

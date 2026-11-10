@@ -134,7 +134,7 @@ impl Adapter {
             return;
         };
         let name = match window.get_theme_name().trim() {
-            "" => "My theme".to_owned(),
+            "" => tr("My theme").to_owned(),
             name => name.to_owned(),
         };
         let custom = &mut self.layout.custom_themes;
@@ -192,7 +192,7 @@ impl Adapter {
 
 /// What a new theme copied from another is called until the person names it.
 fn copy_name(name: &str) -> String {
-    format!("{name} copy")
+    fill(tr("{} copy"), &[&name])
 }
 
 /// Drops the editor's models from the window, so they're held only while

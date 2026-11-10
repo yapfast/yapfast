@@ -85,9 +85,9 @@ component ThreeState inherits Rectangle {
     border-width: 1px; border-color: Theme.line;
     HorizontalLayout {
         for choice[index] in [
-            { icon: @image-url("icons/x.svg"), label: "Deny", fill: Theme.danger },
-            { icon: @image-url("icons/slash.svg"), label: "Passthrough", fill: Theme.faint },
-            { icon: @image-url("icons/check.svg"), label: "Allow", fill: Theme.live },
+            { icon: @image-url("icons/x.svg"), label: @tr("Deny"), fill: Theme.danger },
+            { icon: @image-url("icons/slash.svg"), label: @tr("Passthrough"), fill: Theme.faint },
+            { icon: @image-url("icons/check.svg"), label: @tr("Allow"), fill: Theme.live },
         ]: Rectangle {
             border-radius: 5px;
             background: root.state == index ? choice.fill : area.has-hover && root.enabled ? Theme.hover : transparent;
@@ -160,51 +160,51 @@ component OverviewSection inherits VerticalLayout {
     callback write(int, string);
     callback slowmode(int);
     callback nsfw(bool);
-    property <[string]> slowmodes: ["Off", "5s", "10s", "15s", "30s", "1m", "2m", "5m", "10m", "15m", "30m", "1h", "2h", "6h"];
+    property <[string]> slowmodes: [@tr("Off"), "5s", "10s", "15s", "30s", "1m", "2m", "5m", "10m", "15m", "30m", "1h", "2h", "6h"];
     spacing: 20px;
-    SettingsTitle { text: "Overview"; }
+    SettingsTitle { text: @tr("Overview"); }
     VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: root.prompt.kind == 2 ? "CATEGORY NAME" : "CHANNEL NAME"; }
+        SettingsHeading { text: root.prompt.kind == 2 ? @tr("CATEGORY NAME") : @tr("CHANNEL NAME"); }
         TextField {
-            text <=> root.name; label: root.prompt.kind == 2 ? "Category name" : "Channel name";
+            text <=> root.name; label: root.prompt.kind == 2 ? @tr("Category name") : @tr("Channel name");
             enabled: !root.prompt.saving;
             edited(text) => { root.write(0, text); }
         }
     }
     if root.prompt.kind == 0: VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "CHANNEL TOPIC"; }
+        SettingsHeading { text: @tr("CHANNEL TOPIC"); }
         TextField {
-            text <=> root.topic; label: "Channel topic"; enabled: !root.prompt.saving;
-            placeholder: "Let everyone know how to use this channel!";
+            text <=> root.topic; label: @tr("Channel topic"); enabled: !root.prompt.saving;
+            placeholder: @tr("Let everyone know how to use this channel!");
             edited(text) => { root.write(1, text); }
         }
     }
     if root.prompt.kind == 0: VerticalLayout {
         spacing: 8px;
-        SettingsHeading { text: "SLOWMODE"; }
+        SettingsHeading { text: @tr("SLOWMODE"); }
         HorizontalLayout {
             spacing: 8px; alignment: start;
             IconButton {
-                icon: @image-url("icons/chevron-left.svg"); label: "Shorter slowmode"; size: 32px; glyph: 18px;
+                icon: @image-url("icons/chevron-left.svg"); label: @tr("Shorter slowmode"); size: 32px; glyph: 18px;
                 clicked => { root.slowmode(max(0, root.prompt.slowmode - 1)); }
             }
             Text {
                 min-width: 48px; text: root.slowmodes[root.prompt.slowmode]; color: Theme.text; font-size: 15px;
                 horizontal-alignment: center; vertical-alignment: center;
-                accessible-role: text; accessible-label: "Slowmode " + self.text;
+                accessible-role: text; accessible-label: @tr("Slowmode {}", self.text);
             }
             IconButton {
-                icon: @image-url("icons/chevron-right.svg"); label: "Longer slowmode"; size: 32px; glyph: 18px;
+                icon: @image-url("icons/chevron-right.svg"); label: @tr("Longer slowmode"); size: 32px; glyph: 18px;
                 clicked => { root.slowmode(min(root.slowmodes.length - 1, root.prompt.slowmode + 1)); }
             }
         }
-        Label { text: "Members will be restricted to sending one message and creating one thread per this interval, unless they have Bypass Slowmode, Manage Channel or Manage Messages permissions."; }
+        Label { text: @tr("Members will be restricted to sending one message and creating one thread per this interval, unless they have Bypass Slowmode, Manage Channel or Manage Messages permissions."); }
     }
     if root.prompt.kind == 0: SettingsSwitch {
-        text: "Age-Restricted Channel";
-        description: "Users will need to confirm they are of over legal age to view the content in this channel. Age-restricted channels are exempt from the explicit content filter.";
+        text: @tr("Age-Restricted Channel");
+        description: @tr("Users will need to confirm they are of over legal age to view the content in this channel. Age-restricted channels are exempt from the explicit content filter.");
         checked: root.prompt.nsfw; controlled: true; enabled: !root.prompt.saving;
         toggled(on) => { root.nsfw(on); }
     }
@@ -224,11 +224,11 @@ component PermissionsSection inherits VerticalLayout {
         sync := HorizontalLayout {
             padding: 10px; padding-left: 12px; spacing: 12px;
             Text {
-                text: (root.prompt.sync == 1 ? "Permissions synced with category: " : "Permissions not synced with category: ") + root.prompt.category;
+                text: (root.prompt.sync == 1 ? @tr("Permissions synced with category: ") : @tr("Permissions not synced with category: ")) + root.prompt.category;
                 color: Theme.secondary; font-size: 14px; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1;
             }
             if root.prompt.sync == 2: ActionButton {
-                text: "Sync Now"; primary: true; enabled: root.prompt.may-edit && !root.prompt.saving;
+                text: @tr("Sync Now"); primary: true; enabled: root.prompt.may-edit && !root.prompt.saving;
                 clicked => { root.input(25, "", 0); }
             }
         }
@@ -246,16 +246,16 @@ component PermissionsSection inherits VerticalLayout {
             }
         }
     }
-    SettingsHeading { text: "ADVANCED PERMISSIONS"; }
+    SettingsHeading { text: @tr("ADVANCED PERMISSIONS"); }
     HorizontalLayout {
         spacing: 16px; vertical-stretch: 1;
         VerticalLayout {
             width: 180px; spacing: 4px;
             HorizontalLayout {
                 height: 28px;
-                Text { text: "ROLES/MEMBERS"; color: Theme.muted; font-size: 12px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+                Text { text: @tr("ROLES/MEMBERS"); color: Theme.muted; font-size: 12px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
                 IconButton {
-                    icon: @image-url("icons/circle-plus.svg"); label: "Add a role or member"; size: 28px; glyph: 16px;
+                    icon: @image-url("icons/circle-plus.svg"); label: @tr("Add a role or member"); size: 28px; glyph: 16px;
                     enabled: root.prompt.may-edit && !root.prompt.saving;
                     clicked => { root.input(20, "", 0); }
                 }
@@ -299,7 +299,7 @@ component PermissionsSection inherits VerticalLayout {
             if !root.prompt.shown-everyone: HorizontalLayout {
                 alignment: start;
                 ActionButton {
-                    text: "Remove " + root.prompt.shown-name; danger: true; ghost: true;
+                    text: @tr("Remove {}", root.prompt.shown-name); danger: true; ghost: true;
                     enabled: root.prompt.may-edit && !root.prompt.saving;
                     clicked => { root.input(24, "", 0); }
                 }
@@ -330,28 +330,28 @@ component OverwriteConfirmDialog inherits Rectangle {
             box := VerticalLayout {
                 padding: 16px; spacing: 12px;
                 Text {
-                    text: root.prompt.confirm == 1 ? "Delete Permission Settings"
-                        : root.prompt.confirm == 2 ? "Sync permissions?"
-                        : "Pretty sure you don't want to do this";
+                    text: root.prompt.confirm == 1 ? @tr("Delete Permission Settings")
+                        : root.prompt.confirm == 2 ? @tr("Sync permissions?")
+                        : @tr("Pretty sure you don't want to do this");
                     color: Theme.text; font-size: 20px; font-weight: 700; wrap: word-wrap;
                 }
                 Text {
                     text: root.prompt.confirm == 1
-                        ? "Are you sure you want to delete " + root.prompt.confirm-name + " permissions? This action cannot be undone."
+                        ? @tr("Are you sure you want to delete {} permissions? This action cannot be undone.", root.prompt.confirm-name)
                         : root.prompt.confirm == 2
-                        ? "Would you like to sync " + root.channel + " permissions with " + root.prompt.category + "?"
-                        : "You cannot deny this permission to " + root.prompt.confirm-name + " because it will deny it to you as well. Allow another role or yourself before trying again.";
+                        ? @tr("Would you like to sync {0} permissions with {1}?", root.channel, root.prompt.category)
+                        : @tr("You cannot deny this permission to {} because it will deny it to you as well. Allow another role or yourself before trying again.", root.prompt.confirm-name);
                     color: Theme.secondary; font-size: 15px; wrap: word-wrap;
                 }
                 HorizontalLayout {
                     spacing: 8px; alignment: end;
                     ActionButton {
-                        text: root.prompt.confirm == 2 ? "Keep Current Permissions" : root.prompt.confirm == 3 ? "Okay" : "Cancel";
+                        text: root.prompt.confirm == 2 ? @tr("Keep Current Permissions") : root.prompt.confirm == 3 ? @tr("Okay") : @tr("Cancel");
                         ghost: root.prompt.confirm != 3; primary: root.prompt.confirm == 3;
                         clicked => { root.cancel(); }
                     }
                     if root.prompt.confirm != 3: ActionButton {
-                        text: root.prompt.confirm == 1 ? "Delete" : "Sync Permissions";
+                        text: root.prompt.confirm == 1 ? @tr("Delete") : @tr("Sync Permissions");
                         danger: root.prompt.confirm == 1; primary: root.prompt.confirm == 2;
                         clicked => { root.confirm(); }
                     }
@@ -383,9 +383,9 @@ component AddOverwriteDialog inherits Rectangle {
             TouchArea { }
             VerticalLayout {
                 padding: 16px; spacing: 12px;
-                Text { text: "Add:"; color: Theme.text; font-size: 20px; font-weight: 700; }
+                Text { text: @tr("Add:"); color: Theme.text; font-size: 20px; font-weight: 700; }
                 TextField {
-                    placeholder: "Role/Member"; label: "Role or member"; text-size: 14px;
+                    placeholder: @tr("Role/Member"); label: @tr("Role or member"); text-size: 14px;
                     init => { self.focus-input(); }
                     edited(text) => { root.search(text); }
                 }
@@ -394,7 +394,7 @@ component AddOverwriteDialog inherits Rectangle {
                     content-height: list.preferred-height;
                     list := VerticalLayout {
                         alignment: start;
-                        if root.prompt.roles-to-add.length > 0: SettingsHeading { text: "ROLES"; }
+                        if root.prompt.roles-to-add.length > 0: SettingsHeading { text: @tr("ROLES"); }
                         for role in root.prompt.roles-to-add: Rectangle {
                             height: 36px; border-radius: 4px;
                             background: role-area.has-hover ? Theme.hover : transparent;
@@ -406,7 +406,7 @@ component AddOverwriteDialog inherits Rectangle {
                                 Text { text: role.name; color: Theme.text; font-size: 15px; vertical-alignment: center; overflow: elide; }
                             }
                         }
-                        if root.prompt.members-found.length > 0: SettingsHeading { text: "MEMBERS"; }
+                        if root.prompt.members-found.length > 0: SettingsHeading { text: @tr("MEMBERS"); }
                         for member in root.prompt.members-found: Rectangle {
                             height: 40px; border-radius: 4px;
                             background: member-area.has-hover ? Theme.hover : transparent;
@@ -429,7 +429,7 @@ component AddOverwriteDialog inherits Rectangle {
                 }
                 HorizontalLayout {
                     alignment: end;
-                    ActionButton { text: "Cancel"; ghost: true; clicked => { root.close(); } }
+                    ActionButton { text: @tr("Cancel"); ghost: true; clicked => { root.close(); } }
                 }
             }
         }
@@ -458,12 +458,12 @@ export component ChannelSettingsScreen inherits Rectangle {
         motion: root.motion;
         close => { root.input(32, "", 0); }
         frame := SettingsFrame {
-            rows: root.prompt.rows; selected: root.prompt.section; label: "Channel settings";
+            rows: root.prompt.rows; selected: root.prompt.section; label: @tr("Channel settings");
             bottom: root.bar ? 140px : 56px;
             fill: root.prompt.loaded && root.prompt.section == 1;
             chose(id) => { root.input(10, "", id); }
             close => { root.input(32, "", 0); }
-            if root.prompt.loading: Label { text: "Loading..."; }
+            if root.prompt.loading: Label { text: @tr("Loading..."); }
             if root.prompt.loaded && root.prompt.section == 0: OverviewSection {
                 prompt: root.prompt; name <=> root.name; topic <=> root.topic;
                 write(field, text) => { root.input(field, text, 0); }

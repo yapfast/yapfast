@@ -81,9 +81,9 @@ impl Adapter {
             });
             rows.push(SettingsRow {
                 text: if screen.kind == ChannelKind::Category {
-                    "Delete Category"
+                    tr("Delete Category")
                 } else {
-                    "Delete Channel"
+                    tr("Delete Channel")
                 }
                 .into(),
                 icon: self.icons.delete.clone(),
@@ -156,15 +156,15 @@ impl Adapter {
         let category = screen.kind == ChannelKind::Category;
         let voice = screen.kind == ChannelKind::Voice;
         prompt.title = if category {
-            "Category Settings"
+            tr("Category Settings")
         } else {
-            "Channel Permissions"
+            tr("Channel Permissions")
         }
         .into();
         prompt.subtitle = if category {
-            "Use permissions to customize who can do what in this category."
+            tr("Use permissions to customize who can do what in this category.")
         } else {
-            "Use permissions to customize who can do what in this channel."
+            tr("Use permissions to customize who can do what in this channel.")
         }
         .into();
         if !category && let Some((_, name)) = app.sync_category(room) {
@@ -178,17 +178,17 @@ impl Adapter {
         };
         prompt.private = page.private(access);
         prompt.private_title = if category {
-            "Private Category"
+            tr("Private Category")
         } else {
-            "Private Channel"
+            tr("Private Channel")
         }
         .into();
         prompt.private_text = if category {
-            "By making a category private, only select members and roles will be able to view this category. Linked channels in this category will automatically match to this setting."
+            tr("By making a category private, only select members and roles will be able to view this category. Linked channels in this category will automatically match to this setting.")
         } else if voice {
-            "By making a channel private, only select members and roles will have access to view or connect to this channel."
+            tr("By making a channel private, only select members and roles will have access to view or connect to this channel.")
         } else {
-            "By making a channel private, only select members and roles will be able to view this channel."
+            tr("By making a channel private, only select members and roles will be able to view this channel.")
         }
         .into();
         // Locked as the core decides: any of the access bits.
