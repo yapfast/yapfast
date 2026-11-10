@@ -1306,12 +1306,14 @@ export component YapfastWindow inherits Window {
     in property <bool> gpu-running;
     /// Screen sharing encodes on the GPU where it has an encoder.
     in-out property <bool> gpu-encoding: true;
+    /// Whether the machine's card can share without a copy of each picture; the
+    /// settings' note is shown only where it can.
+    in property <bool> share-on-the-card: false;
     /// Whether a share declares the experimental ceiling: 35 Mbit/s rather than
     /// the safe 9, far above what Discord's own clients ask for.
     in-out property <bool> high-bitrate: false;
     /// How a share captures its screen: 0 Automatic, 1 Windows Graphics
     /// Capture, 2 Desktop Duplication.
-    in-out property <int> capture-preference;
     /// Closing the window leaves Yapfast in the system tray, when there's one.
     in-out property <bool> close-to-tray: true;
     in property <bool> tray-available;
@@ -4217,8 +4219,8 @@ export component YapfastWindow inherits Window {
         if root.settings-section == 6: AdvancedSettings {
             gpu-rendering <=> root.gpu-rendering; gpu-running: root.gpu-running;
             gpu-encoding <=> root.gpu-encoding;
+            share-on-the-card: root.share-on-the-card;
             high-bitrate <=> root.high-bitrate;
-            capture-preference <=> root.capture-preference;
             close-to-tray <=> root.close-to-tray; tray-available: root.tray-available;
             multiple-windows <=> root.multiple-windows;
             developer-mode <=> root.developer-mode;

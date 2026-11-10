@@ -1340,8 +1340,10 @@ export component AdvancedSettings inherits VerticalLayout {
     in-out property <bool> high-bitrate;
     /// How a share captures a screen: 0 Automatic, 1 Windows Graphics Capture,
     /// 2 Desktop Duplication.
-    in-out property <int> capture-preference;
     in property <bool> gpu-running;
+    /// Whether this machine's graphics card can share without the processor
+    /// copying each picture: the note below is shown only where it can.
+    in property <bool> share-on-the-card;
     in-out property <bool> close-to-tray;
     in property <bool> tray-available;
     in-out property <bool> multiple-windows;
@@ -1398,6 +1400,9 @@ export component AdvancedSettings inherits VerticalLayout {
             clicked => { root.restart(); }
         }
     }
+    if root.share-on-the-card && !root.gpu-rendering: Label {
+        text: "Yapfast can hand your screen to the graphics card and leave it there, which is the cheapest way to share. That needs \"Render with the GPU\" on: with it off, sharing still works, but every picture is copied once on the way.";
+    }
     SettingsSwitch {
         text: "Encode streams with the GPU";
         description: "Screen sharing uses the graphics card's video encoder, which takes almost no processor time and looks better at low bitrates. Off, or without one, Yapfast encodes on the processor.";
@@ -1416,17 +1421,6 @@ export component AdvancedSettings inherits VerticalLayout {
         description: "Menus offer Copy ID for servers, channels and people, which helps when you write apps that use the Discord API.";
         checked <=> root.developer-mode;
         toggled => { root.preferences-changed(); }
-    }
-    VerticalLayout {
-        spacing: 8px;
-        SettingsHeading { text: "HOW SHARES CAPTURE THE SCREEN"; }
-        Choices {
-            label: "Screen capture method"; options: ["Automatic", "Windows Graphics Capture", "Desktop Duplication"];
-            max-width: 520px;
-            current <=> root.capture-preference;
-            chosen => { root.preferences-changed(); }
-        }
-        Label { text: "Automatic is whichever of the two draws no border here: Duplication on Windows 10, Graphics Capture on Windows 11. Choosing one tries it first, and the other keeps as the fallback. A share going on keeps the way it started."; }
     }
     Label {
         text: "Icons from Solar by 480 Design (CC BY 4.0), many of them adapted, and from Lucide (ISC).";

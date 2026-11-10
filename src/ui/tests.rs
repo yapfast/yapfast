@@ -807,7 +807,6 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
         yapfast_core::noise::Suppressor::DeepFilterNet
     );
     // A share captures the screen whichever way draws no border here.
-    assert_eq!(defaults.capture, yapfast_core::capture::Preference::Auto);
     let row = defaults.restyle(&message, message_row(&message, &HashSet::new()));
     // A message from another day shows its date before its time, but beside
     // a grouped message only the time.
@@ -828,7 +827,6 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
         unmute_on_join: Some(true),
         noise_suppression: yapfast_core::noise::Suppressor::RNNoise,
         noise_strength: yapfast_core::noise::Strength::Light,
-        capture: yapfast_core::capture::Preference::Duplication,
         input_sensitivity: Some(-45),
         reduce_room_echo: true,
         windows_microphone_effects: true,
@@ -885,7 +883,6 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
     );
     // Desktop Duplication is the third choice, and what every share from now
     // on captures by.
-    assert_eq!(window.get_capture_preference(), 2);
     assert_eq!(
         yapfast_core::capture::preference(),
         yapfast_core::capture::Preference::Duplication

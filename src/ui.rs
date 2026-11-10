@@ -1392,10 +1392,8 @@ struct Layout {
     /// one; see `AdvancedSettings::high-bitrate`.
     #[serde(default)]
     high_bitrate: Option<bool>,
-    /// Which way a share captures its screen, and in what order the ways are
     /// tried; whichever can be borderless here unless changed. See
     /// [`yapfast_core::capture`].
-    capture: yapfast_core::capture::Preference,
     /// The theme chosen, by its id; Yap unless chosen.
     theme: Option<String>,
     /// The person's own themes, in the order Appearance shows them.
@@ -1428,13 +1426,6 @@ const STRENGTHS: [yapfast_core::noise::Strength; 3] = [
     yapfast_core::noise::Strength::Full,
     yapfast_core::noise::Strength::Medium,
     yapfast_core::noise::Strength::Light,
-];
-
-/// How a share captures a screen, in the order the setting shows them.
-const CAPTURES: [yapfast_core::capture::Preference; 3] = [
-    yapfast_core::capture::Preference::Auto,
-    yapfast_core::capture::Preference::GraphicsCapture,
-    yapfast_core::capture::Preference::Duplication,
 ];
 
 /// How calls decide when to send the microphone, as Discord's Input Mode.
@@ -1715,6 +1706,7 @@ impl Layout {
         window.set_sound_volume(self.sound_volume.unwrap_or(DEFAULT_SOUND_VOLUME).into());
         window.set_adjust_each_sound(self.adjust_each_sound);
         window.set_gpu_rendering(self.gpu_rendering);
+        window.set_share_on_the_card(yapfast_core::gpu::shares_on_the_card());
         window.set_gpu_encoding(self.gpu_encoding.unwrap_or(true));
         window.set_high_bitrate(self.high_bitrate.unwrap_or(false));
         #[cfg(feature = "discord")]
@@ -1722,8 +1714,6 @@ impl Layout {
         yapfast_core::stream_worker::set_high_bitrate(self.high_bitrate.unwrap_or(false));
         // Before any share opens, which is what asks: a capture already
         // running keeps the way it started with.
-        window.set_capture_preference(choice(&CAPTURES, self.capture));
-        yapfast_core::capture::set(self.capture);
         window.set_close_to_tray(self.close_to_tray.unwrap_or(true));
         window.set_multiple_windows(self.multiple_windows);
         window.set_developer_mode(self.developer_mode);

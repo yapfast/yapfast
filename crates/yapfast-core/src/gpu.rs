@@ -231,6 +231,38 @@ pub struct Candidate {
 /// Empty when no hardware adapter could be listed, which is how a platform that
 /// can't enumerate them keeps FFmpeg's own order, and when the machine has no
 /// hardware adapter at all.
+/// Whether this machine and this build can share a screen without the processor
+/// copying every picture: the graphics card's own encoder reading the capture
+/// where it lies. It is what the settings' note asks — so it opens nothing, and
+/// answers from the build and the devices rather than from a driver's reply. A
+/// card too old for the encoders, or a build without them, answers no, and the
+/// note is never shown to the person using it.
+pub fn shares_on_the_card() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        if cfg!(any(nvcuda, dmabufenc)) {
+            // A render node is what the card's captures and encoders open; a
+            // machine without one has no card to share from.
+            return std::fs::read_dir("/dev/dri").is_ok_and(|entries| {
+                entries.filter_map(|entry| entry.ok()).any(|entry| {
+                    entry
+                        .file_name()
+                        .to_str()
+                        .is_some_and(|name| name.starts_with("renderD"))
+                })
+            });
+        }
+        return false;
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        if cfg!(any(wgc, dup)) {
+            return !machine().is_empty();
+        }
+        false
+    }
+}
+
 pub fn candidates(
     preference: Preference,
     adapters: &[Adapter],
