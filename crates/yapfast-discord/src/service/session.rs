@@ -158,7 +158,7 @@ async fn relogin(api: &Api, earlier: &str, token: &str) {
     api.relogin(token);
     let (earlier, token) = (earlier.to_owned(), token.to_owned());
     let stored = tokio::task::spawn_blocking(move || {
-        cache::relogin(&token);
+        cache::relogin(&earlier, &token);
         // The account this login belonged to takes it, whichever is active now.
         token::refresh(&earlier, &token)
     })

@@ -39,7 +39,8 @@
 //!   ones — so it is not sealed.
 //!
 //! The files name the login they belong to by a hash of the token, so another
-//! account linked meanwhile starts empty, and unlinking deletes them all.
+//! account linked meanwhile starts empty and deletes the files it finds of
+//! another's, and unlinking deletes them all.
 //! They're readable only by the user. The account, messages, profiles,
 //! favourite GIFs and previews are encrypted, with a key kept beside the
 //! token in the OS credential store (see [`sealed`]), so a backup or a disk
@@ -625,7 +626,15 @@ fn current_key() -> Option<Key> {
 /// the files are this login's, encrypted with `key`; without one, nothing is
 /// read or kept.
 pub(crate) fn load(token: &str, key: Option<Key>) -> Loaded {
-    *lock(&LOGIN) = Some(hash(token));
+    let login = hash(token);
+    // The files hold one login at a time. Another account's, left by a switch
+    // or by logging it out, are deleted rather than kept unreadable.
+    if let (Some(key), Some(file)) = (key.as_ref(), file())
+        && matches!(sealed::open(&file, key), Ok((owner, _)) if owner != login)
+    {
+        forget();
+    }
+    *lock(&LOGIN) = Some(login);
     *lock(&KEY) = key;
     let Some(saved) =
         file().and_then(|file| read_sealed::<Saved>(&file, "the saved Discord account"))
@@ -644,15 +653,21 @@ pub(crate) fn load(token: &str, key: Option<Key>) -> Loaded {
     }
 }
 
-/// Discord refreshed the login to `token`: the files the one before kept
-/// are this one's from now on. Only the login's hash at the start of each
+/// Discord refreshed the login `earlier_token` to `token`: the files the one
+/// before kept are this one's from now on, if they still are its files. Only the login's hash at the start of each
 /// is written, in place, since the new one is as long. It writes to disk,
 /// so the async side calls it off its threads.
-pub(crate) fn relogin(token: &str) {
-    let login = hash(token);
-    let Some(earlier) = lock(&LOGIN).replace(login.clone()) else {
-        return;
-    };
+pub(crate) fn relogin(earlier_token: &str, token: &str) {
+    let (earlier, login) = (hash(earlier_token), hash(token));
+    // After a switch, the files are another account's, whose service this
+    // one's refresh must not relabel.
+    {
+        let mut current = lock(&LOGIN);
+        if current.as_deref() != Some(earlier.as_str()) {
+            return;
+        }
+        *current = Some(login.clone());
+    }
     let kept = [messages_directory(), profiles_directory(), previews()]
         .into_iter()
         .flatten()
@@ -1352,7 +1367,7 @@ mod tests {
         });
 
         // Discord refreshed the login: what's kept is the new one's.
-        relogin("refreshed");
+        relogin("token", "refreshed");
         assert_eq!(
             load("refreshed", Some(KEY)).snapshot.servers[0].name,
             "Server"
@@ -1360,9 +1375,11 @@ mod tests {
         assert_eq!(messages("40").len(), CHANNEL_MESSAGES);
         assert_eq!(profile("10", "2"), Some(bob("Bobby")));
         assert!(favorite_gifs().is_some());
+        // Another login sees none of it, and its files are deleted, not kept
+        // unread: a logged out account leaves nothing behind.
         assert!(load("token", Some(KEY)).snapshot.servers.is_empty());
-
-        // Another login sees none of it.
+        assert!(!file().unwrap().exists());
+        assert!(!messages_directory().unwrap().exists());
         assert!(load("another", Some(KEY)).snapshot.servers.is_empty());
         assert!(messages("40").is_empty());
         assert_eq!(profile("10", "2"), None);
