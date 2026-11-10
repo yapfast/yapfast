@@ -21,8 +21,12 @@ its server, as the web client does, because Discord sends large servers'
 messages only to subscribers. Yapfast sends, replies, edits, deletes, reacts
 and sends files through Discord's cloud uploads. Mentions show as text, and
 timestamps (`<t:SECONDS:STYLE>`) as Discord's client writes each style (`t`,
-`T`, `d`, `D`, `f`, `F`, `R`), on the 12-hour clock when that's set; the
-profile editor's preview writes its bio's the same way. Custom emoji and
+`T`, `d`, `D`, `f`, `F`, `s`, `S`, `R`), with the app's date format and
+12-hour clock where Discord's follows the locale. `R` counts as Discord's
+does (seconds under a minute, minutes up to 59, then hours, days, months
+and years), when the message renders, as messages render once; a tag with
+another style, or a time it can't place, shows as written. The profile
+editor's preview writes its bio's the same way. Custom emoji and
 stickers show as pictures, every attachment shows, images with previews
 scaled by Discord's media proxy, and channels the account can't send in are
 read-only. Reacting follows Add Reactions instead, as in Discord's

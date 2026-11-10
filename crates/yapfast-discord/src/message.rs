@@ -2039,89 +2039,132 @@ pub fn render_timestamps(text: &str) -> String {
 }
 
 /// A timestamp tag's inside, `SECONDS` or `SECONDS:STYLE`, as the time it
-/// names; none for anything else.
+/// names; none for anything else, which Discord's client shows as written:
+/// another style, or a time it can't place.
 fn timestamp_tag(tag: &str) -> Option<String> {
     let mut parts = tag.split(':');
-    let seconds = parts.next()?.parse::<i64>().ok()?;
+    let seconds = parts.next()?;
+    let digits = seconds.strip_prefix('-').unwrap_or(seconds);
+    if digits.is_empty() || digits.len() > 17 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let seconds = seconds.parse::<i64>().ok()?;
+    chrono::DateTime::from_timestamp(seconds, 0)?;
     let style = parts.next();
+    if style
+        .is_some_and(|style| !matches!(style, "t" | "T" | "d" | "D" | "f" | "F" | "s" | "S" | "R"))
+    {
+        return None;
+    }
     parts.next().is_none().then(|| timestamp(seconds, style))
 }
 
-/// Whether `<t:…>` timestamps show a 12-hour clock, as the app's setting
-/// says; the UI sets it at start and when the setting changes.
-static TWELVE_HOUR_CLOCK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// How `<t:…>` timestamps write times and dates, as the app's settings
+/// say: on a 12-hour clock or not, and a date's short and long forms, as
+/// chrono formats such as `%d/%m/%Y` and `%-d %B %Y`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TimestampFormat {
+    pub twelve_hour: bool,
+    pub short_date: &'static str,
+    pub long_date: &'static str,
+}
 
-/// Shows `<t:…>` timestamps on a 12-hour clock from now on, or a 24-hour one.
-pub fn set_twelve_hour_clock(on: bool) {
-    TWELVE_HOUR_CLOCK.store(on, Relaxed);
+impl TimestampFormat {
+    /// Until the app says otherwise: day first, on a 24-hour clock.
+    const DEFAULT: Self = Self {
+        twelve_hour: false,
+        short_date: "%d/%m/%Y",
+        long_date: "%-d %B %Y",
+    };
+}
+
+static TIMESTAMP_FORMAT: std::sync::RwLock<TimestampFormat> =
+    std::sync::RwLock::new(TimestampFormat::DEFAULT);
+
+/// Writes `<t:…>` timestamps in `format` from now on; the UI sets it at
+/// start and when the clock or date format setting changes.
+pub fn set_timestamp_format(format: TimestampFormat) {
+    *TIMESTAMP_FORMAT
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = format;
 }
 
 /// A `<t:SECONDS:STYLE>` timestamp in the local time zone, as Discord's
-/// client shows each style: `t` 14:05, `T` 14:05:09, `d` 06/10/2026,
-/// `D` 6 October 2026, `f` (and no style) 6 October 2026 14:05,
-/// `F` Tuesday, 6 October 2026 14:05, `R` 3 hours ago. Messages render
-/// once, so `R` says how long ago it was when the message arrived.
+/// client shows each style, here with dates day first on a 24-hour clock:
+/// `t` 14:05, `T` 14:05:09, `d` 06/10/2026, `D` 6 October 2026, `f` (and no
+/// style) 6 October 2026 14:05, `F` Tuesday, 6 October 2026 14:05, `s`
+/// 06/10/2026 14:05, `S` 06/10/2026 14:05:09, `R` 3 hours ago. Messages
+/// render once, so `R` says how long ago it was when the message arrived.
 fn timestamp(seconds: i64, style: Option<&str>) -> String {
-    let twelve_hour = TWELVE_HOUR_CLOCK.load(Relaxed);
-    timestamp_at(
-        seconds,
-        style,
-        chrono::Local::now().timestamp(),
-        twelve_hour,
-    )
+    let format = *TIMESTAMP_FORMAT
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    timestamp_at(seconds, style, chrono::Local::now().timestamp(), format)
 }
 
-fn timestamp_at(seconds: i64, style: Option<&str>, now: i64, twelve_hour: bool) -> String {
+fn timestamp_at(seconds: i64, style: Option<&str>, now: i64, format: TimestampFormat) -> String {
     let at = local(seconds);
-    let (time, time_seconds) = if twelve_hour {
+    // Discord's client writes them in moment's LT, LTS, L, LL, LLL and
+    // LLLL, in the user's locale.
+    let (time, time_seconds) = if format.twelve_hour {
         ("%-I:%M %p", "%-I:%M:%S %p")
     } else {
         ("%H:%M", "%H:%M:%S")
     };
-    let format = match style {
+    let TimestampFormat {
+        short_date,
+        long_date,
+        ..
+    } = format;
+    let pattern = match style {
         Some("t") => time.to_owned(),
         Some("T") => time_seconds.to_owned(),
-        Some("d") => "%d/%m/%Y".to_owned(),
-        Some("D") => "%-d %B %Y".to_owned(),
-        Some("F") => format!("%A, %-d %B %Y {time}"),
+        Some("d") => short_date.to_owned(),
+        Some("D") => long_date.to_owned(),
+        Some("F") => format!("%A, {long_date} {time}"),
+        Some("s") => format!("{short_date} {time}"),
+        Some("S") => format!("{short_date} {time_seconds}"),
         Some("R") => return relative(seconds - now),
-        _ => format!("%-d %B %Y {time}"),
+        _ => format!("{long_date} {time}"),
     };
-    at.format(&format).to_string()
+    at.format(&pattern).to_string()
 }
 
 /// `seconds` from now in Discord's words: `in 5 minutes`, `2 days ago`.
+/// Discord's client asks moment's `fromNow` with its thresholds for seconds
+/// and minutes moved up, so minutes count to 59 and seconds don't show:
+/// each unit is rounded, and the next one starts where that rounds to its
+/// threshold.
 fn relative(seconds: i64) -> String {
-    const MINUTE: i64 = 60;
-    const HOUR: i64 = 60 * MINUTE;
-    const DAY: i64 = 24 * HOUR;
-    const MONTH: i64 = 30 * DAY;
-    const YEAR: i64 = 365 * DAY;
-    let span = i64::try_from(seconds.unsigned_abs()).unwrap_or(i64::MAX);
-    // Rounded to the nearest unit; each range starts where that rounds to 2.
-    let count = |unit: i64, name: &str| format!("{} {name}", (span + unit / 2) / unit);
-    let words = if span < 45 {
+    let span = seconds.unsigned_abs() as f64;
+    let days = span / 86_400.0;
+    // moment's lengths of a month and a year, in days.
+    let rounded = |units: f64| units.round() as u64;
+    let (minutes, hours, whole_days) =
+        (rounded(span / 60.0), rounded(span / 3600.0), rounded(days));
+    let (months, years) = (rounded(days / 30.436_875), rounded(days / 365.242_5));
+    let words = if rounded(span) < 60 {
         "a few seconds".to_owned()
-    } else if span < 90 {
+    } else if minutes <= 1 {
         "a minute".to_owned()
-    } else if span < 45 * MINUTE {
-        count(MINUTE, "minutes")
-    } else if span < 90 * MINUTE {
+    } else if minutes < 60 {
+        format!("{minutes} minutes")
+    } else if hours <= 1 {
         "an hour".to_owned()
-    } else if span < 22 * HOUR {
-        count(HOUR, "hours")
-    } else if span < 36 * HOUR {
+    } else if hours < 22 {
+        format!("{hours} hours")
+    } else if whole_days <= 1 {
         "a day".to_owned()
-    } else if span < 26 * DAY {
-        count(DAY, "days")
-    } else if span < 46 * DAY {
+    } else if whole_days < 26 {
+        format!("{whole_days} days")
+    } else if months <= 1 {
         "a month".to_owned()
-    } else if span < 320 * DAY {
-        count(MONTH, "months")
-    } else if span < 547 * DAY {
+    } else if months < 11 {
+        format!("{months} months")
+    } else if years <= 1 {
         "a year".to_owned()
     } else {
-        count(YEAR, "years")
+        format!("{years} years")
     };
     if seconds >= 0 {
         format!("in {words}")
@@ -3093,67 +3136,79 @@ mod tests {
             format!("My 12AM is your {time}!")
         );
         assert_eq!(render_timestamps("<t:nope> and <t:1"), "<t:nope> and <t:1");
+        // As Discord's client leaves them: another style, a time past 17
+        // digits, or one it can't place.
+        for tag in [
+            "<t:1:x>",
+            "<t:1:R:x>",
+            "<t:123456789012345678>",
+            "<t:99999999999999999>",
+            "<t:+1>",
+        ] {
+            assert_eq!(render_timestamps(tag), tag);
+        }
+        assert_ne!(render_timestamps("<t:-86400:d>"), "<t:-86400:d>");
     }
 
     #[test]
     fn timestamps_show_their_style() {
         let at = 1_791_295_500;
         let local = local(at);
-        let shown = |style, twelve_hour| timestamp_at(at, style, at, twelve_hour);
-        let day = local.format("%-d %B %Y").to_string();
-        assert_eq!(shown(Some("t"), false), local.format("%H:%M").to_string());
+        let day_first = TimestampFormat::DEFAULT;
+        let month_first = TimestampFormat {
+            twelve_hour: true,
+            short_date: "%m/%d/%Y",
+            long_date: "%B %-d, %Y",
+        };
+        let shown = |style, format| timestamp_at(at, style, at, format);
+        let written = |pattern: &str| local.format(pattern).to_string();
+        assert_eq!(shown(Some("t"), day_first), written("%H:%M"));
+        assert_eq!(shown(Some("T"), day_first), written("%H:%M:%S"));
+        assert_eq!(shown(Some("d"), day_first), written("%d/%m/%Y"));
+        assert_eq!(shown(Some("D"), day_first), written("%-d %B %Y"));
+        assert_eq!(shown(Some("f"), day_first), written("%-d %B %Y %H:%M"));
+        assert_eq!(shown(None, day_first), shown(Some("f"), day_first));
+        assert_eq!(shown(Some("F"), day_first), written("%A, %-d %B %Y %H:%M"));
+        assert_eq!(shown(Some("s"), day_first), written("%d/%m/%Y %H:%M"));
+        assert_eq!(shown(Some("S"), day_first), written("%d/%m/%Y %H:%M:%S"));
+        // As en-US writes them: month first, on a 12-hour clock.
+        assert_eq!(shown(Some("t"), month_first), written("%-I:%M %p"));
+        assert_eq!(shown(Some("T"), month_first), written("%-I:%M:%S %p"));
+        assert_eq!(shown(Some("d"), month_first), written("%m/%d/%Y"));
+        assert_eq!(shown(Some("D"), month_first), written("%B %-d, %Y"));
         assert_eq!(
-            shown(Some("t"), true),
-            local.format("%-I:%M %p").to_string()
+            shown(Some("f"), month_first),
+            written("%B %-d, %Y %-I:%M %p")
         );
         assert_eq!(
-            shown(Some("T"), false),
-            local.format("%H:%M:%S").to_string()
+            shown(Some("F"), month_first),
+            written("%A, %B %-d, %Y %-I:%M %p")
         );
-        assert_eq!(
-            shown(Some("d"), false),
-            local.format("%d/%m/%Y").to_string()
-        );
-        assert_eq!(shown(Some("D"), false), day);
-        assert_eq!(
-            shown(Some("f"), false),
-            format!("{day} {}", local.format("%H:%M"))
-        );
-        assert_eq!(shown(None, false), shown(Some("f"), false));
-        assert_eq!(shown(Some("unknown"), false), shown(Some("f"), false));
-        assert_eq!(
-            shown(Some("F"), true),
-            format!(
-                "{}, {day} {}",
-                local.format("%A"),
-                local.format("%-I:%M %p")
-            )
-        );
-        assert_eq!(
-            timestamp_at(at, Some("R"), at + 10, false),
-            "a few seconds ago"
-        );
-        assert_eq!(timestamp_at(at, Some("R"), at - 60, false), "in a minute");
-        assert_eq!(
-            timestamp_at(at, Some("R"), at + 5 * 60, false),
-            "5 minutes ago"
-        );
-        assert_eq!(
-            timestamp_at(at, Some("R"), at - 3 * 3600, false),
-            "in 3 hours"
-        );
-        assert_eq!(timestamp_at(at, Some("R"), at + 86_400, false), "a day ago");
-        assert_eq!(
-            timestamp_at(at, Some("R"), at + 10 * 86_400, false),
-            "10 days ago"
-        );
-        assert_eq!(
-            timestamp_at(at, Some("R"), at - 90 * 86_400, false),
-            "in 3 months"
-        );
-        assert_eq!(
-            timestamp_at(at, Some("R"), at + 3 * 365 * 86_400, false),
-            "3 years ago"
-        );
+        assert_eq!(shown(Some("s"), month_first), written("%m/%d/%Y %-I:%M %p"));
+    }
+
+    #[test]
+    fn relative_timestamps_use_discords_thresholds() {
+        let at = 1_791_295_500;
+        let ago =
+            |seconds: i64| timestamp_at(at, Some("R"), at + seconds, TimestampFormat::DEFAULT);
+        let (minute, hour, day) = (60, 3600, 86_400);
+        assert_eq!(ago(10), "a few seconds ago");
+        assert_eq!(ago(55), "a few seconds ago", "under a minute");
+        assert_eq!(ago(-60), "in a minute");
+        assert_eq!(ago(89), "a minute ago");
+        assert_eq!(ago(5 * minute), "5 minutes ago");
+        assert_eq!(ago(50 * minute), "50 minutes ago", "minutes count to 59");
+        assert_eq!(ago(59 * minute), "59 minutes ago");
+        assert_eq!(ago(60 * minute), "an hour ago");
+        assert_eq!(ago(-3 * hour), "in 3 hours");
+        assert_eq!(ago(21 * hour), "21 hours ago");
+        assert_eq!(ago(22 * hour), "a day ago");
+        assert_eq!(ago(10 * day), "10 days ago");
+        assert_eq!(ago(25 * day), "25 days ago");
+        assert_eq!(ago(26 * day), "a month ago");
+        assert_eq!(ago(-90 * day), "in 3 months");
+        assert_eq!(ago(320 * day), "a year ago");
+        assert_eq!(ago(3 * 365 * day), "3 years ago");
     }
 }

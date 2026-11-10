@@ -29,6 +29,14 @@ impl DateFormat {
             Self::YearMonthDay => "%Y-%m-%d",
         }
     }
+
+    fn long(self) -> &'static str {
+        match self {
+            Self::DayMonthYear => "%-d %B %Y",
+            Self::MonthDayYear => "%B %-d, %Y",
+            Self::YearMonthDay => "%Y-%m-%d",
+        }
+    }
 }
 
 const AUTO_FORMAT: u8 = 0;
@@ -73,11 +81,19 @@ pub fn render_timestamps(text: &str) -> String {
     text.to_owned()
 }
 
-/// Shows the `<t:…>` timestamps in Discord messages on a 12-hour clock from
-/// now on, or a 24-hour one, as the app's setting says.
+/// Writes the `<t:…>` timestamps in Discord messages on a 12-hour clock from
+/// now on, or a 24-hour one, as the app's setting says, and their dates in
+/// the format [`set_date_format`] set.
 pub fn set_twelve_hour_clock(on: bool) {
     #[cfg(feature = "discord")]
-    yapfast_discord::message::set_twelve_hour_clock(on);
+    {
+        let dates = format_for(on);
+        yapfast_discord::message::set_timestamp_format(yapfast_discord::message::TimestampFormat {
+            twelve_hour: on,
+            short_date: dates.numeric(),
+            long_date: dates.long(),
+        });
+    }
     #[cfg(not(feature = "discord"))]
     let _ = on;
 }
@@ -248,12 +264,7 @@ fn day_in<Tz: TimeZone>(zone: &Tz, seconds: u64, dates: DateFormat) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    let format = match dates {
-        DateFormat::DayMonthYear => "%-d %B %Y",
-        DateFormat::MonthDayYear => "%B %-d, %Y",
-        DateFormat::YearMonthDay => "%Y-%m-%d",
-    };
-    at(zone, seconds).format(format).to_string()
+    at(zone, seconds).format(dates.long()).to_string()
 }
 
 fn at<Tz: TimeZone>(zone: &Tz, seconds: u64) -> DateTime<Tz> {

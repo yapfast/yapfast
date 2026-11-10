@@ -1411,12 +1411,13 @@ fn chosen<T: Copy>(choices: &[T], index: i32) -> T {
 impl Layout {
     /// Hands the date format and the 12-hour clock to what formats times.
     fn apply_date_format(&self) {
-        clock::set_twelve_hour_clock(self.twelve_hour_clock);
         clock::set_date_format(self.date_format.and_then(|index| {
             clock::DateFormat::ALL
                 .get(usize::try_from(index).ok()?)
                 .copied()
         }));
+        // After the date format, which Discord's timestamps follow.
+        clock::set_twelve_hour_clock(self.twelve_hour_clock);
     }
 
     /// The voice gate's sensitivity, in whole dBFS from -80 to 0.
