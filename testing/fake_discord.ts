@@ -245,8 +245,18 @@
 // menu, "fail" (Roll back) INTERACTION_FAILURE with reason 1, and "slow"
 // (Check later) nothing, as an app that never answers. Submitting the form
 // gives INTERACTION_SUCCESS and an ephemeral MESSAGE_CREATE (flag 64, no
-// guild_id), which history leaves out. GET /_control/interactions lists
-// each body Alice sent, oldest first.
+// guild_id), which history leaves out. Alice's commands to Status Bot
+// (type 2, by data.name; files as multipart payload_json and files[n],
+// which data.attachments must each name) answer as an app does, each answer
+// a type 20 message with interaction_metadata: "ping" "Pong!", "echo" an "is
+// thinking…" message (flag LOADING, 128, no content) that a MESSAGE_UPDATE
+// fills in a second later with text repeated times, "upload" the name and
+// size of the file its option names (INTERACTION_FAILURE without it),
+// "secret" an ephemeral answer, and any other "Ran /name.". Her
+// autocompletes (type 4) get APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE with
+// the choices that start with the focused value, a second late for "sl".
+// GET /_control/interactions lists each body Alice sent, oldest first, with
+// the files a command carried as `files`.
 // A gift of Nitro from Bob resolves and redeems the same way: GET
 // /entitlements/gift-codes/{code} shows it, POST .../redeem redeems it
 // once and sends ENTITLEMENT_CREATE and GIFT_CODE_UPDATE, and GET
@@ -1307,6 +1317,9 @@ type Message = {
   pollResult?: string;
   /** A pin's notice (type 6): the message pinned. */
   pinned?: string;
+  /** An app's answer to a command (type 20): the interaction, the command's
+   *  name and its application, sent as `interaction_metadata`. */
+  interaction?: { id: string; name: string; application: string };
 };
 const messages = new Map<string, Message[]>([
   [GENERAL, []],
@@ -1383,6 +1396,19 @@ function wireMessage(message: Message, origin: string, nested = false): Record<s
     components: message.components?.(origin) ?? [],
   };
   if (message.nonce) wire.nonce = message.nonce;
+  if (message.interaction) {
+    wire.application_id = message.interaction.application;
+    wire.webhook_id = message.interaction.application;
+    wire.interaction_metadata = {
+      id: message.interaction.id,
+      type: 2,
+      name: message.interaction.name,
+      command_type: 1,
+      user: wireUser(users.alice),
+      // A server install's owner is its server; "0" outside one.
+      authorizing_integration_owners: { "0": guildOf(message.channel).guild_id ?? "0" },
+    };
+  }
   if (message.stickers) wire.sticker_items = message.stickers;
   if (message.call) {
     wire.call = {
@@ -4838,12 +4864,23 @@ const interactionsSent: Record<string, unknown>[] = [];
 /** The ids of the forms Status Bot opened, which a submit names. */
 const formsOpened = new Set<string>();
 const EPHEMERAL = 1 << 6;
+/** An answer still being made: the app's "is thinking…". */
+const LOADING = 1 << 7;
 
 /** Status Bot's answer to Alice's interaction `id`, through the gateway, as
- *  Discord passes on an app's: see the header. */
-function answerInteraction(body: any, id: string, origin: string) {
+ *  Discord passes on an app's: see the header. `files` are the files sent
+ *  with a command, by their index. */
+function answerInteraction(body: any, id: string, origin: string, files: Map<string, Blob>) {
   const nonce = body.nonce;
+  if (body.type === 4) {
+    answerAutocomplete(body);
+    return;
+  }
   dispatch("INTERACTION_CREATE", { id, nonce });
+  if (body.type === 2) {
+    answerCommand(body, id, origin, files);
+    return;
+  }
   if (body.type === 5) {
     dispatch("INTERACTION_SUCCESS", { id, nonce });
     const entered = (body.data?.components ?? [])
@@ -4892,6 +4929,93 @@ function answerInteraction(body: any, id: string, origin: string) {
       dispatch("MESSAGE_UPDATE", dispatched(message, origin));
     }
   }
+}
+
+/** The value of option `name` among `options`, looking into a subcommand. */
+function optionValue(options: any[] | undefined, name: string): unknown {
+  for (const option of options ?? []) {
+    if (option.name === name && option.value !== undefined) return option.value;
+    const nested = optionValue(option.options, name);
+    if (nested !== undefined) return nested;
+  }
+  return undefined;
+}
+
+/** Status Bot's answer to Alice's command, by its name: see the header. */
+function answerCommand(body: any, id: string, origin: string, files: Map<string, Blob>) {
+  const nonce = body.nonce;
+  const name: string = body.data?.name ?? "";
+  const options = body.data?.options ?? [];
+  const reply = (content: string, flags = 0): Message => {
+    const message: Message = {
+      id: nextId(Date.now()), channel: body.channel_id, author: statusBot, content, type: 20,
+      files: [], reactions: [], flags, interaction: { id, name, application: statusBot.id },
+    };
+    // An ephemeral answer goes to Alice's session alone, never in history.
+    if (!(flags & EPHEMERAL)) {
+      messages.get(message.channel)?.push(message);
+      byId.set(message.id, message);
+    }
+    return message;
+  };
+  switch (name) {
+    case "echo": {
+      // Deferred: "is thinking…" first, then the answer.
+      dispatch("INTERACTION_SUCCESS", { id, nonce });
+      const message = reply("", LOADING);
+      dispatch("MESSAGE_CREATE", dispatched(message, origin));
+      setTimeout(() => {
+        const text = String(optionValue(options, "text") ?? "");
+        const times = Number(optionValue(options, "times") ?? 1);
+        message.content = Array(times).fill(text).join(" ");
+        message.flags = 0;
+        message.edited = Date.now();
+        dispatch("MESSAGE_UPDATE", dispatched(message, origin));
+      }, 1000);
+      return;
+    }
+    case "upload": {
+      const index = String(optionValue(options, "file") ?? "");
+      const attachment = (body.data?.attachments ?? []).find((file: any) => file.id === index);
+      const file = files.get(index);
+      if (!attachment || !file) {
+        dispatch("INTERACTION_FAILURE", { id, nonce, reason_code: 1 });
+        return;
+      }
+      dispatch("INTERACTION_SUCCESS", { id, nonce });
+      dispatch("MESSAGE_CREATE", dispatched(reply(`Got ${attachment.filename} (${file.size} bytes)`), origin));
+      return;
+    }
+    case "secret": {
+      dispatch("INTERACTION_SUCCESS", { id, nonce });
+      dispatch("MESSAGE_CREATE", wireMessage(reply("Only you can see this one.", EPHEMERAL), origin));
+      return;
+    }
+    case "ping":
+      dispatch("INTERACTION_SUCCESS", { id, nonce });
+      dispatch("MESSAGE_CREATE", dispatched(reply("Pong!"), origin));
+      return;
+    default:
+      dispatch("INTERACTION_SUCCESS", { id, nonce });
+      dispatch("MESSAGE_CREATE", dispatched(reply(`Ran /${name}.`), origin));
+  }
+}
+
+/** Status Bot's choices for the option Alice is typing, which start with
+ *  what she typed; "sl" answers a second late. */
+function answerAutocomplete(body: any) {
+  const focused = (function find(options: any[] | undefined): any {
+    for (const option of options ?? []) {
+      if (option.focused) return option;
+      const nested = find(option.options);
+      if (nested) return nested;
+    }
+  })(body.data?.options);
+  const typed = String(focused?.value ?? "").toLowerCase();
+  const choices = ["staging", "production", "status", "slack"]
+    .filter((choice) => choice.startsWith(typed))
+    .map((choice) => ({ name: choice, value: choice }));
+  setTimeout(() => dispatch("APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE", { nonce: body.nonce, choices }), typed === "sl" ? 1000 : 0);
 }
 
 /** The invites Alice made, oldest first, for GET /_control/invites. */
@@ -7308,16 +7432,35 @@ async function api(req: Request, path: string, origin: string): Promise<Response
 
   // Alice uses Status Bot's controls; see "Interactions" in the header.
   if (method === "POST" && path === "/interactions") {
-    const body: any = await req.json().catch(() => ({}));
+    // JSON, or with files a form of payload_json and files[n].
+    const files = new Map<string, Blob>();
+    let body: any = {};
+    if ((req.headers.get("content-type") ?? "").startsWith("multipart/form-data")) {
+      const form = await req.formData().catch(() => null);
+      try {
+        body = JSON.parse(String(form?.get("payload_json") ?? ""));
+      } catch {
+        body = {};
+      }
+      for (const [field, value] of form?.entries() ?? []) {
+        const index = /^files\[(\d+)\]$/.exec(field)?.[1];
+        if (index !== undefined && typeof value !== "string") files.set(index, value);
+      }
+    } else {
+      body = await req.json().catch(() => ({}));
+    }
     const live = [...sockets].some((ws) => ws.data.identified && ws.data.session === body.session_id);
     const form = body.type !== 5 || formsOpened.has(body.data?.id);
-    if (!live || typeof body.nonce !== "string" || ![3, 5].includes(body.type) || !form) {
+    // Each attachment named has its file, and a command is named whole.
+    const named = (body.data?.attachments ?? []).every((file: any) => files.has(file.id));
+    const command = ![2, 4].includes(body.type) || (typeof body.data?.id === "string" && typeof body.data?.name === "string");
+    if (!live || typeof body.nonce !== "string" || ![2, 3, 4, 5].includes(body.type) || !form || !named || !command) {
       return json({ message: "Invalid Form Body", code: 50035 }, 400);
     }
     if (body.application_id !== statusBot.id) return notFound("Unknown Application", 10002);
-    interactionsSent.push(body);
+    interactionsSent.push({ ...body, ...(files.size ? { files: [...files].map(([index, file]) => ({ index, name: (file as globalThis.File).name, size: file.size })) } : {}) });
     const id = nextId(Date.now());
-    setTimeout(() => answerInteraction(body, id, origin), 0);
+    setTimeout(() => answerInteraction(body, id, origin, files), 0);
     return empty();
   }
 

@@ -533,6 +533,34 @@ impl Api {
             .await
     }
 
+    /// [`Self::interact`] with files, given by name and contents, in one
+    /// `multipart/form-data` request: the body as `payload_json`, then
+    /// `files[0]`, `files[1]`... as docs.discord.food's "Uploading Files"
+    /// gives them, which the body's `data.attachments` name by index. Each
+    /// file's contents go once they're in the request's.
+    pub async fn interact_with_files(
+        &self,
+        body: &Value,
+        files: Vec<(String, Vec<u8>)>,
+    ) -> Result<()> {
+        let payload = body.to_string();
+        let parts = files.into_iter().enumerate().map(|(index, (name, data))| {
+            (
+                format!("files[{index}]"),
+                name,
+                "application/octet-stream",
+                data,
+            )
+        });
+        let (content_type, form) = multipart(&[("payload_json", &payload)], parts);
+        self.empty(
+            self.request(Method::POST, "/interactions")
+                .header(header::CONTENT_TYPE, content_type)
+                .body(form),
+        )
+        .await
+    }
+
     /// Sends a message, as a reply when `options` names one in the same
     /// channel, with uploaded files.
     pub async fn send(
@@ -2529,8 +2557,25 @@ fn post_body(
 /// A `multipart/form-data` body of text `fields` and a file, given by its
 /// name, type and bytes, with its content type.
 fn form(fields: &[(&str, &str)], file: (&str, &str, &[u8])) -> (String, Vec<u8>) {
+    let (filename, mime, data) = file;
+    multipart(fields, [("file", filename, mime, data)])
+}
+
+/// A `multipart/form-data` body of text `fields` and files, each given by
+/// its field's name, its own name, its type and its bytes, with its content
+/// type. Each file is dropped once copied in.
+fn multipart<F, N, M, D>(
+    fields: &[(&str, &str)],
+    files: impl IntoIterator<Item = (F, N, M, D)>,
+) -> (String, Vec<u8>)
+where
+    F: std::fmt::Display,
+    N: AsRef<str>,
+    M: std::fmt::Display,
+    D: AsRef<[u8]>,
+{
     let boundary = format!("yapfast{:016x}", rand::random::<u64>());
-    let mut body = Vec::with_capacity(file.2.len() + 512);
+    let mut body = Vec::with_capacity(512);
     for (name, value) in fields {
         body.extend_from_slice(
             format!(
@@ -2539,16 +2584,20 @@ fn form(fields: &[(&str, &str)], file: (&str, &str, &[u8])) -> (String, Vec<u8>)
             .as_bytes(),
         );
     }
-    let (filename, mime, data) = file;
-    let filename = filename.replace(['"', '\r', '\n'], "_");
-    body.extend_from_slice(
-        format!(
-            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\nContent-Type: {mime}\r\n\r\n"
-        )
-        .as_bytes(),
-    );
-    body.extend_from_slice(data);
-    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    for (field, filename, mime, data) in files {
+        let filename = filename.as_ref().replace(['"', '\r', '\n'], "_");
+        let data = data.as_ref();
+        body.reserve(data.len() + 256);
+        body.extend_from_slice(
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"{filename}\"\r\nContent-Type: {mime}\r\n\r\n"
+            )
+            .as_bytes(),
+        );
+        body.extend_from_slice(data);
+        body.extend_from_slice(b"\r\n");
+    }
+    body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
     (format!("multipart/form-data; boundary={boundary}"), body)
 }
 

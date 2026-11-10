@@ -536,6 +536,37 @@ click or a submit sends one, and none is sent again on its own.
 - An app that answers with a web page in a window
   (INTERACTION_IFRAME_MODAL_CREATE) says to use Discord for it.
 
+## Sending apps' commands
+
+An app's command is sent as Discord's client sends one (docs.discord.food,
+"Create Interaction"): `POST /interactions` of type 2 from the gateway
+session, with the command's `id`, `name`, `type` and `version` and the whole
+entry of the command index as `application_command`. A chat command carries
+its `options`, a subcommand or group nesting its own; a context-menu
+command carries its `target_id` instead. A command typed in the composer
+says `analytics_location: "slash_ui"`, which docs.discord.food gives as
+"executed from the chat bar"; what Discord's client says for a context
+menu isn't known, and Yapfast says nothing there. Only sending the command
+sends one, and none is sent again on its own.
+
+- Files go in the same request: a `multipart/form-data` body of the JSON as
+  `payload_json` and the files as `files[0]`, `files[1]`..., which
+  `data.attachments` names as `{id: "0", filename}`, and a file option's
+  value is that id. Up to 25 files.
+- As with a bot's buttons, Discord answers 204 and tells the rest over the
+  gateway by the nonce: INTERACTION_CREATE gives the interaction's id, which
+  the answer's message names in `interaction_metadata`, then
+  INTERACTION_SUCCESS or INTERACTION_FAILURE, or a form. A deferred answer
+  is a message with the LOADING flag and no content, which a MESSAGE_UPDATE
+  fills in.
+- An option whose app completes it (`autocomplete`) asks the app for its
+  choices with a type 4 interaction once typing pauses for 300 ms: the same
+  data, without files, the option typed in marked `focused` with its value
+  as text. Only the newest is sent, and only its answer
+  (APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE) is shown; a keystroke within
+  the pause, or one after an older autocomplete was sent, drops the older
+  one. A failed or unanswered autocomplete keeps the choices shown.
+
 ## GIFs
 
 The GIF button left of the emoji button, or Ctrl+G, opens a picker with two

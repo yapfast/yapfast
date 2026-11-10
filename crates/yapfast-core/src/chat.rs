@@ -2518,18 +2518,26 @@ impl Interaction {
     }
 }
 
-/// An app command to run or to complete, with the options entered so far.
-/// A stub for phase 1 of the bot commands, which shapes it: `command` is the
-/// command as Discord's index gives it, `options` as `/interactions` takes
-/// them, and `target` the message or user a context-menu command acts on.
+/// An app command to run or to complete, with the options entered so far;
+/// `discord_text/interactions.rs` sends it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CommandRun {
     pub nonce: String,
     pub room: String,
     pub application: String,
+    /// The command as Discord's index gives it.
     pub command: Arc<serde_json::Value>,
+    /// The options as `/interactions` takes them: `{type, name, value}`
+    /// each, a subcommand or group as `{type: 1 or 2, name, options}`. A
+    /// file option's `value` is its index in `files` as a string, `"0"`
+    /// for the first. For an autocomplete, the option being typed has
+    /// `focused: true`.
     pub options: serde_json::Value,
+    /// The message or user a context-menu command acts on.
     pub target: Option<String>,
+    /// The files the options carry, which go in the same request. An
+    /// autocomplete sends none.
+    pub files: Vec<PathBuf>,
 }
 
 /// Commands only the linked Discord account carries out.
@@ -2563,12 +2571,16 @@ pub enum DiscordCommand {
         room: String,
     },
     /// Runs an app's command in `room`, as typed or chosen from a menu.
-    /// Phase 1c fills it in, in `discord_text/interactions.rs`; until then
-    /// it fails with [`Event::InteractionFailed`].
+    /// [`Event::InteractionCreated`] follows once Discord passed it to the
+    /// app, then [`Event::InteractionSucceeded`],
+    /// [`Event::InteractionFailed`], [`Event::InteractionModal`] or
+    /// [`Event::InteractionSettled`], by its nonce. See
+    /// `discord_text/interactions.rs`.
     RunCommand(Box<CommandRun>),
     /// Asks an app for its choices for the option being typed, on a
-    /// keystroke in it. [`Event::AutocompleteChoices`] follows. Phase 1c
-    /// fills it in; until then it answers nothing.
+    /// keystroke in it, once typing pauses for 300 ms.
+    /// [`Event::AutocompleteChoices`] follows for the newest alone; an
+    /// older one, or one the app didn't answer, gets nothing.
     Autocomplete(Box<CommandRun>),
     /// The GIF picker's home: trending terms with a GIF each, and a GIF for
     /// "Trending GIFs"; [`Event::GifCategories`] follows.
@@ -3846,7 +3858,7 @@ pub enum Event {
     InteractionSettled(String),
     /// Discord passed the interaction with this nonce to its app, which gave
     /// it `id`: the answer's message names it in `interaction_metadata`.
-    /// Nothing uses it yet; phase 1c's "Sending command…" row will.
+    /// Nothing shows it yet; a command's "Sending command…" row will.
     InteractionCreated {
         nonce: String,
         id: String,
@@ -3864,7 +3876,8 @@ pub enum Event {
         guild: Option<String>,
     },
     /// An app's choices for the option being typed, for the autocomplete
-    /// with this nonce, as Discord sent them.
+    /// with this nonce, the newest, as Discord sent them: `{name, value}`
+    /// each.
     AutocompleteChoices {
         nonce: String,
         choices: serde_json::Value,
