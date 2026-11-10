@@ -5042,6 +5042,8 @@ function commandIndexRoute(method: string, path: string): Response | null {
   // Only a DM or group DM has one; Discord refuses a server's channel.
   if (!privates.has(id)) return json({ message: "Invalid Form Body", code: 50035 }, 400);
   return json(none);
+}
+
 /** The value of option `name` among `options`, looking into a subcommand. */
 function optionValue(options: any[] | undefined, name: string): unknown {
   for (const option of options ?? []) {

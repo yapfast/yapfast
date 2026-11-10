@@ -608,6 +608,8 @@ async fn an_attachment_option_uploads_in_the_same_request() {
     lost.files = vec!["b.png".into()];
     assert!(fixture.discord.run_command(lost, vec![]).await.is_err());
     assert_eq!(fixture.sent().len(), 1);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn an_ephemeral_answer_never_comes_back_after_a_reconnect_or_history() {
