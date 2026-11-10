@@ -77,6 +77,13 @@ impl AppState {
             .is_some_and(|room| room.capabilities.spoilers)
     }
 
+    /// Whether a room's timeline is on screen: it's selected, or the thread
+    /// beside the open channel.
+    pub fn shows_room(&self, room: &str) -> bool {
+        self.selected.as_deref() == Some(room)
+            || self.aside.as_ref().is_some_and(|aside| aside.room == room)
+    }
+
     /// The room whose timeline shows an item: the thread beside the open
     /// channel, or the selected room.
     pub fn room_of(&self, item: &str) -> Option<&String> {

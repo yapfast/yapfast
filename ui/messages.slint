@@ -1,7 +1,7 @@
 import { ClientStyle } from "yapfast/style.slint";
 import { ListView, ScrollView } from "scrollview.slint";
 import { Theme, Tip, ReactionHover, Middle, Label, Twemoji } from "theme.slint";
-import { ActionButton, IconButton, Avatar, Picture, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField, ContextMenu, MenuRow, StyledName, NameStyleRow, ServerTagChip } from "controls.slint";
+import { ActionButton, IconButton, Avatar, Motion, Picture, UprightVolumeSlider, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField, ContextMenu, MenuRow, StyledName, NameStyleRow, ServerTagChip } from "controls.slint";
 import { FavoriteStar, GifFavorites } from "gifs.slint";
 
 /// An emoji: what shows, its name, and the reaction it adds, which for a custom
@@ -352,6 +352,27 @@ export global VideoPlayer {
     callback change-volume(float);
 }
 
+/// The voice message playing, or paused, in the conversation view.
+export global VoicePlayer {
+    in property <string> item;
+    in property <bool> loading;
+    in property <bool> playing;
+    /// How far it has played, from 0 to 1, and as text, such as
+    /// "0:02 / 0:05"; empty at its start.
+    in property <float> progress;
+    in property <string> time;
+    in property <string> error;
+    /// How fast voice messages play, as their speed button says, such as
+    /// "1.5x", and how loud, from 0 to 1 as the slider stands.
+    in property <string> speed: "1x";
+    in property <float> volume: 1;
+    /// Plays an item's voice message, or pauses it while it plays.
+    callback toggle(string);
+    /// Plays them at the next speed: 1x, 1.5x, then 2x.
+    callback cycle-speed();
+    callback change-volume(float);
+}
+
 // A playing video's controls: play or pause, its time, a bar to move
 // through it, mute, and full screen. A narrow video, such as one filmed
 // upright, leaves out the time and then mute, so full screen stays in it.
@@ -517,8 +538,10 @@ component VideoCell inherits Rectangle {
     }
 }
 
-/// A file, or an image without a preview, as a card.
-export struct FileCell { index: int, name: string, detail: string }
+/// A file, or an image without a preview, as a card. A Discord voice
+/// message's recording is a `voice` card instead: its `waveform`, a bar's
+/// height from 0 to 1 each, and how long it plays, as "0:05".
+export struct FileCell { index: int, name: string, detail: string, voice: bool, waveform: [float], duration: string }
 /// A block of a message's or card's text, as Discord's client lays them
 /// out: Markdown (0), a heading (1 to 3), subtext (4) or fenced code (5).
 /// Slint's Markdown draws none but the first. A `quoted` block is behind a
@@ -1504,15 +1527,173 @@ export component MessageStickers inherits HorizontalLayout {
     Rectangle { horizontal-stretch: 1; }
 }
 
+// A voice message's round play button, its accent shading towards the
+// bottom right.
+component VoicePlayButton inherits Rectangle {
+    in property <bool> playing;
+    in property <bool> enabled;
+    out property <bool> focused: focus.has-focus;
+    callback clicked;
+    width: 36px; height: 36px; border-radius: 18px;
+    background: @linear-gradient(135deg, Theme.accent.brighter(0.2) 0%, Theme.accent 100%);
+    border-width: focus.has-focus ? 2px : 0px; border-color: Theme.text;
+    opacity: root.enabled ? (touch.has-hover ? 0.9 : 1) : 0.5;
+    accessible-role: button; accessible-label: root.playing ? "Pause" : "Play";
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    Image {
+        source: root.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg");
+        width: 17px; height: 17px; colorize: #ffffff;
+    }
+    focus := FocusScope {
+        enabled: root.enabled;
+        // A click plays it; only the keyboard keeps the speed and volume out.
+        focus-on-click: false;
+        key-pressed(event) => {
+            if event.text == "\n" || event.text == " " {
+                root.clicked(); return accept;
+            }
+            return reject;
+        }
+        touch := TouchArea {
+            enabled: root.enabled;
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { root.clicked(); }
+        }
+    }
+}
+
 // A file, or an image without a preview, as a card with a way to save it.
+// A voice message is a pill instead, mixing Discord's phone and desktop
+// players: a round button that plays or pauses it, its waveform, filled up
+// to where it has played, and its time. While the pointer or the keyboard
+// is on it, or its volume is open, the desktop's speed and volume buttons
+// slide out after the time; with animations off they always show.
 export component FileCard inherits HorizontalLayout {
     in property <FileCell> file;
+    /// The message's item, which plays its voice message.
+    in property <string> item;
     in property <bool> preview;
     /// The message's delivery state, empty once it's sent.
     in property <string> delivery;
     callback save;
+    property <bool> active: root.file.voice && VoicePlayer.item == root.item && root.item != "";
+    property <float> played: root.active ? VoicePlayer.progress : 0;
     padding-top: 4px;
-    Rectangle {
+    if root.file.voice: pill := Rectangle {
+        property <bool> focused: play.focused || speed-focus.has-focus || volume.focused;
+        // Its volume popup keeps them out too, though the pointer is on it.
+        property <bool> expanded: Motion.never || pill-touch.has-hover || self.focused || volume-popup.is-open;
+        height: 52px; width: voice-card.preferred-width;
+        background: Theme.sidebar; border-radius: 26px;
+        accessible-role: groupbox; accessible-label: "Voice message, " + root.file.duration;
+        pill-touch := TouchArea {
+            voice-card := HorizontalLayout {
+                padding-left: 8px; padding-right: 16px; spacing: 12px;
+                Middle {
+                    play := VoicePlayButton {
+                        playing: root.active && VoicePlayer.playing;
+                        enabled: !root.preview && root.delivery == "";
+                        clicked => { VoicePlayer.toggle(root.item); }
+                    }
+                }
+                // A round bar of 3 pixels every 6 for each point of its
+                // waveform; a quiet one is a dot.
+                Rectangle {
+                    width: root.file.waveform.length * 6px - 3px;
+                    accessible-role: progress-indicator; accessible-label: "Played";
+                    accessible-value: round(root.played * 100) + "%";
+                    for level[index] in root.file.waveform: Rectangle {
+                        x: index * 6px; width: 3px; height: max(3px, level * 24px);
+                        y: (parent.height - self.height) / 2;
+                        border-radius: 1.5px;
+                        background: (index + 0.5) / root.file.waveform.length <= root.played ? Theme.text : Theme.muted;
+                    }
+                }
+                Text {
+                    text: root.active && VoicePlayer.error != "" ? VoicePlayer.error
+                        : root.active && VoicePlayer.loading ? "Loading..."
+                        : root.active && VoicePlayer.time != "" ? VoicePlayer.time : root.file.duration;
+                    color: root.active && VoicePlayer.error != "" ? Theme.danger : Theme.muted;
+                    font-size: 14px; vertical-alignment: center;
+                }
+                // Speed and volume, folded away until wanted.
+                extras := Rectangle {
+                    clip: true;
+                    width: pill.expanded ? extra-row.preferred-width : 0px;
+                    opacity: pill.expanded ? 1 : 0;
+                    animate width, opacity { duration: Motion.never ? 0ms : 150ms; easing: ease-out; }
+                    accessible-role: groupbox; accessible-label: "Voice message controls";
+                    extra-row := HorizontalLayout {
+                        x: 0; width: self.preferred-width;
+                        spacing: 4px;
+                        Middle {
+                            Rectangle {
+                                width: speed-text.preferred-width + 12px; height: 22px; border-radius: 11px;
+                                background: speed-touch.has-hover ? Theme.hover : Theme.raised;
+                                border-width: speed-focus.has-focus ? 2px : 0px; border-color: Theme.accent;
+                                accessible-role: button; accessible-label: "Playback speed";
+                                accessible-value: VoicePlayer.speed;
+                                accessible-action-default => { VoicePlayer.cycle-speed(); }
+                                speed-text := Text { text: VoicePlayer.speed; color: Theme.text; font-size: 12px; font-weight: 700; }
+                                speed-focus := FocusScope {
+                                    focus-on-click: false;
+                                    key-pressed(event) => {
+                                        if event.text == "\n" || event.text == " " {
+                                            VoicePlayer.cycle-speed(); return accept;
+                                        }
+                                        return reject;
+                                    }
+                                    speed-touch := TouchArea {
+                                        mouse-cursor: MouseCursor.pointer;
+                                        clicked => { VoicePlayer.cycle-speed(); }
+                                    }
+                                }
+                            }
+                        }
+                        Middle {
+                            volume := IconButton {
+                                size: 28px; glyph: 18px; tint: Theme.muted;
+                                icon: VoicePlayer.volume == 0 ? @image-url("icons/volume-x.svg") : @image-url("icons/volume-2.svg");
+                                label: "Volume";
+                                clicked => { volume-popup.show(); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // The volume over its button, upright as Discord's desktop player
+        // has it, or under it without room above; a popup, so nothing clips
+        // it.
+        volume-popup := PopupWindow {
+            property <length> above: volume.absolute-position.y - self.height - 6px;
+            width: 40px; height: 120px;
+            x: volume.absolute-position.x - pill.absolute-position.x + (volume.width - self.width) / 2;
+            y: (self.above >= 8px ? self.above : volume.absolute-position.y + volume.height + 6px)
+                - pill.absolute-position.y;
+            close-policy: PopupClosePolicy.close-on-click-outside;
+            FocusScope {
+                key-pressed(event) => {
+                    if event.text == Key.Escape {
+                        volume-popup.close(); return accept;
+                    }
+                    return reject;
+                }
+                Rectangle {
+                    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
+                    drop-shadow-blur: 16px; drop-shadow-color: #00000060;
+                    UprightVolumeSlider {
+                        x: (parent.width - self.width) / 2; y: 6px; height: parent.height - 12px;
+                        label: "Volume";
+                        value: round(VoicePlayer.volume * 100);
+                        changed(level) => { VoicePlayer.change-volume(level / 100); }
+                    }
+                }
+            }
+        }
+    }
+    if !root.file.voice: Rectangle {
         min-height: file-card.preferred-height; max-width: 432px; horizontal-stretch: 100;
         background: Theme.sidebar; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
         file-card := HorizontalLayout {
@@ -2590,7 +2771,7 @@ export component MessageContent inherits VerticalLayout {
                 open(index, x, y, width, height) => { root.open-sticker(message.item, index, x, y, width, height); }
             }
             for file in message.files: FileCard {
-                file: file; preview: root.preview; delivery: message.delivery;
+                file: file; item: message.item; preview: root.preview; delivery: message.delivery;
                 save => { root.save-attachment(message.item, file.index); }
             }
             if message.hidden-card != "": Text {

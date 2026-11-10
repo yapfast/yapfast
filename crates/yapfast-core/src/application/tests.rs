@@ -2955,6 +2955,81 @@ fn videos_play_in_the_open_room_until_it_closes() {
 }
 
 #[test]
+fn a_voice_message_plays_and_pauses_one_at_a_time() {
+    let mut app = connected();
+    let recorded = |id: &str, voice: bool| {
+        Arc::new(ChatMessage {
+            id: id.into(),
+            item: format!("d:{id}"),
+            voice: voice.then(|| chat::VoiceMessage {
+                duration_ms: 5000,
+                waveform: [0, 128, 255].into(),
+            }),
+            ..Default::default()
+        })
+    };
+    app.apply(Event::Timeline {
+        room: "dm".into(),
+        messages: vec![
+            recorded("1", true),
+            recorded("2", true),
+            recorded("3", false),
+        ],
+    });
+    let toggle =
+        |app: &mut Application, item: &str| app.dispatch(Action::ToggleVoiceMessage(item.into()));
+    assert!(toggle(&mut app, "d:3").is_empty(), "not a voice message");
+    assert!(matches!(
+        toggle(&mut app, "d:1").as_slice(),
+        [Effect::Backend(Command::PlayVoiceMessage { room, item, .. })] if room == "dm" && item == "d:1"
+    ));
+    let playing = app.state.voice_message.clone().unwrap();
+    assert!(playing.playing && playing.loading);
+    app.apply(Event::VoiceMessage(Some(chat::VoicePlayback {
+        loading: false,
+        position_ms: 1200,
+        ..playing
+    })));
+    assert!(matches!(
+        toggle(&mut app, "d:1").as_slice(),
+        [Effect::Backend(Command::PauseVoiceMessage)]
+    ));
+    let paused = app.state.voice_message.clone().unwrap();
+    assert!(!paused.playing);
+    assert_eq!(paused.position_ms, 1200, "it pauses where it was");
+    // Played again, it goes on from there; another starts from the start.
+    toggle(&mut app, "d:1");
+    let resumed = app.state.voice_message.clone().unwrap();
+    assert!(resumed.playing && !resumed.loading);
+    assert_eq!(resumed.position_ms, 1200);
+    assert!(matches!(
+        toggle(&mut app, "d:2").as_slice(),
+        [Effect::Backend(Command::PlayVoiceMessage { item, .. })] if item == "d:2"
+    ));
+    let other = app.state.voice_message.clone().unwrap();
+    assert_eq!((other.item.as_str(), other.position_ms), ("d:2", 0));
+    // Its speed and volume change as it plays, and last for the next.
+    app.dispatch(Action::CycleVoiceMessageSpeed);
+    assert!(matches!(
+        app.dispatch(Action::VoiceMessageVolume(0.5)).as_slice(),
+        [Effect::Backend(Command::TuneVoiceMessage(tuning))]
+            if *tuning == chat::VoiceTuning { speed: 1.5, volume: 0.5 }
+    ));
+    app.dispatch(Action::CycleVoiceMessageSpeed);
+    assert_eq!(app.state.voice_tuning.speed, 2.0);
+    app.dispatch(Action::CycleVoiceMessageSpeed);
+    assert_eq!(app.state.voice_tuning.speed, 1.0);
+    app.apply(Event::VoiceMessage(Some(chat::VoicePlayback {
+        room: "elsewhere".into(),
+        ..other
+    })));
+    assert!(
+        app.state.voice_message.is_none(),
+        "another room's voice message doesn't show"
+    );
+}
+
+#[test]
 fn the_viewer_steps_through_a_messages_images() {
     let mut app = connected();
     let file = |name: &str, image: bool| chat::Attachment {

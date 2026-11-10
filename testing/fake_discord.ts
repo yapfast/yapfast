@@ -279,6 +279,8 @@
 // POST /_control/clip makes Bob attach clip.mp4, six seconds with sound, and
 // link a post whose card plays a video, as vxtwitter's do; Carol forwards
 // the clip. They go to #general, or with ?channel=ID to that channel or thread.
+// POST /_control/voice-message makes Bob send a voice message, the two
+// seconds of testing/fixtures/voice-tone.ogg, to #general or ?channel=ID.
 // POST /_control/bob-away makes Bob idle with a custom status,
 // /_control/bob-mobile puts him online on his phone alone, and
 // /_control/bob-offline takes him offline.
@@ -1202,6 +1204,8 @@ type File = {
   height?: number;
   /** Draws the image at a requested size, as Discord's media proxy does. */
   draw?: (width: number, height: number) => Uint8Array;
+  /** A voice message's recording: how long it plays, and its loudness. */
+  voice?: { seconds: number; waveform: Uint8Array };
 };
 const files = new Map<string, File>();
 const scaled = new Map<string, Uint8Array>();
@@ -1221,6 +1225,9 @@ function wireAttachment(file: File, origin: string) {
     proxy_url: `${origin}/media/${path}`,
     content_type: file.contentType,
     ...(file.width ? { width: file.width, height: file.height } : {}),
+    ...(file.voice
+      ? { duration_secs: file.voice.seconds, waveform: Buffer.from(file.voice.waveform).toString("base64") }
+      : {}),
   };
 }
 
@@ -7510,6 +7517,21 @@ function postShowcase(origin: string) {
 // drawn here instead.
 const clip = readFileSync(new URL("video-clip.mp4", fixtures));
 
+/** Bob's voice message: IS_VOICE_MESSAGE, and one Ogg Opus attachment. */
+function postVoiceMessage(origin: string, channel: string) {
+  const now = Date.now();
+  const recording = addFile({
+    id: snowflake(now, 1),
+    channel,
+    filename: "voice-message.ogg",
+    contentType: "audio/ogg",
+    data: new Uint8Array(readFileSync(new URL("voice-tone.ogg", fixtures))),
+    // A steady tone that swells in and fades out.
+    voice: { seconds: 2.0065, waveform: Uint8Array.from({ length: 40 }, (_, i) => Math.min(200, 40 * Math.min(i + 1, 40 - i))) },
+  });
+  dispatch("MESSAGE_CREATE", dispatched(post(channel, users.bob, "", now, { files: [recording], flags: 1 << 13 }), origin));
+}
+
 function postVideo(origin: string, channel: string) {
   const now = Date.now();
   const video = addFile({
@@ -8690,6 +8712,10 @@ const server = Bun.serve<SocketData>({
     if (req.method === "POST" && path === "/_control/clip") {
       postVideo(origin, url.searchParams.get("channel") ?? GENERAL);
       return new Response("video posted\n");
+    }
+    if (req.method === "POST" && path === "/_control/voice-message") {
+      postVoiceMessage(origin, url.searchParams.get("channel") ?? GENERAL);
+      return new Response("voice message posted\n");
     }
     if (req.method === "POST" && path === "/_control/components") {
       return new Response(`${postComponents(origin)}\n`);

@@ -729,6 +729,10 @@ pub struct AppState {
     pub viewer: Option<Viewer>,
     /// The video playing in the selected room.
     pub video: Option<chat::Video>,
+    /// The voice message playing, or paused, in the selected room.
+    pub voice_message: Option<chat::VoicePlayback>,
+    /// How fast and loud voice messages play, until Yapfast closes.
+    pub voice_tuning: chat::VoiceTuning,
     /// The profile card that's open.
     pub profile: Option<ProfileView>,
     pub role: Option<RoleView>,
@@ -1640,6 +1644,12 @@ pub enum Action {
     },
     /// Control the video playing.
     Video(chat::VideoCommand),
+    /// Play an item's voice message, or pause it while it plays.
+    ToggleVoiceMessage(String),
+    /// Play voice messages at the next speed: 1, 1.5, then 2 times as fast.
+    CycleVoiceMessageSpeed,
+    /// Play voice messages this loud, from 0 to 1 as the slider stands.
+    VoiceMessageVolume(f32),
     /// Show the message's next image, or with -1 its previous one, wrapping around.
     StepImage(isize),
     CloseImage,
@@ -3298,6 +3308,22 @@ impl Application {
                 }
                 vec![Effect::Backend(Command::Video(command))]
             }
+            Action::ToggleVoiceMessage(item) => self.toggle_voice_message(item),
+            Action::CycleVoiceMessageSpeed => {
+                let speed = &mut self.state.voice_tuning.speed;
+                *speed = if *speed < 1.25 {
+                    1.5
+                } else if *speed < 1.75 {
+                    2.0
+                } else {
+                    1.0
+                };
+                self.tune_voice_message()
+            }
+            Action::VoiceMessageVolume(volume) => {
+                self.state.voice_tuning.volume = volume.clamp(0.0, 1.0);
+                self.tune_voice_message()
+            }
             Action::StepImage(step) => self.step_image(step),
             Action::CloseImage => {
                 self.state.viewer = None;
@@ -4043,14 +4069,11 @@ impl Application {
             }
             Event::Picture { url, picture } => self.keep_picture(url, picture),
             Event::Video(video) => {
-                self.state.video = video.filter(|video| {
-                    self.state.selected.as_ref() == Some(&video.room)
-                        || self
-                            .state
-                            .aside
-                            .as_ref()
-                            .is_some_and(|aside| aside.room == video.room)
-                });
+                self.state.video = video.filter(|video| self.state.shows_room(&video.room));
+            }
+            Event::VoiceMessage(playback) => {
+                self.state.voice_message =
+                    playback.filter(|playback| self.state.shows_room(&playback.room));
             }
             // Do Not Disturb holds back message notifications, as in Discord.
             Event::Notify(_) if self.state.do_not_disturb() => {}

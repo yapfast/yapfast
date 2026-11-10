@@ -1673,6 +1673,48 @@ pub struct Video {
     pub error: Option<String>,
 }
 
+/// A voice message's recording as its sender's client described it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct VoiceMessage {
+    /// How long it plays, in milliseconds.
+    pub duration_ms: u64,
+    /// How loud it is along its length, from 0 to 255.
+    pub waveform: Arc<[u8]>,
+}
+
+/// The voice message playing, or paused, in the conversation view.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct VoicePlayback {
+    pub room: String,
+    pub item: String,
+    /// Until its file downloads.
+    pub loading: bool,
+    pub playing: bool,
+    /// How far it has played, in milliseconds.
+    pub position_ms: u64,
+    /// Why it stopped, for the person.
+    pub error: Option<String>,
+}
+
+/// How fast and loud voice messages play, as the person last chose while
+/// Yapfast runs.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VoiceTuning {
+    /// 1, 1.5 or 2 times as fast, at the same pitch.
+    pub speed: f32,
+    /// From 0 to 1 as the slider stands.
+    pub volume: f32,
+}
+
+impl Default for VoiceTuning {
+    fn default() -> Self {
+        Self {
+            speed: 1.0,
+            volume: 1.0,
+        }
+    }
+}
+
 /// Where an attachment's picture shows.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Placement {
@@ -1877,6 +1919,9 @@ pub struct ChatMessage {
     pub thread: Option<ThreadLink>,
     /// The Discord poll it asks.
     pub poll: Option<Poll>,
+    /// A Discord voice message's recording, its first attachment, which
+    /// plays in place of a file card: [`Command::PlayVoiceMessage`].
+    pub voice: Option<VoiceMessage>,
     /// What it tells of, when it's a notice in place of a message, such as
     /// Discord's that someone pinned one; its body says it after its
     /// author's name.
@@ -2174,6 +2219,19 @@ pub enum Command {
     },
     /// Control the video playing.
     Video(VideoCommand),
+    /// Play a voice message's recording on `speakers`, from where it was
+    /// paused, or from the start in place of any other; it goes as
+    /// [`Event::VoiceMessage`].
+    PlayVoiceMessage {
+        room: String,
+        item: String,
+        speakers: Option<String>,
+        tuning: VoiceTuning,
+    },
+    /// Pause the voice message playing.
+    PauseVoiceMessage,
+    /// Play the voice message playing as fast and loud as this says.
+    TuneVoiceMessage(VoiceTuning),
     /// Look for people to start a DM with; each network answers with
     /// [`Event::People`].
     FindPeople {
@@ -3707,8 +3765,12 @@ impl Command {
         };
         match self {
             Command::Voice(_) => Route::Voice,
-            // Only Discord's videos play for now.
-            Command::Discord(_) | Command::Video(_) | Command::Aside(_) => Route::Discord,
+            // Only Discord's videos and voice messages play for now.
+            Command::Discord(_)
+            | Command::Video(_)
+            | Command::PauseVoiceMessage
+            | Command::TuneVoiceMessage(_)
+            | Command::Aside(_) => Route::Discord,
             Command::Open(_) | Command::CloseRoom | Command::FindPeople { .. } => Route::Every,
             Command::Send { room, .. }
             | Command::Edit { room, .. }
@@ -3727,6 +3789,7 @@ impl Command {
             | Command::CopyAttachment { room, .. }
             | Command::ViewImage { room, .. }
             | Command::PlayVideo { room, .. }
+            | Command::PlayVoiceMessage { room, .. }
             | Command::Typing { room, .. }
             | Command::MarkRead { room, .. }
             | Command::SaveDraft { room, .. }
@@ -3865,6 +3928,9 @@ pub enum Event {
     Discord(Arc<yapfast_discord::service::Snapshot>),
     /// The video [`Command::PlayVideo`] plays, as it changes; none once it stops.
     Video(Option<Video>),
+    /// The voice message [`Command::PlayVoiceMessage`] plays, as it
+    /// changes; none once it stops.
+    VoiceMessage(Option<VoicePlayback>),
     /// An image [`Command::ViewImage`] asked for, or why it can't show.
     Image {
         room: String,

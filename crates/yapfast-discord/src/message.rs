@@ -44,6 +44,12 @@ const USER_INSTALL: &str = "1";
 
 /// The message flag that hides its embeds.
 const SUPPRESS_EMBEDS: u64 = 1 << 2;
+/// The message flag of a voice message, whose only attachment is its
+/// recording.
+const IS_VOICE_MESSAGE: u64 = 1 << 13;
+/// The most of a voice message's waveform Discord sends: a byte for each
+/// point.
+const WAVEFORM_POINTS: usize = 256;
 /// The message flags Discord's client forwards a message with: crossposts,
 /// hidden embeds, threads, @silent, voice messages, forwards and the like,
 /// but not ephemeral or loading messages, or flags it doesn't know.
@@ -56,7 +62,7 @@ const FORWARDABLE_FLAGS: u64 = 1 << 0
     | 1 << 9
     | 1 << 10
     | 1 << 12
-    | 1 << 13
+    | IS_VOICE_MESSAGE
     | 1 << 14
     | 1 << 15
     | 1 << 19
@@ -168,6 +174,45 @@ pub struct Message {
     /// The poll it asks, if it's one.
     #[serde(default)]
     pub poll: Option<Poll>,
+    /// What a voice message's recording, its first attachment, sounds like.
+    #[serde(default)]
+    pub voice: Option<VoiceMessage>,
+}
+
+/// A voice message's recording as Discord describes it, to show before it's
+/// downloaded.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct VoiceMessage {
+    /// How long it plays, in milliseconds.
+    pub duration_ms: u64,
+    /// How loud it is along its length: up to 256 points from 0 to 255.
+    pub waveform: Arc<[u8]>,
+}
+
+impl VoiceMessage {
+    /// A voice message's recording, from its message's flags and its first
+    /// attachment's `duration_secs` and base64 `waveform`.
+    fn of(message: &Value) -> Option<Self> {
+        use base64::Engine;
+        if message["flags"].as_u64().unwrap_or_default() & IS_VOICE_MESSAGE == 0 {
+            return None;
+        }
+        let recording = &message["attachments"][0];
+        let seconds = recording["duration_secs"].as_f64().unwrap_or_default();
+        let mut waveform = recording["waveform"]
+            .as_str()
+            .and_then(|waveform| {
+                base64::engine::general_purpose::STANDARD
+                    .decode(waveform)
+                    .ok()
+            })
+            .unwrap_or_default();
+        waveform.truncate(WAVEFORM_POINTS);
+        Some(Self {
+            duration_ms: (seconds.max(0.0) * 1000.0).round() as u64,
+            waveform: waveform.into(),
+        })
+    }
 }
 
 /// A message's poll, its votes as Discord counted them when the message
@@ -805,6 +850,7 @@ pub fn parse(value: &Value) -> Option<Message> {
         undeletable: kind == CALL,
         invoker: invoker(&value["interaction_metadata"]),
         poll: Poll::of(&shown["poll"]),
+        voice: VoiceMessage::of(shown),
     })
 }
 
@@ -2524,6 +2570,45 @@ mod tests {
         .unwrap();
         assert!(!reply.forwarded);
         assert_eq!(reply.content, "mine");
+    }
+
+    #[test]
+    fn reads_a_voice_messages_length_and_waveform() {
+        let voice = |flags: u64, recording: Value| {
+            parse(&json!({
+                "id": "1", "type": 0, "content": "", "author": {"id": "2"}, "flags": flags,
+                "attachments": [recording],
+            }))
+            .unwrap()
+            .voice
+        };
+        let recording = json!({
+            "filename": "voice-message.ogg", "size": 36000, "url": "https://cdn/v.ogg",
+            "content_type": "audio/ogg", "duration_secs": 5.48, "waveform": "AAh/gP8=",
+        });
+        assert_eq!(
+            voice(1 << 13, recording.clone()),
+            Some(VoiceMessage {
+                duration_ms: 5480,
+                waveform: [0, 8, 127, 128, 255].into(),
+            })
+        );
+        // Without the flag, an Ogg file is a file.
+        assert_eq!(voice(0, recording), None);
+        // A waveform that isn't base64 shows flat; one too long is cut.
+        let long = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [9; 300]);
+        let odd = voice(
+            1 << 13,
+            json!({"filename": "a.ogg", "url": "https://cdn/a.ogg", "waveform": "!", "duration_secs": 1}),
+        )
+        .unwrap();
+        assert_eq!((odd.duration_ms, odd.waveform.len()), (1000, 0));
+        let cut = voice(
+            1 << 13,
+            json!({"filename": "a.ogg", "url": "https://cdn/a.ogg", "waveform": long}),
+        )
+        .unwrap();
+        assert_eq!((cut.duration_ms, cut.waveform.len()), (0, 256));
     }
 
     #[test]

@@ -633,10 +633,19 @@ pub(super) fn message_row_within(
                     (_, _, Some(size)) => size,
                     _ => String::new(),
                 };
+                // A voice message's recording is its first attachment.
+                let voice = message.voice.as_ref().filter(|_| index == 0);
                 FileCell {
                     index: index as i32,
                     name: attachment.name.clone().into(),
                     detail: detail.into(),
+                    voice: voice.is_some(),
+                    waveform: voice.map_or_else(ModelRc::default, |voice| {
+                        ModelRc::new(VecModel::from(waveform_bars(&voice.waveform)))
+                    }),
+                    duration: voice
+                        .map(|voice| super::refresh::video_time(voice.duration_ms, None).into())
+                        .unwrap_or_default(),
                 }
             })
             .collect()
@@ -844,6 +853,23 @@ pub(super) fn message_row_within(
         };
     }
     row
+}
+
+/// How many bars a voice message's waveform shows, as Discord's client
+/// draws it.
+const WAVEFORM_BARS: usize = 32;
+
+/// A voice message's waveform as its card's bars, each the loudest of its
+/// stretch of the points, from 0 to 1. Without a waveform they're flat.
+pub(super) fn waveform_bars(waveform: &[u8]) -> Vec<f32> {
+    (0..WAVEFORM_BARS)
+        .map(|bar| {
+            let start = bar * waveform.len() / WAVEFORM_BARS;
+            let end = ((bar + 1) * waveform.len() / WAVEFORM_BARS).max(start + 1);
+            let loudest = waveform.get(start..end.min(waveform.len()));
+            f32::from(loudest.into_iter().flatten().copied().max().unwrap_or(0)) / 255.0
+        })
+        .collect()
 }
 
 /// A row of a Discord app's card, its pictures and files found among the

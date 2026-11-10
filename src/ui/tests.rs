@@ -1422,6 +1422,187 @@ fn pictures_on_their_way_hold_their_place_as_skeletons() {
 }
 
 #[test]
+fn a_voice_message_shows_its_player_which_plays_and_pauses() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    adapter
+        .borrow_mut()
+        .action(&window, Action::SelectRoom("general".into()));
+    let message = ChatMessage {
+        item: "d:1".into(),
+        author: "Sam".into(),
+        attachments: vec![yapfast_core::chat::Attachment {
+            name: "voice-message.ogg".into(),
+            size: Some(36_000),
+            image: false,
+            dimensions: None,
+            preview: None,
+            preview_failed: false,
+            placement: Placement::Message,
+            gif: None,
+            spoiler: false,
+            video: false,
+            url: Some("https://cdn.example/voice-message.ogg".into()),
+        }],
+        voice: Some(yapfast_core::chat::VoiceMessage {
+            duration_ms: 5_480,
+            waveform: [0, 255, 51].into(),
+        }),
+        ..Default::default()
+    };
+    let row = message_row_plain(&message);
+    let file = row.files.row_data(0).unwrap();
+    assert!(file.voice);
+    assert_eq!(file.duration, "0:05");
+    let bars: Vec<f32> = file.waveform.iter().collect();
+    assert_eq!(bars.len(), 32);
+    assert_eq!((bars[0], bars[31]), (0.0, 0.2));
+    assert!(bars.contains(&1.0));
+    adapter.borrow_mut().app.state.messages = Arc::new(vec![Arc::new(message)]);
+    adapter.borrow_mut().refresh(&window);
+    let player = window.global::<VoicePlayer>();
+    assert_eq!(player.get_item(), "", "nothing plays yet");
+
+    // Its button plays it, which the backend does; meanwhile it shows as
+    // started.
+    player.invoke_toggle("d:1".into());
+    assert_eq!(player.get_item(), "d:1");
+    assert!(player.get_playing() && player.get_loading());
+    assert_eq!(player.get_time(), "0:00 / 0:05");
+    let reach = adapter.borrow_mut().apply(Event::VoiceMessage(Some(
+        yapfast_core::chat::VoicePlayback {
+            room: "general".into(),
+            item: "d:1".into(),
+            loading: false,
+            playing: true,
+            position_ms: 2_740,
+            error: None,
+        },
+    )));
+    adapter.borrow_mut().show(&window, reach);
+    assert!(!player.get_loading());
+    assert_eq!(player.get_progress(), 0.5);
+    assert_eq!(player.get_time(), "0:02 / 0:05");
+
+    // Again, it pauses where it is.
+    player.invoke_toggle("d:1".into());
+    assert!(!player.get_playing());
+    assert_eq!(player.get_progress(), 0.5);
+    // At its end it goes back to its start, showing how long it is.
+    let reach = adapter.borrow_mut().apply(Event::VoiceMessage(Some(
+        yapfast_core::chat::VoicePlayback {
+            room: "general".into(),
+            item: "d:1".into(),
+            ..Default::default()
+        },
+    )));
+    adapter.borrow_mut().show(&window, reach);
+    assert!(!player.get_playing());
+    assert_eq!(
+        (player.get_progress(), player.get_time().as_str()),
+        (0.0, "")
+    );
+
+    // Its speed button goes from 1x to 1.5x to 2x and back; its volume
+    // stays as set.
+    let speeds: Vec<String> = (0..4)
+        .map(|_| {
+            let speed = player.get_speed().to_string();
+            player.invoke_cycle_speed();
+            speed
+        })
+        .collect();
+    assert_eq!(speeds, ["1x", "1.5x", "2x", "1x"]);
+    player.invoke_change_volume(0.25);
+    assert_eq!(player.get_volume(), 0.25);
+}
+
+#[test]
+fn a_voice_messages_speed_and_volume_slide_out_while_pointed_at() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    let window = showing(vec![ChatMessage {
+        author: "Sam".into(),
+        attachments: vec![yapfast_core::chat::Attachment {
+            name: "voice-message.ogg".into(),
+            size: Some(36_000),
+            image: false,
+            dimensions: None,
+            preview: None,
+            preview_failed: false,
+            placement: Placement::Message,
+            gif: None,
+            spoiler: false,
+            video: false,
+            url: None,
+        }],
+        voice: Some(yapfast_core::chat::VoiceMessage {
+            duration_ms: 5_000,
+            waveform: [128; 64].into(),
+        }),
+        ..Default::default()
+    }]);
+    let cycled = Rc::new(Cell::new(0));
+    let count = cycled.clone();
+    window
+        .global::<VoicePlayer>()
+        .on_cycle_speed(move || count.set(count.get() + 1));
+    let wait = |ms| {
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(ms));
+        settle(&window);
+    };
+    let point = |x: f32, y: f32| {
+        window.window().dispatch_event(WindowEvent::PointerMoved {
+            position: slint::LogicalPosition::new(x, y),
+        });
+    };
+    let click = |x: f32, y: f32| {
+        let (position, button) = (slint::LogicalPosition::new(x, y), PointerEventButton::Left);
+        let dispatch = |event| window.window().dispatch_event(event);
+        dispatch(WindowEvent::PointerPressed { position, button });
+        dispatch(WindowEvent::PointerReleased { position, button });
+    };
+
+    // With animations off they always show: the speed button is somewhere
+    // along the message, found from the left, before the volume button.
+    window.global::<Motion>().set_never(true);
+    settle(&window);
+    let speed = (300..1000)
+        .step_by(6)
+        .flat_map(|x| (60..680).step_by(6).map(move |y| (x as f32, y as f32)))
+        .find(|&(x, y)| {
+            click(x, y);
+            cycled.get() > 0
+        })
+        .expect("the speed button shows");
+
+    // With them on, they're folded away until the pointer comes, then slide
+    // out.
+    window.global::<Motion>().set_never(false);
+    window.invoke_focus_composer();
+    point(1100., 40.);
+    wait(300);
+    let before = cycled.get();
+    click(speed.0, speed.1);
+    assert_eq!(cycled.get(), before, "folded away as the pointer comes");
+    wait(300);
+    click(speed.0, speed.1);
+    assert_eq!(cycled.get(), before + 1, "out while pointed at");
+    point(1100., 40.);
+    wait(300);
+    click(speed.0, speed.1);
+    assert_eq!(cycled.get(), before + 1, "folded again once it left");
+}
+
+#[test]
 fn the_sticker_picker_lists_the_servers_stickers_above_the_packs() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();
