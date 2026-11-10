@@ -5,7 +5,7 @@ import { Theme, Label, Middle, Popup } from "theme.slint";
 import { ActionButton, Avatar, IconButton, MenuItem, TextField, Motion, StatusText, ServerTagChip, PictureStore, StyledName, NameStyleRow } from "controls.slint";
 import { Choices, Picker, UnsavedBar } from "settings.slint";
 import { NameStyles } from "controls.slint";
-import { ProfileData, ProfileHeading, ProfileTitle, ActivityCard, ProfileBadge, ProfileBadgeRow, BoardCard, WishlistCard } from "people.slint";
+import { ProfileData, ProfileHeading, ProfileTitle, ActivityCard, ProfileBadge, ProfileBadgeRow, BoardCard, WishlistCard, ProfileTheme } from "people.slint";
 
 // What an invite dialog shows: whom it invites where, and the link once
 // Discord made it.
@@ -955,6 +955,12 @@ component ColourPopover inherits Rectangle {
 // in Yapfast yet, and say so rather than offer buttons that do nothing.
 component ProfileTabs inherits Rectangle {
     in property <ProfileData> data;
+    /// Its text and tiles, which the profile's theme sets.
+    in property <color> ink: Theme.text;
+    in property <color> ink2: Theme.secondary;
+    in property <color> ink3: Theme.muted;
+    in property <color> tile: Theme.raised;
+    in property <color> line: Theme.line;
     callback open-link(string);
     callback open-wishlist;
     property <int> page: 0;
@@ -976,7 +982,7 @@ component ProfileTabs inherits Rectangle {
                 for tab[index] in ["Board", "Activity", "Wishlist"]: VerticalLayout {
                     spacing: 8px;
                     Text {
-                        text: tab; font-size: 14px; font-weight: 600; color: root.page == index ? Theme.text : Theme.secondary;
+                        text: tab; font-size: 14px; font-weight: 600; color: root.page == index ? root.ink : root.ink2;
                         TouchArea {
                             mouse-cursor: MouseCursor.pointer;
                             clicked => {
@@ -985,17 +991,17 @@ component ProfileTabs inherits Rectangle {
                             }
                         }
                     }
-                    Rectangle { height: 2px; background: root.page == index ? Theme.text : transparent; animate background { duration: Theme.quick; } }
+                    Rectangle { height: 2px; background: root.page == index ? root.ink : transparent; animate background { duration: Theme.quick; } }
                 }
             }
-            Rectangle { height: 1px; background: Theme.line; }
+            Rectangle { height: 1px; background: root.line; }
         }
         if root.page == 1: VerticalLayout {
             spacing: 10px;
-            Text { text: "Current activity"; color: Theme.secondary; font-size: 13px; font-weight: 600; }
-            if root.data.activities.length == 0: Text { text: "Nothing going on right now."; color: Theme.muted; font-size: 13px; }
+            Text { text: "Current activity"; color: root.ink2; font-size: 13px; font-weight: 600; }
+            if root.data.activities.length == 0: Text { text: "Nothing going on right now."; color: root.ink3; font-size: 13px; }
             for activity in root.data.activities: ActivityCard {
-                activity: activity;
+                activity: activity; ink: root.ink; ink2: root.ink2; ink3: root.ink3;
                 open-link(url) => { root.open-link(url); }
             }
         }
@@ -1006,11 +1012,11 @@ component ProfileTabs inherits Rectangle {
         content-height: board.preferred-height;
         board := VerticalLayout {
             width: board-scroll.visible-width; padding-right: 14px; padding-bottom: 14px; spacing: 12px; alignment: start;
-            if root.data.board-note != "": Text { text: root.data.board-note; color: Theme.secondary; font-size: 13px; wrap: word-wrap; }
-            if root.data.board-note == "" && root.data.widgets.length == 0: Text { text: "Nothing on your board yet."; color: Theme.secondary; font-size: 13px; wrap: word-wrap; }
-            if root.data.widgets.length > 0: Text { text: "Your Widgets"; color: Theme.secondary; font-size: 13px; font-weight: 600; }
-            if root.data.board-note == "": Text { text: root.coming-soon; color: Theme.muted; font-size: 12px; wrap: word-wrap; }
-            for widget in root.data.widgets: BoardCard { widget: widget; }
+            if root.data.board-note != "": Text { text: root.data.board-note; color: root.ink2; font-size: 13px; wrap: word-wrap; }
+            if root.data.board-note == "" && root.data.widgets.length == 0: Text { text: "Nothing on your board yet."; color: root.ink2; font-size: 13px; wrap: word-wrap; }
+            if root.data.widgets.length > 0: Text { text: "Your Widgets"; color: root.ink2; font-size: 13px; font-weight: 600; }
+            if root.data.board-note == "": Text { text: root.coming-soon; color: root.ink3; font-size: 12px; wrap: word-wrap; }
+            for widget in root.data.widgets: BoardCard { widget: widget; tile: root.tile; ink: root.ink; ink2: root.ink2; ink3: root.ink3; }
         }
     }
     if root.page == 2: wishlist-scroll := ScrollView {
@@ -1024,10 +1030,10 @@ component ProfileTabs inherits Rectangle {
         content-height: wishlist.preferred-height;
         wishlist := VerticalLayout {
             width: wishlist-scroll.visible-width; padding-right: 14px; padding-bottom: 14px; spacing: 12px; alignment: start;
-            if wishlist-scroll.count > 0: Text { text: wishlist-scroll.count + (wishlist-scroll.count == 1 ? " Item" : " Items"); color: Theme.secondary; font-size: 13px; font-weight: 600; }
-            if root.data.wishlist-note != "": Text { text: root.data.wishlist-note; color: Theme.secondary; font-size: 13px; wrap: word-wrap; }
-            if root.data.wishlist-note == "" && wishlist-scroll.count == 0: Text { text: "Nothing on your wishlist yet."; color: Theme.secondary; font-size: 13px; wrap: word-wrap; }
-            if root.data.wishlist-note == "" || wishlist-scroll.count > 0: Text { text: root.coming-soon; color: Theme.muted; font-size: 12px; wrap: word-wrap; }
+            if wishlist-scroll.count > 0: Text { text: wishlist-scroll.count + (wishlist-scroll.count == 1 ? " Item" : " Items"); color: root.ink2; font-size: 13px; font-weight: 600; }
+            if root.data.wishlist-note != "": Text { text: root.data.wishlist-note; color: root.ink2; font-size: 13px; wrap: word-wrap; }
+            if root.data.wishlist-note == "" && wishlist-scroll.count == 0: Text { text: "Nothing on your wishlist yet."; color: root.ink2; font-size: 13px; wrap: word-wrap; }
+            if root.data.wishlist-note == "" || wishlist-scroll.count > 0: Text { text: root.coming-soon; color: root.ink3; font-size: 12px; wrap: word-wrap; }
             if wishlist-scroll.count > 0: Rectangle {
                 height: ceil(wishlist-scroll.count / 2) * (wishlist-scroll.card-height + wishlist-scroll.gap) - wishlist-scroll.gap;
                 for item[index] in root.data.wishlist: WishlistCard {
@@ -1035,7 +1041,7 @@ component ProfileTabs inherits Rectangle {
                     y: floor(index / 2) * (wishlist-scroll.card-height + wishlist-scroll.gap);
                     width: wishlist-scroll.card-width;
                     height: wishlist-scroll.card-height;
-                    item: item;
+                    item: item; tile: root.tile; ink: root.ink; ink3: root.ink3;
                 }
             }
         }
@@ -1110,8 +1116,9 @@ component NameStyleWindow inherits Rectangle {
     property <string> prism5: "5966f2";
     property <int> open-handle: 0;
     property <bool> bar-shown: root.effect == 2 || root.effect == 7;
-    property <color> card-top: !root.has-theme ? Theme.raised : root.theme-top.mix(#000000, 0.4);
-    property <color> card-bottom: !root.has-theme ? Theme.raised : root.theme-bottom.mix(#000000, 0.4);
+    property <bool> theme-light: root.has-theme && ProfileTheme.light(root.theme-top);
+    property <color> card-top: !root.has-theme ? Theme.raised : ProfileTheme.wash(root.theme-top, root.theme-light);
+    property <color> card-bottom: !root.has-theme ? Theme.raised : ProfileTheme.wash(root.theme-bottom, root.theme-light);
     property <bool> changed-any: root.font != root.start-font || root.effect != max(1, root.start-effect) || root.paint.key != root.start-key;
     // The colour picker's place, as hue, saturation and value.
     property <float> pick-hue;
@@ -1321,10 +1328,10 @@ component NameStyleWindow inherits Rectangle {
                         Avatar { size: 80px; initial: root.initial; tint: root.tint; picture: root.picture; }
                         if root.presence != "": StatusDot { x: 56px; y: 56px; width: 26px; height: 26px; presence: root.presence; ring: root.card-top; }
                     }
-                    StyledName { x: 18px; y: 145px; height: self.preferred-height; text: root.name; styles: root.style; font-size: 21px; font-weight: 700; }
+                    StyledName { x: 18px; y: 145px; height: self.preferred-height; text: root.name; styles: root.style; font-size: 21px; font-weight: 700; ink: root.has-theme ? ProfileTheme.ink(root.theme-light) : Theme.text; }
                     HorizontalLayout {
                         x: 18px; y: 176px; width: parent.width - 36px; height: 26px; spacing: 6px; alignment: start;
-                        Text { text: root.handle; color: #ffffff; font-size: 13px; vertical-alignment: center; overflow: elide; }
+                        Text { text: root.handle; color: root.has-theme ? ProfileTheme.ink(root.theme-light) : #ffffff; font-size: 13px; vertical-alignment: center; overflow: elide; }
                         for badge[index] in root.badges: Rectangle {
                             width: index < 3 ? 22px : 0px; visible: index < 3;
                             ProfileBadge { width: 20px; height: 20px; badge: badge; }
@@ -1493,9 +1500,17 @@ export component ProfileEditorDialog inherits Rectangle {
     /// Which theme colour's picker is open: 1 the top, 2 the bottom.
     property <int> theme-handle;
     property <bool> themed: root.prompt.main && root.prompt.preview.has-theme;
-    property <color> card-top: root.prompt.preview.theme-primary.mix(#000000, 0.4);
-    property <color> card-bottom: root.prompt.preview.theme-secondary.mix(#000000, 0.4);
+    property <bool> theme-light: root.themed && ProfileTheme.light(root.prompt.preview.theme-primary);
+    property <color> card-top: ProfileTheme.wash(root.prompt.preview.theme-primary, root.theme-light);
+    property <color> card-bottom: ProfileTheme.wash(root.prompt.preview.theme-secondary, root.theme-light);
+    /// The text on the card, which a theme sets whatever Yapfast's own theme is.
+    property <color> ink: root.themed ? ProfileTheme.ink(root.theme-light) : Theme.text;
+    property <color> ink2: root.themed ? ProfileTheme.ink2(root.theme-light) : Theme.secondary;
+    property <color> ink3: root.themed ? ProfileTheme.ink3(root.theme-light) : Theme.muted;
     property <color> plate: root.themed ? root.card-top : Theme.sidebar;
+    /// The status thought, white on a light theme as on the card.
+    property <color> bubble: !root.themed ? Theme.raised : root.theme-light ? #ffffff : #232427;
+    property <color> bubble-edge: !root.themed ? Theme.edge : root.theme-light ? #00000026 : #404044;
     callback copy-id;
     callback open-wishlist;
     callback choose-tag(string);
@@ -1681,28 +1696,28 @@ export component ProfileEditorDialog inherits Rectangle {
                                     // What you're up to, a thought beside the picture.
                                     if root.prompt.main: Rectangle {
                                         x: root.avatar-size + 14px; y: 38px; width: 10px; height: 10px; border-radius: 5px;
-                                        background: Theme.raised; border-color: Theme.edge; border-width: 1px;
+                                        background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
                                     }
                                     if root.prompt.main: Rectangle {
                                         x: root.avatar-size + 28px; y: 45px; width: 20px; height: 20px; border-radius: 10px;
-                                        background: Theme.raised; border-color: Theme.edge; border-width: 1px;
+                                        background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
                                     }
                                     if root.prompt.main: Rectangle {
                                         x: root.avatar-size + 18px; y: 53px;
                                         width: min(180px, thought.preferred-width + 26px);
                                         height: thought.preferred-width > 154px ? 54px : 36px;
-                                        border-radius: 16px; background: Theme.raised; border-color: Theme.edge; border-width: 1px;
+                                        border-radius: 16px; background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
                                         accessible-role: button;
                                         accessible-label: root.has-status ? "Change custom status" : "Set a custom status";
                                         // The bump joins the bubble with no line between them.
-                                        Rectangle { x: 11px; y: 0px; width: 18px; height: 2px; background: Theme.raised; }
+                                        Rectangle { x: 11px; y: 0px; width: 18px; height: 2px; background: root.bubble; }
                                         VerticalLayout {
                                             alignment: center;
                                             padding-left: 13px; padding-right: 13px;
                                             thought := StatusText {
                                                 text: root.has-status ? root.status-text : "Set a custom status";
                                                 emoji-url: root.has-status ? root.status-emoji : "";
-                                                color: root.has-status ? Theme.text : Theme.secondary; font-size: 14px; wrap: word-wrap; max-height: 40px;
+                                                color: root.has-status ? root.ink : root.ink2; font-size: 14px; wrap: word-wrap; max-height: 40px;
                                             }
                                         }
                                         TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.edit-status(); } }
@@ -1805,7 +1820,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                         spacing: 6px; alignment: start;
                                         StyledName {
                                             text: root.prompt.loading ? "Loading..." : root.prompt.preview.name;
-                                            styles: root.prompt.preview.name-style; ink: Theme.text; font-weight: 700;
+                                            styles: root.prompt.preview.name-style; ink: root.ink; font-weight: 700;
                                             font-size: root.prompt.main ? 24px : 26px;
                                             HoverEdit {
                                                 x: -7px; y: (parent.height - self.height) / 2; width: max(136px, parent.width + 14px + 28px); height: 40px;
@@ -1827,11 +1842,11 @@ export component ProfileEditorDialog inherits Rectangle {
                                     // The username, then the pronouns or their field.
                                     HorizontalLayout {
                                         spacing: 6px; alignment: start;
-                                        Middle { Text { text: root.prompt.handle + " ·"; color: Theme.secondary; font-size: 14px; font-weight: 500; } }
+                                        Middle { Text { text: root.prompt.handle + " ·"; color: root.ink2; font-size: 14px; font-weight: 500; } }
                                         if root.editing != 2: Middle {
                                             Text {
                                                 text: root.pronouns != "" ? root.pronouns : root.prompt.pronouns-fallback != "" ? root.prompt.pronouns-fallback : "Add pronouns";
-                                                color: root.pronouns != "" || root.prompt.pronouns-fallback != "" ? Theme.secondary : Theme.muted;
+                                                color: root.pronouns != "" || root.prompt.pronouns-fallback != "" ? root.ink2 : root.ink3;
                                                 font-size: 14px; font-weight: 500; overflow: elide;
                                                 HoverEdit {
                                                     x: -5px; y: (parent.height - self.height) / 2; width: parent.width + 10px; height: 32px;
@@ -1853,14 +1868,14 @@ export component ProfileEditorDialog inherits Rectangle {
                                         if root.prompt.main && root.editing != 2: Middle {
                                             tag-chip := Rectangle {
                                                 height: 24px; width: tag-row.preferred-width; border-radius: 7px;
-                                                background: tag-touch.has-hover ? Theme.text.with-alpha(0.12) : Theme.text.with-alpha(0.07);
+                                                background: tag-touch.has-hover ? root.ink.with-alpha(0.12) : root.ink.with-alpha(0.07);
                                                 animate background { duration: 120ms; }
                                                 accessible-role: button; accessible-label: "Change server tag";
                                                 tag-row := HorizontalLayout {
                                                     padding-left: 7px; padding-right: 5px; spacing: 4px;
-                                                    if root.prompt.tag-text == "": Text { text: "Server Tag"; color: Theme.secondary; font-size: 12px; font-italic: true; vertical-alignment: center; }
+                                                    if root.prompt.tag-text == "": Text { text: "Server Tag"; color: root.ink2; font-size: 12px; font-italic: true; vertical-alignment: center; }
                                                     if root.prompt.tag-text != "": Middle { ServerTagChip { text: root.prompt.tag-text; badge: root.prompt.tag-icon; } }
-                                                    Image { source: @image-url("icons/chevron-down.svg"); width: 14px; image-fit: contain; colorize: Theme.secondary; }
+                                                    Image { source: @image-url("icons/chevron-down.svg"); width: 14px; image-fit: contain; colorize: root.ink2; }
                                                 }
                                                 tag-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { tag-menu.show(); } }
                                                 tag-menu := PopupWindow {
@@ -1967,19 +1982,19 @@ export component ProfileEditorDialog inherits Rectangle {
                                     spacing: 6px;
                                     HorizontalLayout {
                                         spacing: 6px; alignment: start;
-                                        Middle { ProfileHeading { text: root.prompt.main ? "Bio" : "ABOUT ME"; color: root.prompt.main ? Theme.text : Theme.muted; font-size: root.prompt.main ? 13px : 12px; font-weight: root.prompt.main ? 500 : 700; letter-spacing: root.prompt.main ? 0px : 0.6px; } }
+                                        Middle { ProfileHeading { text: root.prompt.main ? "Bio" : "ABOUT ME"; color: root.prompt.main ? root.ink : root.ink3; font-size: root.prompt.main ? 13px : 12px; font-weight: root.prompt.main ? 500 : 700; letter-spacing: root.prompt.main ? 0px : 0.6px; } }
                                         if !root.prompt.bio-enabled && !root.prompt.loading: Middle {
-                                            Image { source: @image-url("icons/lock.svg"); width: 13px; height: 13px; colorize: Theme.muted; }
+                                            Image { source: @image-url("icons/lock.svg"); width: 13px; height: 13px; colorize: root.ink3; }
                                         }
                                     }
                                     if root.editing != 3: Rectangle {
                                         height: bio-shown.preferred-height;
                                         bio-shown := VerticalLayout {
                                             if root.prompt.preview.has-bio: StyledText {
-                                                text: root.prompt.preview.bio; default-color: Theme.text; link-color: Theme.link;
+                                                text: root.prompt.preview.bio; default-color: root.ink; link-color: Theme.link;
                                             }
                                             if !root.prompt.preview.has-bio: Text {
-                                                text: root.prompt.bio-placeholder; color: Theme.muted; font-size: 14px; wrap: word-wrap;
+                                                text: root.prompt.bio-placeholder; color: root.ink3; font-size: 14px; wrap: word-wrap;
                                             }
                                         }
                                         HoverEdit {
@@ -2012,10 +2027,10 @@ export component ProfileEditorDialog inherits Rectangle {
                                             }
                                         }
                                         HorizontalLayout {
-                                            Label { text: "You can use markdown and links if you'd like."; horizontal-stretch: 1; }
+                                            Label { text: "You can use markdown and links if you'd like."; horizontal-stretch: 1; color: root.ink3; }
                                             Text {
                                                 text: root.prompt.bio-left < 0 ? "Too long by " + (-root.prompt.bio-left) : root.prompt.bio-left + " left";
-                                                color: root.prompt.bio-left < 0 ? Theme.danger : Theme.muted; font-size: 12px;
+                                                color: root.prompt.bio-left < 0 ? Theme.danger : root.ink3; font-size: 12px;
                                             }
                                         }
                                     }
@@ -2025,32 +2040,32 @@ export component ProfileEditorDialog inherits Rectangle {
                                 }
                                 if root.prompt.preview.created != "" || root.prompt.preview.joined != "": VerticalLayout {
                                     spacing: 6px;
-                                    ProfileTitle { text: "Member since"; }
+                                    ProfileTitle { text: "Member since"; color: root.ink; }
                                     HorizontalLayout {
                                         spacing: 24px; alignment: start;
                                         if root.prompt.preview.created != "": VerticalLayout {
-                                            Text { text: root.prompt.preview.created; color: Theme.text; font-size: root.prompt.main ? 15px : 14px; font-weight: root.prompt.main ? 400 : 500; }
-                                            if !root.prompt.main: Text { text: "On Discord"; color: Theme.muted; font-size: 12px; }
+                                            Text { text: root.prompt.preview.created; color: root.ink; font-size: root.prompt.main ? 15px : 14px; font-weight: root.prompt.main ? 400 : 500; }
+                                            if !root.prompt.main: Text { text: "On Discord"; color: root.ink3; font-size: 12px; }
                                         }
                                         if root.prompt.preview.joined != "": VerticalLayout {
-                                            Text { text: root.prompt.preview.joined; color: Theme.text; font-size: 14px; font-weight: 500; }
-                                            Text { text: "In this server"; color: Theme.muted; font-size: 12px; }
+                                            Text { text: root.prompt.preview.joined; color: root.ink; font-size: 14px; font-weight: 500; }
+                                            Text { text: "In this server"; color: root.ink3; font-size: 12px; }
                                         }
                                     }
                                 }
                                 if root.prompt.main: VerticalLayout {
                                     spacing: 6px;
-                                    ProfileHeading { text: "Connections"; color: root.prompt.main ? Theme.text : Theme.muted; font-size: root.prompt.main ? 13px : 12px; font-weight: root.prompt.main ? 500 : 700; letter-spacing: root.prompt.main ? 0px : 0.6px; }
+                                    ProfileHeading { text: "Connections"; color: root.prompt.main ? root.ink : root.ink3; font-size: root.prompt.main ? 13px : 12px; font-weight: root.prompt.main ? 500 : 700; letter-spacing: root.prompt.main ? 0px : 0.6px; }
                                     Text {
-                                        text: "+  Add Connection"; color: Theme.secondary; font-size: 14px; font-weight: 500;
+                                        text: "+  Add Connection"; color: root.ink2; font-size: 14px; font-weight: 500;
                                         TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.open-link("https://discord.com/settings/connections"); } }
                                     }
                                 }
                                 if root.prompt.main: VerticalLayout {
                                     spacing: 6px;
-                                    ProfileHeading { text: "Note (only visible to you)"; color: root.prompt.main ? Theme.text : Theme.muted; font-size: root.prompt.main ? 13px : 12px; font-weight: root.prompt.main ? 500 : 700; letter-spacing: root.prompt.main ? 0px : 0.6px; }
+                                    ProfileHeading { text: "Note (only visible to you)"; color: root.prompt.main ? root.ink : root.ink3; font-size: root.prompt.main ? 13px : 12px; font-weight: root.prompt.main ? 500 : 700; letter-spacing: root.prompt.main ? 0px : 0.6px; }
                                     Text {
-                                        text: "Click to add a note"; color: Theme.muted; font-size: 15px; font-italic: true;
+                                        text: "Click to add a note"; color: root.ink3; font-size: 15px; font-italic: true;
                                         HoverEdit {
                                             x: -7px; y: (parent.height - self.height) / 2; width: 281px; height: 28px;
                                             label: "Add a note"; cursor: MouseCursor.text;
@@ -2073,7 +2088,9 @@ export component ProfileEditorDialog inherits Rectangle {
                 }
                     }
                     if root.tabs-shown: ProfileTabs {
-                        data: root.prompt.preview;
+                        data: root.prompt.preview; ink: root.ink; ink2: root.ink2; ink3: root.ink3;
+                        tile: !root.themed ? Theme.raised : root.theme-light ? #ffffff3d : #ffffff14;
+                        line: root.themed ? root.ink.transparentize(0.88) : Theme.line;
                         open-link(url) => { root.open-link(url); }
                         open-wishlist => { root.open-wishlist(); }
                     }

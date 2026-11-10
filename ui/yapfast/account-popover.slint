@@ -1,7 +1,7 @@
 import { ScrollView } from "../scrollview.slint";
 import { Theme, Middle } from "../theme.slint";
 import { Avatar, MenuItem, StatusText, StyledName, ServerTagChip, AccountLook } from "../controls.slint";
-import { ProfileData, ProfileBadge } from "../people.slint";
+import { ProfileData, ProfileBadge, ProfileTheme } from "../people.slint";
 import { StatusDot } from "../rail.slint";
 import { StatusOption } from "../dialogs.slint";
 
@@ -23,6 +23,10 @@ export component AccountPopover inherits Rectangle {
     /// The account's own profile; its id is empty until it has come.
     in property <ProfileData> profile;
     property <bool> themed: root.profile.has-theme;
+    property <bool> light: root.themed && ProfileTheme.light(root.profile.theme-primary);
+    property <color> theme-start: ProfileTheme.wash(root.profile.theme-primary, root.light);
+    /// The text on the theme, whatever Yapfast's own theme is.
+    property <color> ink: root.themed ? ProfileTheme.ink(root.light) : Theme.text;
     /// Opened, so the profile can be asked for.
     callback opened;
     callback open-link(string);
@@ -37,7 +41,7 @@ export component AccountPopover inherits Rectangle {
     callback game-duration-due;
     property <string> presence-label: root.status == "idle" ? "Idle" : root.status == "dnd" ? "Do Not Disturb" : root.status == "invisible" ? "Invisible" : "Online";
     background: root.themed
-        ? @linear-gradient(180deg, root.profile.theme-primary.mix(#000000, 0.4) 0%, root.profile.theme-secondary.mix(#000000, 0.4) 100%)
+        ? @linear-gradient(180deg, root.theme-start 0%, ProfileTheme.wash(root.profile.theme-secondary, root.light) 100%)
         : Theme.panel;
     border-radius: 8px;
     border-width: 1px; border-color: root.themed ? root.profile.theme-primary : Theme.line;
@@ -51,7 +55,7 @@ export component AccountPopover inherits Rectangle {
             header := Rectangle {
                 height: 156px;
                 property <color> banner-colour: root.profile.has-accent ? root.profile.accent : root.themed ? root.profile.theme-primary : Theme.sunken;
-                property <color> ring: root.themed ? root.profile.theme-primary.mix(#000000, 0.4) : Theme.panel;
+                property <color> ring: root.themed ? root.theme-start : Theme.panel;
                 Rectangle {
                     y: 0px; height: 80px; background: header.banner-colour;
                     border-top-left-radius: 8px; border-top-right-radius: 8px; clip: true;
@@ -65,9 +69,9 @@ export component AccountPopover inherits Rectangle {
                 }
                 HorizontalLayout {
                     x: 16px; y: 128px; width: parent.width - 32px; height: 24px; spacing: 6px; alignment: start;
-                    if root.profile.name-style.length == 0: Text { text: root.name; color: Theme.text; font-size: 20px; font-weight: 700; overflow: elide; }
-                    if root.profile.name-style.length > 0: StyledName { text: root.name; styles: root.profile.name-style; ink: Theme.text; font-size: 20px; font-weight: 700; }
-                    if root.profile.tag != "": Middle { ServerTagChip { text: root.profile.tag; badge: root.profile.tag-badge; } }
+                    if root.profile.name-style.length == 0: Text { text: root.name; color: root.ink; font-size: 20px; font-weight: 700; overflow: elide; }
+                    if root.profile.name-style.length > 0: StyledName { text: root.name; styles: root.profile.name-style; ink: root.ink; font-size: 20px; font-weight: 700; }
+                    if root.profile.tag != "": Middle { ServerTagChip { text: root.profile.tag; badge: root.profile.tag-badge; fill: root.light ? #ffffff3d : #97979f33; text-color: root.themed ? root.ink : Theme.text; } }
                 }
             }
             // Its badges, in Discord's pill.
@@ -88,7 +92,7 @@ export component AccountPopover inherits Rectangle {
             }
             VerticalLayout {
                 padding: 16px; padding-top: 8px; spacing: 12px;
-                if root.has-custom-status: StatusText { text: root.custom-text; emoji-url: root.custom-emoji; }
+                if root.has-custom-status: StatusText { text: root.custom-text; emoji-url: root.custom-emoji; color: root.themed ? root.ink : Theme.muted; }
                 if root.game-name != "": Rectangle {
                     height: 80px; border-radius: 8px; background: Theme.raised;
                     VerticalLayout {

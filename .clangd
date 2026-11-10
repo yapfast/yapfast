@@ -1,0 +1,14 @@
+# The C sources under crates/yapfast-core/native compile with headers the dev
+# shell provides — dav1d, FFmpeg, libvpx and libyuv — and which clangd has none
+# of outside it. Their absence is not a fault in these files, so the errors that
+# follow from it are left to the build, which does have them.
+If:
+  PathMatch: .*/crates/yapfast-core/native/.*[.](c|cc)$
+Diagnostics:
+  Suppress:
+    - pp_file_not_found
+    - unknown_typename
+    - undeclared_var_use
+    - expected_class_name
+    - -Wimplicit-function-declaration
+    - fatal_too_many_errors

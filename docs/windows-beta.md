@@ -82,11 +82,25 @@ each device by its endpoint id (`{0.0.0.00000000}.{…}` for speakers,
 by that id; none is the console default. Go Live's sound is in
 [Go Live on Windows](#go-live-on-windows).
 
+Microphones open in raw mode (`AUDCLNT_STREAMOPTIONS_RAW`, through
+`IAudioClient2::SetClientProperties`), which skips the effects Windows and the
+sound driver run on them: what Sound settings calls "device default effects"
+or "audio enhancements", often the driver's own noise suppression or
+beamforming. Under Yapfast's suppressor they muffled a voice that Discord's
+client left clear. A device without raw mode opens with its effects. Settings ›
+Voice's "Let Windows process your microphone in Discord calls"
+(`windows_microphone_effects`, off unless turned on, shown on Windows only)
+keeps them, for a laptop microphone that needs its driver's beamforming; a
+call's microphone opens again within 2 s of the switch. Matrix calls record
+through LiveKit's WebRTC, which opens the microphone itself, with the effects.
+
 Wine's capture starts 0.3–1 s after it's opened, so the first moments a
 microphone hears are lost there. Real Windows needs checking for that, along
 with Bluetooth headsets, a device unplugged during a call, a default device
 changed during a call, exclusive-mode applications, and whether the
-communications ducking setting turns other sound down during a call.
+communications ducking setting turns other sound down during a call. Wine has
+no microphone effects, so raw mode, and a device without it, need checking on
+Windows too.
 
 ## Go Live on Windows
 

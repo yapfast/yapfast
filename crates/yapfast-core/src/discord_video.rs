@@ -25,7 +25,7 @@ use crate::{
     camera::{self, Camera},
     decode::Decoder,
     encode::{CLOCK, Effort, Encoder},
-    picture::{Feed, I420},
+    picture::{Feed, I420, Turn},
 };
 
 /// The camera's bitrate, in kbit/s: about what Discord's clients send 720p
@@ -194,23 +194,29 @@ impl Watching {
     /// does, with `others` in the call besides this account, and for none
     /// out of sight, when that changed.
     pub fn ask(&mut self, call: &mut Call, others: usize) {
-        let wants: HashMap<u64, (u8, u32)> = {
-            let feeds = lock(&self.feeds);
-            feeds
-                .iter()
-                .filter_map(|(&user, feed)| {
-                    let (width, height) = feed.shown_at()?;
-                    let pixels = width * height;
-                    let quality = quality(feeds.len(), others, feed.shown_large(), pixels);
-                    Some((user, (quality, pixels)))
-                })
-                .collect()
-        };
+        let wants = wants(&lock(&self.feeds), others);
         if wants != self.asked {
             self.asked = wants.clone();
             call.want_video(wants);
         }
     }
+}
+
+/// The quality and pixels asked for each camera in sight: by its tile's
+/// size in physical pixels, which the UI gives at the window's scale,
+/// whichever way the camera's frames come. A phone's picture, turned
+/// upright, shows narrower than its tile, so the tile's pixels are at least
+/// what it shows at, never the smaller count of a picture on its side.
+fn wants(feeds: &HashMap<u64, Feed>, others: usize) -> HashMap<u64, (u8, u32)> {
+    feeds
+        .iter()
+        .filter_map(|(&user, feed)| {
+            let (width, height) = feed.shown_at()?;
+            let pixels = width * height;
+            let quality = quality(feeds.len(), others, feed.shown_large(), pixels);
+            Some((user, (quality, pixels)))
+        })
+        .collect()
 }
 
 /// The quality Discord's desktop app asks for a camera when `cameras` film
@@ -251,7 +257,7 @@ fn step(cameras: usize, pixels: u32) -> u8 {
 /// loses it when the tile goes.
 fn decode(frames: &Receiver<VideoFrame>, feeds: &Mutex<HashMap<u64, Feed>>) {
     // Each camera's decoder, the feed it writes, and the sink writing it.
-    type Sink = Box<dyn FnMut(&I420<'_>) + Send>;
+    type Sink = Box<dyn FnMut(&I420<'_>, Turn) + Send>;
     let mut decoders: HashMap<u64, (Decoder, Feed, Sink)> = HashMap::new();
     let mut pruned = Instant::now();
     loop {
@@ -280,7 +286,7 @@ fn decode(frames: &Receiver<VideoFrame>, feeds: &Mutex<HashMap<u64, Feed>>) {
                     // keeps frames of its own.
                     match Decoder::with_threads(frame.codec, 1) {
                         Ok(decoder) => {
-                            let sink = Box::new(feed.sink());
+                            let sink = Box::new(feed.turning_sink(false));
                             decoders.insert(frame.user, (decoder, feed, sink));
                         }
                         Err(error) => {
@@ -292,8 +298,13 @@ fn decode(frames: &Receiver<VideoFrame>, feeds: &Mutex<HashMap<u64, Feed>>) {
                 let Some((decoder, _, sink)) = decoders.get_mut(&frame.user) else {
                     continue;
                 };
+                // A phone films on its side, and says how to turn it.
+                let turn = Turn {
+                    turns: frame.orientation.turns,
+                    flip: frame.orientation.flip,
+                };
                 match decoder.decode(&frame.data) {
-                    Ok(Some(picture)) => sink(&picture.i420()),
+                    Ok(Some(picture)) => sink(&picture.i420(), turn),
                     Ok(None) => {}
                     Err(error) => {
                         tracing::debug!(%error, "dropped a camera's decoder");
@@ -351,6 +362,45 @@ mod tests {
             quality(1, 1, true, 320 * 180),
             40,
             "one camera goes by its tile, in focus too"
+        );
+    }
+
+    /// A phone's camera, turned upright in its tile, is asked for by the
+    /// whole tile in physical pixels, as a camera filming the right way up.
+    #[test]
+    fn a_turned_camera_is_asked_for_by_its_tile() {
+        let feed = Feed::new();
+        // A 400 by 225 point tile at a scale of 1.5.
+        feed.show_at(Some((600, 338)));
+        let mut sink = feed.turning_sink(false);
+        // 8 by 4, sent on its side: upright it's 4 by 8.
+        let (y, u, v) = ([128u8; 32], [128u8; 8], [128u8; 8]);
+        let picture = I420 {
+            width: 8,
+            height: 4,
+            y: &y,
+            u: &u,
+            v: &v,
+            strides: [8, 4, 4],
+        };
+        sink(
+            &picture,
+            Turn {
+                turns: 1,
+                flip: false,
+            },
+        );
+        assert_eq!(feed.take(|buffer| buffer.size()), Some((4, 8)), "upright");
+        assert_eq!(
+            feed.size_for(720, 1280),
+            Some((190, 338)),
+            "fits the tile's height"
+        );
+        let feeds = HashMap::from([(7, feed)]);
+        assert_eq!(
+            wants(&feeds, 1)[&7],
+            (quality(1, 1, false, 600 * 338), 600 * 338),
+            "the tile's pixels"
         );
     }
 }

@@ -69,7 +69,18 @@ fn events(adapter: &Adapter, server: &str) -> Menu {
                 ..Default::default()
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
+    // A server without events opens the row all the same, as Discord's does.
+    if rows.is_empty() {
+        let none = MenuRow {
+            id: "event:none".into(),
+            text: "No upcoming events".into(),
+            plain: true,
+            disabled: true,
+            ..Default::default()
+        };
+        return (vec![none], Vec::new());
+    }
     (rows, Vec::new())
 }
 
