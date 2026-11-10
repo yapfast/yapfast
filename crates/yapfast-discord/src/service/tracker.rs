@@ -163,6 +163,10 @@ pub(super) struct Tracker {
     /// Whether the account shares the game it plays, from the settings, and
     /// the game it shows.
     pub(super) show_game: bool,
+    /// Whether Discord lets the account see age-restricted content, and
+    /// whether its settings offer age-restricted commands in DMs.
+    nsfw_allowed: bool,
+    nsfw_commands_in_dms: bool,
     pub(super) playing: Option<Arc<crate::own_activity::Playing>>,
     /// The soundboard's volume and join sounds, from the settings.
     soundboard_volume: Option<f32>,
@@ -213,6 +217,8 @@ impl Tracker {
             premium: premium_type(&ready["user"]),
             mfa: ready["user"]["mfa_enabled"].as_bool().unwrap_or_default(),
             email: ready["user"]["email"].is_string(),
+            nsfw_allowed: ready["user"]["nsfw_allowed"].as_bool().unwrap_or_default(),
+            nsfw_commands_in_dms: false,
             servers: ready::servers(ready).into_iter().map(Arc::new).collect(),
             published: HashMap::new(),
             emptied: HashMap::new(),
@@ -542,6 +548,7 @@ impl Tracker {
                     known.owner_id = update.owner_id;
                 }
                 known.premium_tier = update.premium_tier;
+                known.age_restricted = update.age_restricted;
                 known.role_icons_allowed = update.role_icons_allowed;
                 known.mfa_level = update.mfa_level;
                 known.default_level = update.default_level;
@@ -578,13 +585,16 @@ impl Tracker {
                 // Only this account's own USER_UPDATE has `email`, null
                 // for none.
                 let email = data.get("email").map_or(self.email, Value::is_string);
+                let nsfw = data["nsfw_allowed"].as_bool().unwrap_or(self.nsfw_allowed);
                 let changed = premium != self.premium
                     || mfa != self.mfa
                     || email != self.email
+                    || nsfw != self.nsfw_allowed
                     || shown(self) != before;
                 self.premium = premium;
                 self.mfa = mfa;
                 self.email = email;
+                self.nsfw_allowed = nsfw;
                 changed
             }
             // An outage, with `unavailable`, keeps the server as last known
@@ -1306,6 +1316,9 @@ impl Tracker {
         if let Some(shown) = read.show_game {
             self.show_game = shown;
         }
+        if let Some(offered) = read.nsfw_commands_in_dms {
+            self.nsfw_commands_in_dms = offered;
+        }
         let soundboard = crate::soundboard::read_settings(encoded);
         if let Some(volume) = soundboard.volume {
             self.soundboard_volume = Some(volume);
@@ -1933,6 +1946,8 @@ impl Tracker {
                 premium_type: self.premium,
                 mfa_enabled: self.mfa,
                 has_email: self.email,
+                nsfw_allowed: self.nsfw_allowed,
+                nsfw_commands_in_dms: self.nsfw_commands_in_dms,
             }),
             servers,
             folders: self.folders.clone(),

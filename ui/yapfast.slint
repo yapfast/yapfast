@@ -61,7 +61,8 @@ import { ChannelSettingsPrompt, ChannelSettingsScreen, OverwriteRow, ThreeStateR
 import { MfaChoice, MfaPrompt, MfaDialog } from "mfa.slint";
 import { FoundRow, PickRow, ThreadRow, HeaderSearch, PinsPopover, ThreadsPopover, AddPeoplePopover, SearchPanel, TopicPopover } from "header.slint";
 import { ThreadPanel, NewThreadPanel } from "thread.slint";
-import { BotSelectDialog, BotModalDialog, SelectChoice, ModalField } from "interactions.slint";
+import { BotSelectDropdown, BotModalDialog, SelectChoice, ModalField } from "interactions.slint";
+import { CommandChoice, CommandOptionPill, CommandList } from "app_commands.slint";
 import { PostTag, PostRow, PostTagChoice, ForumPanel } from "forum.slint";
 import { BrowseRow, BrowseScreen } from "browse.slint";
 
@@ -84,6 +85,7 @@ export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from 
 export { FoundRow, PickRow } from "header.slint";
 export { GifTile, GifFavorites } from "gifs.slint";
 export { SelectChoice, ModalField } from "interactions.slint";
+export { CommandChoice, CommandOptionPill } from "app_commands.slint";
 
 export component YapfastWindow inherits Window {
     /// "Yapfast", or "(3) Yapfast" with mentions and DMs waiting, as a browser
@@ -452,9 +454,10 @@ export component YapfastWindow inherits Window {
     in property <string> bot-select-query;
     in property <int> bot-select-min;
     in property <int> bot-select-max;
+    /// A menu of members, roles or channels, which typing searches.
+    in property <bool> bot-select-searchable;
     callback bot-select-toggle(int);
     callback bot-select-search(string);
-    callback bot-select-submit;
     callback bot-select-close;
     in property <bool> bot-modal-open;
     in property <string> bot-modal-heading;
@@ -464,8 +467,48 @@ export component YapfastWindow inherits Window {
     in property <string> bot-modal-error;
     callback bot-modal-field-edited(int, string);
     callback bot-modal-open-select(int);
+    /// A form's file upload, by its place, asks for files, or lets go of one.
+    callback bot-modal-choose-files(int);
+    callback bot-modal-remove-file(int, int);
     callback bot-modal-submit;
     callback bot-modal-close;
+    // Apps' commands (see app_commands.slint and src/ui/app_commands.rs).
+    /// The list over the composer: the `/` picker's commands, or the values
+    /// the focused option of the command being written may take, under a
+    /// heading that says which, or why there are none; the chosen row.
+    in property <bool> command-picker-open;
+    in property <[CommandChoice]> command-choices;
+    in property <string> command-heading;
+    /// The rows are commands rather than an option's values.
+    in property <bool> command-rows-are-commands;
+    in-out property <int> command-choice-index;
+    /// The command being written in the composer, without its `/`, its
+    /// options and the one the composer writes.
+    in property <string> command-name;
+    in property <[CommandOptionPill]> command-options;
+    in property <int> command-focus;
+    /// The composer writes this option; a file is wanted for this one;
+    /// Escape, or with `true` Backspace in the empty first option.
+    callback focus-command-option(int);
+    callback command-file(int);
+    callback close-command(bool);
+    /// The message commands a message's "Apps" submenu offers.
+    in property <[CommandChoice]> app-menu-commands;
+    /// The open room's command index came, so an open person's menu is
+    /// built again with its "Apps".
+    in property <bool> app-commands-ready;
+    /// A message's or a person's menu opened: their "Apps" needs the open
+    /// room's command index.
+    callback ask-app-commands();
+    /// The draft is `/` and this after it; a command picked by its place;
+    /// what was entered for an option; a command, by its id, run on a
+    /// message item or user, or as written with none; an ephemeral message
+    /// dismissed.
+    callback slash-query(string);
+    callback pick-command(int);
+    callback set-command-option(int, string);
+    callback run-app-command(string, string);
+    callback dismiss-ephemeral(string);
     in-out property <bool> sync-discord-reads;
     callback sync-discord-reads-toggled(bool);
     in-out property <bool> show-idle: true;
@@ -2044,8 +2087,14 @@ export component YapfastWindow inherits Window {
         root.anchor(x, y, 0px, 0px, true);
         root.menu-target = id;
         root.menu-person = person;
+        if person { root.ask-app-commands(); }
         root.prepare-menu(id, person);
         if root.menu-rows.length > 0 { context-menu.show(); }
+    }
+    changed app-commands-ready => {
+        if root.app-commands-ready && root.menu-person && context-menu.is-open {
+            root.prepare-menu(root.menu-target, true);
+        }
     }
     // The popup spans the menu and room for its submenus, which open to the
     // menu's right, or its left near the window's right edge. The menu opens
@@ -2161,6 +2210,7 @@ export component YapfastWindow inherits Window {
         root.menu-media = media;
         root.menu-video = video;
         root.menu-link = media >= 0 ? root.attachment-link(message.item, media) : root.link-at(root.anchor-x, root.anchor-y);
+        root.ask-app-commands();
         message-menu.show();
     }
     property <bool> picker-open: emoji-picker.is-open;
@@ -2403,17 +2453,26 @@ export component YapfastWindow inherits Window {
     }
     // From a button, the menu opens left of it, level with its top, or right of
     // it when there isn't room.
+    // An Apps submenu opens on the menu's right, or its left near the
+    // window's right edge; the menu stays where it would be without.
     message-menu := PopupWindow {
-        width: 224px; height: menu-content.content-height;
-        x: root.anchor-pointer ? max(8px, min(root.width - self.width - 8px, root.anchor-x))
-            : root.anchor-x - self.width - 8px >= 8px ? root.anchor-x - self.width - 8px
-            : max(8px, min(root.width - self.width - 8px, root.anchor-x + root.anchor-width + 8px));
+        property <length> menu-width: 224px;
+        property <length> left: root.anchor-pointer ? max(8px, min(root.width - self.menu-width - 8px, root.anchor-x))
+            : root.anchor-x - self.menu-width - 8px >= 8px ? root.anchor-x - self.menu-width - 8px
+            : max(8px, min(root.width - self.menu-width - 8px, root.anchor-x + root.anchor-width + 8px));
+        property <bool> flip: self.left + menu-content.content-width > root.width - 8px;
+        width: menu-content.content-width; height: menu-content.content-height;
+        x: self.flip ? self.left - (menu-content.content-width - self.menu-width) : self.left;
         y: !root.anchor-pointer ? max(8px, min(root.height - self.height - 8px, root.anchor-y))
             : root.anchor-y + 4px + self.height <= root.height - 8px ? root.anchor-y : max(8px, root.anchor-y - self.height - 4px);
         close-policy: PopupClosePolicy.close-on-click-outside;
         menu-content := MessageMenu {
             menu-message: root.menu-message; selection: root.menu-selection; menu-can-react: root.menu-can-react; menu-reactions: root.menu-reactions;
             can-start-thread: root.can-start-threads && !root.menu-aside;
+            // The open channel's commands, which a thread's message beside
+            // it isn't for.
+            app-commands: root.menu-aside ? [] : root.app-menu-commands; flip: message-menu.flip;
+            run-app-command(command, item) => { root.run-app-command(command, item); message-menu.close(); }
             start-thread(item) => { root.new-thread(item, "message"); message-menu.close(); }
             view-thread(room) => { root.open-aside(room); message-menu.close(); }
             view-reactions(item) => { root.view-reactions(item, ""); message-menu.close(); }
@@ -3420,6 +3479,13 @@ export component YapfastWindow inherits Window {
                                                         author-card(item, sender, x, y, width, height) => { root.author-card(item, sender, x, y, width, height); }
                                                         author-menu(item, sender, x, y) => { root.author-menu(item, sender, x, y); }
                                                         jump-to(item) => { root.jump-to(item); }
+                                                        // The command an app's answer names, written for its picker.
+                                                        can-use-commands: root.composer-enabled;
+                                                        use-command(name) => {
+                                                            root.slash-query(name);
+                                                            root.place-composer-caret(1000000);
+                                                            root.focus-composer();
+                                                        }
                                                         // A mention's card opens beside the pointer.
                                                         link-clicked(link) => {
                                                             root.anchor(row-pointer.absolute-position.x + row-pointer.mouse-x, row-pointer.absolute-position.y + row-pointer.mouse-y, 0px, 0px, true);
@@ -3432,6 +3498,7 @@ export component YapfastWindow inherits Window {
                                                         react(item, key) => { root.react(item, key); }
                                                         retry(item) => { root.retry(item); }
                                                         cancel-send(item) => { root.cancel-send(item); }
+                                                        dismiss-ephemeral(item) => { root.dismiss-ephemeral(item); }
                                                         reveal-attachment(id, index) => { root.reveal-attachment(id, index); }
                                                         view-image(id, index) => { root.view-image(id, index); }
                                                         open-sticker(item, index, x, y, width, height) => {
@@ -3717,21 +3784,31 @@ export component YapfastWindow inherits Window {
                                             placeholder: root.is-editing ? "Edit your message" : root.compose-label != "" ? "Write a reply" : root.room-selected ? root.composer-placeholder : "Write a message";
                                             edited(text) => { root.draft-edited(text); }
                                             accepted => { root.send(); }
-                                            suggesting: !root.suggesting-aside && (root.mentions.length > 0 || root.emoji-suggestions.length > 0);
+                                            suggesting: !root.suggesting-aside && ((root.command-picker-open && root.command-choices.length > 0) || root.mentions.length > 0 || root.emoji-suggestions.length > 0);
+                                            picking: !root.suggesting-aside && root.command-picker-open;
                                             caret(text, offset) => { root.composer-caret(text, offset); }
+                                            command-name: root.command-name; command-options: root.command-options; command-focus: root.command-focus;
+                                            command-option-clicked(index) => { root.focus-command-option(index); }
+                                            command-tab(step) => { root.focus-command-option(Math.mod(root.command-focus + step + root.command-options.length, root.command-options.length)); }
+                                            command-file(index) => { root.command-file(index); }
+                                            command-closed(back) => { root.close-command(back); }
                                             suggestion-moved(step) => {
-                                                if root.mentions.length > 0 {
+                                                if root.command-picker-open && root.command-choices.length > 0 {
+                                                    root.command-choice-index = Math.mod(root.command-choice-index + step + root.command-choices.length, root.command-choices.length);
+                                                } else if root.mentions.length > 0 {
                                                     root.mention-index = Math.mod(root.mention-index + step + root.mentions.length, root.mentions.length);
                                                 } else {
                                                     root.emoji-suggestion-index = Math.mod(root.emoji-suggestion-index + step + root.emoji-suggestions.length, root.emoji-suggestions.length);
                                                 }
                                             }
                                             suggestion-chosen => {
-                                                if root.mentions.length > 0 { root.mention-chosen(root.mention-index); }
+                                                if root.command-picker-open && root.command-choices.length > 0 { root.pick-command(root.command-choice-index); }
+                                                else if root.mentions.length > 0 { root.mention-chosen(root.mention-index); }
                                                 else { root.emoji-suggestion-chosen(root.emoji-suggestion-index); }
                                             }
                                             suggestion-dismissed => {
-                                                if root.mentions.length > 0 { root.mention-dismissed(); } else { root.emoji-suggestion-dismissed(); }
+                                                if root.command-picker-open && root.command-choices.length > 0 { root.close-command(false); }
+                                                else if root.mentions.length > 0 { root.mention-dismissed(); } else { root.emoji-suggestion-dismissed(); }
                                             }
                                             up-from-empty => { root.edit-last(); }
                                             up-to-messages => { root.browse-messages(); }
@@ -3917,6 +3994,7 @@ export component YapfastWindow inherits Window {
                         open-thread(room) => { root.open-aside(room); }
                         retry(item) => { root.retry(item); }
                         cancel-send(item) => { root.cancel-send(item); }
+                        dismiss-ephemeral(item) => { root.dismiss-ephemeral(item); }
                         reveal-attachment(id, index) => { root.reveal-attachment(id, index); }
                         view-image(id, index) => { root.view-image(id, index); }
                         open-sticker(item, index, x, y, width, height) => {
@@ -4118,7 +4196,17 @@ export component YapfastWindow inherits Window {
     }
     // Mention suggestions, just above the composer and as wide as it, over a
     // reply's or an edit's bar; see MentionList.
-    if root.mentions.length > 0 && root.composer-enabled && !root.suggesting-aside: MentionList {
+    // The `/` picker, or what the focused option of an app's command may
+    // take, in the same place; see CommandList.
+    if root.command-picker-open && root.composer-enabled && !root.suggesting-aside: CommandList {
+        x: composer-box.absolute-position.x;
+        width: composer-box.width;
+        y: composer-box.absolute-position.y - (root.compose-label != "" ? 36px : 0px) - self.height - 8px;
+        choices: root.command-choices; heading: root.command-heading;
+        choice-index: root.command-choice-index; commands: root.command-rows-are-commands;
+        chosen(index) => { root.pick-command(index); }
+    }
+    if root.mentions.length > 0 && root.composer-enabled && !root.suggesting-aside && !root.command-picker-open: MentionList {
         x: composer-box.absolute-position.x;
         width: composer-box.width;
         y: composer-box.absolute-position.y - (root.compose-label != "" ? 36px : 0px) - self.height - 8px;
@@ -4126,7 +4214,7 @@ export component YapfastWindow inherits Window {
         mention-chosen(index) => { root.mention-chosen(index); }
     }
     // Emoji suggestions, in the same place; see EmojiSuggestions.
-    if root.emoji-suggestions.length > 0 && root.mentions.length == 0 && root.composer-enabled && !root.suggesting-aside: EmojiSuggestions {
+    if root.emoji-suggestions.length > 0 && root.mentions.length == 0 && root.composer-enabled && !root.suggesting-aside && !root.command-picker-open: EmojiSuggestions {
         x: composer-box.absolute-position.x;
         width: composer-box.width;
         y: composer-box.absolute-position.y - (root.compose-label != "" ? 36px : 0px) - self.height - 8px;
@@ -4900,16 +4988,19 @@ export component YapfastWindow inherits Window {
         saving: root.bot-modal-saving; error: root.bot-modal-error;
         field-edited(index, value) => { root.bot-modal-field-edited(index, value); }
         open-select(index) => { root.bot-modal-open-select(index); }
+        choose-files(index) => { root.bot-modal-choose-files(index); }
+        remove-file(index, file) => { root.bot-modal-remove-file(index, file); }
+        open-link(link) => { root.open-link(link); }
         submit => { root.bot-modal-submit(); }
         close => { root.bot-modal-close(); }
     }
-    if root.bot-select-open: BotSelectDialog {
+    // Under the menu that opened it, in a message or a form.
+    if root.bot-select-open: BotSelectDropdown {
         heading: root.bot-select-heading; choices: root.bot-select-choices;
-        query: root.bot-select-query;
+        query: root.bot-select-query; searchable: root.bot-select-searchable;
         min-values: root.bot-select-min; max-values: root.bot-select-max;
         toggle(index) => { root.bot-select-toggle(index); }
         search(query) => { root.bot-select-search(query); }
-        submit => { root.bot-select-submit(); }
         close => { root.bot-select-close(); }
     }
     mfa-motion := PopupMotion { open: root.mfa-open; }

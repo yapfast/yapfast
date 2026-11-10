@@ -36,6 +36,7 @@ use yapfast_core::{
 use crate::drop::Drag;
 use crate::{autostart, custom_emoji, emoji, emoji_text, graphics, zoom};
 
+mod app_commands;
 mod appearance;
 mod away;
 mod browser;
@@ -1995,6 +1996,10 @@ struct Adapter {
     navigation: Navigation,
     /// Whether the forward dialog was open at the last refresh.
     forwarding: bool,
+    /// What the message menu's Apps rows were built for: the room and its
+    /// command index, by address, and the app icons they still lack. A
+    /// menu opening builds them again; see `show_app_menu_commands`.
+    app_menu: Option<(String, usize, Vec<String>)>,
     selection_version: u64,
     /// The conversation just shown was still loading, when its composer is
     /// disabled and takes no focus; it takes it once the messages come.
@@ -2382,6 +2387,7 @@ impl Adapter {
                 voice_timed: false,
                 navigation: Navigation::default(),
                 forwarding: false,
+                app_menu: None,
                 selection_version: 0,
                 focus_when_ready: false,
                 reset_version: 0,
@@ -2953,7 +2959,10 @@ impl Adapter {
         let composing = matches!(action, Action::SetDraft(_) | Action::MentionQuery(_));
         let bot_input = matches!(
             action,
-            Action::SetModalField { .. } | Action::SearchSelect(_) | Action::ToggleSelect(_)
+            Action::SetModalField { .. }
+                | Action::SearchSelect(_)
+                | Action::ToggleSelect(_)
+                | Action::RemoveModalFile { .. }
         );
         let profiling = matches!(action, Action::WriteProfile { .. });
         // Typing on Roles changes only the settings, too.
