@@ -1686,7 +1686,7 @@ export component EmbedView inherits HorizontalLayout {
                 for row in root.embed.field-rows: HorizontalLayout {
                     spacing: 8px;
                     for field in row.fields: VerticalLayout {
-                        spacing: 6px; horizontal-stretch: 1;
+                        spacing: 2px; horizontal-stretch: 1;
                         StyledText { text: field.name; link-color: Theme.link; default-color: Theme.text; default-font-size: 14px; }
                         if field.value-blocks.length == 0: StyledText {
                             text: field.value; default-color: Theme.secondary; link-color: Theme.link; default-font-size: 14px;
@@ -1804,8 +1804,7 @@ export component CardView inherits HorizontalLayout {
     callback view-image(string, int);
     callback save-attachment(string, int);
     callback media-menu(string, int, bool, length, length);
-    padding-top: 10px;
-    padding-bottom: 6px;
+    padding-top: 4px;
     Rectangle {
         max-width: root.card.framed ? 600px : 100000px; horizontal-stretch: 100;
         background: root.card.framed ? Theme.sidebar : transparent;
@@ -2593,7 +2592,6 @@ export component MessageContent inherits VerticalLayout {
                 media-menu(id, index, video, x, y) => { root.media-menu(id, index, video, x, y); }
             }
             for card in message.cards: CardView {
-                padding-left: message.embeds.length > 0 ? 1px : 0px;
                 card: card; item: message.item; app-id: message.app-id; busy: root.bot-control-busy; delivery: message.delivery; active-item: root.active-item; preview: root.preview;
                 message-font-size: root.message-font-size;
                 open-link(link) => { root.open-link(link); }

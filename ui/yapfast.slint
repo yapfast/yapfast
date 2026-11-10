@@ -3290,7 +3290,7 @@ export component YapfastWindow inherits Window {
                                             height: col.preferred-height + self.top;
                                             // The last row's tints stop above the space it leaves at the end,
                                             // where the typing line sits on the chat's own colour.
-                                            property <length> tail: index == root.messages.length - 1 ? (root.detached ? 52px : 20px) : 0px;
+                                            property <length> tail: index == root.messages.length - 1 ? (root.detached ? 74px : 20px) : 0px;
                                             // Where the message itself starts: its tint, hover bar and edge
                                             // leave out the history notice and the dividers above it.
                                             property <length> head: (index == 0 && root.room-ready ? (ClientStyle.enabled && root.history-start && root.intro-kind != "" ? (root.intro-kind == "server" ? ClientStyle.intro-server-height : ClientStyle.intro-channel-height) : 42px) : 0px)
