@@ -1128,6 +1128,57 @@ mod tests {
         );
     }
 
+    /// A skipped frame's start carries on from the frame that played before
+    /// it, as the decoder made it right after, so the splice starts where
+    /// playing left off: even into a frame of the opposite phase, it moves
+    /// no faster than the tone itself.
+    #[test]
+    fn a_splice_carries_on_from_what_played() {
+        let mut encoder = opus::Encoder::new(1, opus::Application::Voice, BITRATE).unwrap();
+        let mut speaker = Speaker::new(7).unwrap();
+        // A tone, inverted from frame 4, which plays in frame 3's place.
+        for sequence in 0..6u16 {
+            let sign = if sequence >= 4 { -1.0 } else { 1.0 };
+            let pcm: Vec<f32> = (0..FRAME)
+                .map(|at| {
+                    let at = usize::from(sequence) * FRAME + at;
+                    sign * (at as f32 * 330.0 * std::f32::consts::TAU / 48_000.0).sin() * 0.5
+                })
+                .collect();
+            let mut packet = vec![0; 1500];
+            let length = encoder.encode_float(&pcm, &mut packet).unwrap();
+            packet.truncate(length);
+            speaker.push(sequence, at(sequence), packet);
+        }
+        let mut played: Vec<i16> = Vec::new();
+        for _ in 0..3 {
+            played.extend_from_slice(speaker.next().unwrap());
+        }
+        // Frames to spare for a whole second: the next one goes.
+        speaker.surplus = Surplus::with_cushion(START - 1);
+        for _ in 0..50 {
+            speaker.surplus.note(10);
+        }
+        played.extend_from_slice(speaker.next().unwrap());
+        assert_eq!(speaker.next, Some(5), "frame 3 was skipped");
+        let steps = |samples: &[i16]| {
+            samples
+                .iter()
+                .zip(&samples[CHANNELS..])
+                .map(|(a, b)| (i32::from(*b) - i32::from(*a)).abs())
+                .max()
+                .unwrap()
+        };
+        let joined = 3 * FRAME * CHANNELS;
+        // The tone's own steps, after the decoder settles.
+        let tone = steps(&played[FRAME * CHANNELS..joined]);
+        let splice = steps(&played[joined - CHANNELS..joined + SPLICE * CHANNELS + CHANNELS]);
+        assert!(
+            splice <= tone * 5 / 4,
+            "the splice steps {splice}, the tone {tone}"
+        );
+    }
+
     #[test]
     fn a_long_packet_plays_over_as_many_ticks() {
         // A music bot passing a source's Opus through can send 60 ms
