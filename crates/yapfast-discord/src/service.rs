@@ -410,8 +410,8 @@ pub enum Live {
         nonce: String,
     },
     /// APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE: an app's choices for the
-    /// option being typed, as Discord sends them. Phase 1c of the bot
-    /// commands parses them; nothing asks for them yet.
+    /// option being typed, as Discord sends them; [`Discord::autocomplete`]
+    /// waits for its own.
     AutocompleteChoices {
         nonce: String,
         choices: Value,
@@ -756,6 +756,8 @@ pub struct Discord {
     /// The command indexes fetched, until Discord says they changed; see
     /// [`Self::command_index`].
     commands: commands::Kept,
+    /// The newest autocomplete, the only one whose answer is wanted.
+    autocompletes: interactions::Autocompletes,
 }
 
 /// Discord allows starting 10 new DMs with people in 10 minutes, and treats
@@ -877,6 +879,7 @@ impl Discord {
             default_sounds: Arc::default(),
             app_ids: interactions::AppIds::default(),
             commands: kept_commands,
+            autocompletes: interactions::Autocompletes::default(),
         })
     }
 
@@ -1081,20 +1084,101 @@ impl Discord {
     /// [`interactions::UNANSWERED`], and says whether it came. It is never
     /// sent again.
     pub async fn interact(&self, interaction: &interactions::Interaction) -> Result<bool> {
+        self.interact_with_files(interaction, Vec::new()).await
+    }
+
+    /// Runs an app's command as the person just sent it, with the contents
+    /// of its files, in the order its `files` names them, in the same
+    /// request. Like [`Self::interact`], this waits for the app's answer
+    /// and is never sent again; the answer's message then comes as any
+    /// other, naming the [`Live::InteractionCreated`] id in its
+    /// `interaction_metadata`.
+    pub async fn run_command(
+        &self,
+        run: interactions::CommandUse,
+        files: Vec<Vec<u8>>,
+    ) -> Result<bool> {
+        if files.len() != run.files.len() {
+            bail!("Yapfast lost a file of this command. Choose it again.");
+        }
+        let files = run.files.iter().cloned().zip(files).collect();
+        self.interact_with_files(&interactions::Interaction::Command(run), files)
+            .await
+    }
+
+    /// Asks an app for its choices for the option being typed, once typing
+    /// pauses for [`interactions::AUTOCOMPLETE_PAUSE`]. Only the newest
+    /// autocomplete is sent and answered: this gives `None` for one a newer
+    /// one replaced, before or after it was sent, and for one Discord said
+    /// nothing more of within [`interactions::UNANSWERED`]. It is never
+    /// sent again.
+    pub async fn autocomplete(&self, run: interactions::CommandUse) -> Result<Option<Value>> {
+        let turn = self.autocompletes.start();
+        tokio::time::sleep(interactions::AUTOCOMPLETE_PAUSE).await;
+        if !self.autocompletes.newest(turn) {
+            return Ok(None);
+        }
+        let session = self.session().await?;
+        let mut live = self.live.subscribe();
+        let interaction = interactions::Interaction::Autocomplete(run);
+        self.api
+            .interact(&interaction.body(&session, &self.app_ids))
+            .await?;
+        let nonce = interaction.nonce();
+        let answered = async {
+            loop {
+                match live.recv().await {
+                    Ok(Live::AutocompleteChoices {
+                        nonce: answered,
+                        choices,
+                    }) if answered == nonce => return Ok(choices),
+                    Ok(Live::InteractionFailure {
+                        nonce: answered,
+                        reason,
+                    }) if answered == nonce => {
+                        return Err(anyhow!(interactions::failure_reason(reason)));
+                    }
+                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => {
+                        std::future::pending::<()>().await;
+                    }
+                }
+            }
+        };
+        let Ok(choices) = tokio::time::timeout(interactions::UNANSWERED, answered).await else {
+            return Ok(None);
+        };
+        let choices = choices?;
+        Ok(self.autocompletes.newest(turn).then_some(choices))
+    }
+
+    /// This gateway session's id, which an interaction names.
+    async fn session(&self) -> Result<String> {
         let (reply, answer) = oneshot::channel();
         self.requests
             .send(Request::Session(reply))
             .map_err(|_| anyhow!("Discord isn't connected. Restart Yapfast and try again."))?;
-        let session = answer
+        answer
             .await
             .ok()
             .flatten()
-            .context("Discord isn't connected yet. Try again in a moment.")?;
+            .context("Discord isn't connected yet. Try again in a moment.")
+    }
+
+    async fn interact_with_files(
+        &self,
+        interaction: &interactions::Interaction,
+        files: Vec<(String, Vec<u8>)>,
+    ) -> Result<bool> {
+        let session = self.session().await?;
         // Listening before sending, so an answer that comes first is heard.
         let mut live = self.live.subscribe();
-        self.api
-            .interact(&interaction.body(&session, &self.app_ids))
-            .await?;
+        let body = interaction.body(&session, &self.app_ids);
+        if files.is_empty() {
+            self.api.interact(&body).await?;
+        } else {
+            self.api.interact_with_files(&body, files).await?;
+        }
         let nonce = interaction.nonce();
         let answered = async {
             loop {

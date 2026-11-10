@@ -395,3 +395,217 @@ async fn a_slow_bot_holds_up_only_its_own_interaction() {
         .collect();
     assert_eq!(nonces, ["4000", "4001"]);
 }
+
+/// Status Bot's command `name` as its command index gives it, in short.
+fn command(name: &str) -> Arc<Value> {
+    Arc::new(json!({
+        "id": format!("1400000000000000{}", 700 + name.len()),
+        "application_id": "1400000000000000007",
+        "version": "1400000000000000799",
+        "type": 1,
+        "name": name,
+        "description": "",
+    }))
+}
+
+impl Fixture {
+    /// Status Bot's command `name` with `options`, in #general.
+    fn run(&self, nonce: &str, name: &str, options: Value) -> interactions::CommandUse {
+        interactions::CommandUse {
+            nonce: nonce.into(),
+            guild: Some(self.guild.clone()),
+            channel: self.deploy.channel_id.clone(),
+            application: self.deploy.author_id.clone(),
+            command: command(name),
+            options,
+            target: None,
+            files: vec![],
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn a_slash_command_posts_its_options_and_its_answer_arrives() {
+    let fixture = Fixture::start("a_slash_command_posts_its_options_and_its_answer_arrives").await;
+    let mut live = fixture.discord.live();
+    let options = json!([{"type": 1, "name": "set", "options": [
+        {"type": 3, "name": "key", "value": "region"},
+    ]}]);
+    let run = fixture.run("5000", "config", options.clone());
+    assert!(fixture.discord.run_command(run, vec![]).await.unwrap());
+    let sent = fixture.sent();
+    assert_eq!(sent.len(), 1);
+    let body = &sent[0];
+    assert_eq!(body["type"], 2);
+    assert_eq!(body["nonce"], "5000");
+    assert_eq!(body["guild_id"], fixture.guild.as_str());
+    assert_eq!(body["application_id"], fixture.deploy.author_id.as_str());
+    assert_eq!(body["analytics_location"], "slash_ui");
+    assert!(body["session_id"].as_str().is_some_and(|id| !id.is_empty()));
+    assert_eq!(body["data"]["name"], "config");
+    assert_eq!(body["data"]["version"], "1400000000000000799");
+    assert_eq!(body["data"]["application_command"], *command("config"));
+    assert_eq!(body["data"]["options"], options);
+    // Discord passed it on, then the app's answer came as a message.
+    let created = live_where(&mut live, |live| match live {
+        Live::InteractionCreated { nonce, id } if nonce == "5000" => Some(id),
+        _ => None,
+    })
+    .await;
+    assert!(!created.is_empty());
+    let answer = live_where(&mut live, |live| match live {
+        Live::Created(message) if message.author_id == fixture.deploy.author_id => Some(message),
+        _ => None,
+    })
+    .await;
+    assert_eq!(answer.content, "Ran /config.");
+    assert_eq!(
+        answer.application_id.as_deref(),
+        Some(fixture.deploy.author_id.as_str())
+    );
+
+    // One the app answers only Alice: her own, never in the channel.
+    let run = fixture.run("5001", "secret", json!([]));
+    assert!(fixture.discord.run_command(run, vec![]).await.unwrap());
+    let secret = live_where(&mut live, |live| match live {
+        Live::Created(message) if message.content.starts_with("Only you") => Some(message),
+        _ => None,
+    })
+    .await;
+    assert_eq!(secret.flags & (1 << 6), 1 << 6);
+    assert_eq!(fixture.sent().len(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn a_deferred_answer_shows_thinking_then_its_content() {
+    let fixture = Fixture::start("a_deferred_answer_shows_thinking_then_its_content").await;
+    let mut live = fixture.discord.live();
+    let options = json!([
+        {"type": 3, "name": "text", "value": "hi"},
+        {"type": 4, "name": "times", "value": 2},
+    ]);
+    let run = fixture.run("6000", "echo", options);
+    assert!(fixture.discord.run_command(run, vec![]).await.unwrap());
+    let thinking = live_where(&mut live, |live| match live {
+        Live::Created(message) if message.author_id == fixture.deploy.author_id => Some(message),
+        _ => None,
+    })
+    .await;
+    assert_eq!(thinking.content, "");
+    assert_eq!(thinking.flags & (1 << 7), 1 << 7);
+    let answered = live_where(&mut live, |live| match live {
+        Live::Updated(message) if message.id == thinking.id => Some(message),
+        _ => None,
+    })
+    .await;
+    assert_eq!(answered.content, "hi hi");
+    assert_eq!(answered.flags & (1 << 7), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn autocomplete_keeps_only_the_newest_answer() {
+    let fixture = Arc::new(Fixture::start("autocomplete_keeps_only_the_newest_answer").await);
+    let typed = |nonce: &str, value: &str| {
+        fixture.run(
+            nonce,
+            "find",
+            json!([{"type": 3, "name": "query", "value": value, "focused": true}]),
+        )
+    };
+    // Keys pressed within the pause: only the last is sent.
+    let first = {
+        let (fixture, run) = (fixture.clone(), typed("7000", "s"));
+        tokio::spawn(async move { fixture.discord.autocomplete(run).await })
+    };
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let choices = fixture
+        .discord
+        .autocomplete(typed("7001", "st"))
+        .await
+        .unwrap()
+        .expect("the newest autocomplete is answered");
+    assert_eq!(
+        choices,
+        json!([{"name": "staging", "value": "staging"}, {"name": "status", "value": "status"}])
+    );
+    assert_eq!(first.await.unwrap().unwrap(), None);
+    let sent = fixture.sent();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0]["type"], 4);
+    assert_eq!(sent[0]["nonce"], "7001");
+    assert!(sent[0].get("analytics_location").is_none());
+    assert_eq!(sent[0]["data"]["options"][0]["focused"], true);
+
+    // One sent but answered after a newer one started is dropped.
+    let slow = {
+        let (fixture, run) = (fixture.clone(), typed("7002", "sl"));
+        tokio::spawn(async move { fixture.discord.autocomplete(run).await })
+    };
+    timeout(WAIT, async {
+        while fixture.sent().len() < 2 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let newest = fixture
+        .discord
+        .autocomplete(typed("7003", "p"))
+        .await
+        .unwrap();
+    assert_eq!(
+        newest,
+        Some(json!([{"name": "production", "value": "production"}]))
+    );
+    assert_eq!(slow.await.unwrap().unwrap(), None);
+    assert_eq!(fixture.sent().len(), 3);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn an_attachment_option_uploads_in_the_same_request() {
+    let fixture = Fixture::start("an_attachment_option_uploads_in_the_same_request").await;
+    let mut live = fixture.discord.live();
+    let mut run = fixture.run(
+        "8000",
+        "upload",
+        json!([{"type": 11, "name": "file", "value": "0"}]),
+    );
+    run.files = vec!["a.png".into()];
+    assert!(
+        fixture
+            .discord
+            .run_command(run, vec![vec![7; 300]])
+            .await
+            .unwrap()
+    );
+    let sent = fixture.sent();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(
+        sent[0]["data"]["attachments"],
+        json!([{"id": "0", "filename": "a.png"}])
+    );
+    assert_eq!(
+        sent[0]["files"],
+        json!([{"index": "0", "name": "a.png", "size": 300}])
+    );
+    let answer = live_where(&mut live, |live| match live {
+        Live::Created(message) if message.author_id == fixture.deploy.author_id => Some(message),
+        _ => None,
+    })
+    .await;
+    assert_eq!(answer.content, "Got a.png (300 bytes)");
+
+    // A file named but not sent never goes.
+    let mut lost = fixture.run(
+        "8001",
+        "upload",
+        json!([{"type": 11, "name": "file", "value": "0"}]),
+    );
+    lost.files = vec!["b.png".into()];
+    assert!(fixture.discord.run_command(lost, vec![]).await.is_err());
+    assert_eq!(fixture.sent().len(), 1);
+}
