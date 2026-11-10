@@ -1201,6 +1201,9 @@ struct Layout {
     sidebar_width: Option<f32>,
     /// The width of a Discord thread shown beside its channel.
     aside_width: Option<f32>,
+    /// The member list's width, as its edge was last dragged; none for the
+    /// style's own.
+    members_width: Option<f32>,
     /// The expression picker's width, the GIFs and the emoji alike, as its
     /// left edge last dragged it wider. `gif_picker_width` named it while only
     /// the GIFs took it.
@@ -1581,6 +1584,7 @@ impl Layout {
         if let Some(width) = self.aside_width {
             window.set_aside_width(width);
         }
+        window.set_members_width(self.members_width.unwrap_or(0.));
         if let Some(width) = self.picker_width {
             window.set_picker_width(width);
         }

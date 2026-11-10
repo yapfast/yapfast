@@ -1561,6 +1561,12 @@ export component YapfastWindow inherits Window {
     in-out property <length> aside-width: 420px;
     out property <length> aside-shown: max(320px, min(800px, root.aside-width));
     callback aside-resized(length);
+    // The member list's width, chosen by dragging its edge, which Yapfast
+    // stores on release. It keeps 200 to 480px; dragging also leaves the
+    // conversation 420px. Unchosen, it's the style's.
+    in-out property <length> members-width: 0px;
+    out property <length> members-shown: root.members-width == 0px ? ClientStyle.members-width : max(200px, min(480px, root.members-width));
+    callback members-resized(length);
 
     public function focus-composer() { composer.focus-input(); }
     // Something over the conversation that typing and Escape mustn't reach
@@ -1785,7 +1791,7 @@ export component YapfastWindow inherits Window {
     }
     property <bool> profile-docked: root.profile-available && root.profile-panel && root.panel-profile-shown && !root.search-open && !root.aside-docked;
     // Search results take the place of the member list or the profile.
-    property <length> docked-width: root.search-open ? 420px : root.aside-docked ? root.aside-shown : (root.members-docked ? ClientStyle.members-width : 0px) + (root.profile-docked ? ClientStyle.profile-width : 0px);
+    property <length> docked-width: root.search-open ? 420px : root.aside-docked ? root.aside-shown : (root.members-docked ? root.members-shown : 0px) + (root.profile-docked ? ClientStyle.profile-width : 0px);
     // The pin and add buttons open their popovers under themselves.
     property <length> popover-x;
     property <length> popover-y;
@@ -3922,7 +3928,7 @@ export component YapfastWindow inherits Window {
                         fold(item, whole) => { root.fold-message(item, whole); }
                     }
                     if root.members-docked: MemberPanel {
-                        width: ClientStyle.members-width; rows: root.roster; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
+                        width: root.members-shown; rows: root.roster; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
                         activity-hidden <=> root.activity-cards-hidden;
                         activity-hidden-toggled(hidden) => { root.activity-cards-hidden-toggled(hidden); }
                         activity-clock => { root.activity-clock(); }
@@ -3994,6 +4000,29 @@ export component YapfastWindow inherits Window {
             if event.kind == PointerEventKind.up { root.aside-resized(root.aside-shown); }
         }
         double-clicked => { root.aside-width = 420px; root.aside-resized(420px); }
+        Rectangle {
+            x: 3px; width: 2px;
+            background: parent.pressed ? Theme.faint : Theme.line;
+            opacity: parent.has-hover || parent.pressed ? 1 : 0;
+            animate opacity { duration: 120ms; }
+        }
+    }
+    // And the member list's, left of a profile docked beside it. A double
+    // click restores the style's width.
+    if root.workspace && root.members-docked: TouchArea {
+        property <length> right: root.profile-docked ? ClientStyle.profile-width : 0px;
+        x: root.width - self.right - root.members-shown - 4px; y: root.title-height + ClientStyle.header-height; width: 8px; height: root.height - root.title-height - ClientStyle.header-height;
+        mouse-cursor: ew-resize;
+        moved => {
+            if self.pressed {
+                root.members-width = max(200px, min(480px, root.width - 72px - root.sidebar-shown - self.right - 420px, root.members-shown - (self.mouse-x - self.pressed-x)));
+            }
+        }
+        pointer-event(event) => {
+            // A double click's release comes after it, and keeps it unchosen.
+            if event.kind == PointerEventKind.up { root.members-resized(root.members-width == 0px ? 0px : root.members-shown); }
+        }
+        double-clicked => { root.members-width = 0px; root.members-resized(0px); }
         Rectangle {
             x: 3px; width: 2px;
             background: parent.pressed ? Theme.faint : Theme.line;
@@ -4415,7 +4444,7 @@ export component YapfastWindow inherits Window {
             width: 300px; limit: root.height - root.title-height - 16px;
             x: root.profile-at-pointer
                 ? root.beside(root.anchor-x, root.anchor-width, self.width)
-                : root.width - ClientStyle.members-width - 8px - self.width;
+                : root.width - root.members-shown - 8px - self.width;
             y: max(root.title-height + 8px, min(root.height - self.height - 8px, (root.profile-at-pointer ? root.anchor-y - 8px : root.profile-y - 16px)));
             data: root.profile;
             enlarge => { root.enlarge-profile(); }

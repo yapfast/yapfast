@@ -1889,6 +1889,12 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         }
     });
     let state = adapter.clone();
+    window.on_members_resized(move |width| {
+        let mut adapter = state.borrow_mut();
+        adapter.layout.members_width = (width > 0.).then_some(width);
+        adapter.layout.write(&adapter.root);
+    });
+    let state = adapter.clone();
     window.on_sidebar_resized(move |width| {
         let mut adapter = state.borrow_mut();
         adapter.layout.sidebar_width = Some(width);
