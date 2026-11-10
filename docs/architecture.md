@@ -264,28 +264,25 @@ behavior without claiming the native backend already runs on the web or Android.
 `yapfast-plugins` is a second executable, built from
 [`crates/yapfast-plugin-host`](../crates/yapfast-plugin-host). Plugins run in it
 rather than in Yapfast's process, so wasmtime, Cranelift and a guest's memory are
-not Yapfast's to carry; [the helper](plugin-host.md) has its flags and the
+not Yapfast's to carry; [plugins](plugins/README.md) has the lifecycle and the
 reasoning behind the split.
 
-It has three layers, one per module: `protocol` is the loop over the framed
-protocol and knows no WebAssembly, `module` holds the checks a file passes before
-Extism sees it (absolute path, 8 MiB, `\0asm` magic, version 1), and `runtime`
-is Extism behind them. The frames and their JSON envelopes are in
-[`crates/yapfast-plugin-api`](../crates/yapfast-plugin-api), which the helper
-depends on and nothing in `yapfast` does yet; [the protocol](plugin-protocol.md)
-describes them.
+Inside, the pipe owns the frames, the scheduler owns when and in what order a
+plugin runs, and `runtime` is Extism behind both. A module's file is checked for
+the `\0asm` magic, version 1 and its imports and exports before it is compiled.
+The frames, envelopes and manifest are in
+[`crates/yapfast-plugin-api`](../crates/yapfast-plugin-api), which both
+processes build; [the ABI](plugins/abi.md) describes them.
 
-Extism and wasmtime sit behind the host crate's `host` feature, which is off by
-default and required by the binary, so an everyday workspace build links
-neither. `scripts/check` turns the feature on in steps of its own, and those
-also assemble the checked-in WAT fixtures and run the measurement harness's
-tests.
+The helper links Extism and wasmtime and is not one of the default members, so
+an everyday workspace build links neither; `scripts/check` has steps of its own
+for it and for `yapfast-core` with the `plugins` feature.
 
-Nothing in the app uses the helper yet: M0 is the helper, its protocol and its
-numbers. No code in `src/` or `crates/yapfast-core` spawns it, no settings page
-lists plugins, and nothing installs or activates one. The helper is exercised by
-its own tests and by `testing/measure_plugins.py`, which measures it on its own;
-see [plugin measurements](plugin-measurements.md).
+`crates/yapfast-core/src/plugins/` is the parent's half: the bridge that starts
+the helper and answers a guest's calls, the registry, the store, permissions and
+the network gate. The interface's half is not written yet, so no settings page
+lists plugins and nothing calls `Application::open_plugins`; see
+[what isn't wired](plugins/README.md#what-isnt-wired-yet).
 
 ## Adding another native UI
 

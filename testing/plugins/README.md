@@ -1,13 +1,16 @@
 # Plugin fixtures
 
-Seven WebAssembly modules, each one behaviour the plugin system has to get
-right, written as WebAssembly text (`.wat`). wasmtime compiles the text itself,
-so testing WebAssembly behaviour needs no toolchain: nothing here has to be
-built, and no binary blob sits in the tree.
+Seven behaviours the plugin system has to get right, each a WebAssembly module
+written as text (`.wat`), with the compiled module beside it. The helper loads
+the `.wasm`, not the text: a loader that accepted `(module …)` would also accept
+anything else wasmtime can parse, and the magic check that refuses a text module
+outside the tests is the same one that refuses it in them. The text is what a
+person edits; regenerating its module needs a WebAssembly toolchain, so the
+compiled file is checked in with it.
 
 The helper's end-to-end tests
 (`crates/yapfast-plugin-host/tests/e2e.rs`) load these through the real helper
-and the real Extism runtime. `testing/measure_plugins.py` loads `echo.wat` to
+and the real Extism runtime. `testing/measure_plugins.py` loads `echo.wasm` to
 measure what the memory budgets buy.
 
 | Fixture | What it does | What a test expects |
