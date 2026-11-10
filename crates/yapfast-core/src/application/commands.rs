@@ -236,13 +236,15 @@ impl Application {
         vec![]
     }
 
-    /// Puts "Apps" in the menu of `user`, seen from `room`, when they're a
-    /// Discord user and its index has user commands the person may use
-    /// there: before what's about how this account stands with them, as
-    /// Discord's has it.
+    /// Puts "Apps" in the menu of `user`, seen from `room`, the open room,
+    /// when they're a Discord user and its index has user commands the
+    /// person may use there: before what's about how this account stands
+    /// with them, as Discord's has it.
     pub(super) fn offer_apps(&self, room: &str, user: &str, choices: &mut Vec<MenuChoice>) {
         let discord_user = !user.is_empty() && user.bytes().all(|byte| byte.is_ascii_digit());
+        // A choice runs in the open room, so another's menu has none.
         if self.state.preview
+            || self.state.selected.as_deref() != Some(room)
             || !discord_user
             || self
                 .commands_for_target(room, CommandTarget::User)

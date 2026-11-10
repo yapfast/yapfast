@@ -987,6 +987,8 @@ impl Application {
             self.state.messages = shown.messages;
             self.state.members = shown.members;
             self.state.room_ready = true;
+            // Its commands' rows as they are now, not as they were.
+            self.show_sent_commands();
         }
         self.state.selection_version = self.state.selection_version.wrapping_add(1);
         // Typing is followed only in the open conversation, so what's known of others is stale.

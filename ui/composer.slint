@@ -70,6 +70,9 @@ export component Composer inherits Rectangle {
     // Mention or emoji suggestions show, so the arrow keys, Tab, Enter and Escape
     // go to them.
     in property <bool> suggesting;
+    // The `/` picker shows over it, perhaps only to say its commands are
+    // coming or that none match: Escape closes it.
+    in property <bool> picking;
     /// The app command being written, without its `/`; empty when there's none.
     in property <string> command-name;
     in property <[CommandOptionPill]> command-options;
@@ -158,6 +161,10 @@ export component Composer inherits Rectangle {
                 if event.text == Key.DownArrow { root.suggestion-moved(1); return accept; }
                 if (event.text == Key.Return || event.text == Key.Tab) && !event.modifiers.shift { root.suggestion-chosen(); return accept; }
                 if event.text == Key.Escape { root.suggestion-dismissed(); return accept; }
+            }
+            if root.picking && !root.commanding && event.text == Key.Escape {
+                root.command-closed(false);
+                return accept;
             }
             if root.commanding {
                 if event.text == Key.Tab && root.command-options.length > 0 { root.command-tab(event.modifiers.shift ? -1 : 1); return accept; }

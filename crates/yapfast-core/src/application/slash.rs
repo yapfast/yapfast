@@ -14,6 +14,8 @@
 //! may use; autocomplete only on a keystroke in an option that has it; a
 //! command runs only on Enter, or from a menu's "Apps" (application/commands.rs).
 
+use std::cell::OnceCell;
+
 use serde_json::{Value, json};
 
 use super::*;
@@ -113,6 +115,9 @@ pub struct OptionDraft {
     chosen: Option<(String, Value)>,
     /// A file for an attachment option.
     pub file: Option<PathBuf>,
+    /// For a channel option with `channel_types`, the channels of those
+    /// types, by id, as the command was picked; none for any channel.
+    channels: Option<HashSet<String>>,
 }
 
 impl OptionDraft {
@@ -225,6 +230,12 @@ impl AppState {
 
     /// The values the focused option may take, matching what was typed.
     fn option_suggestions(&self) -> Vec<Suggestion> {
+        self.option_suggestions_among(&OnceCell::new())
+    }
+
+    /// [`Self::option_suggestions`], with the people, roles and channels a
+    /// mention would offer worked out at most once into `known`.
+    fn option_suggestions_among(&self, known: &OnceCell<Vec<Candidate>>) -> Vec<Suggestion> {
         let Some(command) = self.command_draft() else {
             return vec![];
         };
@@ -268,12 +279,13 @@ impl AppState {
                 })
                 .collect(),
             USER | ROLE | MENTIONABLE | CHANNEL => {
-                let candidates: Vec<Candidate> = self
-                    .mention_candidates()
-                    .into_iter()
+                let candidates: Vec<&Candidate> = known
+                    .get_or_init(|| self.mention_candidates())
+                    .iter()
                     .filter(|candidate| takes(option, candidate))
                     .collect();
-                mention::matching(&candidates, &typed, OPTION_SUGGESTIONS)
+                let typed = typed.trim_start_matches(['@', '#']);
+                mention::matching(&candidates, typed, OPTION_SUGGESTIONS)
                     .into_iter()
                     .filter_map(|candidate| {
                         Some(Suggestion {
@@ -293,6 +305,16 @@ impl AppState {
     /// empty, or why it can't be sent. The wording is Yapfast's: Discord's
     /// own is not documented.
     fn option_value(&self, option: &OptionDraft) -> Result<Option<Value>, String> {
+        self.option_value_among(option, &OnceCell::new())
+    }
+
+    /// [`Self::option_value`], with the people, roles and channels a
+    /// mention would offer worked out at most once into `known`.
+    fn option_value_among(
+        &self,
+        option: &OptionDraft,
+        known: &OnceCell<Vec<Candidate>>,
+    ) -> Result<Option<Value>, String> {
         if option.kind == ATTACHMENT {
             return Ok(option.file.as_ref().map(|_| Value::Null));
         }
@@ -357,9 +379,23 @@ impl AppState {
                 _ => Err("Pick True or False".into()),
             },
             USER | ROLE | MENTIONABLE | CHANNEL => {
+                // A mention or an id pasted in names one Yapfast may not
+                // have listed.
+                let id = mention_id(typed)
+                    .or_else(|| {
+                        typed
+                            .bytes()
+                            .all(|byte| byte.is_ascii_digit())
+                            .then_some(typed)
+                    })
+                    .filter(|id| id.len() >= 17);
+                if let Some(id) = id {
+                    return Ok(Some(Value::String(id.to_owned())));
+                }
                 let name = typed.trim_start_matches(['@', '#']);
-                self.mention_candidates()
-                    .into_iter()
+                known
+                    .get_or_init(|| self.mention_candidates())
+                    .iter()
                     .filter(|candidate| takes(option, candidate))
                     .find(|candidate| candidate.name.eq_ignore_ascii_case(name))
                     .and_then(|candidate| mention_id(&candidate.mention).map(str::to_owned))
@@ -378,22 +414,26 @@ impl AppState {
         }
     }
 
-    /// What's wrong with an option, for its pill: a value that can't be
-    /// sent, or, once Enter was pressed, a required one left empty.
-    pub fn option_error(&self, command: &CommandDraft, index: usize) -> Option<String> {
-        let option = command.options.get(index)?;
-        match self.option_value(option) {
-            Err(error) => Some(error),
-            Ok(None) if option.required && command.tried => Some("Required".into()),
-            Ok(_) => None,
-        }
+    /// What's wrong with each option, for its pill: a value that can't be
+    /// sent, or, once Enter was pressed, a required one left empty. The
+    /// people and roles an option may name are listed once for all.
+    pub fn option_errors(&self, command: &CommandDraft) -> Vec<Option<String>> {
+        let known = OnceCell::new();
+        command
+            .options
+            .iter()
+            .map(|option| match self.option_value_among(option, &known) {
+                Err(error) => Some(error),
+                Ok(None) if option.required && command.tried => Some("Required".into()),
+                Ok(_) => None,
+            })
+            .collect()
     }
 }
 
 /// Whether a mention candidate fits a user, role, mentionable or channel
-/// option. A channel option's `channel_types` are matched with what the
-/// mention list knows of a channel: text (0, or announcement 5) or voice
-/// (2, or stage 13).
+/// option: a channel option with `channel_types` takes the channels of
+/// those types.
 fn takes(option: &OptionDraft, candidate: &Candidate) -> bool {
     let role = candidate.group && candidate.mention.starts_with("<@&");
     let person = !candidate.group;
@@ -402,17 +442,9 @@ fn takes(option: &OptionDraft, candidate: &Candidate) -> bool {
         ROLE => role,
         MENTIONABLE => person || role,
         CHANNEL => {
-            if !candidate.channel {
-                return false;
-            }
-            let types = list(&option.spec, "channel_types");
-            types.is_empty()
-                || types.iter().filter_map(Value::as_u64).any(|kind| {
-                    if candidate.voice {
-                        matches!(kind, 2 | 13)
-                    } else {
-                        matches!(kind, 0 | 5)
-                    }
+            candidate.channel
+                && option.channels.as_ref().is_none_or(|ids| {
+                    mention_id(&candidate.mention).is_some_and(|id| ids.contains(id))
                 })
         }
         _ => false,
@@ -420,9 +452,10 @@ fn takes(option: &OptionDraft, candidate: &Candidate) -> bool {
 }
 
 impl Application {
-    /// What the picker says above its rows, or in their place: what it
-    /// lists, that the commands are on their way, or why they aren't.
-    pub fn command_heading(&self) -> String {
+    /// What the picker says above `rows`, [`Self::command_rows`]'s, or in
+    /// their place: what it lists, that the commands are on their way, or
+    /// why they aren't.
+    pub fn command_heading(&self, rows: &[CommandRow]) -> String {
         let state = &self.state;
         if let Some(command) = state.command_draft() {
             return command
@@ -440,7 +473,7 @@ impl Application {
         if let Some(error) = &state.app_commands.error {
             return error.clone();
         }
-        if self.command_rows().is_empty() {
+        if rows.is_empty() {
             "No commands match".into()
         } else {
             "COMMANDS".into()
@@ -453,7 +486,7 @@ impl Application {
         let state = &self.state;
         if state.command_draft().is_some() {
             return state
-                .option_suggestions()
+                .option_suggestions_among(&OnceCell::new())
                 .into_iter()
                 .map(|suggestion| CommandRow {
                     app: String::new(),
@@ -505,7 +538,11 @@ impl Application {
             // subcommand's starts keeps the picker; anything else is text.
             if let Some((picked, rest)) = self.named_command(room, query) {
                 let mut effects = self.write_command(room.to_owned(), picked);
-                if !rest.is_empty() {
+                let takes_text = self
+                    .state
+                    .command_draft()
+                    .is_some_and(|command| !command.options.is_empty());
+                if takes_text && !rest.is_empty() {
                     effects.extend(self.set_draft(rest));
                 }
                 return Some(effects);
@@ -653,6 +690,17 @@ impl Application {
                     text: String::new(),
                     chosen: None,
                     file: None,
+                    channels: (kind(&spec) == CHANNEL)
+                        .then(|| {
+                            let types: Vec<u64> = list(&spec, "channel_types")
+                                .iter()
+                                .filter_map(Value::as_u64)
+                                .collect();
+                            self.select_channels(&room, &types).map(|ids| {
+                                ids.into_iter().map(str::to_owned).collect::<HashSet<_>>()
+                            })
+                        })
+                        .flatten(),
                     spec,
                 })
                 .collect(),
@@ -714,6 +762,9 @@ impl Application {
             }
             option.text = body.to_owned();
             command.choices_dismissed = false;
+            if matches!(option.kind, USER | MENTIONABLE) {
+                return self.search_option_members(room, body);
+            }
             if option.spec.get("autocomplete") != Some(&Value::Bool(true)) || self.state.preview {
                 return vec![];
             }
@@ -764,6 +815,30 @@ impl Application {
         }
         vec![Effect::Backend(Command::Discord(
             DiscordCommand::Autocomplete(Box::new(run)),
+        ))]
+    }
+
+    /// A server's members named as typed in a user or mentionable option,
+    /// asked of Discord as a mention's are, since a server lists only some:
+    /// unless the option already offers enough, or that was asked.
+    fn search_option_members(&mut self, room: &str, typed: &str) -> Vec<Effect> {
+        let query = typed.trim().trim_start_matches('@');
+        let in_server =
+            discord::parse_room(room).is_some_and(|(guild, _)| guild != discord::DM_GUILD);
+        if self.state.preview
+            || !in_server
+            || query.is_empty()
+            || mention_id(query).is_some()
+            || self.state.option_suggestions().len() >= OPTION_SUGGESTIONS
+            || !self.searched.insert(query.to_lowercase())
+        {
+            return vec![];
+        }
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::SearchMembers {
+                room: room.to_owned(),
+                query: query.to_owned(),
+            },
         ))]
     }
 
@@ -830,14 +905,13 @@ impl Application {
         let Some(command) = self.state.command_draft() else {
             return vec![];
         };
-        let wrong =
-            command
-                .options
-                .iter()
-                .position(|option| match self.state.option_value(option) {
-                    Err(_) => true,
-                    Ok(value) => value.is_none() && option.required,
-                });
+        let known = OnceCell::new();
+        let wrong = command.options.iter().position(|option| {
+            match self.state.option_value_among(option, &known) {
+                Err(_) => true,
+                Ok(value) => value.is_none() && option.required,
+            }
+        });
         if let Some(wrong) = wrong {
             if let Some(command) = self.state.slash.command.as_mut() {
                 command.tried = true;
@@ -858,7 +932,7 @@ impl Application {
                     None => continue,
                 }
             } else {
-                match self.state.option_value(option) {
+                match self.state.option_value_among(option, &known) {
                     Ok(Some(value)) => value,
                     _ => continue,
                 }
@@ -908,13 +982,15 @@ impl Application {
     /// nonce, and shows it as sending.
     fn send_command(&mut self, index: usize) -> Vec<Effect> {
         let mut nonce = command_nonce();
-        // A retry within the same millisecond takes the next one.
-        while self
-            .state
-            .slash
-            .sent
-            .iter()
-            .any(|sent| sent.run.nonce == nonce)
+        // A retry, or a control's click, within the same millisecond takes
+        // the next one.
+        while self.state.interactions.is_pending(&nonce)
+            || self
+                .state
+                .slash
+                .sent
+                .iter()
+                .any(|sent| sent.run.nonce == nonce)
         {
             nonce = match nonce.parse::<u64>() {
                 Ok(number) => (number + 1).to_string(),
@@ -1046,14 +1122,30 @@ impl Application {
         if !shown && rows.is_empty() {
             return;
         }
-        let mut messages: Vec<_> = messages
+        let old = self.state.messages.clone();
+        let new = with_rows(&old, &rows);
+        // With blocked messages hidden, the full list takes the rows too,
+        // and stays the one HideBlocked brings back.
+        if let Some((all, hidden)) = self.with_blocked.as_mut()
+            && Arc::ptr_eq(hidden, &old)
+        {
+            *all = with_rows(all, &rows);
+            *hidden = new.clone();
+        }
+        self.state.messages = new;
+    }
+}
+
+/// `messages` with the command rows `rows` in place of those it had.
+fn with_rows(messages: &[Arc<ChatMessage>], rows: &[Arc<ChatMessage>]) -> TimelineArc {
+    Arc::new(
+        messages
             .iter()
             .filter(|message| !message.item.starts_with(SENT_COMMAND))
+            .chain(rows)
             .cloned()
-            .collect();
-        messages.extend(rows);
-        self.state.messages = Arc::new(messages);
-    }
+            .collect(),
+    )
 }
 
 /// Wraps a command's options in its subcommand and group, as

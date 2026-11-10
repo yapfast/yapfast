@@ -618,7 +618,10 @@ click or a submit sends one, and none is sent again on its own.
   disk. Dismiss message hides it for good without asking Discord, which has
   no endpoint for it.
 - An answer still to come (flag LOADING, `1 << 7`) shows "{app} is
-  thinking…" until Discord updates the message with the answer.
+  thinking…" until Discord updates the message with the answer. Once the
+  message is 15 minutes old it says "The application did not respond"
+  instead, as Discord's client gives up then; a row already drawn changes
+  when it's drawn again.
 
 ## Apps' commands
 
@@ -685,7 +688,8 @@ composer offers the slash commands:
   subcommand as its own row, as `config set`, in the index's order, each with
   its app's icon and name, and narrows them as a word of the name is typed,
   or as a name with a subcommand's is, as `config s`. Up and Down choose,
-  Tab, Enter or a click picks, and Escape closes it until the `/` goes. A
+  Tab, Enter or a click picks, and Escape closes it until the `/` goes, also
+  while it says the commands are coming or that none match. A
   command's whole name and a space picks it, as in Discord's client, what
   follows going to its first option; text that names no command goes as a
   message. Enter sends nothing while the room's commands are still coming,
@@ -701,10 +705,13 @@ composer offers the slash commands:
   option holds.
 - An option with `choices` lists them, a boolean lists True and False, and
   user, role, mentionable and channel options list the people, roles and
-  channels mentions would offer; a channel option keeps to its
-  `channel_types`, telling text channels (0, 5) from voice ones (2, 13). An
-  option with `autocomplete` lists the app's answer to what was typed (see
-  below). A file option opens the file picker on Enter or a click.
+  channels mentions would offer. A user or mentionable option asks Discord
+  for the server's members named as typed, as a mention does, unless it
+  already offers enough; a mention or id pasted in names one not listed. A
+  channel option keeps to its `channel_types`, by each channel's own type,
+  as the command was picked. An option with `autocomplete` lists the app's
+  answer to what was typed (see below). A file option opens the file picker
+  on Enter or a click.
 - Discord leaves the checks to the client ("This validation is client-side
   only"), so Enter runs the command only when each option passes them:
   required options filled, whole numbers and numbers within `min_value` and
@@ -724,10 +731,11 @@ The same rules decide which the person may use there as for slash commands.
 - A message's menu has Apps on a Discord message that was sent, not on one
   still sending or failed, an answer only the account sees, or Yapfast's
   "Sending command…" row. It opens beside the menu on hover or a click, on
-  the left near the window's right edge.
-- A person's menu has it before Invite to server and friendship, in a
-  server's channel or a DM; a DM's own menu in the list has it once that
-  DM's index came, as it does while the DM is open. Matrix people have none.
+  the left near the window's right edge. A message in the thread beside the
+  channel has none: Apps offers the open channel's commands.
+- A person's menu has it before Invite to server and friendship, in the open
+  server channel or DM; a DM's own menu in the list has it while that DM is
+  open. Matrix people have none.
 - Opening either menu asks for the channel's index if it isn't kept, and
   Apps shows once it comes: a person's menu open meanwhile is built again.
 - A choice runs the command at once on that message or person, with no
@@ -765,7 +773,8 @@ again; a click on a bot's control or an autocomplete isn't.
   is a message with the LOADING flag and no content, which a MESSAGE_UPDATE
   fills in.
 - Until the answer comes, the channel shows a row from the app saying
-  "Sending command…", by the command's nonce. The answer's message names the
+  "Sending command…", Discord's client's own words for a command in flight,
+  by the command's nonce. The answer's message names the
   interaction INTERACTION_CREATE gave (`interaction_metadata.id`) and takes
   its place; INTERACTION_SUCCESS, or a form, ends it too. A command Discord
   or the app refused, or that Discord never confirmed, says why there

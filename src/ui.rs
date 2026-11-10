@@ -1996,6 +1996,10 @@ struct Adapter {
     navigation: Navigation,
     /// Whether the forward dialog was open at the last refresh.
     forwarding: bool,
+    /// What the message menu's Apps rows were built for: the room and its
+    /// command index, by address, and the app icons they still lack. A
+    /// menu opening builds them again; see `show_app_menu_commands`.
+    app_menu: Option<(String, usize, Vec<String>)>,
     selection_version: u64,
     /// The conversation just shown was still loading, when its composer is
     /// disabled and takes no focus; it takes it once the messages come.
@@ -2383,6 +2387,7 @@ impl Adapter {
                 voice_timed: false,
                 navigation: Navigation::default(),
                 forwarding: false,
+                app_menu: None,
                 selection_version: 0,
                 focus_when_ready: false,
                 reset_version: 0,

@@ -630,7 +630,11 @@ impl Application {
         choices
     }
 
-    fn select_channels<'a>(&'a self, room: &'a str, types: &[u64]) -> Option<HashSet<&'a str>> {
+    pub(super) fn select_channels<'a>(
+        &'a self,
+        room: &'a str,
+        types: &[u64],
+    ) -> Option<HashSet<&'a str>> {
         if types.is_empty() {
             return None;
         }

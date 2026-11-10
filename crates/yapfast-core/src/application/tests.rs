@@ -12738,7 +12738,10 @@ fn typing_a_slash_offers_commands_that_fit_the_channel() {
     assert_eq!(fetches(&app.dispatch(Action::SetDraft("hi".into()))), 0);
     app.dispatch(Action::SetDraft(String::new()));
     assert_eq!(fetches(&app.dispatch(Action::SetDraft("/".into()))), 1);
-    assert_eq!(app.command_heading(), "Loading commands…");
+    assert_eq!(
+        app.command_heading(&app.command_rows()),
+        "Loading commands…"
+    );
     app.apply(Event::CommandIndex {
         room: room.clone(),
         index: Ok(command_index()),
@@ -12827,9 +12830,7 @@ fn a_command_with_missing_required_options_does_not_send() {
     };
     let errors = |app: &Application| -> Vec<Option<String>> {
         let command = app.state.command_draft().expect("still written");
-        (0..command.options.len())
-            .map(|index| app.state.option_error(command, index))
-            .collect()
+        app.state.option_errors(command)
     };
     // Nothing is wrong before Enter; then the empty required option says so.
     assert_eq!(errors(&app), [None, None]);
@@ -12957,4 +12958,86 @@ fn a_sent_command_shows_until_its_answer_and_a_failed_one_retries() {
     assert_eq!(rows(&app)[0].1, chat::Delivery::Failed);
     app.dispatch(Action::CancelSend(format!("c:{nonce}")));
     assert!(rows(&app).is_empty());
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_sent_command_keeps_hidden_blocked_messages_to_bring_back() {
+    let (mut app, room) = in_discord_channel();
+    app.dispatch(Action::HideBlocked(true));
+    app.dispatch(Action::SetDraft("/".into()));
+    app.apply(Event::CommandIndex {
+        room: room.clone(),
+        index: Ok(command_index()),
+    });
+    app.apply(Event::Timeline {
+        room: room.clone(),
+        messages: timeline(vec![
+            ChatMessage {
+                blocked: true,
+                ..message("d:1", false)
+            },
+            message("d:2", false),
+        ]),
+    });
+    let items = |app: &Application| -> Vec<String> {
+        app.state
+            .messages
+            .iter()
+            .map(|message| message.item.chars().take(2).collect())
+            .collect()
+    };
+    assert_eq!(items(&app), ["d:"]);
+    app.dispatch(Action::SetDraft("/ping".into()));
+    app.dispatch(Action::PickCommand(0));
+    app.dispatch(Action::Send);
+    assert_eq!(items(&app), ["d:", "c:"]);
+    // Showing blocked messages again brings them back, the row kept.
+    app.dispatch(Action::HideBlocked(false));
+    assert_eq!(items(&app), ["d:", "d:", "c:"]);
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_user_option_takes_a_pasted_mention_and_asks_discord_for_names() {
+    let (mut app, room) = in_discord_channel();
+    let index = serde_json::json!({
+        "version": "1",
+        "applications": [{"id": "500", "name": "Status Bot", "flags": "0"}],
+        "application_commands": [
+            {"id": "505", "application_id": "500", "version": "1", "type": 1,
+             "name": "kick", "description": "Kicks", "default_member_permissions": null,
+             "options": [{"type": 6, "name": "who", "description": "Who", "required": true}]}
+        ]
+    });
+    app.dispatch(Action::SetDraft("/".into()));
+    app.apply(Event::CommandIndex {
+        room: room.clone(),
+        index: Ok(Arc::new(crate::chat::CommandIndex::parse(&index, false))),
+    });
+    app.dispatch(Action::SetDraft("/kick ".into()));
+    assert!(app.state.command_draft().is_some());
+    // A name the list doesn't have is asked of Discord, once.
+    let searched = |effects: &[Effect]| {
+        effects.iter().any(|effect| {
+            matches!(effect,
+                Effect::Backend(Command::Discord(DiscordCommand::SearchMembers { query, .. })) if query == "Car")
+        })
+    };
+    assert!(searched(&app.dispatch(Action::SetDraft("Car".into()))));
+    app.dispatch(Action::SetDraft("Ca".into()));
+    assert!(!searched(&app.dispatch(Action::SetDraft("Car".into()))));
+    // A mention pasted in names someone Yapfast didn't list.
+    app.dispatch(Action::SetDraft("<@140000000000000099>".into()));
+    let command = app.state.command_draft().unwrap();
+    assert_eq!(app.state.option_errors(command), [None]);
+    let run = app
+        .dispatch(Action::Send)
+        .into_iter()
+        .find_map(|effect| match effect {
+            Effect::Backend(Command::Discord(DiscordCommand::RunCommand(run))) => Some(run),
+            _ => None,
+        })
+        .expect("it runs");
+    assert_eq!(run.options[0]["value"], "140000000000000099");
 }

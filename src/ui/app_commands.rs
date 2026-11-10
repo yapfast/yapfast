@@ -18,7 +18,10 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     let weak = window.as_weak();
     window.on_ask_app_commands(move || {
         if let Some(window) = weak.upgrade() {
-            state.borrow_mut().action(&window, Action::AskAppCommands);
+            let mut adapter = state.borrow_mut();
+            // A menu opening: its Apps follow the permissions as they are now.
+            adapter.app_menu = None;
+            adapter.action(&window, Action::AskAppCommands);
         }
     });
     let state = adapter.clone();
@@ -126,19 +129,40 @@ impl Adapter {
     /// Gives a message's menu the open room's message commands for its
     /// "Apps", and says when the room's index came, so a person's menu open
     /// meanwhile is built again with theirs. Returns the app icons it lacks.
+    /// The rows are built again only when the room or its index changed, a
+    /// menu opened, or an icon they lacked came, not on every refresh.
     fn show_app_menu_commands(&mut self, window: &YapfastWindow) -> Vec<String> {
-        let Some(room) = self.app.state.selected.clone() else {
-            window.set_app_commands_ready(false);
+        let state = &self.app.state;
+        let index = state
+            .selected
+            .as_deref()
+            .and_then(|room| Some((room, state.app_commands.index(room)?)));
+        window.set_app_commands_ready(index.is_some());
+        let key = index.map(|(room, index)| (room, Arc::as_ptr(index) as usize));
+        if let (Some((room, index)), Some((built, built_index, lacking))) = (key, &self.app_menu)
+            && built == room
+            && *built_index == index
+            && !lacking.iter().any(|icon| state.pictures.contains_key(icon))
+        {
+            return vec![];
+        }
+        let Some((room, address)) = key.map(|(room, index)| (room.to_owned(), index)) else {
+            if self.app_menu.take().is_some() {
+                let model = window.get_app_menu_commands();
+                if let Some(model) = model.as_any().downcast_ref::<VecModel<CommandChoice>>() {
+                    update_model(model, vec![]);
+                }
+            }
             return vec![];
         };
-        window.set_app_commands_ready(self.app.state.app_commands.index(&room).is_some());
         let commands = self.app.commands_for_target(&room, CommandTarget::Message);
         let state = &self.app.state;
-        let wanted = commands
+        let wanted: Vec<String> = commands
             .iter()
             .filter_map(|command| command.app_icon.clone())
             .filter(|icon| !state.pictures.contains_key(icon))
             .collect();
+        self.app_menu = Some((room, address, wanted.clone()));
         let rows: Vec<CommandChoice> = commands
             .iter()
             .map(|command| CommandChoice {
@@ -160,7 +184,7 @@ impl Adapter {
     /// core's state, asking for the app icons and avatars it lacks.
     pub(super) fn show_app_commands(&mut self, window: &YapfastWindow) {
         let rows = self.app.command_rows();
-        let heading = self.app.command_heading();
+        let heading = self.app.command_heading(&rows);
         let state = &self.app.state;
         let mut wanted: Vec<String> = rows
             .iter()
@@ -183,16 +207,13 @@ impl Adapter {
                 command
                     .options
                     .iter()
-                    .enumerate()
-                    .map(|(index, option)| CommandOptionPill {
+                    .zip(state.option_errors(command))
+                    .map(|(option, error)| CommandOptionPill {
                         name: option.name.as_str().into(),
                         description: option.description.as_str().into(),
                         value: option.shown().into(),
                         required: option.required,
-                        error: state
-                            .option_error(command, index)
-                            .unwrap_or_default()
-                            .into(),
+                        error: error.unwrap_or_default().into(),
                         file: option.is_attachment(),
                     })
                     .collect()

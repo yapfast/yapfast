@@ -465,6 +465,10 @@ const EPHEMERAL: u64 = 1 << 6;
 /// The message flag of a Discord app's answer still to come.
 const LOADING: u64 = 1 << 7;
 
+/// How long Discord's client waits for a deferred answer before it says the
+/// app didn't respond: 15 minutes from the message's snowflake.
+const THINKING_SECS: u64 = 15 * 60;
+
 /// A message as the timeline shows it. `revealed` holds the spoilers clicked, as
 /// `{item}/{index}` for text and `{item}/a{index}` for attachments, and what
 /// was picked or shown on polls; see `polls`.
@@ -869,6 +873,9 @@ pub(super) fn message_row_within(
         has_poll: message.poll.is_some(),
         ephemeral: message.flags & EPHEMERAL != 0,
         thinking: message.flags & LOADING != 0,
+        timed_out: message.flags & LOADING != 0
+            && message.timestamp != 0
+            && yapfast_core::clock::now_ms() / 1000 >= message.timestamp + THINKING_SECS,
     };
     if collapsed(message, revealed) {
         // Discord shows nothing of a blocked message until asked.

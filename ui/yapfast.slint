@@ -2469,7 +2469,9 @@ export component YapfastWindow inherits Window {
         menu-content := MessageMenu {
             menu-message: root.menu-message; selection: root.menu-selection; menu-can-react: root.menu-can-react; menu-reactions: root.menu-reactions;
             can-start-thread: root.can-start-threads && !root.menu-aside;
-            app-commands: root.app-menu-commands; flip: message-menu.flip;
+            // The open channel's commands, which a thread's message beside
+            // it isn't for.
+            app-commands: root.menu-aside ? [] : root.app-menu-commands; flip: message-menu.flip;
             run-app-command(command, item) => { root.run-app-command(command, item); message-menu.close(); }
             start-thread(item) => { root.new-thread(item, "message"); message-menu.close(); }
             view-thread(room) => { root.open-aside(room); message-menu.close(); }
@@ -3783,6 +3785,7 @@ export component YapfastWindow inherits Window {
                                             edited(text) => { root.draft-edited(text); }
                                             accepted => { root.send(); }
                                             suggesting: !root.suggesting-aside && ((root.command-picker-open && root.command-choices.length > 0) || root.mentions.length > 0 || root.emoji-suggestions.length > 0);
+                                            picking: !root.suggesting-aside && root.command-picker-open;
                                             caret(text, offset) => { root.composer-caret(text, offset); }
                                             command-name: root.command-name; command-options: root.command-options; command-focus: root.command-focus;
                                             command-option-clicked(index) => { root.focus-command-option(index); }

@@ -849,8 +849,10 @@ export struct MessageRow {
     /// Dismiss message" under it.
     ephemeral: bool,
     /// An app's answer still to come: "{author} is thinking…" shows in its
-    /// place until Discord updates it.
+    /// place until Discord updates it, or after 15 minutes that the app
+    /// didn't respond (`timed-out`), as Discord's client gives up.
     thinking: bool,
+    timed-out: bool,
 }
 
 // The card a click on an emoji in a message's text opens, as Discord's shows
@@ -2983,7 +2985,9 @@ export component MessageContent inherits VerticalLayout {
             }
             // An app's answer still to come, as Discord's client words it.
             if message.thinking: Text {
-                text: message.author + " is thinking…"; color: Theme.muted; font-size: root.message-font-size; font-italic: true; wrap: word-wrap;
+                text: message.timed-out ? "The application did not respond" : message.author + " is thinking…";
+                color: message.timed-out ? Theme.danger : Theme.muted; font-size: root.message-font-size;
+                font-italic: !message.timed-out; wrap: word-wrap;
             }
             if message.edited && !message.deleted: Text { text: "(edited)"; color: Theme.muted; font-size: 12px; }
             // Fixed-size children sit beside a spacer, so they do not cap the column's width.
