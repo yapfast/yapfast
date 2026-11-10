@@ -1342,6 +1342,25 @@ pub fn user_id(ready: &Value) -> Option<&str> {
     ready["user"]["id"].as_str()
 }
 
+/// Who the account READY came for is, as the account switcher lists it.
+pub struct OwnAccount {
+    pub username: String,
+    pub name: String,
+    pub avatar: String,
+}
+
+/// The account READY came for, or none if READY doesn't say.
+pub fn own_account(ready: &Value) -> Option<OwnAccount> {
+    let user = &ready["user"];
+    let id = user["id"].as_str()?;
+    let username = user["username"].as_str()?;
+    Some(OwnAccount {
+        username: username.to_owned(),
+        name: display_name(user).unwrap_or(username).to_owned(),
+        avatar: avatar(id, user["avatar"].as_str()),
+    })
+}
+
 /// The login Discord refreshed this one to, which takes the place of the
 /// one Yapfast identified with from now on. The web client's capabilities,
 /// which Yapfast sends, ask for it.

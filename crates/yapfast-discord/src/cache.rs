@@ -740,7 +740,21 @@ pub(crate) fn keep_lists(lists: Vec<MemberList>) {
 
 /// Saves the account while connected, a while after it changes, until the
 /// service ends.
-pub(crate) async fn keep(mut snapshots: watch::Receiver<Arc<Snapshot>>, names: Arc<RwLock<Names>>) {
+pub(crate) fn keep(
+    snapshots: watch::Receiver<Arc<Snapshot>>,
+    names: Arc<RwLock<Names>>,
+) -> impl std::future::Future<Output = ()> {
+    keep_for(current_login(), snapshots, names)
+}
+
+/// [`keep`] for `login`, which stops once another account's files are the
+/// ones kept: switching accounts starts another service while this one winds
+/// down, and what it saves must not carry the new account's name.
+async fn keep_for(
+    login: Option<String>,
+    mut snapshots: watch::Receiver<Arc<Snapshot>>,
+    names: Arc<RwLock<Names>>,
+) {
     let mut ended = false;
     while !ended {
         ended = snapshots.changed().await.is_err();
@@ -750,6 +764,9 @@ pub(crate) async fn keep(mut snapshots: watch::Receiver<Arc<Snapshot>>, names: A
         let snapshot = snapshots.borrow_and_update().clone();
         if snapshot.status != Status::Online {
             continue;
+        }
+        if current_login() != login {
+            return;
         }
         let Some(file) = file() else {
             continue;

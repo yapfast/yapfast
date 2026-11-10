@@ -268,7 +268,10 @@
 // A gateway session whose connection drops resumes with op 6, getting the
 // events it missed; a close with 1000 or 1001 ends it instead. POST
 // /_control/gateway-reconnect sends op 7, and GET /_control/sessions counts
-// identifies and resumes. POST /_control/refresh-token with a token ends
+// identifies and resumes. A second login, yapfast-test-token-two, is Bea: the
+// API and gateway take it beside Alice's and answer as Bea (id
+// 1400000000000000099), who sees the same server, for the account switcher.
+// POST /_control/refresh-token with a token ends
 // the session with op 9, and the READY after it refreshes the login to that
 // token in auth_token, as Discord does; from then on only that token works.
 // The API sets a device cookie, as Discord's does, and
@@ -358,6 +361,12 @@ const env = args.env ? await readEnv(args.env) : undefined;
 let world: World | undefined;
 
 const TOKEN = "yapfast-test-token";
+// Bea, a second account for the account switcher: her login is
+// `yapfast-test-token-two`, and the API and gateway answer her as the signed
+// in user when she presents it. She sees the same server as Alice; only who
+// she is differs. Yapfast links her with YAPFAST_DISCORD_TEST_SECOND_ACCOUNT=1.
+const SECOND_TOKEN = "yapfast-test-token-two";
+const BEA: User = { id: "1400000000000000099", username: "bea", global_name: "Bea", avatar: "bea1" };
 // The login the API and gateway take, which POST /_control/refresh-token
 // changes through the next READY.
 let apiToken = TOKEN;
@@ -2063,6 +2072,8 @@ function wireVoiceState(userId: string, state: VoiceState | undefined, left: str
 type SocketData = {
   sequence: number;
   identified: boolean;
+  /** Whether the session logged in as Bea, with the second token. */
+  bea?: boolean;
   session: string;
   origin: string;
   voice?: boolean;
@@ -2763,8 +2774,8 @@ function ready(ws: Socket) {
   return {
     v: 9,
     user: {
-      ...wireUser(users.alice),
-      email: world?.email ?? "alice@example.org",
+      ...wireUser(ws.data.bea ? BEA : users.alice),
+      email: ws.data.bea ? "bea@example.org" : world?.email ?? "alice@example.org",
       verified: true,
       mfa_enabled: serverSettings.alice_mfa,
       premium_type: nitro ? 2 : 0,
@@ -3152,14 +3163,15 @@ function gatewayMessage(ws: Socket, text: string) {
       send(ws, 11, null);
       break;
     case 2: // Identify
-      if (d.token !== apiToken) {
+      if (d.token !== apiToken && d.token !== SECOND_TOKEN) {
         console.error("gateway: identify with an unexpected token; closing");
         ws.close(4004, "Authentication failed.");
         return;
       }
+      ws.data.bea = d.token === SECOND_TOKEN;
       ws.data.identified = true;
       sessionCounts.identifies++;
-      if (refreshingTo) {
+      if (refreshingTo && !ws.data.bea) {
         apiToken = refreshingTo;
         refreshingTo = null;
         send(ws, 0, { ...ready(ws), auth_token: apiToken }, "READY");
@@ -3177,8 +3189,9 @@ function gatewayMessage(ws: Socket, text: string) {
       // allow the handoff directly from that connection as well as parked.
       const previous = [...sockets].find(other => other !== ws && other.data.identified && other.data.session === d.session_id);
       const session = parked.get(d.session_id) ?? (previous ? { sequence: previous.data.sequence, missed: [] } : undefined);
-      if (d.token !== apiToken || !session || d.seq !== session.sequence) {
-        console.error(`gateway: can't resume ${d.session_id} at ${d.seq} (parked sequence ${session?.sequence}, token matches: ${d.token === apiToken})`);
+      const tokenOk = d.token === apiToken || d.token === SECOND_TOKEN;
+      if (!tokenOk || !session || d.seq !== session.sequence) {
+        console.error(`gateway: can't resume ${d.session_id} at ${d.seq} (parked sequence ${session?.sequence}, token matches: ${tokenOk})`);
         send(ws, 9, false);
         return;
       }
@@ -3189,6 +3202,7 @@ function gatewayMessage(ws: Socket, text: string) {
       }
       ws.data.session = d.session_id;
       ws.data.sequence = session.sequence;
+      ws.data.bea = d.token === SECOND_TOKEN;
       ws.data.identified = true;
       sessionCounts.resumes++;
       console.log(`gateway: resumed ${d.session_id}, replaying ${session.missed.length} events`);
@@ -5129,7 +5143,8 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     tickets.delete(String(body.ticket));
     return json({ encrypted_token: await seal(key, TOKEN) });
   }
-  if (req.headers.get("authorization") !== apiToken) {
+  const login = req.headers.get("authorization");
+  if (login !== apiToken && login !== SECOND_TOKEN) {
     return json({ message: "401: Unauthorized", code: 0 }, 401);
   }
   const url = new URL(req.url);
@@ -5820,6 +5835,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   }
 
   if (method === "GET" && path === "/users/@me") {
+    if (login === SECOND_TOKEN) return json({ ...wireUser(BEA), email: "bea@example.org", verified: true });
     return json({ ...wireUser(users.alice), email: world?.email ?? "alice@example.org", verified: true });
   }
 
