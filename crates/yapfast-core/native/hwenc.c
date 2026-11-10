@@ -94,6 +94,11 @@ struct yapfast_hwenc {
    * behind it, and `qsv_slots` describes the surfaces handed in. NULL for
    * every other session, which is how the two encodes are told apart. */
   AVBufferRef *qsv_frames;
+  /* The same idea for AMF, whose FFmpeg encoder reads a Direct3D 11 texture
+   * rather than an MFX surface: a Direct3D 11 frames context with no pool, whose
+   * frame carries the caller's texture. NULL for every session that doesn't read
+   * the capture's own pictures. */
+  AVBufferRef *amf_frames;
   struct qsv_slot qsv_slots[QSV_SURFACES];
   /* The clock the least-recently-used of those surfaces is chosen by. */
   unsigned long long qsv_used;
@@ -361,6 +366,7 @@ static void close_encoder(struct yapfast_hwenc *h) {
     memset(&h->qsv_slots[i], 0, sizeof h->qsv_slots[i]);
   }
   av_buffer_unref(&h->qsv_frames);
+  av_buffer_unref(&h->amf_frames);
   free(h->staged);
   h->staged = NULL;
   h->staged_capacity = h->staged_size = 0;
@@ -407,6 +413,57 @@ static int open_vaapi(struct yapfast_hwenc *h, AVCodecContext *codec, struct va_
  * copies, so it is read back from the frames context rather than written here.
  * Linux has no texture to hand in — its capture is a DMA-BUF, and VA-API's
  * encoder reads that where it lies — so this is the Windows' path and says so. */
+/* AMF reads a Direct3D 11 texture where Quick Sync reads an MFX surface, and
+ * FFmpeg's AMF encoders take one as `AV_PIX_FMT_D3D11`: the frame names the
+ * texture and the subresource inside it, and `amf_surface_alloc` wraps that in
+ * the AMFTexture the driver encodes from. So the frames context here is Direct3D
+ * 11's own, with no pool — a frame with no buffer behind it is one the caller
+ * filled, which is the whole of what makes this path copy nothing. */
+static int open_amf_shared(struct yapfast_hwenc *h, AVCodecContext *codec, void *device) {
+#if YAPFAST_D3D11
+  AVBufferRef *frames = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_D3D11VA);
+  if (!frames) return AVERROR(ENOMEM);
+  AVD3D11VADeviceContext *hwctx = ((AVHWDeviceContext *)frames->data)->hwctx;
+  /* The device context releases this reference when the session's device goes,
+   * and the session holds it for as long as it can read a surface. */
+  ((ID3D11Device *)device)->lpVtbl->AddRef((ID3D11Device *)device);
+  hwctx->device = device;
+  int ret = av_hwdevice_ctx_init(frames);
+  if (ret < 0) {
+    av_buffer_unref(&frames);
+    return ret;
+  }
+  /* The session's device is the capture's, not one of its own: a texture can
+   * only be read by the device that holds it. */
+  av_buffer_unref(&h->device);
+  h->device = frames;
+  AVBufferRef *pool_ref = av_hwframe_ctx_alloc(h->device);
+  if (!pool_ref) return AVERROR(ENOMEM);
+  AVHWFramesContext *pool = (AVHWFramesContext *)pool_ref->data;
+  pool->format = AV_PIX_FMT_D3D11;
+  pool->sw_format = AV_PIX_FMT_NV12;
+  pool->width = codec->width;
+  pool->height = codec->height;
+  /* No texture is pre-allocated, which is what makes the encoder take the one in
+   * the frame it is given rather than one FFmpeg made. */
+  pool->initial_pool_size = 0;
+  ret = av_hwframe_ctx_init(pool_ref);
+  if (ret >= 0) codec->hw_frames_ctx = av_buffer_ref(pool_ref);
+  av_buffer_unref(&pool_ref);
+  if (ret < 0 || !codec->hw_frames_ctx) return ret < 0 ? ret : AVERROR(ENOMEM);
+  codec->pix_fmt = AV_PIX_FMT_D3D11;
+  h->amf_frames = av_buffer_ref(codec->hw_frames_ctx);
+  return h->amf_frames ? 0 : AVERROR(ENOMEM);
+#else
+  (void)h;
+  (void)codec;
+  (void)device;
+  snprintf(first_error, sizeof first_error,
+           "AMF's shared surfaces are Direct3D 11's, and this machine's capture is a DMA-BUF");
+  return AVERROR(ENOSYS);
+#endif
+}
+
 static int open_qsv_shared(struct yapfast_hwenc *h, AVCodecContext *codec, void *device) {
 #if YAPFAST_D3D11
   AVBufferRef *child = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_D3D11VA);
@@ -695,6 +752,21 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
     rate = "VBR";
     h->qsv = 1;
   } else if (amf) {
+    /* The capture's own texture where the machine has one, as Quick Sync is
+     * offered above: a frame that never reaches memory. The upload below is
+     * what a stream with no surfaces, or a device that refused them, gets. */
+    if (capture_device) {
+      int shared = open_amf_shared(h, codec, capture_device);
+      if (shared < 0) {
+        if (!first_error[0]) av_strerror(shared, first_error, sizeof first_error);
+        snprintf(h->shared_why, sizeof h->shared_why,
+                 "reading the capture's own surfaces wasn't possible (%s), so every frame is "
+                 "copied to the processor",
+                 first_error);
+        first_error[0] = 0;
+        av_buffer_unref(&h->device);
+      }
+    }
     /* Or FFmpeg holds each frame's packet back until the next frame. */
     codec->flags |= AV_CODEC_FLAG_LOW_DELAY;
     /* AMF's usage and rate control are the stream's latency and its cap
@@ -794,7 +866,9 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
    * `yapfast_hwenc_encode_texture`, which puts the surface in the frame itself:
    * there is no picture in memory here to give a buffer to, and the one
    * `fill` would have written is the frame that path would have uploaded. */
-  h->frame->format = h->qsv_frames ? AV_PIX_FMT_QSV : pixels;
+  h->frame->format = h->qsv_frames   ? AV_PIX_FMT_QSV
+                     : h->amf_frames ? AV_PIX_FMT_D3D11
+                                     : pixels;
   h->frame->width = (int)width;
   h->frame->height = (int)height;
   /* Read back rather than assumed, as the format is: an encoder that kept
@@ -808,7 +882,7 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
   snprintf(h->config, sizeof h->config, "%s, %s %s range, %d/%d, %u kbit/s", format,
            space ? space : "no colour space", range, codec->time_base.num,
            codec->time_base.den, kbps);
-  return h->qsv_frames ? 0 : av_frame_get_buffer(h->frame, 0);
+  return (h->qsv_frames || h->amf_frames) ? 0 : av_frame_get_buffer(h->frame, 0);
 }
 
 /* The encoders to try for each codec, best first, which is this build's own
@@ -1204,7 +1278,7 @@ long yapfast_hwenc_encode(struct yapfast_hwenc *h, const unsigned char *y, int y
   (void)duration;
   /* A frame from the card can't be filled from the processor, and pretending
    * it can would write through pointers this path never made. */
-  if (h->qsv_frames) return -1;
+  if (h->qsv_frames || h->amf_frames) return -1;
   int64_t at = av_rescale_q((int64_t)pts, (AVRational){1, 90000}, h->codec->time_base);
   int ret = fill(h, y, y_stride, u, u_stride, v, v_stride);
   if (ret < 0) return -1;
@@ -1228,8 +1302,25 @@ long yapfast_hwenc_encode(struct yapfast_hwenc *h, const unsigned char *y, int y
  * reason in `yapfast_hwenc_error` when the surface wasn't one it could read. */
 long yapfast_hwenc_encode_texture(struct yapfast_hwenc *h, void *texture, unsigned subresource,
                                   long long pts, int keyframe, int *is_key) {
-  if (!h || !h->qsv_frames || !texture || !is_key) return -1;
+  if (!h || !texture || !is_key) return -1;
   h->error[0] = 0;
+  if (h->amf_frames) {
+    /* The frame names the caller's texture and the subresource inside it; FFmpeg's
+     * AMF encoder wraps it in an AMFTexture itself, so nothing is copied and no
+     * surface of FFmpeg's is involved. */
+    int64_t at = av_rescale_q((int64_t)pts, (AVRational){1, 90000}, h->codec->time_base);
+    AVFrame *frame = h->frame;
+    av_frame_unref(frame);
+    frame->format = AV_PIX_FMT_D3D11;
+    frame->width = h->codec->width;
+    frame->height = h->codec->height;
+    frame->hw_frames_ctx = av_buffer_ref(h->amf_frames);
+    if (!frame->hw_frames_ctx) return -1;
+    frame->data[0] = texture;
+    frame->data[1] = (uint8_t *)(uintptr_t)subresource;
+    return encode_frame(h, frame, at, keyframe, is_key);
+  }
+  if (!h->qsv_frames) return -1;
   struct qsv_slot *slot = qsv_surface(h, texture, subresource);
   if (!slot) return -1;
   int64_t at = av_rescale_q((int64_t)pts, (AVRational){1, 90000}, h->codec->time_base);
@@ -1312,7 +1403,9 @@ int yapfast_hwenc_set_bitrate(struct yapfast_hwenc *h, unsigned kbps) {
  * 1 when it does, and 0 for every other session. Rust asks before it decides
  * how a frame reaches the encoder, since the two encodes are not
  * interchangeable, and logs it beside the encoder's name. */
-int yapfast_hwenc_shared(struct yapfast_hwenc *h) { return h->qsv_frames != NULL; }
+int yapfast_hwenc_shared(struct yapfast_hwenc *h) {
+  return h->qsv_frames != NULL || h->amf_frames != NULL;
+}
 
 /* Why the last frame wasn't encoded, when one wasn't, into `why`: empty when
  * the frame before it was. The surface handed over is the only thing that

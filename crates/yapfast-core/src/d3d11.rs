@@ -413,6 +413,116 @@ fn codec_number(codec: Codec, width: u32, height: u32) -> Result<c_uint> {
     })
 }
 
+/// The card's video processor between a capture and a session that reads
+/// surfaces: BGRA at the capture's size in, NV12 at the stream's size out, with
+/// no pixel reaching the processor. Quick Sync and AMF read a surface, not a
+/// picture, and a capture draws one they can't use as it is.
+#[cfg(d3d11conv)]
+pub struct Converter {
+    raw: *mut Raw,
+    /// The size the pictures come at, which the capture changes under us: a new
+    /// one makes another converter, since the processor is described by both.
+    from: (u32, u32),
+    to: (u32, u32),
+}
+
+#[cfg(d3d11conv)]
+unsafe extern "C" {
+    fn yapfast_d3d11conv_new(
+        device: *mut std::ffi::c_void,
+        from_width: c_uint,
+        from_height: c_uint,
+        to_width: c_uint,
+        to_height: c_uint,
+        why: *mut c_char,
+        size: usize,
+    ) -> *mut Raw;
+    fn yapfast_d3d11conv_run(
+        converter: *mut Raw,
+        texture: *mut std::ffi::c_void,
+        subresource: c_uint,
+        why: *mut c_char,
+        size: usize,
+    ) -> *mut std::ffi::c_void;
+    fn yapfast_d3d11conv_converted(converter: *mut Raw) -> c_ulonglong;
+    fn yapfast_d3d11conv_free(converter: *mut Raw);
+}
+
+#[cfg(d3d11conv)]
+impl Converter {
+    /// A converter from `from` to `to`, on the device the capture fills.
+    pub fn new(device: *mut std::ffi::c_void, from: (u32, u32), to: (u32, u32)) -> Result<Self> {
+        let mut why = [0u8; 192];
+        // SAFETY: the device is the capture's, which outlives this; the buffer is
+        // one the shim ends with a zero.
+        let raw = unsafe {
+            yapfast_d3d11conv_new(
+                device,
+                from.0,
+                from.1,
+                to.0,
+                to.1,
+                why.as_mut_ptr().cast(),
+                why.len(),
+            )
+        };
+        if raw.is_null() {
+            bail!("no video processor to convert with: {}", c_text(&why));
+        }
+        Ok(Self { raw, from, to })
+    }
+
+    /// Converts `texture` and gives back the NV12 texture the processor wrote,
+    /// which is this converter's and valid until the next call or its drop.
+    pub fn run(&mut self, texture: &Texture<'_>) -> Result<*mut std::ffi::c_void> {
+        let mut why = [0u8; 192];
+        // SAFETY: the texture is the capture's and lives for the call; the shim
+        // reads it on the same device it was made on.
+        let out = unsafe {
+            yapfast_d3d11conv_run(
+                self.raw,
+                texture.handle,
+                texture.subresource,
+                why.as_mut_ptr().cast(),
+                why.len(),
+            )
+        };
+        if out.is_null() {
+            bail!(
+                "the video processor wouldn't convert the picture: {}",
+                c_text(&why)
+            );
+        }
+        Ok(out)
+    }
+
+    /// Whether this converter was opened for the same sizes: a capture that
+    /// resized needs another one.
+    pub fn fits(&self, from: (u32, u32), to: (u32, u32)) -> bool {
+        self.from == from && self.to == to
+    }
+
+    /// Pictures the processor converted.
+    pub fn converted(&self) -> u64 {
+        // SAFETY: raw is an open converter.
+        unsafe { yapfast_d3d11conv_converted(self.raw) }
+    }
+}
+
+// SAFETY: a converter is used by the thread that made the share, as the encoder
+// that reads its pictures is; the device's video processor takes one caller at a
+// time and nothing here shares it.
+#[cfg(d3d11conv)]
+unsafe impl Send for Converter {}
+
+#[cfg(d3d11conv)]
+impl Drop for Converter {
+    fn drop(&mut self) {
+        // SAFETY: raw came from the constructor and is freed once.
+        unsafe { yapfast_d3d11conv_free(self.raw) };
+    }
+}
+
 /// How far a [`D3d11Encoder::scale`] may resize a picture, since a stream's size
 /// is fixed and a capture's is whatever the screen is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

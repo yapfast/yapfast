@@ -78,6 +78,7 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(nvdec)");
     println!("cargo::rustc-check-cfg=cfg(mfxdec)");
     println!("cargo::rustc-check-cfg=cfg(d3d11enc)");
+    println!("cargo::rustc-check-cfg=cfg(d3d11conv)");
     println!("cargo::rustc-check-cfg=cfg(d3d11dec)");
     println!("cargo::rustc-check-cfg=cfg(wgc)");
     println!("cargo::rustc-check-cfg=cfg(dup)");
@@ -98,6 +99,20 @@ fn main() {
             d3d11.flag("-std:c17");
         }
         d3d11.compile("yapfast_d3d11enc");
+        // The bridge between a capture and a session that reads surfaces:
+        // native/d3d11convert.c runs the card's video processor over a BGRA
+        // texture and writes NV12 at the stream's size, so Quick Sync and AMF
+        // are handed a surface they can read instead of one they can't.
+        let mut conv = cc::Build::new();
+        conv.file("native/d3d11convert.c").warnings(true);
+        use_clang_cl(&mut conv);
+        if conv.get_compiler().is_like_msvc() {
+            conv.flag("/std:c17");
+        } else {
+            conv.flag("-std:c17");
+        }
+        conv.compile("yapfast_d3d11conv");
+        println!("cargo::rustc-cfg=d3d11conv");
         // The device and its swap chain, the adapter list, DXGI's ids and the
         // shader the stand-in capture source is compiled from.
         for library in ["d3d11", "dxgi", "dxguid", "d3dcompiler"] {

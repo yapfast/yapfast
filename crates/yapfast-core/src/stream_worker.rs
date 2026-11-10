@@ -1124,6 +1124,11 @@ struct Video {
     /// The rate the encoder refused, until the sender's target moves: asked
     /// again with every frame, a refusal would be a warning a frame.
     refused: Option<u32>,
+    /// The card's video processor between a capture's BGRA picture at its own
+    /// size and the NV12 surface at the stream's that a session reading surfaces
+    /// takes: made on the first frame, and again when a size changes.
+    #[cfg(all(target_os = "windows", hwenc, d3d11conv))]
+    converter: Option<d3d11::Converter>,
     /// When the stream last reported how it goes out, and the bytes it had
     /// sent then.
     measured: (Instant, u64),
@@ -1203,15 +1208,14 @@ fn log_encoder(encoder: &Encoding) {
 /// which is what an encoder is opened at before the stream has a target of its
 /// own: a card's encoder opened to capture with, and the preview's, run for
 /// nothing but a picture and a thumbnail. See [`stream_connection::max_bitrate`].
-/// Whether a share may hand its session the capture's own surface. A capture
-/// fills a BGRA texture at the capture's size, while a session reading surfaces
-/// reads NV12 at the stream's size: until a capture hands one over in that shape,
-/// every frame would be refused, and a share would fall to the processor having
-/// thrown away a session that worked. So the rung is off, and a measurement asks
-/// for it by name.
+/// Whether a share may hand its session the capture's own surface, through the
+/// card's video processor: the capture's BGRA picture at its own size becomes the
+/// NV12 surface at the stream's, which is what Quick Sync and AMF read. On by
+/// default, since it is the card doing that work either way; the variable turns
+/// it off for a comparison against the upload path.
 #[cfg(all(target_os = "windows", hwenc))]
 fn surfaces_offered() -> bool {
-    std::env::var_os("YAPFAST_STREAM_SURFACES").is_some()
+    std::env::var_os("YAPFAST_STREAM_SURFACES").is_none_or(|asked| asked != "0")
 }
 
 fn kbps(width: u32, height: u32, fps: u32) -> u32 {
@@ -1380,10 +1384,31 @@ impl Sink {
             #[cfg(all(target_os = "windows", hwenc))]
             Some(Encoding::QsvTextures(encoder)) => {
                 let codec = encoder.codec();
-                (
-                    codec,
-                    encoder.encode_texture(texture.handle, texture.subresource, pts, keyframe),
-                )
+                // The capture's picture is BGRA at its own size where the surface
+                // the session reads is NV12 at the stream's: the card's video
+                // processor is the one step between them, and it costs the
+                // processor nothing.
+                #[cfg(d3d11conv)]
+                let picture = {
+                    let fits = video
+                        .converter
+                        .as_ref()
+                        .is_some_and(|converter| converter.fits(content, size));
+                    if !fits {
+                        video.converter = Some(
+                            d3d11::Converter::new(device, content, size)
+                                .map_err(|error| anyhow::anyhow!("{error:#}"))?,
+                        );
+                    }
+                    let converter = video.converter.as_mut().expect("made above");
+                    converter.run(&texture)?
+                };
+                #[cfg(not(d3d11conv))]
+                let picture = {
+                    let _ = (content, device);
+                    texture.handle
+                };
+                (codec, encoder.encode_texture(picture, 0, pts, keyframe))
             }
             Some(Encoding::Texture(encoder)) => {
                 let codec = encoder.codec();
@@ -1584,6 +1609,8 @@ impl Sink {
                 reopen: false,
                 skipped: 0,
                 refused: None,
+                #[cfg(all(target_os = "windows", hwenc, d3d11conv))]
+                converter: None,
                 measured: (Instant::now(), 0),
             });
         }
