@@ -109,8 +109,12 @@ export component BotModalDialog inherits Rectangle {
                         spacing: 16px; alignment: start;
                         for field[index] in root.fields: VerticalLayout {
                             spacing: 8px;
-                            Text { text: field.label + (field.required ? " *" : ""); color: Theme.text; font-size: 14px; font-weight: 700; }
-                            if field.kind != 4: ActionButton {
+                            // Kinds: 4 a text input, 3 and 5-8 select menus, 10 text to
+                            // read, 0 a part Yapfast can't fill.
+                            if field.label != "": Text { text: field.label + (field.required ? " *" : ""); color: Theme.text; font-size: 14px; font-weight: 700; wrap: word-wrap; }
+                            if field.kind == 10: Text { text: field.value; color: Theme.text; font-size: 14px; wrap: word-wrap; }
+                            if field.kind == 0: Text { text: "Yapfast can't fill this part yet."; color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
+                            if field.kind == 3 || (field.kind >= 5 && field.kind <= 8): ActionButton {
                                 enabled: !root.saving;
                                 text: field.summary != "" ? field.summary : "Choose an option";
                                 clicked => { root.open-select(index); }
@@ -132,7 +136,7 @@ export component BotModalDialog inherits Rectangle {
                             }
                         }
                         if !root.supported: Text {
-                            text: "This form has a field Yapfast cannot submit yet. Open it in Discord to continue.";
+                            text: "This form has a part Yapfast can't fill yet. Use it in Discord.";
                             color: Theme.danger; wrap: word-wrap; font-size: 14px;
                         }
                     }

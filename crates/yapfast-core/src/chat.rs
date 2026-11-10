@@ -2476,6 +2476,62 @@ pub struct OAuthPreview {
     pub guilds: Vec<OAuthGuild>,
 }
 
+/// A use of a bot's control or form, as [`DiscordCommand::Interact`] sends
+/// it; `discord_text` turns it into Discord's body.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Interaction {
+    /// A button clicked, or options picked in a select menu, under a message.
+    Component {
+        nonce: String,
+        /// None in a DM.
+        guild: Option<String>,
+        channel: String,
+        message: String,
+        message_flags: u64,
+        /// The message's `application_id`, when Discord gave one.
+        application: Option<String>,
+        /// The message's author, the bot, whose application it is otherwise.
+        author: String,
+        /// 2 for a button, 3 and 5-8 for the select menus.
+        component_type: u64,
+        custom_id: String,
+        /// The options picked, for a select menu.
+        values: Option<Vec<String>>,
+    },
+    /// A form a bot opened, submitted with what was entered.
+    Modal {
+        nonce: String,
+        guild: Option<String>,
+        channel: String,
+        application: String,
+        id: String,
+        custom_id: String,
+        components: serde_json::Value,
+    },
+}
+
+impl Interaction {
+    pub fn nonce(&self) -> &str {
+        match self {
+            Self::Component { nonce, .. } | Self::Modal { nonce, .. } => nonce,
+        }
+    }
+}
+
+/// An app command to run or to complete, with the options entered so far.
+/// A stub for phase 1 of the bot commands, which shapes it: `command` is the
+/// command as Discord's index gives it, `options` as `/interactions` takes
+/// them, and `target` the message or user a context-menu command acts on.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CommandRun {
+    pub nonce: String,
+    pub room: String,
+    pub application: String,
+    pub command: Arc<serde_json::Value>,
+    pub options: serde_json::Value,
+    pub target: Option<String>,
+}
+
 /// Commands only the linked Discord account carries out.
 #[derive(Clone)]
 pub enum DiscordCommand {
@@ -2492,8 +2548,28 @@ pub enum DiscordCommand {
     /// holding none in memory: what a start prefetches so that the picker's
     /// first look finds its emoji kept. See [`Pictures::prefetch`].
     PrefetchPictures(Vec<String>),
-    /// Use a bot's message component or submit a modal as this account.
-    Interact(serde_json::Value),
+    /// Uses a bot's button or select menu, or submits the form it opened,
+    /// as the person just did. [`Event::InteractionSucceeded`],
+    /// [`Event::InteractionFailed`], [`Event::InteractionModal`] or, with no
+    /// word from Discord, [`Event::InteractionSettled`] follows, by its nonce.
+    /// See `discord_text/interactions.rs`.
+    Interact(Box<Interaction>),
+    /// The commands the person may use in `room`: its server's command
+    /// index with the user-installed apps'. Sent only once the person types
+    /// `/`, never ahead. [`Event::CommandIndex`] follows. Phase 1a of the bot
+    /// commands (docs: bots-gap-analysis.md) fills it in, in
+    /// `discord_text/app_commands.rs`; until then it answers nothing.
+    CommandIndex {
+        room: String,
+    },
+    /// Runs an app's command in `room`, as typed or chosen from a menu.
+    /// Phase 1c fills it in, in `discord_text/interactions.rs`; until then
+    /// it fails with [`Event::InteractionFailed`].
+    RunCommand(Box<CommandRun>),
+    /// Asks an app for its choices for the option being typed, on a
+    /// keystroke in it. [`Event::AutocompleteChoices`] follows. Phase 1c
+    /// fills it in; until then it answers nothing.
+    Autocomplete(Box<CommandRun>),
     /// The GIF picker's home: trending terms with a GIF each, and a GIF for
     /// "Trending GIFs"; [`Event::GifCategories`] follows.
     GifCategories,
@@ -3754,15 +3830,45 @@ pub enum ForwardFailure {
 }
 
 pub enum Event {
-    /// A bot responded to an interaction with a modal for this account.
+    /// A bot answered an interaction with a form, as Discord sent it, with
+    /// the interaction's `nonce`.
     InteractionModal(serde_json::Value),
-    /// Discord or the bot refused an interaction identified by its nonce.
+    /// Discord or the bot refused the interaction with this nonce, and why,
+    /// in words to show.
     InteractionFailed {
         nonce: String,
         reason: String,
     },
+    /// The bot answered the interaction with this nonce.
     InteractionSucceeded(String),
+    /// Discord took the interaction with this nonce but said nothing more of
+    /// it in time, as across a reconnect.
     InteractionSettled(String),
+    /// Discord passed the interaction with this nonce to its app, which gave
+    /// it `id`: the answer's message names it in `interaction_metadata`.
+    /// Nothing uses it yet; phase 1c's "Sending command…" row will.
+    InteractionCreated {
+        nonce: String,
+        id: String,
+    },
+    /// The commands the person may use in `room`, as Discord's index gives
+    /// them, or why they couldn't be fetched. Phase 1a may give it a typed
+    /// index in place of Discord's JSON.
+    CommandIndex {
+        room: String,
+        index: Result<Arc<serde_json::Value>, String>,
+    },
+    /// A server's command index changed, or with none who may use commands:
+    /// a kept index is out of date.
+    CommandIndexChanged {
+        guild: Option<String>,
+    },
+    /// An app's choices for the option being typed, for the autocomplete
+    /// with this nonce, as Discord sent them.
+    AutocompleteChoices {
+        nonce: String,
+        choices: serde_json::Value,
+    },
     /// The GIF picker's home, or why it couldn't load.
     GifCategories(Result<(Vec<GifCategory>, Option<Gif>), String>),
     /// GIFs for a search, or with `None` those trending, or why not.

@@ -234,6 +234,19 @@
 // way: GET /oauth2/authorize shows it, POST /oauth2/authorize makes it and
 // answers the `location` to go to next, and GET
 // /_control/oauth-authorizations lists each one with the query it came with.
+// Status Bot's buttons and menu under its deploy message (POST
+// /_control/components) answer POST /interactions as an app does through
+// Discord: Alice's click (type 3) or form (type 5) is taken with 204 once its
+// session_id is her gateway session's and its application_id Status Bot's,
+// then INTERACTION_CREATE with her nonce, and by the control's custom_id:
+// "ok" (Approve) and the "environment" menu INTERACTION_SUCCESS and a
+// MESSAGE_UPDATE of the message (callback 7), "form" (Write notes)
+// INTERACTION_MODAL_CREATE with a text display, a text input and a select
+// menu, "fail" (Roll back) INTERACTION_FAILURE with reason 1, and "slow"
+// (Check later) nothing, as an app that never answers. Submitting the form
+// gives INTERACTION_SUCCESS and an ephemeral MESSAGE_CREATE (flag 64, no
+// guild_id), which history leaves out. GET /_control/interactions lists
+// each body Alice sent, oldest first.
 // A gift of Nitro from Bob resolves and redeems the same way: GET
 // /entitlements/gift-codes/{code} shows it, POST .../redeem redeems it
 // once and sends ENTITLEMENT_CREATE and GIFT_CODE_UPDATE, and GET
@@ -4818,6 +4831,69 @@ const PAID_GIFT_CODE = "AbCdEfGhIjKlMnOp";
 const empty = () => new Response(null, { status: 204 });
 const notFound = (message = "404: Not Found", code = 0) => json({ message, code }, 404);
 
+// --- Interactions ---
+/** Each body Alice sent to POST /interactions, oldest first, for
+ *  GET /_control/interactions. */
+const interactionsSent: Record<string, unknown>[] = [];
+/** The ids of the forms Status Bot opened, which a submit names. */
+const formsOpened = new Set<string>();
+const EPHEMERAL = 1 << 6;
+
+/** Status Bot's answer to Alice's interaction `id`, through the gateway, as
+ *  Discord passes on an app's: see the header. */
+function answerInteraction(body: any, id: string, origin: string) {
+  const nonce = body.nonce;
+  dispatch("INTERACTION_CREATE", { id, nonce });
+  if (body.type === 5) {
+    dispatch("INTERACTION_SUCCESS", { id, nonce });
+    const entered = (body.data?.components ?? [])
+      .map((row: any) => row.component ?? row.components?.[0])
+      .filter((field: any) => field && field.type !== 10)
+      .map((field: any) => field.value ?? (field.values ?? []).join(", "));
+    // Only Alice sees it: sent to her session alone, without the server, and
+    // never in the channel's history.
+    const reply: Message = {
+      id: nextId(Date.now()), channel: body.channel_id, author: statusBot,
+      content: `Noted: ${entered.join("; ")}`, type: 0, files: [], reactions: [], flags: EPHEMERAL,
+    };
+    dispatch("MESSAGE_CREATE", wireMessage(reply, origin));
+    return;
+  }
+  switch (body.data?.custom_id) {
+    case "fail":
+      dispatch("INTERACTION_FAILURE", { id, nonce, reason_code: 1 });
+      return;
+    case "slow":
+      return;
+    case "form": {
+      const form = nextId(Date.now());
+      formsOpened.add(form);
+      dispatch("INTERACTION_MODAL_CREATE", {
+        id: form, nonce, channel_id: body.channel_id, custom_id: "deploy-notes", title: "Deploy notes",
+        application: { id: statusBot.id, name: "Status Bot", icon: null },
+        components: [
+          { type: 10, id: 1, content: "Tell the team what changed." },
+          { type: 18, id: 2, label: "Summary", component: { type: 4, id: 3, custom_id: "summary", style: 1, required: true } },
+          {
+            type: 18, id: 4, label: "Environment",
+            component: { type: 3, id: 5, custom_id: "environment", options: [{ label: "Staging", value: "staging" }, { label: "Production", value: "production", default: true }] },
+          },
+        ],
+      });
+      return;
+    }
+    default: {
+      dispatch("INTERACTION_SUCCESS", { id, nonce });
+      const message = byId.get(body.message_id);
+      if (!message) return;
+      const picked = body.data?.values?.length ? ` for ${body.data.values.join(", ")}` : "";
+      message.content = `${message.content.split("\n")[0]}\n-# Approved by Alice${picked}`;
+      message.edited = Date.now();
+      dispatch("MESSAGE_UPDATE", dispatched(message, origin));
+    }
+  }
+}
+
 /** The invites Alice made, oldest first, for GET /_control/invites. */
 const invites: Record<string, unknown>[] = [];
 /** Each join by an invite, oldest first, for GET /_control/invite-joins. */
@@ -7230,6 +7306,21 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     return unknown(req, path);
   }
 
+  // Alice uses Status Bot's controls; see "Interactions" in the header.
+  if (method === "POST" && path === "/interactions") {
+    const body: any = await req.json().catch(() => ({}));
+    const live = [...sockets].some((ws) => ws.data.identified && ws.data.session === body.session_id);
+    const form = body.type !== 5 || formsOpened.has(body.data?.id);
+    if (!live || typeof body.nonce !== "string" || ![3, 5].includes(body.type) || !form) {
+      return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    }
+    if (body.application_id !== statusBot.id) return notFound("Unknown Application", 10002);
+    interactionsSent.push(body);
+    const id = nextId(Date.now());
+    setTimeout(() => answerInteraction(body, id, origin), 0);
+    return empty();
+  }
+
   // Authorizing Alien App from its link: the preview its dialog shows,
   // and making it, in the server picked.
   if (path === "/oauth2/authorize" && (method === "GET" || method === "POST")) {
@@ -7593,8 +7684,8 @@ function postComponents(origin: string): string {
       {
         type: 1, id: 1,
         components: [
-          { type: 2, id: 2, style: 3, label: "Approve", custom_id: "approve" },
-          { type: 2, id: 3, style: 4, label: "Roll back", custom_id: "rollback" },
+          { type: 2, id: 2, style: 3, label: "Approve", custom_id: "ok" },
+          { type: 2, id: 3, style: 4, label: "Roll back", custom_id: "fail" },
           { type: 2, id: 4, style: 2, label: "Retry", custom_id: "retry", disabled: true },
           { type: 2, id: 5, style: 5, label: "Logs", url: "https://example.com/logs" },
         ],
@@ -7605,6 +7696,13 @@ function postComponents(origin: string): string {
           type: 3, id: 7, custom_id: "environment", placeholder: "Pick an environment",
           options: [{ label: "Staging", value: "staging" }, { label: "Production", value: "production" }],
         }],
+      },
+      {
+        type: 1, id: 8,
+        components: [
+          { type: 2, id: 9, style: 1, label: "Write notes", custom_id: "form" },
+          { type: 2, id: 10, style: 2, label: "Check later", custom_id: "slow" },
+        ],
       },
     ],
   });
@@ -8902,6 +9000,9 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/gift-redeems") {
       return Response.json(giftRedeems);
+    }
+    if (req.method === "GET" && path === "/_control/interactions") {
+      return Response.json(interactionsSent);
     }
     if (req.method === "GET" && path === "/_control/oauth-authorizations") {
       return Response.json(oauthAuthorizations);

@@ -551,6 +551,7 @@ impl Adapter {
         self.show_channel_settings(window);
         self.show_mfa(window);
         self.show_bot_interactions(window);
+        self.show_app_commands(window);
         self.show_dialogs(window);
         self.show_reactions(window);
         self.show_gifs(window);
@@ -745,8 +746,13 @@ impl Adapter {
         window.set_emoji_card(card);
     }
 
+    /// Bots' controls waiting for Discord, and the select menu and form
+    /// one opened.
     pub(super) fn show_bot_interactions(&mut self, window: &YapfastWindow) {
-        window.set_bot_control_busy(self.app.state.pending_interaction.is_some());
+        let busy = self.app.state.interactions.busy_controls();
+        if window.get_bot_busy_controls() != busy.as_str() {
+            window.set_bot_busy_controls(busy.into());
+        }
         let select = self.app.state.select_menu.as_ref();
         window.set_bot_select_open(select.is_some());
         if let Some(select) = select {

@@ -36,28 +36,6 @@ authors' member profiles. A profile that's opened and a member list that
 arrives teach them too, and the open channel and the thread beside it
 re-render with the colours.
 
-Bot message controls can be used in the timeline and threads. Yapfast sends
-ordinary button clicks, string and user/role/mentionable/channel selections,
-and modal form submissions through the linked account's Discord session. A
-modal can contain text inputs or selection fields. Failed submissions keep the
-form and its answers available to retry. Pending controls unlock after 15 seconds
-if Discord never confirms the interaction, including during a reconnect. When a
-bot message omits its application ID, Yapfast refreshes the message and asks for
-the bot's profile to identify its application. Webhook authors are never used as
-guessed application IDs; unresolved controls show a notice. Optional single
-selections can be cleared, and channel menus respect the bot's channel-type restrictions, including
-visible categories. Default entity selections show their known names, or their
-IDs when a name is unavailable.
-Entity menus use the people,
-roles and channels Yapfast knows, and searching people also asks Discord for
-matching server members. Link buttons open their URL. Premium buttons open the
-bot's store offer in Discord's App Directory; purchasing happens there.
-Embedded activities and any modal field Yapfast cannot represent still need
-Discord's client. Modals containing informational text also require Discord;
-Yapfast blocks submission so instructions or warnings cannot be skipped.
-These user interaction endpoints are not covered by Discord's
-public bot API, so live compatibility should be checked against a test bot.
-
 Yapfast keeps the open channel's messages in memory, and those of the 40
 channels open before it, so going back to one shows it at once. A closed
 channel keeps its newest 200 messages as metadata and follows new messages,
@@ -516,6 +494,47 @@ Yapfast is back, rather than showing an error.
   shows the status to others itself, so Yapfast sends it with opcode 3 once
   connected, whenever the settings change, and clears it when it ends. A
   custom emoji in a status needs Nitro.
+
+## Bots' buttons, menus and forms
+
+A bot's buttons and select menus under its message work in the timeline and
+in a thread, and the form (modal) a bot opens shows as a dialog. Each sends
+`POST /interactions` from the linked account's gateway session, as Discord's
+client does (docs.discord.food, "Receiving and Responding"): type 3 for a
+button or a pick in a menu, with the message, its flags and the control's
+`custom_id`, and type 5 for a form submitted, with the form's id and what was
+entered. Discord answers 204, then tells over the gateway, by the nonce the
+request carried, that the app answered (INTERACTION_SUCCESS), failed
+(INTERACTION_FAILURE) or opened a form (INTERACTION_MODAL_CREATE). Only a
+click or a submit sends one, and none is sent again on its own.
+
+- The control used is busy until then, and the others, under the same
+  message or another bot's, can still be used: a slow bot holds up only its
+  own control. Once Discord took the request, Yapfast waits 15 seconds for
+  the gateway's word, which a reconnect can lose, then frees the control. An
+  answer frees it at once.
+- A failure says why in Discord's words: "The application did not respond."
+  for a bot that didn't answer in time, "This interaction failed." otherwise.
+  A refused request gives Discord's reason.
+- Discord leaves `application_id` off a bot's own messages, so a control
+  there is sent with the application Yapfast learned for that bot, from a
+  message that named one or from the bot's profile once someone opened it,
+  or else with the bot's own id, as an app's bot user has its application's.
+  Yapfast asks Discord for neither just to send a click.
+- A form shows its text inputs, select menus and text (TEXT_DISPLAY, shown
+  and left out of what it sends). A part Yapfast can't fill, such as a file
+  upload or a checkbox, shows as such, and the form can't be sent from
+  Yapfast; a form Yapfast can't read at all says so. A failed submit keeps
+  the form and its answers to send again.
+- The people, role, mentionable and channel menus offer the people, roles and
+  channels Yapfast knows, and searching people asks Discord for the server's
+  members who match. Channel menus keep to the bot's channel types, visible
+  categories included, and a default pick shows its name, or its id when the
+  name isn't known. An optional single pick can be cleared.
+- Link buttons open their address. A premium button opens the app's store
+  page in the browser; nothing is bought through Yapfast.
+- An app that answers with a web page in a window
+  (INTERACTION_IFRAME_MODAL_CREATE) says to use Discord for it.
 
 ## GIFs
 

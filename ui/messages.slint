@@ -1765,10 +1765,13 @@ component CardButtonView inherits ActionButton {
     in property <CardButton> button;
     in property <string> item;
     in property <string> app-id;
-    in property <bool> busy;
+    in property <string> busy-controls;
     callback open-link(string);
     callback use-button(string, string);
     property <image> no-icon;
+    // It waits for Discord's word on its last use: see `CardView`.
+    property <bool> busy: root.button.custom-id != "" && root.busy-controls != ""
+        && root.busy-controls.replace-all("\u{1f}" + root.item + "\u{1e}" + root.button.custom-id + "\u{1f}", "") != root.busy-controls;
     text: root.button.style == CardButtonStyle.premium ? "View offer" : root.button.label;
     icon: root.button.style == CardButtonStyle.link ? @image-url("icons/external-link.svg") : root.no-icon;
     primary: root.button.style == CardButtonStyle.primary;
@@ -1792,7 +1795,10 @@ export component CardView inherits HorizontalLayout {
     /// state, empty once it's sent.
     in property <string> item;
     in property <string> app-id;
-    in property <bool> busy;
+    /// The bots' controls waiting for Discord, each as
+    /// "\u{1f}item\u{1e}custom-id\u{1f}": one found in it is busy, and
+    /// the rest can still be used.
+    in property <string> busy-controls;
     in property <string> delivery;
     in property <string> active-item;
     in property <bool> preview;
@@ -1849,7 +1855,7 @@ export component CardView inherits HorizontalLayout {
                     }
                     if row.has-button: VerticalLayout {
                         alignment: start;
-                        CardButtonView { button: row.button; item: root.item; app-id: root.app-id; busy: root.busy; open-link(link) => { root.open-link(link); } use-button(item, id) => { root.use-button(item, id); } }
+                        CardButtonView { button: row.button; item: root.item; app-id: root.app-id; busy-controls: root.busy-controls; open-link(link) => { root.open-link(link); } use-button(item, id) => { root.use-button(item, id); } }
                     }
                 }
                 if row.kind == CardRowKind.media && row.images.length > 0: MessageGallery {
@@ -1873,21 +1879,23 @@ export component CardView inherits HorizontalLayout {
                 }
                 if row.kind == CardRowKind.buttons: HorizontalLayout {
                     spacing: 8px; alignment: start;
-                    for button in row.buttons: CardButtonView { button: button; item: root.item; app-id: root.app-id; busy: root.busy; open-link(link) => { root.open-link(link); } use-button(item, id) => { root.use-button(item, id); } }
+                    for button in row.buttons: CardButtonView { button: button; item: root.item; app-id: root.app-id; busy-controls: root.busy-controls; open-link(link) => { root.open-link(link); } use-button(item, id) => { root.use-button(item, id); } }
                 }
-                if row.kind == CardRowKind.select: HorizontalLayout {
+                if row.kind == CardRowKind.select: select-row := HorizontalLayout {
+                    property <bool> busy: root.busy-controls != ""
+                        && root.busy-controls.replace-all("\u{1f}" + root.item + "\u{1e}" + row.select-id + "\u{1f}", "") != root.busy-controls;
                     Rectangle {
-                        max-width: 400px; horizontal-stretch: 100; height: 40px; border-radius: 8px; opacity: row.select-enabled && !root.busy ? 1 : 0.5;
+                        max-width: 400px; horizontal-stretch: 100; height: 40px; border-radius: 8px; opacity: row.select-enabled && !select-row.busy ? 1 : 0.5;
                         background: Theme.field; border-width: 1px; border-color: Theme.edge;
-                        accessible-role: combobox; accessible-label: row.select; accessible-enabled: row.select-enabled && !root.busy;
-                        accessible-action-default => { if row.select-enabled && !root.busy { root.open-select(root.item, row.select-id); } }
+                        accessible-role: combobox; accessible-label: row.select; accessible-enabled: row.select-enabled && !select-row.busy;
+                        accessible-action-default => { if row.select-enabled && !select-row.busy { root.open-select(root.item, row.select-id); } }
                         HorizontalLayout {
                             padding-left: 12px; padding-right: 12px; spacing: 8px;
                             Text { text: row.select; color: Theme.secondary; font-weight: 500; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                             Image { source: @image-url("icons/chevron-down.svg"); width: 18px; image-fit: contain; colorize: Theme.secondary; }
                         }
                         TouchArea {
-                            enabled: row.select-enabled && !root.busy; mouse-cursor: MouseCursor.pointer;
+                            enabled: row.select-enabled && !select-row.busy; mouse-cursor: MouseCursor.pointer;
                             clicked => { root.open-select(root.item, row.select-id); }
                         }
                     }
@@ -2347,7 +2355,8 @@ export component MessageContent inherits VerticalLayout {
     /// The message the pointer or keyboard is on, whose time shows.
     in property <string> active-item;
     in property <bool> preview;
-    in property <bool> bot-control-busy;
+    /// The bots' controls waiting for Discord; see `CardView`.
+    in property <string> bot-busy-controls;
     /// Adding to the message's reactions, or taking one's own back.
     in property <bool> reactions-enabled;
     in property <string> emoji-font;
@@ -2592,7 +2601,7 @@ export component MessageContent inherits VerticalLayout {
                 media-menu(id, index, video, x, y) => { root.media-menu(id, index, video, x, y); }
             }
             for card in message.cards: CardView {
-                card: card; item: message.item; app-id: message.app-id; busy: root.bot-control-busy; delivery: message.delivery; active-item: root.active-item; preview: root.preview;
+                card: card; item: message.item; app-id: message.app-id; busy-controls: root.bot-busy-controls; delivery: message.delivery; active-item: root.active-item; preview: root.preview;
                 message-font-size: root.message-font-size;
                 open-link(link) => { root.open-link(link); }
                 use-button(item, id) => { root.use-button(item, id); }

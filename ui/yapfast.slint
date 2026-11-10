@@ -62,6 +62,7 @@ import { MfaChoice, MfaPrompt, MfaDialog } from "mfa.slint";
 import { FoundRow, PickRow, ThreadRow, HeaderSearch, PinsPopover, ThreadsPopover, AddPeoplePopover, SearchPanel, TopicPopover } from "header.slint";
 import { ThreadPanel, NewThreadPanel } from "thread.slint";
 import { BotSelectDialog, BotModalDialog, SelectChoice, ModalField } from "interactions.slint";
+import { CommandChoice, CommandOptionPill } from "app_commands.slint";
 import { PostTag, PostRow, PostTagChoice, ForumPanel } from "forum.slint";
 import { BrowseRow, BrowseScreen } from "browse.slint";
 
@@ -84,6 +85,7 @@ export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from 
 export { FoundRow, PickRow } from "header.slint";
 export { GifTile, GifFavorites } from "gifs.slint";
 export { SelectChoice, ModalField } from "interactions.slint";
+export { CommandChoice, CommandOptionPill } from "app_commands.slint";
 
 export component YapfastWindow inherits Window {
     /// "Yapfast", or "(3) Yapfast" with mentions and DMs waiting, as a browser
@@ -442,7 +444,9 @@ export component YapfastWindow inherits Window {
     callback use-button(string, string);
     callback open-select(string, string);
     in property <bool> bot-select-open;
-    in-out property <bool> bot-control-busy;
+    /// The bots' controls waiting for Discord, each as
+    /// "\u{1f}item\u{1e}custom-id\u{1f}", which a control finds itself in.
+    in property <string> bot-busy-controls;
     in property <string> bot-select-heading;
     in property <[SelectChoice]> bot-select-choices;
     in property <string> bot-select-query;
@@ -462,6 +466,24 @@ export component YapfastWindow inherits Window {
     callback bot-modal-open-select(int);
     callback bot-modal-submit;
     callback bot-modal-close;
+    // Apps' commands, for phases 1b, 1d and 2 of the bot commands (see
+    // app_commands.slint and src/ui/app_commands.rs). Declared, unused yet.
+    /// The `/` picker over the composer, and the commands it offers.
+    in property <bool> command-picker-open;
+    in property <[CommandChoice]> command-choices;
+    /// The options of the command being written in the composer.
+    in property <[CommandOptionPill]> command-options;
+    /// The commands an open message's or person's "Apps" submenu offers.
+    in property <[CommandChoice]> app-menu-commands;
+    /// The draft is `/` and this after it; a command picked by its place;
+    /// what was entered for an option; a command, by its id, run on a
+    /// message item or user, or as written with none; an ephemeral message
+    /// dismissed.
+    callback slash-query(string);
+    callback pick-command(int);
+    callback set-command-option(int, string);
+    callback run-app-command(string, string);
+    callback dismiss-ephemeral(string);
     in-out property <bool> sync-discord-reads;
     callback sync-discord-reads-toggled(bool);
     in-out property <bool> show-idle: true;
@@ -3375,7 +3397,7 @@ export component YapfastWindow inherits Window {
                                                         Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: message.unread-start ? Theme.accent : Theme.line; } }
                                                     }
                                                     MessageContent {
-                                                        message: message; active-item: root.active-item; preview: root.preview; reactions-enabled: root.reactions-enabled; bot-control-busy: root.bot-control-busy;
+                                                        message: message; active-item: root.active-item; preview: root.preview; reactions-enabled: root.reactions-enabled; bot-busy-controls: root.bot-busy-controls;
                                                         emoji-font: root.emoji-font; message-font-size: root.message-font-size;
                                                         collapse-long: root.collapse-long;
                                                         // The view keeps the message's top: it stops following
@@ -3822,7 +3844,7 @@ export component YapfastWindow inherits Window {
                         typing-tick: root.aside-typing-tick;
                         composer-focused => { root.aside-composer-last = true; }
                         escape-composing => { return root.escape-composing(); }
-                        busy: root.busy; bot-control-busy: root.bot-control-busy; composer-enabled: root.aside-composer-enabled; can-send: root.aside-can-send;
+                        busy: root.busy; bot-busy-controls: root.bot-busy-controls; composer-enabled: root.aside-composer-enabled; can-send: root.aside-can-send;
                         reactions-enabled: root.aside-reactions-enabled; new-reactions-enabled: root.aside-new-reactions-enabled;
                         sending: root.sending; compose-label: root.aside-compose-label; draft <=> root.aside-draft;
                         reply-ping: root.aside-reply-ping; toggle-reply-ping => { root.aside-toggle-reply-ping(); }

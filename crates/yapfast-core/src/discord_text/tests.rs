@@ -17,9 +17,17 @@ fn message(id: &str, nonce: Option<&str>) -> Message {
 fn unavailable_discord_fails_the_interaction_with_its_nonce() {
     let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
     without(
-        Command::Discord(DiscordCommand::Interact(
-            serde_json::json!({"nonce": "click"}),
-        )),
+        Command::Discord(DiscordCommand::Interact(Box::new(
+            crate::chat::Interaction::Modal {
+                nonce: "click".into(),
+                guild: None,
+                channel: "1".into(),
+                application: "2".into(),
+                id: "3".into(),
+                custom_id: "form".into(),
+                components: serde_json::json!([]),
+            },
+        ))),
         "Offline",
         &events,
     );

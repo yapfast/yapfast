@@ -16,7 +16,7 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use crate::{
     activity, activity_feed,
     api::{self, Api, PAGE, Span},
-    cache, forum, gift, guild, invite, limits,
+    cache, forum, gift, guild, interactions, invite, limits,
     marked::MarkedServer,
     member_list::{ListedMember, Presence},
     message::{self, Message, Names, Page, Reply},
@@ -386,13 +386,41 @@ impl std::fmt::Debug for SharedNames {
 /// A message event from the gateway, for any channel.
 #[derive(Clone, Debug)]
 pub enum Live {
+    /// INTERACTION_CREATE: Discord passed this account's interaction to its
+    /// app, which gave it `id`. A message that answers it names that id in
+    /// its `interaction_metadata`.
+    InteractionCreated {
+        nonce: String,
+        id: String,
+    },
+    /// INTERACTION_MODAL_CREATE: an app answered with a form, as Discord
+    /// sends it, with the interaction's `nonce`.
     InteractionModal(Value),
+    /// INTERACTION_IFRAME_MODAL_CREATE: an app answered with a web page to
+    /// show in a window, as Discord sends it. Yapfast doesn't show those.
+    InteractionPage(Value),
+    /// INTERACTION_FAILURE, with Discord's `reason_code`; see
+    /// [`interactions::failure_reason`].
     InteractionFailure {
         nonce: String,
         reason: u64,
     },
+    /// INTERACTION_SUCCESS: the app answered.
     InteractionSuccess {
         nonce: String,
+    },
+    /// APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE: an app's choices for the
+    /// option being typed, as Discord sends them. Phase 1c of the bot
+    /// commands parses them; nothing asks for them yet.
+    AutocompleteChoices {
+        nonce: String,
+        choices: Value,
+    },
+    /// GUILD_APPLICATION_COMMAND_INDEX_UPDATE, or with no server
+    /// APPLICATION_COMMAND_PERMISSIONS_UPDATE's: a kept command index is out
+    /// of date. Nothing keeps one yet.
+    CommandIndexChanged {
+        guild: Option<String>,
     },
     /// The Activity panel's feed has something new, to fetch after this long.
     ActivityFeedStale {
@@ -722,6 +750,9 @@ pub struct Discord {
     /// Discord's own soundboard sounds, once a call asked for them: Discord's
     /// client asks once a session too.
     default_sounds: Arc<tokio::sync::Mutex<Option<Arc<[soundboard::Sound]>>>>,
+    /// The application of each bot whose controls were used or whose
+    /// profile was opened; see [`interactions::AppIds`].
+    app_ids: interactions::AppIds,
 }
 
 /// Discord allows starting 10 new DMs with people in 10 minutes, and treats
@@ -840,6 +871,7 @@ impl Discord {
             application_icons: Arc::default(),
             mfa: Arc::default(),
             default_sounds: Arc::default(),
+            app_ids: interactions::AppIds::default(),
         })
     }
 
@@ -1004,22 +1036,14 @@ impl Discord {
         self.api.vote(channel, id, answers).await
     }
 
-    /// Use a message component or submit a modal in this Gateway session.
-    /// `body` contains the interaction's application, target and data.
-    pub async fn interact(&self, mut body: Value) -> Result<()> {
-        if body["application_id"].is_null() {
-            let channel = body["channel_id"]
-                .as_str()
-                .context("Missing interaction channel.")?;
-            let message = body["message_id"]
-                .as_str()
-                .context("Missing interaction message.")?;
-            body["application_id"] = self
-                .api
-                .component_application(channel, message)
-                .await?
-                .into();
-        }
+    /// Uses a bot's message component or submits its form in this gateway
+    /// session, as the person just did. Discord takes the request at once
+    /// and tells the app's answer over the gateway, as
+    /// [`Live::InteractionSuccess`], [`Live::InteractionFailure`] or
+    /// [`Live::InteractionModal`]; this waits for it, up to
+    /// [`interactions::UNANSWERED`], and says whether it came. It is never
+    /// sent again.
+    pub async fn interact(&self, interaction: &interactions::Interaction) -> Result<bool> {
         let (reply, answer) = oneshot::channel();
         self.requests
             .send(Request::Session(reply))
@@ -1029,8 +1053,34 @@ impl Discord {
             .ok()
             .flatten()
             .context("Discord isn't connected yet. Try again in a moment.")?;
-        body["session_id"] = session.into();
-        self.api.interact(&body).await
+        // Listening before sending, so an answer that comes first is heard.
+        let mut live = self.live.subscribe();
+        self.api
+            .interact(&interaction.body(&session, &self.app_ids))
+            .await?;
+        let nonce = interaction.nonce();
+        let answered = async {
+            loop {
+                match live.recv().await {
+                    Ok(
+                        Live::InteractionSuccess { nonce: answered }
+                        | Live::InteractionFailure {
+                            nonce: answered, ..
+                        },
+                    ) if answered == nonce => return,
+                    Ok(Live::InteractionModal(form) | Live::InteractionPage(form))
+                        if form["nonce"] == nonce =>
+                    {
+                        return;
+                    }
+                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => std::future::pending::<()>().await,
+                }
+            }
+        };
+        Ok(tokio::time::timeout(interactions::UNANSWERED, answered)
+            .await
+            .is_ok())
     }
 
     /// Closes this account's poll now.
@@ -1410,6 +1460,10 @@ impl Discord {
             kept(earlier);
         }
         let value = self.api.profile(user, server(guild)).await?;
+        // A bot's profile names its application, which its controls use.
+        if let Some(application) = value["application"]["id"].as_str() {
+            self.app_ids.learn(user, application);
+        }
         let learned = {
             let mut names = self.write_names();
             let before = names.version();

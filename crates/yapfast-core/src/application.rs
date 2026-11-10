@@ -23,9 +23,11 @@ mod aside;
 mod browse;
 mod calls;
 mod channel_settings;
+mod commands;
 mod compose;
 mod cosmetics;
 mod discord_account;
+mod ephemeral;
 mod forum;
 mod gifs;
 mod gift;
@@ -62,7 +64,7 @@ pub use cosmetics::Cosmetics;
 pub use forum::{ForumInfo, ForumPost, ForumPosts, ForumView};
 pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
 pub use gift::GiftDialog;
-pub use interactions::{InteractionModal, ModalField, SelectChoice, SelectMenu};
+pub use interactions::{InteractionModal, Interactions, ModalField, SelectChoice, SelectMenu};
 pub use join::JoinDialog;
 pub use members::{BAN_HISTORY, RoleChoice, TIMEOUT_TIMES};
 #[cfg(all(feature = "discord", any(test, feature = "test-fixtures")))]
@@ -434,10 +436,9 @@ pub enum Compose {
 
 #[derive(Default)]
 pub struct AppState {
-    /// The bot control currently awaiting Discord's response.
-    pub pending_interaction: Option<String>,
-    pub recent_interaction: Option<String>,
-    pub pending_interaction_guild: Option<String>,
+    /// Bots' controls and forms used, waiting for Discord's word.
+    pub interactions: Interactions,
+    /// A bot's form, open.
     pub interaction_modal: Option<InteractionModal>,
     pub select_menu: Option<SelectMenu>,
     pub voice: voice::State,
@@ -1497,6 +1498,26 @@ pub enum Action {
     },
     SubmitModal,
     CloseModal,
+    /// The draft is `/` and what follows it, to find an app command by.
+    /// Phase 1b of the bot commands; application/commands.rs.
+    SlashQuery(String),
+    /// One of the commands the picker offers, by its place.
+    PickCommand(usize),
+    /// What the person entered for an option of the command being written.
+    SetCommandOption {
+        index: usize,
+        value: String,
+    },
+    /// Runs the command `command` (its id in the index), on `target`, the
+    /// message item or user a context-menu command acts on, or as written
+    /// in the composer with none.
+    RunAppCommand {
+        command: String,
+        target: Option<String>,
+    },
+    /// Hides an ephemeral message, the item, as Discord's "Dismiss message"
+    /// does: only here, with no request. Phase 1d; application/ephemeral.rs.
+    DismissEphemeral(String),
     Navigate(Navigation),
     SelectRoom(String),
     /// Mark a listed conversation read, or every conversation of a listed
@@ -3098,6 +3119,11 @@ impl Application {
             }
             Action::SetModalField { index, value } => self.set_modal_field(index, value),
             Action::SubmitModal => self.submit_modal(),
+            Action::SlashQuery(_)
+            | Action::PickCommand(_)
+            | Action::SetCommandOption { .. }
+            | Action::RunAppCommand { .. } => self.command_action(action),
+            Action::DismissEphemeral(item) => self.dismiss_ephemeral(item),
             Action::CloseModal => {
                 if !self
                     .state
@@ -3952,50 +3978,15 @@ impl Application {
         match event {
             Event::InteractionModal(modal) => self.open_interaction_modal(modal),
             Event::InteractionFailed { nonce, reason } => {
-                if self.state.pending_interaction.as_deref() == Some(&nonce) {
-                    self.state.pending_interaction = None;
-                    if let Some(modal) = self
-                        .state
-                        .interaction_modal
-                        .as_mut()
-                        .filter(|modal| modal.saving)
-                    {
-                        modal.saving = false;
-                        modal.error = Some(reason);
-                    } else {
-                        self.state.notice = Some(reason);
-                    }
-                }
+                self.interaction_answered(&nonce, Some(reason), false)
             }
-            Event::InteractionSucceeded(nonce) => {
-                if self.state.pending_interaction.as_deref() == Some(&nonce) {
-                    self.state.pending_interaction = None;
-                    self.state.recent_interaction = Some(nonce);
-                    if self
-                        .state
-                        .interaction_modal
-                        .as_ref()
-                        .is_some_and(|modal| modal.saving)
-                    {
-                        self.state.interaction_modal = None;
-                    }
-                }
-            }
-            Event::InteractionSettled(nonce) => {
-                if self.state.pending_interaction.as_deref() == Some(&nonce) {
-                    self.state.pending_interaction = None;
-                    self.state.recent_interaction = Some(nonce);
-                    if let Some(modal) = self
-                        .state
-                        .interaction_modal
-                        .as_mut()
-                        .filter(|modal| modal.saving)
-                    {
-                        modal.saving = false;
-                        modal.error = Some("Discord has not confirmed this submission. Check the bot before trying again.".into());
-                    }
-                }
-            }
+            Event::InteractionSucceeded(nonce) => self.interaction_answered(&nonce, None, false),
+            Event::InteractionSettled(nonce) => self.interaction_answered(&nonce, None, true),
+            // Phase 1 of the bot commands: application/commands.rs.
+            Event::InteractionCreated { .. }
+            | Event::CommandIndex { .. }
+            | Event::CommandIndexChanged { .. }
+            | Event::AutocompleteChoices { .. } => return self.command_event(event),
             Event::Voice(state) => {
                 let sounds = call_sounds(&self.state.voice, &state);
                 // Someone moved the call to another channel, as a bot does

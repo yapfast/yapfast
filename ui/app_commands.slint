@@ -1,0 +1,14 @@
+// Apps' commands: the `/` picker over the composer, the options of the
+// command being written, and the "Apps" submenu of a message's or a
+// person's menu. A stub that phase 1b of the bot commands fills in (see
+// bots-gap-analysis.md): the window declares its properties, and nothing
+// shows them yet.
+
+/// A command the picker or an "Apps" submenu offers: its app's name and
+/// icon, and the command's name ("config set" for a subcommand) and
+/// description.
+export struct CommandChoice { app: string, icon: image, name: string, description: string }
+
+/// An option of the command being written, as a pill in the composer: its
+/// name, what was entered, whether it's required, and why it's wrong.
+export struct CommandOptionPill { name: string, value: string, required: bool, error: string }

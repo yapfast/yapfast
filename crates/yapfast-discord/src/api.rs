@@ -525,29 +525,6 @@ impl Api {
         }
     }
 
-    /// Resolve a component's application from its message or the real bot's
-    /// profile. Webhook authors are not necessarily users and are never guessed.
-    pub async fn component_application(&self, channel: &str, id: &str) -> Result<String> {
-        const UNKNOWN: &str = "Discord didn't identify the bot for this control.";
-        let message = self.message(channel, id).await?.context(UNKNOWN)?;
-        if let Some(id) = message["application_id"]
-            .as_str()
-            .filter(|id| !id.is_empty())
-        {
-            return Ok(id.to_owned());
-        }
-        if !message["webhook_id"].is_null() || message["author"]["bot"].as_bool() != Some(true) {
-            bail!(UNKNOWN);
-        }
-        let author = message["author"]["id"].as_str().context(UNKNOWN)?;
-        let profile = self.profile(author, None).await?;
-        profile["application"]["id"]
-            .as_str()
-            .filter(|id| !id.is_empty())
-            .map(str::to_owned)
-            .context(UNKNOWN)
-    }
-
     /// The signed-in account uses a bot's message component or submits its
     /// modal. Discord acknowledges this request before the app responds over
     /// the gateway; a successful HTTP response alone is not the app's result.
@@ -2744,73 +2721,6 @@ mod tests {
     fn encodes_emoji_for_paths() {
         assert_eq!(super::encode("👍"), "%F0%9F%91%8D");
         assert_eq!(super::encode("pog:5"), "pog%3A5");
-    }
-
-    #[tokio::test]
-    async fn component_applications_are_resolved_without_guessing_author_ids() {
-        use tokio::{
-            io::{AsyncReadExt, AsyncWriteExt},
-            net::TcpListener,
-        };
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let bot = serde_json::json!([{"id": "1", "author": {"id": "2", "bot": true}}]);
-            let answers = [
-                ("/channels/7/messages?limit=1&around=1", bot.clone()),
-                (
-                    "/users/2/profile?",
-                    serde_json::json!({"application": {"id": "9"}}),
-                ),
-                (
-                    "/channels/7/messages?limit=1&around=1",
-                    serde_json::json!([
-                        {"id": "1", "webhook_id": "4", "author": {"id": "4", "bot": true}}
-                    ]),
-                ),
-                (
-                    "/channels/7/messages?limit=1&around=1",
-                    serde_json::json!([
-                        {"id": "1", "application_id": "8", "webhook_id": "4"}
-                    ]),
-                ),
-                ("/channels/7/messages?limit=1&around=1", bot),
-                (
-                    "/users/2/profile?",
-                    serde_json::json!({"user": {"id": "2"}}),
-                ),
-            ];
-            for (path, answer) in answers {
-                let (mut socket, _) = listener.accept().await.unwrap();
-                let mut request = Vec::new();
-                loop {
-                    let mut chunk = [0; 4096];
-                    let got = socket.read(&mut chunk).await.unwrap();
-                    assert!(got > 0);
-                    request.extend_from_slice(&chunk[..got]);
-                    if request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
-                        break;
-                    }
-                }
-                assert!(
-                    String::from_utf8_lossy(&request).starts_with(&format!("GET /api/v9{path}"))
-                );
-                let answer = answer.to_string();
-                let response = format!(
-                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
-                    answer.len(),
-                    answer
-                );
-                socket.write_all(response.as_bytes()).await.unwrap();
-            }
-        });
-        let mut api = super::Api::anonymous().unwrap();
-        api.base = format!("http://{address}/api/v9");
-        assert_eq!(api.component_application("7", "1").await.unwrap(), "9");
-        assert!(api.component_application("7", "1").await.is_err());
-        assert_eq!(api.component_application("7", "1").await.unwrap(), "8");
-        assert!(api.component_application("7", "1").await.is_err());
-        server.await.unwrap();
     }
 
     #[tokio::test]
