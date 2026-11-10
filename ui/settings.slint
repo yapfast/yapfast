@@ -1401,7 +1401,7 @@ export component AdvancedSettings inherits VerticalLayout {
         }
     }
     if root.share-on-the-card && !root.gpu-rendering: Label {
-        text: "Yapfast can hand your screen to the graphics card and leave it there, which is the cheapest way to share. That needs \"Render with the GPU\" on: with it off, sharing still works, but every picture is copied once on the way.";
+        text: "Turn this on for the smoothest sharing: what you share goes straight to the graphics card and stays there. With it off, sharing still works — your processor just does a little more of the work.";
     }
     SettingsSwitch {
         text: "Encode streams with the GPU";
