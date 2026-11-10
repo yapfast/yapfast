@@ -720,7 +720,7 @@ async fn send(
                     if let Some(trip) = trip {
                         sent.round_trip_ms = Some(trip.as_millis() as u32);
                     }
-                    if let Some(reason) = pacing.report(now, trip, reception.fraction_lost) {
+                    if let Some(reason) = pacing.report(now, trip, &reception) {
                         retarget(shared, &pacing, reason, Some((trip, reception.fraction_lost)));
                     }
                 }
@@ -740,8 +740,9 @@ async fn send(
             }
             _ = log.tick() => {
                 let target_kbps = pacing.target() / 1000;
-                let sending_kbps = pacing.sending().map(|sending| sending / 1000);
-                tracing::debug!(?sent, packets, octets, target_kbps, sending_kbps, "stream sent");
+                let sending_kbps = pacing.sending(std::time::Instant::now()).map(|sending| sending / 1000);
+                let received_kbps = pacing.received().map(|received| received / 1000);
+                tracing::debug!(?sent, packets, octets, target_kbps, sending_kbps, received_kbps, "stream sent");
                 sent = Sent::default();
             }
         }

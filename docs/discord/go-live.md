@@ -152,13 +152,21 @@ A stream starts at 2.5 Mbit/s, or its cap when that's lower. Each report
 whose round trip is within 25 ms of the lowest of the last minute, with at
 most 2% of packets lost, raises the target by 8%, up to the cap: about 17 s
 from the start to 1080p's 9 Mbit/s, with a report a second. It doesn't rise
-past 1.5 times what went out over the last second, video and resends, nor
-before a second was counted: a calm picture sends less than the target, and
-a target raised over it would be tried on the uplink only once the picture
-gets busy, all at once. A round trip more than 60 ms over the lowest in two
-reports in a row, not one alone as after a keyframe, or more than 10% of
-packets lost in one, lowers it to 85% of what went out over the last second,
-or of the target when that's lower, and it doesn't rise again for 3 s. From
+past 1.5 times what went out over the last half second, video and resends,
+counted in slices of 50 ms, nor before the stream has sent for that long: a
+calm picture sends less than the target, and a target raised over it would
+be tried on the uplink only once the picture gets busy, all at once. A
+round trip more than 60 ms over the lowest in two reports in a row, not one
+alone as after a keyframe, or more than 10% of packets lost in one, lowers
+it to 85% of what Discord's server received, or of the target when that's
+lower, and it doesn't rise again for 3 s. What the server received comes
+from its receiver reports at least 0.4 s apart: how far the highest
+sequence number it got went, less the packets it counted lost meanwhile, at
+the size of the packets sent lately. While a queue builds that's what the
+uplink carries, however much more went out, so when a calm picture turns
+busy at once and sends far past it, one back-off takes the target under
+it. Without a count, as before the second report, it backs off from what
+went out over the last half second. From
 80% of the rate it backed off from, each rise adds a hundredth of that rate,
 so it comes back to where the queue built slowly and stays there longer
 before the next back-off; past 115% of it the uplink carries more than it
@@ -219,7 +227,8 @@ RTCP that came back (`stream sent`): receiver reports with the highest
 sequence number Discord's server got and its echo of our sender reports
 (`lsr`), its bitrate estimate (REMB), and keyframe requests, with the last
 round trip measured (`round_trip_ms`), the target (`target_kbps`) and what
-went out over the last second (`sending_kbps`). Each
+went out over the last half second (`sending_kbps`) and what the server
+received (`received_kbps`). Each
 change of the target is logged as "changing the stream's bitrate", with
 `kbps`, the `reason`, the report's `round_trip_ms` and `lost` (out of 256),
 and the lowest round trip (`lowest_ms`); the encoder following it logs "the
