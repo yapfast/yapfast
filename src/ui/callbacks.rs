@@ -3674,7 +3674,11 @@ fn composer_caret(
             adapter.action(window, Action::LoadPictures(wanted));
         }
     }
-    let found = offset.and_then(|offset| mention::query(text, offset));
+    // An app command's option offers its own people, roles and channels.
+    let commanding = !aside && adapter.app.state.command_draft().is_some();
+    let found = offset
+        .filter(|_| !commanding)
+        .and_then(|offset| mention::query(text, offset));
     if found.is_none() {
         adapter.mention_dismissed = None;
     }

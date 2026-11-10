@@ -13,13 +13,24 @@ use super::*;
 
 impl Application {
     /// [`Action::SlashQuery`], [`Action::PickCommand`],
-    /// [`Action::SetCommandOption`] and [`Action::RunAppCommand`].
+    /// [`Action::SetCommandOption`], [`Action::FocusCommandOption`],
+    /// [`Action::CloseCommand`] and [`Action::RunAppCommand`].
     pub(super) fn command_action(&mut self, action: Action) -> Vec<Effect> {
         match action {
-            Action::SlashQuery(_)
-            | Action::PickCommand(_)
-            | Action::SetCommandOption { .. }
-            | Action::RunAppCommand { .. } => vec![],
+            // Phase 1b: application/slash.rs.
+            Action::SlashQuery(query) => self.slash_query_action(query),
+            Action::PickCommand(index) => self.pick_command(index),
+            Action::SetCommandOption { index, value } => self.set_command_option(index, value),
+            Action::FocusCommandOption(index) => self.focus_option(index),
+            Action::CloseCommand(back) => self.close_command(back),
+            Action::RunAppCommand {
+                command: _,
+                target: None,
+            } => match self.state.selected.clone() {
+                Some(room) => self.run_written_command(&room),
+                None => vec![],
+            },
+            Action::RunAppCommand { .. } => vec![],
             _ => vec![],
         }
     }
@@ -28,10 +39,16 @@ impl Application {
     /// [`Event::CommandIndexChanged`] and [`Event::AutocompleteChoices`].
     pub(super) fn command_event(&mut self, event: Event) -> Vec<Effect> {
         match event {
-            Event::InteractionCreated { .. }
-            | Event::CommandIndex { .. }
-            | Event::CommandIndexChanged { .. }
-            | Event::AutocompleteChoices { .. } => vec![],
+            // Phase 1b: application/slash.rs.
+            Event::CommandIndex { room, index } => self.slash_index(room, &index),
+            Event::CommandIndexChanged { guild } => {
+                self.slash_index_changed(guild.as_deref());
+                vec![]
+            }
+            Event::AutocompleteChoices { nonce, choices } => {
+                self.slash_autocomplete(&nonce, &choices)
+            }
+            Event::InteractionCreated { .. } => vec![],
             _ => vec![],
         }
     }

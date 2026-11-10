@@ -1,0 +1,1035 @@
+//! The `/` picker in the composer and the app command being written there:
+//! which commands fit the channel, the options as the person fills them, and
+//! the checks Discord leaves to the client before a command goes. See
+//! docs/discord/messages.md, "Apps' commands".
+//!
+//! A command is written one option at a time. The composer's text is the
+//! focused option's, so the draft of a room in command mode is that text,
+//! never saved; Tab moves between options, and Enter runs the command once
+//! every option passes its checks. docs.discord.food says these checks are
+//! the client's alone ("This validation is client-side only").
+//!
+//! The index is asked for only once the person types `/`
+//! ([`DiscordCommand::CommandIndex`]); autocomplete only on a keystroke in an
+//! option that has it; a command runs only on Enter.
+
+use serde_json::{Value, json};
+
+use super::*;
+use crate::chat::CommandRun;
+
+// Option types, as docs.discord.food lists them
+// (interactions/application-commands, "Application Command Option Type").
+const SUB_COMMAND: u64 = 1;
+const SUB_COMMAND_GROUP: u64 = 2;
+const STRING: u64 = 3;
+const INTEGER: u64 = 4;
+const BOOLEAN: u64 = 5;
+const USER: u64 = 6;
+const CHANNEL: u64 = 7;
+const ROLE: u64 = 8;
+const MENTIONABLE: u64 = 9;
+const NUMBER: u64 = 10;
+const ATTACHMENT: u64 = 11;
+
+/// Interaction context types (interactions/receiving-and-responding,
+/// "Interaction Context Type"): a server, the app's own DM, other DMs.
+const GUILD: u64 = 0;
+const BOT_DM: u64 = 1;
+const PRIVATE_CHANNEL: u64 = 2;
+
+/// How many people, roles or channels an option offers at once.
+const OPTION_SUGGESTIONS: usize = 10;
+
+/// The picker and the command being written in a channel's composer.
+#[derive(Default)]
+pub struct Slash {
+    /// The room the picker is open in, and what follows the `/`.
+    query: Option<(String, String)>,
+    /// The picker was closed with Escape; it stays closed until the draft
+    /// no longer starts with `/`.
+    dismissed: bool,
+    /// The index last fetched, for its room, and whether Discord has since
+    /// said it changed. Phase 1a's cache, kept by server, takes its place.
+    index: Option<(String, Arc<Value>, bool)>,
+    /// The index for the room the picker is open in is on its way.
+    loading: bool,
+    /// Why the index couldn't be fetched.
+    error: Option<String>,
+    /// The command being written.
+    command: Option<CommandDraft>,
+}
+
+/// A command picked from the picker, with what was entered for its options.
+pub struct CommandDraft {
+    room: String,
+    application: String,
+    /// The command as the index gives it, sent along with it.
+    command: Arc<Value>,
+    /// Its name with its subcommand's, as "config set".
+    pub name: String,
+    /// The subcommand group and subcommand chosen, outermost first.
+    path: Vec<String>,
+    pub options: Vec<OptionDraft>,
+    /// The option the composer writes.
+    pub focused: usize,
+    /// Enter was pressed with an option missing or wrong: every option shows
+    /// what's wrong with it, the required ones too.
+    tried: bool,
+    /// The newest autocomplete asked, by nonce; older answers are dropped.
+    autocomplete: Option<String>,
+    /// What the app suggested for the focused option.
+    suggested: Vec<Suggestion>,
+    /// The focused option's suggestions were closed with Escape.
+    choices_dismissed: bool,
+}
+
+/// An option of the command being written.
+pub struct OptionDraft {
+    /// The option as the index gives it.
+    spec: Value,
+    pub name: String,
+    pub description: String,
+    pub kind: u64,
+    pub required: bool,
+    /// What the composer shows for it: typed, or a choice's name.
+    pub text: String,
+    /// The choice taken, by the text it put in, and its value.
+    chosen: Option<(String, Value)>,
+    /// A file for an attachment option.
+    pub file: Option<PathBuf>,
+}
+
+impl OptionDraft {
+    pub fn is_attachment(&self) -> bool {
+        self.kind == ATTACHMENT
+    }
+
+    /// What its pill shows: the text, or a file's name.
+    pub fn shown(&self) -> String {
+        match &self.file {
+            Some(path) => path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            None => self.text.clone(),
+        }
+    }
+}
+
+/// A row of the list above the composer: a command the picker offers, or a
+/// value the focused option may take.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CommandRow {
+    /// The app's name, for a command; nothing for a value.
+    pub app: String,
+    /// The app's icon or the person's avatar, by address.
+    pub icon: Option<String>,
+    pub name: String,
+    pub description: String,
+}
+
+/// A value an option may take, from its choices, the app's autocomplete,
+/// or the people, roles and channels a mention would offer.
+#[derive(Clone, Debug, PartialEq)]
+struct Suggestion {
+    name: String,
+    detail: String,
+    picture: Option<String>,
+    value: Value,
+}
+
+/// A command the index offers in a room, borrowed from the index.
+struct Offered<'a> {
+    application: &'a str,
+    app: &'a str,
+    icon: Option<String>,
+    name: String,
+    description: &'a str,
+    command: &'a Value,
+    path: Vec<&'a str>,
+    options: &'a [Value],
+}
+
+fn kind(value: &Value) -> u64 {
+    value.get("type").and_then(Value::as_u64).unwrap_or(0)
+}
+
+fn text<'a>(value: &'a Value, field: &str) -> &'a str {
+    value.get(field).and_then(Value::as_str).unwrap_or_default()
+}
+
+fn list<'a>(value: &'a Value, field: &str) -> &'a [Value] {
+    value
+        .get(field)
+        .and_then(Value::as_array)
+        .map_or(&[], Vec::as_slice)
+}
+
+fn command_nonce() -> String {
+    #[cfg(feature = "discord")]
+    {
+        yapfast_discord::message::nonce()
+    }
+    #[cfg(not(feature = "discord"))]
+    {
+        uuid::Uuid::new_v4().simple().to_string()
+    }
+}
+
+fn app_icon(application: &str, hash: &str) -> Option<String> {
+    #[cfg(feature = "discord")]
+    {
+        Some(yapfast_discord::ready::application_icon(application, hash))
+    }
+    #[cfg(not(feature = "discord"))]
+    {
+        let _ = (application, hash);
+        None
+    }
+}
+
+/// Whether a command may be used in a room, by the contexts it lists: a
+/// server's channel, or a DM. Permissions and age limits are phase 1a's.
+fn fits(command: &Value, room: &str) -> bool {
+    if !matches!(kind(command), 0 | 1) {
+        return false;
+    }
+    let in_dm = discord::parse_room(room).is_some_and(|(guild, _)| guild == discord::DM_GUILD);
+    if in_dm && command.get("dm_permission") == Some(&Value::Bool(false)) {
+        return false;
+    }
+    let Some(contexts) = command.get("contexts").and_then(Value::as_array) else {
+        return true;
+    };
+    contexts.iter().filter_map(Value::as_u64).any(|context| {
+        if in_dm {
+            context == BOT_DM || context == PRIVATE_CHANNEL
+        } else {
+            context == GUILD
+        }
+    })
+}
+
+/// The slash commands of `index` that fit `room` and match `query`, a
+/// command and each of its subcommands apart, grouped by app in the index's
+/// order and by name within each.
+fn offered<'a>(index: &'a Value, room: &str, query: &str) -> Vec<Offered<'a>> {
+    let query = query.trim().to_lowercase();
+    let apps = list(index, "applications");
+    let mut found = Vec::new();
+    for command in list(index, "application_commands") {
+        if !fits(command, room) {
+            continue;
+        }
+        let application = text(command, "application_id");
+        let app = apps.iter().find(|app| text(app, "id") == application);
+        let name = text(command, "name");
+        let mut leaves: Vec<(Vec<&str>, &str, &[Value])> = Vec::new();
+        let options = list(command, "options");
+        if options
+            .iter()
+            .any(|option| matches!(kind(option), SUB_COMMAND | SUB_COMMAND_GROUP))
+        {
+            for option in options {
+                match kind(option) {
+                    SUB_COMMAND => leaves.push((
+                        vec![text(option, "name")],
+                        text(option, "description"),
+                        list(option, "options"),
+                    )),
+                    SUB_COMMAND_GROUP => {
+                        for sub in list(option, "options") {
+                            leaves.push((
+                                vec![text(option, "name"), text(sub, "name")],
+                                text(sub, "description"),
+                                list(sub, "options"),
+                            ));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        } else {
+            leaves.push((Vec::new(), text(command, "description"), options));
+        }
+        for (path, description, options) in leaves {
+            let full = std::iter::once(name)
+                .chain(path.iter().copied())
+                .collect::<Vec<_>>()
+                .join(" ");
+            if !full.to_lowercase().starts_with(&query) {
+                continue;
+            }
+            found.push(Offered {
+                application,
+                app: app.map_or("", |app| text(app, "name")),
+                icon: app
+                    .and_then(|app| app.get("icon").and_then(Value::as_str))
+                    .and_then(|hash| app_icon(application, hash)),
+                name: full,
+                description,
+                command,
+                path,
+                options,
+            });
+        }
+    }
+    let place = |application: &str| {
+        apps.iter()
+            .position(|app| text(app, "id") == application)
+            .unwrap_or(usize::MAX)
+    };
+    found.sort_by(|a, b| {
+        place(a.application)
+            .cmp(&place(b.application))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    found
+}
+
+/// What a `<@id>`, `<@&id>` or `<#id>` mention points at.
+fn mention_id(mention: &str) -> Option<&str> {
+    let inner = mention.strip_prefix('<')?.strip_suffix('>')?;
+    inner
+        .strip_prefix("@&")
+        .or_else(|| inner.strip_prefix('@'))
+        .or_else(|| inner.strip_prefix('#'))
+        .filter(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+/// Numbers as Discord prints them: whole ones without a point.
+fn number(value: &Value) -> String {
+    match value.as_f64() {
+        Some(float) if float.fract() == 0.0 && float.abs() < 1e15 => format!("{}", float as i64),
+        Some(float) => float.to_string(),
+        None => value.to_string(),
+    }
+}
+
+impl AppState {
+    /// The command being written in the selected room's composer.
+    pub fn command_draft(&self) -> Option<&CommandDraft> {
+        let room = self.selected.as_deref()?;
+        self.slash
+            .command
+            .as_ref()
+            .filter(|command| command.room == room)
+    }
+
+    /// The `/` picker is open over the selected room's composer, with what
+    /// follows the `/`.
+    pub fn slash_query(&self) -> Option<&str> {
+        let room = self.selected.as_deref()?;
+        match &self.slash.query {
+            Some((at, query))
+                if at == room && !self.slash.dismissed && self.draft_in(room).starts_with('/') =>
+            {
+                Some(query)
+            }
+            _ => None,
+        }
+    }
+
+    /// What the picker says above its rows, or in their place: what it
+    /// lists, that the commands are on their way, or why they aren't.
+    pub fn command_heading(&self) -> String {
+        if let Some(command) = self.command_draft() {
+            return command
+                .options
+                .get(command.focused)
+                .map(|option| option.name.to_uppercase())
+                .unwrap_or_default();
+        }
+        if self.slash_query().is_none() {
+            return String::new();
+        }
+        if let Some(error) = &self.slash.error {
+            return error.clone();
+        }
+        if self.slash.loading {
+            return "Loading commands…".into();
+        }
+        if self.command_rows().is_empty() {
+            "No commands match".into()
+        } else {
+            "COMMANDS".into()
+        }
+    }
+
+    /// The rows the list above the composer shows: the commands the picker
+    /// offers, or the values the focused option may take.
+    pub fn command_rows(&self) -> Vec<CommandRow> {
+        if self.command_draft().is_some() {
+            return self
+                .option_suggestions()
+                .into_iter()
+                .map(|suggestion| CommandRow {
+                    app: String::new(),
+                    icon: suggestion.picture,
+                    name: suggestion.name,
+                    description: suggestion.detail,
+                })
+                .collect();
+        }
+        let (Some(room), Some(query)) = (self.selected.as_deref(), self.slash_query()) else {
+            return vec![];
+        };
+        let Some((_, index, _)) = self.slash.index.as_ref().filter(|(at, ..)| at == room) else {
+            return vec![];
+        };
+        offered(index, room, query)
+            .into_iter()
+            .map(|command| CommandRow {
+                app: command.app.to_owned(),
+                icon: command.icon,
+                name: command.name,
+                description: command.description.to_owned(),
+            })
+            .collect()
+    }
+
+    /// The values the focused option may take, matching what was typed.
+    fn option_suggestions(&self) -> Vec<Suggestion> {
+        let Some(command) = self.command_draft() else {
+            return vec![];
+        };
+        let Some(option) = command.options.get(command.focused) else {
+            return vec![];
+        };
+        if command.choices_dismissed
+            || option
+                .chosen
+                .as_ref()
+                .is_some_and(|(text, _)| text == &option.text)
+        {
+            return vec![];
+        }
+        let typed = option.text.trim().to_lowercase();
+        let choices = list(&option.spec, "choices");
+        if !choices.is_empty() {
+            return choices
+                .iter()
+                .filter(|choice| text(choice, "name").to_lowercase().contains(&typed))
+                .map(|choice| Suggestion {
+                    name: text(choice, "name").to_owned(),
+                    detail: String::new(),
+                    picture: None,
+                    value: choice.get("value").cloned().unwrap_or(Value::Null),
+                })
+                .collect();
+        }
+        if option.spec.get("autocomplete") == Some(&Value::Bool(true)) {
+            return command.suggested.clone();
+        }
+        match option.kind {
+            BOOLEAN => [("True", true), ("False", false)]
+                .into_iter()
+                .filter(|(name, _)| name.to_lowercase().starts_with(&typed))
+                .map(|(name, value)| Suggestion {
+                    name: name.into(),
+                    detail: String::new(),
+                    picture: None,
+                    value: Value::Bool(value),
+                })
+                .collect(),
+            USER | ROLE | MENTIONABLE | CHANNEL => {
+                let candidates: Vec<Candidate> = self
+                    .mention_candidates()
+                    .into_iter()
+                    .filter(|candidate| takes(option, candidate))
+                    .collect();
+                mention::matching(&candidates, &typed, OPTION_SUGGESTIONS)
+                    .into_iter()
+                    .filter_map(|candidate| {
+                        Some(Suggestion {
+                            name: candidate.name.clone(),
+                            detail: candidate.username.clone().unwrap_or_default(),
+                            picture: candidate.avatar.clone(),
+                            value: Value::String(mention_id(&candidate.mention)?.to_owned()),
+                        })
+                    })
+                    .collect()
+            }
+            _ => vec![],
+        }
+    }
+
+    /// The option's value as `/interactions` takes it, none when it's
+    /// empty, or why it can't be sent. The wording is Yapfast's: Discord's
+    /// own is not documented.
+    fn option_value(&self, option: &OptionDraft) -> Result<Option<Value>, String> {
+        if option.kind == ATTACHMENT {
+            return Ok(option.file.as_ref().map(|_| Value::Null));
+        }
+        if let Some((text, value)) = &option.chosen
+            && text == &option.text
+        {
+            return Ok(Some(value.clone()));
+        }
+        let typed = option.text.trim();
+        if typed.is_empty() {
+            return Ok(None);
+        }
+        let choices = list(&option.spec, "choices");
+        if !choices.is_empty() {
+            return choices
+                .iter()
+                .find(|choice| text(choice, "name").eq_ignore_ascii_case(typed))
+                .and_then(|choice| choice.get("value").cloned())
+                .map(Some)
+                .ok_or_else(|| "Pick one of the choices".into());
+        }
+        let bound = |field: &str| option.spec.get(field).and_then(Value::as_f64);
+        let in_range = |value: f64| -> Result<(), String> {
+            if let Some(min) = bound("min_value").filter(|min| value < *min) {
+                return Err(format!("Must be at least {}", number(&json!(min))));
+            }
+            if let Some(max) = bound("max_value").filter(|max| value > *max) {
+                return Err(format!("Must be at most {}", number(&json!(max))));
+            }
+            Ok(())
+        };
+        match option.kind {
+            STRING => {
+                let length = typed.chars().count() as f64;
+                if let Some(min) = bound("min_length").filter(|min| length < *min) {
+                    return Err(format!("Must be at least {min} characters"));
+                }
+                if let Some(max) = bound("max_length").filter(|max| length > *max) {
+                    return Err(format!("Must be at most {max} characters"));
+                }
+                Ok(Some(Value::String(typed.to_owned())))
+            }
+            INTEGER => {
+                let value: i64 = typed
+                    .parse()
+                    .map_err(|_| "Must be a whole number".to_owned())?;
+                in_range(value as f64)?;
+                Ok(Some(json!(value)))
+            }
+            NUMBER => {
+                let parsed: f64 = typed
+                    .parse()
+                    .ok()
+                    .filter(|value: &f64| value.is_finite())
+                    .ok_or_else(|| "Must be a number".to_owned())?;
+                in_range(parsed)?;
+                Ok(Some(json!(parsed)))
+            }
+            BOOLEAN => match typed.to_lowercase().as_str() {
+                "true" => Ok(Some(Value::Bool(true))),
+                "false" => Ok(Some(Value::Bool(false))),
+                _ => Err("Pick True or False".into()),
+            },
+            USER | ROLE | MENTIONABLE | CHANNEL => {
+                let name = typed.trim_start_matches(['@', '#']);
+                self.mention_candidates()
+                    .into_iter()
+                    .filter(|candidate| takes(option, candidate))
+                    .find(|candidate| candidate.name.eq_ignore_ascii_case(name))
+                    .and_then(|candidate| mention_id(&candidate.mention).map(str::to_owned))
+                    .map(|id| Some(Value::String(id)))
+                    .ok_or_else(|| {
+                        match option.kind {
+                            USER => "Pick a member",
+                            ROLE => "Pick a role",
+                            CHANNEL => "Pick a channel",
+                            _ => "Pick a member or a role",
+                        }
+                        .into()
+                    })
+            }
+            _ => Err("Yapfast can't fill this option yet".into()),
+        }
+    }
+
+    /// What's wrong with an option, for its pill: a value that can't be
+    /// sent, or, once Enter was pressed, a required one left empty.
+    pub fn option_error(&self, command: &CommandDraft, index: usize) -> Option<String> {
+        let option = command.options.get(index)?;
+        match self.option_value(option) {
+            Err(error) => Some(error),
+            Ok(None) if option.required && command.tried => Some("Required".into()),
+            Ok(_) => None,
+        }
+    }
+}
+
+/// Whether a mention candidate fits a user, role, mentionable or channel
+/// option. A channel option's `channel_types` are matched with what the
+/// mention list knows of a channel: text (0, or announcement 5) or voice
+/// (2, or stage 13).
+fn takes(option: &OptionDraft, candidate: &Candidate) -> bool {
+    let role = candidate.group && candidate.mention.starts_with("<@&");
+    let person = !candidate.group;
+    match option.kind {
+        USER => person,
+        ROLE => role,
+        MENTIONABLE => person || role,
+        CHANNEL => {
+            if !candidate.channel {
+                return false;
+            }
+            let types = list(&option.spec, "channel_types");
+            types.is_empty()
+                || types.iter().filter_map(Value::as_u64).any(|kind| {
+                    if candidate.voice {
+                        matches!(kind, 2 | 13)
+                    } else {
+                        matches!(kind, 0 | 5)
+                    }
+                })
+        }
+        _ => false,
+    }
+}
+
+impl Application {
+    /// The selected room's draft changed: opens or follows the `/` picker,
+    /// or, with a command being written, changes its focused option. Gives
+    /// back `None` when the draft is the composer's ordinary text.
+    pub(super) fn slash_draft(&mut self, room: &str, body: &str) -> Option<Vec<Effect>> {
+        if self
+            .state
+            .slash
+            .command
+            .as_ref()
+            .is_some_and(|command| command.room == room)
+        {
+            return Some(self.edit_option(room, body));
+        }
+        let writing = Network::of(room) == Network::Discord
+            && !matches!(self.state.compose.get(room), Some(Compose::Edit { .. }))
+            && !self.state.preview;
+        let query = body
+            .strip_prefix('/')
+            .filter(|rest| writing && !rest.contains(char::is_whitespace));
+        let Some(query) = query else {
+            self.state.slash.query = None;
+            self.state.slash.dismissed = false;
+            return None;
+        };
+        Some(self.follow_slash(room.to_owned(), query.to_owned()))
+    }
+
+    /// The draft is `/` and `query` after it: the picker follows it, asking
+    /// for the room's commands when it opens without them.
+    fn follow_slash(&mut self, room: String, query: String) -> Vec<Effect> {
+        let opening = self
+            .state
+            .slash
+            .query
+            .as_ref()
+            .is_none_or(|(at, _)| at != &room);
+        self.state.slash.query = Some((room.clone(), query));
+        let held = self
+            .state
+            .slash
+            .index
+            .as_ref()
+            .is_some_and(|(at, _, stale)| at == &room && !stale);
+        if !opening || held || self.state.slash.loading {
+            return vec![];
+        }
+        self.state.slash.loading = true;
+        self.state.slash.error = None;
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::CommandIndex { room },
+        ))]
+    }
+
+    /// [`Action::SlashQuery`]: as typing `/` and `query` would.
+    pub(super) fn slash_query_action(&mut self, query: String) -> Vec<Effect> {
+        self.set_draft(format!("/{query}"))
+    }
+
+    /// [`Event::CommandIndex`].
+    pub(super) fn slash_index(
+        &mut self,
+        room: String,
+        index: &Result<Arc<Value>, String>,
+    ) -> Vec<Effect> {
+        let open = self
+            .state
+            .slash
+            .query
+            .as_ref()
+            .is_some_and(|(at, _)| at == &room);
+        if open {
+            self.state.slash.loading = false;
+        }
+        match index {
+            Ok(index) => {
+                self.state.slash.error = None;
+                self.state.slash.index = Some((room, index.clone(), false));
+            }
+            Err(reason) if open => self.state.slash.error = Some(reason.clone()),
+            Err(_) => {}
+        }
+        vec![]
+    }
+
+    /// [`Event::CommandIndexChanged`]: the index held is fetched again the
+    /// next time the picker opens.
+    pub(super) fn slash_index_changed(&mut self, guild: Option<&str>) {
+        if let Some((room, _, stale)) = &mut self.state.slash.index
+            && guild.is_none_or(|guild| {
+                discord::parse_room(room).is_some_and(|(server, _)| server == guild)
+            })
+        {
+            *stale = true;
+        }
+    }
+
+    /// [`Event::AutocompleteChoices`]: the app's suggestions for the focused
+    /// option, if they answer the newest keystroke.
+    pub(super) fn slash_autocomplete(&mut self, nonce: &str, choices: &Value) -> Vec<Effect> {
+        let Some(command) = self.state.slash.command.as_mut() else {
+            return vec![];
+        };
+        if command.autocomplete.as_deref() != Some(nonce) {
+            return vec![];
+        }
+        command.suggested = choices
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|choice| Suggestion {
+                name: choice
+                    .get("name_localized")
+                    .and_then(Value::as_str)
+                    .unwrap_or(text(choice, "name"))
+                    .to_owned(),
+                detail: String::new(),
+                picture: None,
+                value: choice.get("value").cloned().unwrap_or(Value::Null),
+            })
+            .collect();
+        vec![]
+    }
+
+    /// [`Action::PickCommand`]: a command the picker offers, which the
+    /// composer then writes, or a value for the focused option.
+    pub(super) fn pick_command(&mut self, index: usize) -> Vec<Effect> {
+        if self.state.command_draft().is_some() {
+            let Some(suggestion) = self.state.option_suggestions().into_iter().nth(index) else {
+                return vec![];
+            };
+            let Some(command) = self.state.slash.command.as_mut() else {
+                return vec![];
+            };
+            let focused = command.focused;
+            let Some(option) = command.options.get_mut(focused) else {
+                return vec![];
+            };
+            option.text = suggestion.name.clone();
+            option.chosen = Some((suggestion.name, suggestion.value));
+            let next = (focused + 1).min(command.options.len() - 1);
+            return self.focus_option(next);
+        }
+        let (Some(room), Some(query)) = (
+            self.state.selected.clone(),
+            self.state.slash_query().map(str::to_owned),
+        ) else {
+            return vec![];
+        };
+        let Some((_, index_value, _)) = self
+            .state
+            .slash
+            .index
+            .as_ref()
+            .filter(|(at, ..)| at == &room)
+        else {
+            return vec![];
+        };
+        let Some(picked) = offered(index_value, &room, &query).into_iter().nth(index) else {
+            return vec![];
+        };
+        let draft = CommandDraft {
+            room: room.clone(),
+            application: picked.application.to_owned(),
+            command: Arc::new(picked.command.clone()),
+            name: picked.name,
+            path: picked.path.iter().map(|part| (*part).to_owned()).collect(),
+            options: picked
+                .options
+                .iter()
+                .map(|spec| OptionDraft {
+                    name: text(spec, "name").to_owned(),
+                    description: text(spec, "description").to_owned(),
+                    kind: kind(spec),
+                    required: spec.get("required") == Some(&Value::Bool(true)),
+                    text: String::new(),
+                    chosen: None,
+                    file: None,
+                    spec: spec.clone(),
+                })
+                .collect(),
+            focused: 0,
+            tried: false,
+            autocomplete: None,
+            suggested: Vec::new(),
+            choices_dismissed: false,
+        };
+        self.state.slash.command = Some(draft);
+        self.state.slash.query = None;
+        self.state.slash.dismissed = false;
+        self.state.drafts.insert(room.clone(), String::new());
+        // The `/word` typed to find it is not a draft to keep.
+        vec![
+            Effect::Backend(Command::Typing {
+                room: room.clone(),
+                typing: false,
+            }),
+            Effect::Backend(Command::SaveDraft {
+                room,
+                body: String::new(),
+            }),
+        ]
+    }
+
+    /// [`Action::FocusCommandOption`]: the composer writes that option.
+    pub(super) fn focus_option(&mut self, index: usize) -> Vec<Effect> {
+        let Some(command) = self.state.slash.command.as_mut() else {
+            return vec![];
+        };
+        let Some(option) = command.options.get(index) else {
+            return vec![];
+        };
+        let text = option.text.clone();
+        command.focused = index;
+        command.autocomplete = None;
+        command.suggested.clear();
+        command.choices_dismissed = false;
+        let room = command.room.clone();
+        self.state.drafts.insert(room, text);
+        vec![]
+    }
+
+    /// The composer's text changed with a command being written: it's the
+    /// focused option's, and an option with autocomplete asks the app.
+    fn edit_option(&mut self, room: &str, body: &str) -> Vec<Effect> {
+        self.state.drafts.insert(room.to_owned(), body.to_owned());
+        {
+            let Some(command) = self.state.slash.command.as_mut() else {
+                return vec![];
+            };
+            let Some(option) = command.options.get_mut(command.focused) else {
+                return vec![];
+            };
+            if option.text == body {
+                return vec![];
+            }
+            option.text = body.to_owned();
+            command.choices_dismissed = false;
+            if option.spec.get("autocomplete") != Some(&Value::Bool(true)) || self.state.preview {
+                return vec![];
+            }
+        }
+        let Some(command) = self.state.slash.command.as_ref() else {
+            return vec![];
+        };
+        // Autocomplete always gets the focused option as a string; the
+        // others go as they would be sent, attachments left out.
+        let mut options = Vec::new();
+        for (index, option) in command.options.iter().enumerate() {
+            if index == command.focused {
+                options.push(json!({
+                    "type": option.kind, "name": option.name,
+                    "value": option.text, "focused": true,
+                }));
+            } else if option.kind != ATTACHMENT
+                && let Ok(Some(value)) = self.state.option_value(option)
+            {
+                options.push(json!({"type": option.kind, "name": option.name, "value": value}));
+            }
+        }
+        let nonce = command_nonce();
+        let run = CommandRun {
+            nonce: nonce.clone(),
+            room: room.to_owned(),
+            application: command.application.clone(),
+            command: command.command.clone(),
+            options: nest(&command.path, options),
+            target: None,
+            files: Vec::new(),
+        };
+        if let Some(command) = self.state.slash.command.as_mut() {
+            command.autocomplete = Some(nonce);
+        }
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::Autocomplete(Box::new(run)),
+        ))]
+    }
+
+    /// [`Action::SetCommandOption`]: a file for an attachment option, or
+    /// text for any other, as typed.
+    pub(super) fn set_command_option(&mut self, index: usize, value: String) -> Vec<Effect> {
+        let Some(command) = self.state.slash.command.as_mut() else {
+            return vec![];
+        };
+        let Some(option) = command.options.get_mut(index) else {
+            return vec![];
+        };
+        if option.kind == ATTACHMENT {
+            option.file = (!value.is_empty()).then(|| PathBuf::from(value));
+            return vec![];
+        }
+        option.text = value.clone();
+        option.chosen = None;
+        if command.focused == index {
+            let room = command.room.clone();
+            self.state.drafts.insert(room, value);
+        }
+        vec![]
+    }
+
+    /// [`Action::CloseCommand`]: Escape closes the list above the composer,
+    /// then stops writing the command; with `back`, as Backspace in an
+    /// empty first option, the command's name goes back in the composer.
+    pub(super) fn close_command(&mut self, back: bool) -> Vec<Effect> {
+        let Some(room) = self.state.selected.clone() else {
+            return vec![];
+        };
+        if self.state.command_draft().is_none() {
+            if self.state.slash_query().is_some() {
+                self.state.slash.dismissed = true;
+            }
+            return vec![];
+        }
+        let shows_choices = !self.state.option_suggestions().is_empty();
+        if !back
+            && shows_choices
+            && let Some(command) = self.state.slash.command.as_mut()
+        {
+            command.choices_dismissed = true;
+            return vec![];
+        }
+        let Some(command) = self.state.slash.command.take() else {
+            return vec![];
+        };
+        if back {
+            let body = format!("/{}", command.name);
+            self.state.drafts.insert(room.clone(), body.clone());
+            self.state.slash.query = Some((room, command.name));
+        } else {
+            self.state.drafts.insert(room, String::new());
+        }
+        vec![]
+    }
+
+    /// Enter with a command being written: it runs when every option can
+    /// be sent and none required is missing; otherwise each pill says
+    /// what's wrong, and the first wrong one takes the composer.
+    pub(super) fn run_written_command(&mut self, room: &str) -> Vec<Effect> {
+        let Some(command) = self.state.command_draft() else {
+            return vec![];
+        };
+        let wrong =
+            command
+                .options
+                .iter()
+                .position(|option| match self.state.option_value(option) {
+                    Err(_) => true,
+                    Ok(value) => value.is_none() && option.required,
+                });
+        if let Some(wrong) = wrong {
+            if let Some(command) = self.state.slash.command.as_mut() {
+                command.tried = true;
+            }
+            return self.focus_option(wrong);
+        }
+        let mut options = Vec::new();
+        let mut files = Vec::new();
+        for option in &command.options {
+            let value = if option.kind == ATTACHMENT {
+                match &option.file {
+                    Some(path) => {
+                        files.push(path.clone());
+                        Value::String((files.len() - 1).to_string())
+                    }
+                    None => continue,
+                }
+            } else {
+                match self.state.option_value(option) {
+                    Ok(Some(value)) => value,
+                    _ => continue,
+                }
+            };
+            options.push(json!({"type": option.kind, "name": option.name, "value": value}));
+        }
+        let run = CommandRun {
+            nonce: command_nonce(),
+            room: room.to_owned(),
+            application: command.application.clone(),
+            command: command.command.clone(),
+            options: nest(&command.path, options),
+            target: None,
+            files,
+        };
+        self.state.slash.command = None;
+        self.state.drafts.insert(room.to_owned(), String::new());
+        if self.state.preview {
+            return vec![];
+        }
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::RunCommand(Box::new(run)),
+        ))]
+    }
+}
+
+/// Wraps a command's options in its subcommand and group, as
+/// `/interactions` takes them: `[{type: 1, name: "set", options: [...]}]`.
+fn nest(path: &[String], options: Vec<Value>) -> Value {
+    let mut options = Value::Array(options);
+    for (depth, name) in path.iter().enumerate().rev() {
+        let kind = if depth + 1 == path.len() {
+            SUB_COMMAND
+        } else {
+            SUB_COMMAND_GROUP
+        };
+        options = json!([{"type": kind, "name": name, "options": options}]);
+    }
+    options
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dms_offer_only_what_dms_take() {
+        let index = json!({
+            "applications": [{"id": "6", "name": "Notes"}],
+            "application_commands": [
+                {"id": "1", "application_id": "6", "name": "note", "description": "", "contexts": [1, 2]},
+                {"id": "2", "application_id": "6", "name": "server", "description": "", "contexts": [0]},
+                {"id": "3", "application_id": "6", "name": "old", "description": "", "dm_permission": false},
+                {"id": "4", "application_id": "6", "name": "any", "description": ""}
+            ]
+        });
+        let names = |room: &str| -> Vec<String> {
+            offered(&index, room, "")
+                .into_iter()
+                .map(|command| command.name)
+                .collect()
+        };
+        assert_eq!(names("discord:@me:7"), ["any", "note"]);
+        assert_eq!(names("discord:10:21"), ["any", "old", "server"]);
+    }
+
+    #[test]
+    fn subcommands_nest_in_their_group() {
+        assert_eq!(
+            nest(
+                &["a".into(), "b".into()],
+                vec![json!({"type": 3, "name": "x", "value": "y"})]
+            ),
+            json!([{"type": 2, "name": "a", "options": [
+                {"type": 1, "name": "b", "options": [{"type": 3, "name": "x", "value": "y"}]}
+            ]}])
+        );
+        assert_eq!(nest(&[], vec![]), json!([]));
+    }
+}

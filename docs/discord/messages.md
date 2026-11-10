@@ -536,6 +536,39 @@ click or a submit sends one, and none is sent again on its own.
 - An app that answers with a web page in a window
   (INTERACTION_IFRAME_MODAL_CREATE) says to use Discord for it.
 
+## Apps' commands
+
+Typing `/` at the start of a channel's composer opens the picker of apps'
+slash commands over it, as Discord's does (docs.discord.food, "Application
+Commands"). Only that `/` asks Discord for the channel's command index; the
+index is kept until Discord says the server's commands changed
+(GUILD_APPLICATION_COMMAND_INDEX_UPDATE), and the next `/` asks again.
+
+- The picker lists the CHAT_INPUT commands whose `contexts` take the
+  channel: a server's channel, or a DM. A subcommand is its own row, as
+  "config set". Rows are grouped by app, in the index's order, each with its
+  app's icon and name, and narrow as the name is typed. Up and Down choose,
+  Tab, Enter or a click picks, and Escape closes it until the `/` goes.
+- A picked command shows as pills over the composer, one for each option,
+  and the composer's text writes the focused one. Tab and Shift+Tab move
+  between them, as does a click on a pill. Escape stops writing the command,
+  and Backspace in an empty first option puts its name back to pick again.
+  The `/word` typed to find it isn't kept as a draft, and neither is what an
+  option holds.
+- An option with `choices` lists them, a boolean lists True and False, and
+  user, role, mentionable and channel options list the people, roles and
+  channels mentions would offer; a channel option keeps to its
+  `channel_types`, telling text channels (0, 5) from voice ones (2, 13). An
+  option with `autocomplete` asks the app on each keystroke and shows the
+  newest answer. A file option opens the file picker on Enter or a click.
+- Discord leaves the checks to the client ("This validation is client-side
+  only"), so Enter runs the command only when each option passes them:
+  required options filled, whole numbers and numbers within `min_value` and
+  `max_value`, text within `min_length` and `max_length`, a choice's name or
+  a known person, role or channel. Until then each wrong pill says why in red,
+  and the first takes the composer. The wording is Yapfast's; Discord's isn't
+  documented.
+
 ## GIFs
 
 The GIF button left of the emoji button, or Ctrl+G, opens a picker with two

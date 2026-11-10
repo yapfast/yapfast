@@ -2530,6 +2530,9 @@ pub struct CommandRun {
     pub command: Arc<serde_json::Value>,
     pub options: serde_json::Value,
     pub target: Option<String>,
+    /// The files of its attachment options, in order: an attachment
+    /// option's `value` is its file's place here, as `"0"`.
+    pub files: Vec<std::path::PathBuf>,
 }
 
 /// Commands only the linked Discord account carries out.

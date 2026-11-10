@@ -51,6 +51,7 @@ mod scheduled_event;
 mod server;
 mod server_settings;
 mod session;
+mod slash;
 mod stickers;
 mod threads;
 
@@ -100,6 +101,7 @@ pub use server_settings::{
     SettingsText, SettingsToggle, StickerCard, StickerDraft, StickerInput, StickersPage,
     TransferAsk, WELCOME, WELCOME_STICKER, emoji_name,
 };
+pub use slash::{CommandDraft, CommandRow, OptionDraft};
 pub use stickers::{FREQUENT_STICKERS, ServerStickers, StickerPicker, StickerPicture, StickerUse};
 pub use threads::{
     NewThread, THREAD_NAME_LIMIT, ThreadFrom, ThreadList, ThreadSearch, ThreadSections,
@@ -440,6 +442,8 @@ pub struct AppState {
     pub interactions: Interactions,
     /// A bot's form, open.
     pub interaction_modal: Option<InteractionModal>,
+    /// The `/` picker and the app command being written in the composer.
+    slash: slash::Slash,
     pub select_menu: Option<SelectMenu>,
     pub voice: voice::State,
     /// Discord is linked on this device and connected.
@@ -1515,6 +1519,13 @@ pub enum Action {
         command: String,
         target: Option<String>,
     },
+    /// The composer writes this option of the command, as Tab or a click on
+    /// its pill moves to it.
+    FocusCommandOption(usize),
+    /// Escape closes the list over the composer, then the command being
+    /// written; with `true`, Backspace in an empty first option puts the
+    /// command's name back to pick another.
+    CloseCommand(bool),
     /// Hides an ephemeral message, the item, as Discord's "Dismiss message"
     /// does: only here, with no request. Phase 1d; application/ephemeral.rs.
     DismissEphemeral(String),
@@ -3122,7 +3133,9 @@ impl Application {
             Action::SlashQuery(_)
             | Action::PickCommand(_)
             | Action::SetCommandOption { .. }
-            | Action::RunAppCommand { .. } => self.command_action(action),
+            | Action::RunAppCommand { .. }
+            | Action::FocusCommandOption(_)
+            | Action::CloseCommand(_) => self.command_action(action),
             Action::DismissEphemeral(item) => self.dismiss_ephemeral(item),
             Action::CloseModal => {
                 if !self
