@@ -177,7 +177,7 @@ interested. Folders show up as they do in Discord.
   your status and custom status (custom emoji included). Block and ignore
   people from their menu, block and unblock them from their profile, hide what
   blocked people write, and unblock them from a list in Settings.
-- **Several accounts**: link up to five, and switch between them from your
+- **Several accounts**: link as many as you like, and switch between them from your
   account card or manage them in a dialog, as Discord's own apps do.
 - **Notifications** that follow your Discord settings, muting for channels,
   categories and servers, and unread markers.

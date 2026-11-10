@@ -5284,15 +5284,6 @@ fn manages_linked_discord_accounts() {
     ));
     assert!(app.state.manage_accounts.is_none());
 
-    // No more than the most can be linked.
-    let ids: Vec<String> = (1..=chat::MOST_DISCORD_ACCOUNTS)
-        .map(|id| id.to_string())
-        .collect();
-    let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-    linked_accounts(&mut app, &ids, "1");
-    app.dispatch(Action::OpenManageAccounts);
-    assert!(app.dispatch(Action::LinkDiscord).is_empty());
-
     // The active account logs out of settings without the others.
     assert!(matches!(
         app.dispatch(Action::UnlinkDiscord).as_slice(),

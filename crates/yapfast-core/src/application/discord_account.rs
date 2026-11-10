@@ -675,15 +675,12 @@ impl Application {
     }
 
     /// Whether linking a Discord account can start: with none linked, or from
-    /// Manage Accounts, which adds one to those linked up to
-    /// [`chat::MOST_DISCORD_ACCOUNTS`].
+    /// Manage Accounts, which adds one to those linked.
     pub(super) fn can_link_discord(&self) -> bool {
         let state = &self.state;
         cfg!(feature = "discord")
             && !state.preview
-            && (!state.discord_linked
-                || (state.manage_accounts.is_some()
-                    && state.discord_accounts.len() < chat::MOST_DISCORD_ACCOUNTS))
+            && (!state.discord_linked || state.manage_accounts.is_some())
     }
 
     /// Whether a Discord account with this id is linked on this device.

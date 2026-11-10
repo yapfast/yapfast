@@ -65,7 +65,6 @@ async fn with_token(token: String, progress: impl Fn(Progress)) {
             Some(Refused(status)) if status.as_u16() == 401 => {
                 Progress::Failed("Discord didn't accept that token.".into())
             }
-            _ if error.is::<token::TooManyAccounts>() => Progress::Failed(error.to_string()),
             _ => {
                 tracing::warn!(
                     error = format!("{error:#}"),
@@ -92,7 +91,6 @@ async fn run(progress: impl Fn(Progress)) {
         Err(error) => match error.downcast_ref::<Stopped>() {
             Some(Stopped::Expired) => Progress::Expired,
             Some(stopped) => Progress::Failed(stopped.to_string()),
-            None if error.is::<token::TooManyAccounts>() => Progress::Failed(error.to_string()),
             None => {
                 tracing::warn!(error = format!("{error:#}"), "could not link Discord");
                 Progress::Failed(format!("Yapfast couldn't link Discord: {error}"))

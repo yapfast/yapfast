@@ -4924,12 +4924,6 @@ pub fn can_restore(root: &std::path::Path) -> bool {
     }
 }
 
-/// The most Discord accounts that can be linked on one device.
-#[cfg(feature = "discord")]
-pub const MOST_DISCORD_ACCOUNTS: usize = yapfast_discord::token::MOST_ACCOUNTS;
-#[cfg(not(feature = "discord"))]
-pub const MOST_DISCORD_ACCOUNTS: usize = 5;
-
 /// A Discord account linked on this device, as the account switcher lists it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DiscordAccount {

@@ -2,7 +2,7 @@
 
 | Area | Works on Linux | Open |
 | --- | --- | --- |
-| [Linking](#account-linking) | QR code from Settings, or the sign-in of a build without Matrix; [up to five accounts](#several-accounts), switched from the account card as in Discord; unlinking; Discord's captcha, in the browser | A captcha solved against real Discord |
+| [Linking](#account-linking) | QR code from Settings, or the sign-in of a build without Matrix; [several accounts](#several-accounts), switched from the account card as in Discord; unlinking; Discord's captcha, in the browser | A captcha solved against real Discord |
 | [Voice](voice.md) | Server voice channels, mute, deafen, per-person volume, [moving people to another channel](servers.md#someones-menu-in-a-voice-channel) from their menu or [by dragging them](servers.md#dragging-someone-to-another-voice-channel), voice gate with its sensitivity, [push-to-talk](voice.md#push-to-talk) on a recorded key, [DeepFilterNet noise suppression](voice.md#microphone) and its strength, taking a room's echo out, [camera video](voice.md#camera-video), [the soundboard](voice.md#soundboard) | A check of Windows audio, cameras and push-to-talk on real Windows, and of push-to-talk on real Wayland desktops |
 | [DM calls](voice.md#dm-calls) | Starting, ringing, answering and declining DM and group DM calls, with cameras | A check by hand through real Discord |
 | [Go Live](go-live.md) | Sharing a screen with its sound, watching streams | A check on real Windows |
@@ -194,7 +194,7 @@ the tokens of every account.
 
 ### Several accounts
 
-A device links up to five accounts, as Discord's apps do. The account card
+A device links several accounts, as Discord's apps do. The account card
 (`ui/yapfast/account-popover.slint`) has Switch Accounts, which opens a list
 beside the card: each account with its picture and name, a check on the
 active one, and Manage Accounts. Manage Accounts opens a dialog

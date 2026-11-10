@@ -118,8 +118,6 @@ export component ManageAccountsDialog inherits Rectangle {
     in property <image> link-code;
     in property <string> link-name;
     in property <string> link-note;
-    /// Whether another account can be added; the most are linked otherwise.
-    in property <bool> can-add: true;
     callback choose(string);
     callback log-out(string);
     callback open-menu(string);
@@ -184,26 +182,23 @@ export component ManageAccountsDialog inherits Rectangle {
                 }
                 if !root.linking: Rectangle {
                     height: 40px; border-radius: 8px;
-                    background: !root.can-add ? Theme.active.with-alpha(0.5) : add-touch.has-hover ? Theme.button-default-hover : Theme.active;
+                    background: add-touch.has-hover ? Theme.button-default-hover : Theme.active;
                     border-width: add-focus.has-focus ? 2px : 0px; border-color: Theme.accent;
                     accessible-role: button; accessible-label: "Add Account";
-                    accessible-description: root.can-add ? "" : "You can link up to 5 accounts. Log one out to add another.";
-                    accessible-enabled: root.can-add;
-                    accessible-action-default => { if root.can-add { root.adding = true; } }
+                    accessible-action-default => { root.adding = true; }
                     forward-focus: add-focus;
-                    Text { text: "Add Account"; color: root.can-add ? Theme.text : Theme.muted; font-size: 15px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                    Text { text: "Add Account"; color: Theme.text; font-size: 15px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
                     add-focus := FocusScope {
                         key-pressed(event) => {
-                            if root.can-add && (event.text == " " || event.text == "\n") { root.adding = true; return accept; }
+                            if event.text == " " || event.text == "\n" { root.adding = true; return accept; }
                             return reject;
                         }
                         add-touch := TouchArea {
-                            mouse-cursor: root.can-add ? MouseCursor.pointer : MouseCursor.default;
-                            clicked => { if root.can-add { root.adding = true; } }
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.adding = true; }
                         }
                     }
                 }
-                if !root.can-add && !root.linking: Label { text: "You can link up to 5 accounts. Log one out to add another."; }
                 if root.linking: DiscordLinkPanel {
                     phase: root.link-phase; code: root.link-code; name: root.link-name; note: root.link-note;
                     begin => { root.link-discord(); }

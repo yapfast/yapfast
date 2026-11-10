@@ -442,7 +442,6 @@ export component YapfastWindow inherits Window {
     in property <bool> manage-accounts-open;
     /// The account whose menu Manage Accounts has open, by id.
     in property <string> account-menu-id;
-    in property <bool> can-add-account;
     callback switch-discord-account(string);
     callback log-out-discord-account(string);
     callback open-manage-accounts;
@@ -4592,7 +4591,7 @@ export component YapfastWindow inherits Window {
     manage-accounts-motion := PopupMotion { open: root.manage-accounts-open; }
     if manage-accounts-motion.shown: ManageAccountsDialog {
         motion: manage-accounts-motion.amount;
-        accounts: root.accounts; menu-id: root.account-menu-id; can-add: root.can-add-account;
+        accounts: root.accounts; menu-id: root.account-menu-id;
         link-phase: root.link-phase; link-code: root.link-code; link-name: root.link-name; link-note: root.link-note;
         choose(id) => { root.switch-discord-account(id); }
         log-out(id) => { root.log-out-discord-account(id); }

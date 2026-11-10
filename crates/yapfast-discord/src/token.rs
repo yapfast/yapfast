@@ -2,8 +2,8 @@
 //! session, and never in Matrix. So does the key [`crate::cache`] encrypts
 //! its files with.
 //!
-//! As in Discord's own apps, up to [`MOST_ACCOUNTS`] accounts are linked on
-//! one device, and one of them is the active account, which Yapfast connects.
+//! As in Discord's own apps, several accounts are linked on one device, and
+//! one of them is the active account, which Yapfast connects.
 //! Each account is one credential, `discord-account-<id>`: its login, and the
 //! little the account switcher shows of it before it connects (its username,
 //! name, and its avatar's address). Another, `discord-accounts`, lists their
@@ -38,9 +38,6 @@ const ACCOUNT: &str = "discord-token";
 const EARLIER_ACCOUNT: &str = "discord-probe-token";
 /// The key of the files [`crate::cache`] keeps, in hex.
 const CACHE_KEY: &str = "discord-cache-key";
-
-/// The most accounts linked on one device, as in Discord's apps.
-pub const MOST_ACCOUNTS: usize = 5;
 
 fn named(account: &str) -> Result<Entry> {
     Entry::new(SERVICE, account).map_err(|_| anyhow!("could not access the OS credential store"))
@@ -178,21 +175,6 @@ impl std::fmt::Display for NotLinked {
 }
 
 impl std::error::Error for NotLinked {}
-
-/// [`MOST_ACCOUNTS`] are linked already, so another can't be.
-#[derive(Debug)]
-pub struct TooManyAccounts;
-
-impl std::fmt::Display for TooManyAccounts {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "You can link up to {MOST_ACCOUNTS} accounts. Log one out to add another."
-        )
-    }
-}
-
-impl std::error::Error for TooManyAccounts {}
 
 /// The accounts' ids, in the order they were linked, and the active one.
 #[derive(Default, Serialize, Deserialize)]
@@ -353,9 +335,6 @@ fn link(vault: &dyn Vault, token: &str, activate: bool) -> Result<String> {
     let id = match locate(vault, &index, token)? {
         Some(id) => id,
         None => {
-            if index.ids.len() >= MOST_ACCOUNTS {
-                return Err(TooManyAccounts.into());
-            }
             let id = id_of(token);
             index.ids.push(id.clone());
             id
@@ -430,8 +409,7 @@ fn forget_in(vault: &dyn Vault, id: &str) -> Result<(bool, Option<String>)> {
 }
 
 /// Links the account `token` belongs to, and makes it the active one; one
-/// linked already takes the login. Fails with [`TooManyAccounts`] when
-/// [`MOST_ACCOUNTS`] others are linked.
+/// linked already takes the login.
 pub fn store(token: &str) -> Result<()> {
     let token = clean(token)?;
     with_vault(|vault| link(vault, &token, true).map(drop))
@@ -678,24 +656,6 @@ mod tests {
         assert_eq!(listing.active.as_deref(), Some("100000000000000001"));
         let saved = read_saved(&vault, "100000000000000001").unwrap().unwrap();
         assert_eq!(saved.token, login("100000000000000001", "new"));
-    }
-
-    #[test]
-    fn stops_at_the_most_accounts() {
-        let vault = Memory::default();
-        for number in 0..MOST_ACCOUNTS {
-            link(
-                &vault,
-                &login(&format!("10000000000000000{number}"), "x"),
-                true,
-            )
-            .unwrap();
-        }
-        let refused = link(&vault, &login("100000000000000099", "x"), true).unwrap_err();
-        assert!(refused.is::<TooManyAccounts>());
-        // One already linked may still take a new login.
-        link(&vault, &login("100000000000000000", "again"), true).unwrap();
-        assert_eq!(ids(&vault).len(), MOST_ACCOUNTS);
     }
 
     #[test]

@@ -3514,9 +3514,6 @@ impl Adapter {
                 .unwrap_or_default()
                 .into(),
         );
-        window.set_can_add_account(
-            state.discord_accounts.len() < yapfast_core::chat::MOST_DISCORD_ACCOUNTS,
-        );
         let add_friend = state.add_friend.as_ref();
         if add_friend.is_some() && !window.get_add_friend_open() {
             window.set_add_friend_name(SharedString::default());
