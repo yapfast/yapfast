@@ -1371,7 +1371,13 @@ component NameStyleWindow inherits Rectangle {
                     Rectangle {
                         x: 16px; y: 56px; width: 80px; height: 80px;
                         Avatar { size: 80px; initial: root.initial; tint: root.tint; picture: root.picture; }
-                        if root.presence != "": StatusDot { x: 56px; y: 56px; width: 26px; height: 26px; presence: root.presence; ring: root.card-top; }
+                        // As on the card: the badge fills its gap ring at 87% of the
+                        // avatar's radius out toward the lower right (0.61r, 0.62r).
+                        if root.presence != "": StatusDot {
+                            x: 40px + 80px * 0.305 - self.width / 2;
+                            y: 40px + 80px * 0.31 - self.height / 2;
+                            width: 80px * 0.291; height: self.width; presence: root.presence; ring: root.card-top;
+                        }
                     }
                     StyledName { x: 18px; y: 145px; height: self.preferred-height; text: root.name; styles: root.style; font-size: 21px; font-weight: 700; }
                     HorizontalLayout {
@@ -1725,10 +1731,18 @@ export component ProfileEditorDialog inherits Rectangle {
                                     x: root.pad - 6px; y: root.banner-height - root.avatar-size / 2 - 6px;
                                     width: root.avatar-size + 12px; height: self.width; border-radius: self.width / 2;
                                     background: root.plate;
-                                    Avatar { size: root.avatar-size; initial: root.prompt.preview.initial; tint: root.prompt.preview.tint; picture: root.prompt.preview.picture; }
+                                    // The decoration loops on this page whenever the app's
+                                    // animations run: Motion.playing gates the frames, and
+                                    // Looks.moving withholds the APNG in pictures.rs.
+                                    Avatar { size: root.avatar-size; initial: root.prompt.preview.initial; tint: root.prompt.preview.tint; picture: root.prompt.preview.picture; decoration-url: root.prompt.preview.decoration-url; animate: true; }
+                                    // Discord's badge: a circular gap of the plate's colour
+                                    // (the box) with the status filling two thirds of it,
+                                    // centred 0.61r, 0.62r from the avatar's centre -- 87% of
+                                    // the radius out at 45 degrees toward the lower right.
                                     if root.prompt.main && root.presence != "": StatusDot {
-                                        x: root.avatar-size * 0.85 - self.width / 2 + 6px; y: root.avatar-size * 0.85 - self.height / 2 + 6px;
-                                        width: root.avatar-size * 0.325; height: self.width; presence: root.presence; ring: root.plate;
+                                        x: root.avatar-size / 2 + 6px + root.avatar-size * 0.305 - self.width / 2;
+                                        y: root.avatar-size / 2 + 6px + root.avatar-size * 0.31 - self.height / 2;
+                                        width: root.avatar-size * 0.291; height: self.width; presence: root.presence; ring: root.plate;
                                     }
                                     // What you're up to, a thought beside the picture.
                                     if root.prompt.main: Rectangle {
