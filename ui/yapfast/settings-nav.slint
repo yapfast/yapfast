@@ -83,7 +83,7 @@ export component SettingsNavigation inherits Rectangle {
                     if !entry.heading && root.matches(entry.text) && (root.with-discord || (entry.id != 4 && entry.id != 8)): ChannelRow {
                         height: 40px; text: entry.text; icon: entry.icon;
                         selected: root.selected == entry.id;
-                        fresh: entry.id == 9 && NewTags.about;
+                        fresh: NewTags.section-new(entry.id, NewTags.revision);
                         clicked => { root.chose(entry.id); }
                     }
                 }

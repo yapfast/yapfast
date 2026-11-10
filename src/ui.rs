@@ -191,7 +191,7 @@ pub fn run(
     let adapter = Adapter::new(Arc::new(runtime), root, &window)?;
     bind_callbacks(&window, &adapter);
     updates::start(&adapter, &window);
-    new_tags::start(&adapter, &window);
+    new_tags::start(&adapter);
     watch_window(&window, &adapter);
     adapter.borrow_mut().watch_away();
     adapter.borrow_mut().watch_talk_key(&window);
@@ -1298,8 +1298,12 @@ struct Layout {
     /// The tag of the release a notification last told of, so each release is
     /// announced once.
     announced_update: Option<String>,
-    /// The NEW-tagged settings this person has looked at; see [`new_tags`].
-    seen_new: Option<Vec<String>>,
+    /// The version whose settings this person counts as having met: a fresh
+    /// install's own, or the release before NEW tags for an older layout. A
+    /// setting that arrived after it is NEW; see [`new_tags`].
+    first_version: Option<String>,
+    /// The NEW settings this person has looked at.
+    seen_new: Vec<String>,
     /// The desktop draws the window's title bar; unset, Yapfast draws its own
     /// on desktops that give windows one. See [`title_bar`].
     system_title_bar: Option<bool>,
@@ -1424,8 +1428,8 @@ impl Layout {
         let mut layout: Self = saved
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
-        if layout.seen_new.is_none() {
-            layout.seen_new = Some(if fresh { new_tags::all() } else { Vec::new() });
+        if layout.first_version.is_none() {
+            layout.first_version = Some(new_tags::first_version(fresh));
         }
         if layout.notification_sound.take() == Some(false) {
             layout.adjust_each_sound = true;
@@ -2443,7 +2447,6 @@ impl Adapter {
         self.models.attach(window);
         self.layout.apply(window);
         updates::show(window, &self.layout, &self.updates);
-        new_tags::show(window, &self.layout);
         self.watch_talk_key(window);
         self.show_protocol(window);
         // The theme being edited goes unsaved with the old window, and rows

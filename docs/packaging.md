@@ -229,11 +229,19 @@ local HTTP server, and on Unix start a script as the AppImage.
 ### New tags
 
 A setting added by an update shows a NEW tag until the person has been on its
-page (`src/ui/new_tags.rs`): the About entry in the list and the new switches
-in it. Settings saves them as seen in `layout.json` (`seen_new`) when it
-leaves the section or closes. A fresh install has seen everything; a layout
-from before the tags existed has seen nothing, so settings that came since
-show. The file explains how to tag the next new setting.
+page, and so does its section's entry in the list (`src/ui/new_tags.rs`).
+Each tagged setting is listed there with the release it first shipped in.
+A setting is new when that release is newer than the version the person's
+`layout.json` counts as having met (`first_version`) and they haven't left its
+section since; leaving the section or closing Settings saves it as seen
+(`seen_new`). A fresh install has met every setting that exists, so it sees no
+tags until an update brings a setting; a layout from before the tags existed
+has met 0.3.0, so everything tagged since shows. Updating over several
+releases without opening Settings shows what each one added.
+
+To tag the next new setting, add its key, section and release to the list and
+give its row `new-key: "<key>"`; a test fails if the list and the `.slint` files
+disagree. Remove an entry once its release is old.
 
 ## The app icon
 

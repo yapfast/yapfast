@@ -30,8 +30,9 @@ export component SettingsSwitch inherits Rectangle {
     in property <bool> enabled: true;
     /// Why it can't change, shown while the pointer is on the switch.
     in property <string> locked-tip;
-    /// A setting this person hasn't seen yet: a NEW tag follows its name.
-    in property <bool> fresh;
+    /// The key under which new_tags.rs lists this setting, if it is a new one:
+    /// a NEW tag follows its name until the page has been seen.
+    in property <string> new-key;
     /// Its owner sets `checked`, from what a flip asks for: the switch only
     /// says it was flipped, so a binding to it stays.
     in property <bool> controlled;
@@ -60,7 +61,7 @@ export component SettingsSwitch inherits Rectangle {
                     text: root.text; color: root.enabled ? Theme.text : Theme.muted; font-size: 15px;
                     vertical-alignment: center; wrap: word-wrap;
                 }
-                if root.fresh: Middle { NewTag { } }
+                if root.new-key != "" && NewTags.is-new(root.new-key, NewTags.revision): Middle { NewTag { } }
                 // Discord's lock after the title, with why on hover.
                 if !root.enabled && root.locked-tip != "": Middle {
                     Image {
@@ -1486,14 +1487,14 @@ export component AboutSettings inherits VerticalLayout {
     SettingsSwitch {
         text: "Check for updates";
         description: "Looks for a new version when Yapfast starts and every few hours after. Only the version number goes to GitHub.";
-        fresh: NewTags.check;
+        new-key: "check-updates";
         checked <=> Updates.check;
         toggled => { Updates.preferences-changed(); }
     }
     SettingsSwitch {
         text: "Include nightly builds";
         description: "Early builds that may be rough. Off, you only hear about releases.";
-        fresh: NewTags.nightlies;
+        new-key: "update-nightlies";
         checked <=> Updates.nightlies;
         enabled: Updates.check;
         toggled => { Updates.preferences-changed(); }

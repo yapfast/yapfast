@@ -1,13 +1,16 @@
 import { Theme, Middle } from "../theme.slint";
 
-// Which settings are new to this person, set by src/ui/new_tags.rs: each is
-// true until they have looked at the page it is on. To tag another new setting,
-// add its key to NEW in that file, a property here, and `fresh:` on its row.
+// Which settings are new to this person, answered by src/ui/new_tags.rs: a
+// setting is new until they have looked at the page it is on. To tag a new
+// setting, list its key in NEW in that file and give its row `new-key`.
 export global NewTags {
-    /// Something on the About page is new: tags its entry in the list.
-    in property <bool> about;
-    in property <bool> check;
-    in property <bool> nightlies;
+    /// Counts up when what is new changes, so every row asks again.
+    in property <int> revision;
+    /// Whether the setting with this key is new; pass `revision` so a row
+    /// follows the answer.
+    pure callback is-new(string, int) -> bool;
+    /// Whether anything in this Settings section is new.
+    pure callback section-new(int, int) -> bool;
     /// Settings left a section, so what was new in it has been seen.
     callback left(int);
 }
