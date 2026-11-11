@@ -387,8 +387,8 @@ files named here are in `crates/yapfast-core/native/`.
   `native/pipewire_capture.c` takes one DMA-BUF at a time off the node the
   desktop's screen sharing portal named, and `capture/portal.rs` in
   `yapfast-core` does the D-Bus handshake that names it. It is built under the
-  `screencast` feature, which the root `Cargo.toml` enables for Linux alone, and
-  wants libpipewire-0.3's headers: a build that doesn't find them prints a
+  `screencast` feature, a default of `yapfast-core` that the root `Cargo.toml`
+  asks for on Linux, and wants libpipewire-0.3's headers: a build that doesn't find them prints a
   warning and shares a screen through libwebrtc's capturer instead, which on
   Wayland asks the portal for the pointer as metadata it never paints into a
   frame.
@@ -419,10 +419,10 @@ dependency, with plain rustc, and doesn't lint its generated code); a
 build; and the desktop smoke test, which runs `target/<profile>/yapfast`,
 the desktop build, from that build. These build the default features, the
 release's: Discord on the desktop (see [Networks](#networks)). The desktop
-build turns on `yapfast-core`'s `screencast` feature on Linux, which the
-workspace steps resolve too, so the portal's and PipeWire's tests run in them;
-while working on those, `cargo test --profile fast -p yapfast-core --features
-screencast capture` runs them alone.
+build turns on `yapfast-core`'s `screencast` feature on Linux, and it is one of
+that crate's defaults, so the portal's and PipeWire's tests run in the workspace
+steps; while working on those, `cargo test --profile fast -p yapfast-core
+capture` runs them alone.
 
 `scripts/check --matrix` adds the builds with Matrix, after those and one at
 a time, as each compile of the UI crate takes several GiB of memory: Clippy

@@ -14,18 +14,19 @@ license = "GPL-3.0-or-later"
 # documentation examples.
 
 [features]
-default = ["discord"]
+default = ["discord", "screencast"]
 # Matrix: sign-in, encrypted rooms and MatrixRTC voice.
 matrix = ["dep:keyring", "dep:matrix-sdk", "dep:matrix-sdk-ui", "dep:matrix-sdk-crypto", "dep:matrix-rtc-livekit", "dep:matrix-rtc-core", "dep:matrix-rtc-media", "dep:mime", "dep:url"]
 # Discord through the account linked on this device; see docs/discord/README.md.
 discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "dep:deep_filter", "dep:ndarray", "dep:x264-src", "dep:ffmpeg-src", "dep:thorvg-sys"]
 # Capturing a screen or a window on the GPU on Linux: the desktop's screen
 # sharing portal names a PipeWire node whose frames are DMA-BUFs, and
-# src/capture/pipewire.rs reads them without a copy through the processor. Off
-# here and turned on by the app for Linux alone, whose target-specific dependency
-# in the root Cargo.toml enables it: portal.rs speaks D-Bus and pipewire.rs links
-# the C shim build.rs builds on Linux. A build without it is exactly the build it
-# was before, and needs no PipeWire headers.
+# src/capture/pipewire.rs reads them without a copy through the processor. On by
+# default, so `cargo test -p yapfast-core` runs the portal's and PipeWire's tests;
+# the root Cargo.toml, which takes this crate without its defaults, asks for it
+# again. It changes nothing off Linux: zbus is a Linux dependency, and build.rs
+# builds the C shim and sets `cfg(screencast)` only there. A build without it
+# needs no PipeWire headers.
 screencast = ["dep:zbus"]
 # Sample states other crates' tests start from, such as a Discord server
 # whose member menu they check.
