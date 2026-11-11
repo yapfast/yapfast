@@ -216,10 +216,16 @@ struct yapfast_pw {
    * pod, which is neither an error nor a frame. */
   char trace[192];
 
-  /* What `yapfast_pw_describe` says, and the counters behind it. */
+  /* What `yapfast_pw_describe` says, and the counters behind it. `processes` is
+   * how often the stream was told to read a buffer and `empty` how many of those
+   * had none to give: a negotiated stream that delivers nothing is one of the two
+   * — the graph never asked us to read, or it asked and handed over nothing —
+   * and the numbers say which. */
   unsigned frames;
   unsigned stills;
   unsigned resizes;
+  unsigned processes;
+  unsigned empty;
 };
 
 static void pw_init_once(void) { pw_init(NULL, NULL); }
@@ -349,8 +355,14 @@ static void let_go(struct yapfast_pw *pw) {
 
 static void on_process(void *data) {
   struct yapfast_pw *pw = data;
+  pw->processes++;
   struct pw_buffer *buffer = pw_stream_dequeue_buffer(pw->stream);
-  if (buffer == NULL) return;
+  if (buffer == NULL) {
+    /* Asked to read and handed nothing: the producer's buffers aren't the
+     * stream's to read yet, which is not an error and not a frame. */
+    pw->empty++;
+    return;
+  }
   /* Nobody has taken the last one; keep the newest, since a frame the caller
    * skipped is a frame it would have dropped anyway. */
   if (pw->pending != NULL) pw_stream_queue_buffer(pw->stream, pw->pending);
@@ -656,9 +668,12 @@ void yapfast_pw_describe(struct yapfast_pw *pw, char *text, size_t text_size) {
     snprintf(modifier, sizeof(modifier), "0x%016llx", (unsigned long long)pw->raw.modifier);
   }
   snprintf(text, text_size,
-           "node %u, %ux%u %s DMA-BUF, modifier %s, %u frames, %u still, %u resizes", pw->node_id,
+           "node %u, %ux%u %s DMA-BUF, modifier %s, %u frames, %u still, %u resizes, "
+           "%u process calls, %u with no buffer, %s",
+           pw->node_id,
            (unsigned)pw->raw.size.width, (unsigned)pw->raw.size.height,
-           format_name((uint32_t)pw->raw.format), modifier, pw->frames, pw->stills, pw->resizes);
+           format_name((uint32_t)pw->raw.format), modifier, pw->frames, pw->stills, pw->resizes,
+           pw->processes, pw->empty, pw->trace[0] ? pw->trace : "nothing said yet");
 }
 
 void yapfast_pw_close(struct yapfast_pw *pw) {
