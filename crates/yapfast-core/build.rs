@@ -15,6 +15,7 @@ fn main() {
         "video.c",
         "picture.c",
         "camera.cc",
+        "camera_mf.cc",
         "hwenc.c",
         "hwenc_dmabuf.c",
         "hevc.c",
@@ -41,14 +42,23 @@ fn main() {
     picture.compile("yapfast_picture");
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     // Linux captures through V4L2, and Windows through DirectShow, both in
-    // the same module of the libwebrtc archive. native/camera_mf.cc, a Media
-    // Foundation capturer for Windows, is built by nothing until its Rust side
-    // exists; its header says what that side has to be.
+    // the same module of the libwebrtc archive. A Windows build can be pointed at
+    // native/camera_mf.cc instead, which films through Media Foundation and hands
+    // a frame over as both the D3D11 texture it lies in and the I420 planes a
+    // caller that reads memory wants; it names the same exports, so exactly one of
+    // the two is built. Neither is verified on a Windows machine here.
+    let media_foundation =
+        target_os == "windows" && std::env::var("YAPFAST_CAMERA_MF").is_ok_and(|on| on != "0");
+    println!("cargo:rerun-if-env-changed=YAPFAST_CAMERA_MF");
     if matches!(target_os.as_str(), "linux" | "windows") {
         let mut camera = cc::Build::new();
         camera
             .cpp(true)
-            .file("native/camera.cc")
+            .file(if media_foundation {
+                "native/camera_mf.cc"
+            } else {
+                "native/camera.cc"
+            })
             .include(&include)
             .include(third_party.join("abseil-cpp"))
             .include(third_party.join("libyuv/include"))
@@ -65,10 +75,18 @@ fn main() {
             }
         }
         camera.compile("yapfast_camera");
-        // DirectShow's device list reads each camera's name and path as a
-        // VARIANT; webrtc-sys links the rest.
         if target_os == "windows" {
-            println!("cargo:rustc-link-lib=dylib=oleaut32");
+            if media_foundation {
+                // Media Foundation's own runtime and the device manager it films
+                // into a D3D11 texture through.
+                for library in ["mfplat", "mf", "mfreadwrite", "mfuuid", "ole32", "d3d11"] {
+                    println!("cargo:rustc-link-lib=dylib={library}");
+                }
+            } else {
+                // DirectShow's device list reads each camera's name and path as a
+                // VARIANT; webrtc-sys links the rest.
+                println!("cargo:rustc-link-lib=dylib=oleaut32");
+            }
         }
     }
     println!("cargo::rustc-check-cfg=cfg(hwenc)");

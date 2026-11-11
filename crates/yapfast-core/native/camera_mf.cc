@@ -60,13 +60,34 @@
  * none of them is a crash: `yapfast_camera_open` answers NULL with the reason kept
  * for that call, and a capture that ends says what ended it.
  *
- * What it deliberately doesn't do: no I420 conversion, no scaling down to the size
- * asked for (an encoder scales a texture as it encodes it), and no rate limiting
- * beyond the frame rate put on the media type. The size a frame arrives at is the
- * size its picture reports.
+ * What it deliberately doesn't do: no scaling down to the size asked for (the
+ * reader's own video processor is asked for that), and no rate limiting beyond the
+ * frame rate put on the media type. The size a frame arrives at is the size its
+ * picture reports.
+ *
+ * Every frame comes out both ways: as the D3D11 texture it already lies in, and as
+ * the I420 planes a caller that reads memory wants, converted once from that
+ * texture's NV12. A capturer that handed over a picture with no planes and no
+ * consumer of its texture was one whose camera opened and then never delivered a
+ * frame, which reads to a call as a camera that is starting for ever.
  */
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
+/* The standard library first: <windows.h> defines macros of its own that the
+ * library's headers must not meet, which is why this file's includes are in this
+ * order rather than the other one. */
+#include <atomic>
+#include <condition_variable>
+#include <cstdarg>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <exception>
+#include <mutex>
+#include <new>
+#include <thread>
+#include <vector>
+
 #include <windows.h>
 
 #include <d3d11.h>
@@ -75,22 +96,14 @@
 #include <mfidl.h>
 #include <mfreadwrite.h>
 
-#include <atomic>
-#include <condition_variable>
-#include <cstdarg>
-#include <cstdio>
-#include <cstring>
-#include <exception>
-#include <mutex>
-#include <new>
-#include <thread>
+#include "libyuv/convert.h"
 
 extern "C" {
 
 /* camera.cc's layout first, the same field for field, so that a caller reads a
  * frame's size here whichever capturer it was linked against. A picture this file
- * hands over has the planes null and the texture set; one camera.cc hands over has
- * the texture null. */
+ * hands over has both: the planes, converted once from the frame's NV12, and the
+ * texture it came in. */
 struct yapfast_picture {
   int width;
   int height;
@@ -111,6 +124,24 @@ typedef void (*yapfast_camera_frame)(void *user, const struct yapfast_picture *p
 typedef void (*yapfast_camera_each)(void *user, const char *name, const char *id);
 
 }  // extern "C"
+
+/* An I420 picture of one size, made once and written every frame: the planes a
+ * caller that reads memory wants, which this file makes from each frame's NV12. */
+struct Planes {
+  unsigned width = 0;
+  unsigned height = 0;
+  std::vector<uint8_t> data;
+
+  void resize(unsigned w, unsigned h) {
+    if (w == width && h == height) return;
+    width = w;
+    height = h;
+    data.assign((size_t)w * h + 2 * (size_t)((w + 1) / 2) * ((h + 1) / 2), 0);
+  }
+  unsigned char *y() { return data.data(); }
+  unsigned char *u() { return y() + (size_t)width * height; }
+  unsigned char *v() { return u() + (size_t)((width + 1) / 2) * ((height + 1) / 2); }
+};
 
 /* ----------------------------------------------------------------- the camera */
 
@@ -134,11 +165,13 @@ struct yapfast_camera {
   std::condition_variable ready;
 
   /* What this camera was asked for, and, once it is open, the size its frames are
-   * at, which is what a picture reports. */
+   * at, which is what a picture reports, and the pitch of the NV12 they come in. */
   char id[1024] = {0};
   unsigned width = 0;
   unsigned height = 0;
   unsigned fps = 0;
+  unsigned stride = 0;
+  Planes planes;
   yapfast_camera_frame frame = NULL;
   void *user = NULL;
 
@@ -343,6 +376,14 @@ static int read_size(yapfast_camera *camera) {
   HRESULT status = camera->reader->GetCurrentMediaType(MF_SOURCE_READER_FIRST_VIDEO_STREAM, &type);
   if (SUCCEEDED(status)) status = MFGetAttributeSize(type, MF_MT_FRAME_SIZE, &width, &height);
   if (SUCCEEDED(status) && width && height) {
+    /* The pitch the frames come in, which Media Foundation says on the type and
+     * which is this many bytes to a row: a reader that pads a row says so here. */
+    UINT32 stride = 0;
+    if (SUCCEEDED(type->GetUINT32(MF_MT_DEFAULT_STRIDE, &stride)) && stride) {
+      camera->stride = (unsigned)(stride < 0 ? -(LONG)stride : (LONG)stride);
+    } else {
+      camera->stride = width;
+    }
     camera->width = width;
     camera->height = height;
     type->Release();
@@ -479,12 +520,43 @@ static void deliver(yapfast_camera *camera, IMFSample *sample) {
     stop_with(camera, "a frame's buffer isn't a D3D11 texture (0x%08lX)",
               (unsigned long)status);
   } else {
+    /* The same frame as the planes a caller that reads memory wants: Media
+     * Foundation hands back the sample's picture as one contiguous NV12 buffer,
+     * which is the copy it makes for such a caller, and libyuv turns that into
+     * the I420 every consumer of a camera in this crate already reads. Both ways
+     * of the picture are reported, so a caller takes the texture where it can
+     * encode from one and the planes where it can't. */
+    IMFMediaBuffer *flat = NULL;
     memset(&picture, 0, sizeof picture);
     picture.width = (int)camera->width;
     picture.height = (int)camera->height;
     picture.texture = texture;
     picture.subresource = subresource;
     picture.device = camera->device;
+    camera->planes.resize(camera->width, camera->height);
+    if (SUCCEEDED(sample->ConvertToContiguousBuffer(&flat))) {
+      BYTE *data = NULL;
+      DWORD most = 0;
+      DWORD current = 0;
+      if (SUCCEEDED(flat->Lock(&data, &most, &current))) {
+        const int stride = (int)(camera->stride ? camera->stride : camera->width);
+        const int half = (int)((camera->width + 1) / 2);
+        const size_t luma = (size_t)stride * camera->height;
+        if (current >= luma + luma / 2 &&
+            libyuv::NV12ToI420(data, stride, data + luma, stride, camera->planes.y(),
+                               (int)camera->width, camera->planes.u(), half, camera->planes.v(),
+                               half, (int)camera->width, (int)camera->height) == 0) {
+          picture.y = camera->planes.y();
+          picture.u = camera->planes.u();
+          picture.v = camera->planes.v();
+          picture.y_stride = (int)camera->width;
+          picture.u_stride = half;
+          picture.v_stride = half;
+        }
+        flat->Unlock();
+      }
+      flat->Release();
+    }
     camera->frame(camera->user, &picture);
   }
   if (texture) texture->Release();

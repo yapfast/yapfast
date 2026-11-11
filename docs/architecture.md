@@ -56,7 +56,9 @@ films 1280×720 NV12 in buffers it exports, for an encoder that imports a
 DMA-BUF — VA-API — to read each picture where the card holds it; where the
 encoder that opens uploads instead, the camera encodes on the processor.
 `native/camera_mf.cc` is a
-Media Foundation camera for Windows, written and neither built nor verified.
+Media Foundation camera for Windows, built instead of `camera.cc` when
+`YAPFAST_CAMERA_MF` is set, and handing each frame over both as the D3D11 texture
+it lies in and as I420 planes; it is compiled but has never been run.
 `frames.rs` is the file the worker and the window both map: a
 stream's pictures, and the slots a card-drawn preview is handed over in, which
 `src/ui/gpu.rs` opens on the window's own device. On Linux a card's picture is
