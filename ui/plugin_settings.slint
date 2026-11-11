@@ -808,7 +808,7 @@ component ListingFace inherits Rectangle {
     in property <ListingRow> listing;
     height: 80px;
     HorizontalLayout {
-        padding-top: 8px; padding-bottom: 8px; padding-right: 16px; spacing: 12px;
+        padding-top: 8px; padding-bottom: 8px; padding-right: 12px; spacing: 12px;
         Middle { PluginIcon { initial: root.listing.initial; picture-url: root.listing.icon-url; } }
         VerticalLayout {
             alignment: center; spacing: 2px; horizontal-stretch: 1;
@@ -829,7 +829,7 @@ component ListingFace inherits Rectangle {
             }
         }
     }
-    Rectangle { y: parent.height - 1px; width: parent.width - 16px; x: 0px; height: 1px; background: Theme.line; }
+    Rectangle { y: parent.height - 1px; width: parent.width - 12px; x: 0px; height: 1px; background: Theme.line; }
 }
 
 // Advanced, which the page's foot opens: installing a plugin from a `.wasm`
@@ -893,7 +893,9 @@ component AdvancedDialog inherits PageDialog {
 // The page's foot, which opens Advanced.
 component AdvancedFooter inherits VerticalLayout {
     callback open;
-    spacing: 8px;
+    // The tabs' scrolled lists keep 12px clear for their scroll bars; the
+    // foot's line ends where they do.
+    spacing: 8px; padding-right: 12px;
     Rectangle { height: 1px; background: Theme.line; }
     HorizontalLayout {
         alignment: start;
@@ -930,7 +932,7 @@ export component PluginSettings inherits Rectangle {
         if PluginPage.tab == 0: VerticalLayout {
             spacing: 12px; vertical-stretch: 1;
             HorizontalLayout {
-                spacing: 8px; height: 40px;
+                spacing: 8px; height: 40px; padding-right: 12px;
                 TextField {
                     text <=> PluginPage.query; label: "Search plugins"; placeholder: "Search plugins"; text-size: 14px;
                     trailing-icon: @image-url("icons/search.svg");
@@ -1016,11 +1018,11 @@ export component PluginSettings inherits Rectangle {
         }
 
         if PluginPage.tab == 2: VerticalLayout {
-            spacing: 12px; vertical-stretch: 1; alignment: start;
+            spacing: 12px; vertical-stretch: 1; alignment: start; padding-right: 12px;
             Label { text: "Paste the https:// address of a plugin's git repository. Yapfast fetches it and shows what it can do before anything is installed. Nothing runs until you install it."; font-size: 14px; }
             VerticalLayout {
                 spacing: 6px;
-                Text { text: "Git repository"; color: Theme.text; font-size: 15px; font-weight: 600; }
+                Text { text: "Git repository"; color: Theme.text; font-size: 15px; }
                 TextField {
                     text <=> PluginPage.url; label: "Git repository"; text-size: 14px;
                     placeholder: "https://codeberg.org/ada/word-filter";
