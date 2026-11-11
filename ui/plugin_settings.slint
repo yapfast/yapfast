@@ -3,6 +3,7 @@ import { Theme, Middle, Label } from "theme.slint";
 import { ActionButton, Avatar, IconButton, TextField, VolumeSlider } from "controls.slint";
 import { SettingsTitle, SettingsHeading, SettingsSwitch, Choices, Picker } from "settings.slint";
 import { PluginPart, PluginWidgets } from "plugins.slint";
+import { ClientStyle } from "yapfast/style.slint";
 
 // Settings → Plugins: the marketplace, the installed plugins and installing
 // from a git URL, each a choice at the top; a plugin's own page; and the
@@ -287,20 +288,30 @@ component PermissionLines inherits VerticalLayout {
     spacing: 6px;
     // A bullet each, in the line's own colour: what a plugin may do reads as a
     // list to check one by one, which a turned-on switch's paragraph doesn't.
+    // The bullet and the line's first row share a top, and the pair sits
+    // level with Revoke beside it.
     for line in root.lines: HorizontalLayout {
         spacing: 8px;
-        Text {
-            text: "•"; vertical-alignment: top; font-size: 14px;
-            color: line.tone == 0 || line.tone == 1 ? Theme.muted : PluginPage.ink(line.tone);
+        Middle {
+            horizontal-stretch: 1;
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: "•"; vertical-alignment: top; font-size: 14px;
+                    color: line.tone == 0 || line.tone == 1 ? Theme.muted : PluginPage.ink(line.tone);
+                }
+                Text {
+                    text: line.text; wrap: word-wrap; horizontal-stretch: 1; vertical-alignment: top;
+                    color: PluginPage.ink(line.tone); font-size: 14px;
+                    font-weight: line.tone == 1 || line.tone == 5 ? 700 : 400;
+                }
+            }
         }
-        Text {
-            text: line.text; wrap: word-wrap; horizontal-stretch: 1; vertical-alignment: center;
-            color: PluginPage.ink(line.tone); font-size: 14px;
-            font-weight: line.tone == 1 || line.tone == 5 ? 700 : 400;
-        }
-        if root.revocable && line.permission != "": ActionButton {
-            text: "Revoke"; label: "Revoke: " + line.text; small: true; ghost: true;
-            clicked => { root.revoke(line.permission); }
+        if root.revocable && line.permission != "": Middle {
+            ActionButton {
+                text: "Revoke"; label: "Revoke: " + line.text; small: true; ghost: true;
+                clicked => { root.revoke(line.permission); }
+            }
         }
     }
 }
@@ -383,8 +394,13 @@ component ReviewDialog inherits PageDialog {
             }
             SettingsHeading { text: "WHAT IT CAN DO"; }
             if PluginPage.review.lines.length == 0: Label { text: "Nothing beyond adding its own commands and buttons."; }
-            PermissionLines { lines: PluginPage.review.lines; }
-            PermissionLines { lines: [PluginPage.review.memory]; }
+            // One list, so the memory line is as far from the others as they
+            // are from each other.
+            VerticalLayout {
+                spacing: 6px;
+                PermissionLines { lines: PluginPage.review.lines; }
+                PermissionLines { lines: [PluginPage.review.memory]; }
+            }
             if PluginPage.review.dependencies.length > 0: SettingsHeading { text: "NEEDS"; }
             PermissionLines { lines: PluginPage.review.dependencies; }
         }
@@ -542,6 +558,8 @@ component FormControl inherits VerticalLayout {
     /// In a list's row, where the column names it: a switch alone.
     in property <bool> compact;
     callback edited(string);
+    // In a list's row, the switch sits level with the fields beside it.
+    alignment: root.compact ? LayoutAlignment.center : LayoutAlignment.stretch;
     if root.control.kind == 0: SettingsSwitch {
         text: root.compact ? "" : root.control.label; label: root.label;
         checked: root.control.checked; enabled: root.control.enabled; controlled: true;
@@ -605,6 +623,8 @@ component FormRow inherits VerticalLayout {
             horizontal-stretch: cell.kind == 0 ? 0 : 1;
             min-width: cell.kind == 0 ? 104px : 60px; max-width: cell.kind == 0 ? 104px : 4000px;
             text: cell.label; color: Theme.muted; font-size: 12px; font-weight: 700; overflow: elide;
+            // A switch's column names it from the switch's side.
+            horizontal-alignment: cell.kind == 0 && ClientStyle.enabled ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
             accessible-role: none;
         }
         Rectangle { width: root.buttons; horizontal-stretch: 0; }
@@ -752,7 +772,7 @@ component PluginDetailView inherits VerticalLayout {
 
     HorizontalLayout {
         vertical-stretch: 0;
-        SettingsHeading { text: "RECENT LOG"; horizontal-stretch: 1; }
+        SettingsHeading { text: "RECENT LOG"; horizontal-stretch: 1; vertical-alignment: center; }
         Middle {
             ActionButton {
                 text: "Copy"; label: "Copy " + PluginPage.detail.name + "'s details and log";
