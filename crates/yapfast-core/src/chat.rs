@@ -49,6 +49,16 @@ pub enum FeedEntry {}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FeedPerson {}
 
+/// The apps' commands a place offers, as Discord's command indexes list
+/// them; see `yapfast_discord::commands`.
+#[cfg(feature = "discord")]
+pub use yapfast_discord::commands::CommandIndex;
+
+/// Only Discord has apps' commands.
+#[cfg(not(feature = "discord"))]
+#[derive(Clone, Debug, PartialEq)]
+pub enum CommandIndex {}
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ChatRoom {
     pub id: String,
@@ -142,6 +152,9 @@ pub struct ChatRoom {
     pub empty: bool,
     /// A Discord message request's latest message, when it's known.
     pub preview: Option<Box<RequestPreview>>,
+    /// When the session of a Discord voice channel with people in it
+    /// started, in Unix seconds, as Discord says; its row counts from it.
+    pub voice_started: Option<u64>,
 }
 
 impl ChatRoom {
@@ -1147,6 +1160,28 @@ pub struct Reply {
     pub color: Option<u32>,
 }
 
+/// Who used which Discord app command a message answers, as the line
+/// above it says.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UsedCommand {
+    /// Who used it, by name in the conversation, and Matrix-style user id,
+    /// which opens their card.
+    pub user: String,
+    pub sender: String,
+    /// The address of their avatar; see [`DiscordCommand::Pictures`].
+    pub avatar: Option<String>,
+    /// Their role colour, where the network gives one.
+    pub color: Option<u32>,
+    /// The command as the line names it: `/name sub` for a slash command,
+    /// its name for one used from a person's or message's menu.
+    pub name: String,
+    /// A slash command, which clicking puts in the composer for its picker
+    /// to find: its name without the `/` or its subcommands.
+    pub slash: Option<String>,
+    /// The person a command from their menu was used on, by name.
+    pub target: Option<String>,
+}
+
 /// A Discord thread a message leads to: the one started from it, or that
 /// its notice names.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1624,6 +1659,8 @@ pub struct Attachment {
     /// which [`Command::CopyAttachment`] copies its picture. Only Discord's
     /// attachments have one.
     pub url: Option<Arc<str>>,
+    /// Its alt text, which a screen reader reads in place of the picture.
+    pub description: Option<String>,
 }
 
 /// What [`Command::Video`] tells the video playing.
@@ -1702,8 +1739,9 @@ pub struct VoicePlayback {
 pub struct VoiceTuning {
     /// 1, 1.5 or 2 times as fast, at the same pitch.
     pub speed: f32,
-    /// From 0 to 1 as the slider stands.
+    /// From 0 to 1 as the slider stands, kept while muted.
     pub volume: f32,
+    pub muted: bool,
 }
 
 impl Default for VoiceTuning {
@@ -1711,6 +1749,7 @@ impl Default for VoiceTuning {
         Self {
             speed: 1.0,
             volume: 1.0,
+            muted: false,
         }
     }
 }
@@ -1833,6 +1872,9 @@ pub struct CardOption {
     pub value: String,
     pub description: Option<String>,
     pub default: bool,
+    /// Shown before its label: the emoji itself, or a custom one by
+    /// `:name:`.
+    pub emoji: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1853,6 +1895,11 @@ pub struct ChatMessage {
     pub item: String,
     /// The Discord app that owns interactive components, when one is known.
     pub application_id: Option<String>,
+    /// The Discord interaction it answers, by its id.
+    pub interaction: Option<String>,
+    /// The command whose answer it is, which shows above it as Discord's
+    /// "{user} used /{name}", when it doesn't quote a message instead.
+    pub used: Option<UsedCommand>,
     pub flags: u64,
     pub author: String,
     /// The author's Matrix user ID, which tells apart people sharing a display name.
@@ -2228,6 +2275,16 @@ pub enum Command {
         speakers: Option<String>,
         tuning: VoiceTuning,
     },
+    /// Move a voice message to `at_ms` into its recording, playing or
+    /// paused as it was; in place of any other, it loads to wait there
+    /// paused on `speakers`.
+    MoveVoiceMessage {
+        room: String,
+        item: String,
+        at_ms: u64,
+        speakers: Option<String>,
+        tuning: VoiceTuning,
+    },
     /// Pause the voice message playing.
     PauseVoiceMessage,
     /// Play the voice message playing as fast and loud as this says.
@@ -2537,6 +2594,74 @@ pub struct OAuthPreview {
     pub guilds: Vec<OAuthGuild>,
 }
 
+/// A use of a bot's control or form, as [`DiscordCommand::Interact`] sends
+/// it; `discord_text` turns it into Discord's body.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Interaction {
+    /// A button clicked, or options picked in a select menu, under a message.
+    Component {
+        nonce: String,
+        /// None in a DM.
+        guild: Option<String>,
+        channel: String,
+        message: String,
+        message_flags: u64,
+        /// The message's `application_id`, or else its author's id, which a
+        /// bot's user shares with its app, as Discord's client sends it.
+        application: String,
+        /// 2 for a button, 3 and 5-8 for the select menus.
+        component_type: u64,
+        custom_id: String,
+        /// The options picked, for a select menu.
+        values: Option<Vec<String>>,
+    },
+    /// A form a bot opened, submitted with what was entered.
+    Modal {
+        nonce: String,
+        guild: Option<String>,
+        channel: String,
+        application: String,
+        id: String,
+        custom_id: String,
+        /// A file upload's `values` are its files' places in `files`, as
+        /// `"0"` for the first.
+        components: serde_json::Value,
+        /// The files its file uploads carry, which go in the same request.
+        files: Vec<PathBuf>,
+    },
+}
+
+impl Interaction {
+    pub fn nonce(&self) -> &str {
+        match self {
+            Self::Component { nonce, .. } | Self::Modal { nonce, .. } => nonce,
+        }
+    }
+}
+
+/// An app command to run or to complete, with the options entered so far;
+/// `discord_text/interactions.rs` sends it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CommandRun {
+    pub nonce: String,
+    pub room: String,
+    pub application: String,
+    /// The command as Discord's index gives it.
+    pub command: Arc<serde_json::Value>,
+    /// The options as `/interactions` takes them: `{type, name, value}`
+    /// each, a subcommand or group as `{type: 1 or 2, name, options}`. A
+    /// file option's `value` is its index in `files` as a string, `"0"`
+    /// for the first. For an autocomplete, the option being typed has
+    /// `focused: true`.
+    pub options: serde_json::Value,
+    /// The message or user a context-menu command acts on.
+    pub target: Option<String>,
+    /// The files of its attachment options, in order, which go in the same
+    /// request: an attachment option's `value` is its file's place here, as
+    /// `"0"`. An autocomplete sends none.
+    pub files: Vec<PathBuf>,
+}
+
 /// Commands only the linked Discord account carries out.
 #[derive(Clone)]
 pub enum DiscordCommand {
@@ -2553,8 +2678,38 @@ pub enum DiscordCommand {
     /// holding none in memory: what a start prefetches so that the picker's
     /// first look finds its emoji kept. See [`Pictures::prefetch`].
     PrefetchPictures(Vec<String>),
-    /// Use a bot's message component or submit a modal as this account.
-    Interact(serde_json::Value),
+    /// Uses a bot's button or select menu, or submits the form it opened,
+    /// as the person just did. [`Event::InteractionSucceeded`],
+    /// [`Event::InteractionFailed`], [`Event::InteractionModal`] or, with no
+    /// word from Discord, [`Event::InteractionSettled`] follows, by its nonce.
+    /// See `discord_text/interactions.rs`.
+    Interact(Box<Interaction>),
+    /// The commands of `room`: its server's command index, or its DM's,
+    /// with the user-installed apps'. Sent only once the person types `/`,
+    /// never ahead; the service keeps each index until Discord says it
+    /// changed. [`Event::CommandIndex`] follows. See
+    /// `discord_text/app_commands.rs`.
+    CommandIndex {
+        room: String,
+    },
+    /// Runs an app's command in `room`, as typed or chosen from a menu.
+    /// [`Event::InteractionCreated`] follows once Discord passed it to the
+    /// app, then [`Event::InteractionSucceeded`],
+    /// [`Event::InteractionFailed`], [`Event::InteractionModal`] or
+    /// [`Event::InteractionSettled`], by its nonce. See
+    /// `discord_text/interactions.rs`.
+    RunCommand(Box<CommandRun>),
+    /// Asks an app for its choices for the option being typed, on a
+    /// keystroke in it, once typing pauses for 300 ms.
+    /// [`Event::AutocompleteChoices`] follows for the newest alone; an
+    /// older one, or one the app didn't answer, gets nothing.
+    Autocomplete(Box<CommandRun>),
+    /// Hides the ephemeral message `item` in `room`, as Discord's "Dismiss
+    /// message" does: only here, with no request, for good.
+    DismissEphemeral {
+        room: String,
+        item: String,
+    },
     /// The GIF picker's home: trending terms with a GIF each, and a GIF for
     /// "Trending GIFs"; [`Event::GifCategories`] follows.
     GifCategories,
@@ -3802,6 +3957,7 @@ impl Command {
             | Command::ViewImage { room, .. }
             | Command::PlayVideo { room, .. }
             | Command::PlayVoiceMessage { room, .. }
+            | Command::MoveVoiceMessage { room, .. }
             | Command::Typing { room, .. }
             | Command::MarkRead { room, .. }
             | Command::SaveDraft { room, .. }
@@ -3835,19 +3991,47 @@ pub enum ForwardFailure {
 }
 
 pub enum Event {
-    /// A bot answered an interaction of this session with a form, as
-    /// Discord's INTERACTION_MODAL_CREATE has it.
+    /// A bot answered an interaction with a form, as Discord sent it, with
+    /// the interaction's `nonce`.
     InteractionModal(serde_json::Value),
-    /// An interaction, by its nonce, failed, and what its message says.
+    /// Discord or the bot refused the interaction with this nonce, and why,
+    /// in words to show.
     InteractionFailed {
         nonce: String,
         reason: String,
     },
-    /// The bot answered an interaction, by its nonce.
+    /// The bot answered the interaction with this nonce.
     InteractionSucceeded(String),
-    /// An interaction was sent a while ago: if nothing answered it, the bot
-    /// didn't respond.
+    /// Discord took the interaction with this nonce but said nothing more of
+    /// it in time, as across a reconnect.
     InteractionSettled(String),
+    /// Discord passed the interaction with this nonce to its app, which gave
+    /// it `id`: the answer's message names it in `interaction_metadata`
+    /// ([`ChatMessage::interaction`]), which ends a command's "Sending
+    /// command…" row.
+    InteractionCreated {
+        nonce: String,
+        id: String,
+    },
+    /// The commands of `room`'s indexes, its server's or DM's merged with
+    /// the account's own, or why they couldn't be fetched. Which of them
+    /// the person may use there is `Application::slash_commands`'s to say.
+    CommandIndex {
+        room: String,
+        index: Result<Arc<CommandIndex>, String>,
+    },
+    /// A server's command index is out of date, and those of the DMs with
+    /// its bots, or with none every index: the next use asks again.
+    CommandIndexChanged {
+        guild: Option<String>,
+    },
+    /// An app's choices for the option being typed, for the autocomplete
+    /// with this nonce, the newest, as Discord sent them: `{name, value}`
+    /// each.
+    AutocompleteChoices {
+        nonce: String,
+        choices: serde_json::Value,
+    },
     /// The GIF picker's home, or why it couldn't load.
     GifCategories(Result<(Vec<GifCategory>, Option<Gif>), String>),
     /// GIFs for a search, or with `None` those trending, or why not.

@@ -2,86 +2,144 @@ import { Theme } from "theme.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { ActionButton, IconButton, TextField } from "controls.slint";
 import { TextBlock, TextBlocks } from "messages.slint";
+import { BotSelectAnchor, BotSelectBox } from "bot_select.slint";
 
-export struct SelectChoice { index: int, label: string, value: string, description: string, selected: bool }
-/// A field of a bot's form, by its component `kind`: 4 a text input, 3 and
-/// 5–8 select menus, 10 text the form shows, in `blocks`.
-export struct ModalField { label: string, value: string, placeholder: string, required: bool, paragraph: bool, kind: int, summary: string, blocks: [TextBlock] }
+/// An option of a bot's select menu, radio group or checkbox group, by its
+/// place among the menu's choices; `emoji` shows before its label.
+export struct SelectChoice { index: int, label: string, value: string, description: string, selected: bool, emoji: string }
+/// A field of a bot's form, of a `kind` as Discord numbers components:
+/// 4 a text input, 3 and 5-8 select menus (`summary` is what's picked),
+/// 10 text to read (`blocks`), 19 a file upload (`files`), 21 a radio group
+/// and 22 a checkbox group (`choices`), 23 a checkbox, 0 a part Yapfast
+/// can't fill. `description` is its label's.
+export struct ModalField {
+    label: string, description: string, value: string, placeholder: string, required: bool, paragraph: bool, kind: int, summary: string,
+    blocks: [TextBlock], choices: [SelectChoice], checked: bool, files: [string], max-files: int,
+}
 
-export component BotSelectDialog inherits Rectangle {
+// A bot's select menu open: its options in a dropdown under the box that
+// opened it (see `BotSelectAnchor`), above it when there's no room below.
+// A menu of one option takes the one clicked; one of several takes what
+// changed when it closes, by a click outside or Escape.
+export component BotSelectDropdown inherits Rectangle {
     in property <string> heading;
     in property <[SelectChoice]> choices;
     in-out property <string> query;
     in property <int> min-values;
     in property <int> max-values;
+    /// Members, roles or channels: typing finds more.
+    in property <bool> searchable;
     callback toggle(int);
     callback search(string);
-    callback submit;
     callback close;
-    background: #00000099;
+    property <length> gap: 4px;
+    property <length> panel-width: max(min(BotSelectAnchor.width, 480px), 240px);
+    property <length> panel-height: min(panel-layout.preferred-height, 360px);
+    property <bool> above: BotSelectAnchor.y + BotSelectAnchor.height + root.gap + root.panel-height > root.height - 8px
+        && BotSelectAnchor.y - root.gap - root.panel-height >= 8px;
     TouchArea { clicked => { root.close(); } }
     Rectangle {
-        width: min(480px, root.width - 40px); height: min(select-layout.preferred-height, 560px, root.height - 80px);
-        background: Theme.raised; border-radius: 12px; border-width: 1px; border-color: Theme.edge;
-        drop-shadow-blur: 28px; drop-shadow-color: #00000077;
-        accessible-role: groupbox; accessible-label: root.heading;
+        x: max(8px, min(BotSelectAnchor.x, root.width - root.panel-width - 8px));
+        y: root.above ? BotSelectAnchor.y - root.gap - root.panel-height : min(BotSelectAnchor.y + BotSelectAnchor.height + root.gap, root.height - root.panel-height - 8px);
+        width: root.panel-width; height: root.panel-height;
+        background: Theme.raised; border-radius: 8px; border-width: 1px; border-color: Theme.edge;
+        drop-shadow-blur: 16px; drop-shadow-color: #00000055; clip: true;
+        accessible-role: list; accessible-label: root.heading;
         TouchArea { }
         FocusScope {
-            init => { self.focus(); }
+            init => { if !root.searchable { self.focus(); } }
             key-pressed(event) => { if event.text == Key.Escape { root.close(); return accept; } return reject; }
-            select-layout := VerticalLayout {
-                padding: 20px; spacing: 12px;
-                HorizontalLayout {
-                    Text { text: root.heading; color: Theme.text; font-size: 18px; font-weight: 700; horizontal-stretch: 1; overflow: elide; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
-                }
-                Text { text: root.max-values > 1 ? "Choose " + root.min-values + " to " + root.max-values : root.min-values == 0 ? "Choose up to one option" : "Choose one option"; color: Theme.secondary; font-size: 13px; }
-                TextField {
-                    text <=> root.query; placeholder: "Find an option"; label: "Search options";
-                    edited(value) => { root.search(value); }
-                }
-                if root.choices.length == 0: Text {
-                    text: "No matching options.";
-                    color: Theme.secondary; font-size: 13px;
-                }
-                ListView {
-                    vertical-stretch: 1;
-                    // As tall as its rows, a description's being taller.
-                    preferred-height: root.choices.length * 56px;
-                    for choice[index] in root.choices: Rectangle {
-                        height: choice.description != "" ? 64px : 48px;
-                        border-radius: 6px; background: choice-touch.has-hover ? Theme.hover : Theme.sunken;
-                        accessible-role: checkbox; accessible-label: choice.label; accessible-checked: choice.selected;
-                        accessible-action-default => { root.toggle(choice.index); }
-                        HorizontalLayout {
-                            padding-left: 12px; padding-right: 12px; spacing: 10px;
-                            VerticalLayout {
-                                alignment: center;
-                                Rectangle {
-                                    width: 18px; height: 18px; border-width: 1px; border-radius: 4px;
-                                    border-color: choice.selected ? Theme.accent : Theme.secondary;
-                                    background: choice.selected ? Theme.accent : transparent;
-                                    if choice.selected: Text { text: "✓"; color: Theme.on-accent; horizontal-alignment: center; vertical-alignment: center; font-size: 14px; }
-                                }
-                            }
-                            VerticalLayout {
-                                alignment: center; horizontal-stretch: 1;
-                                Text { text: choice.label; color: Theme.text; font-size: 15px; overflow: elide; }
-                                if choice.description != "": Text { text: choice.description; color: Theme.secondary; font-size: 12px; overflow: elide; }
-                            }
-                        }
-                        choice-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.toggle(choice.index); } }
+            panel-layout := VerticalLayout {
+                padding: 4px; spacing: 2px;
+                if root.searchable: HorizontalLayout {
+                    padding: 4px;
+                    TextField {
+                        text <=> root.query; placeholder: "Search"; label: "Search options";
+                        edited(value) => { root.search(value); }
                     }
                 }
-                HorizontalLayout {
-                    Rectangle { horizontal-stretch: 1; }
-                    ActionButton { text: "Cancel"; ghost: true; clicked => { root.close(); } }
-                    ActionButton { text: "Submit"; primary: true; clicked => { root.submit(); } }
+                if root.choices.length == 0: Text {
+                    text: "No matching options."; color: Theme.secondary; font-size: 14px;
+                    horizontal-alignment: center; height: 40px; vertical-alignment: center;
+                }
+                ScrollView {
+                    vertical-stretch: 1; min-height: 0px; preferred-height: options-layout.preferred-height;
+                    options-layout := VerticalLayout {
+                        spacing: 2px; alignment: start;
+                        for choice in root.choices: Rectangle {
+                            min-height: 40px; border-radius: 4px;
+                            background: choice-touch.has-hover ? Theme.hover : choice.selected && root.max-values == 1 ? Theme.sunken : transparent;
+                            accessible-role: list-item;
+                            accessible-label: choice.label + (choice.description != "" ? ", " + choice.description : "");
+                            accessible-checked: choice.selected; accessible-item-selected: choice.selected;
+                            accessible-action-default => { root.toggle(choice.index); }
+                            HorizontalLayout {
+                                padding-left: 8px; padding-right: 8px; padding-top: 6px; padding-bottom: 6px; spacing: 8px;
+                                if choice.emoji != "": Text { text: choice.emoji; font-size: 18px; vertical-alignment: center; color: Theme.text; }
+                                VerticalLayout {
+                                    alignment: center; horizontal-stretch: 1;
+                                    Text { text: choice.label; color: Theme.text; font-size: 15px; font-weight: 500; overflow: elide; }
+                                    if choice.description != "": Text { text: choice.description; color: Theme.secondary; font-size: 13px; overflow: elide; }
+                                }
+                                if root.max-values > 1: VerticalLayout {
+                                    alignment: center;
+                                    Rectangle {
+                                        width: 20px; height: 20px; border-radius: 5px; border-width: 2px;
+                                        border-color: choice.selected ? Theme.accent : Theme.secondary;
+                                        background: choice.selected ? Theme.accent : transparent;
+                                        if choice.selected: Image { source: @image-url("icons/check.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; }
+                                    }
+                                }
+                                if root.max-values == 1 && choice.selected: Image {
+                                    source: @image-url("icons/check.svg"); width: 18px; image-fit: contain; colorize: Theme.accent;
+                                }
+                            }
+                            choice-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.toggle(choice.index); } }
+                        }
+                    }
                 }
             }
         }
     }
 }
+
+// A round mark for a radio group's option and a square one for a checkbox's.
+component Mark inherits Rectangle {
+    in property <bool> on;
+    in property <bool> round;
+    width: 20px; height: 20px; border-radius: root.round ? 10px : 5px; border-width: 2px;
+    border-color: root.on ? Theme.accent : Theme.secondary;
+    background: root.on && !root.round ? Theme.accent : transparent;
+    if root.on && root.round: Rectangle { width: 10px; height: 10px; border-radius: 5px; background: Theme.accent; }
+    if root.on && !root.round: Image { source: @image-url("icons/check.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; }
+}
+
+// An option of a radio group, a checkbox group, or a checkbox's own row.
+component MarkRow inherits Rectangle {
+    in property <string> label;
+    in property <string> description;
+    in property <bool> on;
+    in property <bool> round;
+    in property <bool> enabled: true;
+    callback clicked;
+    border-radius: 6px; background: touch.has-hover && root.enabled ? Theme.hover : transparent;
+    accessible-label: root.label + (root.description != "" ? ", " + root.description : "");
+    accessible-checkable: true; accessible-checked: root.on; accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    HorizontalLayout {
+        padding: 6px; spacing: 10px;
+        VerticalLayout { alignment: start; padding-top: 1px; Mark { on: root.on; round: root.round; } }
+        VerticalLayout {
+            alignment: center; horizontal-stretch: 1;
+            Text { text: root.label; color: Theme.text; font-size: 15px; wrap: word-wrap; }
+            if root.description != "": Text { text: root.description; color: Theme.secondary; font-size: 13px; wrap: word-wrap; }
+        }
+    }
+    touch := TouchArea { enabled: root.enabled; mouse-cursor: MouseCursor.pointer; clicked => { root.clicked(); } }
+}
+
+component RadioRow inherits MarkRow { round: true; accessible-role: radio-button; }
+component CheckRow inherits MarkRow { accessible-role: checkbox; }
 
 export component BotModalDialog inherits Rectangle {
     in property <string> heading;
@@ -89,8 +147,13 @@ export component BotModalDialog inherits Rectangle {
     in property <bool> supported;
     in property <bool> saving;
     in property <string> error;
+    /// Text input edits, radio picks and checkbox toggles, by the field's
+    /// place and the text or option value.
     callback field-edited(int, string);
     callback open-select(int);
+    callback choose-files(int);
+    callback remove-file(int, int);
+    callback open-link(string);
     callback submit;
     callback close;
     background: #00000099;
@@ -117,11 +180,21 @@ export component BotModalDialog inherits Rectangle {
                         spacing: 16px; alignment: start;
                         for field[index] in root.fields: VerticalLayout {
                             spacing: 8px;
-                            if field.kind == 10: TextBlocks { blocks: field.blocks; font-size: 15px; }
-                            if field.kind != 10: Text { text: field.label + (field.required ? " *" : ""); color: Theme.text; font-size: 14px; font-weight: 700; }
-                            if field.kind != 4 && field.kind != 10: ActionButton {
+                            // A checkbox's label is its row's.
+                            if field.label != "" && field.kind != 23: VerticalLayout {
+                                spacing: 2px;
+                                Text { text: field.label + (field.required ? " *" : ""); color: Theme.text; font-size: 14px; font-weight: 700; wrap: word-wrap; }
+                                if field.description != "": Text { text: field.description; color: Theme.secondary; font-size: 13px; wrap: word-wrap; }
+                            }
+                            if field.kind == 10: TextBlocks {
+                                blocks: field.blocks; font-size: 15px;
+                                open-link(link) => { root.open-link(link); }
+                            }
+                            if field.kind == 0: Text { text: "Yapfast can't fill this part yet."; color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
+                            if field.kind == 3 || (field.kind >= 5 && field.kind <= 8): BotSelectBox {
                                 enabled: !root.saving;
-                                text: field.summary != "" ? field.summary : "Choose an option";
+                                text: field.summary != "" ? field.summary : field.placeholder != "" ? field.placeholder : "Make a selection";
+                                picked: field.summary != "";
                                 clicked => { root.open-select(index); }
                             }
                             if field.kind == 4 && !field.paragraph: TextField {
@@ -139,9 +212,65 @@ export component BotModalDialog inherits Rectangle {
                                     edited => { root.field-edited(index, self.text); }
                                 }
                             }
+                            if field.kind == 21 || field.kind == 22: VerticalLayout {
+                                spacing: 2px;
+                                accessible-role: groupbox; accessible-label: field.label;
+                                if field.kind == 21: VerticalLayout {
+                                    spacing: 2px;
+                                    for choice in field.choices: RadioRow {
+                                        label: choice.label; description: choice.description; on: choice.selected; enabled: !root.saving;
+                                        clicked => { root.field-edited(index, choice.value); }
+                                    }
+                                }
+                                if field.kind == 22: VerticalLayout {
+                                    spacing: 2px;
+                                    for choice in field.choices: CheckRow {
+                                        label: choice.label; description: choice.description; on: choice.selected; enabled: !root.saving;
+                                        clicked => { root.field-edited(index, choice.value); }
+                                    }
+                                }
+                            }
+                            if field.kind == 23: CheckRow {
+                                label: field.label + (field.required ? " *" : ""); description: field.description; on: field.checked;
+                                enabled: !root.saving;
+                                clicked => { root.field-edited(index, ""); }
+                            }
+                            if field.kind == 19: VerticalLayout {
+                                spacing: 6px;
+                                for file[file-index] in field.files: Rectangle {
+                                    height: 40px; border-radius: 6px; background: Theme.sunken;
+                                    accessible-role: groupbox; accessible-label: file;
+                                    HorizontalLayout {
+                                        padding-left: 10px; padding-right: 4px; spacing: 8px;
+                                        Image { source: @image-url("icons/file.svg"); width: 18px; image-fit: contain; colorize: Theme.secondary; }
+                                        Text { text: file; color: Theme.text; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                                        IconButton {
+                                            icon: @image-url("icons/x.svg"); label: "Remove " + file; size: 28px; glyph: 16px; enabled: !root.saving;
+                                            clicked => { root.remove-file(index, file-index); }
+                                        }
+                                    }
+                                }
+                                if field.files.length < field.max-files: Rectangle {
+                                    height: 56px; border-radius: 8px; border-width: 1px;
+                                    border-color: upload-touch.has-hover && !root.saving ? Theme.accent : Theme.edge;
+                                    background: Theme.sunken;
+                                    accessible-role: button; accessible-label: "Choose files for " + field.label;
+                                    accessible-action-default => { if !root.saving { root.choose-files(index); } }
+                                    HorizontalLayout {
+                                        alignment: center; spacing: 8px;
+                                        Image { source: @image-url("icons/circle-plus.svg"); width: 20px; image-fit: contain; colorize: Theme.secondary; }
+                                        Text { text: "Choose files"; color: Theme.text; font-size: 14px; font-weight: 500; vertical-alignment: center; }
+                                        Text { text: "Up to " + field.max-files; color: Theme.secondary; font-size: 13px; vertical-alignment: center; }
+                                    }
+                                    upload-touch := TouchArea {
+                                        enabled: !root.saving; mouse-cursor: MouseCursor.pointer;
+                                        clicked => { root.choose-files(index); }
+                                    }
+                                }
+                            }
                         }
                         if !root.supported: Text {
-                            text: "This form has a field Yapfast cannot submit yet. Open it in Discord to continue.";
+                            text: "This form has a part Yapfast can't fill yet. Use it in Discord.";
                             color: Theme.danger; wrap: word-wrap; font-size: 14px;
                         }
                     }

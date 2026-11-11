@@ -38,6 +38,7 @@ use crate::{
 };
 
 mod account;
+mod app_commands;
 mod audit_log;
 mod channels;
 mod commands;
@@ -270,7 +271,17 @@ impl Chat {
                 speakers,
                 tuning,
             } => {
-                self.play_voice_message(room, item, speakers, tuning, events);
+                self.play_voice_message(room, item, speakers, tuning, None, events);
+                return;
+            }
+            Command::MoveVoiceMessage {
+                room,
+                item,
+                at_ms,
+                speakers,
+                tuning,
+            } => {
+                self.play_voice_message(room, item, speakers, tuning, Some(at_ms), events);
                 return;
             }
             Command::TuneVoiceMessage(tuning) => {
@@ -334,13 +345,16 @@ impl Chat {
     }
 
     /// Plays a voice message on from where it paused, or from the start in
-    /// place of any other once its recording downloads.
+    /// place of any other once its recording downloads. With `moved_to`, it
+    /// moves there instead, playing or paused as it was, or in place of any
+    /// other waits there paused.
     fn play_voice_message(
         &mut self,
         room: String,
         item: String,
         speakers: Option<String>,
         tuning: crate::chat::VoiceTuning,
+        moved_to: Option<u64>,
         events: &UnboundedSender<Event>,
     ) {
         if let Some(player) = self
@@ -349,7 +363,10 @@ impl Chat {
             .filter(|player| player.playback.room == room && player.playback.item == item)
         {
             player.tune(tuning);
-            player.set_playing(true);
+            match moved_to {
+                Some(at) => player.move_to(at),
+                None => player.set_playing(true),
+            }
             let _ = events.send(Event::VoiceMessage(Some(player.playback.clone())));
             return;
         }
@@ -372,9 +389,10 @@ impl Chat {
             return;
         };
         let discord = self.discord.clone();
-        let player = crate::voice_message::Player::start(playback, speakers, tuning, async move {
-            discord.download_now(&url, MAX_VOICE_MESSAGE_BYTES).await
-        });
+        let player =
+            crate::voice_message::Player::start(playback, speakers, tuning, moved_to, async move {
+                discord.download_now(&url, MAX_VOICE_MESSAGE_BYTES).await
+            });
         let _ = events.send(Event::VoiceMessage(Some(player.playback.clone())));
         self.voice_message = Some(player);
     }

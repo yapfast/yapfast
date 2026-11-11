@@ -238,6 +238,19 @@ export global AccountLook {
     in property <color> nameplate-light;
 }
 
+/// Now, for timers: seconds since 2020 began, and the minute it's in. One
+/// clock serves them all: it ticks once a second while a profile with a
+/// timed activity shows, and every 15 seconds while only busy voice
+/// channels' rows count their time, which read `minute` so they redraw only
+/// as it turns.
+export global ActivityClock {
+    in property <int> now;
+    in property <int> minute;
+    /// How long since `started`, at `now`, to the minute, as a busy voice
+    /// channel's row says it; passing the clock re-reads it as it ticks.
+    pure callback lasted(int /* started */, int /* now */) -> string;
+}
+
 // Virtualized components resolve pixels on demand and queue missing URLs.
 // A picture's binding reads the revision of the slot its address falls in,
 // which moves when a picture in that slot comes, changes or goes. So one
@@ -1582,7 +1595,9 @@ export component Banner inherits Rectangle {
 // Down move 5% at a time, Page Up and Page Down 20%.
 export component UprightVolumeSlider inherits Rectangle {
     in property <string> label;
-    in-out property <int> value: 100;
+    /// Where it stands, which `changed` asks to move.
+    in property <int> value: 100;
+    out property <bool> pressed: touch.pressed;
     callback changed(int);
     width: 24px;
     accessible-role: slider;
@@ -1597,7 +1612,6 @@ export component UprightVolumeSlider inherits Rectangle {
     function set(value: int) {
         let clamped = max(0, min(100, value));
         if clamped != root.value {
-            root.value = clamped;
             root.changed(clamped);
         }
     }
@@ -1625,7 +1639,7 @@ export component UprightVolumeSlider inherits Rectangle {
             if event.text == Key.PageDown { root.set(root.value - 20); return accept; }
             return reject;
         }
-        TouchArea {
+        touch := TouchArea {
             mouse-cursor: MouseCursor.pointer;
             pointer-event(event) => {
                 if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {

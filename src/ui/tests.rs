@@ -13,6 +13,48 @@ fn message_row_plain(message: &ChatMessage) -> MessageRow {
 }
 
 #[test]
+fn a_message_still_sending_is_only_faint() {
+    use yapfast_core::chat::Delivery;
+    let sending = message_row_plain(&ChatMessage {
+        item: "d:1".into(),
+        body: "Hi".into(),
+        delivery: Delivery::Sending,
+        ..Default::default()
+    });
+    assert!(sending.sending);
+    // Files uploading keep the line and its Cancel.
+    let uploading = message_row_plain(&ChatMessage {
+        item: "n:2".into(),
+        delivery: Delivery::Sending,
+        attachments: vec![yapfast_core::chat::Attachment {
+            name: "clip.mp4".into(),
+            size: Some(40_000_000),
+            image: false,
+            dimensions: None,
+            preview: None,
+            preview_failed: false,
+            placement: Placement::Message,
+            gif: None,
+            spoiler: false,
+            video: true,
+            url: None,
+            description: None,
+        }],
+        ..Default::default()
+    });
+    assert!(!uploading.sending);
+    assert!(uploading.can_cancel && uploading.delivery == "Sending...");
+    let waiting = message_row_plain(&ChatMessage {
+        item: "d:2".into(),
+        body: "Hi".into(),
+        delivery: Delivery::Waiting,
+        ..Default::default()
+    });
+    assert!(!waiting.sending);
+    assert!(!waiting.delivery.is_empty());
+}
+
+#[test]
 fn a_server_without_a_picture_shows_its_initials_in_capitals() {
     assert_eq!(initials("Co-op crew"), "CC");
     assert_eq!(initials("the secret empire"), "TSE");
@@ -51,6 +93,47 @@ fn a_notice_is_a_group_of_its_own_with_an_icon() {
     assert!(!messages::continues(&pinned, &again));
     assert_eq!(message_row_plain(&pinned).notice, "pin");
     assert_eq!(message_row_plain(&said).notice, "");
+}
+
+#[test]
+fn an_apps_answer_starts_a_group_under_who_used_which_command() {
+    use yapfast_core::chat::UsedCommand;
+    let thought = ChatMessage {
+        item: "d:4".into(),
+        author: "Status Bot".into(),
+        sender: "discord:9".into(),
+        body: "Pong!".into(),
+        timestamp: 100,
+        ..Default::default()
+    };
+    let answer = ChatMessage {
+        item: "d:5".into(),
+        timestamp: 110,
+        used: Some(UsedCommand {
+            user: "Alice".into(),
+            sender: "discord:1".into(),
+            avatar: None,
+            color: Some(0x3498db),
+            name: "/echo".into(),
+            slash: Some("echo".into()),
+            target: None,
+        }),
+        ..thought.clone()
+    };
+    assert!(!messages::continues(&thought, &answer));
+    let row = message_row_plain(&answer);
+    assert!(row.has_command && !row.has_reply);
+    assert_eq!(
+        (
+            row.command_user.as_str(),
+            row.command_sender.as_str(),
+            row.command_name.as_str(),
+            row.command_slash.as_str()
+        ),
+        ("Alice", "1", "/echo", "echo")
+    );
+    assert!(row.command_has_color);
+    assert!(!message_row_plain(&thought).has_command);
 }
 
 #[cfg(feature = "discord")]
@@ -121,7 +204,9 @@ fn equal_lists_stay_so_rows_count_as_unchanged() {
 }
 
 #[test]
-fn this_accounts_own_profile_shares_its_friends_and_servers_with_nobody() {
+fn this_accounts_own_profile_shows_no_mutuals() {
+    use i_slint_core::{accessibility::AccessibleStringProperty, item_tree::ItemRc};
+    i_slint_backend_testing::init_no_event_loop();
     let view = |id: &str| yapfast_core::application::ProfileView {
         profile: yapfast_core::chat::Profile {
             id: id.into(),
@@ -148,17 +233,66 @@ fn this_accounts_own_profile_shares_its_friends_and_servers_with_nobody() {
     state.discord_user = Some("42".into());
     let mut pictures = HashMap::new();
 
-    // Anyone else's card names what the account shares with them.
+    // Anyone else's card and full profile name what the account shares with
+    // them.
     let other = profile_data(&mut pictures, &state, &view("7"));
     assert_eq!(other.mutual_friends_text, "1 mutual friend");
     assert_eq!(other.mutual_servers_text, "1 mutual server");
     assert!(!other.own);
 
-    // Its own profile shares them with nobody, so it names them plainly.
+    // Its own shares them with nobody, so, as in Discord's client, its card
+    // has no mutual line and its full profile no mutual tabs.
     let own = profile_data(&mut pictures, &state, &view("42"));
-    assert_eq!(own.mutual_friends_text, "1 friend");
-    assert_eq!(own.mutual_servers_text, "1 server");
     assert!(own.own);
+
+    let window = classic_window();
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1120., 760.));
+    // Past the cards' opening and closing motions.
+    let settle = |window: &YapfastWindow| {
+        for _ in 0..5 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(200));
+            settle(window);
+        }
+    };
+    // Whether something with this label shows: a tab that doesn't keeps its
+    // elements, hidden.
+    let shows = |window: &YapfastWindow, label: &str| {
+        let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+        ItemRc::new_root(inner.component())
+            .visit_descendants(|item| {
+                let named = item.accessible_string_property(AccessibleStringProperty::Label);
+                if named.as_deref() == Some(label) && item.is_visible() {
+                    std::ops::ControlFlow::Break(())
+                } else {
+                    std::ops::ControlFlow::Continue(())
+                }
+            })
+            .is_some()
+    };
+    for (data, mutuals) in [(other, true), (own, false)] {
+        window.set_profile_large(false);
+        window.set_profile(data);
+        window.set_profile_open(true);
+        settle(&window);
+        assert_eq!(
+            shows(
+                &window,
+                "Show mutual friends and servers in the full profile"
+            ),
+            mutuals,
+            "the card's mutual line"
+        );
+        window.set_profile_large(true);
+        settle(&window);
+        assert!(shows(&window, "Activity"), "the full profile is open");
+        assert_eq!(shows(&window, "1 mutual friend"), mutuals, "Mutual Friends");
+        assert_eq!(shows(&window, "1 mutual server"), mutuals, "Mutual Servers");
+        window.set_profile_open(false);
+        settle(&window);
+    }
 }
 
 #[test]
@@ -355,6 +489,37 @@ fn escape_in_the_composer_cancels_a_reply_and_keeps_the_draft() {
     tap(&window, "!".into());
     assert_eq!(window.get_compose_label(), "");
     assert_eq!(window.get_draft(), "ok!");
+}
+
+#[test]
+fn ctrl_shortcuts_work_on_cyrillic_and_thai_layouts() {
+    use slint::platform::{Key, WindowEvent};
+    let window = one_message("Hi");
+    window.invoke_focus_composer();
+    let select_all = |letter: &str| {
+        window.window().dispatch_event(WindowEvent::KeyPressed {
+            text: Key::Control.into(),
+        });
+        tap(&window, letter.into());
+        window.window().dispatch_event(WindowEvent::KeyReleased {
+            text: Key::Control.into(),
+        });
+    };
+    // The key under A types "ฟ" on the Thai layout and "ф" on the Russian
+    // one. With Ctrl it selects everything, which the next key replaces.
+    for (typed, a, next) in [("ฟห", "ฟ", "ก"), ("фы", "ф", "в")] {
+        for letter in typed.chars() {
+            tap(&window, letter.into());
+        }
+        assert_eq!(window.get_draft(), typed);
+        select_all(a);
+        assert_eq!(window.get_draft(), typed, "Ctrl and a letter types nothing");
+        tap(&window, next.into());
+        assert_eq!(window.get_draft(), next);
+        select_all(a);
+        tap(&window, Key::Backspace.into());
+        assert_eq!(window.get_draft(), "");
+    }
 }
 
 #[test]
@@ -1172,6 +1337,51 @@ fn call_volumes_play_while_dragged_and_are_remembered() {
 }
 
 #[test]
+fn the_share_menu_fits_a_short_window_and_keeps_its_button() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    i_slint_backend_testing::init_no_event_loop();
+    let window = classic_window();
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(800., 560.));
+    // More than the window is tall: a screen, twelve windows and four cameras.
+    let titles = |kind: &str, count: usize| {
+        let titles: Vec<SharedString> = (0..count)
+            .map(|index| format!("{kind} {index}").into())
+            .collect();
+        ModelRc::new(VecModel::from(titles))
+    };
+    window.set_share_lists(true);
+    window.set_share_screens(ModelRc::new(VecModel::from(vec![ShareScreen {
+        title: "Entire screen".into(),
+        picture: Default::default(),
+    }])));
+    window.set_share_windows(titles("Window", 12));
+    window.set_share_cameras(titles("Camera", 4));
+    let went = Rc::new(Cell::new(None));
+    let seen = went.clone();
+    window.on_go_live(move |source, _, _, _| seen.set(Some(source)));
+    window.invoke_show_share_menu();
+    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(50));
+    // The menu ends 8px above the window's bottom, and Go Live is its last
+    // row, in view without scrolling.
+    let position = slint::LogicalPosition::new(176., 530.);
+    let button = PointerEventButton::Left;
+    window
+        .window()
+        .dispatch_event(WindowEvent::PointerMoved { position });
+    window
+        .window()
+        .dispatch_event(WindowEvent::PointerPressed { position, button });
+    window
+        .window()
+        .dispatch_event(WindowEvent::PointerReleased { position, button });
+    assert_eq!(went.get(), Some(0), "Go Live is in the window");
+    window.hide().unwrap();
+}
+
+#[test]
 fn sound_settings_are_remembered() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();
@@ -1402,6 +1612,7 @@ fn pictures_on_their_way_hold_their_place_as_skeletons() {
         spoiler: false,
         video: false,
         url: None,
+        description: None,
     };
     let row = message_row_plain(&ChatMessage {
         attachments: vec![attachment("wide.png", false)],
@@ -1451,6 +1662,7 @@ fn a_voice_message_shows_its_player_which_plays_and_pauses() {
             gif: None,
             spoiler: false,
             video: false,
+            description: None,
             url: Some("https://cdn.example/voice-message.ogg".into()),
         }],
         voice: Some(yapfast_core::chat::VoiceMessage {
@@ -1462,7 +1674,8 @@ fn a_voice_message_shows_its_player_which_plays_and_pauses() {
     let row = message_row_plain(&message);
     let file = row.files.row_data(0).unwrap();
     assert!(file.voice);
-    assert_eq!(file.duration, "0:05");
+    // Rounded up, as Discord's are.
+    assert_eq!(file.duration, "0:06");
     let bars: Vec<f32> = file.waveform.iter().collect();
     assert_eq!(bars.len(), 32);
     assert_eq!((bars[0], bars[31]), (0.0, 0.2));
@@ -1473,11 +1686,11 @@ fn a_voice_message_shows_its_player_which_plays_and_pauses() {
     assert_eq!(player.get_item(), "", "nothing plays yet");
 
     // Its button plays it, which the backend does; meanwhile it shows as
-    // started.
+    // started, then counts down what's left.
     player.invoke_toggle("d:1".into());
     assert_eq!(player.get_item(), "d:1");
     assert!(player.get_playing() && player.get_loading());
-    assert_eq!(player.get_time(), "0:00 / 0:05");
+    assert_eq!(player.get_time(), "0:06");
     let reach = adapter.borrow_mut().apply(Event::VoiceMessage(Some(
         yapfast_core::chat::VoicePlayback {
             room: "general".into(),
@@ -1491,7 +1704,7 @@ fn a_voice_message_shows_its_player_which_plays_and_pauses() {
     adapter.borrow_mut().show(&window, reach);
     assert!(!player.get_loading());
     assert_eq!(player.get_progress(), 0.5);
-    assert_eq!(player.get_time(), "0:02 / 0:05");
+    assert_eq!(player.get_time(), "0:03");
 
     // Again, it pauses where it is.
     player.invoke_toggle("d:1".into());
@@ -1524,6 +1737,19 @@ fn a_voice_message_shows_its_player_which_plays_and_pauses() {
     assert_eq!(speeds, ["1x", "1.5x", "2x", "1x"]);
     player.invoke_change_volume(0.25);
     assert_eq!(player.get_volume(), 0.25);
+    // Its volume button mutes it, keeping the volume to unmute to.
+    player.invoke_mute(true);
+    assert_eq!((player.get_muted(), player.get_volume()), (true, 0.25));
+    player.invoke_mute(false);
+    assert!(!player.get_muted());
+
+    // Its waveform moves it, still paused, the time counting from there.
+    player.invoke_seek("d:1".into(), 0.25);
+    assert!(!player.get_playing());
+    assert_eq!(
+        (player.get_progress(), player.get_time().as_str()),
+        (0.25, "0:05")
+    );
 }
 
 #[test]
@@ -1542,6 +1768,7 @@ fn a_voice_messages_speed_and_volume_slide_out_while_pointed_at() {
             gif: None,
             spoiler: false,
             video: false,
+            description: None,
             url: None,
         }],
         voice: Some(yapfast_core::chat::VoiceMessage {
@@ -1575,7 +1802,7 @@ fn a_voice_messages_speed_and_volume_slide_out_while_pointed_at() {
     // along the message, found from the left, before the volume button.
     window.global::<Motion>().set_never(true);
     settle(&window);
-    let speed = (300..1000)
+    let (left, y) = (300..1000)
         .step_by(6)
         .flat_map(|x| (60..680).step_by(6).map(move |y| (x as f32, y as f32)))
         .find(|&(x, y)| {
@@ -1583,6 +1810,19 @@ fn a_voice_messages_speed_and_volume_slide_out_while_pointed_at() {
             cycled.get() > 0
         })
         .expect("the speed button shows");
+    // Its middle: its left edge is under the folded pill's padding. Its
+    // right edge comes before the gap to the volume button, which the
+    // pointer mustn't reach, as it would open the volume.
+    let right = (left as i32..)
+        .step_by(2)
+        .take_while(|&x| {
+            let before = cycled.get();
+            click(x as f32, y);
+            cycled.get() > before
+        })
+        .last()
+        .unwrap();
+    let speed = ((left + right as f32) / 2., y);
 
     // With them on, they're folded away until the pointer comes, then slide
     // out.
@@ -1600,6 +1840,102 @@ fn a_voice_messages_speed_and_volume_slide_out_while_pointed_at() {
     wait(300);
     click(speed.0, speed.1);
     assert_eq!(cycled.get(), before + 1, "folded again once it left");
+}
+
+#[test]
+fn a_voice_messages_waveform_moves_it_where_pressed_and_dragged() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    let window = showing(vec![ChatMessage {
+        author: "Sam".into(),
+        attachments: vec![yapfast_core::chat::Attachment {
+            name: "voice-message.ogg".into(),
+            size: Some(36_000),
+            image: false,
+            dimensions: None,
+            preview: None,
+            preview_failed: false,
+            placement: Placement::Message,
+            gif: None,
+            spoiler: false,
+            video: false,
+            url: None,
+            description: None,
+        }],
+        voice: Some(yapfast_core::chat::VoiceMessage {
+            duration_ms: 5_000,
+            waveform: [128; 64].into(),
+        }),
+        ..Default::default()
+    }]);
+    let moves = Rc::new(RefCell::new(Vec::new()));
+    let kept = moves.clone();
+    window
+        .global::<VoicePlayer>()
+        .on_seek(move |item, fraction| kept.borrow_mut().push((item.to_string(), fraction)));
+    let dispatch = |event| window.window().dispatch_event(event);
+    let at = |x: f32, y: f32| slint::LogicalPosition::new(x, y);
+    let button = PointerEventButton::Left;
+    let press = |x, y| {
+        dispatch(WindowEvent::PointerPressed {
+            position: at(x, y),
+            button,
+        })
+    };
+    let release = |x, y| {
+        dispatch(WindowEvent::PointerReleased {
+            position: at(x, y),
+            button,
+        })
+    };
+    let pointed = |x, y| dispatch(WindowEvent::PointerMoved { position: at(x, y) });
+
+    // Its waveform's left edge, found from the left: 32 bars 6 pixels
+    // apart, less the last gap.
+    let (left, y) = (300..1000)
+        .step_by(3)
+        .flat_map(|x| (60..680).step_by(6).map(move |y| (x as f32, y as f32)))
+        .find(|&(x, y)| {
+            press(x, y);
+            release(x, y);
+            !moves.borrow().is_empty()
+        })
+        .expect("the waveform shows");
+    let width = 32. * 6. - 3.;
+    let last = || moves.borrow().last().unwrap().clone();
+    assert_eq!(last().0, "i0");
+    assert!(last().1 < 0.01, "{:?}", last());
+
+    // Pressed a quarter along, it moves there at once.
+    moves.borrow_mut().clear();
+    press(left + width / 4., y);
+    assert_eq!(moves.borrow().len(), 1);
+    assert!((last().1 - 0.25).abs() < 0.01, "{:?}", last());
+    // Dragged, it follows, past its end too; let go, it stays.
+    pointed(left + width / 2., y);
+    assert!((last().1 - 0.5).abs() < 0.01, "{:?}", last());
+    pointed(left + width + 50., y);
+    assert_eq!(last().1, 1.0);
+    release(left + width + 50., y);
+    let count = moves.borrow().len();
+    pointed(left + width / 4., y);
+    assert_eq!(moves.borrow().len(), count, "only while held");
+
+    // Playing, it pauses while held and plays on once let go.
+    let toggled = Rc::new(Cell::new(0));
+    let count = toggled.clone();
+    let player = window.global::<VoicePlayer>();
+    player.on_toggle(move |_| count.set(count.get() + 1));
+    player.set_item("i0".into());
+    player.set_playing(true);
+    press(left + width / 2., y);
+    settle(&window);
+    assert_eq!(toggled.get(), 1, "paused while held");
+    player.set_playing(false);
+    pointed(left + width / 4., y);
+    release(left + width / 4., y);
+    settle(&window);
+    assert_eq!(toggled.get(), 2, "played on once let go");
+    assert!((last().1 - 0.25).abs() < 0.01, "{:?}", last());
 }
 
 #[test]
@@ -1860,6 +2196,7 @@ fn a_messages_sticker_is_160px_square() {
             spoiler: false,
             video: false,
             url: None,
+            description: None,
         }],
         ..Default::default()
     });
@@ -1892,6 +2229,7 @@ fn a_selection_copies_the_pictures_it_runs_through() {
                 spoiler: false,
                 video: false,
                 url: None,
+                description: None,
             }],
             ..Default::default()
         },
@@ -2925,6 +3263,80 @@ fn a_window_made_again_shows_what_the_last_one_did() {
 }
 
 #[test]
+fn dragging_the_member_list_resizes_it_within_limits_and_remembers_it() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1400., 760.));
+    window.set_members_available(true);
+    window.set_member_list(true);
+    let drag = |from: f32, to: f32| {
+        let window = window.window();
+        let button = slint::platform::PointerEventButton::Left;
+        let at = |x| slint::LogicalPosition::new(x, 400.);
+        window.dispatch_event(slint::platform::WindowEvent::PointerMoved { position: at(from) });
+        window.dispatch_event(slint::platform::WindowEvent::PointerPressed {
+            position: at(from),
+            button,
+        });
+        window.dispatch_event(slint::platform::WindowEvent::PointerMoved { position: at(to) });
+        window.dispatch_event(slint::platform::WindowEvent::PointerReleased {
+            position: at(to),
+            button,
+        });
+    };
+    // The style's width until dragged.
+    assert_eq!(window.get_members_shown(), 240.);
+    // Its edge, 1160px in, widens it leftwards.
+    drag(1160., 1060.);
+    assert_eq!(window.get_members_shown(), 340.);
+    assert_eq!(Layout::read(directory.path()).members_width, Some(340.));
+    // It keeps 200 to 480px.
+    drag(1060., 1300.);
+    assert_eq!(window.get_members_shown(), 200.);
+    drag(1200., 0.);
+    assert_eq!(window.get_members_shown(), 480.);
+    // A new window starts at the stored width.
+    let next = classic_window();
+    adapter.borrow_mut().attach(&next);
+    assert_eq!(next.get_members_shown(), 480.);
+    // A double click goes back to the style's width, and forgets the drag.
+    let edge = slint::LogicalPosition::new(1400. - 480., 400.);
+    let button = slint::platform::PointerEventButton::Left;
+    for _ in 0..2 {
+        window
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::PointerMoved { position: edge });
+        window
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::PointerPressed {
+                position: edge,
+                button,
+            });
+        window
+            .window()
+            .dispatch_event(slint::platform::WindowEvent::PointerReleased {
+                position: edge,
+                button,
+            });
+    }
+    assert_eq!(window.get_members_shown(), 240.);
+    assert_eq!(Layout::read(directory.path()).members_width, None);
+    window.hide().unwrap();
+}
+
+#[test]
 fn dragging_the_thread_beside_resizes_it_within_limits_and_remembers_it() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();
@@ -3469,6 +3881,62 @@ fn the_member_list_shows_for_text_channels_and_remembers_being_closed() {
         .count();
     assert_eq!(people, 3);
     window.hide().unwrap();
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_custom_emoji_among_the_quick_reactions_shows_its_picture() {
+    let (window, adapter, _folder) = discord_server_window_changed(0, |server, _| {
+        server.emojis = Arc::new(vec![yapfast_core::yapfast_discord::ready::Emoji {
+            id: "300".into(),
+            name: "talk".into(),
+            animated: false,
+            available: true,
+        }]);
+    });
+    let url = yapfast_core::yapfast_discord::ready::custom_emoji(
+        "300",
+        false,
+        yapfast_core::chat::EMOJI_PICTURE_SIZE,
+    );
+    let first = |window: &YapfastWindow| window.get_bar_reactions().row_data(0).unwrap();
+    // Reacted with most on an earlier run, its picture not yet fetched: the
+    // row asks for it.
+    let asked = Rc::new(RefCell::new(Vec::new()));
+    let seen = asked.clone();
+    window
+        .global::<PictureStore>()
+        .on_request(move |url| seen.borrow_mut().push(url.to_string()));
+    {
+        let mut adapter = adapter.borrow_mut();
+        adapter
+            .app
+            .remember_reaction_uses(HashMap::from([("talk:300".to_owned(), 5)]));
+        adapter.refresh(&window);
+    }
+    assert_eq!(first(&window).key, "talk:300");
+    assert_eq!(first(&window).picture.size().width, 0);
+    assert!(asked.borrow().contains(&url));
+    // Once the application has it, the row draws it, though no picker
+    // opened to keep a picture of its own.
+    {
+        let mut adapter = adapter.borrow_mut();
+        adapter.app.state.pictures.insert(
+            url,
+            Arc::new(Picture {
+                width: 64,
+                height: 64,
+                rgba: yapfast_core::chat::Pixels::new(64, 64, vec![255; 64 * 64 * 4]),
+                ..Default::default()
+            }),
+        );
+        adapter.refresh(&window);
+    }
+    assert!(first(&window).picture.size().width > 0);
+    assert_eq!(
+        window.get_menu_reactions().row_data(0).unwrap().key,
+        "talk:300"
+    );
 }
 
 #[test]
@@ -5392,6 +5860,7 @@ fn friends_in_a_servers_voice_channel_show_where() {
         official: false,
         empty: false,
         preview: None,
+        voice_started: None,
     };
     let mut state = AppState::default();
     state.rooms = [
@@ -5530,6 +5999,7 @@ fn closing_the_viewer_lets_go_of_its_picture() {
             spoiler: false,
             video: false,
             url: None,
+            description: None,
         }],
         ..Default::default()
     })]);
@@ -5570,6 +6040,7 @@ fn a_pictures_menu_links_to_it_when_it_has_an_address() {
         spoiler: false,
         video: false,
         url: url.map(Into::into),
+        description: None,
     };
     adapter.borrow_mut().app.state.messages = Arc::new(vec![Arc::new(ChatMessage {
         item: "i0".into(),
@@ -8090,6 +8561,7 @@ fn requests_list_someone_once_with_their_message() {
             text: format!("Hi from {person}"),
             at: 1_700_000_000_000,
         })),
+        voice_started: None,
     };
     let mut state = AppState::default();
     state.friend_requests = vec![
@@ -8397,6 +8869,7 @@ fn a_card_of_components_shows_headings_files_and_only_link_buttons_working() {
             video: false,
             gif: None,
             url: None,
+            description: None,
         }],
         cards: vec![Card {
             framed: true,
@@ -9941,6 +10414,7 @@ fn bot_modal_summaries_show_default_entity_names_and_unknown_ids() {
         author: "Alex".into(),
         ..Default::default()
     })]);
+    adapter.app.state.interactions.pretend_sent("click", None);
     adapter.apply(Event::InteractionModal(serde_json::json!({
         "id": "42", "channel_id": "7", "guild_id": "10", "custom_id": "assign",
         "application": {"id": "3"}, "title": "Assign", "nonce": "click",
@@ -9981,6 +10455,7 @@ fn bot_modal_keeps_input_model_while_typing() {
     bind_callbacks(&window, &adapter);
     {
         let mut adapter = adapter.borrow_mut();
+        adapter.app.state.interactions.pretend_sent("click", None);
         adapter.apply(Event::InteractionModal(serde_json::json!({
             "id": "42", "channel_id": "7", "custom_id": "ticket",
             "application": {"id": "3"}, "title": "Open ticket", "nonce": "click",
@@ -10013,6 +10488,7 @@ fn bot_select_keeps_its_model_and_filters_original_choice_indices() {
     bind_callbacks(&window, &adapter);
     {
         let mut adapter = adapter.borrow_mut();
+        adapter.app.state.interactions.pretend_sent("click", None);
         adapter.apply(Event::InteractionModal(serde_json::json!({
             "id": "42", "channel_id": "7", "custom_id": "ticket",
             "application": {"id": "3"}, "title": "Choose", "nonce": "click",
@@ -10039,9 +10515,8 @@ fn bot_select_keeps_its_model_and_filters_original_choice_indices() {
     assert!(std::ptr::eq(original.as_any(), filtered.as_any()));
     assert_eq!(filtered.row_count(), 1);
     assert_eq!(filtered.row_data(0).unwrap().index, 1);
+    // A menu of one option takes the one clicked, and closes.
     window.invoke_bot_select_toggle(1);
-    assert!(filtered.row_data(0).unwrap().selected);
-    window.invoke_bot_select_submit();
     assert_eq!(
         adapter
             .borrow()
@@ -10056,6 +10531,74 @@ fn bot_select_keeps_its_model_and_filters_original_choice_indices() {
     );
     assert!(!window.get_bot_select_open());
     assert_eq!(window.get_bot_select_choices().row_count(), 0);
+}
+
+#[test]
+fn a_bot_forms_text_choices_and_files_show_as_they_are_filled() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    {
+        let mut adapter = adapter.borrow_mut();
+        adapter.app.state.interactions.pretend_sent("click", None);
+        adapter.apply(Event::InteractionModal(serde_json::json!({
+            "id": "42", "channel_id": "7", "custom_id": "survey",
+            "application": {"id": "3"}, "title": "Survey", "nonce": "click",
+            "components": [
+                {"type": 10, "content": "## Heads up\nThis is **bold**."},
+                {"type": 18, "label": "Rating", "description": "How was it?", "component": {
+                    "type": 21, "custom_id": "rating",
+                    "options": [{"label": "Good", "value": "good"}, {"label": "Bad", "value": "bad"}]}},
+                {"type": 18, "label": "Agree", "component": {"type": 23, "custom_id": "agree"}},
+                {"type": 18, "label": "Proof", "component": {"type": 19, "custom_id": "proof", "max_values": 3}},
+            ]
+        })));
+        adapter.refresh(&window);
+    }
+    let fields = window.get_bot_modal_fields();
+    let text = fields.row_data(0).unwrap();
+    assert_eq!(text.kind, 10);
+    assert_eq!(text.blocks.row_count(), 2, "a heading and its text");
+    let rating = fields.row_data(1).unwrap();
+    assert_eq!(rating.description, "How was it?");
+    assert_eq!(rating.choices.row_count(), 2);
+    assert_eq!(fields.row_data(3).unwrap().max_files, 3);
+    window.invoke_bot_modal_field_edited(1, "bad".into());
+    window.invoke_bot_modal_field_edited(2, "".into());
+    adapter.borrow_mut().action(
+        &window,
+        Action::AddModalFiles {
+            index: 3,
+            files: vec!["/tmp/shot one.png".into()],
+        },
+    );
+    let current = window.get_bot_modal_fields();
+    assert!(std::ptr::eq(fields.as_any(), current.as_any()));
+    // The text laid out stays the same as the rest change.
+    assert!(current.row_data(0).unwrap().blocks == text.blocks);
+    let rating = current.row_data(1).unwrap();
+    assert!(!rating.choices.row_data(0).unwrap().selected);
+    assert!(rating.choices.row_data(1).unwrap().selected);
+    assert!(current.row_data(2).unwrap().checked);
+    let proof = current.row_data(3).unwrap();
+    assert_eq!(proof.files.row_data(0).unwrap(), "shot one.png");
+    window.invoke_bot_modal_remove_file(3, 0);
+    assert_eq!(
+        window
+            .get_bot_modal_fields()
+            .row_data(3)
+            .unwrap()
+            .files
+            .row_count(),
+        0
+    );
 }
 
 #[test]
@@ -10267,4 +10810,119 @@ fn a_profiles_more_menu_blocks_from_the_profile() {
     window.invoke_choose_menu("profile-more:4".into(), true, "profile".into());
     let shown = adapter.borrow().app.state.profile.clone();
     assert_eq!(shown.map(|view| view.profile.id), Some("4".into()));
+}
+
+#[test]
+fn a_voice_channels_time_reads_on_the_activity_clock() {
+    // 2020 began at ActivityClock's 0, which stands for none, so the
+    // clock's seconds start at 1.
+    assert_eq!(profile::activity_seconds(0), 1);
+    assert_eq!(profile::activity_seconds(1_577_836_800 + 90), 90);
+    let started = profile::activity_seconds(1_767_225_600);
+    assert_eq!(profile::activity_lasted(started, started + 3_900), "1h 05m");
+    // A start after the clock's minute, within it, has only begun.
+    assert_eq!(profile::activity_lasted(started, started - 30), "<1m");
+    assert_eq!(profile::activity_lasted(started, -5), "<1m");
+    // One clock for both: a profile's activity ticks it each second, busy
+    // voice channels alone every 15, and nothing stops it.
+    let second = Some(Duration::from_secs(1));
+    assert_eq!(profile::clock_interval(true, true), second);
+    assert_eq!(profile::clock_interval(true, false), second);
+    assert_eq!(
+        profile::clock_interval(false, true),
+        Some(Duration::from_secs(15))
+    );
+    assert_eq!(profile::clock_interval(false, false), None);
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_busy_voice_channel_sums_up_who_is_in_it_and_its_card_goes_with_it() {
+    use yapfast_core::yapfast_discord::{
+        marked::MarkedServer,
+        ready,
+        service::{Snapshot, Status, VoiceMember},
+    };
+    let (window, adapter, _directory) = discord_server_window();
+    let server = |lounge: bool| {
+        let mut channels = vec![serde_json::json!(
+            {"id": "11", "type": 0, "name": "general", "position": 0}
+        )];
+        if lounge {
+            channels.push(serde_json::json!(
+                {"id": "14", "type": 2, "name": "Lounge", "position": 1}
+            ));
+        }
+        let server = ready::server(&serde_json::json!({
+            "id": "10", "owner_id": "99", "properties": {"name": "Test"},
+            "roles": [{"id": "10", "name": "@everyone", "position": 0, "permissions": "1024"}],
+            "channels": channels,
+        }))
+        .unwrap();
+        MarkedServer::marked(server, Default::default(), |_| Default::default())
+    };
+    let member = |id: &str, streaming: bool, video: bool| VoiceMember {
+        user_id: id.into(),
+        name: id.into(),
+        avatar: String::new(),
+        muted: false,
+        deafened: false,
+        server_muted: false,
+        server_deafened: false,
+        streaming,
+        video,
+        elsewhere: false,
+    };
+    let show = |lounge: bool, people: Vec<VoiceMember>| {
+        adapter
+            .borrow_mut()
+            .app
+            .apply(Event::Discord(Arc::new(Snapshot {
+                status: Status::Online,
+                user_id: Some("1".into()),
+                servers: vec![server(lounge)],
+                voice: [("14".to_owned(), people)].into(),
+                ..Default::default()
+            })));
+        adapter.borrow_mut().refresh(&window);
+        settle(&window);
+    };
+    show(
+        true,
+        vec![member("ann", true, false), member("bob", false, true)],
+    );
+    window.invoke_navigate_server("discord:10".into());
+    settle(&window);
+    let rows: Vec<RoomRow> = adapter.borrow().models.rooms.iter().collect();
+    let summary = |id: &str| {
+        rows.iter()
+            .find(|row| row.id == id)
+            .map(|row| row.voice_summary.to_string())
+    };
+    assert_eq!(
+        summary("discord:10:14").as_deref(),
+        Some("2 people · 1 live · 1 camera")
+    );
+    assert_eq!(summary("discord:10:11").as_deref(), Some(""));
+
+    // The card, open beside the Lounge's row, goes with the channel when
+    // it's deleted with people still in it: the row goes without a
+    // hover-leave, and no row is left to say so. (Slint's test backend
+    // doesn't hover rows; the card opening under the pointer is checked in
+    // the app.)
+    let card = window.global::<VoiceCard>();
+    let people = rows
+        .iter()
+        .find(|row| row.id == "discord:10:14")
+        .unwrap()
+        .people
+        .clone();
+    card.set_channel("discord:10:14".into());
+    card.set_people(people);
+    show(false, vec![member("ann", true, false)]);
+    assert_eq!(
+        card.get_people().row_count(),
+        0,
+        "a deleted channel's card goes"
+    );
 }

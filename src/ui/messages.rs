@@ -12,8 +12,9 @@ pub(super) const JUMP_LINK: &str = "yapfast:jump/";
 pub(super) const PINS_LINK: &str = "yapfast:pins";
 
 /// A message continues the previous one's group when the same person sent it
-/// within seven minutes, without replying to something else. A notice, such
-/// as one that someone pinned a message, is a group of its own.
+/// within seven minutes, without replying to something else or answering a
+/// command. A notice, such as one that someone pinned a message, is a group
+/// of its own.
 pub(super) fn continues(before: &ChatMessage, message: &ChatMessage) -> bool {
     if before.notice.is_some() || message.notice.is_some() {
         return false;
@@ -28,7 +29,7 @@ pub(super) fn continues(before: &ChatMessage, message: &ChatMessage) -> bool {
     let close = before.timestamp == 0
         || message.timestamp == 0
         || message.timestamp.abs_diff(before.timestamp) <= 7 * 60;
-    message.reply.is_none() && sender(before) == sender(message) && close
+    message.reply.is_none() && message.used.is_none() && sender(before) == sender(message) && close
 }
 
 /// The local calendar date of a timestamp, such as "3 October 2026"; empty when unknown.
@@ -459,6 +460,15 @@ pub(super) fn show_message(window: &YapfastWindow, index: usize, item: &str, lit
     });
 }
 
+/// The message flag of a Discord app's answer only this account sees.
+const EPHEMERAL: u64 = 1 << 6;
+/// The message flag of a Discord app's answer still to come.
+const LOADING: u64 = 1 << 7;
+
+/// How long Discord's client waits for a deferred answer before it says the
+/// app didn't respond: 15 minutes from the message's snowflake.
+const THINKING_SECS: u64 = 15 * 60;
+
 /// A message as the timeline shows it. `revealed` holds the spoilers clicked, as
 /// `{item}/{index}` for text and `{item}/a{index}` for attachments, and what
 /// was picked or shown on polls; see `polls`.
@@ -644,7 +654,7 @@ pub(super) fn message_row_within(
                         ModelRc::new(VecModel::from(waveform_bars(&voice.waveform)))
                     }),
                     duration: voice
-                        .map(|voice| super::refresh::video_time(voice.duration_ms, None).into())
+                        .map(|voice| super::refresh::voice_time(voice.duration_ms).into())
                         .unwrap_or_default(),
                 }
             })
@@ -673,6 +683,8 @@ pub(super) fn message_row_within(
             false,
             true,
         ),
+        // An app's command, whose row says why.
+        Delivery::Failed if message.item.starts_with("c:") => ("Not sent.", true, true),
         Delivery::Failed => ("Not sent. The server refused this message.", true, true),
     };
     let reply_author = message
@@ -680,6 +692,14 @@ pub(super) fn message_row_within(
         .as_ref()
         .map(|reply| reply.author.as_str())
         .unwrap_or_default();
+    let used_text = |text: fn(&yapfast_core::chat::UsedCommand) -> &String| -> SharedString {
+        message
+            .used
+            .as_ref()
+            .map(|used| text(used).as_str())
+            .unwrap_or_default()
+            .into()
+    };
     let row = MessageRow {
         picture_url: SharedString::default(),
         reply_picture_url: SharedString::default(),
@@ -759,6 +779,40 @@ pub(super) fn message_row_within(
             .and_then(|reply| reply.item.clone())
             .unwrap_or_default()
             .into(),
+        has_command: message.used.is_some(),
+        command_user: used_text(|used| &used.user),
+        command_sender: message
+            .used
+            .as_ref()
+            .map(|used| discord::sender_user(&used.sender).unwrap_or(&used.sender))
+            .unwrap_or_default()
+            .into(),
+        command_initial: initial(message.used.as_ref().map_or("", |used| &used.user)),
+        command_tint: tint(message.used.as_ref().map_or("", |used| &used.user)),
+        command_color: role_color(message.used.as_ref().and_then(|used| used.color)),
+        command_has_color: message
+            .used
+            .as_ref()
+            .is_some_and(|used| used.color.is_some()),
+        command_picture_url: message
+            .used
+            .as_ref()
+            .and_then(|used| used.avatar.as_deref())
+            .unwrap_or_default()
+            .into(),
+        command_name: used_text(|used| &used.name),
+        command_slash: message
+            .used
+            .as_ref()
+            .and_then(|used| used.slash.as_deref())
+            .unwrap_or_default()
+            .into(),
+        command_target: message
+            .used
+            .as_ref()
+            .and_then(|used| used.target.as_deref())
+            .unwrap_or_default()
+            .into(),
         reactions: ModelRc::new(VecModel::from(
             message
                 .reactions
@@ -787,6 +841,8 @@ pub(super) fn message_row_within(
         delivery_failed: message.delivery == Delivery::Failed,
         can_retry,
         can_cancel,
+        // One with files keeps its line, with Cancel, while they upload.
+        sending: message.delivery == Delivery::Sending && message.attachments.is_empty(),
         can_reply: message.can_reply,
         can_edit: message.can_edit,
         can_delete: message.can_delete,
@@ -815,6 +871,11 @@ pub(super) fn message_row_within(
             })
             .unwrap_or_default(),
         has_poll: message.poll.is_some(),
+        ephemeral: message.flags & EPHEMERAL != 0,
+        thinking: message.flags & LOADING != 0,
+        timed_out: message.flags & LOADING != 0
+            && message.timestamp != 0
+            && yapfast_core::clock::now_ms() / 1000 >= message.timestamp + THINKING_SECS,
     };
     if collapsed(message, revealed) {
         // Discord shows nothing of a blocked message until asked.
@@ -836,6 +897,7 @@ pub(super) fn message_row_within(
             styled: slint::StyledText::from_markdown(&note)
                 .unwrap_or_else(|_| slint::StyledText::from_plain_text("Blocked message.")),
             has_reply: false,
+            has_command: false,
             reactions: ModelRc::default(),
             images: ModelRc::default(),
             gallery_width: 0,
@@ -910,6 +972,10 @@ fn card_row<'a>(
                 thumbnail_index: thumbnail.map_or(-1, |(index, _, _)| index as i32),
                 thumbnail_spoiler: thumbnail
                     .is_some_and(|(index, attachment, _)| attachment.spoiler && covered(index)),
+                thumbnail_description: thumbnail
+                    .and_then(|(_, attachment, _)| attachment.description.as_deref())
+                    .unwrap_or_default()
+                    .into(),
                 has_thumbnail: thumbnail.is_some(),
                 has_button: button.is_some(),
                 button: button.unwrap_or_default(),
@@ -949,12 +1015,14 @@ fn card_row<'a>(
             text,
             disabled,
             custom_id,
+            options,
             ..
         } => CardRow {
             kind: CardRowKind::Select,
-            select: text.as_str().into(),
+            select: custom_emoji::text(text, &message.emoji).into(),
             select_id: custom_id.as_str().into(),
             select_enabled: !disabled && !custom_id.is_empty(),
+            select_picked: options.iter().any(|option| option.default),
             ..Default::default()
         },
         Row::Unknown => CardRow {

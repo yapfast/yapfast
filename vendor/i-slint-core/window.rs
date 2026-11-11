@@ -1463,8 +1463,8 @@ impl WindowInner {
         // Yapfast: on a Cyrillic layout the key under A types "ф", so Ctrl+A
         // came as Ctrl+ф and neither Slint's shortcuts nor Yapfast's matched.
         // With Ctrl or Cmd held, and not AltGr (Ctrl+Alt on Windows), which
-        // types characters, a letter of the Russian or Ukrainian layout
-        // becomes the Latin letter on the same key.
+        // types characters, a letter of the Russian, Ukrainian or Thai layout
+        // becomes what a US keyboard has on the same key.
         let modifiers = internal_key_event.key_event.modifiers;
         if (modifiers.control || modifiers.meta) && !modifiers.alt {
             if let Some(latin) = crate::input::latin_on_same_key(&internal_key_event.key_event.text)

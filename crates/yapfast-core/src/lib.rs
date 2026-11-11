@@ -89,6 +89,7 @@ pub mod voice;
 pub mod voice_demo;
 #[cfg(feature = "discord")]
 mod voice_message;
+pub mod voice_roster;
 pub mod volume;
 
 /// Install the TLS provider before starting Matrix or calling services.
