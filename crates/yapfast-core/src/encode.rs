@@ -895,6 +895,15 @@ impl Encoder {
         &self.engine_name
     }
 
+    /// Whether this encoder reads a picture where the card holds it, rather than
+    /// taking one uploaded to it: VA-API does, and NVENC, Quick Sync, AMF and x264
+    /// do not. A caller holding a picture on the card asks before it hands one
+    /// over, so that a camera filmed on the card is not encoded by one that
+    /// uploads every frame it is given.
+    pub fn reads_descriptors(&self) -> bool {
+        takes_dmabuf(self.ffmpeg_name())
+    }
+
     /// How many pictures the processor moved into the encoder's own memory
     /// since this encoder opened: every picture the plane path hands over, and
     /// none of the ones the card's encoder reads where they lie. A capture that

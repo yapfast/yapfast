@@ -45,9 +45,10 @@
 //! The size asked for is the encoder's, [`camera::WIDTH`] by [`camera::HEIGHT`]
 //! at `camera::FPS`: a driver may answer `VIDIOC_S_FMT` with another size, and
 //! that picture is the video processor's to scale where the build has one.
-//! Timestamps and rate are the device's: `v4l2_buffer.timestamp` is
-//! `CLOCK_MONOTONIC` where the driver says so, which is the clock a call's
-//! pictures are timed on, and the rate is whatever the driver delivers.
+//! The rate is whatever the driver delivers, and each picture keeps the stamp
+//! and the sequence number the device gave it, for a caller that times or orders
+//! its pictures by them; the call's camera times each one from the moment it
+//! started filming instead.
 //!
 //! It is `camera.rs`'s `card` module that opens it, for a camera filmed at the
 //! size a call shares: [`Capture::open`] is the entry point and
@@ -346,7 +347,7 @@ impl Format {
         }
         // NV12's chroma is subsampled by two in each direction, so a picture with
         // an odd side has no chroma plane that arithmetic can place.
-        if width % 2 != 0 || height % 2 != 0 {
+        if !width.is_multiple_of(2) || !height.is_multiple_of(2) {
             bail!("the device answered {width}x{height}, and NV12's chroma is subsampled by two");
         }
         if stride < width {

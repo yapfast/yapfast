@@ -88,6 +88,17 @@ impl Filming {
             true => camera::Delivery::Card(self.card_sink()),
             false => camera::Delivery::Planes(self.sink()),
         };
+        // Said once, where the way is chosen: a camera filmed on the processor is
+        // not left to a silence the log cannot explain. The card's own module says
+        // which way it went when it was asked.
+        #[cfg(target_os = "linux")]
+        if !cfg!(dmabufenc) {
+            tracing::info!(
+                "filming the camera on the processor: this build cannot import a picture into an encoder"
+            );
+        } else if !crate::encode::hardware() {
+            tracing::info!("filming the camera on the processor: the GPU's encoder is off");
+        }
         #[cfg(not(target_os = "linux"))]
         let delivery = camera::Delivery::Planes(self.sink());
         Camera::start_filming(self.camera.take(), id.map(str::to_owned), delivery)
@@ -157,6 +168,7 @@ struct Sending {
     /// the encoder that reads a picture where it lies: a camera filmed in memory
     /// opens x264, which at 720p measures better than the GPU's encoder once each
     /// picture is uploaded to it.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     on_the_card: bool,
     /// Opened at the first picture's size, and again at a new one.
     encoder: Option<Encoder>,
@@ -168,6 +180,22 @@ struct Sending {
 }
 
 impl Sending {
+    /// The encoder for a camera's pictures, at `size` and a call's rate and
+    /// bitrate, on the card where `hardware` asks for it.
+    fn open(size: (u32, u32), hardware: bool) -> Option<Encoder> {
+        Encoder::new(
+            SEND_CODEC,
+            size.0,
+            size.1,
+            camera::FPS,
+            BITRATE,
+            Effort::Light,
+            hardware,
+        )
+        .inspect_err(|error| tracing::warn!(%error, "could not encode the camera"))
+        .ok()
+    }
+
     /// Mirrors a picture into the self-view, and encodes it into the call.
     fn picture(&mut self, picture: &camera::Picture<'_>) {
         let planes = picture.planes;
@@ -188,17 +216,32 @@ impl Sending {
             let hardware = self.on_the_card && picture.card.is_some();
             #[cfg(not(target_os = "linux"))]
             let hardware = false;
-            self.encoder = Encoder::new(
-                SEND_CODEC,
-                size.0,
-                size.1,
-                camera::FPS,
-                BITRATE,
-                Effort::Light,
-                hardware,
-            )
-            .inspect_err(|error| tracing::warn!(%error, "could not encode the camera"))
-            .ok();
+            self.encoder = Self::open(size, hardware);
+            // An encoder that uploads gives up what filming on the card is for, and
+            // at a camera's size and rate the processor's encoder measures better
+            // than that, so a picture on the card is encoded by one that reads it
+            // there or by x264.
+            #[cfg(target_os = "linux")]
+            let uploading = self
+                .encoder
+                .as_ref()
+                .filter(|encoder| picture.card.is_some() && !encoder.reads_descriptors())
+                .map(|encoder| encoder.engine().to_owned());
+            #[cfg(target_os = "linux")]
+            if let Some(engine) = uploading {
+                tracing::info!(
+                    encoder = engine.as_str(),
+                    "the card's encoder uploads a camera's picture, so the camera encodes on the processor"
+                );
+                self.encoder = Self::open(size, false);
+            }
+            #[cfg(target_os = "linux")]
+            {
+                self.in_place = self
+                    .encoder
+                    .as_ref()
+                    .is_some_and(|encoder| encoder.reads_descriptors());
+            }
         }
         let Some(encoder) = self.encoder.as_mut() else {
             return;
@@ -220,9 +263,12 @@ impl Sending {
                     // are: this picture costs no upload, and the ones after it are
                     // handed straight to their planes.
                     Err(why) => {
+                        // The card wouldn't take this picture where it lies, and this
+                        // encoder reads the planes instead: the processor's copy of it,
+                        // and of the pictures after it.
                         tracing::info!(
                             why = %why,
-                            "encoding the camera's pictures on the processor"
+                            "the card wouldn't take the camera's picture where it lies"
                         );
                         self.in_place = false;
                         encoder.encode_picture(planes, pts, keyframe)

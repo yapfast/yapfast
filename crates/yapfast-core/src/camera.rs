@@ -503,6 +503,11 @@ mod card {
     /// read it. Nothing per frame is logged here.
     pub(super) fn open(path: &str, size: Size) -> Option<Filming> {
         if (size.0, size.1) != (WIDTH, HEIGHT) {
+            tracing::info!(
+                asked = ?size,
+                "filming the camera on the processor: the card's capture films only the size a \
+                 call shares"
+            );
             return None;
         }
         let capture = match v4l2::Capture::open(path) {
