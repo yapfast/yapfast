@@ -281,6 +281,10 @@ fn make_frames(path: &Path, width: u32, height: u32) -> Result<()> {
     file.write_all(b"TKFR")?;
     file.write_all(&(capacity as u32).to_ne_bytes())?;
     file.write_all(&1u32.to_ne_bytes())?;
+    // The header's version, which a Linux worker refuses a file of another one
+    // for: yapfast-core's `frames::VERSION`, which this crate can't name.
+    #[cfg(target_os = "linux")]
+    file.write_all(&2u32.to_ne_bytes())?;
     Ok(())
 }
 
