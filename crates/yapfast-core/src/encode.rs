@@ -18,7 +18,10 @@
 
 use std::{
     ffi::{c_char, c_int, c_long, c_longlong, c_uchar, c_uint, c_ulong},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -38,6 +41,23 @@ use crate::gpu::{self, Candidate, Luid, Reach};
 #[cfg(hwenc)]
 use ffmpeg_src as _;
 use x264_src as _;
+
+/// Whether video encodes on the GPU where it has an encoder: Settings' choice,
+/// on until the UI says. One switch for a stream and for a call's camera, which
+/// the same card encodes; an encoder that won't open falls back to the
+/// processor by itself, so this is the person's answer and not the machine's.
+static HARDWARE: AtomicBool = AtomicBool::new(true);
+
+/// Encodes video started from now on with the GPU's encoder, or not.
+pub fn set_hardware(on: bool) {
+    HARDWARE.store(on, Ordering::Relaxed);
+}
+
+/// Whether video started from now on encodes on the GPU where it has an
+/// encoder.
+pub fn hardware() -> bool {
+    HARDWARE.load(Ordering::Relaxed)
+}
 
 #[repr(C)]
 struct Raw {
@@ -3509,5 +3529,297 @@ mod in_place {
 
     fn mean(plane: &[u8]) -> f64 {
         plane.iter().map(|&value| f64::from(value)).sum::<f64>() / plane.len().max(1) as f64
+    }
+
+    /// The camera's two encoders against each other at a call's settings —
+    /// 1280×720 at 30 frames a second and 1.5 Mbit/s, `camera.rs` and
+    /// `discord_video.rs` — on the same moving picture: the bits each spends,
+    /// what the picture it decodes to is worth, and the processor time a frame
+    /// costs it.
+    ///
+    /// The source's pictures and each engine's access units go to files under
+    /// the build directory, `target/tmp/camera-encoders`, and FFmpeg decodes
+    /// them there and measures them against the source with VMAF and SSIM: the
+    /// quality figures are the ones a stream is judged by, not the test's own
+    /// reading of the encoder's output. A run leaves its streams there, so they
+    /// can be looked at afterwards.
+    ///
+    /// Ignored, and it prints rather than asserts: which encoder is better is
+    /// what it is asked, and it needs the machine's own encoders and FFmpeg.
+    /// An engine that can't open here is skipped with a line that says so —
+    /// the GPU's only opens outside the dev shell, whose library path has no
+    /// `libcuda.so.1`.
+    ///
+    /// `cargo test --profile measure -p yapfast-core -- --ignored --nocapture the_camera_s_encoders`
+    #[test]
+    #[ignore = "measurement: compares the camera's encoders on this machine"]
+    fn the_camera_s_encoders() {
+        use std::io::Write as _;
+
+        const WIDTH: u32 = crate::camera::WIDTH;
+        const HEIGHT: u32 = crate::camera::HEIGHT;
+        /// A call's camera bitrate, as `discord_video` sets it.
+        const KBPS: u32 = 1500;
+        const FRAMES: u32 = 60;
+        /// What decodes each stream and measures it against the source.
+        const FFMPEG: &str = "/usr/bin/ffmpeg";
+
+        /// A picture of a room: a gradient that drifts, blocks that move, and a
+        /// little grain, so it is neither a still nor a whole new picture every
+        /// frame.
+        struct Scene {
+            y: Vec<u8>,
+            u: Vec<u8>,
+            v: Vec<u8>,
+        }
+
+        impl Scene {
+            fn at(frame: u32) -> Self {
+                let (width, height) = (WIDTH as usize, HEIGHT as usize);
+                let mut state = 0x2545_f491_4f6c_dd1du64 ^ u64::from(frame);
+                let mut noise = || {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    ((state >> 24) & 0xff) as i32 - 127
+                };
+                let mut y = Vec::with_capacity(width * height);
+                for row in 0..height {
+                    for column in 0..width {
+                        let drift = (frame * 6) as usize % width;
+                        let base = 40 + (column + drift) % width * 150 / width;
+                        let shadow = (row + height / 3) % height;
+                        let block = ((column + drift) / 80).is_multiple_of(4) && row > height / 4;
+                        let value = base as i32 + if block && shadow > height / 2 { 40 } else { 0 };
+                        y.push((value + noise() / 8).clamp(16, 235) as u8);
+                    }
+                }
+                let chroma = width.div_ceil(2) * height.div_ceil(2);
+                let mut u = Vec::with_capacity(chroma);
+                let mut v = Vec::with_capacity(chroma);
+                for index in 0..chroma {
+                    let shift = ((index / 64 + frame as usize / 4) % 24) as i32;
+                    u.push((128 + shift + noise() / 16) as u8);
+                    v.push((128 - shift + noise() / 16) as u8);
+                }
+                Self { y, u, v }
+            }
+
+            fn picture(&self) -> crate::picture::I420<'_> {
+                crate::picture::I420 {
+                    width: WIDTH,
+                    height: HEIGHT,
+                    y: &self.y,
+                    u: &self.u,
+                    v: &self.v,
+                    strides: [WIDTH, WIDTH / 2, WIDTH / 2],
+                }
+            }
+        }
+
+        let scenes: Vec<Scene> = (0..FRAMES).map(Scene::at).collect();
+
+        // Two files side by side, so the measurement is FFmpeg's on a stream a
+        // player would read: the source's pictures as they were made, and the
+        // access units an engine made of them. In the build directory, where
+        // the raw pictures are kept for a look rather than thrown away; a
+        // library's own test gets no CARGO_TARGET_TMPDIR, so the crate's path
+        // reaches the same place.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/tmp/camera-encoders");
+        std::fs::create_dir_all(&dir).expect("a directory for the measurement");
+        let source = dir.join("source.i420");
+        {
+            let mut file = std::io::BufWriter::new(
+                std::fs::File::create(&source).expect("a file for the source"),
+            );
+            for scene in &scenes {
+                for plane in [&scene.y, &scene.u, &scene.v] {
+                    file.write_all(plane).expect("the source's pictures");
+                }
+            }
+            file.flush().expect("the source's pictures");
+        }
+        eprintln!(
+            "the source and each engine's stream are in {}",
+            dir.display()
+        );
+
+        /// One engine's row of the table: its name, the bits it spent, what VMAF
+        /// and SSIM made of its picture, and the processor time a frame cost it.
+        type Row = (String, f64, Option<f64>, Option<f64>, f64);
+
+        let mut rows: Vec<Row> = Vec::new();
+        for hardware in [false, true] {
+            let mut encoder = match Encoder::new(
+                Codec::H264,
+                WIDTH,
+                HEIGHT,
+                crate::camera::FPS,
+                KBPS,
+                Effort::Light,
+                hardware,
+            ) {
+                Ok(encoder) => encoder,
+                Err(why) => {
+                    eprintln!("no H264 encoder here (hardware {hardware}): {why:#}");
+                    continue;
+                }
+            };
+            if hardware && !encoder.hardware() {
+                eprintln!(
+                    "no GPU encoder here: the open fell back to {}",
+                    encoder.engine()
+                );
+                continue;
+            }
+            let engine = encoder.engine().to_owned();
+            let configuration = encoder.configuration().clone();
+            let stem: String = engine
+                .chars()
+                .map(|letter| {
+                    if letter.is_ascii_alphanumeric() {
+                        letter
+                    } else {
+                        '-'
+                    }
+                })
+                .collect();
+            let stream = dir.join(format!("{stem}.h264"));
+            // The stream is held in memory while it is timed, so writing it
+            // doesn't count as a frame's cost, and written out afterwards for
+            // FFmpeg to read.
+            let mut units = Vec::new();
+            let (mut encoded, mut keyframes) = (0, 0);
+            let start = std::time::Instant::now();
+            for (index, scene) in scenes.iter().enumerate() {
+                let picture = scene.picture();
+                let pts = index as u64 * 1000 / u64::from(crate::camera::FPS);
+                let Some(frame) = encoder
+                    .encode_picture(&picture, pts, index == 0)
+                    .unwrap_or_else(|why| panic!("{engine}: frame {index}: {why:#}"))
+                else {
+                    continue;
+                };
+                encoded += 1;
+                keyframes += usize::from(frame.keyframe);
+                units.extend_from_slice(&frame.data);
+            }
+            let elapsed = start.elapsed();
+            std::fs::write(&stream, &units).expect("a file for the stream");
+            if encoded == 0 {
+                eprintln!("{engine}: no picture came out of it");
+                continue;
+            }
+            let frames = f64::from(encoded);
+            // Bits over the pictures actually taken, at the camera's rate.
+            let kbit_s = units.len() as f64 * 8.0 / 1000.0 * f64::from(crate::camera::FPS) / frames;
+            // What a viewer would make of the stream: VMAF for the eye, SSIM
+            // for the picture, both measured by FFmpeg against the source.
+            let measure =
+                |filter: &str, mark: &str| match filter_score(&stream, &source, filter, mark) {
+                    Ok(score) => Some(score),
+                    Err(why) => {
+                        eprintln!("{engine}: {filter} measured nothing: {why:#}");
+                        None
+                    }
+                };
+            let vmaf = measure("libvmaf", "VMAF score:");
+            let ssim = measure("ssim", "All:");
+            eprintln!(
+                "{engine}: {encoded} pictures, {keyframes} keyframes, {} (dropped {}), written to {}",
+                if configuration.tuning.is_empty() {
+                    "no settings reported"
+                } else {
+                    configuration.tuning.as_str()
+                },
+                if configuration.settings_dropped.is_empty() {
+                    "none"
+                } else {
+                    configuration.settings_dropped.as_str()
+                },
+                stream.display()
+            );
+            rows.push((
+                engine,
+                kbit_s,
+                vmaf,
+                ssim,
+                elapsed.as_secs_f64() * 1000.0 / frames,
+            ));
+        }
+
+        let shown = |value: Option<f64>, places: usize| match value {
+            Some(value) => format!("{:.places$}", value),
+            None => "-".to_owned(),
+        };
+        eprintln!();
+        eprintln!(
+            "{:<24} {:>9} {:>7} {:>7} {:>9}",
+            "engine", "kbit/s", "VMAF", "SSIM", "ms/frame"
+        );
+        for (engine, kbit_s, vmaf, ssim, ms) in &rows {
+            eprintln!(
+                "{:<24} {:>9.0} {:>7} {:>7} {:>9.2}",
+                engine,
+                kbit_s,
+                shown(*vmaf, 2),
+                shown(*ssim, 4),
+                ms
+            );
+        }
+        if rows.is_empty() {
+            eprintln!("no encoder opened here, so there is nothing to measure");
+        }
+
+        /// What FFmpeg's `filter` makes of `stream` against `source`, read from
+        /// the line the filter prints. FFmpeg decodes the stream itself, so a
+        /// picture that only looks cheap because it is broken shows here.
+        fn filter_score(
+            stream: &std::path::Path,
+            source: &std::path::Path,
+            filter: &str,
+            mark: &str,
+        ) -> Result<f64> {
+            let arguments: Vec<String> = vec![
+                "-hide_banner".to_owned(),
+                "-nostats".to_owned(),
+                "-i".to_owned(),
+                stream.display().to_string(),
+                "-f".to_owned(),
+                "rawvideo".to_owned(),
+                "-pix_fmt".to_owned(),
+                "yuv420p".to_owned(),
+                "-s".to_owned(),
+                format!("{}x{}", crate::camera::WIDTH, crate::camera::HEIGHT),
+                "-framerate".to_owned(),
+                crate::camera::FPS.to_string(),
+                "-i".to_owned(),
+                source.display().to_string(),
+                "-lavfi".to_owned(),
+                filter.to_owned(),
+                "-f".to_owned(),
+                "null".to_owned(),
+                "-".to_owned(),
+            ];
+            let ran = match std::process::Command::new(FFMPEG).args(&arguments).output() {
+                Ok(ran) => ran,
+                Err(why) => bail!("{FFMPEG} couldn't run: {why}"),
+            };
+            let printed = String::from_utf8_lossy(&ran.stderr);
+            let Some((_, after)) = printed.rsplit_once(mark) else {
+                let tail: Vec<&str> = printed.lines().rev().take(3).collect();
+                bail!("{filter} printed no \"{mark}\": {tail:?}");
+            };
+            let number: String = after
+                .trim_start()
+                .chars()
+                .take_while(|letter| letter.is_ascii_digit() || *letter == '.' || *letter == '-')
+                .collect();
+            match number.parse() {
+                Ok(found) => Ok(found),
+                Err(_) => bail!("{filter} printed \"{after:.40}\" rather than a number"),
+            }
+        }
     }
 }

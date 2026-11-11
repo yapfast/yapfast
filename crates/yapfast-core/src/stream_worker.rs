@@ -5299,13 +5299,10 @@ pub fn set_high_bitrate(on: bool) {
     HIGH_BITRATE.store(on, Ordering::Relaxed);
 }
 
-/// Whether streams encode on the GPU where it has an encoder: Settings'
-/// choice, on until the UI says.
-static HARDWARE: AtomicBool = AtomicBool::new(true);
-
-/// Encodes streams started from now on with the GPU's encoder, or not.
+/// Encodes streams started from now on with the GPU's encoder, or not: the
+/// switch is [`crate::encode`]'s, which a call's camera reads too.
 pub fn set_hardware_encoding(on: bool) {
-    HARDWARE.store(on, Ordering::Relaxed);
+    crate::encode::set_hardware(on);
 }
 
 /// Yapfast's handle on a running worker. Dropping it stops the worker.
@@ -5399,7 +5396,7 @@ impl Worker {
             } else {
                 Effort::Light
             },
-            hardware: HARDWARE.load(Ordering::Relaxed),
+            hardware: crate::encode::hardware(),
             high_bitrate: HIGH_BITRATE.load(Ordering::Relaxed),
             capture: crate::capture::preference(),
         };

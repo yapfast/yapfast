@@ -1405,7 +1405,7 @@ export component AdvancedSettings inherits VerticalLayout {
     }
     SettingsSwitch {
         text: "Encode streams with the GPU";
-        description: "Screen sharing uses the graphics card's video encoder, which takes almost no processor time and looks better at low bitrates. Off, or without one, Yapfast encodes on the processor.";
+        description: "Screen sharing uses the graphics card's video encoder, which takes almost no processor time and looks better at low bitrates. Off, or without one, Yapfast encodes on the processor. A camera follows this too wherever the card can film it.";
         checked <=> root.gpu-encoding;
         toggled => { root.preferences-changed(); }
     }

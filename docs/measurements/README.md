@@ -116,6 +116,39 @@ one build. Keep the hardware, workload, warm-up, window state and memory
 metric with every result. Dated records of past measurements are in the
 private `records.md` beside this file.
 
+## The camera's encoders, card against processor
+
+A camera filmed in memory encodes with x264, not with the card's encoder, even
+with "Encode streams with the GPU" on: at a call's camera size the upload eats
+what the card saves, and the picture is worse.
+
+| encoder | kbit/s | VMAF | SSIM | ms/frame |
+| --- | --- | --- | --- | --- |
+| x264 | 1496 | 70.47 | 0.5733 | 1.51 |
+| h264_nvenc | 1565 | 70.48 | 0.5409 | 1.22 |
+
+1280×720 at 30 frames a second and 1.5 Mbit/s, `Effort::Light`, 60 frames of the
+test's own moving scene, on an RTX 4090. The two are level on VMAF, and SSIM is
+about 6% behind — a softer picture for the same judged quality — while the card
+is only 0.3 ms a frame faster, since every picture is uploaded to it first. So
+frames that come from memory stay on x264. A camera filmed on the card
+(`cfg(dmabufenc)`, with the switch on) still encodes on NVENC, which reads the
+descriptor where it lies.
+
+`the_camera_s_encoders` in `crates/yapfast-core/src/encode.rs` is where these
+came from, ignored because it needs the machine's own encoders and FFmpeg's
+`libvmaf` and `ssim` filters. Run it outside the dev shell: the shell's library
+path has no `libcuda.so.1`, so the GPU engine only opens outside it, and inside
+the shell the test measures x264 alone and says so.
+
+```sh
+cargo test --profile measure -p yapfast-core -- --ignored --nocapture the_camera_s_encoders
+```
+
+It writes the source's pictures and each engine's stream to
+`target/tmp/camera-encoders/`, leaves them there to be looked at, and prints the
+table above.
+
 ## GPU capture and encode, on Windows
 
 What ships now is the path these numbers argued for: on Windows, Windows

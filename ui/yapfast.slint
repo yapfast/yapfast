@@ -1347,7 +1347,8 @@ export component YapfastWindow inherits Window {
     /// applies when Yapfast restarts, which restart does.
     in-out property <bool> gpu-rendering;
     in property <bool> gpu-running;
-    /// Screen sharing encodes on the GPU where it has an encoder.
+    /// Screen sharing encodes on the GPU where it has an encoder, and a camera
+    /// filmed on the card with it.
     in-out property <bool> gpu-encoding: true;
     /// Whether the machine's card can share without a copy of each picture; the
     /// settings' note is shown only where it can.
