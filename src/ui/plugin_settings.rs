@@ -36,6 +36,8 @@ struct Page {
     view: i32,
     /// The open plugin's settings form, while its page shows.
     form: Option<FormModel>,
+    /// The source is the preview's sample plugins.
+    sample: bool,
 }
 
 /// A plugin's settings form, in one model whose rows Rust changes in
@@ -179,6 +181,7 @@ impl Page {
             tab: 1,
             view: 0,
             form: None,
+            sample: false,
         }
     }
 }
@@ -280,6 +283,12 @@ fn bind_page(window: &YapfastWindow) {
                 let page = page.get_or_insert_with(|| Page::new(source_for(window.get_preview())));
                 if page.open {
                     return;
+                }
+                // The window learns it's a preview after `attach` gave the page
+                // the runtime, so the sample plugins take its place here.
+                if window.get_preview() && !page.sample {
+                    page.source = source_for(true);
+                    page.sample = true;
                 }
                 page.open = true;
                 page.source.request(Request::Open);
