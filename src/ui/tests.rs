@@ -10959,3 +10959,55 @@ fn the_plugins_page_draws_the_runtime_view() {
     assert_eq!(page.get_helper(), "");
     page.invoke_closed();
 }
+
+/// The Installed tab draws plugins either as a list to read down or as cards to
+/// scan across, and the cards come in pairs so a grid needs no wrapping layout.
+#[cfg(feature = "plugins")]
+#[test]
+fn the_installed_tab_is_a_list_or_cards() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    let page = window.global::<PluginPage>();
+    page.invoke_opened();
+
+    let installed = |id: &str, name: &str| yapfast_core::plugins::page::Installed {
+        id: id.to_owned(),
+        name: name.to_owned(),
+        ..Default::default()
+    };
+    super::plugin_settings::set_view(
+        &window,
+        yapfast_core::plugins::page::View {
+            installed: vec![
+                installed("a", "A"),
+                installed("b", "B"),
+                installed("c", "C"),
+            ],
+            ..Default::default()
+        },
+    );
+
+    assert_eq!(page.get_view(), 0, "a list, until asked for cards");
+    assert_eq!(page.get_installed().row_count(), 3);
+    assert_eq!(page.get_card_rows().row_count(), 2, "a pair, then a single");
+    assert_eq!(
+        page.get_card_rows()
+            .row_data(1)
+            .map(|pair| pair.row_count()),
+        Some(1)
+    );
+
+    page.invoke_view_chosen(1);
+    assert_eq!(page.get_view(), 1, "the choice is the page's");
+    page.invoke_view_chosen(0);
+    assert_eq!(page.get_view(), 0);
+    page.invoke_closed();
+}

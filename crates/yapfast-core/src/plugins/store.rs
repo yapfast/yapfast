@@ -398,6 +398,15 @@ impl Store {
         write_atomically(&path, &text)
     }
 
+    /// The icon a plugin's manifest names, read from the store: what the page
+    /// draws beside it, and `None` when it declares none or the file is gone.
+    pub fn icon(&self, entry: &LockEntry, manifest: &PluginManifest) -> Option<Vec<u8>> {
+        let icon = manifest.icon.as_ref()?;
+        let directory = self.store_dir(entry)?;
+        let name = manifest.resolve(icon)?;
+        fs::read(directory.join(name)).ok()
+    }
+
     /// The manifest a lock entry names, read from the content-addressed store.
     pub fn manifest(&self, entry: &LockEntry) -> Result<PluginManifest> {
         let text = self.manifest_text(entry)?;

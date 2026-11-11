@@ -59,9 +59,10 @@ pub struct Installed {
     pub description: String,
     pub authors: Vec<String>,
     pub version: String,
-    /// The address of its icon, which the page asks `PictureStore` for while
-    /// the icon is on screen; `None` shows its initial.
-    pub icon: Option<String>,
+    /// The icon's own bytes, when its manifest named one and the install kept
+    /// it. The page draws its initial instead when this is `None`, so a plugin
+    /// without one still has a face in a list that expects one.
+    pub icon: Option<Vec<u8>>,
     pub enabled: bool,
     pub status: Status,
     /// A newer version on its ref; see [`Update`].
@@ -1162,7 +1163,8 @@ impl Source for Fixture {
                     id: review.id,
                     name: review.name,
                     version: review.version,
-                    icon: review.icon,
+                    // The sample has no bytes for it; the page draws the initial.
+                    icon: None,
                     enabled: true,
                     status: Status::Idle,
                     origin: if review.reviewed {

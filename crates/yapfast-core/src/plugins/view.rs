@@ -51,7 +51,7 @@ impl Bridge {
                     description: listed.manifest.description.clone().unwrap_or_default(),
                     authors: listed.manifest.authors.clone(),
                     version: listed.manifest.version.to_string(),
-                    icon: None,
+                    icon: store.icon(&entry, &listed.manifest),
                     enabled: listed.enabled,
                     status: status(&listed.status),
                     update: None,

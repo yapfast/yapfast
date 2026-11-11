@@ -20,7 +20,9 @@ export struct InstalledRow {
     id: string,
     name: string,
     initial: string,
-    icon-url: string,
+    /// Its icon, decoded; empty draws the initial instead, so every plugin has
+    /// a face whether or not it declared one.
+    picture: image,
     /// "by Ada · v1.4.0".
     byline: string,
     status: string,
@@ -90,7 +92,7 @@ export struct PluginDetail {
     id: string,
     name: string,
     initial: string,
-    icon-url: string,
+    picture: image,
     byline: string,
     description: string,
     status: string,
@@ -144,6 +146,11 @@ export struct PluginReview {
 export global PluginPage {
     /// This build has plugins: Settings lists the page.
     in property <bool> available;
+    /// How the Installed tab draws plugins: 0 a vertical list, 1 cards.
+    in-out property <int> view: 0;
+    /// The installed plugins as cards, in pairs, so a grid of them needs no
+    /// wrapping layout.
+    in property <[[InstalledRow]]> card-rows;
     /// 0 Marketplace, 1 Installed, 2 Add from URL.
     in property <int> tab: 1;
     in property <[InstalledRow]> installed;
@@ -177,6 +184,8 @@ export global PluginPage {
     callback opened();
     callback closed();
     callback tab-chosen(int);
+    /// 0 a vertical list, 1 cards.
+    callback view-chosen(int);
     callback search(string);
     callback category-chosen(int);
     callback set-enabled(string, bool);
@@ -405,7 +414,7 @@ component InstalledRow inherits Rectangle {
     }
     HorizontalLayout {
         padding: 12px; spacing: 12px;
-        Middle { PluginIcon { initial: root.plugin.initial; picture-url: root.plugin.icon-url; } }
+        Middle { PluginIcon { initial: root.plugin.initial; picture: root.plugin.picture; } }
         VerticalLayout {
             alignment: center; spacing: 2px; horizontal-stretch: 1;
             Text { text: root.plugin.name; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; }
@@ -423,6 +432,55 @@ component InstalledRow inherits Rectangle {
                 label: "Enable " + root.plugin.name;
                 toggled(on) => { PluginPage.set-enabled(root.plugin.id, on); }
             }
+        }
+    }
+}
+
+// A plugin as a card: the same facts as a row, with room for its byline and the
+// line it logged last, laid out to be scanned in a grid.
+component InstalledCard inherits Rectangle {
+    in property <InstalledRow> plugin;
+    min-height: 124px; border-radius: 12px;
+    background: open.has-hover || focus.has-focus ? Theme.hover : Theme.sidebar;
+    border-width: focus.has-focus ? 2px : 0px; border-color: Theme.accent;
+    focus := FocusScope {
+        accessible-role: button;
+        accessible-label: root.plugin.name + ", " + root.plugin.status;
+        accessible-description: "Opens its page";
+        accessible-action-default => { PluginPage.open-plugin(root.plugin.id); }
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" { PluginPage.open-plugin(root.plugin.id); return accept; }
+            return reject;
+        }
+        open := TouchArea { mouse-cursor: pointer; clicked => { PluginPage.open-plugin(root.plugin.id); } }
+    }
+    VerticalLayout {
+        padding: 14px; spacing: 8px;
+        HorizontalLayout {
+            spacing: 10px;
+            Middle { PluginIcon { size: 44px; corner: 11px; initial: root.plugin.initial; picture: root.plugin.picture; } }
+            VerticalLayout {
+                spacing: 2px; horizontal-stretch: 1;
+                Text { text: root.plugin.name; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; }
+                Text { text: root.plugin.byline; color: Theme.muted; font-size: 12px; overflow: elide; }
+            }
+            Middle {
+                SettingsSwitch {
+                    horizontal-stretch: 0; checked: root.plugin.enabled; controlled: true;
+                    label: "Enable " + root.plugin.name;
+                    toggled(on) => { PluginPage.set-enabled(root.plugin.id, on); }
+                }
+            }
+        }
+        Text { text: root.plugin.status; color: PluginPage.ink(root.plugin.tone); font-size: 13px; overflow: elide; }
+        if root.plugin.log != "": Text {
+            text: root.plugin.log;
+            color: root.plugin.log-error ? Theme.danger-text : Theme.faint;
+            font-size: 12px; font-family: "monospace"; overflow: elide;
+        }
+        if root.plugin.update != "": ActionButton {
+            text: "Update"; label: "Update " + root.plugin.name + " to v" + root.plugin.update; small: true;
+            clicked => { PluginPage.update(root.plugin.id); }
         }
     }
 }
@@ -593,7 +651,7 @@ component PluginDetailView inherits VerticalLayout {
     }
     HorizontalLayout {
         spacing: 12px;
-        Middle { PluginIcon { size: 56px; corner: 14px; initial: PluginPage.detail.initial; picture-url: PluginPage.detail.icon-url; } }
+        Middle { PluginIcon { size: 56px; corner: 14px; initial: PluginPage.detail.initial; picture: PluginPage.detail.picture; } }
         VerticalLayout {
             alignment: center; spacing: 2px; horizontal-stretch: 1;
             Text { text: PluginPage.detail.name; color: Theme.text; font-size: 20px; font-weight: 700; overflow: elide; }
@@ -848,7 +906,28 @@ export component PluginSettings inherits Rectangle {
                     text: "No plugins yet. Find one in the Marketplace, or add one from its git repository.";
                     font-size: 14px;
                 }
-                for plugin in PluginPage.installed: InstalledRow { plugin: plugin; }
+                if PluginPage.installed.length > 0: HorizontalLayout {
+                    vertical-stretch: 0; alignment: end;
+                    middle := Rectangle { horizontal-stretch: 1; }
+                    Middle {
+                        Choices {
+                            label: "Show plugins as"; options: ["List", "Cards"];
+                            current: PluginPage.view; controlled: true;
+                            chosen(index) => { PluginPage.view-chosen(index); }
+                        }
+                    }
+                }
+                if PluginPage.view == 0: VerticalLayout {
+                    spacing: 8px;
+                    for plugin in PluginPage.installed: InstalledRow { plugin: plugin; }
+                }
+                if PluginPage.view == 1: VerticalLayout {
+                    spacing: 8px;
+                    for pair in PluginPage.card-rows: HorizontalLayout {
+                        spacing: 8px;
+                        for plugin in pair: InstalledCard { plugin: plugin; horizontal-stretch: 1; }
+                    }
+                }
                 if PluginPage.memory != "": Label { text: PluginPage.memory; }
             }
         }

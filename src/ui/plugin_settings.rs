@@ -32,6 +32,8 @@ struct Page {
     /// The category chosen, 0 for all.
     category: usize,
     tab: i32,
+    /// 0 a vertical list, 1 cards.
+    view: i32,
     /// The open plugin's settings form, while its page shows.
     form: Option<FormModel>,
 }
@@ -52,6 +54,36 @@ struct FormModel {
 
 thread_local! {
     static PAGE: RefCell<Option<Page>> = const { RefCell::new(None) };
+    /// Decoded plugin icons, by plugin and by the length of the bytes: reading
+    /// and decoding a picture on every redraw would spend the page's time on
+    /// something that changes only when a plugin is installed.
+    static ICONS: RefCell<HashMap<(String, usize), slint::Image>> = RefCell::new(HashMap::new());
+}
+
+/// A plugin's icon, or the empty image that draws its initial instead.
+fn icon_image(plugin: &Installed) -> slint::Image {
+    let Some(bytes) = plugin.icon.as_deref() else {
+        return slint::Image::default();
+    };
+    let key = (plugin.id.clone(), bytes.len());
+    if let Some(image) = ICONS.with_borrow(|icons| icons.get(&key).cloned()) {
+        return image;
+    }
+    let Ok(picture) = image::load_from_memory(bytes) else {
+        tracing::warn!(plugin = %plugin.id, "its icon isn't a picture this build can read");
+        return slint::Image::default();
+    };
+    let picture = picture.into_rgba8();
+    let (width, height) = picture.dimensions();
+    let image = slint::Image::from_rgba8(slint::SharedPixelBuffer::clone_from_slice(
+        picture.as_raw(),
+        width,
+        height,
+    ));
+    ICONS.with_borrow_mut(|icons| {
+        icons.insert(key, image.clone());
+    });
+    image
 }
 
 /// Gives the page the plugin runtime to show: the one place it plugs in.
@@ -145,6 +177,7 @@ impl Page {
             query: String::new(),
             category: 0,
             tab: 1,
+            view: 0,
             form: None,
         }
     }
@@ -272,6 +305,11 @@ fn bind_page(window: &YapfastWindow) {
             });
         });
     }
+    // How the Installed tab draws plugins: a list to read down, cards to scan
+    // across. The page keeps the choice for as long as it is open.
+    on!(on_view_chosen(index) => |page| {
+        page.view = index;
+    });
     on!(on_tab_chosen(tab) => |page| {
         page.tab = tab;
         if tab == 0 {
@@ -510,7 +548,7 @@ fn row(plugin: &Installed) -> InstalledRow {
         id: plugin.id.as_str().into(),
         name: plugin.name.as_str().into(),
         initial: initial(&plugin.name),
-        icon_url: plugin.icon.clone().unwrap_or_default().into(),
+        picture: icon_image(plugin),
         byline: byline(&authors(&plugin.authors), &plugin.version).into(),
         status: plugin.status.text().into(),
         tone: tone(plugin.status.tone()),
@@ -546,7 +584,7 @@ fn detail(plugin: &Installed) -> PluginDetail {
         id: plugin.id.as_str().into(),
         name: plugin.name.as_str().into(),
         initial: initial(&plugin.name),
-        icon_url: plugin.icon.clone().unwrap_or_default().into(),
+        picture: icon_image(plugin),
         byline: byline(&authors(&plugin.authors), &plugin.version).into(),
         description: plugin.description.as_str().into(),
         status: plugin.status.text().into(),
@@ -694,9 +732,14 @@ fn show(window: &YapfastWindow, page: &mut Page) {
     global.set_helper_tone(tone(helper_tone));
     global.set_memory(memory.into());
 
-    global.set_installed(ModelRc::new(VecModel::from(
-        view.installed.iter().map(row).collect::<Vec<_>>(),
-    )));
+    let rows: Vec<InstalledRow> = view.installed.iter().map(row).collect();
+    let mut cards: Vec<ModelRc<InstalledRow>> = Vec::new();
+    for pair in rows.chunks(2) {
+        cards.push(ModelRc::new(VecModel::from(pair.to_vec())));
+    }
+    global.set_installed(ModelRc::new(VecModel::from(rows)));
+    global.set_card_rows(ModelRc::new(VecModel::from(cards)));
+    global.set_view(page.view);
     let open = page.plugin.as_deref().and_then(|id| view.plugin(id));
     global.set_detail_open(open.is_some());
     if let Some(plugin) = open {
