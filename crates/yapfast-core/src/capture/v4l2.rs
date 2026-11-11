@@ -68,7 +68,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 
 use crate::camera;
-use crate::dmabuf::{Descriptor, Plane};
+use crate::dmabuf::{Colour, Descriptor, Matrix, Plane, Range, Transfer};
 
 /// The size and rate a camera shares at, which is the encoder's: another size is
 /// the video processor's to scale, and never this module's.
@@ -128,6 +128,11 @@ const BUF_TIMESTAMP_MONOTONIC: u32 = 0x0000_2000;
 /// `V4L2_FMT_FLAG_COMPRESSED`: the frames in a format are compressed, which is
 /// MJPEG and nothing else here.
 const FMT_COMPRESSED: u32 = 0x0000_0001;
+
+/// `V4L2_QUANTIZATION_FULL_RANGE`: the samples use the whole range of their
+/// depth. The other two, `_DEFAULT` and `_LIM_RANGE`, are the limited range a
+/// stream carries.
+const QUANTIZATION_FULL_RANGE: u32 = 1;
 
 /// `V4L2_FRMSIZE_TYPE_DISCRETE` and `_STEPWISE`, which `V4L2_FRMIVAL_TYPE_*`
 /// spell the same way: one size or interval for an index, or the bounds and step
@@ -309,6 +314,11 @@ struct Format {
     /// The bytes between one row and the next, which is the luma plane's pitch
     /// and, in single-planar NV12, the chroma plane's too.
     stride: u32,
+    /// Whether the device films full-range samples. A camera's pictures are
+    /// 8-bit BT.709; only the range differs between devices, and V4L2's default
+    /// quantization is the driver's own, which a camera answers as the limited
+    /// range a stream carries.
+    full_range: bool,
 }
 
 impl Format {
@@ -321,6 +331,7 @@ impl Format {
             pixelformat,
             bytesperline: stride,
             sizeimage,
+            quantization,
             ..
         } = pix;
         if pixelformat != NV12 {
@@ -345,6 +356,7 @@ impl Format {
             width,
             height,
             stride,
+            full_range: quantization == QUANTIZATION_FULL_RANGE,
         };
         let needed = format.needed();
         if needed > u64::from(u32::MAX) {
@@ -408,6 +420,9 @@ pub struct Picture {
     /// The number the device gave the frame. A gap is a frame the driver dropped,
     /// rather than one that has not arrived.
     sequence: u32,
+    /// The colour the device films in, which the tile pass reads to show the
+    /// picture in the matrix and range it was coded in.
+    colour: Colour,
 }
 
 impl Picture {
@@ -420,6 +435,7 @@ impl Picture {
             fourcc: NV12,
             modifier: LINEAR,
             planes: &self.planes,
+            colour: self.colour,
             fds: &self.fds,
         }
     }
@@ -465,6 +481,15 @@ impl Picture {
             index,
             stamp: stamp(filled),
             sequence: filled.sequence,
+            colour: Colour {
+                range: if format.full_range {
+                    Range::Full
+                } else {
+                    Range::Limited
+                },
+                matrix: Matrix::Bt709,
+                transfer: Transfer::Sdr,
+            },
         }
     }
 }
@@ -1430,6 +1455,7 @@ mod tests {
             width: 1280,
             height: 720,
             stride,
+            full_range: false,
         }
     }
 
