@@ -1,0 +1,11 @@
+/home/desu/Desktop/proj/yapfast-plugins/plugins/ping/target/wasm32-unknown-unknown/debug/deps/extism_pdk-96fadad8de6e805e.d: /home/desu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/extism-pdk-1.4.1/src/lib.rs /home/desu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/extism-pdk-1.4.1/src/macros.rs /home/desu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/extism-pdk-1.4.1/src/extism.rs /home/desu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/extism-pdk-1.4.1/src/memory.rs /home/desu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/extism-pdk-1.4.1/src/to_memory.rs /home/desu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/extism-pdk-1.4.1/src/config.rs /home/desu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/extism-pdk-1.4.1/src/var.rs
+
+/home/desu/Desktop/proj/yapfast-plugins/plugins/ping/target/wasm32-unknown-unknown/debug/deps/libextism_pdk-96fadad8de6e805e.rmeta: /home/desu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/extism-pdk-1.4.1/src/lib.rs /home/desu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/extism-pdk-1.4.1/src/macros.rs /home/desu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/extism-pdk-1.4.1/src/extism.rs /home/desu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/extism-pdk-1.4.1/src/memory.rs /home/desu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/extism-pdk-1.4.1/src/to_memory.rs /home/desu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/extism-pdk-1.4.1/src/config.rs /home/desu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/extism-pdk-1.4.1/src/var.rs
+
+/home/desu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/extism-pdk-1.4.1/src/lib.rs:
+/home/desu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/extism-pdk-1.4.1/src/macros.rs:
+/home/desu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/extism-pdk-1.4.1/src/extism.rs:
+/home/desu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/extism-pdk-1.4.1/src/memory.rs:
+/home/desu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/extism-pdk-1.4.1/src/to_memory.rs:
+/home/desu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/extism-pdk-1.4.1/src/config.rs:
+/home/desu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/extism-pdk-1.4.1/src/var.rs:

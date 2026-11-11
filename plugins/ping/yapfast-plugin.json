@@ -1,0 +1,30 @@
+{
+  "api": 1,
+  "id": "com.example.ping",
+  "name": "Ping",
+  "version": "1.0.0",
+  "description": "Adds /ping, which answers pong",
+  "authors": ["Yapfast"],
+  "license": "GPL-3.0-or-later",
+  "wasm": "plugin.wasm",
+  "activation": {
+    "on": ["command", "menu"]
+  },
+  "permissions": {
+    "capabilities": []
+  },
+  "commands": [
+    {
+      "name": "ping",
+      "description": "Answer pong",
+      "options": []
+    }
+  ],
+  "menus": [
+    {
+      "target": "message",
+      "label": "Ping this message",
+      "action": "ping-message"
+    }
+  ]
+}

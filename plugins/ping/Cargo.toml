@@ -1,0 +1,22 @@
+[package]
+name = "ping"
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Adds /ping, which answers pong"
+license = "GPL-3.0-or-later"
+publish = false
+
+[lib]
+# A plugin is only ever a WebAssembly module, and a cdylib is the crate type
+# that produces one.
+crate-type = ["cdylib"]
+
+[dependencies]
+# In a plugin under this repository the PDK is a path; a plugin of your own
+# depends on the published crate, `yapfast-pdk = "0.1"`.
+yapfast-pdk = { path = "../../pdk/rust" }
+
+# Its own workspace: a plugin is not built by Yapfast, and building it must not
+# need Yapfast's toolchain.
+[workspace]
