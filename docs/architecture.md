@@ -53,7 +53,9 @@ memory otherwise. A camera is captured by libwebrtc's capture module
 (`native/camera.cc`, V4L2 on Linux and DirectShow on Windows) in memory, or, for
 a call, on Linux by `capture/v4l2.rs`, which opens the device itself where it
 films 1280×720 NV12 in buffers it exports, for an encoder that imports a
-DMA-BUF to read each picture where the card holds it. `native/camera_mf.cc` is a
+DMA-BUF — VA-API — to read each picture where the card holds it; where the
+encoder that opens uploads instead, the camera encodes on the processor.
+`native/camera_mf.cc` is a
 Media Foundation camera for Windows, written and neither built nor verified.
 `frames.rs` is the file the worker and the window both map: a
 stream's pictures, and the slots a card-drawn preview is handed over in, which

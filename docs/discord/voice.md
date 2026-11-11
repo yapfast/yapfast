@@ -399,10 +399,14 @@ encoder measures no better at that size and rate once each picture is uploaded
 to it. Where the build can import a DMA-BUF into an encoder and "Encode streams
 with the GPU" in Settings is on, a Linux camera that films 1280×720 as NV12 in
 buffers it exports is filmed by V4L2's own capture (`capture/v4l2.rs`) instead:
-each picture arrives in the driver's own buffer, which the encoder imports and
-reads where the card holds it, so no pixel of it crosses to the processor, and
-the tile showing your own camera reads the same picture converted once a frame
-into I420 planes (`native/camera.cc`'s `yapfast_camera_nv12_to_i420`). A camera
+each picture arrives in the driver's own buffer, and the encoder reads it there
+where that encoder imports a DMA-BUF at all. VA-API does; a machine whose
+camera encoder turns out to be NVENC, Quick Sync or AMF encodes the camera on
+the processor instead, because those upload every picture and x264 measures
+better at that size and rate. Where the picture is read where it lies, no pixel
+of it crosses to the processor, and the tile showing your own camera reads the
+same picture converted once a frame into I420 planes (`native/camera.cc`'s
+`yapfast_camera_nv12_to_i420`). A camera
 that can't be filmed that way stays on the module — a device with no NV12
 format, one whose driver won't export what it films, one that answers with
 another size than the call asks, and every camera on a platform other than
