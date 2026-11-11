@@ -103,21 +103,14 @@ export struct RoomRow {
 }
 
 // A call going on in a server: a white speaker on green, on a thin ring of
-// the rail's colour, at the top right of its icon. The speaker is drawn bold,
-// and a dark copy of it a pixel lower is its shadow, which the light green
-// needs at this size.
+// the rail's colour, at the top right of its icon, as Discord marks it.
 component CallBubble inherits Rectangle {
     width: 20px; height: 20px; border-radius: self.width / 2;
     background: Theme.rail;
     Rectangle {
         width: 16px; height: 16px; border-radius: self.width / 2;
         background: Theme.live;
-        Image {
-            x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2 + 1px;
-            source: @image-url("icons/volume-2-bold.svg"); width: 12px; height: 12px;
-            colorize: #000000; opacity: 0.45;
-        }
-        Image { source: @image-url("icons/volume-2-bold.svg"); width: 12px; height: 12px; colorize: #ffffff; }
+        Image { source: @image-url("icons/voice-badge.svg"); width: 11px; height: 11px; colorize: #ffffff; }
     }
 }
 
