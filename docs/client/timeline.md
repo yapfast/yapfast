@@ -108,8 +108,9 @@ slash command, where one may write, is written in the composer
   picture clicked shows large (`image_viewer.rs`):
   the core's full picture once it
   comes, the preview until then at the size it opened at, fitted beside
-  its bars; its name and place among the message's pictures, Save and
-  Close above, round buttons and the arrow keys stepping through them, a
+  its bars; its name and place among the conversation's loaded pictures
+  (`AppState::viewer_images`), Save and Close above, round buttons and the
+  arrow keys stepping through them from message to message, a
   note while the full one loads or why it can't; Escape, Close or a click
   outside closes it, and the core lets go of it. A right click on a
   picture or video, there or in the timeline, offers Copy Image, Save

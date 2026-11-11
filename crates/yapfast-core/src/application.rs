@@ -925,6 +925,35 @@ impl AppState {
         self.selected.as_ref().and_then(|id| self.compose.get(id))
     }
 
+    /// Every image the image viewer steps through from the one it shows:
+    /// those of the loaded messages of its conversation, the timeline or
+    /// the thread beside it, in order, each by its message and its place
+    /// there.
+    pub fn viewer_images(&self) -> Vec<(&str, usize)> {
+        let Some(viewer) = &self.viewer else {
+            return vec![];
+        };
+        let in_timeline = self
+            .messages
+            .iter()
+            .any(|message| message.item == viewer.item);
+        let messages: &[Arc<ChatMessage>] = match &self.aside {
+            Some(aside) if !in_timeline => &aside.messages[..],
+            _ => &self.messages[..],
+        };
+        messages
+            .iter()
+            .flat_map(|message| {
+                message
+                    .attachments
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, attachment)| attachment.image)
+                    .map(|(index, _)| (message.item.as_str(), index))
+            })
+            .collect()
+    }
+
     /// A message the selected room or the thread beside it shows.
     pub fn message(&self, item: &str) -> Option<&ChatMessage> {
         self.messages

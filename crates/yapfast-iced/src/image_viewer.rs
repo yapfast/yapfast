@@ -250,14 +250,12 @@ impl<'a> View<'a> {
         let picture = RightPress::new(picture, move |_| {
             Message::Image(Event::Menu(item.clone(), index, false))
         });
-        let images: Vec<usize> = message
-            .attachments
+        // Its place among the conversation's pictures, which the arrows
+        // step through from message to message.
+        let images = state.viewer_images();
+        let place = images
             .iter()
-            .enumerate()
-            .filter(|(_, attachment)| attachment.image)
-            .map(|(index, _)| index)
-            .collect();
-        let place = images.iter().position(|index| *index == viewer.index);
+            .position(|(item, index)| *item == viewer.item && *index == viewer.index);
         let mut buttons: Vec<Element<'a, Message>> = Vec::new();
         if !state.preview {
             buttons.push(

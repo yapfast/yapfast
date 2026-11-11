@@ -269,7 +269,10 @@ Yapfast is back, rather than showing an error.
   open in the browser. Other pictures, the thumbnail beside the text too,
   open in the image viewer, where a right click on the picture
   offers Copy Image, Save Image, Copy Link and Open Link, as the message's
-  menu does. A linked image or GIF
+  menu does. The arrows beside the picture, and the Left and Right keys, step
+  through every image of the conversation's loaded messages, not only the
+  clicked message's, round from the last to the first, a Yapfast addition.
+  A linked image or GIF
   shows with the message's images, without its address when that's all the
   message says. A link straight to a video file, which Discord embeds as the
   video alone, plays under the message as an attached video does, its first
