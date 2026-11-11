@@ -59,3 +59,9 @@ pub const MAX_CRASHES: u32 = 3;
 
 /// Consent dialogs one plugin may have open, and denials that silence it.
 pub const MAX_DENIALS_BEFORE_SILENCE: u32 = 3;
+
+/// How long an unanswered consent dialog counts as open. Past it the question is
+/// put again rather than the host being refused for good: a window closed by
+/// accident is not an answer, and the alternative is a plugin that only works
+/// again once someone edits its grants file.
+pub const CONSENT_WINDOW_MS: u64 = 120_000;

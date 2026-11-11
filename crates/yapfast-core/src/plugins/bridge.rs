@@ -1569,6 +1569,9 @@ impl Session {
             return;
         };
         let writer = self.writer.clone();
+        // The task outlives this call, so it owns what it reports through
+        // rather than borrowing a reference the caller is about to drop.
+        let shared = Arc::clone(shared);
         tokio::spawn(async move {
             let answer = match gate.fetch(&plugin, request, response_cap).await {
                 Ok(crate::plugins::network::Outcome::Done(answer)) => {
@@ -1582,6 +1585,12 @@ impl Session {
                 // The gate asks rather than holds the request open: the person
                 // answers about the host, and the plugin asks again.
                 Ok(crate::plugins::network::Outcome::AwaitingConsent { host }) => {
+                    // The person is asked by a page rather than by a dialog
+                    // this thread holds open, so the ask travels as a notice.
+                    shared.announce(Notice::Consent {
+                        plugin: plugin.clone(),
+                        host: host.to_string(),
+                    });
                     HostReturn::Denied {
                         reason: format!(
                             "{plugin} wants to reach {host}, which you haven't allowed yet"

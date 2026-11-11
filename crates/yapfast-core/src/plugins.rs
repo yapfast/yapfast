@@ -33,6 +33,7 @@ pub mod slots;
 pub mod spawn;
 pub mod state;
 pub mod store;
+pub mod transport;
 pub mod ui;
 
 pub use state::PluginState;

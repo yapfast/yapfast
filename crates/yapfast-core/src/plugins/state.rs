@@ -26,6 +26,8 @@ use crate::plugins::bridge;
 pub struct PluginState {
     /// The bridge's half: the registry, the helper and its mailboxes.
     bridge: bridge::Bridge,
+    /// What the person has allowed, which the gate asks and a page answers.
+    grants: Arc<crate::plugins::grants::Grants>,
 }
 
 /// Something the plugin system did, for the application to act on.
@@ -46,6 +48,12 @@ pub enum Notice {
     },
     /// A command answered with a line for the person, or failed with a reason.
     Command { plugin: PluginId, text: String },
+    /// A plugin wants a host the person hasn't allowed, so a page can ask.
+    ///
+    /// The gate asks rather than holding the request open, and the plugin asks
+    /// again once the answer is in; without this the ask had nowhere to go and
+    /// the plugin waited on a dialog that was never shown.
+    Consent { plugin: PluginId, host: String },
 }
 
 /// What `pre_send` decided about an outgoing message.
@@ -66,9 +74,39 @@ impl PluginState {
     /// `wake` is called with every [`Notice`]; the application turns it into an
     /// event, so a hook's answer arrives without a poll.
     pub fn open(data_dir: &Path, wake: Arc<dyn Fn(Notice) + Send + Sync>) -> anyhow::Result<Self> {
-        Ok(PluginState {
-            bridge: bridge::Bridge::open(data_dir, wake)?,
-        })
+        let mut bridge = bridge::Bridge::open(data_dir, wake)?;
+        // The gate is this side's to build. It holds the grants and opens the
+        // socket, because the helper has neither a person to ask nor a client
+        // to open one with; until it is installed here, every `http.fetch`
+        // answers `unsupported` and no plugin can reach the network at all.
+        let grants = Arc::new(crate::plugins::grants::Grants::load(data_dir.join("grants.json"))?);
+        let gate = Arc::new(
+            crate::plugins::network::NetworkGate::new(
+                Arc::clone(&grants),
+                Arc::new(crate::plugins::transport::PinnedTransport),
+                data_dir.join("plugins-http"),
+            )
+            .with_resolver(Arc::new(crate::plugins::network::SystemResolver)),
+        );
+        bridge.install_network(gate);
+        Ok(PluginState { bridge, grants })
+    }
+
+    /// What the person has allowed, for the page that asks and revokes.
+    pub fn grants(&self) -> &Arc<crate::plugins::grants::Grants> {
+        &self.grants
+    }
+
+    /// Records the answer to a consent ask, so the plugin's next request is
+    /// allowed or refused rather than waiting for a dialog nobody saw.
+    pub fn answer_consent(
+        &self,
+        plugin: &PluginId,
+        host: &yapfast_plugin_api::capability::HostPattern,
+        allow: bool,
+        lasts: crate::plugins::grants::Lasts,
+    ) -> anyhow::Result<()> {
+        self.grants.answer(plugin, host, allow, lasts)
     }
 
     /// Whether an enabled plugin intercepts outgoing messages.

@@ -28,6 +28,8 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use yapfast_plugin_api::PluginId;
 use yapfast_plugin_api::capability::HostPattern;
+use std::time::{Duration, Instant};
+
 use yapfast_plugin_api::limits;
 
 /// The shape of `grants.json`. A file with another number was written by
@@ -86,8 +88,12 @@ struct Runtime {
     denials: u32,
     /// Prompts refused without asking, once its dialogs were silenced.
     silenced: u32,
-    /// The host whose dialog is open, if one is.
+    /// The host whose dialog is open, if one is, and when it opened. A dialog
+    /// left unanswered stops counting after [`limits::CONSENT_WINDOW_MS`], so a
+    /// window closed by accident doesn't silence the plugin until someone edits
+    /// `grants.json`.
     open: Option<HostPattern>,
+    opened_at: Option<Instant>,
 }
 
 #[derive(Debug, Default)]
@@ -204,11 +210,21 @@ impl Grants {
                 ),
             };
         }
+        // A dialog that has been open longer than the window is treated as
+        // dismissed: the person isn't looking at it, and treating it as an
+        // answer would refuse the host for good on nobody's word.
+        if let Some(opened_at) = runtime.opened_at
+            && opened_at.elapsed() >= Duration::from_millis(limits::CONSENT_WINDOW_MS)
+        {
+            runtime.open = None;
+            runtime.opened_at = None;
+        }
         match &runtime.open {
             Some(open) if open == host => Ask::Joined,
             Some(_) => Ask::Busy,
             None => {
                 runtime.open = Some(host.clone());
+                runtime.opened_at = Some(Instant::now());
                 Ask::Asked
             }
         }

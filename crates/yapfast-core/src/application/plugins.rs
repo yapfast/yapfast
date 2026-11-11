@@ -329,6 +329,16 @@ impl Application {
             News::Notice(Notice::Status { plugin, status }) => {
                 vec![AppEffect::Plugin(Effect::Status { plugin, status })]
             }
+            // A host the plugin wants and nobody has allowed: the person hears
+            // of it where they are looking, and the plugin's page is where it is
+            // allowed. The request itself was answered with a refusal, so the
+            // plugin asks again after the window rather than hanging.
+            News::Notice(Notice::Consent { plugin, host }) => {
+                self.state.notice = Some(format!(
+                    "{plugin} wants to reach {host}, which you haven't allowed yet"
+                ));
+                Vec::new()
+            }
             // A command's answer is a line in the conversation it was typed in,
             // and a failure says why where the person is looking.
             News::Notice(Notice::Command { text, .. }) => {

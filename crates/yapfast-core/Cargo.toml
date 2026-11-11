@@ -21,11 +21,11 @@ discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "
 # whose member menu they check.
 test-fixtures = []
 # The plugin system: manifests, the changes they make to the interface and
-# their settings (docs/plugins.md), and a bridge to the `yapfast-plugins`
+# their settings (docs/plugins/interface.md), and a bridge to the `yapfast-plugins`
 # helper, the registry of what is enabled, and the permissions and network
 # gate in front of it. Off by default; a build without it carries no plugin
 # state.
-plugins = ["dep:regex", "dep:yapfast-plugin-api", "dep:sha2"]
+plugins = ["dep:regex", "dep:reqwest", "dep:yapfast-plugin-api", "dep:sha2"]
 
 [dependencies]
 anyhow.workspace = true
@@ -38,6 +38,9 @@ base64 = { version = "0.22", optional = true }
 # weights (MIT/Apache-2.0, 8 MB) into Yapfast.
 deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet", rev = "d375b2d8309e0935d165700c91da9de862a99c31", default-features = false, features = ["tract", "default-model"], optional = true }
 directories.workspace = true
+# A plugin's own HTTP, through the gate: the same TLS stack Discord's client
+# uses, and no cookie jar, because nothing is kept between a plugin's requests.
+reqwest = { version = "0.13", default-features = false, features = ["http2", "rustls-no-provider", "stream"], optional = true }
 futures-util.workspace = true
 # Decode received images with bounded dimensions before the UI sees them.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
