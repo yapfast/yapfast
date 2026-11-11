@@ -44,7 +44,7 @@ mod places;
 #[cfg(feature = "plugins")]
 mod plugin_page;
 #[cfg(feature = "plugins")]
-pub(crate) mod plugins;
+pub mod plugins;
 mod polls;
 mod preview;
 mod profile_editor;
@@ -2909,12 +2909,17 @@ impl Application {
     /// runtime; a closed notice or toast goes from the interface at once.
     #[cfg(feature = "plugins")]
     fn plugin_input(&mut self, input: crate::plugins::Input) -> Vec<Effect> {
+        let mut effects = Vec::new();
         if let crate::plugins::Input::Dismissed { plugin, slot } = &input
             && let Some(slots) = &mut self.state.plugin_slots
+            && slots.clear(plugin, *slot)
         {
-            slots.clear(plugin, *slot);
+            // It leaves the screen now rather than when the plugin next draws:
+            // the person closed it, and the plugin hears about it afterwards.
+            effects.push(Effect::Plugin(crate::application::plugins::Effect::Slots));
         }
-        vec![Effect::PluginInput(input)]
+        effects.push(Effect::PluginInput(input));
+        effects
     }
 
     pub fn dispatch(&mut self, action: Action) -> Vec<Effect> {

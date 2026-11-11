@@ -300,6 +300,7 @@ impl Adapter {
                 Slot::Toast => window.set_plugin_toasts(model),
                 Slot::Composer => window.set_plugin_composer(model),
                 Slot::HoverBar => window.set_plugin_hover(model),
+                Slot::Dialog => window.set_plugin_dialogs(model),
                 // Rows of messages, above.
                 Slot::Message => {}
             }

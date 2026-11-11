@@ -216,8 +216,9 @@ input of a widget one of its settings draws when that was what the person used.
 
 The methods are names, so adding one never changes the link surface. `storage`,
 `settings`, `http`, `timers`, `app`, `account`, the `rooms`, `messages` and
-`people` reads, and the `plugin` group have typed payloads in the contract crate,
-because they are the calls the runtime answers. Every other name the ABI lists —
+`people` reads, the `ui` calls and the `plugin` group have typed payloads in
+the contract crate, because they are the calls the runtime answers. Every
+other name the ABI lists —
 `messages.send`, `edit`, `delete`, `react` and `jump_to`, the `composer` calls,
 `notify.send`, `clipboard.write` and `open.url` — is named from the first version
 so a plugin can feature-detect it, and answers `unsupported` until the runtime
@@ -280,6 +281,24 @@ question about a room that isn't open is answered with an error saying so, and
 `rooms.selected` names the one that is. Each read needs the capability
 [`permissions.md`](permissions.md) gives it, and one answer is one frame: a page
 stops at 1 MiB rather than being cut.
+
+The `ui` calls take a widget tree, the rows of cells
+[`interface.md`](interface.md#widget-trees) describes, as JSON:
+
+| Method | Payload | Answer |
+| --- | --- | --- |
+| `ui.set_slot` | `{ "slot": "banner", "tree": { … } }` | `{ "drawn": true }`, or `{ "drawn": false, "reason": … }` for a slot this build has no place for, a tree over its cap, or one that isn't a tree |
+| `ui.clear_slot` | `{ "slot": "banner" }` | `{ "drawn": true }` |
+| `ui.notice` | `{ "text": "…" }`, markdown | `{ "drawn": true }`; an empty line is an error |
+| `ui.toast` | `{ "text": "…" }`, plain text | `{ "drawn": true }` |
+| `ui.open_dialog` | `{ "tree": { … } }` | `{ "drawn": true }`; a second dialog from one plugin replaces the first |
+
+A drawing doesn't wait for the interface: the call is answered as soon as the
+tree is checked, and what reaches the screen is coalesced to a frame and capped
+at ten a second per plugin. The slots a plugin may name are `banner`, `toast`,
+`composer`, `message.actions` and `dialog`; `message` answers that what a plugin
+draws under a message is a `message.decorate` answer, not a slot. None of them
+needs a capability: §9.1 of the plan gives every plugin its own slots.
 
 Every host call is a request the parent answers, because the parent holds the
 token, the network gate and the consent dialogs, and the guest's function is

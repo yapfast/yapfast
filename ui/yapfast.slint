@@ -1,7 +1,7 @@
 import { AccountPopover } from "yapfast/account-popover.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { UiParts } from "yapfast/parts.slint";
-import { PluginPart, PluginBanner, PluginToast, PluginButtons } from "plugins.slint";
+import { PluginPart, PluginBanner, PluginToast, PluginButtons, PluginDialog } from "plugins.slint";
 import { WindowBar } from "yapfast/window-bar.slint";
 import { Palette } from "std-widgets.slint";
 import { ListView, Autoscroll, AutoscrollMarker } from "scrollview.slint";
@@ -371,6 +371,9 @@ export component YapfastWindow inherits Window {
     /// on a message's hover bar. Empty without plugins.
     in property <[PluginPart]> plugin-banners;
     in property <[PluginPart]> plugin-toasts;
+    /// A plugin's question, over the window until it's dismissed. One per
+    /// plugin, so a second from the same plugin replaces the first.
+    in property <[PluginPart]> plugin-dialogs;
     in property <[PluginPart]> plugin-composer;
     in property <[PluginPart]> plugin-hover;
     /// The person used a plugin's widget: the plugin, its slot, the
@@ -5153,4 +5156,19 @@ export component YapfastWindow inherits Window {
         y: max(4px, BadgeTip.y - self.height - 10px);
     }
     if Autoscroll.shown: AutoscrollMarker {}
+    // What a plugin asks, over everything and behind a scrim that takes the
+    // clicks: it is a question, so nothing behind it answers until it's
+    // dismissed.
+    if root.plugin-dialogs.length > 0: Rectangle {
+        background: #00000066;
+        TouchArea { }
+        VerticalLayout {
+            alignment: center; spacing: 12px; padding: 24px;
+            for part in root.plugin-dialogs: PluginDialog {
+                part: part;
+                acted(plugin, slot, id, value, subject) => { root.plugin-acted(plugin, slot, id, value, subject); }
+                dismissed(plugin, slot) => { root.plugin-dismissed(plugin, slot); }
+            }
+        }
+    }
 }

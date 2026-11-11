@@ -2818,6 +2818,14 @@ impl Adapter {
                 Effect::Plugin(yapfast_core::application::plugins::Effect::Consent(ask)) => {
                     self.plugin_consent(ask)
                 }
+                // What a plugin drew, or what was taken away: the slots that
+                // moved are shown again, and no others.
+                #[cfg(feature = "plugins")]
+                Effect::Plugin(yapfast_core::application::plugins::Effect::Slots) => {
+                    if let Some(window) = self.window.upgrade() {
+                        self.show_plugin_slots(&window);
+                    }
+                }
                 // The Plugins page holds a copy of the runtime's view: hand it a
                 // fresh one, which redraws the page if it's open.
                 #[cfg(feature = "plugins")]

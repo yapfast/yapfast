@@ -30,9 +30,10 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use yapfast_plugin_api::call::{
-    self, CommandInvocation, CommandOutcome, HostCall, HostReturn, HttpRequest, MessageGet,
-    MessageHistory, PeopleGet, PeopleMember, PluginCall, PluginSubscribe, RoomGet, RoomsList,
-    SettingsNews, StorageGet, StorageList, StorageSet, TimerCancel, TimerRequest,
+    self, ClearSlot, CommandInvocation, CommandOutcome, HostCall, HostReturn, HttpRequest, Line,
+    MessageGet, MessageHistory, OpenDialog, PeopleGet, PeopleMember, PluginCall, PluginSubscribe,
+    RoomGet, RoomsList, SetSlot, SettingsNews, SlotDrawn, StorageGet, StorageList, StorageSet,
+    TimerCancel, TimerRequest,
 };
 use yapfast_plugin_api::capability::{Capability, HostPattern};
 use yapfast_plugin_api::event::{EventEnvelope, EventKind, TopicEvent};
@@ -47,6 +48,7 @@ use yapfast_plugin_api::{API_VERSION, PluginId};
 
 use crate::plugins::registry::{Registry, Subscriptions};
 use crate::plugins::settings;
+use crate::plugins::slots::{self, Slot};
 use crate::plugins::spawn::{self, Helper, Restarts};
 use crate::plugins::state::{Notice, PreSend};
 use crate::plugins::store::{Module, Store};
@@ -336,6 +338,10 @@ impl Bridge {
             for id in &turning {
                 self.shared
                     .release_plugin(id, &format!("{id} was turned off"));
+                // And what it drew goes with it: a plugin that isn't running
+                // shows nothing, so the interface is never left with a dead
+                // tree.
+                self.shared.announce(Notice::SlotsGone(id.clone()));
             }
             if self.enabled() {
                 for id in &turning {
@@ -671,6 +677,9 @@ impl Bridge {
         let registry = Registry::load(&self.shared.store());
         *self.shared.registry_mut() = registry;
         self.shared.publish();
+        // What was drawn came from the code that just went; what is drawn next
+        // comes from what the store holds now.
+        self.shared.announce(Notice::SlotsReset);
         for (plugin, status) in self.shared.statuses() {
             self.shared.announce(Notice::Status { plugin, status });
         }
@@ -1150,6 +1159,8 @@ impl Shared {
                 },
             });
         }
+        // A suspended plugin draws nothing: every tree it left is taken away.
+        self.announce(Notice::SlotsReset);
         // The flags the send and event paths read say there is nothing to wait
         // for any more: without this, every message is still serialized and
         // every hook chain still built, for a helper that is gone.
@@ -1440,6 +1451,9 @@ struct Session {
     active: BTreeSet<PluginId>,
     /// Events waiting for their coalescing window, per plugin.
     batches: BTreeMap<PluginId, Batch>,
+    /// What plugins drew since the interface was last given a frame, and when
+    /// it may be given one.
+    painting: Painting,
     /// The timers guests asked for, which live here so a guest can't hold
     /// memory in the helper with them.
     timers: BTreeMap<TimerKey, Timer>,
@@ -1641,6 +1655,97 @@ impl Started {
     }
 }
 
+/// How long a plugin waits between two drawings of the interface: ten a
+/// second, which is what the plan caps them at.
+const PAINT_PERIOD: Duration = Duration::from_millis(100);
+
+/// What plugins drew since the interface was last given a frame.
+///
+/// A plugin can call `ui.set_slot` as often as it likes; what reaches the
+/// interface is one drawing per slot (and per decorated message) each frame,
+/// and at most ten frames a second. The first drawing of an idle plugin goes
+/// straight through, so a notice appears when it's asked for.
+#[derive(Default)]
+struct Painting {
+    /// When the interface may be given what's queued; `None` with nothing
+    /// queued, so the loop has no timer to wake for.
+    due: Option<Instant>,
+    /// The earliest moment the next frame may go, while a plugin keeps
+    /// drawing: what holds it to ten a second.
+    window: Option<Instant>,
+    /// The queued drawings, the last one for a place replacing the one before
+    /// it.
+    drawn: Vec<slots::Output>,
+}
+
+impl Painting {
+    /// Adds a drawing to those waiting for the interface.
+    fn queue(&mut self, now: Instant, output: slots::Output) {
+        if let Some(queued) = self
+            .drawn
+            .iter_mut()
+            .find(|queued| same_place(queued, &output))
+        {
+            *queued = output;
+        } else {
+            self.drawn.push(output);
+        }
+        // The first drawing after the interface has caught up goes at once;
+        // one that arrives inside the frame window waits for its moment.
+        if self.due.is_none() {
+            self.due = Some(self.window.map_or(now, |window| window.max(now)));
+        }
+    }
+
+    /// Everything queued, and the moment the next frame may go.
+    fn take(&mut self, now: Instant) -> Vec<slots::Output> {
+        let drawn = std::mem::take(&mut self.drawn);
+        self.window = (!drawn.is_empty()).then(|| now + PAINT_PERIOD);
+        self.due = None;
+        drawn
+    }
+}
+
+/// Whether two drawings go in the same place: one plugin's tree in one slot,
+/// or what it draws under one message.
+fn same_place(one: &slots::Output, other: &slots::Output) -> bool {
+    match (one, other) {
+        (
+            slots::Output::SetSlot {
+                plugin: one,
+                slot: one_slot,
+                ..
+            }
+            | slots::Output::ClearSlot {
+                plugin: one,
+                slot: one_slot,
+            },
+            slots::Output::SetSlot {
+                plugin: other,
+                slot: other_slot,
+                ..
+            }
+            | slots::Output::ClearSlot {
+                plugin: other,
+                slot: other_slot,
+            },
+        ) => one == other && one_slot == other_slot,
+        (
+            slots::Output::Decorate {
+                plugin: one,
+                message: one_message,
+                ..
+            },
+            slots::Output::Decorate {
+                plugin: other,
+                message: other_message,
+                ..
+            },
+        ) => one == other && one_message == other_message,
+        _ => false,
+    }
+}
+
 impl Session {
     /// Starts a helper and the threads that talk to it.
     fn start(data_dir: &Path) -> Result<Session> {
@@ -1695,6 +1800,7 @@ impl Session {
             loaded: BTreeSet::new(),
             active: BTreeSet::new(),
             batches: BTreeMap::new(),
+            painting: Painting::default(),
             timers: BTreeMap::new(),
             watchers: BTreeMap::new(),
             queued: VecDeque::new(),
@@ -1837,9 +1943,10 @@ impl Session {
         let pending = self.pending.values().map(|pending| pending.deadline).min();
         let batch = self.batches.values().map(|batch| batch.due).min();
         let timer = self.timers.values().map(|timer| timer.due).min();
+        let paint = self.painting.due;
         let save = shared.store().pending_save();
         let dev = self.dev.values().map(|watch| watch.due).min();
-        [pending, batch, timer, save, dev]
+        [pending, batch, timer, paint, save, dev]
             .into_iter()
             .flatten()
             .min()
@@ -1975,6 +2082,7 @@ impl Session {
                 plugin: plugin.clone(),
                 status,
             });
+            shared.announce(Notice::SlotsGone(plugin.clone()));
             return None;
         }
         Some(module)
@@ -2084,6 +2192,14 @@ impl Session {
         }
         let payload = frame_payload(plugin, &batch.events, &batch.topics);
         self.write(FrameKind::Event, 0, payload);
+    }
+
+    /// Hands the interface what plugins drew since the last frame, one message
+    /// per drawing for the application to keep.
+    fn paint(&mut self, shared: &Arc<Shared>, now: Instant) {
+        for output in self.painting.take(now) {
+            shared.announce(Notice::Slot(output));
+        }
     }
 
     /// Runs a hook chain, or holds the send until it answers.
@@ -2915,10 +3031,149 @@ impl Session {
                 },
                 Err(answer) => answer,
             },
+            call::method::UI_SET_SLOT => {
+                let request: SetSlot = match call.parse() {
+                    Ok(request) => request,
+                    Err(error) => return wrong_payload(method, error),
+                };
+                self.paint_slot(plugin, request)
+            }
+            call::method::UI_CLEAR_SLOT => {
+                let request: ClearSlot = match call.parse() {
+                    Ok(request) => request,
+                    Err(error) => return wrong_payload(method, error),
+                };
+                self.clear_paint(plugin, &request.slot)
+            }
+            call::method::UI_NOTICE | call::method::UI_TOAST => {
+                let request: Line = match call.parse() {
+                    Ok(request) => request,
+                    Err(error) => return wrong_payload(method, error),
+                };
+                let slot = if method == call::method::UI_NOTICE {
+                    Slot::Banner
+                } else {
+                    Slot::Toast
+                };
+                self.paint_line(plugin, slot, &request.text)
+            }
+            call::method::UI_OPEN_DIALOG => {
+                let request: OpenDialog = match call.parse() {
+                    Ok(request) => request,
+                    Err(error) => return wrong_payload(method, error),
+                };
+                self.paint_slot(
+                    plugin,
+                    SetSlot {
+                        slot: Slot::Dialog.id().to_owned(),
+                        tree: request.tree,
+                    },
+                )
+            }
             // Everything else is named in the contract so a plugin can
             // feature-detect it, and answers so rather than failing to link.
             _ => HostReturn::Unsupported,
         }
+    }
+
+    /// Draws a tree in a slot, or says why the interface has no place for it.
+    ///
+    /// Nothing here reaches the interface at once: a drawing joins the frame
+    /// that is being gathered, so a plugin that draws on every event still costs
+    /// one update per frame.
+    fn paint_slot(&mut self, plugin: &PluginId, request: SetSlot) -> HostReturn {
+        let Some(slot) = Slot::from_id(&request.slot) else {
+            let named: Vec<&str> = Slot::ALL
+                .into_iter()
+                .filter(|slot| !slot.buttons_only() && *slot != Slot::Message)
+                .map(Slot::id)
+                .collect();
+            return HostReturn::Denied {
+                reason: format!(
+                    "Yapfast has no slot called `{}`; the slots are {}",
+                    request.slot,
+                    named.join(", ")
+                ),
+            };
+        };
+        if slot == Slot::Message {
+            return HostReturn::Denied {
+                reason: "what a plugin draws under a message isn't a slot: it answers \
+                         `message.decorate` with a tree for each message it decorates"
+                    .to_owned(),
+            };
+        }
+        let tree = match crate::plugins::ui::Tree::parse(&request.tree.to_string()) {
+            Ok(tree) => tree,
+            Err(reason) => {
+                return HostReturn::Denied {
+                    reason: format!("the tree can't be drawn: {reason}"),
+                };
+            }
+        };
+        self.painting.queue(
+            Instant::now(),
+            slots::Output::SetSlot {
+                plugin: plugin.to_string(),
+                slot,
+                tree,
+            },
+        );
+        answered(SlotDrawn::yes())
+    }
+
+    /// Takes a plugin's tree out of a slot.
+    fn clear_paint(&mut self, plugin: &PluginId, slot: &str) -> HostReturn {
+        let Some(slot) = Slot::from_id(slot) else {
+            return HostReturn::Denied {
+                reason: format!("Yapfast has no slot called `{slot}`"),
+            };
+        };
+        if slot == Slot::Message {
+            return HostReturn::Denied {
+                reason: "a decoration goes away by answering `message.decorate` with no tree \
+                         for that message"
+                    .to_owned(),
+            };
+        }
+        self.painting.queue(
+            Instant::now(),
+            slots::Output::ClearSlot {
+                plugin: plugin.to_string(),
+                slot,
+            },
+        );
+        answered(SlotDrawn::yes())
+    }
+
+    /// A line for the person under the plugin's name, in the banner slot or the
+    /// toast's.
+    fn paint_line(&mut self, plugin: &PluginId, slot: Slot, text: &str) -> HostReturn {
+        if text.trim().is_empty() {
+            return HostReturn::Error {
+                message: "the line to show is empty".to_owned(),
+            };
+        }
+        let tree = serde_json::json!({
+            "rows": [{ "cells": [{ "kind": "text", "text": text }] }]
+        });
+        let tree = match crate::plugins::ui::Tree::parse(&tree.to_string()) {
+            Ok(tree) => tree,
+            Err(reason) => {
+                return HostReturn::Denied {
+                    reason: format!("the line can't be drawn: {reason}"),
+                };
+            }
+        };
+        self.painting.queue(
+            Instant::now(),
+            slots::Output::SetSlot {
+                plugin: plugin.to_string(),
+                slot,
+                tree,
+            },
+        );
+        answered(SlotDrawn::yes())
     }
 
     /// Registers a timer, which fires a call into the plugin when it comes due.
@@ -3285,6 +3540,9 @@ impl Session {
             .collect();
         for (plugin, folder) in stale {
             self.poll_dev(shared, &plugin, &folder, now);
+        }
+        if self.painting.due.is_some_and(|due| due <= now) {
+            self.paint(shared, now);
         }
         shared.store().flush_due(now);
     }
@@ -3767,6 +4025,7 @@ mod tests {
                 loaded: BTreeSet::new(),
                 active: BTreeSet::new(),
                 batches: BTreeMap::new(),
+                painting: Painting::default(),
                 timers: BTreeMap::new(),
                 watchers: BTreeMap::new(),
                 queued: VecDeque::new(),
@@ -4764,6 +5023,201 @@ mod tests {
     /// One `http.fetch` call, as the helper hands one over.
     fn fetch_call(url: &str) -> HostCall {
         HostCall::new(call::method::HTTP_FETCH, HttpRequest::get(url)).expect("a call")
+    }
+
+    /// A plugin that draws in the interface and needs no capability for it.
+    const PAINTER_MANIFEST: &str = r#"{"api":1,"id":"com.example.painter","name":"Painter",
+        "version":"1.0.0","wasm":"plugin.wasm"}"#;
+
+    /// One `ui.set_slot` call, as the helper hands one over.
+    fn slot_call(slot: &str, tree: serde_json::Value) -> HostCall {
+        HostCall::new(
+            call::method::UI_SET_SLOT,
+            serde_json::json!({ "slot": slot, "tree": tree }),
+        )
+        .expect("a call")
+    }
+
+    /// The tree of one text cell.
+    fn text_tree(text: &str) -> serde_json::Value {
+        serde_json::json!({ "rows": [{ "cells": [{ "text": text }] }] })
+    }
+
+    #[test]
+    fn a_slot_is_drawn_once_a_frame_and_a_slot_that_isnt_there_is_refused() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), PAINTER_MANIFEST, b"not a real module");
+        let (wake, notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, _written, _inbound) = session_stub();
+        let now = Instant::now();
+
+        // A slot this build doesn't have, and the message slot, are refused with
+        // a sentence that says what to use instead: a plugin's author reads it.
+        let answer = session.answer(
+            &shared,
+            &plugin,
+            slot_call("panel", serde_json::json!({ "rows": [] })),
+        );
+        let HostReturn::Denied { reason } = answer else {
+            panic!("a slot that isn't there is refused");
+        };
+        assert!(reason.contains("no slot called `panel`"), "{reason}");
+        assert!(reason.contains("banner"), "{reason}");
+        let answer = session.answer(
+            &shared,
+            &plugin,
+            slot_call("message", serde_json::json!({ "rows": [] })),
+        );
+        let HostReturn::Denied { reason } = answer else {
+            panic!("the message slot is refused");
+        };
+        assert!(reason.contains("message.decorate"), "{reason}");
+
+        // Three drawings of one slot are one frame, and it carries the last.
+        for text in ["first", "second", "third"] {
+            let answer = session.answer(&shared, &plugin, slot_call("banner", text_tree(text)));
+            assert_eq!(answer, answered(SlotDrawn::yes()));
+        }
+        assert!(
+            notices.try_recv().is_err(),
+            "nothing is drawn before its frame"
+        );
+        session.paint(&shared, now);
+        let Notice::Slot(slots::Output::SetSlot { slot, tree, .. }) =
+            notices.recv().expect("the frame's drawing")
+        else {
+            panic!("a slot's tree");
+        };
+        assert_eq!(slot, Slot::Banner);
+        assert_eq!(tree.rows[0].cells[0].text, "third", "the last one wins");
+        assert!(notices.try_recv().is_err(), "one frame, one drawing");
+
+        // A tree over the cap is refused, and nothing is drawn.
+        let rows: Vec<serde_json::Value> = (0..65)
+            .map(|_| serde_json::json!({ "cells": [] }))
+            .collect();
+        let answer = session.answer(
+            &shared,
+            &plugin,
+            slot_call("toast", serde_json::json!({ "rows": rows })),
+        );
+        let HostReturn::Denied { reason } = answer else {
+            panic!("a tree over the cap is refused");
+        };
+        assert!(reason.contains("over 64"), "{reason}");
+        session.paint(&shared, now + PAINT_PERIOD);
+        assert!(notices.try_recv().is_err(), "a refused tree draws nothing");
+    }
+
+    #[test]
+    fn a_line_is_drawn_in_the_banner_or_the_toast_and_an_empty_one_is_an_error() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), PAINTER_MANIFEST, b"not a real module");
+        let (wake, notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, _written, _inbound) = session_stub();
+
+        let empty =
+            HostCall::new(call::method::UI_NOTICE, Line { text: "  ".into() }).expect("a call");
+        assert!(matches!(
+            session.answer(&shared, &plugin, empty),
+            HostReturn::Error { .. }
+        ));
+
+        let notice = HostCall::new(
+            call::method::UI_NOTICE,
+            Line {
+                text: "**hi** there".into(),
+            },
+        )
+        .expect("a call");
+        assert_eq!(
+            session.answer(&shared, &plugin, notice),
+            answered(SlotDrawn::yes())
+        );
+        let toast = HostCall::new(
+            call::method::UI_TOAST,
+            Line {
+                text: "done".into(),
+            },
+        )
+        .expect("a call");
+        assert_eq!(
+            session.answer(&shared, &plugin, toast),
+            answered(SlotDrawn::yes())
+        );
+        session.paint(&shared, Instant::now());
+        let slots: Vec<Slot> = std::iter::from_fn(|| notices.try_recv().ok())
+            .filter_map(|notice| match notice {
+                Notice::Slot(slots::Output::SetSlot { slot, .. }) => Some(slot),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(slots, [Slot::Banner, Slot::Toast]);
+    }
+
+    #[test]
+    fn a_dialog_is_one_slot_a_plugin_opens_one_at_a_time() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), PAINTER_MANIFEST, b"not a real module");
+        let (wake, notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, _written, _inbound) = session_stub();
+
+        for text in ["first", "second"] {
+            let open = HostCall::new(
+                call::method::UI_OPEN_DIALOG,
+                OpenDialog {
+                    tree: text_tree(text),
+                },
+            )
+            .expect("a call");
+            assert_eq!(
+                session.answer(&shared, &plugin, open),
+                answered(SlotDrawn::yes())
+            );
+        }
+        session.paint(&shared, Instant::now());
+        let drawn: Vec<slots::Output> = std::iter::from_fn(|| notices.try_recv().ok())
+            .filter_map(|notice| match notice {
+                Notice::Slot(output) => Some(output),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(drawn.len(), 1, "one dialog for one plugin at a time");
+        let slots::Output::SetSlot { slot, tree, .. } = &drawn[0] else {
+            panic!("a slot's tree");
+        };
+        assert_eq!(*slot, Slot::Dialog);
+        assert_eq!(tree.rows[0].cells[0].text, "second");
+    }
+
+    #[test]
+    fn a_plugin_draws_at_most_ten_frames_a_second_and_a_quiet_one_wakes_nothing() {
+        let now = Instant::now();
+        let mut painting = Painting::default();
+        let output = |text: &str| slots::Output::SetSlot {
+            plugin: "com.example.painter".to_owned(),
+            slot: Slot::Banner,
+            tree: crate::plugins::ui::Tree::parse(&text_tree(text).to_string()).expect("a tree"),
+        };
+
+        painting.queue(now, output("one"));
+        assert_eq!(painting.due, Some(now), "the first drawing goes at once");
+        assert_eq!(painting.take(now).len(), 1);
+        assert_eq!(painting.due, None, "nothing waits, so no timer wakes");
+
+        // Drawing again in the same moment waits for the frame window.
+        painting.queue(now + Duration::from_millis(1), output("two"));
+        assert_eq!(painting.due, Some(now + PAINT_PERIOD));
+        painting.queue(now + Duration::from_millis(2), output("three"));
+        assert_eq!(painting.drawn.len(), 1, "the last tree for a place wins");
+        assert_eq!(
+            painting.take(now + PAINT_PERIOD).len(),
+            1,
+            "ten frames a second, not one per drawing"
+        );
     }
 
     /// How many of `plugin`'s requests for `host` are waiting on a dialog.

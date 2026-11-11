@@ -41,6 +41,11 @@ pub mod method {
     pub const TIMERS_AFTER: &str = "timers.after";
     pub const TIMERS_EVERY: &str = "timers.every";
     pub const TIMERS_CANCEL: &str = "timers.cancel";
+    pub const UI_SET_SLOT: &str = "ui.set_slot";
+    pub const UI_CLEAR_SLOT: &str = "ui.clear_slot";
+    pub const UI_NOTICE: &str = "ui.notice";
+    pub const UI_TOAST: &str = "ui.toast";
+    pub const UI_OPEN_DIALOG: &str = "ui.open_dialog";
 
     // Named now, implemented with their capability.
     pub const MESSAGES_SEND: &str = "messages.send";
@@ -286,6 +291,66 @@ pub struct WidgetInput {
 
 /// `app.version`, `app.locale` and `app.theme_mode`'s answer: each gives the
 /// whole of what Yapfast is, so a plugin asks once and keeps it.
+/// `ui.set_slot`: a widget tree to draw in one of the interface's slots.
+///
+/// `slot` is one of `banner`, `toast`, `composer`, `message.actions` or
+/// `dialog`. `tree` is the widget tree the interface draws: rows of cells,
+/// which `docs/plugins/interface.md` describes. It is untyped here because
+/// the crate that checks it is the parent's.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SetSlot {
+    pub slot: String,
+    pub tree: Value,
+}
+
+/// `ui.set_slot` and `ui.clear_slot`'s answer: whether the interface drew
+/// the tree, and, for what it can't draw, the sentence saying why.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlotDrawn {
+    pub drawn: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl SlotDrawn {
+    /// The interface drew it.
+    pub fn yes() -> Self {
+        Self {
+            drawn: true,
+            reason: None,
+        }
+    }
+
+    /// It didn't, and this is why, in words a plugin's author can read.
+    pub fn no(reason: impl Into<String>) -> Self {
+        Self {
+            drawn: false,
+            reason: Some(reason.into()),
+        }
+    }
+}
+
+/// `ui.clear_slot`: the slot to empty.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClearSlot {
+    pub slot: String,
+}
+
+/// `ui.notice` and `ui.toast`: a line for the person, under the plugin's
+/// name. `text` is markdown for a notice and plain text for a toast.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Line {
+    pub text: String,
+}
+
+/// `ui.open_dialog`: a widget tree to ask the person something with; the
+/// first heading or text row is what the dialog is titled.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct OpenDialog {
+    pub tree: Value,
+}
+
+/// `app.version` and `app.locale`'s answer.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppInfo {
     pub version: String,
