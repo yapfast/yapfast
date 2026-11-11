@@ -107,6 +107,9 @@ impl PluginState {
 
     /// Records the answer to a consent ask, so the plugin's next request is
     /// allowed or refused rather than waiting for a dialog nobody saw.
+    ///
+    /// The requests already waiting on that answer are let go here too: an
+    /// allow makes its request again, and a refusal hands the guest the reason.
     pub fn answer_consent(
         &self,
         plugin: &PluginId,
@@ -114,7 +117,29 @@ impl PluginState {
         allow: bool,
         lasts: crate::plugins::grants::Lasts,
     ) -> anyhow::Result<()> {
-        self.grants.answer(plugin, host, allow, lasts)
+        self.grants.answer(plugin, host, allow, lasts)?;
+        let waiting = self.bridge.answer_consent(plugin, host, allow);
+        if waiting > 0 {
+            tracing::debug!(
+                %plugin,
+                host = %host,
+                waiting,
+                "a consent answer let go the requests that were waiting on it"
+            );
+        }
+        Ok(())
+    }
+
+    /// Takes a host back from a plugin: the gate refuses its next request for
+    /// it, and the requests already waiting about it are refused now.
+    pub fn revoke_host(
+        &self,
+        plugin: &PluginId,
+        host: &yapfast_plugin_api::capability::HostPattern,
+    ) -> anyhow::Result<()> {
+        self.grants.revoke(plugin, host)?;
+        self.bridge.refuse_host(plugin, host);
+        Ok(())
     }
 
     /// Whether an enabled plugin intercepts outgoing messages.
@@ -196,6 +221,12 @@ impl PluginState {
     /// Every plugin's state, for the page that lists them.
     pub fn statuses(&self) -> Vec<(PluginId, PluginStatus)> {
         self.bridge.statuses()
+    }
+
+    /// One plugin's name as its manifest writes it, for the dialog that asks
+    /// about it: a person answers about a name, not about an id.
+    pub fn name(&self, plugin: &PluginId) -> Option<String> {
+        self.bridge.name(plugin)
     }
 
     /// Every installed plugin's manifest, state and recent log, for the page

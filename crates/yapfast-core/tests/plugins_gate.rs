@@ -25,8 +25,8 @@ use futures_util::stream;
 use tokio::sync::Semaphore;
 use yapfast_core::plugins::grants::{Ask, Grants, Lasts};
 use yapfast_core::plugins::network::{
-    Answer, ConnectPlan, MAX_INLINE_BODY_BYTES, NetworkGate, Outcome, Resolver, Served, Transport,
-    address_problem, is_discord_host, read_cap,
+    Answer, Asking, ConnectPlan, MAX_INLINE_BODY_BYTES, NetworkGate, Outcome, Resolver, Served,
+    Transport, address_problem, is_discord_host, read_cap,
 };
 use yapfast_core::plugins::permissions::{self, SendPath};
 use yapfast_plugin_api::PluginId;
@@ -323,7 +323,7 @@ impl Fixture {
     fn done(&self, url: &str) -> Answer {
         match self.fetch(url).expect("the request should be allowed") {
             Outcome::Done(answer) => answer,
-            Outcome::AwaitingConsent { host } => {
+            Outcome::AwaitingConsent { host, .. } => {
                 panic!("expected an answer, not a dialog about {host}")
             }
         }
@@ -531,7 +531,10 @@ fn a_host_nobody_has_answered_about_is_pending_until_it_is() {
     );
     let url = "https://api.example.com/x";
     match fixture.fetch(url).expect("a dialog, not a refusal") {
-        Outcome::AwaitingConsent { host } => assert_eq!(host, "api.example.com"),
+        Outcome::AwaitingConsent { host, asking } => {
+            assert_eq!(host, "api.example.com");
+            assert_eq!(asking, Asking::Opened, "nothing was on screen about it");
+        }
         Outcome::Done(_) => panic!("nothing may be sent before the person answers"),
     }
     assert!(fixture.recorder.plans().is_empty(), "nothing was held open");

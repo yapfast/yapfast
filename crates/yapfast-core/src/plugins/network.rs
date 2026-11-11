@@ -198,9 +198,24 @@ pub enum Outcome {
     /// Sent and answered, with the body read inside its cap.
     Done(Answer),
     /// The host isn't in the manifest and nobody has answered about it. The
-    /// request is not held open: a dialog asks about `host`, and the request is
-    /// made again, and answered, once there is an answer.
-    AwaitingConsent { host: String },
+    /// request is not sent: the caller keeps it and asks about `host`, then
+    /// makes the request again once there is an answer.
+    AwaitingConsent { host: String, asking: Asking },
+}
+
+/// What a request for a host nobody has answered about is waiting on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Asking {
+    /// No dialog about this host is up, so one is needed before anything can
+    /// be sent.
+    Opened,
+    /// A dialog about this host is already up, and its answer completes this
+    /// request too.
+    Joined,
+    /// A dialog about another host for this plugin is up. Only one is open at a
+    /// time, so this request has to wait for the person to finish with that
+    /// one, and the plugin is told to ask again.
+    Busy,
 }
 
 /// A response the gate let through.
@@ -643,7 +658,9 @@ impl NetworkGate {
         loop {
             let addresses = match self.check_target(plugin, &permissions, &target).await? {
                 Checked::Go(addresses) => addresses,
-                Checked::Awaiting(host) => return Ok(Outcome::AwaitingConsent { host }),
+                Checked::Awaiting(host, asking) => {
+                    return Ok(Outcome::AwaitingConsent { host, asking });
+                }
             };
             let plan = ConnectPlan {
                 method: method.clone(),
@@ -743,11 +760,11 @@ impl NetworkGate {
             match self.grants.ask(plugin, &pattern) {
                 Ask::Allowed => {}
                 Ask::Denied { reason } => return Err(Denial::new(reason)),
-                // Nothing is held open while the person reads a dialog: the
-                // request is answered as pending and made again afterwards.
-                Ask::Asked | Ask::Joined | Ask::Busy => {
-                    return Ok(Checked::Awaiting(host.to_owned()));
-                }
+                // Nothing is sent while the person reads a dialog: the request
+                // is answered as pending and made again afterwards.
+                Ask::Asked => return Ok(Checked::Awaiting(host.to_owned(), Asking::Opened)),
+                Ask::Joined => return Ok(Checked::Awaiting(host.to_owned(), Asking::Joined)),
+                Ask::Busy => return Ok(Checked::Awaiting(host.to_owned(), Asking::Busy)),
             }
         }
         let addresses = self.resolve(host, target.port()).await?;
@@ -888,8 +905,9 @@ impl NetworkGate {
 enum Checked {
     /// The request may go to these addresses.
     Go(Vec<IpAddr>),
-    /// Somebody has to answer for this host first.
-    Awaiting(String),
+    /// Somebody has to answer for this host first, and what is on screen about
+    /// it already.
+    Awaiting(String, Asking),
 }
 
 /// Whether a status asks the client to fetch somewhere else.

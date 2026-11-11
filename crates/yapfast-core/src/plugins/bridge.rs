@@ -33,7 +33,7 @@ use yapfast_plugin_api::call::{
     self, CommandInvocation, CommandOutcome, HostCall, HostReturn, HttpRequest, StorageGet,
     StorageList, StorageSet, TimerCancel, TimerRequest,
 };
-use yapfast_plugin_api::capability::Capability;
+use yapfast_plugin_api::capability::{Capability, HostPattern};
 use yapfast_plugin_api::event::{EventEnvelope, EventKind};
 use yapfast_plugin_api::frame::{self, Frame, FrameKind};
 use yapfast_plugin_api::hook::{Draft, HookKind, HookOutcome, HookRequest, HookSubject};
@@ -111,6 +111,7 @@ impl Bridge {
             intercepts: AtomicBool::new(false),
             off: Mutex::new(None),
             gate: Mutex::new(None),
+            held: Mutex::new(BTreeMap::new()),
             // Asked once: a file beside the app doesn't appear while it runs.
             helper_installed: spawn::program().is_ok(),
             helper: AtomicU32::new(0),
@@ -283,6 +284,12 @@ impl Bridge {
         }
         self.shared.publish();
         self.shared.declare(plugin);
+        if !enabled {
+            // A plugin that is off has no helper to run its requests, and
+            // nothing will ever answer the questions they are waiting on.
+            self.shared
+                .release_plugin(plugin, &format!("{plugin} was turned off"));
+        }
         if enabled {
             // The person is asking for it to work: a helper that gave up
             // deserves another try.
@@ -303,6 +310,28 @@ impl Bridge {
         }
         self.announce(plugin);
         Ok(())
+    }
+
+    /// Records that the person answered about `host`, and lets go the requests
+    /// that were waiting on that answer.
+    ///
+    /// The answer itself is kept by the gate's grants, which the application
+    /// writes before calling this; what is left is the requests: each is made
+    /// again, and this time the gate finds an answer instead of a question.
+    pub fn answer_consent(&self, plugin: &PluginId, host: &HostPattern, allow: bool) -> usize {
+        let answered = if allow {
+            Answered::Allowed
+        } else {
+            Answered::Denied(format!("you refused {host} for {plugin}"))
+        };
+        self.shared.answer_held(plugin, &host.to_string(), answered)
+    }
+
+    /// Refuses the requests waiting about a host whose grant was taken back.
+    pub fn refuse_host(&self, plugin: &PluginId, host: &HostPattern) -> usize {
+        let reason = format!("you took back the grant for {host}");
+        self.shared
+            .answer_held(plugin, &host.to_string(), Answered::Denied(reason))
     }
 
     /// Runs a command a person typed, through the plugin that declares it.
@@ -353,6 +382,15 @@ impl Bridge {
     /// Every plugin's state, for the page that lists them.
     pub fn statuses(&self) -> Vec<(PluginId, PluginStatus)> {
         self.shared.statuses()
+    }
+
+    /// One plugin's name as its manifest writes it, which is what the interface
+    /// shows where an id would be a machine's word for it.
+    pub fn name(&self, plugin: &PluginId) -> Option<String> {
+        self.shared
+            .registry()
+            .entry(plugin)
+            .map(|entry| entry.manifest.name.clone())
     }
 
     /// What both threads of the plugin system read, which the pages' views are
@@ -669,6 +707,17 @@ struct Supervisor {
     runtime: crate::runtime::BackgroundRuntime,
 }
 
+/// How a request kept for a consent dialog is let go.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Answered {
+    /// The person allowed the host: the request is made again, and the gate
+    /// finds the answer it was waiting on.
+    Allowed,
+    /// The person refused it, or nothing will ever answer: the guest is told
+    /// why.
+    Denied(String),
+}
+
 /// What both threads of the plugin system read: the application's thread and
 /// the supervisor's.
 pub(crate) struct Shared {
@@ -684,6 +733,10 @@ pub(crate) struct Shared {
     /// The one place a plugin's HTTP request can be made, once the application
     /// has installed one with a transport.
     gate: Mutex<Option<Arc<crate::plugins::network::NetworkGate>>>,
+    /// The `http.fetch` calls kept waiting on a consent dialog, per plugin and
+    /// host. The person's answer is what lets them go: the task that made the
+    /// request is still holding it, and makes it again once this says yes.
+    held: Mutex<BTreeMap<(PluginId, String), Vec<tokio::sync::oneshot::Sender<Answered>>>>,
     /// Whether the helper binary is where [`spawn::program`] looks for it.
     helper_installed: bool,
     /// The helper's process id while it runs, and 0 when none does.
@@ -766,6 +819,86 @@ impl Shared {
             .clone()
     }
 
+    /// Keeps one request waiting until the person answers about `host`, or
+    /// says why it can't be kept.
+    ///
+    /// A held request is not in flight: it holds no place in the gate's limits
+    /// and no socket. What it does hold is its body, so how many a plugin may
+    /// have waiting is capped as tightly as the requests it may have in flight.
+    fn hold(
+        &self,
+        plugin: &PluginId,
+        host: &str,
+        answer: tokio::sync::oneshot::Sender<Answered>,
+    ) -> Result<(), String> {
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        let waiting: usize = held
+            .iter()
+            .filter(|((owner, _), _)| owner == plugin)
+            .map(|(_, waiting)| waiting.len())
+            .sum();
+        if waiting >= limits::MAX_HTTP_IN_FLIGHT {
+            return Err(format!(
+                "{plugin} already has {waiting} requests waiting on an answer about a site; \
+                 ask again once one of them has one"
+            ));
+        }
+        held.entry((plugin.clone(), host.to_owned()))
+            .or_default()
+            .push(answer);
+        Ok(())
+    }
+
+    /// Lets go every request waiting on `host` for `plugin`, with the answer the
+    /// person gave; how many that was, for a line in the log.
+    fn answer_held(&self, plugin: &PluginId, host: &str, answered: Answered) -> usize {
+        let waiting = self
+            .held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&(plugin.clone(), host.to_owned()))
+            .unwrap_or_default();
+        let count = waiting.len();
+        for answer in waiting {
+            // The task that asked may be gone, which is its own business: a
+            // request whose guest went away has nothing left to answer.
+            let _ = answer.send(answered.clone());
+        }
+        count
+    }
+
+    /// Refuses everything `plugin` has waiting, for when nothing will ever
+    /// answer: it was turned off, or removed.
+    fn release_plugin(&self, plugin: &PluginId, reason: &str) {
+        let waiting: Vec<_> = {
+            let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+            let keys: Vec<(PluginId, String)> = held
+                .keys()
+                .filter(|(owner, _)| owner == plugin)
+                .cloned()
+                .collect();
+            keys.into_iter()
+                .filter_map(|key| held.remove(&key))
+                .flatten()
+                .collect()
+        };
+        for answer in waiting {
+            let _ = answer.send(Answered::Denied(reason.to_owned()));
+        }
+    }
+
+    /// The same for every plugin, when the helper goes or the app is exiting.
+    fn release_held(&self, reason: &str) {
+        let waiting: Vec<_> =
+            std::mem::take(&mut *self.held.lock().unwrap_or_else(PoisonError::into_inner))
+                .into_values()
+                .flatten()
+                .collect();
+        for answer in waiting {
+            let _ = answer.send(Answered::Denied(reason.to_owned()));
+        }
+    }
+
     /// Tells the gate what a plugin's manifest declares, which is what every
     /// request from it is checked against.
     fn declare(&self, plugin: &PluginId) {
@@ -791,6 +924,8 @@ impl Shared {
     /// of pretending nothing was asked for.
     fn give_up(&self, reason: String) {
         tracing::warn!(%reason, "plugins are off");
+        // Nothing is left to answer a question a plugin asked about a site.
+        self.release_held(&reason);
         *self.off.lock().unwrap_or_else(PoisonError::into_inner) = Some(reason.clone());
         let changed: Vec<PluginId> = {
             let mut registry = self.registry_mut();
@@ -968,8 +1103,11 @@ async fn supervise(
         session.queue(first);
         let ending = session.run(&shared, &mut commands).await;
         // A send that was waiting on this process has to go out as the person
-        // wrote it: the chain it was waiting for no longer exists.
+        // wrote it: the chain it was waiting for no longer exists. A request
+        // waiting on a consent dialog is the other way round, since there is no
+        // person to answer in this process's name any more.
         session.fail_open(&shared);
+        shared.release_held("the plugin helper stopped");
         drop(session);
         shared.set_helper_pid(None);
         match ending {
@@ -1844,33 +1982,77 @@ impl Session {
         // rather than borrowing a reference the caller is about to drop.
         let shared = Arc::clone(shared);
         tokio::spawn(async move {
-            let answer = match gate.fetch(&plugin, request, response_cap).await {
-                Ok(crate::plugins::network::Outcome::Done(answer)) => {
-                    match serde_json::to_value(&answer.response) {
-                        Ok(value) => HostReturn::Ok(value),
-                        Err(error) => HostReturn::Error {
-                            message: format!("could not answer `http.fetch`: {error}"),
-                        },
+            // The gate answers about a host nobody has allowed rather than
+            // holding the request: this task is what holds it, and answers the
+            // guest under its own call id once the person has said yes or no.
+            // The guest was given `pending` by the helper, so a late answer is
+            // legal.
+            let mut asked = false;
+            let answer = loop {
+                let decided = gate.fetch(&plugin, request.clone(), response_cap).await;
+                match decided {
+                    Ok(crate::plugins::network::Outcome::Done(answer)) => {
+                        break match serde_json::to_value(&answer.response) {
+                            Ok(value) => HostReturn::Ok(value),
+                            Err(error) => HostReturn::Error {
+                                message: format!("could not answer `http.fetch`: {error}"),
+                            },
+                        };
+                    }
+                    Ok(crate::plugins::network::Outcome::AwaitingConsent { host, asking }) => {
+                        // One dialog per plugin at a time: a request for another
+                        // host waits its turn, and the plugin is told to ask
+                        // again rather than left in a queue behind a dialog it
+                        // doesn't know about.
+                        if asking == crate::plugins::network::Asking::Busy {
+                            break HostReturn::Denied {
+                                reason: format!(
+                                    "Yapfast is asking you about another site for {plugin} \
+                                     right now; ask again for {host} in a moment"
+                                ),
+                            };
+                        }
+                        // The answer was taken back between being given and
+                        // being used, so asking again would loop.
+                        if asked {
+                            break HostReturn::Denied {
+                                reason: format!("{host} isn't allowed for {plugin} any more"),
+                            };
+                        }
+                        if asking == crate::plugins::network::Asking::Opened {
+                            shared.announce(Notice::Consent {
+                                plugin: plugin.clone(),
+                                host: host.clone(),
+                            });
+                        }
+                        let (answer, receiver) = tokio::sync::oneshot::channel();
+                        if let Err(reason) = shared.hold(&plugin, &host, answer) {
+                            break HostReturn::Denied { reason };
+                        }
+                        asked = true;
+                        match receiver.await {
+                            Ok(Answered::Allowed) => continue,
+                            Ok(Answered::Denied(reason)) => {
+                                break HostReturn::Denied { reason };
+                            }
+                            // Nothing holds the other end any more, which is
+                            // what a helper that has gone leaves behind.
+                            Err(_) => {
+                                break HostReturn::Denied {
+                                    reason: format!(
+                                        "nothing is left to answer about {host}, so this \
+                                         request was refused"
+                                    ),
+                                };
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        break HostReturn::Denied {
+                            reason: format!("{error:#}"),
+                        };
                     }
                 }
-                // The gate asks rather than holds the request open: the person
-                // answers about the host, and the plugin asks again.
-                Ok(crate::plugins::network::Outcome::AwaitingConsent { host }) => {
-                    // The person is asked by a page rather than by a dialog
-                    // this thread holds open, so the ask travels as a notice.
-                    shared.announce(Notice::Consent {
-                        plugin: plugin.clone(),
-                        host: host.to_string(),
-                    });
-                    HostReturn::Denied {
-                        reason: format!(
-                            "{plugin} wants to reach {host}, which you haven't allowed yet"
-                        ),
-                    }
-                }
-                Err(error) => HostReturn::Denied {
-                    reason: format!("{error:#}"),
-                },
             };
             // The answer travels under the id the guest asked with, so the
             // helper can hand it to the call that is waiting for it.
@@ -2204,8 +2386,15 @@ fn wrong_payload(method: &str, error: serde_json::Error) -> HostReturn {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::IpAddr;
+
+    use futures_util::future::BoxFuture;
+    use futures_util::stream::{self, StreamExt};
     use yapfast_plugin_api::PluginManifest;
     use yapfast_plugin_api::event::Network;
+
+    use crate::plugins::grants::Grants;
+    use crate::plugins::network::{ConnectPlan, NetworkGate, Resolver, Served, Transport};
 
     fn id(text: &str) -> PluginId {
         PluginId::parse(text).expect("a plugin id")
@@ -2417,6 +2606,7 @@ mod tests {
             intercepts: AtomicBool::new(false),
             off: Mutex::new(None),
             gate: Mutex::new(None),
+            held: Mutex::new(BTreeMap::new()),
             helper_installed: false,
             helper: AtomicU32::new(0),
             wake,
@@ -2855,5 +3045,344 @@ mod tests {
             panic!("a message event is one event frame");
         };
         assert_eq!(events.len(), 1, "a message is not coalesced");
+    }
+
+    /// A manifest that may reach the network and names no host, so every
+    /// request it makes is a question for the person.
+    const CONSENT_MANIFEST: &str = r#"{"api":1,"id":"com.example.fetcher","name":"Fetcher",
+        "version":"1.0.0","wasm":"plugin.wasm",
+        "permissions":{"capabilities":["network"],"network":[]}}"#;
+
+    /// A transport that answers 200 with one piece of body and no socket.
+    struct Answered200;
+
+    impl Transport for Answered200 {
+        fn send(&self, plan: ConnectPlan) -> BoxFuture<'static, Result<Served>> {
+            Box::pin(async move {
+                Ok(Served {
+                    status: 200,
+                    headers: Vec::new(),
+                    url: format!("https://{}{}", plan.host, plan.path),
+                    body: stream::once(async { Ok(b"hi".to_vec()) }).boxed(),
+                })
+            })
+        }
+    }
+
+    /// A resolver that gives every name one public address.
+    struct Anywhere;
+
+    impl Resolver for Anywhere {
+        fn resolve(&self, _host: String, _port: u16) -> BoxFuture<'static, Result<Vec<IpAddr>>> {
+            Box::pin(async move { Ok(vec![IpAddr::from([93, 184, 216, 34])]) })
+        }
+    }
+
+    /// The gate the application installs, with the transport and resolver above,
+    /// and this plugin's manifest declared to it.
+    fn install_gate(shared: &Shared, directory: &Path, plugin: &PluginId) -> Arc<Grants> {
+        let grants = Arc::new(Grants::load(directory.join("grants.json")).expect("a grants file"));
+        let gate = Arc::new(
+            NetworkGate::new(
+                Arc::clone(&grants),
+                Arc::new(Answered200),
+                directory.join("plugins-http"),
+            )
+            .with_resolver(Arc::new(Anywhere)),
+        );
+        *shared.gate.lock().unwrap_or_else(PoisonError::into_inner) = Some(gate);
+        shared.declare(plugin);
+        grants
+    }
+
+    /// Answers a question the way the application does: the answer is kept by
+    /// the grants first, and only then are the requests waiting on it let go.
+    fn answer_about(
+        grants: &Grants,
+        shared: &Shared,
+        plugin: &PluginId,
+        host: &str,
+        allow: bool,
+    ) -> usize {
+        let pattern = HostPattern::parse(host).expect("a test host");
+        let lasts = crate::plugins::grants::Lasts::Session;
+        if allow {
+            grants.allow(plugin, &pattern, lasts).expect("an allow");
+            shared.answer_held(plugin, host, Answered::Allowed)
+        } else {
+            grants.deny(plugin, &pattern, lasts).expect("a deny");
+            let reason = format!("you refused {host} for {plugin}");
+            shared.answer_held(plugin, host, Answered::Denied(reason))
+        }
+    }
+
+    /// One `http.fetch` call, as the helper hands one over.
+    fn fetch_call(url: &str) -> HostCall {
+        HostCall::new(call::method::HTTP_FETCH, HttpRequest::get(url)).expect("a call")
+    }
+
+    /// How many of `plugin`'s requests for `host` are waiting on a dialog.
+    fn waiting(shared: &Shared, plugin: &PluginId, host: &str) -> usize {
+        shared
+            .held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&(plugin.clone(), host.to_owned()))
+            .map_or(0, Vec::len)
+    }
+
+    /// Waits until `count` requests for `(plugin, host)` are held. The task that
+    /// holds one does so just after it announces, so a test waits for the state
+    /// rather than for the notice.
+    fn wait_held(shared: &Shared, plugin: &PluginId, host: &str, count: usize) {
+        for _ in 0..400 {
+            if waiting(shared, plugin, host) == count {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        panic!(
+            "{count} requests for {host} should be waiting, and {} are",
+            waiting(shared, plugin, host)
+        );
+    }
+
+    /// The answer a frame carries back to the guest.
+    fn returned(frame: &Frame) -> (u64, HostReturn) {
+        let ToHelper::Return { call, answer, .. } = message(frame) else {
+            panic!("a host call is answered with a return");
+        };
+        (call, answer)
+    }
+
+    #[test]
+    fn a_fetch_for_a_host_nobody_allowed_is_held_rather_than_refused() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), CONSENT_MANIFEST, b"not a real module");
+        let (wake, notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+        install_gate(&shared, directory.path(), &plugin);
+
+        let runtime = runtime();
+        runtime.block_on(async {
+            session.on_call(
+                &shared,
+                7,
+                plugin.clone(),
+                fetch_call("https://api.example.com/x"),
+            );
+        });
+        wait_held(&shared, &plugin, "api.example.com", 1);
+        let Notice::Consent {
+            plugin: asked,
+            host,
+        } = notices
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the person is asked about the host")
+        else {
+            panic!("an undeclared host is a question, not anything else");
+        };
+        assert_eq!(asked, plugin);
+        assert_eq!(host, "api.example.com");
+        // The guest was given `pending` by the helper, and nothing is answered
+        // while the question stands: a late answer is what it expects.
+        assert!(
+            written.recv_timeout(Duration::from_millis(150)).is_err(),
+            "a request waiting on a dialog is not refused"
+        );
+    }
+
+    #[test]
+    fn an_allow_completes_the_held_request_and_the_answer_reaches_the_guest() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), CONSENT_MANIFEST, b"not a real module");
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+        let grants = install_gate(&shared, directory.path(), &plugin);
+        let runtime = runtime();
+        runtime.block_on(async {
+            session.on_call(
+                &shared,
+                7,
+                plugin.clone(),
+                fetch_call("https://api.example.com/x"),
+            );
+        });
+        wait_held(&shared, &plugin, "api.example.com", 1);
+
+        assert_eq!(
+            answer_about(&grants, &shared, &plugin, "api.example.com", true),
+            1
+        );
+        let reply = next_frame(&written);
+        assert_eq!(reply.kind, FrameKind::Reply);
+        assert_eq!(reply.id, 7, "the answer goes back under the call's own id");
+        let (call, answer) = returned(&reply);
+        assert_eq!(call, 7);
+        let HostReturn::Ok(value) = answer else {
+            panic!("an allowed request is answered with its response");
+        };
+        assert_eq!(value["status"], 200);
+        assert_eq!(value["url"], "https://api.example.com/x");
+    }
+
+    #[test]
+    fn a_denial_hands_the_guest_the_reason() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), CONSENT_MANIFEST, b"not a real module");
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+        let grants = install_gate(&shared, directory.path(), &plugin);
+        let runtime = runtime();
+        runtime.block_on(async {
+            session.on_call(
+                &shared,
+                7,
+                plugin.clone(),
+                fetch_call("https://api.example.com/x"),
+            );
+        });
+        wait_held(&shared, &plugin, "api.example.com", 1);
+
+        assert_eq!(
+            answer_about(&grants, &shared, &plugin, "api.example.com", false),
+            1
+        );
+        let (_, answer) = returned(&next_frame(&written));
+        let HostReturn::Denied { reason } = answer else {
+            panic!("a denial is a refusal with a reason");
+        };
+        assert_eq!(
+            reason,
+            format!("you refused api.example.com for {plugin}"),
+            "the guest is told what the person said"
+        );
+    }
+
+    #[test]
+    fn a_second_request_for_the_same_host_joins_the_dialog_and_one_answer_frees_both() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), CONSENT_MANIFEST, b"not a real module");
+        let (wake, notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+        let grants = install_gate(&shared, directory.path(), &plugin);
+        let runtime = runtime();
+        runtime.block_on(async {
+            for id in [8, 9] {
+                session.on_call(
+                    &shared,
+                    id,
+                    plugin.clone(),
+                    fetch_call("https://api.example.com/x"),
+                );
+            }
+        });
+        wait_held(&shared, &plugin, "api.example.com", 2);
+        // One question, not two: whichever asked second found a dialog up.
+        let Notice::Consent { host, .. } = notices
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the person is asked once")
+        else {
+            panic!("an undeclared host is a question");
+        };
+        assert_eq!(host, "api.example.com");
+        assert!(
+            notices.recv_timeout(Duration::from_millis(200)).is_err(),
+            "a request that joins a dialog asks nothing new"
+        );
+
+        assert_eq!(
+            answer_about(&grants, &shared, &plugin, "api.example.com", true),
+            2
+        );
+        let mut answered = Vec::new();
+        for _ in 0..2 {
+            let reply = next_frame(&written);
+            let (call, answer) = returned(&reply);
+            assert!(matches!(answer, HostReturn::Ok(_)), "{answer:?}");
+            answered.push(call);
+        }
+        answered.sort_unstable();
+        assert_eq!(answered, vec![8, 9]);
+    }
+
+    #[test]
+    fn a_request_for_another_host_while_a_dialog_is_up_is_refused_with_a_reason() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), CONSENT_MANIFEST, b"not a real module");
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+        install_gate(&shared, directory.path(), &plugin);
+        let runtime = runtime();
+        runtime.block_on(async {
+            session.on_call(
+                &shared,
+                10,
+                plugin.clone(),
+                fetch_call("https://api.example.com/x"),
+            );
+        });
+        wait_held(&shared, &plugin, "api.example.com", 1);
+
+        runtime.block_on(async {
+            session.on_call(
+                &shared,
+                11,
+                plugin.clone(),
+                fetch_call("https://cdn.example.com/y"),
+            );
+        });
+        let reply = next_frame(&written);
+        let (call, answer) = returned(&reply);
+        assert_eq!(call, 11, "the second request is answered at once");
+        let HostReturn::Denied { reason } = answer else {
+            panic!("only one dialog is open per plugin");
+        };
+        assert!(reason.contains("another site"), "{reason}");
+        assert!(
+            reason.contains("cdn.example.com"),
+            "the plugin is told which host to ask about again: {reason}"
+        );
+        assert_eq!(
+            waiting(&shared, &plugin, "cdn.example.com"),
+            0,
+            "the refused request is not held"
+        );
+        assert_eq!(waiting(&shared, &plugin, "api.example.com"), 1);
+    }
+
+    #[test]
+    fn turning_a_plugin_off_lets_go_the_requests_it_had_waiting() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), CONSENT_MANIFEST, b"not a real module");
+        let (wake, _notices) = notice_channel();
+        let mut bridge = Bridge::open(directory.path(), wake).expect("a bridge");
+        let shared = Arc::clone(&bridge.shared);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+        install_gate(&shared, directory.path(), &plugin);
+        let runtime = runtime();
+        runtime.block_on(async {
+            session.on_call(
+                &shared,
+                12,
+                plugin.clone(),
+                fetch_call("https://api.example.com/x"),
+            );
+        });
+        wait_held(&shared, &plugin, "api.example.com", 1);
+
+        bridge.set_enabled(&plugin, false).expect("turning it off");
+        let (call, answer) = returned(&next_frame(&written));
+        assert_eq!(call, 12);
+        let HostReturn::Denied { reason } = answer else {
+            panic!("nothing will answer a question about a plugin that is off");
+        };
+        assert!(reason.contains("turned off"), "{reason}");
+        assert_eq!(waiting(&shared, &plugin, "api.example.com"), 0);
     }
 }
