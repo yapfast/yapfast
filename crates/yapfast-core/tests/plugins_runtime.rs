@@ -326,7 +326,9 @@ fn an_enabled_plugin_answers_its_command_after_a_start() {
         "enabled and idle, waiting for its trigger"
     );
 
-    // The command the composer reads, and the command being run.
+    // The command the composer reads, and the command being run. It is offered
+    // with its plugin's name, because a Discord app may declare `ping` too — and
+    // the row is how the person says which one they meant.
     assert!(
         state
             .commands()
@@ -334,6 +336,13 @@ fn an_enabled_plugin_answers_its_command_after_a_start() {
             .any(|(_, command)| command.name == "ping"),
         "{:?}",
         state.commands()
+    );
+    let named = state.commands_named();
+    assert!(
+        named
+            .iter()
+            .any(|(_, name, command)| name == "Ping" && command.name == "ping"),
+        "the list names the plugin: {named:?}"
     );
     state.run_command(
         &id,

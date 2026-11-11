@@ -138,6 +138,13 @@ impl PluginState {
         self.bridge.commands()
     }
 
+    /// The same, with each plugin's own name, for the composer's list: two
+    /// plugins may declare `ping`, and so may a Discord app, so a row says which
+    /// plugin it would run.
+    pub fn commands_named(&self) -> Vec<(PluginId, String, CommandDecl)> {
+        self.bridge.commands_named()
+    }
+
     /// Runs one command: the helper calls the plugin, and its answer comes
     /// back as [`Notice::Command`].
     pub fn run_command(&mut self, plugin: &PluginId, invocation: CommandInvocation) {

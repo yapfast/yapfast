@@ -141,12 +141,18 @@ impl OptionDraft {
 /// value the focused option may take.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CommandRow {
-    /// The app's name, for a command; nothing for a value.
+    /// The app's name, or a plugin's, for a command; nothing for a value.
     pub app: String,
     /// The app's icon or the person's avatar, by address.
     pub icon: Option<String>,
     pub name: String,
     pub description: String,
+    /// The plugin whose command this is; `None` for a Discord app's, or a value.
+    ///
+    /// A plugin and a Discord app may both declare `ping`, and so may two
+    /// plugins: the row names its plugin, and picking the row is how the person
+    /// says which of them they meant.
+    pub plugin: Option<String>,
 }
 
 /// A value an option may take, from its choices, the app's autocomplete,
@@ -480,6 +486,31 @@ impl Application {
         }
     }
 
+    /// The enabled plugins' commands that answer `query`, with the plugin each
+    /// belongs to and its name.
+    ///
+    /// Empty in a build without plugins, and while none is enabled.
+    fn plugin_commands(
+        &self,
+        query: &str,
+    ) -> Vec<(
+        yapfast_plugin_api::PluginId,
+        String,
+        yapfast_plugin_api::manifest::CommandDecl,
+    )> {
+        #[cfg(feature = "plugins")]
+        if let Some(plugins) = self.state.plugins.as_deref() {
+            let query = query.to_ascii_lowercase();
+            return plugins
+                .commands_named()
+                .into_iter()
+                .filter(|(_, _, command)| command.name.to_ascii_lowercase().starts_with(&query))
+                .collect();
+        }
+        let _ = query;
+        Vec::new()
+    }
+
     /// The rows the list above the composer shows: the commands the picker
     /// offers, or the values the focused option may take.
     pub fn command_rows(&self) -> Vec<CommandRow> {
@@ -493,21 +524,35 @@ impl Application {
                     icon: suggestion.picture,
                     name: suggestion.name,
                     description: suggestion.detail,
+                    plugin: None,
                 })
                 .collect();
         }
         let (Some(room), Some(query)) = (state.selected.as_deref(), state.slash_query()) else {
             return vec![];
         };
-        self.slash_commands(room, query)
+        let mut rows: Vec<CommandRow> = self
+            .slash_commands(room, query)
             .into_iter()
             .map(|command| CommandRow {
                 app: command.app_name,
                 icon: command.app_icon,
                 name: command.name,
                 description: command.description,
+                plugin: None,
             })
-            .collect()
+            .collect();
+        // Then the plugins' own, each saying which plugin it would run.
+        for (plugin, app, command) in self.plugin_commands(query) {
+            rows.push(CommandRow {
+                app,
+                icon: None,
+                name: command.name,
+                description: command.description.unwrap_or_default(),
+                plugin: Some(plugin.to_string()),
+            });
+        }
+        rows
     }
 
     /// The selected room's draft changed: opens or follows the `/` picker,
@@ -661,6 +706,27 @@ impl Application {
         ) else {
             return vec![];
         };
+        // The plugins' rows come after the apps' in `command_rows`, so an index
+        // past the apps' count is one of theirs to run.
+        let apps = self.slash_commands(&room, &query).len();
+        if index >= apps {
+            let commands = self.plugin_commands(&query);
+            let Some((plugin, _, command)) = commands.into_iter().nth(index - apps) else {
+                return vec![];
+            };
+            // A command isn't a message: its text leaves the composer.
+            let mut effects = self.set_draft_in(room, String::new());
+            effects.extend(self.dispatch(Action::Plugin(
+                crate::application::plugins::Action::Command {
+                    plugin,
+                    invocation: yapfast_plugin_api::call::CommandInvocation {
+                        name: command.name,
+                        options: serde_json::Map::new(),
+                    },
+                },
+            )));
+            return effects;
+        }
         let Some(picked) = self.slash_commands(&room, &query).into_iter().nth(index) else {
             return vec![];
         };

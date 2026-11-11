@@ -336,6 +336,20 @@ impl Bridge {
         }
     }
 
+    /// The enabled plugins' commands, each with its plugin's own name: the
+    /// composer's list says which plugin a row would run.
+    pub fn commands_named(&self) -> Vec<(PluginId, String, CommandDecl)> {
+        let registry = self.shared.registry();
+        registry
+            .commands()
+            .into_iter()
+            .filter_map(|(plugin, command)| {
+                let name = registry.entry(&plugin)?.manifest.name.clone();
+                Some((plugin, name, command))
+            })
+            .collect()
+    }
+
     /// Every plugin's state, for the page that lists them.
     pub fn statuses(&self) -> Vec<(PluginId, PluginStatus)> {
         self.shared.statuses()
