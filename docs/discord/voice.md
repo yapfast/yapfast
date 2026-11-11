@@ -231,20 +231,29 @@ checks the bytes counted and a resend.
 While this account watches someone's stream, the tab is about that stream:
 what decodes it — "the card's decoder" where a decoder leaves the picture on
 the card, "the processor's decoder" otherwise — the codec, the size and frame
-rate shown, and how the picture reaches the window, which for a watched stream
-is a copy of every picture into the shared frames. Nothing is sent, so the rows
-that would give a bitrate, a keyframe count or a send queue's losses stay away
-rather than showing a share's numbers.
+rate shown, and how the picture reaches the window: the card's own memory, as a
+DMA-BUF the window imports, where the card decodes, and a copy of every picture
+into the shared frames otherwise. Nothing is sent, so the rows that would give
+a bitrate, a keyframe count or a send queue's losses stay away rather than
+showing a share's numbers.
 
 The card's decoder is FFmpeg's own Direct3D 11 decoder where this build has
 it — H264, HEVC and AV1 on any vendor's card, with AV1 hardware decode needing
-no Microsoft AV1 Video Extension — and `decode.rs` falls back to the software
-decoders when it doesn't open. It decodes into the texture on the device the
-encoder and the window share, so a decoded picture is never copied between
-devices, and each stream's surfaces are allocated once rather than per frame.
-The picture is then scaled into the tile by the card's video processor in the
-pass that also does its colour matrix and range, so only the tile crosses to
-the processor.
+no Microsoft AV1 Video Extension — and, on Linux, FFmpeg's VA-API decoder, or
+NVIDIA's NVDEC through the driver's own API where VA-API opens nothing. Both
+Linux paths leave each picture in a surface on the card and export it as a
+DMA-BUF the window imports where it lies, so the picture is never copied
+between devices, and each stream's surfaces are allocated once rather than per
+frame. `decode.rs` falls back to the software decoders when none opens, when
+the card fails mid-stream, and for pictures the tile pass has no layout or
+curve for: 4:2:2, 4:4:4, 12-bit, and 10-bit ones in HLG or BT.2020's
+constant-luminance matrix. On Windows the picture is then scaled into the tile
+by the card's video processor in the pass that also does its colour matrix and
+range; on Linux the window's own tile pass reads the picture's planes — NV12 at
+8 bits, P010 from VA-API or P016 from NVDEC at 10 — with the range, matrix and
+transfer curve the shim read out of the stream's VUI, which is BT.2020 and
+the PQ curve with a tone map into SDR for HDR10. Only the tile crosses to the
+processor either way.
 
 Matrix calls don't have these yet. LiveKit's SDK measures its signal
 connection's round trip but doesn't expose it, and `Room::get_stats`
