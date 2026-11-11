@@ -1,6 +1,8 @@
-//! A window or the screen on X11 as a DMA-BUF the card can read, for a session
-//! with no screen sharing portal: XFCE's, and every other X11 desktop that
-//! captures the X server's own windows.
+//! A window or the screen on X11 as a DMA-BUF the card can read, for an X11
+//! session: XFCE's, and every other X11 desktop that captures the X server's own
+//! windows. It is the rung after the portal's where the desktop has one, and the
+//! only one where it doesn't. A Wayland session never asks it, since an X server
+//! there is Xwayland; see [`super::linux_order`].
 //!
 //! Without this, such a session shares through libwebrtc's X11 capturer, which
 //! asks the server for the pixels of every frame and hands over I420 that the

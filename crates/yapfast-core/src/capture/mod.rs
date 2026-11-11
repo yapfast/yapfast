@@ -24,10 +24,12 @@
 //! [`crate::noise`]: a process-wide value the UI sets from `layout.json`.
 //!
 //! What is left of this module is the ways a Linux session captures a screen
-//! without that setting, each handing a share a picture the GPU made rather
-//! than one the processor assembled. Today that is [`x11`]: a window or the
-//! screen redirected through the X Composite extension, and its storage
-//! exported as a DMA-BUF.
+//! without that setting, each handing a share a picture the GPU made rather than
+//! one the processor assembled: the desktop's screen sharing portal and the
+//! PipeWire buffers it names (`capture::portal`, `capture::pipewire`), for a
+//! session that shares through it, and `capture::x11`: a window or the screen
+//! redirected through the X Composite extension, and its storage exported as a
+//! DMA-BUF, for a session whose X server is what captures.
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use serde::{Deserialize, Serialize};
@@ -293,18 +295,22 @@ pub struct Linux {
 /// portal first, since its frames are the compositor's and nothing in this
 /// process copies them, and then the X server.
 ///
-/// A Wayland session that answers a portal is not offered the X11 rung at all:
-/// an X11 capture there sees Xwayland's windows and not the desktop they sit on,
-/// so falling to it would share the wrong thing rather than nothing. Every other
-/// session tries both, and one with neither is a share that stays on the
-/// processor — which is what every Linux share did before this.
+/// A Wayland session is never offered the X11 rung, whoever answers the portal
+/// and whether one does at all: what an X11 capture sees under Wayland is
+/// Xwayland's windows and not the desktop they sit on, and the screen it names
+/// is Xwayland's overlay window, whose storage is empty — a share of nothing, and
+/// a refusal in the log that reads as if it were about the desktop. The X server
+/// is an X session's rung alone, and a Wayland share with no portal stays on the
+/// processor, where libwebrtc asks the portal itself. A session with neither is a
+/// share that stays on the processor — which is what every Linux share did before
+/// this.
 #[cfg(target_os = "linux")]
 pub fn linux_order(session: Session, available: Linux) -> Vec<LinuxRung> {
     let mut rungs = Vec::new();
     if available.portal {
         rungs.push(LinuxRung::Portal);
     }
-    if available.x11 && !(session.wayland() && available.portal) {
+    if available.x11 && !session.wayland() {
         rungs.push(LinuxRung::X11);
     }
     rungs
@@ -339,9 +345,6 @@ pub fn linux_why(session: Session, available: Linux, rung: LinuxRung, refused: &
         LinuxRung::Portal => {
             "this desktop answers the screen sharing portal, so its own pictures are what a share \
              gets"
-        }
-        LinuxRung::X11 if session.wayland() => {
-            "the portal isn't there, so this share captures Xwayland's X11 windows"
         }
         LinuxRung::X11 if !available.portal => {
             "this desktop has no screen sharing portal, so the X server's own capture runs"
@@ -598,17 +601,19 @@ mod tests {
             ),
             [LinuxRung::X11]
         );
-        // A Wayland session with no portal tries Xwayland rather than nothing:
-        // a share of an X11 window is more than no share at all.
-        assert_eq!(
+        // A Wayland session with no portal has no rung here at all, rather
+        // than Xwayland's: the screen an X11 capture would name there is the
+        // overlay window's empty storage, and the share belongs to libwebrtc's
+        // capturer, which asks the portal itself.
+        assert!(
             linux_order(
                 Session::new(true),
                 Linux {
                     portal: false,
                     x11: true
                 }
-            ),
-            [LinuxRung::X11]
+            )
+            .is_empty()
         );
         // Neither is a share that stays on the processor.
         assert!(linux_order(Session::new(false), Linux::default()).is_empty());
