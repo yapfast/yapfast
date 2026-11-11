@@ -91,7 +91,18 @@ impl Store {
                 return Err(error).with_context(|| format!("could not read {}", path.display()));
             }
         };
-        serde_json::from_str(&text).with_context(|| format!("{} isn't a lock file", path.display()))
+        let lock: Lock = serde_json::from_str(&text)
+            .with_context(|| format!("{} isn't a lock file", path.display()))?;
+        if lock.version > LOCK_VERSION {
+            anyhow::bail!(
+                "{} is a version {} lock file and this build reads version {}; \
+                 update Yapfast rather than forgetting what is installed",
+                path.display(),
+                lock.version,
+                LOCK_VERSION
+            );
+        }
+        Ok(lock)
     }
 
     /// Records that a plugin is on or off, leaving the rest of the lock file's
@@ -484,9 +495,19 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
     fs::rename(&temporary, path).with_context(|| format!("could not replace {}", path.display()))
 }
 
+/// The lock file's shape, as the installer writes it.
+///
+/// The installer owns the file; this side reads it. Both agree on a version so
+/// that a later format is refused with both numbers rather than read as an
+/// empty one — a lock file this build can't parse is not a lock file with
+/// nothing installed, and treating it that way would forget every plugin.
+pub const LOCK_VERSION: u32 = 1;
+
 /// What is installed, from `lock.json`.
 #[derive(Debug, Default, Deserialize)]
 pub struct Lock {
+    #[serde(default)]
+    pub version: u32,
     #[serde(default)]
     pub plugins: BTreeMap<PluginId, LockEntry>,
 }

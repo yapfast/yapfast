@@ -219,7 +219,20 @@ impl Bridge {
         if !self.shared.intercepts.load(Ordering::Relaxed) {
             return PreSend::Send(draft);
         }
-        let chain = self.shared.registry().chain(HookKind::MessagePreSend);
+        self.intercept(HookKind::MessagePreSend, draft)
+    }
+
+    /// Runs the chain in front of an edit, which is a different set of plugins
+    /// from the one in front of a send: a plugin that rewrites what is typed
+    /// needn't intercept what leaves, and one that filters sends usually
+    /// doesn't want to see the same text twice.
+    pub fn pre_edit(&mut self, draft: Draft) -> PreSend {
+        self.intercept(HookKind::MessagePreEdit, draft)
+    }
+
+    /// Holds an outgoing draft for one chain, whichever hook it is.
+    fn intercept(&mut self, hook: HookKind, draft: Draft) -> PreSend {
+        let chain = self.shared.registry().chain(hook);
         if chain.is_empty() {
             return PreSend::Send(draft);
         }
@@ -228,11 +241,11 @@ impl Bridge {
         let held = HeldSend {
             id,
             draft: draft.clone(),
-            hook: HookKind::MessagePreSend,
+            hook,
             chain: chain.clone(),
         };
         let request = HookRequest {
-            hook: HookKind::MessagePreSend,
+            hook,
             subject: HookSubject::Draft(draft.clone()),
         };
         if !self.send(Request::Hook { held, request }) {

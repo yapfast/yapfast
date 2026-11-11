@@ -167,6 +167,11 @@ impl PluginState {
         self.bridge.pre_send(draft)
     }
 
+    /// Runs the chain in front of an edit, which is its own set of plugins.
+    pub fn pre_edit(&mut self, draft: Draft) -> PreSend {
+        self.bridge.pre_edit(draft)
+    }
+
     /// Turns a plugin on or off: the registry entry, the helper's instances and
     /// the interface all follow, without a restart.
     pub fn set_enabled(&mut self, plugin: &PluginId, enabled: bool) -> anyhow::Result<()> {

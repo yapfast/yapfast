@@ -13648,6 +13648,7 @@ dependencies = [
  "rand 0.9.5",
  "realfft",
  "regex",
+ "reqwest 0.13.5",
  "resvg",
  "rustls",
  "serde",

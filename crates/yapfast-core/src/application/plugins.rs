@@ -201,9 +201,23 @@ impl Application {
         {
             return None;
         }
-        // An edit is `message.pre_edit`'s, not a message about to be sent.
+        // An edit has its own chain, and its own answer: a `Changed` draft
+        // replaces the text the person is editing, and a held chain keeps the
+        // edit back until it answers rather than sending it as a message.
         if matches!(self.state.compose.get(room), Some(Compose::Edit { .. })) {
-            return None;
+            let draft = self.plugins_draft(room);
+            let decision = self.state.plugins.as_mut()?.pre_edit(draft);
+            return match decision {
+                PreSend::Send(draft) => {
+                    self.state.drafts.insert(room.to_owned(), draft.body);
+                    None
+                }
+                PreSend::Held { .. } => {
+                    // The answer applies the same edit; nothing is sent here.
+                    self.state.sending = Some(room.to_owned());
+                    Some(Vec::new())
+                }
+            };
         }
         let draft = self.plugins_draft(room);
         let decision = self.state.plugins.as_mut()?.pre_send(draft);
@@ -289,6 +303,15 @@ impl Application {
         // one `sending` names.
         let room = self.state.sending.take();
         let text = self.sent_draft.take();
+        // An edit that was blocked leaves the compose as it was: there is
+        // nothing to put back, only the reason to show.
+        if room
+            .as_ref()
+            .is_some_and(|room| matches!(self.state.compose.get(room), Some(Compose::Edit { .. })))
+        {
+            self.state.notice = Some(reason);
+            return vec![];
+        }
         if let (Some(room), Some(text)) = (room, text)
             && self.state.drafts.get(&room).is_none_or(String::is_empty)
         {
@@ -323,6 +346,17 @@ impl Application {
     pub(super) fn plugins_news(&mut self, news: News) -> Vec<AppEffect> {
         match news {
             News::Notice(Notice::SendReady { draft, .. }) => {
+                // A draft held for an edit is applied to that edit, not sent as
+                // a message: the compose still holds the message it changes.
+                if matches!(
+                    self.state.compose.get(&draft.room),
+                    Some(Compose::Edit { .. })
+                ) {
+                    self.state.sending = None;
+                    self.state.drafts.insert(draft.room.clone(), draft.body);
+                    let room = draft.room;
+                    return self.send_composed_in(room);
+                }
                 self.dispatch(AppAction::Plugin(Action::SendHeld(draft)))
             }
             News::Notice(Notice::SendBlocked { reason, .. }) => self.plugins_send_blocked(reason),
