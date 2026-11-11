@@ -30,11 +30,11 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use yapfast_plugin_api::call::{
-    self, CommandInvocation, CommandOutcome, HostCall, HostReturn, HttpRequest, StorageGet,
-    StorageList, StorageSet, TimerCancel, TimerRequest,
+    self, CommandInvocation, CommandOutcome, HostCall, HostReturn, HttpRequest, PluginCall,
+    PluginSubscribe, StorageGet, StorageList, StorageSet, TimerCancel, TimerRequest,
 };
 use yapfast_plugin_api::capability::Capability;
-use yapfast_plugin_api::event::{EventEnvelope, EventKind};
+use yapfast_plugin_api::event::{EventEnvelope, EventKind, TopicEvent};
 use yapfast_plugin_api::frame::{self, Frame, FrameKind};
 use yapfast_plugin_api::hook::{Draft, HookKind, HookOutcome, HookRequest, HookSubject};
 use yapfast_plugin_api::limits;
@@ -74,6 +74,10 @@ const ACTIVATE_TIMEOUT: Duration = Duration::from_secs(30);
 const DEACTIVATE_TIMEOUT: Duration = Duration::from_millis(100);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
 const EVICT_TIMEOUT: Duration = Duration::from_millis(500);
+/// How long one plugin's call into another may take. The helper holds the same
+/// budget for the call it runs; this one answers the caller rather than leaving
+/// it waiting for an answer that an instance going away can't give.
+const CALL_TIMEOUT: Duration = Duration::from_secs(2);
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
 
 /// How long the application waits for the helper to exit before giving up on a
@@ -276,32 +280,46 @@ impl Bridge {
     /// Turns a plugin on or off: the registry, the lock file, the helper's
     /// instances and the page all follow, without a restart.
     pub fn set_enabled(&mut self, plugin: &PluginId, enabled: bool) -> anyhow::Result<()> {
-        {
+        let turning: Vec<PluginId> = {
             let mut registry = self.shared.registry_mut();
             let store = self.shared.store();
-            registry.set_enabled(plugin, enabled, &store)?;
-        }
+            registry.set_enabled(plugin, enabled, &store)?
+        };
         self.shared.publish();
-        self.shared.declare(plugin);
         if enabled {
+            for id in &turning {
+                self.shared.declare(id);
+            }
             // The person is asking for it to work: a helper that gave up
             // deserves another try.
             self.shared.clear_off();
             self.send(Request::Activate {
                 plugins: vec![plugin.clone()],
             });
-        } else if self.enabled() {
-            self.send(Request::Deactivate {
-                plugin: plugin.clone(),
-            });
         } else {
-            // Nothing is left to run, so the process goes: that is what an idle
-            // Yapfast is. Asking rather than dropping the task lets the helper
-            // write what the plugin saved on its way out, which `close` waits
-            // for.
-            self.close();
+            // The plugins that needed it are off too, and the registry answered
+            // with them first: stopping a dependency before the plugins that
+            // use it is the order the person watching would name.
+            for id in &turning {
+                self.shared.declare(id);
+            }
+            if self.enabled() {
+                for id in &turning {
+                    self.send(Request::Deactivate {
+                        plugin: id.clone(),
+                    });
+                }
+            } else {
+                // Nothing is left to run, so the process goes: that is what an idle
+                // Yapfast is. Asking rather than dropping the task lets the helper
+                // write what the plugin saved on its way out, which `close` waits
+                // for.
+                self.close();
+            }
         }
-        self.announce(plugin);
+        for id in &turning {
+            self.announce(id);
+        }
         Ok(())
     }
 
@@ -407,26 +425,45 @@ impl Bridge {
         }
     }
 
-    /// Writes a fetched plugin into the store, and reads the store again.
+    /// Writes a fetched plugin into the store, and puts the version it holds in
+    /// place of the one that was running.
     ///
-    /// A helper that is running is stopped first: its instances were loaded from
-    /// the versions the store held a moment ago, and the plugin's next trigger
-    /// starts a fresh one from what is there now.
+    /// The helper stays up when it is up: its instances are swapped in order,
+    /// with the plugins that need this one stopped first and started again after,
+    /// so an update leaves no moment in which a dependent runs against nothing.
     pub fn install(&mut self, package: &crate::plugins::store::Package) -> anyhow::Result<()> {
+        let plugin = package.id.clone();
         {
             let mut store = self.shared.store();
             store.install(package)?;
         }
-        self.reload();
+        self.refresh(&plugin);
         Ok(())
     }
 
     /// Removes a plugin, and its data when `delete_data`, then reads the store
     /// again.
+    ///
+    /// The plugins that needed it are turned off first: a plugin left enabled
+    /// over a dependency that isn't installed would be one whose every call was
+    /// refused.
     pub fn uninstall(&mut self, plugin: &PluginId, delete_data: bool) -> anyhow::Result<()> {
+        let stopping: Vec<PluginId> = {
+            self.shared.registry().dependents(plugin)
+        };
         {
+            let mut registry = self.shared.registry_mut();
+            let store = self.shared.store();
+            for dependent in &stopping {
+                if let Err(error) = registry.set_enabled(dependent, false, &store) {
+                    tracing::warn!(%error, %dependent, "could not turn off a plugin that needed one being removed");
+                }
+            }
             let mut store = self.shared.store();
             store.uninstall(plugin, delete_data)?;
+        }
+        for dependent in &stopping {
+            self.announce(dependent);
         }
         self.reload();
         Ok(())
@@ -438,15 +475,44 @@ impl Bridge {
             let mut store = self.shared.store();
             store.roll_back(plugin)?;
         }
-        self.reload();
+        self.refresh(plugin);
         Ok(())
     }
 
+    /// Reads the store again and puts what it holds for one plugin in place.
+    ///
+    /// The plugin's dependents are worked out from the registry that is running
+    /// now, before the new manifests are read: they are the ones that were
+    /// ordered against the version being replaced. They are stopped in reverse
+    /// layer order, the plugin is swapped, and they are started again in layer
+    /// order, the whole sequence asking the helper to confirm each step.
+    fn refresh(&mut self, plugin: &PluginId) {
+        let stop: Vec<PluginId> = self.shared.registry().dependents(plugin);
+        let registry = Registry::load(&self.shared.store());
+        // A dependent whose requirement the new version no longer satisfies
+        // can't be started against it: it stays off, and the page says so.
+        let start: Vec<PluginId> = stop.iter().rev().cloned().collect();
+        *self.shared.registry_mut() = registry;
+        self.shared.publish();
+        if self.supervisor.is_some() && self.enabled() {
+            self.send(Request::Swap {
+                plugin: plugin.clone(),
+                stop,
+                start,
+            });
+        }
+        for (plugin, status) in self.shared.statuses() {
+            self.shared.announce(Notice::Status { plugin, status });
+        }
+    }
+
     /// Reads the lock file and every installed manifest again, which is what an
-    /// install, an uninstall or a roll back changes, and tells the page.
+    /// uninstall changes, and tells the page.
+    ///
+    /// The helper goes with it: its instances were loaded from versions the store
+    /// no longer holds. That is the one case a swap can't cover, because there is
+    /// nothing to swap in.
     fn reload(&mut self) {
-        // A helper loaded its instances from the versions that were there, so it
-        // goes: what runs next is what the store holds now.
         self.close();
         let registry = Registry::load(&self.shared.store());
         *self.shared.registry_mut() = registry;
@@ -637,6 +703,13 @@ fn resident_memory(pid: u32) -> Option<u64> {
     Some(kilobytes * 1024)
 }
 
+/// Milliseconds since the Unix epoch, which is what a topic event carries.
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_millis() as u64)
+}
+
 /// A fault's sentence, as a line in the plugin's own log: the row that says
 /// "Suspended: kept crashing" has the why under it, and the detail's log keeps
 /// it after the status has moved on.
@@ -645,9 +718,7 @@ fn failure(reason: &str) -> LogRecord {
         level: LogLevel::Error,
         target: "yapfast".to_owned(),
         message: reason.to_owned(),
-        at: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |since| since.as_millis() as u64),
+        at: now_ms(),
     }
 }
 
@@ -858,6 +929,31 @@ impl SharedEvent {
     }
 }
 
+/// One `plugin.publish`, serialized once for every plugin that subscribed to
+/// its topic.
+///
+/// The bytes are the envelope, as the events' are: what differs between the
+/// frames of two subscribers is the message around them, not the topic.
+#[derive(Clone)]
+struct SharedTopic {
+    json: Arc<[u8]>,
+}
+
+impl SharedTopic {
+    /// The envelope for one publish, cut and flagged as an event's payload is.
+    fn new(topic: TopicEvent) -> Option<Arc<SharedTopic>> {
+        match serde_json::to_vec(&topic.truncated()) {
+            Ok(json) => Some(Arc::new(SharedTopic {
+                json: Arc::from(json),
+            })),
+            Err(error) => {
+                tracing::warn!(%error, "a published topic couldn't be serialized");
+                None
+            }
+        }
+    }
+}
+
 /// The payload of an `Event` frame: a batch's events, around the plugin they are
 /// for.
 ///
@@ -866,11 +962,25 @@ impl SharedEvent {
 /// on a busy account is the difference between one serialization and four. The
 /// test below reads it back with `serde_json` to keep it honest.
 fn event_payload(plugin: &PluginId, events: &[Arc<SharedEvent>]) -> Vec<u8> {
+    frame_payload(plugin, events, &[])
+}
+
+/// The payload of one event batch, with the topics published to the same plugin
+/// in the same call.
+///
+/// `topics` is left out when it is empty, so an event nobody published for costs
+/// the frame it always did.
+fn frame_payload(
+    plugin: &PluginId,
+    events: &[Arc<SharedEvent>],
+    topics: &[Arc<SharedTopic>],
+) -> Vec<u8> {
     let mut payload = Vec::with_capacity(
         64 + events
             .iter()
             .map(|event| event.json.len() + 1)
-            .sum::<usize>(),
+            .sum::<usize>()
+            + topics.iter().map(|topic| topic.json.len() + 1).sum::<usize>(),
     );
     payload.extend_from_slice(b"{\"t\":\"event\",\"plugin\":");
     match serde_json::to_vec(plugin) {
@@ -884,7 +994,18 @@ fn event_payload(plugin: &PluginId, events: &[Arc<SharedEvent>]) -> Vec<u8> {
         }
         payload.extend_from_slice(&event.json);
     }
-    payload.extend_from_slice(b"]}");
+    payload.push(b']');
+    if !topics.is_empty() {
+        payload.extend_from_slice(b",\"topics\":[");
+        for (index, topic) in topics.iter().enumerate() {
+            if index > 0 {
+                payload.push(b',');
+            }
+            payload.extend_from_slice(&topic.json);
+        }
+        payload.push(b']');
+    }
+    payload.push(b'}');
     payload
 }
 
@@ -908,6 +1029,15 @@ enum Request {
     Command {
         plugin: PluginId,
         invocation: CommandInvocation,
+    },
+    /// Replace a plugin with what the store holds now, with the plugins that
+    /// need it stopped first and started again after.
+    Swap {
+        plugin: PluginId,
+        /// The dependents, outermost first: the order to stop them in.
+        stop: Vec<PluginId>,
+        /// The same plugins the other way round: the order to start them in.
+        start: Vec<PluginId>,
     },
     /// Drop these instances now, for a reason the helper can't know.
     Evict { plugins: Vec<PluginId> },
@@ -1038,6 +1168,25 @@ struct Session {
     timers: BTreeMap<TimerKey, Timer>,
     /// Commands that arrived before the hello was answered.
     queued: VecDeque<Request>,
+    /// What a plugin's last `yf_deactivate` handed on, waiting for the swap that
+    /// will load its replacement: the state crosses the version change, so an
+    /// update doesn't cost the plugin its memory of where it was.
+    handoff: BTreeMap<PluginId, Option<String>>,
+    /// The update in progress, if any: its steps run one after another, each
+    /// waiting for the helper to say it is done, so no dependent is started
+    /// before what it needs is back.
+    swap: Option<Swap>,
+    /// The application's work that arrived while a swap was running. It is done
+    /// after, rather than woken into a half-swapped world: a dependent's event
+    /// handler asking its dependency something must find it there.
+    held: Vec<Request>,
+    /// The guest calls one plugin is making into another, innermost last. It is
+    /// what a loop of calls is refused with: the chain names them in the order
+    /// that made the loop.
+    calls: Vec<InFlight>,
+    /// `plugin.call`s waiting for a swap to finish, so a caller is never told its
+    /// callee isn't installed when it is only being replaced.
+    held_calls: Vec<(PluginId, u64, HostCall)>,
     /// Whether the parent asked the helper to stop, which makes its exit planned.
     asked: bool,
     /// What the helper said as it left, if it said anything.
@@ -1079,11 +1228,62 @@ enum Purpose {
     },
     /// A hook chain: if it doesn't answer in time the message goes as it was.
     Hook(Box<HeldSend>),
+    /// One plugin's call into another, which the caller is waiting on: the
+    /// answer goes back under the guest's own number for it.
+    Invocation {
+        /// The plugin that made the call.
+        caller: PluginId,
+        /// The number its `yf_call` answered `pending` with.
+        call: u64,
+        /// The export, for the sentence a timeout writes.
+        function: String,
+    },
+    /// One step of a swap. Its answer moves the swap on rather than reporting a
+    /// fault: an instance that doesn't come back is a fault of its own, and a
+    /// deadline here must not fail the plugin that is merely being replaced.
+    Swap { plugin: PluginId },
+}
+
+/// One call between two plugins that is waiting for its answer.
+struct InFlight {
+    /// The frame id that will answer it.
+    frame: u64,
+    from: PluginId,
+    to: PluginId,
+}
+
+/// A plugin being replaced, and the steps left to do it in.
+struct Swap {
+    /// The plugin being replaced.
+    plugin: PluginId,
+    /// Everything the swap touches: the plugin and the dependents being stopped
+    /// and started again. Kept for the whole swap, so a dependent stopped early
+    /// is still known to be part of it.
+    participants: BTreeSet<PluginId>,
+    /// What is left, in the order it runs.
+    steps: VecDeque<Step>,
+    /// The frame whose answer moves this on, if one is outstanding.
+    waiting: Option<u64>,
+}
+
+/// One step of an update.
+enum Step {
+    /// Stop a dependent, outermost first.
+    Stop(PluginId),
+    /// Stop the plugin itself and forget its module, so the next activation
+    /// carries the one the store holds now.
+    Replace,
+    /// Start the replacement.
+    StartSelf,
+    /// Start a dependent again, innermost first.
+    Start(PluginId),
 }
 
 /// A batch of events waiting for its coalescing window.
 struct Batch {
     events: Vec<Arc<SharedEvent>>,
+    /// What was published to this plugin's topics in the same window.
+    topics: Vec<Arc<SharedTopic>>,
     bytes: usize,
     due: Instant,
 }
@@ -1100,6 +1300,24 @@ struct Timer {
     interval: Duration,
     repeating: bool,
     due: Instant,
+}
+
+/// What came of asking for a plugin to be up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Started {
+    /// It was up already.
+    Active,
+    /// The helper was asked to start it, under this frame id.
+    Asked(u64),
+    /// It can't run: not enabled, or its module doesn't check out.
+    Refused,
+}
+
+impl Started {
+    /// Whether the plugin is up, or will be once the helper has answered.
+    fn runs(self) -> bool {
+        !matches!(self, Started::Refused)
+    }
 }
 
 impl Session {
@@ -1158,6 +1376,11 @@ impl Session {
             batches: BTreeMap::new(),
             timers: BTreeMap::new(),
             queued: VecDeque::new(),
+            handoff: BTreeMap::new(),
+            swap: None,
+            held: Vec::new(),
+            calls: Vec::new(),
+            held_calls: Vec::new(),
             asked: false,
             bye: None,
         })
@@ -1181,7 +1404,11 @@ impl Session {
                     id: held.id,
                     draft: held.draft,
                 }),
-                Purpose::Agent { .. } => {}
+                // The two that answer a guest are dropped with the process:
+                // there is no instance left to be told.
+                Purpose::Agent { .. }
+                | Purpose::Invocation { .. }
+                | Purpose::Swap { .. } => {}
             }
         }
     }
@@ -1293,6 +1520,14 @@ impl Session {
 
     /// Handles one command from the application.
     async fn on_command(&mut self, shared: &Arc<Shared>, command: Request) -> Option<Ending> {
+        // Work for a plugin taking part in a swap waits for it to finish: a
+        // dependent's handler that asked its dependency something would otherwise
+        // run while that dependency is between two versions. Shutdown is never
+        // held, and neither is the swap itself.
+        if self.swapping() && self.holds_for_swap(&command) {
+            self.held.push(command);
+            return None;
+        }
         match command {
             Request::Activate { plugins } => {
                 for plugin in plugins {
@@ -1316,6 +1551,14 @@ impl Session {
                 self.command(shared, &plugin, invocation);
                 None
             }
+            Request::Swap {
+                plugin,
+                stop,
+                start,
+            } => {
+                self.begin_swap(shared, plugin, stop, start);
+                None
+            }
             Request::Evict { plugins } => {
                 for plugin in plugins {
                     self.evict(&plugin);
@@ -1331,9 +1574,9 @@ impl Session {
     /// Loading is what hands the module's path to the helper, so it happens here
     /// and only for a plugin this process hasn't been given: a restart therefore
     /// re-loads on the next trigger rather than eagerly.
-    fn activate(&mut self, shared: &Shared, plugin: &PluginId) -> bool {
+    fn activate(&mut self, shared: &Shared, plugin: &PluginId) -> Started {
         if self.active.contains(plugin) {
-            return true;
+            return Started::Active;
         }
         // A trigger can outlive the plugin it was for — a queued event, a
         // timer that fired a moment before the person turned it off. Starting
@@ -1343,7 +1586,7 @@ impl Session {
             .entry(plugin)
             .is_some_and(|entry| entry.enabled)
         {
-            return false;
+            return Started::Refused;
         }
         // The module travels with the activation when this process hasn't given
         // it yet. One request for the whole phase: a `Load` frame and then an
@@ -1355,20 +1598,23 @@ impl Session {
             None
         } else {
             let Some(module) = self.ready_module(shared, plugin) else {
-                return false;
+                return Started::Refused;
             };
             self.loaded.insert(plugin.clone());
             Some(Activation {
                 wasm: module.path,
                 memory_pages: module.memory_pages,
                 wasi: module.wasi,
+                // What its last `yf_deactivate` handed on: the module may be a
+                // new version, and the state is what crosses that change.
+                state: self.handoff.remove(plugin).flatten(),
             })
         };
         let message = ToHelper::Activate {
             plugin: plugin.clone(),
             load,
         };
-        self.request(
+        let id = self.request(
             &message,
             ACTIVATE_TIMEOUT,
             Purpose::Agent {
@@ -1377,7 +1623,7 @@ impl Session {
                 budget: ACTIVATE_TIMEOUT,
             },
         );
-        true
+        Started::Asked(id)
     }
 
     /// The module to hand the helper, if it still checks out.
@@ -1441,49 +1687,76 @@ impl Session {
     }
 
     /// Delivers one event, or holds it for the coalescing window.
-    fn deliver(&mut self, shared: &Arc<Shared>, plugin: PluginId, event: Arc<SharedEvent>) {
+    fn deliver(&mut self, shared: &Shared, plugin: PluginId, event: Arc<SharedEvent>) {
         if !event.kind.is_coalesced() {
             // An event is only worth sending to an instance that exists: a
             // plugin whose module doesn't check out hears about nothing.
-            if self.activate(shared, &plugin) {
+            if self.activate(shared, &plugin).runs() {
                 let payload = event_payload(&plugin, std::slice::from_ref(&event));
                 self.write(FrameKind::Event, 0, payload);
             }
             return;
         }
         let full = {
-            let batch = self.batches.entry(plugin.clone()).or_insert_with(|| Batch {
-                events: Vec::new(),
-                bytes: 0,
-                due: Instant::now() + Duration::from_millis(COALESCE_MS),
-            });
+            let batch = self.batch(&plugin);
             batch.bytes += event.json.len();
             batch.events.push(event);
-            batch.events.len() >= BATCH_MAX_EVENTS || batch.bytes >= BATCH_MAX_BYTES
+            batch.events.len() + batch.topics.len() >= BATCH_MAX_EVENTS
+                || batch.bytes >= BATCH_MAX_BYTES
         };
         if full {
             self.flush_batch(shared, &plugin);
         }
     }
 
+    /// Holds one published topic for the same window events wait in.
+    ///
+    /// A publish is never waited on, so what a plugin's burst of them costs the
+    /// parent is a place in a batch that was going out anyway; the receiving
+    /// plugin pays one event batch's budget for the lot.
+    fn deliver_topic(&mut self, shared: &Shared, plugin: PluginId, topic: Arc<SharedTopic>) {
+        let full = {
+            let batch = self.batch(&plugin);
+            batch.bytes += topic.json.len();
+            batch.topics.push(topic);
+            batch.events.len() + batch.topics.len() >= BATCH_MAX_EVENTS
+                || batch.bytes >= BATCH_MAX_BYTES
+        };
+        if full {
+            self.flush_batch(shared, &plugin);
+        }
+    }
+
+    /// One plugin's batch, started when it has something to carry.
+    fn batch(&mut self, plugin: &PluginId) -> &mut Batch {
+        self.batches.entry(plugin.clone()).or_insert_with(|| Batch {
+            events: Vec::new(),
+            topics: Vec::new(),
+            bytes: 0,
+            due: Instant::now() + Duration::from_millis(COALESCE_MS),
+        })
+    }
+
     /// Sends one plugin's held events, as one call into it.
-    fn flush_batch(&mut self, shared: &Arc<Shared>, plugin: &PluginId) {
+    fn flush_batch(&mut self, shared: &Shared, plugin: &PluginId) {
         let Some(batch) = self.batches.remove(plugin) else {
             return;
         };
-        if batch.events.is_empty() || !self.activate(shared, plugin) {
+        if (batch.events.is_empty() && batch.topics.is_empty())
+            || !self.activate(shared, plugin).runs()
+        {
             return;
         }
-        let payload = event_payload(plugin, &batch.events);
+        let payload = frame_payload(plugin, &batch.events, &batch.topics);
         self.write(FrameKind::Event, 0, payload);
     }
 
     /// Runs a hook chain, or holds the send until it answers.
-    fn hold(&mut self, shared: &Arc<Shared>, mut held: HeldSend, request: HookRequest) {
+    fn hold(&mut self, shared: &Shared, mut held: HeldSend, request: HookRequest) {
         // Frames are handled in order, so loading each plugin in the chain first
         // means the chain arrives at instances that are already up. A plugin
         // that can't be loaded leaves the chain rather than holding the send.
-        held.chain.retain(|plugin| self.activate(shared, plugin));
+        held.chain.retain(|plugin| self.activate(shared, plugin).runs());
         if held.chain.is_empty() {
             shared.announce(Notice::SendReady {
                 id: held.id,
@@ -1501,7 +1774,7 @@ impl Session {
     }
 
     /// Runs a command a person typed.
-    fn command(&mut self, shared: &Arc<Shared>, plugin: &PluginId, invocation: CommandInvocation) {
+    fn command(&mut self, shared: &Shared, plugin: &PluginId, invocation: CommandInvocation) {
         self.activate(shared, plugin);
         let message = ToHelper::Command {
             plugin: plugin.clone(),
@@ -1516,6 +1789,372 @@ impl Session {
                 budget: COMMAND_TIMEOUT,
             },
         );
+    }
+
+    /// Runs one plugin's call into another, which is what `plugin.call` asks for.
+    ///
+    /// The answer can't be built here: it is an export of the callee, and only
+    /// the helper holds its instance. So this checks the edge, starts the callee
+    /// if it isn't up, and sends the call; the answer comes back as `Invoked` and
+    /// is handed to the caller under the number its `yf_call` answered
+    /// `pending` with.
+    fn call_plugin(&mut self, shared: &Shared, call: u64, from: PluginId, request: HostCall) {
+        let call_request: PluginCall = match request.parse() {
+            Ok(call_request) => call_request,
+            Err(error) => {
+                self.reply(&from, call, wrong_payload(call::method::PLUGIN_CALL, error));
+                return;
+            }
+        };
+        let to = call_request.plugin.clone();
+        // A swap in progress is not an absent plugin: the call waits for it, so a
+        // dependent asking its dependency something during an update gets an
+        // answer rather than "not installed".
+        if self.in_swap(&to) {
+            self.held_calls.push((from, call, request));
+            return;
+        }
+        if yapfast_plugin_api::message::EXPORTS.contains(&call_request.function.as_str()) {
+            self.reply(
+                &from,
+                call,
+                HostReturn::Error {
+                    message: format!(
+                        "`{}` is the parent's, not a plugin's: a call may only run an export 
+                         the callee has written for it",
+                        call_request.function
+                    ),
+                },
+            );
+            return;
+        }
+        let registry = shared.registry();
+        if registry.entry(&to).is_none() {
+            drop(registry);
+            self.reply(
+                &from,
+                call,
+                HostReturn::Error {
+                    message: format!("{to} isn't installed"),
+                },
+            );
+            return;
+        }
+        if !registry.callable(&to) {
+            drop(registry);
+            self.reply(
+                &from,
+                call,
+                HostReturn::Denied {
+                    reason: format!("{to} is installed but not enabled"),
+                },
+            );
+            return;
+        }
+        // Calls follow declared edges and nothing else: that is what makes a
+        // loop of them impossible, and so what lets one wait for an answer.
+        if !registry.declares(&from, &to) {
+            drop(registry);
+            self.reply(
+                &from,
+                call,
+                HostReturn::Denied {
+                    reason: format!(
+                        "{from} doesn't declare {to} as a dependency, so it can't call it"
+                    ),
+                },
+            );
+            return;
+        }
+        drop(registry);
+        if let Some(chain) = self.call_loop(&from, &to) {
+            self.reply(
+                &from,
+                call,
+                HostReturn::Denied {
+                    reason: format!(
+                        "a call from {from} to {to} would come back around: {}",
+                        chain.join(" → ")
+                    ),
+                },
+            );
+            return;
+        }
+        // A call wakes its callee, as any other trigger does: a plugin that
+        // was evicted is instantiated again rather than answering that it is
+        // not there.
+        if !self.activate(shared, &to).runs() {
+            self.reply(
+                &from,
+                call,
+                HostReturn::Error {
+                    message: format!("{to} couldn't be started"),
+                },
+            );
+            return;
+        }
+        let message = ToHelper::Invoke {
+            plugin: to.clone(),
+            function: call_request.function.clone(),
+            args_base64: call_request.args_base64,
+        };
+        let frame = self.request(
+            &message,
+            CALL_TIMEOUT,
+            Purpose::Invocation {
+                caller: from.clone(),
+                call,
+                function: call_request.function.clone(),
+            },
+        );
+        self.calls.push(InFlight {
+            frame,
+            from,
+            to,
+        });
+    }
+
+    /// The chain a call would close into a loop, if it would.
+    ///
+    /// The caller chain is walked from the plugin making the call outwards: if
+    /// the callee is already waiting on it somewhere up the chain, the call is
+    /// one that comes back around and is refused with the names in order.
+    fn call_loop(&self, from: &PluginId, to: &PluginId) -> Option<Vec<String>> {
+        let mut chain = vec![from.to_string(), to.to_string()];
+        let mut current = from.clone();
+        let mut seen = BTreeSet::from([from.clone()]);
+        while let Some(caller) = self
+            .calls
+            .iter()
+            .find(|call| call.to == current)
+            .map(|call| call.from.clone())
+        {
+            chain.insert(1, caller.to_string());
+            if caller == *to {
+                chain.insert(0, to.to_string());
+                chain.dedup();
+                return Some(chain);
+            }
+            if !seen.insert(caller.clone()) {
+                return Some(chain);
+            }
+            current = caller;
+        }
+        None
+    }
+
+    /// Sends one plugin's publish to everyone subscribed to its topic.
+    ///
+    /// Nothing is waited on and nothing is answered late: the publisher is
+    /// answered at once with the count, and the subscribers get the topic in
+    /// their next event batch, under the coalescing window events already have.
+    fn publish(&mut self, shared: &Shared, plugin: &PluginId, request: HostCall) -> HostReturn {
+        let publish: yapfast_plugin_api::call::PluginPublish = match request.parse() {
+            Ok(publish) => publish,
+            Err(error) => return wrong_payload(call::method::PLUGIN_PUBLISH, error),
+        };
+        if publish.topic.is_empty() || publish.topic.len() > limits::MAX_TOPIC_NAME_BYTES {
+            return HostReturn::Error {
+                message: format!(
+                    "a topic's name is 1 to {} bytes",
+                    limits::MAX_TOPIC_NAME_BYTES
+                ),
+            };
+        }
+        let topic = TopicEvent {
+            topic: publish.topic.clone(),
+            from: plugin.clone(),
+            at: now_ms(),
+            payload: publish.payload,
+        };
+        let targets = shared.registry().subscribers_to(&publish.topic, plugin);
+        if targets.is_empty() {
+            return HostReturn::Ok(serde_json::json!({ "delivered": 0 }));
+        }
+        let Some(shared_topic) = SharedTopic::new(topic) else {
+            return HostReturn::Error {
+                message: "the published payload couldn't be serialized".to_owned(),
+            };
+        };
+        for target in &targets {
+            self.deliver_topic(shared, target.clone(), shared_topic.clone());
+        }
+        HostReturn::Ok(serde_json::json!({ "delivered": targets.len() }))
+    }
+
+    /// Starts or stops hearing a topic.
+    fn subscribe(&mut self, shared: &Shared, plugin: &PluginId, request: HostCall) -> HostReturn {
+        let subscribe: PluginSubscribe = match request.parse() {
+            Ok(subscribe) => subscribe,
+            Err(error) => return wrong_payload(call::method::PLUGIN_SUBSCRIBE, error),
+        };
+        match shared
+            .registry_mut()
+            .subscribe(plugin, &subscribe.topic, !subscribe.cancel)
+        {
+            Ok(subscribed) => HostReturn::Ok(serde_json::json!({
+                "topic": subscribe.topic,
+                "subscribed": subscribed,
+            })),
+            Err(reason) => HostReturn::Denied { reason },
+        }
+    }
+
+    /// Whether a swap is running.
+    fn swapping(&self) -> bool {
+        self.swap.is_some()
+    }
+
+    /// Whether a swap has this plugin in it, which is what a call waits for.
+    fn in_swap(&self, plugin: &PluginId) -> bool {
+        self.swap
+            .as_ref()
+            .is_some_and(|swap| swap.participants.contains(plugin))
+    }
+
+    /// Whether one of the application's commands is work for a plugin a swap is
+    /// replacing or restarting.
+    fn holds_for_swap(&self, command: &Request) -> bool {
+        match command {
+            Request::Activate { plugins } => plugins.iter().any(|plugin| self.in_swap(plugin)),
+            Request::Deactivate { plugin } => self.in_swap(plugin),
+            Request::Event { plugin, .. } => self.in_swap(plugin),
+            Request::Hook { held, .. } => held.chain.iter().any(|plugin| self.in_swap(plugin)),
+            Request::Command { plugin, .. } => self.in_swap(plugin),
+            // An eviction is the application asking for memory back, and one
+            // that raced a swap would be undoing it; it waits the 100 ms.
+            Request::Evict { .. } => true,
+            Request::Swap { .. } | Request::Shutdown => false,
+        }
+    }
+
+    /// Starts replacing a plugin, with the plugins that need it stopped first.
+    ///
+    /// The steps run one at a time, each waiting for the helper to say it is
+    /// done, so there is no moment in which a dependent is running while what it
+    /// needs is between two versions.
+    fn begin_swap(
+        &mut self,
+        shared: &Shared,
+        plugin: PluginId,
+        stop: Vec<PluginId>,
+        start: Vec<PluginId>,
+    ) {
+        let mut steps = VecDeque::new();
+        let mut participants = BTreeSet::from([plugin.clone()]);
+        for dependent in stop {
+            participants.insert(dependent.clone());
+            steps.push_back(Step::Stop(dependent));
+        }
+        steps.push_back(Step::Replace);
+        steps.push_back(Step::StartSelf);
+        for dependent in start {
+            participants.insert(dependent.clone());
+            steps.push_back(Step::Start(dependent));
+        }
+        self.swap = Some(Swap {
+            plugin,
+            participants,
+            steps,
+            waiting: None,
+        });
+        self.advance_swap(shared);
+    }
+
+    /// Moves a swap on to its next step, or finishes it.
+    fn advance_swap(&mut self, shared: &Shared) {
+        loop {
+            // The borrow of the swap ends before the step runs, because the step
+            // is a request of this session's own.
+            let stepped = match self.swap.as_mut() {
+                None => return,
+                Some(swap) => (swap.plugin.clone(), swap.steps.pop_front()),
+            };
+            let (plugin, Some(step)) = stepped else {
+                self.finish_swap(shared);
+                return;
+            };
+            let id = match step {
+                Step::Stop(dependent) => {
+                    if self.active.contains(&dependent) {
+                        self.deactivate_asking(&dependent)
+                    } else {
+                        None
+                    }
+                }
+                Step::Replace => {
+                    // The old instance says what it hands on, then its module is
+                    // forgotten so the next activation carries the new one.
+                    self.handoff.remove(&plugin);
+                    let asked = if self.active.contains(&plugin) {
+                        self.deactivate_asking(&plugin)
+                    } else {
+                        None
+                    };
+                    self.active.remove(&plugin);
+                    self.loaded.remove(&plugin);
+                    asked
+                }
+                // The replacement itself, started once the helper has said the
+                // old instance is gone.
+                Step::StartSelf => match self.activate(shared, &plugin) {
+                    Started::Asked(id) => Some(id),
+                    Started::Active | Started::Refused => None,
+                },
+                Step::Start(dependent) => match self.activate(shared, &dependent) {
+                    Started::Asked(id) => Some(id),
+                    // It came back by itself, on the event that woke it: the
+                    // swap has nothing to wait for.
+                    Started::Active | Started::Refused => None,
+                },
+            };
+            if let Some(swap) = self.swap.as_mut() {
+                swap.waiting = id;
+            }
+            if id.is_some() {
+                return;
+            }
+        }
+    }
+
+    /// Says a swap step is done, if this frame was the one it waited for.
+    fn swap_answered(&mut self, shared: &Shared, frame: u64) {
+        let Some(swap) = self.swap.as_mut() else {
+            return;
+        };
+        if swap.waiting != Some(frame) {
+            return;
+        }
+        swap.waiting = None;
+        self.advance_swap(shared);
+    }
+
+    /// Ends a swap: what was held for it runs now, and the calls it was given are
+    /// answered by the plugins they were meant for.
+    fn finish_swap(&mut self, shared: &Shared) {
+        self.swap = None;
+        let held = std::mem::take(&mut self.held);
+        self.queued.extend(held);
+        let calls = std::mem::take(&mut self.held_calls);
+        for (caller, call, request) in calls {
+            self.call_plugin(shared, call, caller, request);
+        }
+    }
+
+    /// Asks the helper to`yf_deactivate` a plugin, and answers with the frame that
+    /// will say it is gone.
+    fn deactivate_asking(&mut self, plugin: &PluginId) -> Option<u64> {
+        self.forget_timers(plugin);
+        let message = ToHelper::Deactivate {
+            plugin: plugin.clone(),
+        };
+        Some(self.request(
+            &message,
+            DEACTIVATE_TIMEOUT,
+            Purpose::Swap {
+                plugin: plugin.clone(),
+            },
+        ))
     }
 
     /// Handles one frame from the helper.
@@ -1556,14 +2195,54 @@ impl Session {
                 let status = PluginStatus::Active;
                 shared.registry_mut().set_status(&plugin, status.clone());
                 shared.announce(Notice::Status { plugin, status });
+                // A swap waiting on this instance goes on to its next step.
+                self.swap_answered(shared, frame.id);
                 None
             }
-            FromHelper::Deactivated { plugin, .. } => {
+            FromHelper::Deactivated { plugin, state } => {
                 self.pending.remove(&frame.id);
                 self.active.remove(&plugin);
+                // What it handed on is kept until the swap that stopped it loads
+                // its replacement, which is how a plugin's state crosses an
+                // update.
+                if state.is_some() {
+                    self.handoff.insert(plugin.clone(), state);
+                }
                 let status = PluginStatus::Enabled;
                 shared.registry_mut().set_status(&plugin, status.clone());
                 shared.announce(Notice::Status { plugin, status });
+                self.swap_answered(shared, frame.id);
+                None
+            }
+            FromHelper::Invoked {
+                answer_base64,
+                fault,
+            } => {
+                self.calls.retain(|call| call.frame != frame.id);
+                let Some(pending) = self.pending.remove(&frame.id) else {
+                    tracing::debug!("a call between plugins answered after its budget");
+                    return None;
+                };
+                let Purpose::Invocation {
+                    caller,
+                    call,
+                    function,
+                } = pending.purpose
+                else {
+                    return None;
+                };
+                let answer = match fault {
+                    Some(fault) => HostReturn::Error {
+                        message: format!("`{function}` failed: {}", fault.reason),
+                    },
+                    None => match answer_base64 {
+                        Some(answer) => HostReturn::Ok(serde_json::json!({
+                            "answer_base64": answer,
+                        })),
+                        None => HostReturn::Ok(serde_json::json!(null)),
+                    },
+                };
+                self.reply(&caller, call, answer);
                 None
             }
             FromHelper::HookDone { outcome, failures } => {
@@ -1585,6 +2264,10 @@ impl Session {
             }
             FromHelper::Fault { plugin, fault } => {
                 self.on_fault(shared, plugin, fault);
+                // A fault is this step's answer too: the plugin it was about is
+                // gone, and the swap carries on rather than waiting for an
+                // instance that doesn't exist.
+                self.swap_answered(shared, frame.id);
                 None
             }
             FromHelper::Log { plugin, record } => {
@@ -1608,6 +2291,10 @@ impl Session {
     /// `http.fetch` goes beside the conversation instead of inside it: a plugin
     /// waiting on the network must not stop events reaching the others.
     fn on_call(&mut self, shared: &Arc<Shared>, call: u64, plugin: PluginId, request: HostCall) {
+        if request.method == call::method::PLUGIN_CALL {
+            self.call_plugin(shared, call, plugin, request);
+            return;
+        }
         if request.method == call::method::HTTP_FETCH {
             self.fetch(shared, call, plugin, request);
             return;
@@ -1735,6 +2422,8 @@ impl Session {
                 };
                 HostReturn::Ok(serde_json::Value::Bool(self.timers.remove(&key).is_some()))
             }
+            call::method::PLUGIN_PUBLISH => self.publish(shared, plugin, call),
+            call::method::PLUGIN_SUBSCRIBE => self.subscribe(shared, plugin, call),
             // Everything else is named in the contract so a plugin can
             // feature-detect it, and answers so rather than failing to link.
             _ => HostReturn::Unsupported,
@@ -2070,6 +2759,30 @@ impl Session {
                 shared.registry_mut().set_status(&plugin, status.clone());
                 shared.announce(Notice::Status { plugin, status });
             }
+            Purpose::Invocation {
+                caller,
+                call,
+                function,
+            } => {
+                // The caller did nothing wrong, so it is answered rather than
+                // faulted: an instance that doesn't come back is its own fault,
+                // reported where it happened.
+                self.calls.retain(|inflight| inflight.frame != id);
+                self.reply(
+                    &caller,
+                    call,
+                    HostReturn::Error {
+                        message: format!(
+                            "the call to `{function}` didn't answer within {} s",
+                            CALL_TIMEOUT.as_secs_f32()
+                        ),
+                    },
+                );
+            }
+            Purpose::Swap { plugin } => {
+                tracing::warn!(%plugin, "a swap step didn't answer in time; carrying on");
+                self.swap_answered(shared, id);
+            }
         }
     }
 
@@ -2083,7 +2796,7 @@ impl Session {
     }
 
     /// Fires one timer, as a call into its plugin with nothing new.
-    fn fire(&mut self, shared: &Arc<Shared>, key: TimerKey) {
+    fn fire(&mut self, shared: &Shared, key: TimerKey) {
         let Some(timer) = self.timers.get_mut(&key) else {
             return;
         };
@@ -2093,7 +2806,7 @@ impl Session {
         } else {
             self.timers.remove(&key);
         }
-        if !self.activate(shared, &key.plugin) {
+        if !self.activate(shared, &key.plugin).runs() {
             return;
         }
         let message = ToHelper::Kick {
@@ -2239,6 +2952,7 @@ mod tests {
             ToHelper::Event {
                 plugin,
                 events: vec![first, second],
+                topics: Vec::new(),
             }
         );
     }
@@ -2353,6 +3067,11 @@ mod tests {
                 batches: BTreeMap::new(),
                 timers: BTreeMap::new(),
                 queued: VecDeque::new(),
+                handoff: BTreeMap::new(),
+                swap: None,
+                held: Vec::new(),
+                calls: Vec::new(),
+                held_calls: Vec::new(),
                 asked: false,
                 bye: None,
             },
@@ -2402,6 +3121,49 @@ mod tests {
         )
         .expect("a lock file");
         plugin
+    }
+
+    /// A data directory with several installed plugins, in one lock file.
+    ///
+    /// Each manifest names its own module as `plugin.wasm`, and the lock entry
+    /// carries that module's digest, so the store is what a real install would
+    /// have written.
+    fn install_all(directory: &Path, manifests: &[&str]) -> Vec<PluginId> {
+        use sha2::Digest;
+        let mut ids = Vec::new();
+        let mut entries = Vec::new();
+        for manifest in manifests {
+            let parsed = PluginManifest::parse(manifest).expect("a manifest");
+            // A module of its own per plugin: the store is content-addressed, so
+            // two plugins whose modules were byte-identical would share one
+            // directory and the second manifest would replace the first.
+            let module = format!("not a real module: {}", parsed.id).into_bytes();
+            let mut hasher = sha2::Sha256::new();
+            hasher.update(&module);
+            let mut sha = String::new();
+            for byte in hasher.finalize() {
+                sha.push_str(&format!("{byte:02x}"));
+            }
+            let stored = directory.join("plugins").join("store").join(&sha);
+            std::fs::create_dir_all(&stored).expect("a store directory");
+            std::fs::write(stored.join("manifest.json"), manifest).expect("a manifest");
+            std::fs::write(stored.join("plugin.wasm"), &module).expect("a module");
+            entries.push(format!(
+                r#""{}":{{"wasm_sha256":"{sha}","enabled":true}}"#,
+                parsed.id
+            ));
+            ids.push(parsed.id);
+        }
+        std::fs::create_dir_all(directory.join("plugins")).expect("a plugin directory");
+        std::fs::write(
+            directory.join("plugins").join("lock.json"),
+            format!(
+                r#"{{"version":1,"plugins":{{{}}}}}"#,
+                entries.join(",")
+            ),
+        )
+        .expect("a lock file");
+        ids
     }
 
     /// The plugin system's shared half around a data directory, as the bridge
@@ -2716,7 +3478,10 @@ mod tests {
         ));
         let batch = next_frame(&written);
         assert_eq!(batch.kind, FrameKind::Event);
-        let ToHelper::Event { plugin: to, events } = message(&batch) else {
+        let ToHelper::Event {
+            plugin: to, events, ..
+        } = message(&batch)
+        else {
             panic!("a batch is one event frame");
         };
         assert_eq!(to, plugin);
@@ -2855,5 +3620,426 @@ mod tests {
             panic!("a message event is one event frame");
         };
         assert_eq!(events.len(), 1, "a message is not coalesced");
+    }
+
+    /// A manifest for a plugin that declares the base plugin as a dependency, so
+    /// it may call it.
+    const BASE_MANIFEST: &str = r#"{"api":1,"id":"com.example.base","name":"Base","version":"1.0.0",
+        "wasm":"plugin.wasm",
+        "permissions":{"capabilities":[]}}"#;
+
+    const TOP_MANIFEST: &str = r#"{"api":1,"id":"com.example.top","name":"Top","version":"1.0.0",
+        "wasm":"plugin.wasm",
+        "dependencies":{"com.example.base":"^1"},
+        "permissions":{"capabilities":[]}}"#;
+
+    /// A `plugin.call` host call, as a guest builds one.
+    fn call_request(to: &PluginId, function: &str) -> HostCall {
+        HostCall::new(
+            call::method::PLUGIN_CALL,
+            PluginCall {
+                plugin: to.clone(),
+                function: function.to_owned(),
+                args_base64: "aGk=".to_owned(),
+            },
+        )
+        .expect("a call payload")
+    }
+
+    #[test]
+    fn a_call_reaches_its_callee_and_comes_back_under_the_caller_s_number() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let ids = install_all(directory.path(), &[BASE_MANIFEST, TOP_MANIFEST]);
+        let (base, top) = (ids[0].clone(), ids[1].clone());
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        // The caller doesn't declare the callee as a dependency of anything
+        // else, and the callee is asleep: a call wakes it first.
+        session.on_call(&shared, 7, top.clone(), call_request(&base, "answer"));
+        let activate = next_frame(&written);
+        assert!(
+            matches!(message(&activate), ToHelper::Activate { plugin, .. } if plugin == base),
+            "the callee is started before it is called"
+        );
+        let invoke = next_frame(&written);
+        assert_eq!(
+            message(&invoke),
+            ToHelper::Invoke {
+                plugin: base.clone(),
+                function: "answer".to_owned(),
+                args_base64: "aGk=".to_owned(),
+            }
+        );
+
+        let answer = Frame::new(
+            FrameKind::Report,
+            invoke.id,
+            serde_json::to_vec(&FromHelper::Invoked {
+                answer_base64: Some("aGVsbG8=".to_owned()),
+                fault: None,
+            })
+            .expect("it serializes"),
+        );
+        assert!(session.on_frame(&shared, answer).is_none());
+        let reply = next_frame(&written);
+        assert_eq!(
+            message(&reply),
+            ToHelper::Return {
+                plugin: top,
+                call: 7,
+                answer: HostReturn::Ok(serde_json::json!({ "answer_base64": "aGVsbG8=" })),
+            }
+        );
+    }
+
+    #[test]
+    fn a_call_to_a_plugin_the_caller_does_not_declare_is_refused() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let ids = install_all(directory.path(), &[BASE_MANIFEST, TOP_MANIFEST]);
+        let (base, top) = (ids[0].clone(), ids[1].clone());
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        // The other way round: base declares nothing, so it may not call top.
+        session.on_call(&shared, 3, base.clone(), call_request(&top, "answer"));
+        let reply = next_frame(&written);
+        let ToHelper::Return { plugin, call: 3, answer } = message(&reply) else {
+            panic!("a refused call is answered");
+        };
+        assert_eq!(plugin, base);
+        let HostReturn::Denied { reason } = answer else {
+            panic!("a call along no declared edge is refused");
+        };
+        assert!(reason.contains("com.example.top"), "{reason}");
+        assert!(reason.contains("dependency"), "{reason}");
+    }
+
+    #[test]
+    fn a_call_to_a_plugin_that_is_off_is_refused_and_names_it() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let ids = install_all(directory.path(), &[BASE_MANIFEST, TOP_MANIFEST]);
+        let (base, top) = (ids[0].clone(), ids[1].clone());
+        {
+            // The person turned the dependency off.
+            let store = Store::open(directory.path()).expect("a store");
+            store.set_enabled(&base, false).expect("it is installed");
+        }
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        *shared.registry_mut() = Registry::load(&shared.store());
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        session.on_call(&shared, 9, top.clone(), call_request(&base, "answer"));
+        let reply = next_frame(&written);
+        let ToHelper::Return {
+            plugin,
+            call: 9,
+            answer,
+        } = message(&reply)
+        else {
+            panic!("a call to an off plugin is answered");
+        };
+        assert_eq!(plugin, top);
+        assert!(
+            matches!(&answer, HostReturn::Denied { reason } if reason.contains("not enabled")),
+            "{answer:?}"
+        );
+    }
+
+    #[test]
+    fn a_call_that_would_come_back_around_names_the_chain() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        // Both declare each other, which the graph refuses to order; the entries
+        // are still what the registry answers a call's edge from.
+        let ids = install_all(
+            directory.path(),
+            &[
+                r#"{"api":1,"id":"com.example.base","name":"Base","version":"1.0.0",
+                    "wasm":"plugin.wasm","dependencies":{"com.example.top":"^1"},
+                    "permissions":{"capabilities":[]}}"#,
+                TOP_MANIFEST,
+            ],
+        );
+        let (base, top) = (ids[0].clone(), ids[1].clone());
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+        // base is already waiting on a call into top, so top calling base would
+        // close the loop.
+        session.calls.push(InFlight {
+            frame: 1,
+            from: base.clone(),
+            to: top.clone(),
+        });
+
+        session.on_call(&shared, 4, top.clone(), call_request(&base, "answer"));
+        let reply = next_frame(&written);
+        let ToHelper::Return {
+            plugin,
+            call: 4,
+            answer,
+        } = message(&reply)
+        else {
+            panic!("a looping call is answered, not deadlocked");
+        };
+        assert_eq!(plugin, top);
+        let HostReturn::Denied { reason } = answer else {
+            panic!("a loop is refused");
+        };
+        assert!(reason.contains("com.example.base"), "{reason}");
+        assert!(reason.contains("com.example.top"), "{reason}");
+        assert!(reason.contains('→'), "{reason}");
+    }
+
+    #[test]
+    fn a_publish_reaches_the_subscribers_and_stops_when_one_leaves() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let ids = install_all(directory.path(), &[BASE_MANIFEST, TOP_MANIFEST]);
+        let (base, top) = (ids[0].clone(), ids[1].clone());
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        let subscribed = session.subscribe(
+            &shared,
+            &base,
+            HostCall::new(
+                call::method::PLUGIN_SUBSCRIBE,
+                PluginSubscribe {
+                    topic: "notes".to_owned(),
+                    cancel: false,
+                },
+            )
+            .expect("a subscribe payload"),
+        );
+        assert_eq!(
+            subscribed,
+            HostReturn::Ok(serde_json::json!({ "topic": "notes", "subscribed": true }))
+        );
+
+        let published = session.answer(
+            &shared,
+            &top,
+            HostCall::new(
+                call::method::PLUGIN_PUBLISH,
+                yapfast_plugin_api::call::PluginPublish {
+                    topic: "notes".to_owned(),
+                    payload: serde_json::json!({ "body": "hi" }),
+                },
+            )
+            .expect("a publish payload"),
+        );
+        assert_eq!(
+            published,
+            HostReturn::Ok(serde_json::json!({ "delivered": 1 }))
+        );
+        // A publish is coalesced, so it arrives with the window the events wait
+        // in: the subscriber is called once, with the topic in its batch.
+        std::thread::sleep(Duration::from_millis(COALESCE_MS + 50));
+        session.on_tick(&shared);
+        let activate = next_frame(&written);
+        assert!(matches!(message(&activate), ToHelper::Activate { .. }));
+        let batch = next_frame(&written);
+        let ToHelper::Event { plugin, topics, .. } = message(&batch) else {
+            panic!("a topic arrives as an event batch");
+        };
+        assert_eq!(plugin, base);
+        assert_eq!(topics.len(), 1);
+        assert_eq!(topics[0].topic, "notes");
+        assert_eq!(topics[0].from, top);
+        assert_eq!(topics[0].payload, serde_json::json!({ "body": "hi" }));
+
+        // Leaving the topic stops it: nothing is delivered.
+        session.subscribe(
+            &shared,
+            &base,
+            HostCall::new(
+                call::method::PLUGIN_SUBSCRIBE,
+                PluginSubscribe {
+                    topic: "notes".to_owned(),
+                    cancel: true,
+                },
+            )
+            .expect("a subscribe payload"),
+        );
+        let published = session.answer(
+            &shared,
+            &top,
+            HostCall::new(
+                call::method::PLUGIN_PUBLISH,
+                yapfast_plugin_api::call::PluginPublish {
+                    topic: "notes".to_owned(),
+                    payload: serde_json::json!(1),
+                },
+            )
+            .expect("a publish payload"),
+        );
+        assert_eq!(
+            published,
+            HostReturn::Ok(serde_json::json!({ "delivered": 0 }))
+        );
+    }
+
+    #[test]
+    fn an_update_stops_dependents_first_and_no_dependent_runs_against_nothing() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let ids = install_all(directory.path(), &[BASE_MANIFEST, TOP_MANIFEST]);
+        let (base, top) = (ids[0].clone(), ids[1].clone());
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+        // Both are up, which is what an update finds.
+        session.active.insert(base.clone());
+        session.active.insert(top.clone());
+
+        runtime().block_on(session.on_command(
+            &shared,
+            Request::Swap {
+                plugin: base.clone(),
+                stop: vec![top.clone()],
+                start: vec![top.clone()],
+            },
+        ));
+        // The dependent goes first: nothing is left needing the plugin while it
+        // is replaced.
+        let stop_top = next_frame(&written);
+        assert_eq!(
+            message(&stop_top),
+            ToHelper::Deactivate {
+                plugin: top.clone()
+            }
+        );
+        assert!(
+            written.recv_timeout(Duration::from_millis(100)).is_err(),
+            "nothing else moves until the helper says the dependent is gone"
+        );
+        session.on_frame(
+            &shared,
+            Frame::new(
+                FrameKind::Report,
+                stop_top.id,
+                serde_json::to_vec(&FromHelper::Deactivated {
+                    plugin: top.clone(),
+                    state: None,
+                })
+                .expect("it serializes"),
+            ),
+        );
+
+        // Now the plugin itself: its old instance says goodbye, and its state is
+        // what the next activation is given.
+        let stop_base = next_frame(&written);
+        assert_eq!(
+            message(&stop_base),
+            ToHelper::Deactivate {
+                plugin: base.clone()
+            }
+        );
+        session.on_frame(
+            &shared,
+            Frame::new(
+                FrameKind::Report,
+                stop_base.id,
+                serde_json::to_vec(&FromHelper::Deactivated {
+                    plugin: base.clone(),
+                    state: Some(r#"{"seen":3}"#.to_owned()),
+                })
+                .expect("it serializes"),
+            ),
+        );
+
+        // The replacement is loaded and started, still before the dependent.
+        let start_base = next_frame(&written);
+        let ToHelper::Activate {
+            plugin: started,
+            load: Some(load),
+        } = message(&start_base)
+        else {
+            panic!("the replacement is activated with its module");
+        };
+        assert_eq!(started, base);
+        assert_eq!(
+            load.state.as_deref(),
+            Some(r#"{"seen":3}"#),
+            "the state a plugin handed on crosses the swap"
+        );
+
+        // A dependent calling the plugin now waits rather than being told it is
+        // not installed: this is the window the milestone is about.
+        session.on_call(&shared, 11, top.clone(), call_request(&base, "answer"));
+        assert!(
+            written.recv_timeout(Duration::from_millis(100)).is_err(),
+            "the call waits for the swap instead of being refused"
+        );
+
+        session.on_frame(
+            &shared,
+            Frame::new(
+                FrameKind::Report,
+                start_base.id,
+                serde_json::to_vec(&FromHelper::Activated {
+                    plugin: base.clone(),
+                    state: None,
+                    memory_pages: 64,
+                })
+                .expect("it serializes"),
+            ),
+        );
+        // Only now does the dependent come back.
+        let start_top = next_frame(&written);
+        assert!(
+            matches!(message(&start_top), ToHelper::Activate { plugin, .. } if plugin == top),
+            "the dependent starts after its dependency is back"
+        );
+        session.on_frame(
+            &shared,
+            Frame::new(
+                FrameKind::Report,
+                start_top.id,
+                serde_json::to_vec(&FromHelper::Activated {
+                    plugin: top.clone(),
+                    state: None,
+                    memory_pages: 64,
+                })
+                .expect("it serializes"),
+            ),
+        );
+        // And the call it made during the swap is answered by the plugin it was
+        // meant for.
+        let invoke = next_frame(&written);
+        assert_eq!(
+            message(&invoke),
+            ToHelper::Invoke {
+                plugin: base.clone(),
+                function: "answer".to_owned(),
+                args_base64: "aGk=".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn turning_a_dependency_off_turns_off_what_needs_it() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let ids = install_all(directory.path(), &[BASE_MANIFEST, TOP_MANIFEST]);
+        let (base, top) = (ids[0].clone(), ids[1].clone());
+        let (wake, _notices) = notice_channel();
+        let mut bridge = Bridge::open(directory.path(), wake).expect("a bridge");
+
+        bridge.set_enabled(&base, false).expect("it is installed");
+        let statuses = bridge.statuses();
+        for plugin in [&base, &top] {
+            let status = statuses
+                .iter()
+                .find(|(id, _)| id == plugin)
+                .map(|(_, status)| status.clone());
+            assert_eq!(
+                status,
+                Some(PluginStatus::Installed),
+                "{plugin} is off, and so is what needed it"
+            );
+        }
     }
 }

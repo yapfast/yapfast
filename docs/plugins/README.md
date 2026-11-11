@@ -91,9 +91,19 @@ plugin that has never been activated still appears:
 Once it is running it can subscribe to events and answer with data to draw: text
 and controls beside a message, or inside a slot the interface offers. The
 interface is compiled Slint, so a plugin adds no widget; it sends a tree and
-precompiled components draw it. Calling another plugin by name, and publishing to
-whoever subscribed, are named by the API from its first version and answer
-`unsupported` until the runtime has them.
+precompiled components draw it.
+
+A plugin can also talk to another: `plugin.call` runs one of the other's exports
+and answers with what it returned, and `plugin.publish` hands bytes to whoever
+subscribed to a topic with `plugin.subscribe`. A call follows the dependency
+edges its manifest declares and no others, so two plugins can't call each other
+in a loop and neither waits on something that waits on it; a call that would
+come back around is refused with the chain that made the loop. A call wakes a
+callee that was evicted, and an update of a plugin never leaves a plugin that
+needs it running against nothing: the dependents are stopped in reverse
+dependency order, the version is swapped with the plugin's handed-on state, and
+they are started again. A call made during that moment waits rather than being
+told the plugin isn't installed.
 
 What it can't do is become Yapfast. A guest gets no Discord or Matrix token, no
 raw authenticated request, no direct socket and no filesystem; network access is
@@ -142,7 +152,7 @@ with its registry and store, the content-addressed store and the `fetch`
 subcommand, permissions, grants and the network gate, the application's actions
 and taps, the Rust PDK, and the fixtures and tests for all of it.
 
-Four things are deliberately not there yet:
+Five things are deliberately not there yet:
 
 - **A consent dialog and a grants page.** `plugins/grants.rs` records an
   approval and `plugins/network.rs` waits for one, but nothing asks: the first
@@ -157,12 +167,16 @@ Four things are deliberately not there yet:
   tapped where both networks pass; a Matrix message isn't tapped yet, so only
   Discord's gateway feeds `message_create`, `message_update` and
   `message_delete`.
+- **Loading a plugin from a folder.** The helper takes `--dev DIR` and resolves a
+  relative module path inside it, but nothing starts a helper for a folder and
+  nothing watches one: the page's Load folder request is answered by nothing, and
+  the development loop is still an install from a repository.
 
 Beyond those, the API is a first slice rather than the surface a plugin author
 would want: of the method groups a manifest can name, `storage`, `settings`,
-`timers` and `log` are answered, and `messages`, `people`, `rooms`, `account`,
-`composer`, `plugin`, `notify`, `clipboard`, `open` and `ui` answer
-`unsupported`. `message.pre_send` and `message.pre_edit` exist and fail open;
+`timers` and `log` are answered, and of `plugin`, the `call`, `publish` and
+`subscribe` calls are; `messages`, `people`, `rooms`, `account`, `composer`,
+`notify`, `clipboard`, `open` and `ui` answer `unsupported`. `message.pre_send` and `message.pre_edit` exist and fail open;
 `typing.pre_send`, `attachment.pre_upload` and `activity.pre_publish` don't. The
 OS sandbox under the helper, the marketplace, and update checks are not started.
 `docs/plugins/manifest.md` lists the fields; a manifest may declare `menus`,

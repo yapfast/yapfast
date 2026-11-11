@@ -202,6 +202,18 @@ needs activates before it, and plugins in one layer may activate together. Only
 activation has an order; compilation doesn't, because a module needs nothing
 from its dependency to compile.
 
+A dependency is also what gives a plugin permission to reach another. The only
+call that goes from one plugin to another is `plugin.call`, and it runs only
+along an edge the caller's manifest declares, required or optional: the caller
+names the callee, the callee doesn't name the caller, so no pair of plugins can
+call each other in a loop. `plugin.publish` and `plugin.subscribe` need no edge:
+a topic is a name either plugin may use.
+
+Turning a plugin off turns off every plugin that needs it, since one left
+enabled over a dependency that is off would be one whose calls were all refused.
+Updating or rolling back a plugin stops its dependents in reverse dependency
+order, swaps the version, and starts them again in dependency order.
+
 `tweaks` are named switches that parts of Yapfast offer, such as
 `messages.attachments.mosaic`. A plugin may set them without holding a
 capability, because each one is a behaviour Yapfast already has.

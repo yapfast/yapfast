@@ -225,3 +225,41 @@ icon, all from [`limits`](../../crates/yapfast-plugin-api/src/limits.rs). A
 symbolic link, a submodule, a path that climbs out of the plugin's folder and a
 blob that is a Git LFS pointer are refused by name: LFS keeps the bytes on
 another server, so the message says to check the file in instead.
+
+## Updating a plugin another one needs
+
+An update, a roll back and a development reload all happen with the helper
+running, and none of them leaves a plugin that depends on the one being replaced
+running against nothing. `Bridge::refresh` works out the dependents from the
+registry that is running now, reads the store again, and sends one `Swap`:
+
+1. every dependent is stopped, outermost first;
+2. the plugin's own `yf_deactivate` says what it hands on, and its module is
+   forgotten;
+3. the new module is loaded and activated with that hand-off, so a plugin's
+   state crosses the version change as it crosses an eviction;
+4. the dependents are started again, innermost first.
+
+Each step is a request whose answer moves the sequence on, so the helper has
+confirmed a dependent is gone before the swap begins and confirmed the swap is
+done before a dependent comes back. Until the sequence ends, the parent holds
+the work addressed to those plugins — events, hooks, commands — rather than
+sending it to instances that are mid-swap, and a `plugin.call` into or out of a
+plugin in the sequence waits for it: a dependent that calls its dependency
+during an update is answered by it afterwards, never with "not installed".
+
+A plugin whose module is gone from the store, as after an uninstall, is the one
+case with nothing to swap in: the plugins that needed it are turned off first,
+and the helper stops and starts again from what the store holds.
+
+## Development reload
+
+The helper takes `--dev DIR`: with it, a module path that is relative resolves
+inside that folder rather than in the directory Yapfast was started in, which is
+what lets a plugin be replaced while its author works on it.
+
+Nothing starts a helper for a folder yet, and nothing watches one. `Request::LoadFolder`
+in `plugins/page.rs` is answered by nothing in `application/plugin_page.rs`, and
+there is no watcher: no polling on a sampling tick, and no `notify` dependency.
+The development loop today is an install from a repository, and a reload of an
+updated plugin uses the swap above.
