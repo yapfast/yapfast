@@ -440,6 +440,7 @@ impl Harness {
         self.send(Message::Activate {
             id,
             plugin: plugin.clone(),
+            load: None,
         });
     }
 
@@ -762,6 +763,7 @@ fn the_helper_finishes_once_the_last_instance_is_gone() {
     scheduler.send(Message::Activate {
         id: 1,
         plugin: plugin.clone(),
+        load: None,
     });
     let mut waited = Instant::now();
     while !lock(&fake.calls)

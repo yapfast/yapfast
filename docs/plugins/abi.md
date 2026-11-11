@@ -49,7 +49,7 @@ Every payload is a JSON object with a `t` naming the variant. The first is
 | `hello` | `api` | Which API the parent speaks |
 | `load` | `plugin`, `wasm`, `memory_pages`, `wasi` | Load a module and its limits, without activating it |
 | `unload` | `plugin` | Drop an instance, keeping nothing |
-| `activate` | `plugin` | Instantiate if needed, then call `yf_activate` |
+| `activate` | `plugin`, `load` | Load the module when `load` is there, then instantiate and call `yf_activate`: one request for the whole phase, so the helper is never between a module and its instance |
 | `deactivate` | `plugin` | Call `yf_deactivate`, which may hand state to the next activation |
 | `kick` | `plugin` | Run an instance again with nothing new: an eviction clock's trigger |
 | `event` | `plugin`, `events` | A batch of events, already filtered and serialized |

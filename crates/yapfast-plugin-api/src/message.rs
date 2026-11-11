@@ -81,6 +81,15 @@ pub enum LogLevel {
     Trace,
 }
 
+/// What to load before activating a plugin: the fields [`ToHelper::Load`]
+/// carries, for the one request that both loads and activates.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Activation {
+    pub wasm: PathBuf,
+    pub memory_pages: u32,
+    pub wasi: bool,
+}
+
 /// The parent's request to the helper.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
@@ -96,8 +105,20 @@ pub enum ToHelper {
     },
     /// Drop an instance, keeping nothing.
     Unload { plugin: PluginId },
-    /// Instantiate if needed, then call `yf_activate`.
-    Activate { plugin: PluginId },
+    /// Load this plugin's module if the helper hasn't been given it, then call
+    /// `yf_activate`: one request for the whole phase.
+    ///
+    /// It is one request and not a `Load` followed by an `Activate` because the
+    /// two are one phase. Between them the helper holds a module with no
+    /// instance, which looks exactly like an idle plugin, and on a busy machine
+    /// it left in that gap — the activation that arrived a moment later found a
+    /// closed pipe, and the parent waited out its deadline. `load` is `None` for
+    /// a module the helper already has.
+    Activate {
+        plugin: PluginId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        load: Option<Activation>,
+    },
     /// Call `yf_deactivate`, which may hand state to the next activation.
     Deactivate { plugin: PluginId },
     /// Run an instance again with nothing new: an eviction clock's trigger.

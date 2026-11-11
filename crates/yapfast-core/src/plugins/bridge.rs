@@ -39,7 +39,9 @@ use yapfast_plugin_api::frame::{self, Frame, FrameKind};
 use yapfast_plugin_api::hook::{Draft, HookKind, HookOutcome, HookRequest, HookSubject};
 use yapfast_plugin_api::limits;
 use yapfast_plugin_api::manifest::CommandDecl;
-use yapfast_plugin_api::message::{Fault, FromHelper, LogLevel, LogRecord, PluginStatus, ToHelper};
+use yapfast_plugin_api::message::{
+    Activation, Fault, FromHelper, LogLevel, LogRecord, PluginStatus, ToHelper,
+};
 use yapfast_plugin_api::{API_VERSION, PluginId};
 
 use crate::plugins::registry::{Registry, Subscriptions};
@@ -64,14 +66,11 @@ const BATCH_MAX_BYTES: usize = 256 << 10;
 /// module to compile on a cold cache and narrow enough that a wedged helper is
 /// noticed in seconds.
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
-/// How long a load gets: it compiles the module into wasmtime's cache the first
-/// time, which is work on a cold cache and a busy machine. The guest has its own
-/// deadline once it is running, so this is only about the report that it loaded.
-const LOAD_TIMEOUT: Duration = Duration::from_secs(10);
-/// How long an activation gets, which is `yf_activate` on the other side of the
-/// pipe. The helper cancels a guest that runs long and answers with a fault, so
-/// this longer budget only catches a helper that stopped answering at all.
-const ACTIVATE_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long an activation gets. It carries the module, so this covers compiling
+/// it into wasmtime's cache the first time — work on a cold cache and a busy
+/// machine — and then `yf_activate`, which the helper also cancels itself if it
+/// runs long. This is the budget for the whole phase.
+const ACTIVATE_TIMEOUT: Duration = Duration::from_secs(30);
 const DEACTIVATE_TIMEOUT: Duration = Duration::from_millis(100);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
 const EVICT_TIMEOUT: Duration = Duration::from_millis(500);
@@ -1335,32 +1334,28 @@ impl Session {
         {
             return false;
         }
-        if !self.loaded.contains(plugin) {
+        // The module travels with the activation when this process hasn't given
+        // it yet. One request for the whole phase: a `Load` frame and then an
+        // `Activate` left the helper holding a module with no instance in
+        // between, which reads exactly like an idle plugin, and on a busy machine
+        // it left in that gap. Marked as given before the answer because a fault
+        // clears it again.
+        let load = if self.loaded.contains(plugin) {
+            None
+        } else {
             let Some(module) = self.ready_module(shared, plugin) else {
                 return false;
             };
-            let message = ToHelper::Load {
-                plugin: plugin.clone(),
+            self.loaded.insert(plugin.clone());
+            Some(Activation {
                 wasm: module.path,
                 memory_pages: module.memory_pages,
                 wasi: module.wasi,
-            };
-            self.request(
-                &message,
-                LOAD_TIMEOUT,
-                Purpose::Agent {
-                    what: "load",
-                    plugin: plugin.clone(),
-                    budget: LOAD_TIMEOUT,
-                },
-            );
-            // Marked as given even before the answer: the pipe is ordered, so
-            // sending the activation behind the load is one round trip, and a
-            // load that fails answers with a fault that clears this again.
-            self.loaded.insert(plugin.clone());
-        }
+            })
+        };
         let message = ToHelper::Activate {
             plugin: plugin.clone(),
+            load,
         };
         self.request(
             &message,
@@ -2460,16 +2455,14 @@ mod tests {
         };
         runtime().block_on(session.on_command(&shared, Request::Hook { held, request }));
 
-        // The module is handed over first, then the instance is started, and
-        // only then does the chain see the draft: frames are handled in order.
-        let load = next_frame(&written);
-        assert!(
-            matches!(message(&load), ToHelper::Load { plugin: loaded, .. } if loaded == plugin)
-        );
+        // The module travels with the activation — one request for the phase —
+        // and only then does the chain see the draft: frames are handled in order.
         let activate = next_frame(&written);
-        assert!(
-            matches!(message(&activate), ToHelper::Activate { plugin: started } if started == plugin)
-        );
+        assert!(matches!(
+            message(&activate),
+            ToHelper::Activate { plugin: started, load: Some(module) }
+                if started == plugin && module.memory_pages > 0
+        ));
         let hook = next_frame(&written);
         let ToHelper::Hook { chain, .. } = message(&hook) else {
             panic!("the third frame should be the chain");
@@ -2517,8 +2510,11 @@ mod tests {
             subject: HookSubject::Draft(draft("hi")),
         };
         runtime().block_on(session.on_command(&shared, Request::Hook { held, request }));
-        let _load = next_frame(&written);
-        let _activate = next_frame(&written);
+        let activate = next_frame(&written);
+        assert!(matches!(
+            message(&activate),
+            ToHelper::Activate { load: Some(_), .. }
+        ));
         let hook = next_frame(&written);
         let block = Frame::new(
             FrameKind::Report,
@@ -2562,8 +2558,11 @@ mod tests {
             subject: HookSubject::Draft(draft("hi")),
         };
         runtime().block_on(session.on_command(&shared, Request::Hook { held, request }));
-        let _load = next_frame(&written);
-        let _activate = next_frame(&written);
+        let activate = next_frame(&written);
+        assert!(matches!(
+            message(&activate),
+            ToHelper::Activate { load: Some(_), .. }
+        ));
         let _hook = next_frame(&written);
 
         // The helper went away with the send still waiting: the message goes as
@@ -2690,8 +2689,11 @@ mod tests {
 
         std::thread::sleep(Duration::from_millis(COALESCE_MS + 50));
         session.on_tick(&shared);
-        let _load = next_frame(&written);
-        let _activate = next_frame(&written);
+        let activate = next_frame(&written);
+        assert!(matches!(
+            message(&activate),
+            ToHelper::Activate { load: Some(_), .. }
+        ));
         let batch = next_frame(&written);
         assert_eq!(batch.kind, FrameKind::Event);
         let ToHelper::Event { plugin: to, events } = message(&batch) else {
@@ -2717,8 +2719,11 @@ mod tests {
                 event,
             },
         ));
-        let _load = next_frame(&written);
-        let _activate = next_frame(&written);
+        let activate = next_frame(&written);
+        assert!(matches!(
+            message(&activate),
+            ToHelper::Activate { load: Some(_), .. }
+        ));
         let batch = next_frame(&written);
         let ToHelper::Event { events, .. } = message(&batch) else {
             panic!("a message event is one event frame");

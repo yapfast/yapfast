@@ -23,7 +23,7 @@ use yapfast_plugin_api::call::HostReturn;
 use yapfast_plugin_api::event::{EventEnvelope, EventKind, Network};
 use yapfast_plugin_api::frame::{Frame, FrameKind, read_frame, write_frame};
 use yapfast_plugin_api::hook::{Draft, HookKind, HookOutcome, HookRequest, HookSubject};
-use yapfast_plugin_api::message::{Fault, FaultKind, FromHelper, ToHelper};
+use yapfast_plugin_api::message::{Activation, Fault, FaultKind, FromHelper, ToHelper};
 
 /// How long one scenario may take to say the next thing it must say.
 ///
@@ -54,8 +54,7 @@ fn the_handshake_is_answered_with_ready() {
 fn a_plugin_activates_and_runs_an_event() {
     let mut helper = Helper::start("activate");
     let echo = plugin("echo");
-    helper.load(&echo, "echo.wat", PAGES);
-    helper.activate(&echo);
+    helper.activate(&echo, "echo.wat", PAGES);
     match helper.wait_for(BUDGET, "Activated", |message| {
         matches!(message, FromHelper::Activated { .. })
     }) {
@@ -83,8 +82,7 @@ fn a_plugin_activates_and_runs_an_event() {
 fn a_spinning_activation_is_cancelled() {
     let mut helper = Helper::start("spin");
     let spin = plugin("spin");
-    helper.load(&spin, "spin.wat", PAGES);
-    helper.activate(&spin);
+    helper.activate(&spin, "spin.wat", PAGES);
     let fault = helper.wait_for_fault(BUDGET, FaultKind::Deadline);
     assert_eq!(fault.kind, FaultKind::Deadline);
 }
@@ -94,8 +92,7 @@ fn an_allocation_past_the_page_limit_is_an_out_of_memory_fault() {
     let mut helper = Helper::start("hog");
     let hog = plugin("hog");
     // 64 pages is 4 MiB, and the fixture grows past whatever it is given.
-    helper.load(&hog, "hog.wat", 64);
-    helper.activate(&hog);
+    helper.activate(&hog, "hog.wat", 64);
     let fault = helper.wait_for_fault(BUDGET, FaultKind::OutOfMemory);
     assert_eq!(fault.kind, FaultKind::OutOfMemory);
 }
@@ -104,8 +101,7 @@ fn an_allocation_past_the_page_limit_is_an_out_of_memory_fault() {
 fn a_trap_is_a_trap_fault() {
     let mut helper = Helper::start("trap");
     let trapped = plugin("trap");
-    helper.load(&trapped, "trap.wat", PAGES);
-    helper.activate(&trapped);
+    helper.activate(&trapped, "trap.wat", PAGES);
     let fault = helper.wait_for_fault(BUDGET, FaultKind::Trap);
     assert_eq!(fault.kind, FaultKind::Trap);
 }
@@ -114,8 +110,7 @@ fn a_trap_is_a_trap_fault() {
 fn a_plugin_that_refuses_to_activate_is_a_fault() {
     let mut helper = Helper::start("bad-activate");
     let bad = plugin("bad-activate");
-    helper.load(&bad, "bad_activate.wat", PAGES);
-    helper.activate(&bad);
+    helper.activate(&bad, "bad_activate.wat", PAGES);
     let fault = helper.wait_for_fault(BUDGET, FaultKind::ActivateFailed);
     assert_eq!(fault.kind, FaultKind::ActivateFailed);
 }
@@ -129,10 +124,9 @@ fn a_guest_call_reaches_the_parent_and_is_answered() {
     // refuses that as an answer an event doesn't take, so it would fault while
     // this test waited for its `EventDone`.
     let other = plugin("other");
-    helper.load(&slow, "slow_host.wat", PAGES);
-    helper.load(&other, "bad_answer.wat", PAGES);
-    for plugin in [&slow, &other] {
-        helper.activate(plugin);
+    helper.activate(&slow, "slow_host.wat", PAGES);
+    helper.activate(&other, "bad_answer.wat", PAGES);
+    for _ in [&slow, &other] {
         helper.wait_for(BUDGET, "Activated", |message| {
             matches!(message, FromHelper::Activated { .. })
         });
@@ -193,8 +187,7 @@ fn a_guest_call_reaches_the_parent_and_is_answered() {
 fn a_hook_that_answers_nonsense_fails_open() {
     let mut helper = Helper::start("bad-answer");
     let bad = plugin("bad-answer");
-    helper.load(&bad, "bad_answer.wat", PAGES);
-    helper.activate(&bad);
+    helper.activate(&bad, "bad_answer.wat", PAGES);
     helper.wait_for(BUDGET, "Activated", |message| {
         matches!(message, FromHelper::Activated { .. })
     });
@@ -375,13 +368,33 @@ impl Helper {
     }
 
     /// Asks the helper to instantiate and activate a plugin.
-    fn activate(&mut self, plugin: &PluginId) {
+    /// Activates a plugin, giving it its module in the same request: loading and
+    /// activating are one phase, which is why the request carries both.
+    fn activate(&mut self, plugin: &PluginId, fixture: &str, memory_pages: u32) {
         let id = self.next_id();
         self.send(
             FrameKind::Request,
             id,
             &ToHelper::Activate {
                 plugin: plugin.clone(),
+                load: Some(Activation {
+                    wasm: fixtures().join(fixture).with_extension("wasm"),
+                    memory_pages,
+                    wasi: false,
+                }),
+            },
+        );
+    }
+
+    /// Activates a plugin whose module the helper was given earlier, by a `load`.
+    fn activate_loaded(&mut self, plugin: &PluginId) {
+        let id = self.next_id();
+        self.send(
+            FrameKind::Request,
+            id,
+            &ToHelper::Activate {
+                plugin: plugin.clone(),
+                load: None,
             },
         );
     }
@@ -561,7 +574,7 @@ fn a_load_that_waits_a_moment_for_its_activation_is_not_the_end() {
     // Longer than the helper's own grace, so this proves the slot is counted as
     // work in progress rather than the exit merely being late.
     std::thread::sleep(Duration::from_secs(3));
-    helper.activate(&plugin);
+    helper.activate_loaded(&plugin);
     helper.wait_for(BUDGET, "Activated", |message| {
         matches!(message, FromHelper::Activated { .. })
     });

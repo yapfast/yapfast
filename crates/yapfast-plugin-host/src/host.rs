@@ -199,8 +199,14 @@ fn dispatch(
             scheduler.send(Message::Unload { plugin });
             After::Continue
         }
-        ToHelper::Activate { plugin } => {
-            scheduler.send(Message::Activate { id, plugin });
+        ToHelper::Activate { plugin, load } => {
+            let load = load.map(|load| LoadSpec {
+                plugin: plugin.clone(),
+                wasm: module_path(dev, load.wasm),
+                memory_pages: load.memory_pages,
+                wasi: load.wasi,
+            });
+            scheduler.send(Message::Activate { id, plugin, load });
             After::Continue
         }
         ToHelper::Deactivate { plugin } => {

@@ -111,9 +111,17 @@ pub enum Message {
     Load { spec: LoadSpec },
     /// Drop a module and its instance, keeping nothing.
     Unload { plugin: PluginId },
-    /// Instantiate if needed, then call `yf_activate`; answered with
-    /// [`FromHelper::Activated`].
-    Activate { id: u64, plugin: PluginId },
+    /// Load the module first when `load` is there, then instantiate and call
+    /// `yf_activate`; answered with [`FromHelper::Activated`].
+    ///
+    /// The two jobs are queued back to back in the plugin's own mailbox, so its
+    /// module is loaded and its instance started as one step of the phase, while
+    /// other plugins' loads run on other workers meanwhile.
+    Activate {
+        id: u64,
+        plugin: PluginId,
+        load: Option<LoadSpec>,
+    },
     /// Call `yf_deactivate`; answered with [`FromHelper::Deactivated`].
     Deactivate { id: u64, plugin: PluginId },
     /// Run the instance again with nothing new: a repeat timer's trigger.
@@ -372,8 +380,14 @@ impl<B: Backend + 'static> Shared<B> {
                 let slot = state.slot_for(&plugin);
                 state.push(slot, Lane::Interactive, 0, Job::Unload);
             }
-            Message::Activate { id, plugin } => {
+            Message::Activate { id, plugin, load } => {
                 let slot = state.slot_for(&plugin);
+                // A module to give it: the load goes in the same mailbox, behind
+                // whatever the plugin is doing and ahead of its activation.
+                if let Some(spec) = load {
+                    state.slots[slot].pending = true;
+                    state.push(slot, Lane::Interactive, 0, Job::Load(spec));
+                }
                 state.push(slot, Lane::Interactive, id, Job::Activate);
             }
             Message::Deactivate { id, plugin } => {
