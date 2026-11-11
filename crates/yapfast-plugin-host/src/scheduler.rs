@@ -362,6 +362,7 @@ impl<B: Backend + 'static> Shared<B> {
         match message {
             Message::Load { spec } => {
                 let slot = state.slot_for(&spec.plugin);
+                state.slots[slot].pending = true;
                 // A load is on the path to the plugin's first call, so it goes
                 // where that call goes: queued behind it, activation would
                 // overtake the module and find nothing to instantiate.
@@ -495,6 +496,7 @@ impl<B: Backend + 'static> Shared<B> {
             let mut state = lock(&self.state);
             let entry = &mut state.slots[slot];
             entry.live = false;
+            entry.pending = false;
             entry.loaded = None;
         }
         self.status(slot, PluginStatus::Installed);
@@ -503,6 +505,7 @@ impl<B: Backend + 'static> Shared<B> {
 
     /// Instantiates and calls `yf_activate`, answering the parent's request.
     fn activate(&self, slot: usize, id: u64) {
+        lock(&self.state).slots[slot].pending = false;
         match self.ensure_active(slot) {
             Some(handoff) => {
                 let pages = self
@@ -835,6 +838,7 @@ impl<B: Backend + 'static> Shared<B> {
     /// Drops an instance because it has been idle, which is how its guest
     /// memory comes back: WebAssembly can't shrink.
     fn evict(&self, slot: usize) {
+        lock(&self.state).slots[slot].pending = false;
         self.drop_instance(slot);
         self.status(slot, PluginStatus::Enabled);
         self.check_empty();
@@ -964,7 +968,7 @@ impl<B: Backend + 'static> Shared<B> {
                 && !state
                     .slots
                     .iter()
-                    .any(|slot| slot.live || slot.has_work() || slot.busy)
+                    .any(|slot| slot.live || slot.has_work() || slot.busy || slot.pending)
                 && state.running.is_empty()
         };
         if empty {
@@ -1247,6 +1251,15 @@ struct Slot {
     live: bool,
     /// The module in the runtime, once the parent has loaded it.
     loaded: Option<LoadSpec>,
+    /// A module the parent loaded and hasn't activated yet.
+    ///
+    /// Loading and activating are two phases: the parent loads a plugin's whole
+    /// dependency closure in parallel and then activates it, so between the
+    /// two there is a slot with a module in the runtime and no instance. That
+    /// is work in progress, not an idle helper: counting it as idle let the
+    /// helper leave in the gap, and the activation that arrived a moment later
+    /// reached a closed pipe.
+    pending: bool,
     /// The pages its manifest allows, which is what admission control sums: a
     /// ceiling, not what the instance touched.
     memory_pages: u32,
@@ -1271,6 +1284,7 @@ impl Slot {
             busy: false,
             live: false,
             loaded: None,
+            pending: false,
             memory_pages: limits::DEFAULT_MEMORY_PAGES,
             strikes: VecDeque::new(),
             status: PluginStatus::Installed,

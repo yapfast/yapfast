@@ -547,19 +547,20 @@ impl Drop for Helper {
     }
 }
 
-/// On a busy machine an activation follows its load by a moment, and the
-/// scheduler finds nothing running in between. Taking that for "nothing is left"
-/// made the helper leave, and the parent waited out its deadline for a helper
-/// that had gone — a plugin that read "didn't answer its load request" on a
-/// machine under load and nowhere else.
+/// Loading and activating are two phases — a plugin's dependency closure is
+/// loaded in parallel and then activated — so between them is a slot with a
+/// module in the runtime and no instance. Taking that for "nothing is left" made
+/// the helper leave, and the activation arriving a moment later reached a closed
+/// pipe: a plugin that read "didn't answer its load request" on a machine under
+/// load and nowhere else.
 #[test]
 fn a_load_that_waits_a_moment_for_its_activation_is_not_the_end() {
     let mut helper = Helper::start("slow-load");
     let plugin = plugin("echo");
     helper.load(&plugin, "bad_answer.wat", PAGES);
-    // Long enough for the scheduler to have found the instance-less helper
-    // empty, which is when it used to say goodbye.
-    std::thread::sleep(Duration::from_millis(300));
+    // Longer than the helper's own grace, so this proves the slot is counted as
+    // work in progress rather than the exit merely being late.
+    std::thread::sleep(Duration::from_secs(3));
     helper.activate(&plugin);
     helper.wait_for(BUDGET, "Activated", |message| {
         matches!(message, FromHelper::Activated { .. })
