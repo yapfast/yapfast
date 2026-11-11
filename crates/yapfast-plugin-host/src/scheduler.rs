@@ -268,10 +268,13 @@ fn watch<B: Backend + 'static>(shared: Arc<Shared<B>>) {
             if running.fired {
                 continue;
             }
-            if running.deadline <= now {
+            let Some(deadline) = running.deadline else {
+                continue;
+            };
+            if deadline <= now {
                 overdue.push(running.serial);
             } else {
-                next = earliest(next, running.deadline);
+                next = earliest(next, deadline);
             }
         }
         for (index, slot) in state.slots.iter().enumerate() {
@@ -984,31 +987,43 @@ impl<B: Backend + 'static> Shared<B> {
         budget: Duration,
         call: impl FnOnce(&mut B) -> T,
     ) -> (T, bool) {
-        let mut triggers = Triggers::none();
-        for &slot in slots {
-            // The id first, so the state lock is released before the backend's.
-            let plugin = self.id(slot);
-            if let Some(token) = lock(&self.backend).cancel_handle(&plugin) {
-                triggers.push(token);
-            }
-        }
+        // The names first, so the state lock is released before the backend's.
+        // The deadline is stamped once the call has the backend, not before:
+        // a call queued behind another's backend lock hasn't started, and
+        // charging it for the wait would fault a plugin that never ran.
+        let plugins: Vec<_> = slots.iter().map(|&slot| self.id(slot)).collect();
+        // Registered before the backend is asked for, so a worker waiting its
+        // turn is visible to the watchdog and the other worker gets a look in.
         let serial = {
             let mut state = lock(&self.state);
             state.serial += 1;
             let serial = state.serial;
             state.running.push(Running {
                 serial,
-                deadline: Instant::now() + budget,
+                deadline: None,
                 fired: false,
-                triggers,
+                triggers: Triggers::none(),
             });
             serial
         };
+        let mut backend = lock(&self.backend);
+        let mut triggers = Triggers::none();
+        for plugin in &plugins {
+            if let Some(token) = backend.cancel_handle(plugin) {
+                triggers.push(token);
+            }
+        }
+        // The clock starts here, with the backend in hand.
+        {
+            let mut state = lock(&self.state);
+            if let Some(running) = state.running.iter_mut().find(|r| r.serial == serial) {
+                running.triggers = triggers;
+                running.deadline = Some(Instant::now() + budget);
+            }
+        }
         self.watch.notify_all();
-        let value = {
-            let mut backend = lock(&self.backend);
-            call(&mut backend)
-        };
+        let value = call(&mut backend);
+        drop(backend);
         let mut state = lock(&self.state);
         match state.running.iter().position(|r| r.serial == serial) {
             Some(index) => {
@@ -1306,7 +1321,14 @@ impl Slot {
 /// call comes back late.
 struct Running {
     serial: u64,
-    deadline: Instant,
+    /// When the call has to be done by, or `None` while it is still queued
+    /// behind another call's hold on the backend.
+    ///
+    /// A call waiting for the backend hasn't started, and charging it for the
+    /// wait would fault a plugin that never ran; so the entry is registered
+    /// before the wait, for the workers to see, and the clock starts when the
+    /// call does.
+    deadline: Option<Instant>,
     /// Set when the deadline passed, so the worker knows the call ran late.
     fired: bool,
     /// Taken from the runtime when the call started, and fired by the

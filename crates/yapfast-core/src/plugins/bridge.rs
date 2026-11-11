@@ -1377,7 +1377,23 @@ impl Session {
                     Err(error) => return wrong_payload(method, error),
                 };
                 let value = shared.store().storage_get(plugin, &request.key);
-                HostReturn::Ok(value.unwrap_or(serde_json::Value::Null))
+                let value = value.unwrap_or(serde_json::Value::Null);
+                // A value can be as large as the plugin's whole quota, and one
+                // answer is one frame: the guest is told rather than handed
+                // nothing, which would read as an absent key.
+                let bytes = value.to_string().len();
+                if bytes > yapfast_plugin_api::frame::MAX_FRAME - 4096 {
+                    return HostReturn::Error {
+                        message: format!(
+                            "`{}` is {} bytes, and one answer carries at most {}: \
+                             keep a value under that, or split it across keys",
+                            request.key,
+                            bytes,
+                            yapfast_plugin_api::frame::MAX_FRAME - 4096
+                        ),
+                    };
+                }
+                HostReturn::Ok(value)
             }
             call::method::STORAGE_SET => {
                 let request: StorageSet = match call.parse() {
