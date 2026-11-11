@@ -19,7 +19,7 @@ use yapfast_plugin_api::hook::{Draft, HookKind, HookRequest, HookSubject};
 use yapfast_plugin_api::message::{Fault, FaultKind, FromHelper, PluginStatus};
 
 use yapfast_plugin_host::backend::{Backend, CancelToken, HookRun, LoadSpec};
-use yapfast_plugin_host::pipe::Pipe;
+use yapfast_plugin_host::pipe::{Pipe, Signal};
 use yapfast_plugin_host::scheduler::{Config, Held, Message, Scheduler};
 
 /// How long a test waits for the scheduler before calling it stuck.
@@ -717,5 +717,72 @@ impl Backend for Fake {
         let plugin = plugin.clone();
         let calls = Arc::clone(&self.calls);
         Some(Arc::new(move || calls.note(format!("cancel:{plugin}"))))
+    }
+}
+
+/// A reader that never returns, so the pipe's only signal is the scheduler's.
+struct Silent;
+
+impl io::Read for Silent {
+    fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+        loop {
+            thread::park();
+        }
+    }
+}
+
+/// The helper is disposable: with nothing left to run it says so, and a fresh
+/// one starts on the next activation.
+///
+/// The last instance's unload is itself a task holding that plugin busily, so
+/// the notice has to be given after the worker lets go, not from inside it.
+#[test]
+fn the_helper_finishes_once_the_last_instance_is_gone() {
+    let pipe = Pipe::new(Silent, io::sink()).expect("the pipe starts");
+    let fake = Arc::new(FakeLog::default());
+    let scheduler = Scheduler::start(
+        Fake {
+            calls: Arc::clone(&fake),
+        },
+        pipe.outbox(),
+        pipe.waker(),
+        config(1),
+    )
+    .expect("the workers start");
+
+    let plugin = plugin("last");
+    scheduler.send(Message::Load {
+        spec: LoadSpec {
+            plugin: plugin.clone(),
+            wasm: PathBuf::from("/dev/null"),
+            memory_pages: 256,
+            wasi: false,
+        },
+    });
+    scheduler.send(Message::Activate {
+        id: 1,
+        plugin: plugin.clone(),
+    });
+    let mut waited = Instant::now();
+    while !lock(&fake.calls)
+        .iter()
+        .any(|entry| entry.call == "activate:com.example.last")
+    {
+        assert!(waited.elapsed() < PATIENCE, "the plugin never activated");
+        thread::sleep(Duration::from_millis(10));
+        waited = Instant::now();
+    }
+    scheduler.send(Message::Unload {
+        plugin: plugin.clone(),
+    });
+
+    let (sent, arrived) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        let _ = sent.send(pipe.recv());
+    });
+    match arrived.recv_timeout(PATIENCE) {
+        Ok(Signal::Finished) => {}
+        Ok(_) => panic!("the helper kept a reason to live after its last instance"),
+        Err(_) => panic!("the helper never said it was finished"),
     }
 }

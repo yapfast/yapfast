@@ -331,6 +331,12 @@ impl<B: Backend + 'static> Shared<B> {
     }
 
     /// Lets go of a task's plugins and lets the next worker in.
+    ///
+    /// This is also where the helper notices that it is finished. The task that
+    /// unloaded or evicted the last instance is itself holding that plugin as
+    /// busy while it runs, so a check made from inside the task always finds
+    /// work in hand; only once it lets go is there nothing left, and the helper
+    /// is disposable, so it goes.
     fn finished(&self, task: &Task) {
         let mut state = lock(&self.state);
         let now = Instant::now();
@@ -340,6 +346,8 @@ impl<B: Backend + 'static> Shared<B> {
             entry.last_call = now;
         }
         self.work.notify_all();
+        drop(state);
+        self.check_empty();
     }
 
     /// Puts a message in the lane and mailbox it belongs to.
