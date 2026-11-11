@@ -97,6 +97,15 @@ pub fn run(options: Options) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// How long the helper waits before it believes nothing is left to do.
+///
+/// The parent sends `Load` and then `Activate`, two frames: the scheduler finds
+/// nothing running between them and says it is done, and on a busy machine the
+/// activation is still on its way when it says so. Leaving then lost the
+/// activation, and the parent waited out its load deadline for a helper that had
+/// already gone. A quiet moment is much cheaper than that.
+const IDLE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// Whether the loop goes on after a frame, and what to tell the parent if not.
 enum After {
     Continue,
@@ -110,8 +119,15 @@ fn serve(
     scheduler: &Scheduler<ExtismBackend>,
     dev: Option<&Path>,
 ) -> Option<FromHelper> {
+    // What arrived while the helper was waiting out its grace, before the loop
+    // took another turn.
+    let mut pending = None;
     loop {
-        match pipe.recv() {
+        let signal = match pending.take() {
+            Some(signal) => signal,
+            None => pipe.recv(),
+        };
+        match signal {
             Signal::Frame(frame) => match dispatch(frame, pipe, scheduler, dev) {
                 After::Continue => {}
                 After::Stop(report) => return Some(report),
@@ -124,11 +140,16 @@ fn serve(
                     reason: format!("the pipe to Yapfast broke: {error}"),
                 });
             }
-            Signal::Finished => {
-                return Some(FromHelper::Bye {
-                    reason: "no plugin instance is left".into(),
-                });
-            }
+            // Nothing is running — but the parent's next request may already be
+            // in flight, so wait a moment for it before going.
+            Signal::Finished => match pipe.recv_timeout(IDLE_GRACE) {
+                Some(next) => pending = Some(next),
+                None => {
+                    return Some(FromHelper::Bye {
+                        reason: "no plugin instance is left".into(),
+                    });
+                }
+            },
         }
     }
 }

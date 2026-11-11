@@ -152,6 +152,12 @@ impl Pipe {
         self.signals.recv().unwrap_or(Signal::Closed)
     }
 
+    /// Waits `wait` for the next signal, and gives up rather than block: the run
+    /// loop uses it to stay a moment after it thinks it is done.
+    pub fn recv_timeout(&self, wait: std::time::Duration) -> Option<Signal> {
+        self.signals.recv_timeout(wait).ok()
+    }
+
     /// The handle the scheduler writes its statuses and answers through.
     pub fn outbox(&self) -> Outbox {
         self.outbox.clone()
