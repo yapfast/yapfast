@@ -806,7 +806,6 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
         defaults.noise_suppression,
         yapfast_core::noise::Suppressor::DeepFilterNet
     );
-    // A share captures the screen whichever way draws no border here.
     let row = defaults.restyle(&message, message_row(&message, &HashSet::new()));
     // A message from another day shows its date before its time, but beside
     // a grouped message only the time.
@@ -881,15 +880,10 @@ fn preferences_set_the_clock_text_size_previews_and_unmuting() {
         yapfast_core::noise::chosen(),
         yapfast_core::noise::Suppressor::RNNoise
     );
-    // Desktop Duplication is the third choice, and what every share from now
-    // on captures by.
-    assert_eq!(
-        yapfast_core::capture::preference(),
-        yapfast_core::capture::Preference::Duplication
-    );
+    // Desktop Duplication is no longer a setting: Automatic is what a share
+    // asks for, and nothing here chooses otherwise.
     let saved = serde_json::to_value(&layout).unwrap();
     assert_eq!(saved["noise_suppression"], "rnnoise");
-    assert_eq!(saved["capture"], "duplication");
     assert_eq!(saved["noise_strength"], "light");
     assert_eq!(window.get_sensitivity(), -45);
     assert!(window.get_dereverb() && !defaults.reduce_room_echo);
