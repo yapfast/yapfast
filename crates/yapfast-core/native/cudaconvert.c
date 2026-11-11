@@ -19,10 +19,12 @@
  * by the processor and none crosses the bus: `yapfast_cudaconvert_copied` counts
  * what the processor moved and answers zero.
  *
- * What it will not take, it says and refuses: a picture the driver hands back as
- * a CUDA array rather than a pitch pointer (a tiled buffer it imported as an
- * array), a format that isn't 32-bit BGRA/BGRX, a device that isn't the one the
- * descriptor came from. A refusal is a sentence the share's ladder falls through
+ * What it will not take, it says and refuses: a format that isn't 32-bit
+ * BGRA/BGRX, a picture the driver holds in a shape that is neither rows nor an
+ * array, and a device that isn't the one the descriptor came from. A tiled
+ * picture, which is what a compositor on NVIDIA's driver shares, is one the
+ * driver holds as an array: its rows are copied on the card first, so the
+ * kernels read them and no pixel of it crosses the processor either way. A refusal is a sentence the share's ladder falls through
  * on, to the same processor copy every other path keeps.
  *
  * Nothing here needs a CUDA toolkit at build time or on the machine: the PTX is
@@ -81,6 +83,34 @@ typedef struct CUeglFrame_st {
 #define CU_EGL_FRAME_TYPE_PITCH 1
 #define CU_GRAPHICS_REGISTER_FLAGS_READ_ONLY 0x1
 
+#define CU_MEMORYTYPE_HOST 1
+#define CU_MEMORYTYPE_DEVICE 2
+#define CU_MEMORYTYPE_ARRAY 3
+
+/* A copy of a rectangle between the places a picture can be: host memory, the
+ * card's own memory, or the array a driver imported a tiled picture as. This is
+ * the copy a block-linear array takes, where a two-dimensional one is refused.
+ * Laid out as cuda.h lays out `CUDA_MEMCPY3D`. */
+typedef struct cuda_memcpy3d_st {
+  size_t srcXInBytes, srcY, srcZ;
+  size_t srcLOD;
+  int srcMemoryType;
+  const void *srcHost;
+  CUdeviceptr srcDevice;
+  void *srcArray;
+  void *reserved0;
+  size_t srcPitch, srcHeight;
+  size_t dstXInBytes, dstY, dstZ;
+  size_t dstLOD;
+  int dstMemoryType;
+  void *dstHost;
+  CUdeviceptr dstDevice;
+  void *dstArray;
+  void *reserved1;
+  size_t dstPitch, dstHeight;
+  size_t WidthInBytes, Height, Depth;
+} cuda_memcpy3d;
+
 /* Four bytes a pixel, blue first, which is what a compositor's ARGB8888 and
  * XRGB8888 both are and the only thing the kernels read. */
 #define DRM_FORMAT_ARGB8888 0x34325241u
@@ -92,7 +122,11 @@ struct cuda_api {
   CUresult (*cuInit)(unsigned);
   CUresult (*cuDriverGetVersion)(int *);
   CUresult (*cuDeviceGet)(CUdevice *, int);
+  CUresult (*cuDeviceGetCount)(int *);
   CUresult (*cuDeviceGetName)(char *, int, CUdevice);
+  /* Which card a device is, by the name Linux gives the same card: the way to
+   * the device behind a DRM node when EGL won't say which CUDA device it is. */
+  CUresult (*cuDeviceGetPCIBusId)(char *, int, CUdevice);
   CUresult (*cuCtxCreate)(CUcontext *, unsigned, CUdevice);
   CUresult (*cuCtxDestroy)(CUcontext);
   CUresult (*cuCtxPushCurrent)(CUcontext);
@@ -101,12 +135,19 @@ struct cuda_api {
   CUresult (*cuModuleLoadData)(CUmodule *, const void *);
   CUresult (*cuModuleGetFunction)(CUfunction *, CUmodule, const char *);
   CUresult (*cuMemAlloc)(CUdeviceptr *, size_t);
+  CUresult (*cuMemAllocPitch)(CUdeviceptr *, size_t *, size_t, size_t, unsigned);
+  CUresult (*cuMemcpy3D)(const cuda_memcpy3d *);
   CUresult (*cuMemFree)(CUdeviceptr);
   CUresult (*cuLaunchKernel)(CUfunction, unsigned, unsigned, unsigned, unsigned,
                              unsigned, unsigned, unsigned, CUstream, void **,
                              void **);
   CUresult (*cuGetErrorName)(CUresult, const char **);
   CUresult (*cuGraphicsEGLRegisterImage)(CUgraphicsResource *, void *, unsigned);
+  /* The same picture as a GL texture, which the driver maps where the resource
+   * the EGLImage registered isn't: a block-linear picture is reachable this way. */
+  CUresult (*cuGraphicsGLRegisterImage)(CUgraphicsResource *, unsigned, unsigned, unsigned);
+  CUresult (*cuGraphicsSubResourceGetMappedArray)(void **, CUgraphicsResource, unsigned,
+                                                  unsigned);
   CUresult (*cuGraphicsUnregisterResource)(CUgraphicsResource);
   CUresult (*cuGraphicsMapResources)(unsigned, CUgraphicsResource *, CUstream);
   CUresult (*cuGraphicsUnmapResources)(unsigned, CUgraphicsResource *, CUstream);
@@ -137,7 +178,28 @@ struct egl_api {
   EGLImageKHR (*eglCreateImage)(EGLDisplay, EGLContext, EGLenum,
                                 EGLClientBuffer, const EGLint *);
   EGLBoolean (*eglDestroyImage)(EGLDisplay, EGLImageKHR);
+  /* The display of the process's own connection, tried when neither platform
+   * above names the card: a gbm device present makes this the driver's own. */
+  EGLDisplay (*eglGetDisplay)(void *);
 };
+
+/* GL's own entry points, for the one thing this file asks of GL: a texture over
+ * an imported picture, which is how a tiled one reaches CUDA. libGL is dlopened
+ * as the other two are. */
+struct gl_api {
+  void *library;
+  void (*glGenTextures)(int, unsigned *);
+  void (*glBindTexture)(unsigned, unsigned);
+  void (*glTexParameteri)(unsigned, unsigned, int);
+  void (*glEGLImageTargetTexture2DOES)(unsigned, void *);
+};
+
+/* `EGL_PLATFORM_GBM_KHR` and GL's names come from eglext.h and glext.h; the few
+ * this file spells out are the ones glext.h would need the whole header tree for. */
+#define GL_TEXTURE_2D 0x0DE1u
+#define GL_TEXTURE_MIN_FILTER 0x2801u
+#define GL_TEXTURE_MAG_FILTER 0x2800u
+#define GL_LINEAR 0x2601u
 
 struct yapfast_cudaconvert {
   struct cuda_api cuda;
@@ -152,6 +214,27 @@ struct yapfast_cudaconvert {
    * then the interleaved chroma ones, at a pitch NVENC takes. */
   CUdeviceptr nv12;
   size_t nv12_size;
+  /* The same rows for a picture the driver holds as an array — a tiled buffer,
+   * which is what a compositor on NVIDIA's driver shares — copied on the card
+   * before the kernels read them. Grown as the pictures are. */
+  CUdeviceptr rows;
+  size_t rows_pitch;
+  unsigned rows_height;
+  /* The picture as a GL texture, for a tiled one the EGL resource wouldn't map:
+   * the display and context GL is made on, the texture that holds the picture,
+   * and whether that was tried and what it said. Nothing here is opened until a
+   * picture needs it. */
+  struct gl_api gl;
+  void *gbm;
+  void *gbm_device;
+  EGLDisplay gl_display;
+  EGLContext gl_context;
+  unsigned gl_texture;
+  int gl_open;
+  char gl_why[160];
+  /* The card's node, kept open for the gbm device GL's display is made from: a
+   * gbm device reads the driver's memory through that descriptor. */
+  int drm;
   unsigned width, height, pitch;
   /* The picture's own size, until the kernels are launched at the stream's. */
   unsigned source_width, source_height;
@@ -194,7 +277,8 @@ static int enter(struct yapfast_cudaconvert *c) {
   }
   if (c->display != EGL_NO_DISPLAY && c->context != EGL_NO_CONTEXT &&
       !c->egl.eglMakeCurrent(c->display, EGL_NO_SURFACE, EGL_NO_SURFACE, c->context)) {
-    put(c->error, sizeof(c->error), "EGL wouldn't enter the import's context");
+    put(c->error, sizeof(c->error), "EGL wouldn't enter the import's context (0x%x)",
+        c->egl.eglGetError());
     c->cuda.cuCtxPopCurrent(NULL);
     return 0;
   }
@@ -243,7 +327,9 @@ static int open_cuda(struct yapfast_cudaconvert *c) {
   LOAD("cuInit", cuInit);
   LOAD("cuDriverGetVersion", cuDriverGetVersion);
   LOAD("cuDeviceGet", cuDeviceGet);
+  LOAD("cuDeviceGetCount", cuDeviceGetCount);
   LOAD("cuDeviceGetName", cuDeviceGetName);
+  LOAD("cuDeviceGetPCIBusId", cuDeviceGetPCIBusId);
   LOAD("cuCtxCreate_v2", cuCtxCreate);
   LOAD("cuCtxDestroy_v2", cuCtxDestroy);
   LOAD("cuCtxPushCurrent_v2", cuCtxPushCurrent);
@@ -252,6 +338,7 @@ static int open_cuda(struct yapfast_cudaconvert *c) {
   LOAD("cuModuleLoadData", cuModuleLoadData);
   LOAD("cuModuleGetFunction", cuModuleGetFunction);
   LOAD("cuMemAlloc_v2", cuMemAlloc);
+  LOAD("cuMemAllocPitch_v2", cuMemAllocPitch);
   LOAD("cuMemFree_v2", cuMemFree);
   LOAD("cuLaunchKernel", cuLaunchKernel);
   LOAD("cuGetErrorName", cuGetErrorName);
@@ -261,12 +348,37 @@ static int open_cuda(struct yapfast_cudaconvert *c) {
   LOAD("cuGraphicsUnmapResources", cuGraphicsUnmapResources);
   LOAD("cuGraphicsResourceGetMappedEglFrame", cuGraphicsResourceGetMappedEglFrame);
 #undef LOAD
+  /* Optional, for the GL door a tiled picture takes: a driver without them still
+   * converts every picture whose rows it can read, and the GL route says so. */
+  *(void **)(&c->cuda.cuMemcpy3D) = symbol(l, "cuMemcpy3D_v2");
+  *(void **)(&c->cuda.cuGraphicsGLRegisterImage) = symbol(l, "cuGraphicsGLRegisterImage");
+  *(void **)(&c->cuda.cuGraphicsSubResourceGetMappedArray) =
+      symbol(l, "cuGraphicsSubResourceGetMappedArray");
   return 1;
 }
 
+/* The PCI address of the card a DRM node is, which is how the kernel, EGL and
+ * CUDA all name one card: `/sys/class/drm/renderD128/device` and
+ * `/sys/class/drm/card1/device` are links to the same PCI device, whose own name
+ * is the last part of the link. A node that isn't a DRM one, or a machine
+ * without that tree, answers nothing. */
+static int drm_node_pci(const char *node, char *pci, size_t size) {
+  const char *slash = strrchr(node, '/');
+  const char *name = slash ? slash + 1 : node;
+  char link[128], target[256];
+  snprintf(link, sizeof(link), "/sys/class/drm/%s/device", name);
+  ssize_t length = readlink(link, target, sizeof(target) - 1);
+  if (length <= 0) return 0;
+  target[length] = '\0';
+  const char *last = strrchr(target, '/');
+  snprintf(pci, size, "%.*s", (int)(size - 1), last ? last + 1 : target);
+  return pci[0] != '\0';
+}
+
 /* The EGL device that is the descriptor's own. A buffer can only be imported by
- * the device whose memory it is, so the one matching the DRM node is looked for
- * rather than the first one offered. */
+ * the device whose memory it is, so the one the DRM node names is looked for
+ * rather than the first one offered: a machine with two cards offers several,
+ * and Mesa offers one for NVIDIA's node too, which can't import it. */
 static void *egl_device_for(struct yapfast_cudaconvert *c, int drm_fd, const char *node) {
   void *devices[16];
   EGLint count = 0;
@@ -275,21 +387,24 @@ static void *egl_device_for(struct yapfast_cudaconvert *c, int drm_fd, const cha
   if (count > 16) count = 16;
   struct stat ours;
   int have_ours = fstat(drm_fd, &ours) == 0;
-  /* The descriptor's own render node, and the card node a driver may name for
-   * the same device: NVIDIA reports `EGL_DRM_DEVICE_FILE_EXT` as
-   * `/dev/dri/card0` where the picture came from `/dev/dri/renderD128`, and
-   * Linux numbers the two up to 128 apart. */
-  char card[64];
-  const char *slash = strrchr(node, '/');
-  const char *render = slash ? slash + 1 : node;
-  snprintf(card, sizeof(card), "/dev/dri/card%d", render[0] ? atoi(render + 6) - 128 : -1);
+  char ours_pci[32] = "";
+  drm_node_pci(node, ours_pci, sizeof(ours_pci));
   for (EGLint i = 0; i < count; i++) {
+    /* `EGL_EXT_device_drm_render_node` names the render node itself, which is
+     * the path the descriptor came from; the extension that predates it names
+     * whichever node the driver likes, and NVIDIA names the card. */
+    const char *render = c->egl.eglQueryDeviceString(devices[i], EGL_DRM_RENDER_NODE_FILE_EXT);
+    if (render != NULL && !strcmp(render, node)) return devices[i];
     const char *file = c->egl.eglQueryDeviceString(devices[i], EGL_DRM_DEVICE_FILE_EXT);
     if (file == NULL) continue;
     struct stat theirs;
     if (have_ours && stat(file, &theirs) == 0 && theirs.st_rdev == ours.st_rdev)
       return devices[i];
-    if (!strcmp(file, node) || (atoi(render + 6) >= 128 && !strcmp(file, card)))
+    /* The card node of the same card: `/dev/dri/card1` for `/dev/dri/renderD128`
+     * on a machine whose numbering isn't the 128 apart of one card alone. */
+    char theirs_pci[32] = "";
+    if (ours_pci[0] != '\0' && drm_node_pci(file, theirs_pci, sizeof(theirs_pci)) &&
+        !strcasecmp(theirs_pci, ours_pci))
       return devices[i];
   }
   /* A driver that names no file leaves one device, which is the only one it
@@ -343,6 +458,9 @@ static int open_egl(struct yapfast_cudaconvert *c, int drm_fd, const char *node,
           c->egl.eglGetProcAddress("eglCreateImageKHR");
   c->egl.eglDestroyImage =
       (EGLBoolean(*)(EGLDisplay, EGLImageKHR))c->egl.eglGetProcAddress("eglDestroyImageKHR");
+  /* GL's display is made from the process's own connection when no platform
+   * names the card, so this is looked for rather than required. */
+  c->egl.eglGetDisplay = symbol(l, "eglGetDisplay");
   if (c->egl.eglGetPlatformDisplay == NULL || c->egl.eglQueryDevices == NULL ||
       c->egl.eglQueryDeviceString == NULL || c->egl.eglCreateImage == NULL ||
       c->egl.eglDestroyImage == NULL) {
@@ -386,17 +504,42 @@ static int open_egl(struct yapfast_cudaconvert *c, int drm_fd, const char *node,
   return 1;
 }
 
-/* Which CUDA device that EGL device is: the driver answers its ordinal as a
- * string, so no guess about their order is made. */
-static int cuda_device_for(struct yapfast_cudaconvert *c, void *egl_device) {
+/* Which CUDA device that EGL device is. The driver can answer its ordinal as a
+ * string, but a loader in front of it — glvnd, which is what a distribution
+ * links — answers nothing for that query, and the card is the same card either
+ * way: both EGL and CUDA name it by the PCI address Linux gives it. */
+static int cuda_device_for(struct yapfast_cudaconvert *c, void *egl_device, const char *node) {
   const char *named = c->egl.eglQueryDeviceString(egl_device, EGL_CUDA_DEVICE_NV);
   int ordinal = 0;
-  if (named == NULL || sscanf(named, "CUDA-%d", &ordinal) != 1) {
-    put(c->error, sizeof(c->error), "EGL device %p names no CUDA device", egl_device);
-    return 0;
+  if (named != NULL && sscanf(named, "CUDA-%d", &ordinal) == 1) {
+    CU(c, cuDeviceGet(&c->device, ordinal), "no such CUDA device");
+    return 1;
   }
-  CU(c, cuDeviceGet(&c->device, ordinal), "no such CUDA device");
-  return 1;
+  char ours[32] = "";
+  int count = 0;
+  if (c->cuda.cuDeviceGetCount == NULL || c->cuda.cuDeviceGetCount(&count) != CUDA_SUCCESS)
+    count = 0;
+  if (drm_node_pci(node, ours, sizeof(ours)) && c->cuda.cuDeviceGetPCIBusId != NULL) {
+    for (int i = 0; i < count; i++) {
+      CUdevice candidate;
+      if (c->cuda.cuDeviceGet(&candidate, i) != CUDA_SUCCESS) continue;
+      char theirs[32] = "";
+      if (c->cuda.cuDeviceGetPCIBusId(theirs, (int)sizeof(theirs), candidate) == CUDA_SUCCESS &&
+          !strcasecmp(theirs, ours)) {
+        c->device = candidate;
+        return 1;
+      }
+    }
+  }
+  /* One card whose address nothing would name: it is the only one there is. */
+  if (count == 1) {
+    CU(c, cuDeviceGet(&c->device, 0), "no CUDA device");
+    return 1;
+  }
+  put(c->error, sizeof(c->error),
+      "no CUDA device is the card at %s, where the EGL device is and the picture came from%s",
+      ours[0] != '\0' ? ours : node, count > 0 ? "" : ", and the driver has none");
+  return 0;
 }
 
 /* Opens everything this path needs on the device `drm_fd` is, at the stream's
@@ -408,6 +551,9 @@ struct yapfast_cudaconvert *yapfast_cudaconvert_new(int drm_fd, unsigned width,
   put(error, size, "not opened");
   struct yapfast_cudaconvert *c = calloc(1, sizeof(*c));
   if (c == NULL) return NULL;
+  /* The card's node, held open: a gbm device made from it later reads through the
+   * descriptor, and the caller's own copy is gone by then. */
+  c->drm = dup(drm_fd);
   /* The node the descriptor came from, by the path the kernel gave the driver:
    * EGL names its devices the same way. */
   char link[64], node[256];
@@ -434,7 +580,7 @@ struct yapfast_cudaconvert *yapfast_cudaconvert_new(int drm_fd, unsigned width,
     return NULL;
   }
   void *egl_device = NULL;
-  if (!open_egl(c, drm_fd, node, &egl_device) || !cuda_device_for(c, egl_device)) {
+  if (!open_egl(c, drm_fd, node, &egl_device) || !cuda_device_for(c, egl_device, node)) {
     put(error, size, "%s", c->error);
     yapfast_cudaconvert_free(c);
     return NULL;
@@ -452,8 +598,10 @@ struct yapfast_cudaconvert *yapfast_cudaconvert_new(int drm_fd, unsigned width,
     put(c->driver, sizeof(c->driver), "CUDA");
   if (c->cuda.cuDeviceGetName(c->device_name, sizeof(c->device_name), c->device) != CUDA_SUCCESS)
     put(c->device_name, sizeof(c->device_name), "an NVIDIA device");
-  if (c->cuda.cuModuleLoadData(&c->module, ptx) != CUDA_SUCCESS) {
-    put(c->error, sizeof(c->error), "the convert kernels wouldn't load");
+  CUresult loaded = c->cuda.cuModuleLoadData(&c->module, ptx);
+  if (loaded != CUDA_SUCCESS) {
+    put(c->error, sizeof(c->error), "the convert kernels wouldn't load: %s",
+        cuda_name(c, loaded));
     put(error, size, "%s", c->error);
     yapfast_cudaconvert_free(c);
     return NULL;
@@ -562,6 +710,227 @@ static int launch(struct yapfast_cudaconvert *c, const void *pixels, unsigned pi
  * memory the compositor drew, `width` by `height` of BGRA or BGRX pixels in it.
  * The picture lands in the NV12 buffer this was opened with, and needs nothing
  * of the processor. */
+/* Room on the card for a tiled picture's rows, which are copied out of the array
+ * before the kernels read them: allocated at the picture's own size, and grown
+ * when a picture is bigger than the one before it. */
+static int rows_for(struct yapfast_cudaconvert *c, unsigned width, unsigned height) {
+  size_t needed = (size_t)width * 4;
+  if (c->rows != 0 && c->rows_pitch >= needed && c->rows_height >= height) return 1;
+  if (c->rows != 0) {
+    c->cuda.cuMemFree(c->rows);
+    c->rows = 0;
+    c->rows_pitch = 0;
+    c->rows_height = 0;
+  }
+  CUdeviceptr rows = 0;
+  size_t pitch = 0;
+  if (c->cuda.cuMemAllocPitch(&rows, &pitch, needed, height, 4) != CUDA_SUCCESS) return 0;
+  c->rows = rows;
+  c->rows_pitch = pitch;
+  c->rows_height = height;
+  return 1;
+}
+
+/* The picture as a GL texture, which is the door a tiled one takes: the driver
+ * maps a texture where it answers an error for the resource an EGLImage
+ * registered, and the array behind the texture copies into rows with
+ * `cuMemcpy3D`, where `cuMemcpy2D` refuses a block-linear array.
+ *
+ * GL and gbm are dlopened as libEGL and libcuda are, and nothing is opened until
+ * a picture needs them: every picture the first door takes costs nothing here. */
+static int gl_ready(struct yapfast_cudaconvert *c) {
+  if (c->gl_open > 0) return 1;
+  if (c->gl_open < 0) return 0;
+  c->gl_open = -1;
+  if (c->cuda.cuGraphicsGLRegisterImage == NULL ||
+      c->cuda.cuGraphicsSubResourceGetMappedArray == NULL || c->cuda.cuMemcpy3D == NULL) {
+    put(c->gl_why, sizeof(c->gl_why), "the CUDA driver has no GL interop");
+    return 0;
+  }
+  static const char *const gl_names[] = {"libGL.so.1", "libGL.so", NULL};
+  for (int i = 0; gl_names[i] != NULL && c->gl.library == NULL; i++)
+    c->gl.library = dlopen(gl_names[i], RTLD_NOW | RTLD_LOCAL);
+  if (c->gl.library == NULL) {
+    put(c->gl_why, sizeof(c->gl_why), "no GL library: %s", dlerror());
+    return 0;
+  }
+  void *l = c->gl.library;
+#define GL_LOAD(field, name)                                                  \
+  do {                                                                       \
+    *(void **)(&c->gl.field) = symbol(l, name);                               \
+    if (c->gl.field == NULL) {                                                \
+      put(c->gl_why, sizeof(c->gl_why), "GL has no %s", name);                \
+      return 0;                                                              \
+    }                                                                        \
+  } while (0)
+  GL_LOAD(glGenTextures, "glGenTextures");
+  GL_LOAD(glBindTexture, "glBindTexture");
+  GL_LOAD(glTexParameteri, "glTexParameteri");
+  /* The one entry point that makes a texture of an imported picture, which only
+   * eglGetProcAddress finds. */
+  *(void **)(&c->gl.glEGLImageTargetTexture2DOES) =
+      (void *)c->egl.eglGetProcAddress("glEGLImageTargetTexture2DOES");
+  if (c->gl.glEGLImageTargetTexture2DOES == NULL) {
+    put(c->gl_why, sizeof(c->gl_why), "GL has no glEGLImageTargetTexture2DOES");
+    return 0;
+  }
+#undef GL_LOAD
+  /* A gbm device on the picture's card, which is what makes the display GL binds
+   * to the card's own: the display the EGL device platform makes refuses GL
+   * interop on this driver. */
+  static const char *const gbm_names[] = {"libgbm.so.1", "libgbm.so", NULL};
+  for (int i = 0; gbm_names[i] != NULL && c->gbm == NULL; i++)
+    c->gbm = dlopen(gbm_names[i], RTLD_NOW | RTLD_LOCAL);
+  if (c->gbm != NULL) {
+    void *(*create)(int) = symbol(c->gbm, "gbm_create_device");
+    if (create != NULL && c->drm >= 0) c->gbm_device = create(c->drm);
+  }
+  if (c->gbm_device != NULL)
+    c->gl_display =
+        c->egl.eglGetPlatformDisplay(EGL_PLATFORM_GBM_KHR, c->gbm_device, NULL);
+  if (c->gl_display == EGL_NO_DISPLAY && c->egl.eglGetDisplay != NULL)
+    c->gl_display = c->egl.eglGetDisplay(EGL_DEFAULT_DISPLAY);
+  if (c->gl_display == EGL_NO_DISPLAY) {
+    put(c->gl_why, sizeof(c->gl_why), "no EGL display GL can be made on");
+    return 0;
+  }
+  EGLint major = 0, minor = 0;
+  if (!c->egl.eglInitialize(c->gl_display, &major, &minor)) {
+    put(c->gl_why, sizeof(c->gl_why), "EGL wouldn't initialize GL's display (0x%x)",
+        c->egl.eglGetError());
+    c->gl_display = EGL_NO_DISPLAY;
+    return 0;
+  }
+  c->egl.eglBindAPI(EGL_OPENGL_API);
+  const EGLint configs[] = {EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE,
+                            EGL_OPENGL_BIT, EGL_NONE};
+  EGLConfig config = NULL;
+  EGLint found = 0;
+  c->egl.eglChooseConfig(c->gl_display, configs, &config, 1, &found);
+  const EGLint context_attribs[] = {EGL_CONTEXT_MAJOR_VERSION, 3,
+                                    EGL_CONTEXT_MINOR_VERSION, 0, EGL_NONE};
+  c->gl_context = c->egl.eglCreateContext(c->gl_display,
+                                          found > 0 ? config : EGL_NO_CONFIG_KHR,
+                                          EGL_NO_CONTEXT, context_attribs);
+  if (c->gl_context == EGL_NO_CONTEXT) {
+    put(c->gl_why, sizeof(c->gl_why), "EGL wouldn't open GL's context (0x%x)",
+        c->egl.eglGetError());
+    return 0;
+  }
+  if (!c->egl.eglMakeCurrent(c->gl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, c->gl_context)) {
+    put(c->gl_why, sizeof(c->gl_why), "EGL wouldn't make GL's context current (0x%x)",
+        c->egl.eglGetError());
+    return 0;
+  }
+  /* One texture, re-pointed at each picture: the storage is the image's. */
+  c->gl.glGenTextures(1, &c->gl_texture);
+  c->gl.glBindTexture(GL_TEXTURE_2D, c->gl_texture);
+  c->gl.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (int)GL_LINEAR);
+  c->gl.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (int)GL_LINEAR);
+  c->egl.eglMakeCurrent(c->gl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+  c->gl_open = 1;
+  return 1;
+}
+
+/* The array's rows on the card, in `c->rows`: the copy a block-linear picture
+ * takes, since `cuMemcpy2D` refuses one. */
+static int copy_rows(struct yapfast_cudaconvert *c, void *array, unsigned width, unsigned height) {
+  if (!rows_for(c, width, height)) {
+    put(c->error, sizeof(c->error), "no room on the card for the picture's rows");
+    return 0;
+  }
+  cuda_memcpy3d copy;
+  memset(&copy, 0, sizeof(copy));
+  copy.srcMemoryType = CU_MEMORYTYPE_ARRAY;
+  copy.srcArray = array;
+  copy.srcHeight = height;
+  copy.dstMemoryType = CU_MEMORYTYPE_DEVICE;
+  copy.dstDevice = c->rows;
+  copy.dstPitch = c->rows_pitch;
+  copy.dstHeight = height;
+  copy.WidthInBytes = (size_t)width * 4;
+  copy.Height = height;
+  copy.Depth = 1;
+  CUresult copied = c->cuda.cuMemcpy3D(&copy);
+  if (copied != CUDA_SUCCESS) {
+    put(c->error, sizeof(c->error), "the card wouldn't copy the picture's rows: %s",
+        cuda_name(c, copied));
+    return 0;
+  }
+  return 1;
+}
+
+/* The picture through GL's texture, copied on the card into `c->rows`: 1 when
+ * the rows hold it. GL's context takes the thread for the length of the call and
+ * leaves it to the import's own. */
+static int take_through_gl(struct yapfast_cudaconvert *c, int fd, unsigned offset,
+                           unsigned stride, unsigned fourcc, unsigned long long modifier,
+                           unsigned width, unsigned height) {
+  c->gl_why[0] = '\0';
+  if (!gl_ready(c)) return 0;
+  const EGLint attribs[] = {
+      EGL_WIDTH,                          (EGLint)width,
+      EGL_HEIGHT,                         (EGLint)height,
+      EGL_LINUX_DRM_FOURCC_EXT,           (EGLint)fourcc,
+      EGL_DMA_BUF_PLANE0_FD_EXT,          fd,
+      EGL_DMA_BUF_PLANE0_OFFSET_EXT,      (EGLint)offset,
+      EGL_DMA_BUF_PLANE0_PITCH_EXT,       (EGLint)stride,
+      EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, (EGLint)(modifier & 0xffffffffull),
+      EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, (EGLint)(modifier >> 32),
+      EGL_NONE,
+  };
+  EGLImageKHR image = c->egl.eglCreateImage(c->gl_display, EGL_NO_CONTEXT,
+                                            EGL_LINUX_DMA_BUF_EXT, NULL, attribs);
+  if (image == EGL_NO_IMAGE_KHR) {
+    put(c->gl_why, sizeof(c->gl_why), "GL's display wouldn't import the picture (0x%x)",
+        c->egl.eglGetError());
+    return 0;
+  }
+  c->egl.eglMakeCurrent(c->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+  if (!c->egl.eglMakeCurrent(c->gl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, c->gl_context)) {
+    put(c->gl_why, sizeof(c->gl_why), "EGL wouldn't make GL's context current (0x%x)",
+        c->egl.eglGetError());
+    c->egl.eglDestroyImage(c->gl_display, image);
+    return 0;
+  }
+  int ok = 0, registered = 0, mapped = 0;
+  CUgraphicsResource resource = NULL;
+  c->gl.glBindTexture(GL_TEXTURE_2D, c->gl_texture);
+  c->gl.glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, image);
+  CUresult r = c->cuda.cuGraphicsGLRegisterImage(&resource, c->gl_texture, GL_TEXTURE_2D,
+                                                CU_GRAPHICS_REGISTER_FLAGS_READ_ONLY);
+  if (r != CUDA_SUCCESS) {
+    put(c->gl_why, sizeof(c->gl_why), "CUDA wouldn't take GL's texture over the picture: %s",
+        cuda_name(c, r));
+    goto done;
+  }
+  registered = 1;
+  r = c->cuda.cuGraphicsMapResources(1, &resource, NULL);
+  mapped = r == CUDA_SUCCESS;
+  if (!mapped) {
+    put(c->gl_why, sizeof(c->gl_why), "CUDA wouldn't map GL's texture over the picture: %s",
+        cuda_name(c, r));
+    goto done;
+  }
+  void *array = NULL;
+  r = c->cuda.cuGraphicsSubResourceGetMappedArray(&array, resource, 0, 0);
+  if (r != CUDA_SUCCESS || array == NULL) {
+    put(c->gl_why, sizeof(c->gl_why), "CUDA wouldn't say where GL's picture lies: %s",
+        cuda_name(c, r));
+    goto done;
+  }
+  ok = copy_rows(c, array, width, height);
+  if (!ok) put(c->gl_why, sizeof(c->gl_why), "%s", c->error);
+done:
+  if (mapped) c->cuda.cuGraphicsUnmapResources(1, &resource, NULL);
+  if (registered) c->cuda.cuGraphicsUnregisterResource(resource);
+  c->egl.eglDestroyImage(c->gl_display, image);
+  /* Back to the import's own display, which `leave` lets go of. */
+  c->egl.eglMakeCurrent(c->gl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+  c->egl.eglMakeCurrent(c->display, EGL_NO_SURFACE, EGL_NO_SURFACE, c->context);
+  return ok;
+}
+
 int yapfast_cudaconvert_convert(struct yapfast_cudaconvert *c, int fd, unsigned offset,
                                 unsigned stride, unsigned long long modifier,
                                 unsigned fourcc, unsigned width, unsigned height,
@@ -601,52 +970,81 @@ int yapfast_cudaconvert_convert(struct yapfast_cudaconvert *c, int fd, unsigned 
   };
   EGLImageKHR image = c->egl.eglCreateImage(c->display, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT,
                                             NULL, attribs);
+  CUgraphicsResource resource = NULL;
+  int ok = 0, registered = 0, mapped = 0;
   if (image == EGL_NO_IMAGE_KHR) {
     put(c->error, sizeof(c->error), "EGL wouldn't import the picture (0x%x)",
         c->egl.eglGetError());
-    put(error, size, "%s", c->error);
-    leave(c);
-    return 0;
+    goto done;
   }
-  CUgraphicsResource resource = NULL;
-  int ok = 0, registered = 0, mapped = 0;
   if (c->cuda.cuGraphicsEGLRegisterImage(&resource, image, CU_GRAPHICS_REGISTER_FLAGS_READ_ONLY) !=
       CUDA_SUCCESS) {
     put(c->error, sizeof(c->error), "CUDA wouldn't take the imported picture");
     goto done;
   }
   registered = 1;
-  if (c->cuda.cuGraphicsMapResources(1, &resource, NULL) != CUDA_SUCCESS) {
-    put(c->error, sizeof(c->error), "CUDA wouldn't map the imported picture");
-    goto done;
-  }
-  mapped = 1;
+  /* The driver gives a picture back without the mapping being made: NVIDIA's
+   * 620 driver answers CUDA_ERROR_UNKNOWN here for every imported DMA-BUF, and
+   * hands the frame over anyway, whose rows read correctly. So the frame decides
+   * whether the picture can be used, and only a mapping that was made is unmade. */
+  mapped = c->cuda.cuGraphicsMapResources(1, &resource, NULL) == CUDA_SUCCESS;
   CUeglFrame frame;
   memset(&frame, 0, sizeof(frame));
   if (c->cuda.cuGraphicsResourceGetMappedEglFrame(&frame, resource, 0, 0) != CUDA_SUCCESS) {
-    put(c->error, sizeof(c->error), "CUDA wouldn't say where the imported picture lies");
-  } else if (frame.frameType != CU_EGL_FRAME_TYPE_PITCH || frame.frame.pDevPtr[0] == 0) {
-    /* A tiled buffer the driver imported as an array: the kernels read rows, and
-     * refuse rather than read them wrongly. The share falls to the next rung. */
-    put(c->error, sizeof(c->error),
-        "a picture the driver holds as an array rather than rows (a tiled buffer)");
-  } else if (frame.pitch < stride) {
-    /* The driver imported the picture at a narrower pitch than the descriptor's
-     * own: the kernels read rows at the pitch they are given, so this one would
-     * read past every row's real extent. */
-    put(c->error, sizeof(c->error),
-        "a picture the driver holds at %u bytes a row where its descriptor says %u",
-        frame.pitch, stride);
+    put(c->error, sizeof(c->error), "CUDA wouldn't say where the imported picture lies%s",
+        mapped ? "" : ", and wouldn't map it");
+  } else if (frame.frameType == CU_EGL_FRAME_TYPE_PITCH && frame.frame.pDevPtr[0] != 0) {
+    if (frame.pitch < stride) {
+      /* The driver imported the picture at a narrower pitch than the descriptor's
+       * own: the kernels read rows at the pitch they are given, so this one would
+       * read past every row's real extent. */
+      put(c->error, sizeof(c->error),
+          "a picture the driver holds at %u bytes a row where its descriptor says %u",
+          frame.pitch, stride);
+    } else {
+      c->source_width = width;
+      c->source_height = height;
+      ok = launch(c, (const void *)(uintptr_t)frame.frame.pDevPtr[0], frame.pitch, (int)width,
+                  (int)height, NULL);
+    }
+  } else if (frame.frameType == CU_EGL_FRAME_TYPE_ARRAY && frame.frame.pArray[0] != NULL) {
+    /* A picture the driver holds as an array rather than rows: its rows are
+     * copied on the card, and the kernels read those. Nothing crosses the
+     * processor. */
+    if (!mapped) {
+      put(c->error, sizeof(c->error),
+          "a picture the driver holds as a tiled array and wouldn't map");
+    } else if (copy_rows(c, frame.frame.pArray[0], width, height)) {
+      c->source_width = width;
+      c->source_height = height;
+      ok = launch(c, (const void *)(uintptr_t)c->rows, (unsigned)c->rows_pitch, (int)width,
+                  (int)height, NULL);
+    }
   } else {
-    c->source_width = width;
-    c->source_height = height;
-    ok = launch(c, (const void *)(uintptr_t)frame.frame.pDevPtr[0], frame.pitch, (int)width,
-                (int)height, NULL);
+    put(c->error, sizeof(c->error),
+        "a picture the driver holds in neither rows nor an array, so nothing here can read it");
   }
 done:
   if (mapped) c->cuda.cuGraphicsUnmapResources(1, &resource, NULL);
   if (registered) c->cuda.cuGraphicsUnregisterResource(resource);
-  c->egl.eglDestroyImage(c->display, image);
+  if (image != EGL_NO_IMAGE_KHR) c->egl.eglDestroyImage(c->display, image);
+  if (!ok) {
+    /* The import's own resource didn't give the picture, which is what NVIDIA's
+     * driver does with a tiled one: it answers an error for the mapping and then
+     * hands back an array nothing can read. GL's texture over the same picture is
+     * the door that maps, and the array behind it copies into rows. Whatever the
+     * second door says is added to what the first said. */
+    char first[sizeof(c->error)];
+    put(first, sizeof(first), "%s", c->error);
+    if (take_through_gl(c, fd, offset, stride, fourcc, modifier, width, height)) {
+      c->source_width = width;
+      c->source_height = height;
+      ok = launch(c, (const void *)(uintptr_t)c->rows, (unsigned)c->rows_pitch, (int)width,
+                  (int)height, NULL);
+    } else if (c->gl_why[0] != '\0') {
+      put(c->error, sizeof(c->error), "%s; and through GL's texture: %s", first, c->gl_why);
+    }
+  }
   leave(c);
   if (!ok) put(error, size, "%s", c->error);
   return ok;
@@ -659,6 +1057,7 @@ void yapfast_cudaconvert_free(struct yapfast_cudaconvert *c) {
      * that context whether or not this thread had it current. */
     c->cuda.cuCtxPushCurrent(c->cuda_context);
     if (c->nv12 != 0 && c->cuda.cuMemFree != NULL) c->cuda.cuMemFree(c->nv12);
+    if (c->rows != 0 && c->cuda.cuMemFree != NULL) c->cuda.cuMemFree(c->rows);
     c->cuda.cuCtxPopCurrent(NULL);
     c->cuda.cuCtxDestroy(c->cuda_context);
   }
@@ -667,6 +1066,17 @@ void yapfast_cudaconvert_free(struct yapfast_cudaconvert *c) {
     if (c->context != EGL_NO_CONTEXT) c->egl.eglDestroyContext(c->display, c->context);
     c->egl.eglTerminate(c->display);
   }
+  if (c->gl_display != EGL_NO_DISPLAY) {
+    if (c->gl_context != EGL_NO_CONTEXT) c->egl.eglDestroyContext(c->gl_display, c->gl_context);
+    c->egl.eglTerminate(c->gl_display);
+  }
+  if (c->gbm_device != NULL && c->gbm != NULL) {
+    void (*destroy)(void *) = symbol(c->gbm, "gbm_device_destroy");
+    if (destroy != NULL) destroy(c->gbm_device);
+  }
+  if (c->gbm != NULL) dlclose(c->gbm);
+  if (c->gl.library != NULL) dlclose(c->gl.library);
+  if (c->drm >= 0) close(c->drm);
   if (c->egl.library != NULL) dlclose(c->egl.library);
   if (c->cuda.library != NULL) dlclose(c->cuda.library);
   free(c);

@@ -49,12 +49,14 @@ encoder's `engine` and `codec` from the last stats a share reported, and the
 picture `size` (or "up to" the job's bounds before one was reported).
 `a_worker_that_dies_says_how` runs a worker script that kills itself, through
 `YAPFAST_STREAM_WORKER`, which names the program to start instead of Yapfast.
-In a Wayland session, the desktop's screen sharing portal is what captures: on
-Linux with the `screencast` feature and PipeWire's headers, Yapfast asks the
-portal itself and reads the DMA-BUFs the compositor draws, and without them
-libwebrtc's capturer asks the portal instead and the worker runs GLib's main
-context while it waits for the dialog and for frames
-([below](#capturing-on-the-gpu-on-linux) says which of the two runs).
+In a Wayland session, the desktop's screen sharing portal is what captures: the
+desktop build turns on the `screencast` feature, PipeWire's headers are what
+build it, and Yapfast then asks the portal itself and reads the DMA-BUFs the
+compositor draws; a build without either leaves libwebrtc's capturer to ask the
+portal instead, and the worker runs GLib's main context while it waits for the
+dialog and for frames
+([below](#capturing-on-the-gpu-on-linux) says which of the two runs, and why
+the pointer is in the frames only in the first).
 Yapfast tells Discord it's
 live only once frames flow, so a cancelled dialog shares nothing. Windows has
 no such dialog, and libwebrtc uses the portal only on Wayland, so elsewhere,
@@ -294,10 +296,10 @@ another version, or one whose planes and descriptors disagree — is closed as i
 is read, and one it displaces is closed then too, so a window that stopped
 taking pictures holds one per slot and no more. The device a picture has to be
 opened on is the window's own: Skia on Vulkan through a wgpu 30 device Yapfast
-makes where the build carries Skia's Vulkan — the opt-in `skia-vulkan` feature
-and the Skia archive built with it, see
-[building.md](../building.md#skia-with-vulkan) — and a Vulkan device opens, and
-Skia on OpenGL otherwise (`src/ui/vulkan.rs`). Where the two adapters can't share a
+makes where the machine's driver opens one — every Linux build carries Skia's
+Vulkan, see [building.md](../building.md#skia-with-vulkan), and Windows draws
+with Direct3D 12 — and Skia on OpenGL otherwise, which the same archive
+carries (`src/ui/vulkan.rs`). Where the two adapters can't share a
 texture, or the window draws in software, the tile is read back into one
 staging texture at 1280×720 at most instead, ten times a second while the UI
 shows a preview. Everything else — a window or a camera, the processor setting,
@@ -327,24 +329,45 @@ between them but what each one sees:
   which is asked for the kind of thing the person picked — windows for a window,
   one monitor for a display — and hands back the compositor's own buffers on a
   PipeWire node. It is asked whether it answers at all first, with one call on
-  the session bus, so a desktop without one is not left waiting for a timeout;
+  the session bus, so a desktop without one is not left waiting for a timeout.
+  PipeWire's client functions are bound from `libpipewire-0.3` when the capture
+  opens, rather than by the link: LiveKit's libwebrtc carries a weak stub of
+  each of them for builds without PipeWire, and a link that takes those calls
+  them instead, which ends in a jump to 0. A machine with no PipeWire library
+  says so in the capture's own words instead. The format it asks for carries a
+  linear modifier, because an importer here maps rows: a compositor on a card
+  with a tiling of its own — KWin on an NVIDIA screen hands over
+  `0x0300000000e08014`, block-linear — copies into a linear buffer instead of
+  handing over a picture nothing can read;
 * the X server's Composite redirection exported through DRI3
   (`capture::x11`), which redirects the window or the screen to a pixmap and
   exports that as one DMA-BUF. It captures a window as that window and never the
   desktop behind it, and a monitor as the screen cut to the monitor's rectangle.
 
-A Wayland session that answers a portal has no X11 rung at all: what an X11
-capture sees under Wayland is Xwayland's windows and not the desktop they sit on,
-so falling to it would share the wrong thing. Every other session tries the
-portal and then the X server, and each rung that refuses is named with what it
-said. A session with neither, a build without the `screencast` feature or
-PipeWire's headers, a window whose importer is missing, or a machine with the
-processor's encoder chosen all keep the share on the libyuv path, and the log
-says which: `sharing from the processor`, with the reason. The Stream tab says
-the same thing twice over, since a picture looks alike whichever way it came:
-`StreamStats.capture` names the rung and the size ("X11's DRI3 capture ·
+A Wayland session has no X11 rung at all: what an X11 capture sees under
+Wayland is Xwayland's windows and not the desktop they sit on, and the screen it
+would name is Xwayland's overlay window, whose storage is empty — a share of
+nothing, and a refusal in the log that reads as if it were about the desktop. An
+X session tries the portal and then the X server, and each rung that refuses is
+named with what it said. A session with neither, a build without the `screencast`
+feature or PipeWire's headers, a window whose importer is missing, or a machine
+with the processor's encoder chosen all keep the share on the libyuv path, and
+the log says which: `sharing from the processor`, with the reason. The Stream tab
+says the same thing twice over, since a picture looks alike whichever way it
+came: `StreamStats.capture` names the rung and the size ("X11's DRI3 capture ·
 1920×1080"), and `fallback` says why a share left the card, in the words of the
 refusal that sent it there.
+
+The pointer is drawn by whoever draws the frames. The portal's rung asks for it
+in them — `cursor_mode` 2, embedded, `Cursor::Embedded` in `capture::portal` — so
+the compositor paints it into the buffers and a viewer sees it. The X server's
+DRI3 export can never have it: the X server draws the pointer beside the
+picture, not into the window's redirected storage. The processor's path asks
+libwebrtc's capturer for the pointer (`set_include_cursor(true)`), and on Wayland
+that capturer asks the portal for it as metadata (`cursor_mode` 4), which nothing
+in it paints into a frame — so a Wayland share that fell to the processor has no
+pointer, and the same share on Yapfast's own portal rung has one. That is a
+reason of its own to build the `screencast` feature, which the desktop app does.
 
 Each pass of the loop asks the capture for a picture and gives it the wait until
 the stream's next slot, so a desktop that isn't changing sleeps in the capture's
@@ -643,11 +666,29 @@ NVIDIA's driver and nothing else: `libcuda` and `libEGL` are dlopened, the PTX
 is the driver's to run, and the CUDA context the picture lives in is entered per
 call because the encoder runs on another thread. The PTX is built for `sm_52` —
 Maxwell — since PTX runs on the arch it names and every newer one, so a single
-blob covers every card whose driver still encodes. A driver that hands a tiled
-picture back as a CUDA array rather than rows, a format that isn't 32-bit BGRA,
-and a device that isn't the picture's are all one sentence and the processor's
-copy, which is the ladder every encoder here walks. The session's settings are
-`native/hwenc.c`'s NVENC row, and a test holds the two tables to one answer.
+blob covers every card whose driver still encodes; it is handed over as a C
+string, which is what the driver reads it as. The EGL device is the one the
+descriptor's render node names (`EGL_EXT_device_drm_render_node`, or the same
+card by PCI address), and the CUDA device is found by that PCI address when the
+loader in front of the driver — glvnd, which distributions link — answers nothing
+for `EGL_CUDA_DEVICE_NV`. A driver that answers an error from
+`cuGraphicsMapResources` and hands the frame over anyway is taken at its frame,
+since a mapping that wasn't made is nothing to unmake. A tiled picture — which a
+compositor on NVIDIA's driver shares, KWin handing over
+`0x0300000000e08014` — is one the driver holds as a CUDA array, and it takes a
+second door: the driver answers an error from the mapping for every resource an
+EGLImage registers and then hands back an array nothing can read, but a GL
+texture over the same picture maps, so the picture is wrapped as a texture
+(`glEGLImageTargetTexture2DOES`, on a display made from a gbm device, which is
+the one whose GL CUDA binds to) and the array behind it is copied on the card
+with `cuMemcpy3D` — the copy a block-linear array takes, where `cuMemcpy2D`
+answers `CUDA_ERROR_INVALID_VALUE` — into linear rows the kernels read. Both
+doors leave every pixel on the card, and GL is opened only when a picture takes
+it. A format that isn't 32-bit BGRA, a picture the driver holds in neither rows
+nor an array, and a device that isn't the picture's are one sentence and the
+processor's copy, which is the ladder every encoder here walks. The session's
+settings are `native/hwenc.c`'s NVENC row, and a test holds the two tables to one
+answer.
 
 What a descriptor can hold here is an NV12 picture in one buffer: that is what
 a picture the card decoded is, and what a VA-API surface is made of without
@@ -860,7 +901,7 @@ described above; what has been run on hardware is this:
 - **Intel Quick Sync** is in the vendored build (oneVPL 2.14.0,
   `--enable-libvpl`) and in the probe, and no Intel GPU has run it. It is fed
   from the processor, like AMF, and says so.
-- **Linux's card paths are wired, and none of them has been seen working.**
+- **Linux's card paths are wired, and the CUDA one has run.**
   The portal/PipeWire capturer, the X11 DRI3 capturer, the DMA-BUF picture
   channel, the VA-API decoder, the VA-API encode-from-a-DMA-BUF and the VA-API
   video processor that scales and converts a screen's picture into the surface
@@ -873,13 +914,20 @@ described above; what has been run on hardware is this:
   device; whether a driver converts BGRA to NV12, at what cost, and whether its
   picture matches the processor's copy is unmeasured here — and on NVIDIA's
   linux driver, which has no video processor, a screen's pictures take the
-  processor's copy, which is what the log says. The Vulkan import of a DMA-BUF
-  is behind the `skia-vulkan` feature (below), so a build without it asks for
-  pixels once and stays on the processor's path; a build with it imports the
-  picture on the window's Vulkan device and samples it there.
-- **Vulkan on Linux** is opt-in: the Skia Vulkan build (`nix build
-  path:./nix#skia-vulkan`) and the `skia-vulkan` feature, with OpenGL the
-  default and the fallback. No Vulkan device was available to run it here.
+  processor's copy, which is what the log says. NVIDIA's CUDA rung is the
+  exception: on an RTX 4090 with driver 620.70.06 it opened, imported a linear
+  DMA-BUF, converted it with its kernels and encoded the result with NVENC,
+  moving no byte through the processor — and a tiled picture, the shape this
+  compositor shares, took the GL-texture door, was copied on the card into rows
+  and encoded the same way, also with nothing through the processor. What has
+  not been seen is a share's own session end to end: the portal's handshake, the
+  picture arriving on a PipeWire node and the worker's ladder run on it are the
+  code's to answer, since this machine's session is not the one the tests drive.
+- **Vulkan on Linux** is the GPU setting's path, in every Linux build: the
+  window draws on a Vulkan device where one opens and on OpenGL, which the same
+  Skia archive carries, where none does. The device, the import and the pass
+  that reads the card's NV12 have no session on hardware behind them from here;
+  what has run is the shader's validation and the pass being made on a device.
 - **Lip sync** is not measured. The 80 ms bound and the two skews are
   computed as described, but a picture's presentation is its submission to
   the frames file — the renderer's own fence is the window's to observe — so

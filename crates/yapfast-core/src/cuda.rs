@@ -6,9 +6,11 @@
 //!
 //! Nothing of the picture crosses to the processor: the descriptor is imported,
 //! the driver's own scale and convert run on the card, and an encoder handed
-//! [`Convert::nv12`] reads it where it lies. What this can't take — a driver that
-//! hands the picture back as a CUDA array rather than rows, a format that isn't
-//! 32-bit BGRA, a device that isn't the one the picture came from — it says in a
+//! [`Convert::nv12`] reads it where it lies. A tiled picture — a compositor on
+//! NVIDIA's driver shares one — is copied on the card into rows first, since the
+//! driver holds it as an array the kernels can't read. What this can't take — a
+//! format that isn't 32-bit BGRA, a picture the driver holds in neither rows nor
+//! an array, a device that isn't the one the picture came from — it says in a
 //! sentence, which is what the share's ladder falls through on to the processor's
 //! own copy.
 //!
@@ -157,19 +159,26 @@ impl Convert {
     /// kernels scale every picture to — on the first render node that takes it.
     /// Every node opens; which one can import a picture is only known when one
     /// arrives, so [`Self::convert`] moves to the next when a device refuses.
+    ///
+    /// A machine with two cards has a node that is not the picture's, and the
+    /// reason it gives is as much of the answer as the refusal of the card that
+    /// is; every node's is kept, so the share's log names the one that matters.
     pub fn open(width: u32, height: u32) -> Result<Self> {
         let mut nodes = render_nodes()?;
-        let mut why = String::new();
+        let mut why = Vec::new();
         while let Some(node) = (!nodes.is_empty()).then(|| nodes.remove(0)) {
             match Self::at(&node, width, height) {
                 Ok(mut convert) => {
                     convert.rest = nodes;
                     return Ok(convert);
                 }
-                Err(error) => why = format!("{}: {error:#}", node.display()),
+                Err(error) => why.push(format!("{}: {error:#}", node.display())),
             }
         }
-        Err(anyhow::anyhow!("no NVIDIA device took the convert ({why})"))
+        Err(anyhow::anyhow!(
+            "no NVIDIA device took the convert ({})",
+            why.join("; ")
+        ))
     }
 
     /// Opens on `node`, which is the device the pictures to come belong to.
@@ -177,6 +186,11 @@ impl Convert {
         let device = std::fs::File::open(node)
             .with_context(|| format!("couldn't open {}", node.display()))?;
         let mut error = [0 as c_char; ERROR];
+        // The driver takes the PTX as a C string and reads it to the null byte at
+        // the end, which `include_bytes!` doesn't have: it is the file's own
+        // bytes. One copy at the open, where the picture's first frame is still
+        // to come, rather than a driver that reads past them.
+        let ptx = std::ffi::CString::new(PTX).context("the PTX is a file of text")?;
         // SAFETY: the PTX is this binary's own and outlives the call; the file is
         // open for the length of it.
         let raw = unsafe {
@@ -184,8 +198,8 @@ impl Convert {
                 device.as_raw_fd(),
                 width,
                 height,
-                PTX.as_ptr().cast(),
-                PTX.len(),
+                ptx.as_ptr().cast(),
+                ptx.as_bytes().len(),
                 error.as_mut_ptr(),
                 error.len(),
             )
