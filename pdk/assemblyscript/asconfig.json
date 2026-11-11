@@ -1,0 +1,17 @@
+{
+  "extends": "assemblyscript/std/assembly.json",
+  "include": ["assembly/**/*.ts"],
+  "targets": {
+    "release": {
+      "outFile": "build/pdk.wasm",
+      "optimizeLevel": 3,
+      "shrinkLevel": 2,
+      "noAssert": true
+    }
+  },
+  "options": {
+    "exportRuntime": false,
+    "runtime": "stub",
+    "use": ["abort=assembly/index/abort"]
+  }
+}
