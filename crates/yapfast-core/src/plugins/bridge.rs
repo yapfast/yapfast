@@ -448,18 +448,17 @@ impl Bridge {
     /// over a dependency that isn't installed would be one whose every call was
     /// refused.
     pub fn uninstall(&mut self, plugin: &PluginId, delete_data: bool) -> anyhow::Result<()> {
-        let stopping: Vec<PluginId> = {
-            self.shared.registry().dependents(plugin)
-        };
+        let stopping: Vec<PluginId> = self.shared.registry().dependents(plugin);
         {
             let mut registry = self.shared.registry_mut();
-            let store = self.shared.store();
+            // One guard for both: the store's lock isn't reentrant, so taking it
+            // twice here would deadlock the thread that removes a plugin.
+            let mut store = self.shared.store();
             for dependent in &stopping {
                 if let Err(error) = registry.set_enabled(dependent, false, &store) {
                     tracing::warn!(%error, %dependent, "could not turn off a plugin that needed one being removed");
                 }
             }
-            let mut store = self.shared.store();
             store.uninstall(plugin, delete_data)?;
         }
         for dependent in &stopping {
@@ -2022,9 +2021,12 @@ impl Session {
             Request::Hook { held, .. } => held.chain.iter().any(|plugin| self.in_swap(plugin)),
             Request::Command { plugin, .. } => self.in_swap(plugin),
             // An eviction is the application asking for memory back, and one
-            // that raced a swap would be undoing it; it waits the 100 ms.
+            // that raced a swap would be undoing it; it waits the 100 ms. A
+            // second swap waits for the one running for the same reason: the
+            // steps of one replace the other's.
             Request::Evict { .. } => true,
-            Request::Swap { .. } | Request::Shutdown => false,
+            Request::Swap { .. } => self.swapping(),
+            Request::Shutdown => false,
         }
     }
 
