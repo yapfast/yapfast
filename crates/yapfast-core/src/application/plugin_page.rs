@@ -15,6 +15,7 @@ use crate::plugins::installing;
 use crate::plugins::page::{self, FetchError, Find, Helper, Request, Step};
 use crate::plugins::spawn;
 use yapfast_plugin_api::PluginId;
+use yapfast_plugin_api::capability::HostPattern;
 
 use super::plugins::Action as PluginAction;
 use super::{Action as AppAction, Application, Effect as AppEffect};
@@ -92,6 +93,9 @@ impl Application {
             } => self.plugins_remove(&plugin, delete_data),
             Request::RollBack { plugin } => self.plugins_roll_back(&plugin),
             Request::InstallWasm(path) => self.plugins_install_wasm(&path),
+            // Taking something back from a plugin's page takes effect on its
+            // next request, not on the next start: the gate asks every time.
+            Request::Revoke { plugin, permission } => self.plugins_revoke(&plugin, &permission),
             // The marketplace, a plugin's own settings form and the memory
             // budgets are the milestones after this one: the page asks, and
             // nothing answers yet.
@@ -103,6 +107,45 @@ impl Application {
                 Vec::new()
             }
         }
+    }
+
+    /// Takes back one of a plugin's permissions, from its page.
+    ///
+    /// A host is the one the gate holds: taking it back refuses the plugin's
+    /// next request for it, and refuses the requests already waiting about it.
+    /// A capability is the manifest's, which the page only reads.
+    fn plugins_revoke(&mut self, plugin: &str, permission: &page::Permission) -> Vec<AppEffect> {
+        let page::Permission::Host(host) = permission else {
+            tracing::debug!(
+                %plugin,
+                "a capability is declared by the manifest, so there is nothing to take back"
+            );
+            return Vec::new();
+        };
+        let (Ok(id), Ok(pattern)) = (PluginId::parse(plugin), HostPattern::parse(host)) else {
+            self.state.notice = Some(format!("Couldn't take {host} back from {plugin}"));
+            return Vec::new();
+        };
+        if let Some(plugins) = self.state.plugins.as_ref()
+            && let Err(error) = plugins.revoke_host(&id, &pattern)
+        {
+            self.state.notice = Some(format!("Couldn't take {host} back: {error:#}"));
+            return Vec::new();
+        }
+        // A question about the host that was just taken back has its answer:
+        // nobody is going to allow what was taken away.
+        let asked = self
+            .state
+            .plugin_consent
+            .as_ref()
+            .is_some_and(|ask| ask.plugin == id && ask.host == *host);
+        let mut effects = if asked {
+            self.close_consent()
+        } else {
+            Vec::new()
+        };
+        effects.push(AppEffect::Plugin(crate::application::plugins::Effect::Page));
+        effects
     }
 
     /// Asks the runtime to read a plugin out of its repository. The answer

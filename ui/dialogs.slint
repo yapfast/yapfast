@@ -516,6 +516,59 @@ export component LeavingDialog inherits Rectangle {
     }
 }
 
+// A plugin asking to reach a site its manifest didn't name, drawn from the
+// application's own state so the question outlives the Settings page; see
+// docs/plugins/permissions.md. Dismissing it is a no: nobody said yes.
+export component PluginConsentDialog inherits Rectangle {
+    in property <string> plugin-name;
+    in property <string> host;
+    in-out property <bool> remember;
+    /// The answer, and whether it is kept rather than lasting this run.
+    callback answer(bool, bool);
+    /// How far it's open, from 0 to 1; see PopupMotion.
+    in property <float> motion: 1;
+    background: rgba(0, 0, 0, 0.6 * root.motion);
+    TouchArea { clicked => { root.answer(false, false); } }
+    Rectangle {
+        opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
+        width: min(440px, root.width - 48px); height: content.preferred-height;
+        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
+        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        accessible-role: groupbox;
+        accessible-label: root.plugin-name + " wants to connect to " + root.host;
+        TouchArea { }
+        FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if event.text == Key.Escape { root.answer(false, false); return accept; }
+                if event.text == Key.Return { root.answer(true, root.remember); return accept; }
+                return reject;
+            }
+            content := VerticalLayout {
+                padding: 20px; spacing: 12px;
+                Text {
+                    text: root.plugin-name + " wants to connect to";
+                    color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap;
+                }
+                Text { text: root.host; color: Theme.text; font-size: 16px; font-weight: 700; wrap: word-wrap; }
+                Text {
+                    text: "Yapfast makes the request, and nothing of its own goes with it: no Discord session, no cookie.";
+                    color: Theme.muted; font-size: 13px; wrap: word-wrap;
+                }
+                MenuItem {
+                    text: "Don't ask again"; checkbox: true; checked: root.remember;
+                    clicked => { root.remember = !root.remember; }
+                }
+                HorizontalLayout {
+                    alignment: end; spacing: 8px;
+                    ActionButton { text: "Deny"; ghost: true; clicked => { root.answer(false, root.remember); } }
+                    ActionButton { text: "Allow"; primary: true; clicked => { root.answer(true, root.remember); } }
+                }
+            }
+        }
+    }
+}
+
 // A status in the status menu: its dot, its name and what it does, with a
 // check beside the current one.
 export component StatusOption inherits Rectangle {

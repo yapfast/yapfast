@@ -576,6 +576,11 @@ pub struct AppState {
     /// menus checks it before it looks at anything else.
     #[cfg(feature = "plugins")]
     pub plugins: Option<Box<crate::plugins::PluginState>>,
+    /// A plugin waiting on whether it may reach a site, while the dialog that
+    /// asks is up. It lives here and not in the page, so the question outlives
+    /// Settings and is asked wherever the person is looking.
+    #[cfg(feature = "plugins")]
+    pub plugin_consent: Option<crate::application::plugins::ConsentAsk>,
     pub switch_voice: Option<String>,
     /// A stream to watch once its call connects and they show sharing in
     /// it, as clicking them in the channel list asks: the voice channel and

@@ -186,6 +186,28 @@ impl Page {
 pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     bind_page(window);
     attach(window, adapter);
+    // A plugin's question about reaching a site is answered wherever the person
+    // is, page open or not: the request behind it is waiting on this answer,
+    // and nothing else ends that wait.
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_answer_consent(move |allow, remember| {
+        let Some(ask) = state.borrow().app.state.plugin_consent.clone() else {
+            return;
+        };
+        let Some(window) = weak.upgrade() else {
+            return;
+        };
+        state.borrow_mut().action(
+            &window,
+            Action::Plugin(yapfast_core::application::plugins::Action::AnswerConsent {
+                plugin: ask.plugin,
+                host: ask.host,
+                allow,
+                remember,
+            }),
+        );
+    });
     // Installing a `.wasm` file asks for it in the system's dialog, which the
     // adapter runs: the file is what a person downloads, and the manifest beside
     // it, when there is one, comes along.

@@ -360,6 +360,35 @@ impl Adapter {
             None => tracing::info!(?input, "no plugin runtime is attached to take this"),
         }
     }
+
+    /// Draws, or takes away, a plugin's question about reaching a site.
+    ///
+    /// The question is the application's own state, so it is asked wherever the
+    /// person is and outlives Settings: the request behind it is waiting, and
+    /// nothing else can end the wait.
+    pub(super) fn plugin_consent(
+        &self,
+        ask: Option<yapfast_core::application::plugins::ConsentAsk>,
+    ) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let open = ask.is_some();
+        match ask {
+            Some(ask) => {
+                window.set_consent_plugin(ask.name.into());
+                window.set_consent_host(ask.host.into());
+            }
+            None => {
+                window.set_consent_plugin(SharedString::default());
+                window.set_consent_host(SharedString::default());
+            }
+        }
+        // A question about what a plugin may reach is drawn in Yapfast's own
+        // colours: a plugin can't restyle the dialog that decides what it
+        // reaches. Another dialog that asks for them may still be open.
+        theme::protect(&window, open || !window.get_leaving_link().is_empty());
+    }
 }
 
 /// Which of `menu`'s menus is open, beside the id it's about.

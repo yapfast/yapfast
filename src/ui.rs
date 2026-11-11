@@ -2808,6 +2808,12 @@ impl Adapter {
                 }
                 #[cfg(feature = "plugins")]
                 Effect::PluginInput(input) => self.plugin_input(input),
+                // A plugin asking to reach a site: the dialog belongs to the
+                // window, not to Settings, so it shows wherever the person is.
+                #[cfg(feature = "plugins")]
+                Effect::Plugin(yapfast_core::application::plugins::Effect::Consent(ask)) => {
+                    self.plugin_consent(ask)
+                }
                 // The Plugins page holds a copy of the runtime's view: hand it a
                 // fresh one, which redraws the page if it's open.
                 #[cfg(feature = "plugins")]

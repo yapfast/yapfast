@@ -30,6 +30,15 @@ pub enum Action {
     /// Turns a plugin on, which reads its manifest, grants what it asks for
     /// and starts its instance, or off, which drops it; no restart either way.
     SetEnabled { plugin: PluginId, enabled: bool },
+    /// Answers a plugin's request to reach a site nobody has allowed: the
+    /// dialog's two buttons and its "Don't ask again".
+    AnswerConsent {
+        plugin: PluginId,
+        host: String,
+        allow: bool,
+        /// Written to `grants.json`, rather than kept for this run.
+        remember: bool,
+    },
     /// Runs a command a person typed in the composer, as the manifest
     /// declares it.
     ///
@@ -55,6 +64,21 @@ pub enum Effect {
     /// The page's own state moved — a fetch finished, a review opened, an
     /// install wrote something — so it draws itself again. Nothing a plugin did.
     Page,
+    /// A plugin asks to reach a site: the dialog to draw, or `None` once it has
+    /// its answer. It is the application's own state, so the question outlives
+    /// Settings, and it is asked wherever the person is.
+    Consent(Option<ConsentAsk>),
+}
+
+/// A plugin waiting for the person to say whether it may reach a site.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConsentAsk {
+    /// The plugin that asked, for the answer to go back to.
+    pub plugin: PluginId,
+    /// The name the dialog shows, which is the manifest's and not the id.
+    pub name: String,
+    /// The host, as the request named it and the grant would be written.
+    pub host: String,
 }
 
 /// What the plugin system tells the application, arriving as
@@ -148,6 +172,12 @@ impl Application {
     pub(super) fn plugins_action(&mut self, action: Action) -> Vec<AppEffect> {
         match action {
             Action::SetEnabled { plugin, enabled } => self.plugins_set_enabled(plugin, enabled),
+            Action::AnswerConsent {
+                plugin,
+                host,
+                allow,
+                remember,
+            } => self.plugins_answer_consent(&plugin, &host, allow, remember),
             Action::Command { plugin, invocation } => self.plugins_run(plugin, invocation),
             Action::SendHeld(draft) => self.plugins_send_held(draft),
         }
@@ -169,6 +199,58 @@ impl Application {
         }
         // Turning the last plugin off takes the gateway's tap with it.
         self.watch_gateway(watching);
+        // Turning a plugin off closes its dialog: the request it was asking
+        // about has already been refused, and the question is no longer one.
+        if !enabled
+            && self
+                .state
+                .plugin_consent
+                .as_ref()
+                .is_some_and(|ask| ask.plugin == plugin)
+        {
+            return self.close_consent();
+        }
+        vec![]
+    }
+
+    /// Answers a plugin's request to reach a host, which is what completes the
+    /// `http.fetch` kept waiting for it.
+    ///
+    /// The answer is kept first and the requests let go second: a request let go
+    /// before its answer is written asks the same question again.
+    fn plugins_answer_consent(
+        &mut self,
+        plugin: &PluginId,
+        host: &str,
+        allow: bool,
+        remember: bool,
+    ) -> Vec<AppEffect> {
+        let pattern = match yapfast_plugin_api::capability::HostPattern::parse(host) {
+            Ok(pattern) => pattern,
+            Err(error) => {
+                self.state.notice = Some(format!("Couldn't answer about {host}: {error}"));
+                return self.close_consent();
+            }
+        };
+        let lasts = if remember {
+            crate::plugins::grants::Lasts::Stored
+        } else {
+            crate::plugins::grants::Lasts::Session
+        };
+        if let Some(plugins) = self.state.plugins.as_ref()
+            && let Err(error) = plugins.answer_consent(plugin, &pattern, allow, lasts)
+        {
+            self.state.notice = Some(format!("Couldn't answer about {host}: {error:#}"));
+        }
+        self.close_consent()
+    }
+
+    /// Takes the ask off the screen, because it has its answer or because
+    /// nothing is left to ask about it.
+    pub(super) fn close_consent(&mut self) -> Vec<AppEffect> {
+        if self.state.plugin_consent.take().is_some() {
+            return vec![AppEffect::Plugin(Effect::Consent(None))];
+        }
         vec![]
     }
 
@@ -366,15 +448,20 @@ impl Application {
             News::Notice(Notice::Status { plugin, status }) => {
                 vec![AppEffect::Plugin(Effect::Status { plugin, status })]
             }
-            // A host the plugin wants and nobody has allowed: the person hears
-            // of it where they are looking, and the plugin's page is where it is
-            // allowed. The request itself was answered with a refusal, so the
-            // plugin asks again after the window rather than hanging.
+            // A host the plugin wants and nobody has allowed: the person is
+            // asked about it here, wherever they are, and the plugin's request
+            // waits for the answer. The dialog is application state, so closing
+            // Settings doesn't close the question.
             News::Notice(Notice::Consent { plugin, host }) => {
-                self.state.notice = Some(format!(
-                    "{plugin} wants to reach {host}, which you haven't allowed yet"
-                ));
-                Vec::new()
+                let name = self
+                    .state
+                    .plugins
+                    .as_ref()
+                    .and_then(|plugins| plugins.name(&plugin))
+                    .unwrap_or_else(|| plugin.to_string());
+                let ask = ConsentAsk { plugin, name, host };
+                self.state.plugin_consent = Some(ask.clone());
+                vec![AppEffect::Plugin(Effect::Consent(Some(ask)))]
             }
             // A command's answer is a line in the conversation it was typed in,
             // and a failure says why where the person is looking.
@@ -898,5 +985,52 @@ mod tests {
         );
         assert_eq!(options_of("").unwrap(), Vec::new());
         assert!(options_of("bare").is_none());
+    }
+
+    /// A person's answer reaches the runtime, closes the question, and is what
+    /// the gate finds when the plugin asks again.
+    #[test]
+    fn answering_the_dialog_records_the_answer_and_closes_the_question() {
+        let directory = tempfile::tempdir().expect("a data directory");
+        let mut app = Application::default();
+        let (events, _received) = tokio::sync::mpsc::unbounded_channel();
+        app.open_plugins(directory.path(), events);
+        let plugin = PluginId::parse("com.example.weather").expect("a plugin id");
+        let host = "api.example.com";
+        app.state.plugin_consent = Some(ConsentAsk {
+            plugin: plugin.clone(),
+            name: "Weather".to_owned(),
+            host: host.to_owned(),
+        });
+
+        let effects = app.dispatch(AppAction::Plugin(Action::AnswerConsent {
+            plugin: plugin.clone(),
+            host: host.to_owned(),
+            allow: true,
+            remember: true,
+        }));
+
+        assert!(
+            app.state.plugin_consent.is_none(),
+            "the question has its answer"
+        );
+        assert!(
+            matches!(
+                effects.as_slice(),
+                [AppEffect::Plugin(Effect::Consent(None))]
+            ),
+            "the dialog is taken away"
+        );
+        let hosts = yapfast_plugin_api::capability::HostPattern::parse(host).expect("a host");
+        assert_eq!(
+            app.state
+                .plugins
+                .as_ref()
+                .expect("the plugin system is open")
+                .grants()
+                .ask(&plugin, &hosts),
+            crate::plugins::grants::Ask::Allowed,
+            "the answer is what the gate finds on the plugin's next request"
+        );
     }
 }

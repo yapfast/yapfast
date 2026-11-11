@@ -54,7 +54,7 @@ import { PluginSettings, PluginPage } from "plugin_settings.slint";
 import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
 import { MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
-import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
+import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PluginConsentDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
 import { InvitePrompt, InviteDialog, JoinPrompt, JoinDialog, EventPrompt, EventDialog, GiftPrompt, GiftDialog, OAuthPrompt, OAuthDialog, ChannelPrompt, ChannelDialog, ProfileEditorPrompt, ProfileEditorDialog } from "server.slint";
 import { SignInScreen, VerifyBanner } from "sign-in.slint";
 import { BoostPicture, BoostPrompt, EngagementPrompt, ServerProfilePrompt, ServerSettingsPrompt, ServerSettingsScreen } from "server_settings.slint";
@@ -795,6 +795,10 @@ export component YapfastWindow inherits Window {
     /// and the site it goes to.
     in property <string> leaving-link;
     in property <string> leaving-site;
+    /// A plugin asking to reach a site: its name as its manifest writes it,
+    /// and the host. Empty while nothing is asked; see PluginConsentDialog.
+    in property <string> consent-plugin;
+    in property <string> consent-host;
     /// Who reacted with the reaction ReactionHover names, as its tooltip
     /// says it, and its emoji; empty until they're known.
     in property <string> reaction-tip-text;
@@ -1593,6 +1597,8 @@ export component YapfastWindow inherits Window {
     callback close-switcher;
     callback visit-leaving-link;
     callback close-leaving-link;
+    /// The answer to a plugin's question, and whether it is kept.
+    callback answer-consent(bool, bool);
     callback confirm-delete-message;
     callback cancel-delete;
     callback retry(string);
@@ -1645,6 +1651,7 @@ export component YapfastWindow inherits Window {
         || root.channel-open || root.move-sync-open || root.leave-open || root.person-open
         || root.status-open || root.poll-open || root.new-dm-open || root.reactions-open
         || root.forward-open || root.leaving-link != "" || root.switch-prompt != ""
+        || root.consent-host != ""
         || root.confirm-delete != "" || root.incoming-open;
     // The channel has no composer here: a call, a forum, a message request, the
     // friends list, the friend requests or Browse Channels.
@@ -4907,6 +4914,14 @@ export component YapfastWindow inherits Window {
         link: root.leaving-link; site: root.leaving-site;
         visit => { root.visit-leaving-link(); }
         close => { root.close-leaving-link(); }
+    }
+    // A plugin asking to reach a site its manifest didn't name; see
+    // PluginConsentDialog.
+    consent-motion := PopupMotion { open: root.consent-host != ""; }
+    if consent-motion.shown: PluginConsentDialog {
+        motion: consent-motion.amount;
+        plugin-name: root.consent-plugin; host: root.consent-host;
+        answer(allow, remember) => { root.answer-consent(allow, remember); }
     }
     // The zoom level, for a moment after it changes.
     if root.zoom-note != "": Rectangle {
