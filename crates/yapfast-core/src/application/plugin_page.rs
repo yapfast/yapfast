@@ -335,7 +335,7 @@ mod tests {
 
         let mut app = Application::default();
         let (events, _received) = tokio::sync::mpsc::unbounded_channel();
-        app.open_plugins(directory.path(), events);
+        app.open_plugins(directory.path(), "0.3.0", events);
 
         let effects = app.plugins_page_request(Request::InstallWasm(module));
         assert_eq!(effects.len(), 1, "the page draws itself again");

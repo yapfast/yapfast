@@ -74,6 +74,15 @@ because intercepting a send is not something a plugin can do by accident.
 | `presence` | `people.read` |
 | `app_focus`, `account_ready` | Nothing, since they say nothing about a person |
 
+A read is the same: what it answers is what the capability names.
+
+| Call | Needs |
+| --- | --- |
+| `app.version`, `app.locale`, `app.theme_mode`, `account.me` | Nothing: they say what Yapfast and the person's own account are, and no other person's data |
+| `rooms.selected`, `rooms.get`, `rooms.list` | `servers.read` |
+| `messages.get`, `messages.history` | `messages.read` |
+| `people.get`, `people.member` | `people.read` |
+
 A subscription's own filter, which room and whether the account's own messages
 count, applies in the parent before the helper is woken, so an event nobody wants
 is never serialized and its contents never leave Yapfast. That filter and the

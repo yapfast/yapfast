@@ -55,7 +55,7 @@ fn a_message_reaches_an_installed_plugin_and_disabling_it_ends_the_helper() {
     let recorded = Arc::clone(&statuses);
     let wake: Arc<dyn Fn(plugins::state::Notice) + Send + Sync> =
         Arc::new(move |notice| recorded.lock().unwrap().push(notice));
-    let mut state = PluginState::open(directory.path(), wake).expect("the plugin system");
+    let mut state = PluginState::open(directory.path(), "0.3.0", wake).expect("the plugin system");
 
     assert!(
         !matches!(state.helper(), HelperState::Running { .. }),
@@ -128,7 +128,7 @@ fn a_plugin_that_traps_says_why_in_its_status_and_its_log() {
     store.set_enabled(&id, true).expect("the plugin is on");
 
     let wake: Arc<dyn Fn(plugins::state::Notice) + Send + Sync> = Arc::new(|_| {});
-    let mut state = PluginState::open(directory.path(), wake).expect("the plugin system");
+    let mut state = PluginState::open(directory.path(), "0.3.0", wake).expect("the plugin system");
     state.set_enabled(&id, true).expect("it is woken");
     state.observe(envelope("hello"));
 
@@ -226,7 +226,7 @@ fn the_sample_ping_plugin_loads_and_declares_its_command() {
     store.set_enabled(&id, true).expect("it is on");
 
     let wake: Arc<dyn Fn(plugins::state::Notice) + Send + Sync> = Arc::new(|_| {});
-    let mut state = PluginState::open(directory.path(), wake).expect("the plugin system");
+    let mut state = PluginState::open(directory.path(), "0.3.0", wake).expect("the plugin system");
     let started = Instant::now();
     state.set_enabled(&id, true).expect("it wakes");
     let running = || {
@@ -311,7 +311,7 @@ fn an_enabled_plugin_answers_its_command_after_a_start() {
     let wake: Arc<dyn Fn(plugins::state::Notice) + Send + Sync> = Arc::new(move |notice| {
         recorded.lock().unwrap().push(notice);
     });
-    let mut state = PluginState::open(directory.path(), wake).expect("the plugin system");
+    let mut state = PluginState::open(directory.path(), "0.3.0", wake).expect("the plugin system");
     state.start();
     assert!(
         matches!(state.helper(), HelperState::Stopped),
@@ -415,7 +415,7 @@ fn a_startup_plugin_runs_when_the_app_starts() {
     drop(store);
 
     let wake: Arc<dyn Fn(plugins::state::Notice) + Send + Sync> = Arc::new(|_| {});
-    let mut state = PluginState::open(directory.path(), wake).expect("the plugin system");
+    let mut state = PluginState::open(directory.path(), "0.3.0", wake).expect("the plugin system");
     // What the application does when a session starts.
     state.start();
 

@@ -2751,7 +2751,9 @@ impl Adapter {
                     // event stream, by the same path as everything else.
                     #[cfg(feature = "plugins")]
                     {
-                        let opened = self.app.open_plugins(&self.root, plugin_events);
+                        let opened = self
+                            .app
+                            .open_plugins(&self.root, env!("CARGO_PKG_VERSION"), plugin_events);
                         if !opened.is_empty() {
                             self.execute(opened);
                         }

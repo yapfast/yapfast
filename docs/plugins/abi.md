@@ -176,13 +176,24 @@ message.
 | `{ "error": { "message": … } }` | The call was understood and failed |
 
 The methods are names, so adding one never changes the link surface. `storage`,
-`settings`, `http`, `timers` and `app` have typed payloads in the contract crate,
-because they are the calls the runtime implements first. Every other name the
-ABI lists — `account.me`, the `rooms`, `messages` and `people` reads,
+`settings`, `http`, `timers`, `app`, `account`, the `rooms`, `messages` and
+`people` reads all have typed payloads in the contract crate, because they are
+the calls the runtime answers. Every other name the ABI lists —
 `messages.send`, `edit`, `delete`, `react` and `jump_to`, the `composer` calls,
 `plugin.call`, `publish` and `subscribe`, `notify.send`, `clipboard.write` and
 `open.url` — is named from the first version so a plugin can feature-detect it,
 and answers `unsupported` until the runtime has it.
+
+A read answers from what the application already knows, never by asking a
+network: `app.version`, `app.locale` and `app.theme_mode` give one object;
+`account.me` the account signed in; `rooms.selected`, `rooms.get` and
+`rooms.list` the sidebar's own list; `messages.get` and `messages.history` the
+conversation on screen, because that is the timeline Yapfast keeps; and
+`people.get` and `people.member` the account and the open room's members. A
+question about a room that isn't open is answered with an error saying so, and
+`rooms.selected` names the one that is. Each read needs the capability
+[`permissions.md`](permissions.md) gives it, and one answer is one frame: a page
+stops at 1 MiB rather than being cut.
 
 Every host call is a request the parent answers, because the parent holds the
 token, the network gate and the consent dialogs, and the guest's function is
