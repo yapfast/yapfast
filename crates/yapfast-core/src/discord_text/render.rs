@@ -512,12 +512,11 @@ pub(super) fn rendered(
     let mentions = mentions
         .into_iter()
         .map(|mention| {
-            // @everyone and @here take the colour of mentions.
+            // Only a role's mention has a colour of its own, as in Discord's
+            // client. A member's, like @everyone's and @here's, takes the
+            // colour of mentions, not that of the member's highest role.
             let (target, color) = match mention.target {
-                MentionTarget::User(id) => {
-                    let color = server.and_then(|server| discord.color(server, &id));
-                    (Target::User(id), color)
-                }
+                MentionTarget::User(id) => (Target::User(id), None),
                 MentionTarget::Role(id) => {
                     let color = server
                         .and_then(|server| server.role_colors.get(&id))

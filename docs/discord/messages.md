@@ -499,8 +499,10 @@ Yapfast is back, rather than showing an error.
   Windows they're toasts ([Windows](../windows-beta.md#notifications-on-windows)).
   Each also plays Yapfast's message sound, or its mention sound, unless it's in
   the conversation in front; see [voice](../voice.md#sounds).
-- Mentions in messages are links on a light fill, in the role's colour or the
-  person's name colour, as Discord shows them. A person's opens their profile
+- Mentions in messages are links on a light fill, in the role's colour for a
+  role and the theme's mention colour for anyone else, as Discord shows them:
+  a person's mention is not in their role's colour, though their name in a
+  message and in the suggestions is. A person's opens their profile
   card beside the mention, and a role's lists the members Yapfast has seen with it (from member lists, messages
   and member requests), each opening their card in turn.
 - Typing `@` suggests who to mention: the channel's listed members, those who
