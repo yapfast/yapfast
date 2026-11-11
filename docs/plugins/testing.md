@@ -88,6 +88,27 @@ The application's side is tested with a fake bridge in
 plugin goes out once, in order, and a chain that fails or runs late lets it go
 unchanged.
 
+Two tests run the real helper, which is the only way to see the two halves
+agree, and both say so and pass when `YAPFAST_PLUGINS` names no binary:
+
+```sh
+cargo build --profile fast -p yapfast-plugin-host
+YAPFAST_PLUGINS=$PWD/target/fast/yapfast-plugins \
+  cargo test --profile fast -p yapfast-core --features plugins --test plugins_runtime
+YAPFAST_PLUGINS=$PWD/target/fast/yapfast-plugins \
+  cargo test --profile fast -p yapfast-core --features plugins --test plugins_install
+```
+
+`plugins_runtime.rs` is M1's exit: a plugin installed in a store receives
+`message_create` from the helper, and disabling it ends the helper.
+`plugins_install.rs` is M2's: a repository made in a temporary directory is
+fetched through a `file://` URL, reviewed, installed, rolled back and removed,
+and a second folder claiming an installed id is refused.
+
+The Settings → Plugins page itself is checked in `src/ui/tests.rs`: binding the
+window gives the page the runtime, and a view handed over while it is open is
+what it draws.
+
 ## Against the fake Discord
 
 ```sh
