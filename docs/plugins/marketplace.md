@@ -126,7 +126,9 @@ the entry, and taking an entry out of `index.json` delists it.
 **Browsing.** The catalog is read when the page opens, once per time it is open,
 and it is held only while the page is open. `Request::Close` drops it —
 `Catalog::Unloaded` — along with the entries behind the rows and the icons' bytes,
-so a closed page holds nothing of a marketplace it once showed. Each icon is
+so a closed page holds nothing of a marketplace it once showed. A registry that
+arrives after the page closed is dropped unread for the same reason, since the
+fetch runs on a thread of its own and the page can close first. Each icon is
 decoded only when its row is on screen: the row carries an address of
 `plugin-icon://<id>`, the picture store asks for it like any other picture, and
 the application decodes it from the catalog's own bytes at that moment. A listing
