@@ -187,9 +187,28 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     });
 }
 
-/// Everything on the page but Load folder.
+/// Everything on the page but the file picker.
 fn bind_page(window: &YapfastWindow) {
     let page = window.global::<PluginPage>();
+    // Copy puts the open plugin's report on the clipboard: its details and every
+    // log line it has, which is more than the pane shows and what a person
+    // pastes when asking why it broke.
+    {
+        let weak = window.as_weak();
+        page.on_copy_log(move || {
+            let Some(_window) = weak.upgrade() else {
+                return;
+            };
+            let report = PAGE.with_borrow(|page| {
+                let page = page.as_ref()?;
+                let id = page.plugin.as_deref()?;
+                page.source.view().plugin(id).map(page::Installed::report)
+            });
+            if let Some(report) = report {
+                crate::copy::text(report);
+            }
+        });
+    }
     page.set_available(true);
     page.set_budgets(strings(MEMORY_BUDGETS.iter().map(|&mib| budget_text(mib))));
     page.set_idle_times(strings(IDLE_MINUTES.iter().map(|&minutes| match minutes {

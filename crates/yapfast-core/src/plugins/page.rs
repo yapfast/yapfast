@@ -572,6 +572,83 @@ pub fn permission_lines(capabilities: &[String], hosts: &[String]) -> Vec<Line> 
 }
 
 impl Installed {
+    /// What Copy puts on the clipboard: who the plugin is, what it is doing and
+    /// why, where it came from, what it may reach, and every line it logged —
+    /// more than the page's "recent log", which is only this session's ring and
+    /// only what was on screen. It is written to be pasted into a bug report.
+    pub fn report(&self) -> String {
+        let mut out = String::new();
+        out.push_str(&format!("{} {}", self.name, self.version));
+        if !self.name.is_empty() && !self.version.is_empty() {
+            out.push_str(" — ");
+        }
+        out.push_str(&format!("{}\n", self.id));
+        out.push_str(&format!("Status: {}\n", self.status.text()));
+        out.push_str(&format!(
+            "Enabled: {}\n",
+            if self.enabled { "yes" } else { "no" }
+        ));
+        out.push_str(&format!(
+            "Origin: {} {}{}{}\n",
+            match self.origin {
+                Origin::Marketplace => "marketplace",
+                Origin::Url => "git URL",
+                Origin::Folder => "folder",
+            },
+            self.source,
+            if self.path.is_empty() {
+                String::new()
+            } else {
+                format!("#path={}", self.path)
+            },
+            self.commit
+                .is_empty()
+                .then(String::new)
+                .unwrap_or_else(|| format!(" @ {}", short_commit(&self.commit))),
+        ));
+        if !self.license.is_empty() {
+            out.push_str(&format!("License: {}\n", self.license));
+        }
+        out.push_str(&format!("Memory cap: {}\n", memory(self.memory_pages).0));
+        if self.capabilities.is_empty() {
+            out.push_str("Capabilities: none\n");
+        } else {
+            out.push_str(&format!("Capabilities: {}\n", self.capabilities.join(", ")));
+        }
+        for grant in &self.grants {
+            out.push_str(&format!(
+                "Host: {} ({}{}{})\n",
+                grant.host,
+                if grant.declared {
+                    "declared"
+                } else {
+                    "not declared"
+                },
+                if grant.allowed {
+                    ", allowed"
+                } else {
+                    ", denied"
+                },
+                if grant.remembered {
+                    ", remembered"
+                } else {
+                    ", this session"
+                },
+            ));
+        }
+        if self.quiet_denials > 0 {
+            out.push_str(&format!("Denied without asking: {}\n", self.quiet_denials));
+        }
+        out.push_str("Log:\n");
+        if self.log.is_empty() {
+            out.push_str("  (nothing this session)\n");
+        }
+        for line in &self.log {
+            out.push_str(&format!("  {} {}\n", line.at, line.text));
+        }
+        out
+    }
+
     /// What it can do, a line each, as its page shows it: its capabilities,
     /// the hosts it declared and those answered in the popup, and the
     /// sentence for a risky combination.
@@ -1206,6 +1283,58 @@ mod tests {
             texts(&permission_lines(&["messages.read".into()], &[])),
             ["Reads your messages"]
         );
+    }
+
+    /// What Copy puts on the clipboard says more than the pane: who the plugin
+    /// is, why it is where it is, and every line it logged, in one block.
+    #[test]
+    fn a_plugins_report_is_what_a_person_pastes_when_asking_why() {
+        let plugin = Installed {
+            id: "local.ping".into(),
+            name: "Ping".into(),
+            version: "0.1.0".into(),
+            enabled: true,
+            status: Status::Suspended(Suspension::Failed(
+                "the helper didn't answer its load request within 10 s".into(),
+            )),
+            origin: Origin::Folder,
+            source: "file:///home/someone/plugins".into(),
+            commit: "0123456789abcdef".into(),
+            capabilities: vec!["messages.read".into()],
+            grants: vec![Grant {
+                host: "api.example.com".into(),
+                declared: true,
+                allowed: true,
+                remembered: true,
+            }],
+            memory_pages: 64,
+            log: vec![LogLine {
+                at: "19:03:43".into(),
+                text: "yapfast: the helper didn't answer its load request within 10 s".into(),
+                error: true,
+            }],
+            ..Installed::default()
+        };
+        let report = plugin.report();
+        for wanted in [
+            "Ping",
+            "local.ping",
+            "Suspended: the helper didn't answer its load request within 10 s",
+            "Enabled: yes",
+            "folder",
+            "file:///home/someone/plugins",
+            "01234567",
+            "Uses up to 4 MiB of memory",
+            "messages.read",
+            "api.example.com",
+            "19:03:43",
+        ] {
+            assert!(report.contains(wanted), "{wanted} is in:\n{report}");
+        }
+        // A plugin that logged nothing says so rather than leaving the section
+        // out, so the report's shape doesn't depend on what happened.
+        let quiet = Installed::default().report();
+        assert!(quiet.contains("Log:\n  (nothing this session)"), "{quiet}");
     }
 
     #[test]

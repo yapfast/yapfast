@@ -64,12 +64,20 @@ const BATCH_MAX_BYTES: usize = 256 << 10;
 /// module to compile on a cold cache and narrow enough that a wedged helper is
 /// noticed in seconds.
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
-const LOAD_TIMEOUT: Duration = Duration::from_secs(2);
-const ACTIVATE_TIMEOUT: Duration = Duration::from_secs(2);
+/// How long a load gets: it compiles the module into wasmtime's cache the first
+/// time, which is work on a cold cache and a busy machine. The guest has its own
+/// deadline once it is running, so this is only about the report that it loaded.
+const LOAD_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long an activation gets, which is `yf_activate` on the other side of the
+/// pipe. The helper cancels a guest that runs long and answers with a fault, so
+/// this longer budget only catches a helper that stopped answering at all.
+const ACTIVATE_TIMEOUT: Duration = Duration::from_secs(5);
 const DEACTIVATE_TIMEOUT: Duration = Duration::from_millis(100);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
 const EVICT_TIMEOUT: Duration = Duration::from_millis(500);
 const KICK_TIMEOUT: Duration = Duration::from_millis(250);
+/// A timer the guest asked for: an answer says it was set, nothing more.
+const TIMER_TIMEOUT: Duration = Duration::from_secs(2);
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
 
 /// How long the application waits for the helper to exit before giving up on a
@@ -1056,6 +1064,8 @@ enum Purpose {
     Agent {
         what: &'static str,
         plugin: PluginId,
+        /// How long it was given, for the sentence a timeout writes.
+        budget: Duration,
     },
     /// A hook chain: if it doesn't answer in time the message goes as it was.
     Hook(Box<HeldSend>),
@@ -1341,6 +1351,7 @@ impl Session {
                 Purpose::Agent {
                     what: "load",
                     plugin: plugin.clone(),
+                    budget: LOAD_TIMEOUT,
                 },
             );
             // Marked as given even before the answer: the pipe is ordered, so
@@ -1357,6 +1368,7 @@ impl Session {
             Purpose::Agent {
                 what: "activation",
                 plugin: plugin.clone(),
+                budget: ACTIVATE_TIMEOUT,
             },
         );
         true
@@ -1398,6 +1410,7 @@ impl Session {
             Purpose::Agent {
                 what: "deactivation",
                 plugin: plugin.clone(),
+                budget: DEACTIVATE_TIMEOUT,
             },
         );
     }
@@ -1416,6 +1429,7 @@ impl Session {
             Purpose::Agent {
                 what: "eviction",
                 plugin: plugin.clone(),
+                budget: EVICT_TIMEOUT,
             },
         );
     }
@@ -1493,6 +1507,7 @@ impl Session {
             Purpose::Agent {
                 what: "command",
                 plugin: plugin.clone(),
+                budget: COMMAND_TIMEOUT,
             },
         );
     }
@@ -2017,9 +2032,16 @@ impl Session {
                     draft: held.draft,
                 });
             }
-            Purpose::Agent { what, plugin } => {
+            Purpose::Agent {
+                what,
+                plugin,
+                budget,
+            } => {
                 tracing::warn!(%plugin, what, "the helper didn't answer in time");
-                let reason = format!("the helper didn't answer its {what} request");
+                let reason = format!(
+                    "the helper didn't answer its {what} request within {} s",
+                    budget.as_secs_f32()
+                );
                 note_failure(shared, &plugin, &reason);
                 let status = PluginStatus::Faulted {
                     reason,
@@ -2063,6 +2085,7 @@ impl Session {
             Purpose::Agent {
                 what: "timer",
                 plugin: key.plugin,
+                budget: TIMER_TIMEOUT,
             },
         );
     }

@@ -189,6 +189,9 @@ export global PluginPage {
     callback cancel();
     /// Uninstalls a plugin, and deletes its data if asked.
     callback uninstall(string, bool);
+    /// Copies the open plugin's details and its whole log, for pasting into a
+    /// report.
+    callback copy-log();
     callback revoke(string, string);
     callback update(string);
     callback roll-back(string);
@@ -655,7 +658,17 @@ component PluginDetailView inherits VerticalLayout {
         }
     }
 
-    SettingsHeading { text: "RECENT LOG"; }
+    HorizontalLayout {
+        vertical-stretch: 0;
+        SettingsHeading { text: "RECENT LOG"; horizontal-stretch: 1; }
+        Middle {
+            ActionButton {
+                text: "Copy"; label: "Copy " + PluginPage.detail.name + "'s details and log";
+                icon: @image-url("icons/copy.svg"); small: true; ghost: true;
+                clicked => { PluginPage.copy-log(); }
+            }
+        }
+    }
     if PluginPage.detail.log.length == 0: Label { text: "Nothing logged this session."; }
     if PluginPage.detail.log.length > 0: Rectangle {
         border-radius: 8px; background: Theme.sunken;
