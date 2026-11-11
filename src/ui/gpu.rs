@@ -53,18 +53,20 @@ use yapfast_core::frames::{Frame, Frames, Picture};
 
 #[cfg(windows)]
 use std::{
-    cell::RefCell,
-    collections::HashMap,
-    collections::VecDeque,
-    ffi::c_void,
-    sync::Weak,
-    time::{Duration, Instant},
+    cell::RefCell, collections::HashMap, collections::VecDeque, ffi::c_void, sync::Weak,
+    time::Instant,
 };
 
 #[cfg(windows)]
 use anyhow::{Context as _, Result};
-#[cfg(windows)]
+// The window's device and its queue are wgpu's on both platforms that show a
+// picture where it lies: Direct3D 12 behind them on Windows, and Vulkan on
+// Linux, where the queue is asked whether it has drawn everything in the same
+// way.
+#[cfg(any(windows, all(target_os = "linux", feature = "skia-vulkan")))]
 use slint::wgpu_30::wgpu;
+#[cfg(any(windows, all(target_os = "linux", feature = "skia-vulkan")))]
+use std::time::Duration;
 #[cfg(windows)]
 use windows::{
     Win32::{
@@ -313,6 +315,15 @@ pub fn forget(_key: u64) {}
 #[cfg(all(target_os = "linux", feature = "skia-vulkan"))]
 pub fn forget(key: u64) {
     present::forget(key);
+}
+
+/// Hands the window's Vulkan device to the importer, as Windows hands it the
+/// Direct3D 12 device it made above: called by [`crate::ui::vulkan::install`],
+/// the one place that device is made, so a picture is imported on the device
+/// the window draws with and on no other.
+#[cfg(all(target_os = "linux", feature = "skia-vulkan"))]
+pub fn window_device(device: wgpu::Device, queue: wgpu::Queue) {
+    present::install(device, queue);
 }
 
 /// Without Direct3D there is no shared texture to open, and a stream that
@@ -1306,7 +1317,10 @@ mod plane {
     use yapfast_core::dmabuf::{MAX_PLANES, Picture, Plane};
 
     /// `DRM_FORMAT_MOD_LINEAR`: the memory is the picture's rows one after
-    /// another, and nothing else about it needs saying.
+    /// another, and nothing else about it needs saying. A picture the tests make
+    /// is the one that names it; an imported one carries whatever the compositor
+    /// said.
+    #[cfg(test)]
     pub const MOD_LINEAR: u64 = 0;
 
     /// `DRM_FORMAT_MOD_INVALID`: the exporter didn't say how the memory is laid
@@ -2302,7 +2316,7 @@ mod present {
             // planes each have their own memory.
             flags |= vk::ImageCreateFlags::DISJOINT;
         }
-        let mut info = vk::ImageCreateInfo::default()
+        let info = vk::ImageCreateInfo::default()
             .flags(flags)
             .image_type(vk::ImageType::TYPE_2D)
             .format(plan.shape.vk())
@@ -2330,8 +2344,10 @@ mod present {
             )
             .sharing_mode(vk::SharingMode::EXCLUSIVE)
             .initial_layout(vk::ImageLayout::UNDEFINED);
-        info.push_next(&mut external);
-        info.push_next(&mut modifier);
+        // Each structure is chained as it is taken: ash's builder hands the
+        // image's description back rather than filling it in place.
+        let info = info.push_next(&mut external);
+        let info = info.push_next(&mut modifier);
         // SAFETY: the image is made on the device the plan is for, and the two
         // structures it chains are alive for the call.
         let image = unsafe { raw.create_image(&info, None) }
@@ -2356,7 +2372,7 @@ mod present {
             let requirements = if plan.disjoint() {
                 let mut plane_info = vk::ImagePlaneMemoryRequirementsInfo::default()
                     .plane_aspect(plane_aspect(index));
-                let mut asked = vk::ImageMemoryRequirementsInfo2::default()
+                let asked = vk::ImageMemoryRequirementsInfo2::default()
                     .image(image)
                     .push_next(&mut plane_info);
                 let mut answer = vk::MemoryRequirements2::default();
@@ -2438,12 +2454,12 @@ mod present {
                     // SAFETY: the device is alive for as long as a texture it
                     // made is, and nothing else has freed this memory or
                     // destroyed this image: this is the only place that does.
-                    unsafe {
-                        for memory in memories.iter().flatten() {
-                            (free_memory)(device_handle, *memory, ptr::null());
-                        }
-                        (destroy_image)(device_handle, image, ptr::null());
+                    // This block is the one above, which a closure body is
+                    // inside of.
+                    for memory in memories.iter().flatten() {
+                        (free_memory)(device_handle, *memory, ptr::null());
                     }
+                    (destroy_image)(device_handle, image, ptr::null());
                 })),
                 wgpu::hal::vulkan::TextureMemory::External,
             )
@@ -2674,8 +2690,10 @@ mod present {
             });
             let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("a stream's picture tile"),
-                bind_group_layouts: &[&layout],
-                push_constant_ranges: &[],
+                // One set, at 0, and no immediate data: wgpu 30 names every
+                // group that is there rather than only counting the fixed ones.
+                bind_group_layouts: &[Some(&layout)],
+                immediate_size: 0,
             });
             let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("a stream's picture tile"),
@@ -2699,7 +2717,9 @@ mod present {
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                 }),
-                multiview: None,
+                // One layer, so no multiview: wgpu 30 asks for the mask it
+                // would be used with rather than the layer count.
+                multiview_mask: None,
                 cache: None,
             });
             let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -2848,8 +2868,22 @@ fn fs_main(in: Vertex) -> @location(0) vec4<f32> {
 }
 "#;
 
-    /// Nothing here works on a descriptor the picture still owns: every one that
-    /// is given to Vulkan is a duplicate; this is where the picture's own are
-    /// closed, as the picture is let go of.
-    fn drop_refs() {}
+    /// The pass's shader is checked as it is written rather than when a window
+    /// with a card under it first shows a picture: wgpu parses and validates WGSL
+    /// as it makes the module, and a machine with no Vulkan device would never
+    /// say so. The same naga does both here, with no device at all.
+    #[cfg(test)]
+    mod shader {
+        #[test]
+        fn the_tile_pass_shader_parses_and_validates() {
+            let module =
+                naga::front::wgsl::parse_str(super::SHADER).expect("the tile pass's WGSL parses");
+            naga::valid::Validator::new(
+                naga::valid::ValidationFlags::all(),
+                naga::valid::Capabilities::empty(),
+            )
+            .validate(&module)
+            .expect("the tile pass's WGSL validates");
+        }
+    }
 }

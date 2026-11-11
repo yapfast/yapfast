@@ -12,7 +12,7 @@ let
   # JPEG table: the pin is its digest, so a build that stops producing exactly
   # these bytes fails here instead of shipping them. prepare-skia-native.py
   # carries the same digest for the flavour it names `linux-vulkan`.
-  rawSha256 = "sha256-DAjIWrRrB+Jkob/bISoN54k4sNNFkTShlXtxElaou3g=";
+  rawSha256 = "sha256-5UQnJ822NLdt6OkdcSa/lY50XNhxjZ4UjCG8NNrgfj8=";
   raw = pkgs.rustPlatform.buildRustPackage {
     pname = "yapfast-skia-vulkan-raw";
     version = "0.157.0";

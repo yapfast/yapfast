@@ -36,7 +36,7 @@ pins: dict[str, tuple[str, str | None]] = {
                      # passes its own digest in YAPFAST_SKIA_SOURCE_SHA256, since
                      # compiling records the header path it saw.
                      os.environ.get('YAPFAST_SKIA_SOURCE_SHA256')
-                     or '0c08c85ab46b07e264a1bfdb212a0de78938b0d3459134a1957b711256a8bb78'),
+                     or 'e5442727cdb634b76de8e91d7126bf958e745cd8718d9e148c21bc34dae07e3f'),
     'windows': ('x86_64-pc-windows-msvc-d3d-ganesh-gl-jpegd-jpege-pdf-static',
                 os.environ.get('YAPFAST_SKIA_STATIC_SHA256')),
 }

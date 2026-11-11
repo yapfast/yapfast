@@ -48,8 +48,8 @@ device verification and recovery are being tested.
 Yapfast renders with Skia Software unless "Render with the GPU" in Settings →
 Advanced is on. On Windows that setting asks Slint for Skia with Direct3D
 required, which draws through wgpu's Direct3D 12; on Linux for Skia on Vulkan
-where the build carries Skia's Vulkan and a device opens, and for Skia on
-OpenGL otherwise (`src/ui/vulkan.rs`, `src/ui.rs`). NVIDIA's
+where a Vulkan device opens, and for Skia on OpenGL otherwise, which every
+Linux build carries beside it (`src/ui/vulkan.rs`, `src/ui.rs`). NVIDIA's
 OpenGL driver on Windows kept about one core busy while it waited for the
 screen, which is why Windows doesn't use it. If the GPU can't start, Yapfast restarts
 itself with Skia Software, says so in the window and turns the setting off

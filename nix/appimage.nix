@@ -31,15 +31,18 @@ let
   };
   # Where AppImageUpdate and the AppImage managers look for a newer release.
   updateInformation = "gh-releases-zsync|yapfast|yapfast|latest|Yapfast-*-x86_64.AppImage.zsync";
-  # What scripts/package-linux.py adds to the release's BUILD.json.
+  # What scripts/package-linux.py adds to the release's BUILD.json. The Skia the
+  # release draws with is built from this source tree (nix/skia-linux-vulkan.nix
+  # pins the archive it exports by SHA-256), rather than linked from the
+  # prebuilt archive nix/native.nix fetches.
   build = builtins.toJSON {
     glibc_floor = glibcFloor;
     libstdcxx_floor = libstdcxxFloor;
     appimage_runtime = runtime.url;
     webrtc_archive = native.webrtcArchive.url;
     webrtc_archive_hash = native.webrtcArchive.outputHash;
-    skia_archive = native.skiaArchive.url;
-    skia_archive_hash = native.skiaArchive.outputHash;
+    skia_source_archive = native.skiaSourceArchive.url;
+    skia_source_archive_hash = native.skiaSourceArchive.outputHash;
     update_information = updateInformation;
   };
 in

@@ -7,19 +7,34 @@ import tarfile
 import tempfile
 from pathlib import Path
 
+# Everything rust-skia's own archive of this build carries. The textlayout
+# feature is what makes skparagraph, skshaper and skunicode, and skia-bindings
+# asks for each of them by name when it links: an archive without them builds a
+# library and fails at the link with "could not find native static library
+# `skparagraph`".
+MEMBERS = [
+    'libskia.a',
+    'libskia-bindings.a',
+    'libskparagraph.a',
+    'libskshaper.a',
+    'libskunicode_core.a',
+    'libskunicode_icu.a',
+    'bindings.rs',
+]
+
 
 def main() -> None:
     built = Path(sys.argv[1])
     license_file = Path(sys.argv[2])
     key = sys.argv[3]
     output = Path(sys.argv[4])
-    for name in ['libskia.a', 'libskia-bindings.a', 'bindings.rs']:
+    for name in MEMBERS:
         if not (built / name).is_file():
             raise SystemExit('No ' + name + ' in ' + str(built) + ', was skia-bindings built?')
     with tempfile.TemporaryDirectory(dir=output.parent) as staging:
         native = Path(staging) / 'skia-binaries'
         native.mkdir()
-        for name in ['libskia.a', 'libskia-bindings.a', 'bindings.rs']:
+        for name in MEMBERS:
             shutil.copyfile(built / name, native / name)
         shutil.copyfile(license_file, native / 'LICENSE_SKIA')
         # skia-bindings writes the key it computed from the checkout's commit,

@@ -17,7 +17,14 @@ The repository's own `flake.nix` builds no shell, only the package that
 `nix profile add github:yapfast/yapfast#yapfast` installs: the Discord-only
 release build, from `nix/package.nix`. It shares libwebrtc, Skia and the
 system libraries with the development shell through `nix/native.nix`, and pins
-the same nixpkgs in its own `flake.lock`. `nix build` puts it in `result`.
+the same nixpkgs in its own `flake.lock`. `nix build` puts it in `result`. It
+links Skia built with Vulkan from the pinned source, so the window draws on a
+Vulkan device where the machine opens one and on OpenGL otherwise; building
+that archive is a few minutes of Skia the first time ([Skia with
+Vulkan](#skia-with-vulkan)). On a host that isn't NixOS the build's loader
+can't see the host's GPU drivers, so the GPU setting falls back to Skia
+Software unless they're put where it can find them; see
+`docs/development.md#renderer`.
 It also builds the AppDir that the [AppImage](packaging.md#linux-appimage) is packed from.
 `nix/package.nix` holds one hash per Git dependency's repository and commit,
 in `outputHashes`. Moving a Git dependency to another commit needs a new
@@ -36,29 +43,28 @@ up to 512×512 pixels sample mipmaps, because plain bilinear sampling made
 pictures drawn smaller than their pixels, such as avatars, look jagged. Larger
 ones, such as video frames, go without: each frame would build its mipmaps
 anew. So do pictures drawn no smaller than their pixels, such as a call's
-camera, made at its tile's size. On Linux it takes rust-skia's
-prebuilt Skia with Skia's own FreeType: the one built for the system's FreeType
-lacks FreeType's COLRv1 calls, so it drew nothing for the COLRv1 build of Noto
-Color Emoji, the only one Fedora installs. Rust-skia builds that Skia only with
-its text layout, which the linker leaves out, and without Vulkan. A build that
-wants Vulkan links Skia built from source instead, `nix/skia-linux-vulkan.nix`:
-same features, its own FreeType kept, OpenGL kept for the fallback, Vulkan
-added; see [Skia with Vulkan](#skia-with-vulkan). Without that archive the
-renderer goes without wgpu, whose Vulkan surface needs it, and on Linux Yapfast
-asks for Skia OpenGL or Skia Software by name. Windows turns wgpu back
-on through a dependency in Yapfast's own `Cargo.toml`, for Skia GPU on Direct3D
-12 (see `src/graphics.rs`).
+camera, made at its tile's size. On Linux it takes Skia built from the pinned
+source with Skia's own FreeType: the prebuilt archive built for the system's
+FreeType lacks FreeType's COLRv1 calls, so it drew nothing for the COLRv1 build
+of Noto Color Emoji, the only one Fedora installs. `nix/skia-linux-vulkan.nix`
+builds it with the same features, its own FreeType kept, OpenGL kept for the
+fallback, and Vulkan added; see [Skia with Vulkan](#skia-with-vulkan). The
+prebuilt archive is what a build that leaves the `skia-vulkan` feature out
+links: it has no wgpu, and there Yapfast asks for Skia OpenGL or Skia Software
+by name. The Windows builds are what do, since the archive with Vulkan is
+Linux's; Windows turns wgpu back on through a dependency in Yapfast's own
+`Cargo.toml`, for Skia GPU on Direct3D 12 (see `src/graphics.rs`).
 
-The GPU setting asks for Skia on Vulkan on Linux too, where the build has it:
-the build's `vulkan` feature is `i-slint-renderer-skia/vulkan`, which needs a
-Skia built with Vulkan, and `src/ui/vulkan.rs` then makes the device with wgpu
-30 for Slint to take through `WGPUConfiguration::Manual`, as `src/ui/gpu.rs`
-does with Direct3D 12 on Windows. That device is what a stream's picture could
-later be wrapped from as a Skia image, without the copy through the CPU that
-OpenGL needs. Anywhere else — a build without that feature, or a machine whose
-driver opens no Vulkan device — the window draws with Skia on OpenGL as it
-always did, and a device that won't open is one `warn` line in the log rather
-than a failed start. Each change is marked `Yapfast:` in
+The GPU setting asks for Skia on Vulkan on Linux, which every Linux build
+carries: `skia-vulkan` is one of `Cargo.toml`'s default features, and it is
+`i-slint-renderer-skia/vulkan` beside `skia-safe/vulkan`. `src/ui/vulkan.rs`
+then makes the device with wgpu 30 for Slint to take through
+`WGPUConfiguration::Manual`, as `src/ui/gpu.rs` does with Direct3D 12 on
+Windows. That device is what a stream's picture is wrapped from as a Skia
+image, without the copy through the CPU that OpenGL needs. A machine whose
+driver opens no Vulkan device keeps the window on Skia on OpenGL, which the
+same archive carries, and one `warn` line in the log says why rather than a
+failed start. Each change is marked `Yapfast:` in
 `itemrenderer.rs`, `cached_image.rs`, `lib.rs`, `font_cache.rs` or
 `Cargo.toml`. Copy the matching release over it, and reapply them, when
 upgrading Slint.
@@ -215,9 +221,10 @@ The Linux environment includes ALSA, PulseAudio, fontconfig, FreeType, GLib,
 Wayland, X11, Vulkan, OpenGL, OpenSSL, Clang 21, CMake, pkg-config, Protobuf
 and NASM. It uses the host's graphics driver under `/run/opengl-driver/lib`. A
 real display session is required to open the window. Skia Software is the
-default; `--renderer gpu` uses Skia GPU and falls back to Skia Software if the
-GPU fails. The Nix shell provides a checksum-pinned, prepared Skia archive
-whose JPEG table is privately named to avoid a WebRTC symbol collision. See
+default; `--renderer gpu` uses Skia GPU — Vulkan where the build carries it and
+a device opens, OpenGL otherwise — and falls back to Skia Software if the GPU
+fails. The Nix shell provides a checksum-pinned, prepared Skia archive whose
+JPEG table is privately named to avoid a WebRTC symbol collision. See
 [the Slint client](slint-client.md).
 
 The first build downloads dependencies and compiles native C++. Cargo uses every
@@ -309,23 +316,40 @@ Vulkan is not in that archive, so `nix/skia-linux-vulkan.nix` builds the same
 Skia from the pinned source with `skia_use_vulkan=true` beside
 `skia_use_gl` and `skia_use_ganesh`, and pins the archive it exports by
 SHA-256: a build that stops producing those bytes fails instead of linking
-them. It is opt-in, since it takes a few minutes of compilation:
+them. It is what every Linux build links, so the dev shell points
+`SKIA_BINARIES_URL` at it, and putting the archive together is a few minutes of
+Skia the first time it is asked for:
 
 ```sh
 nix build path:./nix#skia-vulkan
-SKIA_BINARIES_URL=$SKIA_VULKAN_BINARIES_URL \
-  nix develop path:./nix --command cargo check --profile fast --features skia-vulkan
+nix develop path:./nix --command cargo check --profile fast   # links it
 ```
 
-The dev shell sets `SKIA_VULKAN_BINARIES_URL` to that archive and
-`SKIA_BINARIES_URL` to the OpenGL one, so an unset `SKIA_BINARIES_URL` keeps
-the default build on OpenGL. `--features skia-vulkan` turns on
-`yapfast-ui/skia-vulkan`, `i-slint-renderer-skia/vulkan` and `skia-safe/vulkan`;
-without it `skia-safe` links the OpenGL archive, and linking one built with
-Vulkan while asking for OpenGL fails at the key in the archive. Nothing in it
-needs a Vulkan SDK: Skia carries its own headers, and takes the device from
-wgpu at run time. `nix/skia-linux-builder` names the features the archive is
-keyed by, `nix/prepare-linux-skia.py` builds it outside Nix for debugging.
+`skia-vulkan` is one of `Cargo.toml`'s default features, and it turns on
+`yapfast-ui/skia-vulkan`, `i-slint-renderer-skia/vulkan`, `skia-safe/vulkan` and
+the `wgpu` dependency that carries `ShaderSource::Wgsl`: Slint re-exports wgpu
+30 for the window's device with that feature off, and the pass that turns a
+card's NV12 picture into what Skia samples is written in WGSL. A build that
+leaves the feature out wants the archive without Vulkan, which the shell keeps
+as `SKIA_GL_BINARIES_URL` — `skia-safe` keys its archive by the features it is
+asked for, so linking the Vulkan one while asking for OpenGL fails at the key in
+the archive:
+
+```sh
+SKIA_BINARIES_URL=$SKIA_GL_BINARIES_URL nix develop path:./nix --command \
+  cargo check --profile fast --no-default-features --features desktop,discord
+```
+
+Nothing in it needs a Vulkan SDK: Skia carries its own headers, and takes the
+device from wgpu at run time. `nix/skia-linux-builder` names the features the
+archive is keyed by, `nix/prepare-linux-skia.py` builds it outside Nix for
+debugging.
+
+The other half is `src/ui/gpu.rs`'s `present` module, which imports a stream's
+DMA-BUF as a Skia image and is compiled for Linux by that feature. It is
+written against the wgpu 30 that Slint 1.19 re-exports, and the archive and it
+are what turn Vulkan on; the window draws on Vulkan where a device opens and
+falls back to OpenGL, which the same archive carries, where one doesn't.
 
 ### Media libraries
 
@@ -348,6 +372,15 @@ files named here are in `crates/yapfast-core/native/`.
   H264, HEVC and AV1 — beside the HEVC decoder for software H265 in `hevc.c`.
 - `vendor/x264-src` encodes H264 on the CPU, in `h264.c`, for Go Live and
   the camera.
+- PipeWire, the system library, is where a Wayland share's pictures come from:
+  `native/pipewire_capture.c` takes one DMA-BUF at a time off the node the
+  desktop's screen sharing portal named, and `capture/portal.rs` in
+  `yapfast-core` does the D-Bus handshake that names it. It is built under the
+  `screencast` feature, which the root `Cargo.toml` enables for Linux alone, and
+  wants libpipewire-0.3's headers: a build that doesn't find them prints a
+  warning and shares a screen through libwebrtc's capturer instead, which on
+  Wayland asks the portal for the pointer as metadata it never paints into a
+  frame.
 
 Playing a file never touches `vendor/ffmpeg-src`, so what plays is what
 libwebrtc's FFmpeg was built with. Check a symbol in the archive:
@@ -374,7 +407,11 @@ missing file or heading; Clippy with warnings denied and the tests for the whole
 dependency, with plain rustc, and doesn't lint its generated code); a
 build; and the desktop smoke test, which runs `target/<profile>/yapfast`,
 the desktop build, from that build. These build the default features, the
-release's: Discord on the desktop (see [Networks](#networks)).
+release's: Discord on the desktop (see [Networks](#networks)). The desktop
+build turns on `yapfast-core`'s `screencast` feature on Linux, which the
+workspace steps resolve too, so the portal's and PipeWire's tests run in them;
+while working on those, `cargo test --profile fast -p yapfast-core --features
+screencast capture` runs them alone.
 
 `scripts/check --matrix` adds the builds with Matrix, after those and one at
 a time, as each compile of the UI crate takes several GiB of memory: Clippy

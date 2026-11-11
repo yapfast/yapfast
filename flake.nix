@@ -33,7 +33,7 @@
         # itself a stable release or a nightly, not a development build.
         release = build { inherit pkgs commit date; release = true; };
         # The AppDir and runtime scripts/package-linux.py packs into the AppImage.
-        appdir = import ./nix/appimage.nix { inherit pkgs; yapfast = release; };
+        appdir = import ./appimage.nix { inherit pkgs; yapfast = release; };
         default = yapfast;
       };
     };

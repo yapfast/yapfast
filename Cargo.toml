@@ -17,21 +17,34 @@ exclude = ["crates/yapfast-ui", "vendor/matrix-rtc-livekit", "vendor/webrtc-sys"
 resolver = "3"
 
 [features]
-# The release's features: Discord on the desktop. Matrix is optional, as is
-# each network, so a build can carry Matrix, Discord or both; scripts/check
-# --matrix checks the builds with Matrix.
-default = ["desktop", "discord"]
+# The release's features: Discord on the desktop, drawn through Vulkan where the
+# machine opens one (see `skia-vulkan` below). Matrix is optional, as is each
+# network, so a build can carry Matrix, Discord or both; scripts/check --matrix
+# checks the builds with Matrix.
+#
+# A Windows build passes --no-default-features and names what it wants, since
+# Skia's Vulkan archive here is Linux's alone (scripts/build-windows).
+default = ["desktop", "discord", "skia-vulkan"]
 matrix = ["yapfast-core/matrix"]
 discord = ["yapfast-core/discord", "dep:qrcode"]
 desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:ksni", "dep:windows-sys", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym", "dep:pollster", "dep:windows"]
 # The desktop app with a window that reloads ui/ on each save, for UI work;
 # see docs/building.md.
 live-preview = ["desktop", "yapfast-ui/live-preview"]
-# Skia's Vulkan beside its OpenGL, so the interface can be drawn through the
-# device a stream's texture is on, without copying it; Linux only for now.
-# Opt-in: it links an archive built with Vulkan (nix/skia-linux-vulkan.nix),
-# which SKIA_BINARIES_URL must point at. See docs/building.md.
-skia-vulkan = ["desktop", "yapfast-ui/skia-vulkan", "i-slint-renderer-skia/vulkan", "i-slint-renderer-skia/unstable-wgpu-30", "skia-safe/vulkan"]
+# Skia's Vulkan beside its OpenGL, so the interface is drawn through the device
+# a stream's texture is on and a shared picture is shown without copying it.
+# Linux's alone: it links an archive built with Vulkan
+# (nix/skia-linux-vulkan.nix), which SKIA_BINARIES_URL must point at. The window
+# draws on Vulkan where this build carries it and a device opens, on OpenGL
+# otherwise; see docs/building.md#skia-with-vulkan.
+skia-vulkan = [
+    "desktop",
+    "yapfast-ui/skia-vulkan",
+    "i-slint-renderer-skia/vulkan",
+    "i-slint-renderer-skia/unstable-wgpu-30",
+    "skia-safe/vulkan",
+    "dep:wgpu",
+]
 
 [dependencies]
 anyhow.workspace = true
@@ -63,9 +76,21 @@ tracing.workspace = true
 # The code the Discord phone app scans to link an account.
 qrcode = { version = "0.14", default-features = false, optional = true }
 
+# wgpu 30 itself, only so that its `wgsl` feature is on: Slint re-exports this
+# same wgpu for the window's device but leaves that feature off, and the pass
+# that turns a card's NV12 picture into what Skia samples is written in WGSL
+# (src/ui/gpu.rs). Every type used comes through `slint::wgpu_30::wgpu`, so this
+# crate is linked and never named.
+wgpu = { version = "30", default-features = false, features = ["std", "wgsl"], optional = true }
+
+# The desktop's screen sharing portal, which is the only way to a picture of a
+# whole Wayland desktop and the one that carries the pointer in its frames; see
+# crates/yapfast-core/src/capture/portal.rs. Enabled here and not in `desktop`,
+# since the PipeWire capture is Linux's alone.
+[target.'cfg(target_os = "linux")'.dependencies]
+yapfast-core = { path = "crates/yapfast-core", default-features = false, features = ["screencast"] }
 # Desktop notifications through the freedesktop service, on the session bus Slint and
 # the keyring already use.
-[target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"], optional = true }
 # Pasted pictures as their copied bytes, through Wayland's data-control protocol.
 wl-clipboard-rs = { version = "0.9.4", optional = true }
@@ -141,6 +166,9 @@ yapfast-discord = { path = "crates/yapfast-discord" }
 tempfile.workspace = true
 # Shapes text with Twemoji's font, as Slint's text does, for its ligatures' test.
 harfrust = "0.12"
+# The tile pass's WGSL, parsed and validated where no GPU can run it: the same
+# naga wgpu 30 compiles it with at run time.
+naga = { version = "30", default-features = false, features = ["wgsl-in"] }
 
 # Types keys for the push-to-talk hook's test.
 [target.'cfg(windows)'.dev-dependencies]
