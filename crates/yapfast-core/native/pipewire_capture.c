@@ -46,12 +46,117 @@
 #include <sys/types.h>
 #include <time.h>
 
+#include <dlfcn.h>
+
 #include <pipewire/pipewire.h>
 #include <spa/buffer/buffer.h>
 #include <spa/param/buffers.h>
 #include <spa/param/video/format-utils.h>
 #include <spa/param/video/raw.h>
 #include <spa/pod/builder.h>
+
+/* PipeWire's client functions, bound here rather than by the link.
+ *
+ * LiveKit's libwebrtc carries a weak stub of each of them, for builds that have
+ * no PipeWire (`pipewire_stubs.o`), and a stub is a trampoline through a pointer
+ * that ends up naming the stub itself when the archive is scanned before
+ * libpipewire-0.3 — so the call lands at address 0, which is what a screen share
+ * did: a jump to 0 inside pthread_once's call to pw_init. Binding the functions
+ * from the library that is loaded leaves the link's choice of definitions out of
+ * it, and a machine without PipeWire gets a sentence instead of a crash. The
+ * types are the headers' own, so a mismatch is a compile error here. */
+typedef struct {
+  typeof(pw_context_connect_fd) *context_connect_fd;
+  typeof(pw_context_destroy) *context_destroy;
+  typeof(pw_context_new) *context_new;
+  typeof(pw_core_disconnect) *core_disconnect;
+  typeof(pw_init) *init;
+  typeof(pw_properties_new) *properties_new;
+  typeof(pw_stream_add_listener) *stream_add_listener;
+  typeof(pw_stream_connect) *stream_connect;
+  typeof(pw_stream_dequeue_buffer) *stream_dequeue_buffer;
+  typeof(pw_stream_destroy) *stream_destroy;
+  typeof(pw_stream_new) *stream_new;
+  typeof(pw_stream_queue_buffer) *stream_queue_buffer;
+  typeof(pw_thread_loop_destroy) *thread_loop_destroy;
+  typeof(pw_thread_loop_get_loop) *thread_loop_get_loop;
+  typeof(pw_thread_loop_get_time) *thread_loop_get_time;
+  typeof(pw_thread_loop_lock) *thread_loop_lock;
+  typeof(pw_thread_loop_new) *thread_loop_new;
+  typeof(pw_thread_loop_signal) *thread_loop_signal;
+  typeof(pw_thread_loop_start) *thread_loop_start;
+  typeof(pw_thread_loop_stop) *thread_loop_stop;
+  typeof(pw_thread_loop_timed_wait_full) *thread_loop_timed_wait_full;
+  typeof(pw_thread_loop_unlock) *thread_loop_unlock;
+} yapfast_pw_api;
+
+/* The definitions below are the library's, so every call is written as it was. */
+static yapfast_pw_api api;
+#define pw_context_connect_fd api.context_connect_fd
+#define pw_context_destroy api.context_destroy
+#define pw_context_new api.context_new
+#define pw_core_disconnect api.core_disconnect
+#define pw_init api.init
+#define pw_properties_new api.properties_new
+#define pw_stream_add_listener api.stream_add_listener
+#define pw_stream_connect api.stream_connect
+#define pw_stream_dequeue_buffer api.stream_dequeue_buffer
+#define pw_stream_destroy api.stream_destroy
+#define pw_stream_new api.stream_new
+#define pw_stream_queue_buffer api.stream_queue_buffer
+#define pw_thread_loop_destroy api.thread_loop_destroy
+#define pw_thread_loop_get_loop api.thread_loop_get_loop
+#define pw_thread_loop_get_time api.thread_loop_get_time
+#define pw_thread_loop_lock api.thread_loop_lock
+#define pw_thread_loop_new api.thread_loop_new
+#define pw_thread_loop_signal api.thread_loop_signal
+#define pw_thread_loop_start api.thread_loop_start
+#define pw_thread_loop_stop api.thread_loop_stop
+#define pw_thread_loop_timed_wait_full api.thread_loop_timed_wait_full
+#define pw_thread_loop_unlock api.thread_loop_unlock
+
+/* Fills the table from the library that is loaded. The portal's socket is what
+ * reaches the shared node, not anything about which library this is, so any
+ * libpipewire-0.3 will do; one that isn't there is said by name. */
+static int bind_api(char *why, size_t why_size) {
+  static void *library;
+  if (library != NULL) return 0;
+  library = dlopen("libpipewire-0.3.so.0", RTLD_NOW | RTLD_LOCAL);
+  if (library == NULL) {
+    snprintf(why, why_size, "PipeWire's library isn't here (%s)", dlerror());
+    return -1;
+  }
+#define YAPFAST_PW_BIND(field)                                                \
+  *(void **)(&api.field) = dlsym(library, "pw_" #field);                      \
+  if (api.field == NULL) {                                                    \
+    snprintf(why, why_size, "libpipewire-0.3 has no pw_" #field);             \
+    return -1;                                                                \
+  }
+  YAPFAST_PW_BIND(context_connect_fd)
+  YAPFAST_PW_BIND(context_destroy)
+  YAPFAST_PW_BIND(context_new)
+  YAPFAST_PW_BIND(core_disconnect)
+  YAPFAST_PW_BIND(init)
+  YAPFAST_PW_BIND(properties_new)
+  YAPFAST_PW_BIND(stream_add_listener)
+  YAPFAST_PW_BIND(stream_connect)
+  YAPFAST_PW_BIND(stream_dequeue_buffer)
+  YAPFAST_PW_BIND(stream_destroy)
+  YAPFAST_PW_BIND(stream_new)
+  YAPFAST_PW_BIND(stream_queue_buffer)
+  YAPFAST_PW_BIND(thread_loop_destroy)
+  YAPFAST_PW_BIND(thread_loop_get_loop)
+  YAPFAST_PW_BIND(thread_loop_get_time)
+  YAPFAST_PW_BIND(thread_loop_lock)
+  YAPFAST_PW_BIND(thread_loop_new)
+  YAPFAST_PW_BIND(thread_loop_signal)
+  YAPFAST_PW_BIND(thread_loop_start)
+  YAPFAST_PW_BIND(thread_loop_stop)
+  YAPFAST_PW_BIND(thread_loop_timed_wait_full)
+  YAPFAST_PW_BIND(thread_loop_unlock)
+#undef YAPFAST_PW_BIND
+  return 0;
+}
 
 /* The answers `yapfast_pw_frame` gives, numbered as native/wgc.cc numbers the
  * same four kinds of answer, since a caller switching on them reads both. */
@@ -261,15 +366,22 @@ static const struct pw_core_events core_events = {
     .error = on_core_error,
 };
 
-static void yapfast_pw_close(struct yapfast_pw *pw);
+/* Not `static`: src/capture/pipewire.rs calls it, and a static declaration here
+ * would make the definition local too, leaving the linker without the symbol the
+ * capture's drop needs. */
+void yapfast_pw_close(struct yapfast_pw *pw);
 
 /* Asks the connection for the one format this file can hand over: video, raw,
  * BGRA or RGBA as the producer likes, in a buffer with a modifier — which is
- * what says the frames are DMA-BUFs — and nothing else. `DRM_FORMAT_MOD_INVALID`
- * in a flags choice is the way PipeWire spells "any modifier". The second pod
- * asks for the planes of the one data type an encoder can import, so a producer
- * that can't give a DMA-BUF says so instead of quietly handing over memory the
- * processor would have to copy. */
+ * what says the frames are DMA-BUFs — and nothing else. The modifier asked for
+ * is linear, the one an importer here can map: a compositor on a card with a
+ * tiling of its own answers "any modifier" with that tiling (KWin on an NVIDIA
+ * screen hands over 0x0300000000e08014, block-linear), and no encoder here reads
+ * it. A desktop that has to copy to give a linear buffer spends one copy, and
+ * every frame after it is still read where it lies. The second pod asks for the
+ * planes of the one data type an encoder can import, so a producer that can't
+ * give a DMA-BUF says so instead of quietly handing over memory the processor
+ * would have to copy. */
 static int build_params(struct spa_pod_builder *builder, struct spa_pod_frame *frames,
                         const struct spa_pod **params) {
   spa_pod_builder_push_object(builder, &frames[0], SPA_TYPE_OBJECT_Format, SPA_PARAM_Format);
@@ -278,9 +390,8 @@ static int build_params(struct spa_pod_builder *builder, struct spa_pod_frame *f
                       SPA_FORMAT_VIDEO_format,
                       SPA_POD_CHOICE_ENUM_Id(2, SPA_VIDEO_FORMAT_BGRA, SPA_VIDEO_FORMAT_RGBA),
                       SPA_FORMAT_VIDEO_modifier,
-                      SPA_POD_CHOICE_FLAGS_Long(SPA_POD_PROP_FLAG_MANDATORY |
-                                                SPA_POD_PROP_FLAG_DONT_FIXATE),
-                      (int64_t)0x00ffffffffffffff /* DRM_FORMAT_MOD_INVALID */, 0);
+                      SPA_POD_CHOICE_ENUM_Long(1, (int64_t)0 /* DRM_FORMAT_MOD_LINEAR */),
+                      0 /* the end of spa_pod_builder_add's arguments */);
   params[0] = spa_pod_builder_pop(builder, &frames[0]);
 
   spa_pod_builder_push_object(builder, &frames[1], SPA_TYPE_OBJECT_ParamBuffers, SPA_PARAM_Buffers);
@@ -291,6 +402,7 @@ static int build_params(struct spa_pod_builder *builder, struct spa_pod_frame *f
 
 void *yapfast_pw_open(uint32_t node_id, int fd, char *why, size_t why_size) {
   if (why != NULL && why_size > 0) why[0] = '\0';
+  if (bind_api(why, why_size) < 0) return NULL;
   pthread_once(&init_once, pw_init_once);
   (void)init_status;
 

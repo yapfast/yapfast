@@ -220,10 +220,13 @@ fn main() {
                     capture.flag(flag);
                 }
                 capture.compile("yapfast_pipewire_capture");
+                // The shim takes PipeWire's functions from the library it loads,
+                // not from the link: see src/capture/pipewire.rs and native
+                // pipewire_capture.c's `bind_api`, which is what keeps a weak
+                // stub of them (libwebrtc's) from being the one called.
                 for folder in &pipewire.folders {
                     println!("cargo:rustc-link-search=native={}", folder.display());
                 }
-                println!("cargo:rustc-link-lib=dylib=pipewire-0.3");
                 println!("cargo::rustc-cfg=screencast");
             }
             None => println!(
@@ -430,17 +433,18 @@ fn main() {
     // machine with neither still starts and says why. It is built wherever this
     // target is and the vendored oneVPL and libva headers are there, which is
     // every Linux build of the Discord flavour.
-    if target_os == "linux" && std::env::var_os("CARGO_FEATURE_DISCORD").is_some() {
-        if let Some(folders) = std::env::var_os("DEP_FFMPEG_INCLUDE") {
-            let mut mfx = cc::Build::new();
-            mfx.file("native/hwdec_mfx.c")
-                .std("gnu17")
-                .warnings(true)
-                .include("native")
-                .includes(std::env::split_paths(&folders));
-            mfx.compile("yapfast_hwdec_mfx");
-            println!("cargo::rustc-cfg=mfxdec");
-        }
+    if target_os == "linux"
+        && std::env::var_os("CARGO_FEATURE_DISCORD").is_some()
+        && let Some(folders) = std::env::var_os("DEP_FFMPEG_INCLUDE")
+    {
+        let mut mfx = cc::Build::new();
+        mfx.file("native/hwdec_mfx.c")
+            .std("gnu17")
+            .warnings(true)
+            .include("native")
+            .includes(std::env::split_paths(&folders));
+        mfx.compile("yapfast_hwdec_mfx");
+        println!("cargo::rustc-cfg=mfxdec");
     }
     let arch = match std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
         Ok("aarch64") => "arm64",

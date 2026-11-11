@@ -21,10 +21,11 @@ matrix = ["dep:keyring", "dep:matrix-sdk", "dep:matrix-sdk-ui", "dep:matrix-sdk-
 discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "dep:deep_filter", "dep:ndarray", "dep:x264-src", "dep:ffmpeg-src", "dep:thorvg-sys"]
 # Capturing a screen or a window on the GPU on Linux: the desktop's screen
 # sharing portal names a PipeWire node whose frames are DMA-BUFs, and
-# src/capture/pipewire.rs reads them without a copy through the processor. Off by
-# default; nothing else in the crate uses it yet, and a build without it is
-# exactly the build it was before. It also needs libpipewire's headers and
-# library, which build.rs looks for.
+# src/capture/pipewire.rs reads them without a copy through the processor. Off
+# here and turned on by the app for Linux alone, whose target-specific dependency
+# in the root Cargo.toml enables it: portal.rs speaks D-Bus and pipewire.rs links
+# the C shim build.rs builds on Linux. A build without it is exactly the build it
+# was before, and needs no PipeWire headers.
 screencast = ["dep:zbus"]
 # Sample states other crates' tests start from, such as a Discord server
 # whose member menu they check.
