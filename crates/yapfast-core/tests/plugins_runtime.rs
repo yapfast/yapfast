@@ -282,6 +282,155 @@ fn the_sample_ping_plugin_loads_and_declares_its_command() {
     state.shutdown();
 }
 
+/// A plugin enabled before the app started is idle until something uses it, and
+/// using it — `/ping` typed in the composer — is what loads and starts it. That
+/// is the lazy activation the manifest declares; a plugin that only wakes when
+/// it is switched off and on again in the page is not lazy, it is stuck.
+#[test]
+fn an_enabled_plugin_answers_its_command_after_a_start() {
+    let Some(helper) = helper() else {
+        eprintln!("no yapfast-plugins beside the build and no YAPFAST_PLUGINS; skipped");
+        return;
+    };
+    unsafe { std::env::set_var("YAPFAST_PLUGINS", &helper) };
+
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let sample = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/ping/plugin.wasm");
+    let fetched = installing::from_wasm(&sample).expect("the sample reads");
+    let id = fetched.id.clone();
+    let mut store = Store::open(directory.path()).expect("a store");
+    store.install(&fetched.package()).expect("it installs");
+    store
+        .set_enabled(&id, true)
+        .expect("it is on before the app starts");
+    drop(store);
+
+    // What starting the app does: nothing is asked for yet, so nothing runs.
+    let answers = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&answers);
+    let wake: Arc<dyn Fn(plugins::state::Notice) + Send + Sync> = Arc::new(move |notice| {
+        recorded.lock().unwrap().push(notice);
+    });
+    let mut state = PluginState::open(directory.path(), wake).expect("the plugin system");
+    state.start();
+    assert!(
+        matches!(state.helper(), HelperState::Stopped),
+        "a lazy plugin starts no helper"
+    );
+    assert_eq!(
+        state.statuses(),
+        vec![(
+            id.clone(),
+            yapfast_plugin_api::message::PluginStatus::Enabled
+        )],
+        "enabled and idle, waiting for its trigger"
+    );
+
+    // The command the composer reads, and the command being run.
+    assert!(
+        state
+            .commands()
+            .iter()
+            .any(|(_, command)| command.name == "ping"),
+        "{:?}",
+        state.commands()
+    );
+    state.run_command(
+        &id,
+        yapfast_plugin_api::call::CommandInvocation {
+            name: "ping".to_owned(),
+            options: serde_json::Map::new(),
+        },
+    );
+
+    let started = Instant::now();
+    let answered = || {
+        answers
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|notice| matches!(notice, plugins::state::Notice::Command { text, .. } if text == "pong"))
+    };
+    while started.elapsed() < START && !answered() {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        answered(),
+        "the command answered from idle in {:?}: {:?} {:?}",
+        started.elapsed(),
+        state.statuses(),
+        state.off()
+    );
+    state.shutdown();
+}
+
+/// A plugin whose manifest asks to run at startup is running once the app has
+/// started, without the person touching it.
+#[test]
+fn a_startup_plugin_runs_when_the_app_starts() {
+    let Some(helper) = helper() else {
+        eprintln!("no yapfast-plugins beside the build and no YAPFAST_PLUGINS; skipped");
+        return;
+    };
+    unsafe { std::env::set_var("YAPFAST_PLUGINS", &helper) };
+
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let mut store = Store::open(directory.path()).expect("a store");
+    let id = PluginId::parse("dev.local.startup").expect("a plugin id");
+    install_named(&mut store, "dev.local.startup", "bad_answer.wasm");
+    // Its manifest asks to run at startup, which is the one trigger nothing has
+    // to use by hand.
+    let entry = {
+        let lock = store.lock().expect("a lock");
+        lock.plugins[&id].clone()
+    };
+    let mut manifest: serde_json::Value =
+        serde_json::from_str(&store.manifest_text(&entry).expect("its manifest"))
+            .expect("it is JSON");
+    manifest["activation"] = serde_json::json!({ "on": ["startup"] });
+    let text = serde_json::to_string(&manifest).expect("it serializes");
+    store.uninstall(&id, false).expect("it goes");
+    store
+        .install(&Package {
+            id: id.clone(),
+            source: "https://example.org/ada/startup".to_owned(),
+            path: String::new(),
+            reference: "main".to_owned(),
+            rev: "0".repeat(40),
+            manifest: text,
+            module: std::fs::read(fixture("bad_answer.wasm")).expect("the fixture"),
+            icon: None,
+        })
+        .expect("it installs");
+    store.set_enabled(&id, true).expect("it is on");
+    drop(store);
+
+    let wake: Arc<dyn Fn(plugins::state::Notice) + Send + Sync> = Arc::new(|_| {});
+    let mut state = PluginState::open(directory.path(), wake).expect("the plugin system");
+    // What the application does when a session starts.
+    state.start();
+
+    let started = Instant::now();
+    while started.elapsed() < START
+        && !state
+            .statuses()
+            .into_iter()
+            .any(|(plugin, status)| plugin == id && is_active(&status))
+    {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        state
+            .statuses()
+            .into_iter()
+            .any(|(plugin, status)| plugin == id && is_active(&status)),
+        "a startup plugin is running: {:?} {:?}",
+        state.statuses(),
+        state.off()
+    );
+    state.shutdown();
+}
+
 fn is_active(status: &yapfast_plugin_api::message::PluginStatus) -> bool {
     matches!(status, yapfast_plugin_api::message::PluginStatus::Active)
 }
