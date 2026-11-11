@@ -508,9 +508,14 @@ fn permission_of(key: &str) -> Option<Permission> {
     }
 }
 
-fn line(line: &Line) -> PluginLine {
+fn line(line: &Line, hosts: &[&str]) -> PluginLine {
     PluginLine {
         text: line.text.as_str().into(),
+        styled: styled_line(
+            &line.text,
+            matches!(line.tone, Tone::Strong | Tone::Danger),
+            hosts,
+        ),
         tone: tone(line.tone),
         permission: line
             .permission
@@ -521,8 +526,52 @@ fn line(line: &Line) -> PluginLine {
     }
 }
 
+/// The lines, each naming in bold the hosts any of them connects to, so the
+/// risk sentence's hosts stand out as the hosts' own lines do.
 fn lines(items: &[Line]) -> ModelRc<PluginLine> {
-    ModelRc::new(VecModel::from(items.iter().map(line).collect::<Vec<_>>()))
+    let hosts: Vec<&str> = items
+        .iter()
+        .filter_map(|item| match &item.permission {
+            Some(Permission::Host(host)) if !host.is_empty() => Some(host.as_str()),
+            _ => None,
+        })
+        .collect();
+    ModelRc::new(VecModel::from(
+        items
+            .iter()
+            .map(|item| line(item, &hosts))
+            .collect::<Vec<_>>(),
+    ))
+}
+
+/// A line's words as the page draws them: a strong or dangerous line bold
+/// throughout, and any other with only the hosts it names in bold.
+fn styled_line(text: &str, bold: bool, hosts: &[&str]) -> slint::StyledText {
+    slint::StyledText::from_markdown(&line_markdown(text, bold, hosts))
+        .unwrap_or_else(|_| slint::StyledText::from_plain_text(text))
+}
+
+/// The Markdown [`styled_line`] draws.
+fn line_markdown(text: &str, bold: bool, hosts: &[&str]) -> String {
+    use super::messages::escape_markdown;
+    if bold {
+        format!("**{}**", escape_markdown(text))
+    } else {
+        let mut out = String::new();
+        let mut rest = text;
+        // The first host in what's left, the longest where two start together.
+        while let Some((at, host)) = hosts
+            .iter()
+            .filter_map(|host| rest.find(host).map(|at| (at, *host)))
+            .min_by_key(|(at, host)| (*at, std::cmp::Reverse(host.len())))
+        {
+            out.push_str(&escape_markdown(&rest[..at]));
+            out.push_str(&format!("**{}**", escape_markdown(host)));
+            rest = &rest[at + host.len()..];
+        }
+        out.push_str(&escape_markdown(rest));
+        out
+    }
 }
 
 fn initial(name: &str) -> SharedString {
@@ -681,11 +730,14 @@ fn review(review: &Review) -> PluginReview {
             &review.capabilities,
             &review.network,
         )),
-        memory: line(&Line {
-            text: memory,
-            tone: memory_tone,
-            permission: None,
-        }),
+        memory: line(
+            &Line {
+                text: memory,
+                tone: memory_tone,
+                permission: None,
+            },
+            &[],
+        ),
         dependencies: lines(&dependencies),
         replaces: review.replaces.clone().unwrap_or_default().into(),
     }
@@ -1390,6 +1442,31 @@ mod tests {
         let kind = |key: &str| &schema.setting(key).unwrap().kind;
         assert_eq!(input(kind("a"), "1"), Input::Text("y".into()));
         assert_eq!(input(kind("b"), "3"), Input::Text("0.3".into()));
+    }
+
+    #[test]
+    fn a_line_bolds_only_the_hosts_it_names() {
+        let hosts = ["api.example.com", "cdn.example.net"];
+        assert_eq!(
+            line_markdown("Connects to cdn.example.net, as you allowed", false, &hosts),
+            "Connects to **cdn\\.example\\.net**\\, as you allowed"
+        );
+        assert_eq!(
+            line_markdown(
+                "It reads your messages and connects to api.example.com and cdn.example.net, so it could send your messages to those servers.",
+                false,
+                &hosts,
+            ),
+            "It reads your messages and connects to **api\\.example\\.com** and **cdn\\.example\\.net**\\, so it could send your messages to those servers\\."
+        );
+        assert_eq!(
+            line_markdown("Reads your messages", true, &hosts),
+            "**Reads your messages**"
+        );
+        assert_eq!(
+            line_markdown("Keeps its own data", false, &hosts),
+            "Keeps its own data"
+        );
     }
 
     #[test]
