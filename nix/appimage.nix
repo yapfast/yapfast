@@ -54,8 +54,11 @@ pkgs.runCommand "yapfast-appdir-${yapfast.version}" {
   mkdir -p "$appdir/usr/bin"
   # wrapProgram's wrapper sets Nix's library path; the binary itself is beside it.
   cp ${yapfast}/bin/.yapfast-wrapped "$appdir/usr/bin/yapfast"
-  chmod u+w "$appdir/usr/bin/yapfast"
-  patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 --remove-rpath "$appdir/usr/bin/yapfast"
+  # The plugin system's helper: an AppDir with only the app has the feature and
+  # no way to run a plugin.
+  cp ${yapfast}/bin/.yapfast-plugins-wrapped "$appdir/usr/bin/yapfast-plugins"
+  chmod u+w "$appdir/usr/bin/yapfast" "$appdir/usr/bin/yapfast-plugins"
+  patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 --remove-rpath "$appdir/usr/bin/yapfast" "$appdir/usr/bin/yapfast-plugins"
 
   needed=$(readelf -d "$appdir/usr/bin/yapfast" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p')
   for library in $needed; do

@@ -46,7 +46,7 @@ rustPlatform.buildRustPackage {
     };
   };
   buildNoDefaultFeatures = true;
-  buildFeatures = [ "desktop" "discord" ];
+  buildFeatures = [ "desktop" "discord" "plugins" ];
   nativeBuildInputs = with pkgs; [
     pkg-config cmake llvmPackages_21.clang llvmPackages_21.llvm protobuf
     # Assembles x264's x86-64 code (vendor/x264-src).
@@ -83,9 +83,16 @@ rustPlatform.buildRustPackage {
     install -Dm644 packaging/linux/${id}.metainfo.xml -t "$out/share/metainfo"
     # The GPU, audio and screen capture libraries are loaded at runtime, and
     # NixOS keeps the GPU driver's in /run/opengl-driver.
+    # The helper the plugin system starts. It is a binary of its own, so a
+    # package that ships only `yapfast` has the feature and nothing to run it
+    # with; the same library path goes on it, since it links libc and libgcc
+    # through the same toolchain as the app.
+    install -Dm755 target/release/yapfast-plugins "$out/bin/yapfast-plugins"
     wrapProgram "$out/bin/yapfast" \
       --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath native.runtimeLibraries} \
       --suffix LD_LIBRARY_PATH : /run/opengl-driver/lib
+    wrapProgram "$out/bin/yapfast-plugins" \
+      --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath native.runtimeLibraries}
   '';
   meta = {
     description = "Native Discord client that stays light on memory";

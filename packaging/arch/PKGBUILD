@@ -91,7 +91,7 @@ build() {
       _debug+=(--config "profile.release.package.$_crate.debug=\"full\"")
     done
   fi
-  cargo build --frozen "${_debug[@]}" --release --no-default-features --features desktop,discord
+  cargo build --frozen "${_debug[@]}" --release --no-default-features --features desktop,discord,plugins
   # Slint's generated source, which yapfast-debug ships, still names the build directory: it includes
   # the UI's icons and fonts by absolute path, and no remap flag reaches file contents. Rewriting it
   # would break the next build in the same directory. The binary holds the bytes, not the paths.
@@ -106,6 +106,9 @@ build() {
 package() {
   cd "$pkgname"
   install -Dm755 target/release/yapfast -t "$pkgdir/usr/bin"
+  # The plugin system starts this one; without it the app has the feature and
+  # nothing to run a plugin with.
+  install -Dm755 target/release/yapfast-plugins -t "$pkgdir/usr/bin"
   install -Dm644 packaging/icon.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/$_id.svg"
   install -Dm644 "packaging/linux/$_id.desktop" -t "$pkgdir/usr/share/applications"
   install -Dm644 "packaging/linux/$_id.metainfo.xml" -t "$pkgdir/usr/share/metainfo"
