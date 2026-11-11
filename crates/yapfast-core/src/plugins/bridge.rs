@@ -39,7 +39,7 @@ use yapfast_plugin_api::frame::{self, Frame, FrameKind};
 use yapfast_plugin_api::hook::{Draft, HookKind, HookOutcome, HookRequest, HookSubject};
 use yapfast_plugin_api::limits;
 use yapfast_plugin_api::manifest::CommandDecl;
-use yapfast_plugin_api::message::{Fault, FromHelper, PluginStatus, ToHelper};
+use yapfast_plugin_api::message::{Fault, FromHelper, LogLevel, LogRecord, PluginStatus, ToHelper};
 use yapfast_plugin_api::{API_VERSION, PluginId};
 
 use crate::plugins::registry::{Registry, Subscriptions};
@@ -619,6 +619,25 @@ fn resident_memory(pid: u32) -> Option<u64> {
     Some(kilobytes * 1024)
 }
 
+/// A fault's sentence, as a line in the plugin's own log: the row that says
+/// "Suspended: kept crashing" has the why under it, and the detail's log keeps
+/// it after the status has moved on.
+fn failure(reason: &str) -> LogRecord {
+    LogRecord {
+        level: LogLevel::Error,
+        target: "yapfast".to_owned(),
+        message: reason.to_owned(),
+        at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_millis() as u64),
+    }
+}
+
+/// Notes a failure in the plugin's log, through the registry's ring.
+fn note_failure(shared: &Shared, plugin: &PluginId, reason: &str) {
+    shared.registry_mut().note_log(plugin, failure(reason));
+}
+
 /// A running supervisor task and the channel into it.
 struct Supervisor {
     commands: tokio::sync::mpsc::UnboundedSender<Request>,
@@ -764,6 +783,7 @@ impl Shared {
                 .map(|(plugin, _)| plugin)
                 .collect();
             for plugin in &changed {
+                registry.note_log(plugin, failure(&reason));
                 registry.set_status(
                     plugin,
                     PluginStatus::Suspended {
@@ -1347,6 +1367,7 @@ impl Session {
         let module = shared.registry().entry(plugin)?.module.clone()?;
         if let Err(reason) = shared.store().recheck(&module) {
             tracing::warn!(%plugin, %reason, "a plugin's module changed; not running it");
+            note_failure(shared, plugin, &reason);
             let status = PluginStatus::Suspended {
                 reason: reason.clone(),
             };
@@ -1934,8 +1955,10 @@ impl Session {
             // before the next trigger can try it.
             self.loaded.remove(&plugin);
         }
+        let reason = fault.reason;
+        note_failure(shared, &plugin, &reason);
         let status = PluginStatus::Faulted {
-            reason: fault.reason,
+            reason,
             memory_pages: 0,
         };
         shared.registry_mut().set_status(&plugin, status.clone());
@@ -1996,8 +2019,10 @@ impl Session {
             }
             Purpose::Agent { what, plugin } => {
                 tracing::warn!(%plugin, what, "the helper didn't answer in time");
+                let reason = format!("the helper didn't answer its {what} request");
+                note_failure(shared, &plugin, &reason);
                 let status = PluginStatus::Faulted {
-                    reason: format!("the helper didn't answer its {what} request"),
+                    reason,
                     memory_pages: 0,
                 };
                 shared.registry_mut().set_status(&plugin, status.clone());

@@ -28,6 +28,11 @@ export struct InstalledRow {
     enabled: bool,
     /// The newer version, when there is one.
     update: string,
+    /// Its most recent log line, so the list says why a plugin is struggling
+    /// without opening it; empty while it has logged nothing.
+    log: string,
+    /// That line is an error.
+    log-error: bool,
 }
 
 /// One control of a plugin's settings form: a setting's own, or one field

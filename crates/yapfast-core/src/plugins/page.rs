@@ -119,6 +119,11 @@ pub enum Suspension {
     TooSlow,
     /// A plugin it depends on, by name, is off or missing.
     Needs(String),
+    /// It failed for a reason only the helper knows, in its own words: an
+    /// activation that returned a status, a module that didn't instantiate, an
+    /// answer the ABI refused. The sentence comes from the runtime, and the
+    /// plugin's log has it too.
+    Failed(String),
 }
 
 impl Status {
@@ -133,6 +138,7 @@ impl Status {
             Status::Suspended(Suspension::Crashed) => "Suspended: kept crashing".into(),
             Status::Suspended(Suspension::TooSlow) => "Suspended: too slow to answer".into(),
             Status::Suspended(Suspension::Needs(name)) => format!("Suspended: needs {name}"),
+            Status::Suspended(Suspension::Failed(why)) => format!("Suspended: {why}"),
         }
     }
 

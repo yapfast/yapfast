@@ -20,6 +20,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use yapfast_core::plugins::bridge::HelperState;
+use yapfast_core::plugins::page;
 use yapfast_core::plugins::store::{Package, Store};
 use yapfast_core::plugins::{self, PluginState};
 use yapfast_plugin_api::PluginId;
@@ -105,6 +106,94 @@ fn a_message_reaches_an_installed_plugin_and_disabling_it_ends_the_helper() {
     state.shutdown();
 }
 
+/// A plugin that traps in `yf_activate` is suspended after three strikes, and
+/// both halves of the page say why: the row's status carries the runtime's own
+/// sentence, and the line it logged is the same sentence. Without this the
+/// status said only "kept crashing", which is what a person asking why has
+/// already been told by the switch coming back off.
+#[test]
+fn a_plugin_that_keeps_crashing_says_why_in_its_status_and_its_log() {
+    let Some(helper) = helper() else {
+        eprintln!("no yapfast-plugins beside the build and no YAPFAST_PLUGINS; skipped");
+        return;
+    };
+    unsafe { std::env::set_var("YAPFAST_PLUGINS", &helper) };
+
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let store = Store::open(directory.path()).expect("a store");
+    let mut store = store;
+    install_named(&mut store, "dev.local.trap", "trap.wasm");
+    let id = PluginId::parse("dev.local.trap").expect("a plugin id");
+    store.set_enabled(&id, true).expect("the plugin is on");
+
+    let wake: Arc<dyn Fn(plugins::state::Notice) + Send + Sync> = Arc::new(|_| {});
+    let mut state = PluginState::open(directory.path(), wake).expect("the plugin system");
+    state.set_enabled(&id, true).expect("it is woken");
+    state.observe(envelope("hello"));
+
+    let started = Instant::now();
+    let suspended = || {
+        state
+            .page()
+            .installed
+            .first()
+            .is_some_and(|plugin| matches!(plugin.status, page::Status::Suspended(_)))
+    };
+    while started.elapsed() < END && !suspended() {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let view = state.page();
+    let plugin = view.installed.first().expect("it is listed");
+    let status = plugin.status.text();
+    assert!(
+        matches!(plugin.status, page::Status::Suspended(_)),
+        "it settles suspended, not running: {status}"
+    );
+    assert!(
+        status.len() > "Suspended: ".len(),
+        "the status says what happened: {status}"
+    );
+    let logged = plugin.log.last().expect("the reason is in its log");
+    assert!(logged.error, "as an error: {logged:?}");
+    assert!(
+        status.contains(logged.text.trim_start_matches("yapfast: ")),
+        "the row and the log agree: {status} / {:?}",
+        logged.text
+    );
+    state.shutdown();
+}
+
+/// Installs one fixture module as a plugin of its own.
+fn install_named(store: &mut Store, id: &str, fixture: &str) {
+    let path = fixture_path(fixture);
+    let wasm = std::fs::read(&path).expect("the fixture");
+    let manifest = format!(
+        r#"{{
+  "api": 1,
+  "id": "{id}",
+  "name": "Trap",
+  "version": "0.1.0",
+  "wasm": "plugin.wasm",
+  "limits": {{ "memory_pages": 64 }},
+  "activation": {{ "on": ["event:message_create"] }},
+  "permissions": {{ "capabilities": ["messages.read"], "network": [] }}
+}}
+"#
+    );
+    store
+        .install(&Package {
+            id: PluginId::parse(id).expect("a plugin id"),
+            source: "https://example.org/ada/trap".to_owned(),
+            path: String::new(),
+            reference: "main".to_owned(),
+            rev: "0".repeat(40),
+            manifest,
+            module: wasm,
+            icon: None,
+        })
+        .expect("it installs");
+}
+
 fn is_active(status: &yapfast_plugin_api::message::PluginStatus) -> bool {
     matches!(status, yapfast_plugin_api::message::PluginStatus::Active)
 }
@@ -188,6 +277,10 @@ fn profile() -> &'static str {
     } else {
         "fast"
     }
+}
+
+fn fixture_path(name: &str) -> PathBuf {
+    fixture(name)
 }
 
 fn fixture(name: &str) -> PathBuf {

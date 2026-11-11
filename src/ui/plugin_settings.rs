@@ -499,6 +499,14 @@ fn row(plugin: &Installed) -> InstalledRow {
             .map(|update| update.version.as_str())
             .unwrap_or_default()
             .into(),
+        // The newest line, with its time, so the row itself says why: a plugin
+        // that keeps crashing logs the reason, and opening its page is how the
+        // whole ring is read.
+        log: match plugin.log.last() {
+            Some(line) => format!("{} {}", line.at, line.text).into(),
+            None => SharedString::new(),
+        },
+        log_error: plugin.log.last().is_some_and(|line| line.error),
     }
 }
 

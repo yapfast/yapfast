@@ -39,6 +39,9 @@ use yapfast_plugin_api::{PluginId, PluginManifest};
 const LOCK: &str = "lock.json";
 /// Where content-addressed plugin files sit, inside the plugin directory.
 const STORE: &str = "store";
+/// Where a module and an icon go when the manifest names neither.
+const MODULE_FILE: &str = "plugin.wasm";
+const ICON_FILE: &str = "icon.png";
 /// Where a plugin's storage and settings sit, inside the plugin directory.
 const DATA: &str = "data";
 /// One plugin's key-value store.
@@ -325,9 +328,24 @@ impl Store {
             &temporary.join("manifest.json"),
             package.manifest.as_bytes(),
         )?;
-        write_file(&temporary.join("plugin.wasm"), &package.module)?;
+        // At the names its manifest gives them, not names of this side's
+        // choosing: `module` reads `manifest.wasm` beside `manifest.json`, so a
+        // plugin whose module is `ping.wasm` has to find a `ping.wasm` there.
+        // Writing `plugin.wasm` regardless left every such plugin installed and
+        // unable to run — "kept crashing", with the log saying the module wasn't
+        // there.
+        let (module_name, icon_name) = names(package);
+        if let Some(parent) = temporary.join(&module_name).parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("could not create {}", parent.display()))?;
+        }
+        write_file(&temporary.join(&module_name), &package.module)?;
         if let Some(icon) = &package.icon {
-            write_file(&temporary.join("icon.png"), icon)?;
+            if let Some(parent) = temporary.join(&icon_name).parent() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("could not create {}", parent.display()))?;
+            }
+            write_file(&temporary.join(&icon_name), icon)?;
         }
         // The files are flushed, and then their names, before the directory is
         // renamed: a version that appears in `store/` survives a power cut.
@@ -739,6 +757,28 @@ fn json_len(value: &Value) -> u64 {
 
 /// Writes a file and flushes it to the disk, so what a later rename makes
 /// visible is bytes that are already there.
+/// Where a package's module and icon go inside its store directory: the paths
+/// its own manifest names, or the ones this side would pick when it names none.
+fn names(package: &Package) -> (PathBuf, PathBuf) {
+    let manifest = match PluginManifest::parse(&package.manifest) {
+        Ok(manifest) => manifest,
+        // A manifest that can't be read is refused when the registry reads it;
+        // the bytes still go where a plugin with no module named would expect.
+        Err(_) => return (PathBuf::from(MODULE_FILE), PathBuf::from(ICON_FILE)),
+    };
+    let module = manifest
+        .wasm
+        .as_ref()
+        .and_then(|wasm| manifest.resolve(wasm))
+        .unwrap_or_else(|| PathBuf::from(MODULE_FILE));
+    let icon = manifest
+        .icon
+        .as_ref()
+        .and_then(|icon| manifest.resolve(icon))
+        .unwrap_or_else(|| PathBuf::from(ICON_FILE));
+    (module, icon)
+}
+
 fn write_file(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut file =
         fs::File::create(path).with_context(|| format!("could not write {}", path.display()))?;
@@ -909,6 +949,30 @@ mod tests {
             .plugins
             .remove(plugin)
             .expect("its entry")
+    }
+
+    /// A module is stored at the name its manifest uses, because that is the
+    /// name the registry reads it back by: a plugin installed from `Ping.wasm`
+    /// declares `ping.wasm`, and writing `plugin.wasm` left it installed and
+    /// unable to run.
+    #[test]
+    fn a_module_keeps_the_name_its_manifest_gives_it() {
+        let (_directory, mut store) = store();
+        let mut package = package("local.ping", "0.1.0", b"module one");
+        package.manifest = package.manifest.replace("\"plugin.wasm\"", "\"ping.wasm\"");
+        store.install(&package).expect("it installs");
+
+        let entry = entry(&store, &package.id);
+        let directory = store.root().join(STORE).join(&entry.store);
+        assert!(
+            directory.join("ping.wasm").is_file(),
+            "{:?}",
+            versions(&store)
+        );
+        assert!(!directory.join("plugin.wasm").exists());
+        // And what the registry reads is there, which is what enabling needs.
+        let module = store.module(&entry, &store.manifest(&entry).expect("its manifest"));
+        assert!(module.is_ok(), "{module:?}");
     }
 
     #[test]

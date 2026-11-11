@@ -107,17 +107,22 @@ fn status(status: &PluginStatus) -> Status {
 
 /// Why an instance went away.
 ///
-/// The status carries a sentence rather than the kind the helper sent it with,
-/// so the sentence decides: `memory`/`oom` for a cap, `deadline`/`took` for a
-/// missed one, and a crash for everything else.
+/// The status carries the runtime's own sentence rather than a kind, so the
+/// sentence decides between the three states a person acts on differently —
+/// running out of pages, running too long — and everything else is shown in the
+/// runtime's words rather than flattened into "crashed": an activation that
+/// returned a status and an answer the ABI refused are both worth reading, and
+/// only the helper knows which happened.
 fn suspension(reason: &str) -> Suspension {
-    let reason = reason.to_ascii_lowercase();
-    if reason.contains("memory") || reason.contains("oom") {
+    let lowered = reason.to_ascii_lowercase();
+    if lowered.contains("memory") || lowered.contains("oom") {
         Suspension::OutOfMemory
-    } else if reason.contains("deadline") || reason.contains("took") {
+    } else if lowered.contains("deadline") || lowered.contains("took") {
         Suspension::TooSlow
-    } else {
+    } else if reason.trim().is_empty() {
         Suspension::Crashed
+    } else {
+        Suspension::Failed(reason.trim().to_owned())
     }
 }
 
