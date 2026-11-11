@@ -378,7 +378,11 @@ void yapfast_pw_close(struct yapfast_pw *pw);
 
 /* Asks the connection for the one format this file can hand over: video, raw,
  * BGRA or RGBA as the producer likes, in a buffer with a modifier — which is
- * what says the frames are DMA-BUFs — and nothing else. The modifier asked for
+ * what says the frames are DMA-BUFs — and nothing else. The pod is the id
+ * `pw_stream_connect` enumerates with, `SPA_PARAM_EnumFormat`, and not
+ * `SPA_PARAM_Format`, which is the id a negotiated format comes back under in
+ * `param_changed`: a pod built with the second is one the producer matches
+ * against nothing and answers with silence. The modifier asked for
  * is linear, the one an importer here can map: a compositor on a card with a
  * tiling of its own answers "any modifier" with that tiling (KWin on an NVIDIA
  * screen hands over 0x0300000000e08014, block-linear), and no encoder here reads
@@ -389,7 +393,7 @@ void yapfast_pw_close(struct yapfast_pw *pw);
  * would have to copy. */
 static int build_params(struct spa_pod_builder *builder, struct spa_pod_frame *frames,
                         const struct spa_pod **params) {
-  spa_pod_builder_push_object(builder, &frames[0], SPA_TYPE_OBJECT_Format, SPA_PARAM_Format);
+  spa_pod_builder_push_object(builder, &frames[0], SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat);
   spa_pod_builder_add(builder, SPA_FORMAT_mediaType, SPA_POD_Id(SPA_MEDIA_TYPE_video),
                       SPA_FORMAT_mediaSubtype, SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw),
                       SPA_FORMAT_VIDEO_format,
