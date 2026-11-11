@@ -8,8 +8,8 @@ binary; [`crates/yapfast-plugin-api`](../../crates/yapfast-plugin-api) is the
 contract it shares with the parent, described in [the ABI](abi.md).
 
 It has two subcommands. `run` speaks the framed protocol on stdin and stdout,
-which is what the parent starts. `fetch` installs a plugin from a git URL, for
-seconds, and exits, taking `gix` with it.
+which is what the parent starts. `fetch` reads a plugin out of its git
+repository, for seconds, and exits, taking `gix` with it.
 
 A separate process buys three things at once. Nothing of a plugin's outlives it,
 wasmtime's compile threads and a guest's linear memory included. A wasmtime or
@@ -191,3 +191,37 @@ because `fetch` is the same binary's other subcommand.
 The helper is started fresh rather than repaired, so a crashed one leaves no
 half-state behind: its replacement is told which plugins to load and reads them
 from the store.
+
+## Installing one plugin, and the JSON it prints
+
+`yapfast-plugins fetch <URL>` runs for seconds in a process of its own, so the
+git machinery leaves with it. It fetches one commit of the repository, shallowly
+and without a checkout, into a temporary bare repository that is deleted before
+it exits; it then reads `yapfast-plugin.json` at the folder the URL names, the
+module that manifest names, and its icon, straight from the tree objects. Every
+one of those is measured from its git object header before its bytes are
+decoded, so a file over its cap is refused without ever being held whole.
+
+What it found comes back as **one JSON object on stdout**, tagged by `kind`:
+
+```json
+{"kind":"plugin","source":"https://codeberg.org/ada/word-filter","path":"",
+ "reference":"main","rev":"051b765b…","manifest":"{…}",
+ "wasm":"/tmp/.yapfast-plugin-1-0/plugin.wasm","icon":null}
+{"kind":"index","source":"https://codeberg.org/ada/plugins","paths":["plugins/word-filter"]}
+{"kind":"error","error":"That repository has no yapfast-plugin.json at its root."}
+```
+
+An error is an object like any other and comes with a non-zero exit status. The
+module and the icon are written to a temporary directory whose path the object
+carries; the parent copies them into the store and deletes the directory, so a
+fetch that prints nothing successful leaves nothing behind, and one that does
+leaves exactly the files it named. That directory is left in place only once the
+object naming it has been written, because a report the parent never read would
+leave files nothing would remove.
+
+The caps are a 64 MiB repository, 120 seconds, an 8 MiB module and a 64 KiB
+icon, all from [`limits`](../../crates/yapfast-plugin-api/src/limits.rs). A
+symbolic link, a submodule, a path that climbs out of the plugin's folder and a
+blob that is a Git LFS pointer are refused by name: LFS keeps the bytes on
+another server, so the message says to check the file in instead.

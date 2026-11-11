@@ -89,7 +89,7 @@ pub fn start(data_dir: &Path) -> Result<Helper> {
 /// target directory is tried without installing it. Otherwise it sits beside
 /// the running Yapfast, which is where a package puts it, and keeps it the same
 /// version as the window it talks to.
-fn program() -> Result<PathBuf> {
+pub(crate) fn program() -> Result<PathBuf> {
     if let Some(program) = std::env::var_os("YAPFAST_PLUGINS") {
         let program = PathBuf::from(program);
         if !program.is_file() {

@@ -13725,7 +13725,7 @@ dependencies = [
  "gix",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "tempfile",
  "tracing",
  "tracing-subscriber",
  "yapfast-plugin-api",

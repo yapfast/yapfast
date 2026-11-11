@@ -40,8 +40,9 @@ pub enum Helper {
     /// No instance lives, so no process does.
     #[default]
     Stopped,
-    /// Its memory in bytes, sampled only while the page is open.
-    Running { memory: u64 },
+    /// Its memory in bytes, sampled only while the page is open, where this
+    /// system reports it.
+    Running { memory: Option<u64> },
     /// The helper binary isn't beside Yapfast's. Everything else works.
     Missing,
     /// It crashed three times in a minute, so plugins stay off until
@@ -69,6 +70,8 @@ pub struct Installed {
     pub previous: Option<String>,
     pub origin: Origin,
     pub source: String,
+    /// The folder in that repository, empty when its manifest is at the root.
+    pub path: String,
     /// The full commit it's pinned to.
     pub commit: String,
     pub license: String,
@@ -317,6 +320,9 @@ pub struct Review {
     pub version: String,
     pub icon: Option<String>,
     pub source: String,
+    /// The folder in that repository, empty when the manifest is at its root:
+    /// a repository that holds several plugins names one here.
+    pub path: String,
     pub commit: String,
     /// It comes from the marketplace, which reviewed it. A URL install is
     /// an *Unreviewed source*.
@@ -447,6 +453,10 @@ pub enum Permission {
 pub trait Source {
     fn view(&self) -> &View;
     fn request(&mut self, request: Request);
+    /// Hands over the view the runtime built, which is how it says what moved
+    /// since the last one. The fixture and the page that says plugins can't run
+    /// build their own, and ignore this.
+    fn set_view(&mut self, _view: View) {}
 }
 
 /// The source of a build whose plugin runtime isn't there: the page says so,
@@ -730,6 +740,7 @@ impl Fixture {
                 previous: Some("1.3.2".into()),
                 origin: Origin::Marketplace,
                 source: "https://codeberg.org/ada/word-filter".into(),
+                path: String::new(),
                 commit: "051b765bb6abe4fe95d5e4f489f03ad7b137edbc".into(),
                 license: "MIT".into(),
                 capabilities: strings(&["messages.read", "messages.intercept", "storage"]),
@@ -774,6 +785,7 @@ impl Fixture {
                 status: Status::Suspended(Suspension::OutOfMemory),
                 origin: Origin::Url,
                 source: "https://github.com/bea/translate".into(),
+                path: "plugins/translate".into(),
                 commit: rev("9f2c1d"),
                 license: "GPL-3.0-or-later".into(),
                 capabilities: strings(&["messages.read"]),
@@ -895,7 +907,9 @@ impl Fixture {
         }
         Self {
             view: View {
-                helper: Helper::Running { memory: 5_662_310 },
+                helper: Helper::Running {
+                    memory: Some(5_662_310),
+                },
                 installed,
                 ..View::default()
             },
@@ -941,6 +955,7 @@ impl Fixture {
             version: listing.version.clone(),
             icon: listing.icon.clone(),
             source: format!("https://codeberg.org/{}", listing.author.to_lowercase()),
+            path: String::new(),
             commit: format!("{:0<40}", "c0ffee"),
             reviewed: listing.reviewed,
             capabilities: listing.capabilities.clone(),
@@ -994,6 +1009,9 @@ impl Fixture {
             version: "0.3.0".into(),
             icon: None,
             source: url.to_owned(),
+            path: url
+                .split_once("#path=")
+                .map_or_else(String::new, |(_, path)| path.to_owned()),
             commit: "7d1e4a90c3b2f5e6a7d8c9b0a1f2e3d4c5b6a7f8".into(),
             reviewed: false,
             capabilities: vec![
@@ -1060,6 +1078,7 @@ impl Source for Fixture {
                         Origin::Url
                     },
                     source: review.source,
+                    path: review.path,
                     commit: review.commit,
                     license: "MIT".into(),
                     grants: review

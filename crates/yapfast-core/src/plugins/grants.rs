@@ -26,9 +26,9 @@ use std::sync::{PoisonError, RwLock};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
 use yapfast_plugin_api::PluginId;
 use yapfast_plugin_api::capability::HostPattern;
-use std::time::{Duration, Instant};
 
 use yapfast_plugin_api::limits;
 

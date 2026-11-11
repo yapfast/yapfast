@@ -150,12 +150,22 @@ and fetch errors. `ui/plugin_settings.slint` draws the page from the
 `PluginPage` global, and `src/ui/plugin_settings.rs` fills that global from a
 `View` and turns the page's callbacks into requests.
 
-The plugin runtime is the page's `Source`: it keeps a `View` current, answers
-each `Request`, and once the view moves calls `plugin_settings::changed`,
-which shows it again if the page is open. It gives itself to the page with
-`plugin_settings::attach`. Until then, the page shows `page::Fixture`, sample
-plugins that answer at once, in `--preview`, and anywhere else
-`page::Unavailable`, which says plugins can't run.
+The plugin runtime is the page's `Source`, and `src/ui/plugin_settings.rs`
+implements it over the application: `plugin_settings::attach` gives it to the
+page while the window is built, and `plugin_settings::set_view` hands it a fresh
+`View` whenever one moves, which redraws the page if it's open.
+
+The `View` itself is built in `crates/yapfast-core/src/plugins/view.rs` from the
+registry, the store's lock file and the grant file: a copy, taken when the page
+draws, so a page that is closed holds nothing and holds no lock while it is
+open. `src/application/plugin_page.rs` answers the page's requests, one
+`application::Action` each, and `Effect::Plugin` carries a status back to it. A
+request for something no milestone has built yet — the marketplace, the install
+review, rollback, a plugin's own form — is logged and does nothing.
+
+`--preview` keeps the sample plugins instead: the page shows `page::Fixture`,
+which answers at once, and `page::Unavailable` says plugins can't run only in a
+build whose runtime was never attached.
 
 The page holds rows only while it's open. Opening it sends `Request::Open`;
 leaving it, for another section or by closing Settings, sends

@@ -2,24 +2,23 @@
 //!
 //! A fetch is shallow: `git`'s objects for the commit a ref points at, and
 //! nothing behind it, so a plugin's history is never downloaded. There is no
-//! checkout either — the files are read straight out of the tree and written to
-//! a scratch directory, which means no `core.*` setting, no filter driver and no
-//! file name from the repository can reach the filesystem as anything but the
-//! bytes it holds.
+//! checkout either: a file's bytes are read straight out of the tree, so no
+//! `core.*` setting, no filter driver and no file name from the repository can
+//! reach the filesystem as anything but the bytes it holds.
 //!
-//! The caps are enforced while the fetch runs: a watchdog stops a clone that
-//! takes too long or grows past its size, and every file is measured from its
-//! object header before its bytes are decoded, so an oversized module is refused
-//! without ever being held.
+//! The caps are enforced while the fetch runs — a watchdog stops a clone that
+//! takes too long or grows past its size — and every file is measured from its
+//! object header before its bytes are decoded, so an oversized one is refused
+//! without ever being held whole.
 
 use std::num::NonZeroU32;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
-use gix::bstr::ByteSlice;
+use gix::objs::Find as _;
 use gix::objs::tree::EntryKind;
 use yapfast_plugin_api::limits;
 
@@ -27,84 +26,193 @@ use super::url::Source;
 
 /// How often the watchdog looks at the clock and the size on disk.
 const WATCH_INTERVAL: Duration = Duration::from_millis(250);
-/// The depth of directories a plugin may nest.
+/// The depth a file may nest inside a plugin.
 const MAX_DEPTH: usize = 32;
-/// The files one plugin directory may hold: a plugin is code and a little data.
-const MAX_FILES: usize = 512;
 
-/// A plugin's files, read out of one commit into a scratch directory.
-pub struct Staged {
-    /// The full id of the commit that was read.
-    pub commit: String,
-    /// The plugin directory's files, at their paths relative to it.
-    pub dir: PathBuf,
-    /// The text of its `yapfast-plugin.json`.
-    pub manifest: String,
-    /// The directory inside the repository, if the URL named one.
-    pub path: Option<String>,
+/// How much may be read for one file, and how a larger one is refused.
+#[derive(Clone, Copy)]
+pub struct Cap {
+    /// The largest file read for it, measured from its object header.
+    pub bytes: u64,
+    /// The rest of the sentence a larger one is refused with, as in `a module
+    /// is at most 8 MiB`.
+    pub label: &'static str,
 }
 
-/// Fetches the commit `source` names and writes its plugin directory under
-/// `work`.
-///
-/// `work` is the fetch's own: the bare repository goes in `work/repo` and the
-/// plugin's files in `work/plugin`, so both go away with the directory that
-/// holds them.
-pub fn fetch(source: &Source, work: &Path) -> anyhow::Result<Staged> {
-    let repository = work.join("repo");
-    clone(source, &repository)?;
-    let repo = gix::open(repository.clone())
-        .with_context(|| format!("`{}` couldn't be reopened after the fetch", source.repo))?;
-    let commit_id = resolve(&repo, source)?;
-    let commit = repo
-        .find_object(commit_id)
-        .with_context(|| format!("commit {commit_id} is missing from the fetch"))?
-        .peel_to_commit()
-        .map_err(|_| {
-            anyhow::anyhow!(
-                "`{}` points at {commit_id}, which isn't a commit; name a branch or tag",
-                source.reference_name()
-            )
-        })?;
-    let commit = commit.id().to_string();
+/// One commit of one repository, open for reading the plugin's files.
+pub struct Snapshot {
+    repo: gix::Repository,
+    /// The tree of the folder the source names: what the plugin's paths are
+    /// relative to.
+    root: gix::ObjectId,
+    /// The full id of the commit that was read.
+    pub commit: String,
+}
 
-    let dir = work.join("plugin");
-    std::fs::create_dir(&dir)
-        .with_context(|| format!("`{}` can't hold the plugin", dir.display()))?;
-    let mut budget = Budget::default();
-    let tree = repo.find_object(commit_id)?.peel_to_tree()?;
-    let tree = match &source.path {
-        Some(path) => descend(&repo, tree, path, source)?,
-        None => tree,
-    };
-    let prefix = source
-        .path
-        .as_ref()
-        .map(|path| format!("{path}/"))
-        .unwrap_or_default();
-    stage(&repo, tree, &dir, &prefix, &mut budget, 0)?;
-
-    let manifest_path = dir.join(super::MANIFEST_FILE);
-    if !manifest_path.is_file() {
-        bail!(
-            "{} has no `{}`; a plugin is a directory that holds one, and a URL can name that \
-             directory with `#path=plugins/foo`",
+impl Snapshot {
+    /// Clones `source` into `work` and opens the commit and folder it names.
+    ///
+    /// `work` is the fetch's own: the bare repository goes in `work/repo`, so it
+    /// goes away with the directory that holds it.
+    pub fn open(source: &Source, work: &Path) -> anyhow::Result<Snapshot> {
+        let repository = work.join("repo");
+        clone(source, &repository)?;
+        let repo = gix::open(repository)
+            .with_context(|| format!("`{}` couldn't be reopened after the fetch", source.repo))?;
+        let commit_id = resolve(&repo, source)?;
+        let commit = repo
+            .find_object(commit_id)
+            .with_context(|| format!("commit {commit_id} is missing from the fetch"))?
+            .peel_to_commit()
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "`{}` points at {commit_id}, which isn't a commit; name a branch or tag",
+                    source.reference_name()
+                )
+            })
+            .map(|commit| commit.id().to_string())?;
+        let root = {
+            let tree = repo.find_object(commit_id)?.peel_to_tree()?;
             match &source.path {
-                Some(path) => format!("`{path}` in `{}`", source.repo),
-                None => format!("`{}`", source.repo),
-            },
-            super::MANIFEST_FILE
-        );
+                Some(path) => directory(&repo, tree, path, source)?,
+                None => tree.id,
+            }
+        };
+        Ok(Snapshot { repo, root, commit })
     }
-    let manifest = std::fs::read_to_string(&manifest_path)
-        .with_context(|| format!("`{}` isn't UTF-8 text", super::MANIFEST_FILE))?;
 
-    Ok(Staged {
-        commit,
-        dir,
-        manifest,
-        path: source.path.clone(),
-    })
+    /// The bytes of the file at `path` inside the plugin's folder, or `None`
+    /// when the folder has no such file.
+    ///
+    /// `path` is checked before anything is read: it must stay inside the
+    /// folder, and every part of it must be a real file or directory there. A
+    /// symbolic link is refused rather than followed, and a submodule is refused
+    /// because a fetch never downloads one.
+    pub fn file(&self, path: &Path, cap: Cap) -> anyhow::Result<Option<Vec<u8>>> {
+        let shown = path.display().to_string();
+        let mut parts = checked_parts(path, &shown)?;
+        let Some(name) = parts.pop() else {
+            bail!("`{shown}` isn't a path inside the plugin's directory");
+        };
+        let mut tree = self.repo.find_tree(self.root)?;
+        let mut prefix = String::new();
+        for (depth, part) in parts.iter().enumerate() {
+            let relative = format!("{prefix}{part}");
+            let Some(entry) = tree.find_entry(part.as_bytes()) else {
+                return Ok(None);
+            };
+            match entry.mode().kind() {
+                EntryKind::Tree => {
+                    if depth >= MAX_DEPTH {
+                        bail!("`{relative}` is nested deeper than {MAX_DEPTH} directories");
+                    }
+                    tree = self.repo.find_tree(entry.object_id())?;
+                    prefix = format!("{relative}/");
+                }
+                kind => return Err(not_a_directory(&relative, kind)),
+            }
+        }
+        let relative = format!("{prefix}{name}");
+        let Some(entry) = tree.find_entry(name.as_bytes()) else {
+            return Ok(None);
+        };
+        match entry.mode().kind() {
+            EntryKind::Blob | EntryKind::BlobExecutable => {
+                read_blob(&self.repo, entry.object_id(), &relative, cap).map(Some)
+            }
+            kind => Err(not_a_file(&relative, kind)),
+        }
+    }
+}
+
+/// Splits a path into the parts a tree can be looked up by, refusing any that
+/// would read outside the plugin's folder.
+fn checked_parts(path: &Path, shown: &str) -> anyhow::Result<Vec<String>> {
+    let mut parts = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => {
+                let name = part.to_str().ok_or_else(|| {
+                    anyhow::anyhow!("`{shown}` has a name that isn't UTF-8, so it can't be read")
+                })?;
+                if name.is_empty() || name.contains(['\\', '\0']) {
+                    bail!("`{shown}` isn't a name a file in a plugin can have");
+                }
+                parts.push(name.to_owned());
+            }
+            // `./plugin.wasm` reads the same file.
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                bail!("`{shown}` isn't a path inside the plugin's directory")
+            }
+        }
+    }
+    if parts.is_empty() {
+        bail!("`{shown}` isn't a path inside the plugin's directory");
+    }
+    Ok(parts)
+}
+
+/// Reads one blob, measured and capped before its bytes are decoded.
+fn read_blob(
+    repo: &gix::Repository,
+    oid: gix::ObjectId,
+    relative: &str,
+    cap: Cap,
+) -> anyhow::Result<Vec<u8>> {
+    let header = repo
+        .find_header(oid)
+        .with_context(|| format!("`{relative}` couldn't be read"))?;
+    if header.kind() != gix::objs::Kind::Blob {
+        bail!("`{relative}` isn't a file");
+    }
+    let size = header.size();
+    if size > cap.bytes {
+        bail!("`{relative}` is {size} bytes; {}", cap.label);
+    }
+    // Decoded straight into a buffer of our own: gix hands an object back with
+    // its bytes borrowed from a buffer it keeps, so this is the one place a
+    // fetched file is ever held, and it is held once.
+    let mut bytes = Vec::with_capacity(size as usize);
+    {
+        let found = repo
+            .objects
+            .try_find(&oid, &mut bytes)
+            .with_context(|| format!("`{relative}` couldn't be read"))?;
+        let Some(data) = found else {
+            bail!("`{relative}` is missing from the fetch");
+        };
+        if let Some(pointer) = lfs_pointer(data.data) {
+            bail!(
+                "`{relative}` is a Git LFS pointer ({pointer}), not the file: Git LFS keeps the \
+                 bytes on another server, so nothing here could run. Check in the file itself, \
+                 committed to the repository without LFS"
+            );
+        }
+    }
+    Ok(bytes)
+}
+
+/// Why an entry that isn't a real directory is refused, by its name.
+fn not_a_directory(relative: &str, kind: EntryKind) -> anyhow::Error {
+    match kind {
+        EntryKind::Link => anyhow::anyhow!(
+            "`{relative}` is a symbolic link; a plugin's files and directories are real ones, so \
+             nothing is followed out of the repository"
+        ),
+        EntryKind::Commit => {
+            anyhow::anyhow!("`{relative}` is a submodule, and a fetch never downloads one")
+        }
+        _ => anyhow::anyhow!("`{relative}` is a file, not a directory"),
+    }
+}
+
+/// Why an entry that isn't a real file is refused, by its name.
+fn not_a_file(relative: &str, kind: EntryKind) -> anyhow::Error {
+    match kind {
+        EntryKind::Tree => anyhow::anyhow!("`{relative}` is a directory, not a file"),
+        kind => not_a_directory(relative, kind),
+    }
 }
 
 /// Clones the ref shallowly into a bare repository at `destination`.
@@ -192,133 +300,33 @@ fn resolve(repo: &gix::Repository, source: &Source) -> anyhow::Result<gix::Objec
     Ok(id.detach())
 }
 
-/// Walks to the directory a source names, refusing anything on the way that
-/// isn't a real directory.
-fn descend<'repo>(
-    repo: &'repo gix::Repository,
-    mut tree: gix::Tree<'repo>,
+/// Walks to the folder a source names, refusing anything on the way that isn't
+/// a real directory.
+fn directory(
+    repo: &gix::Repository,
+    tree: gix::Tree<'_>,
     path: &str,
     source: &Source,
-) -> anyhow::Result<gix::Tree<'repo>> {
+) -> anyhow::Result<gix::ObjectId> {
+    let mut current = tree.id;
     let mut prefix = String::new();
     for component in path.split('/').filter(|part| !part.is_empty()) {
-        let Some((oid, kind)) = find(&tree, component) else {
+        let tree = repo.find_tree(current)?;
+        let Some(entry) = tree.find_entry(component.as_bytes()) else {
             bail!(
                 "`{}` has no `{prefix}{component}` at {}",
                 source.repo,
                 source.reference_name()
             );
         };
-        match kind {
-            EntryKind::Tree => tree = repo.find_tree(oid)?,
-            EntryKind::Link => bail!(
-                "`{prefix}{component}` is a symbolic link; a plugin's files and directories are \
-                 real ones, so nothing is followed out of the repository"
-            ),
-            EntryKind::Commit => {
-                bail!("`{prefix}{component}` is a submodule, and a fetch never downloads one")
-            }
-            _ => bail!(
-                "`{prefix}{component}` is a file, not a directory; a source names the directory \
-                 that holds `{}`",
-                super::MANIFEST_FILE
-            ),
+        match entry.mode().kind() {
+            EntryKind::Tree => current = entry.object_id(),
+            kind => return Err(not_a_directory(&format!("{prefix}{component}"), kind)),
         }
         prefix.push_str(component);
         prefix.push('/');
     }
-    Ok(tree)
-}
-
-/// Writes a tree's files into `out`, at their paths relative to it.
-fn stage(
-    repo: &gix::Repository,
-    tree: gix::Tree<'_>,
-    out: &Path,
-    prefix: &str,
-    budget: &mut Budget,
-    depth: usize,
-) -> anyhow::Result<()> {
-    for entry in tree.iter() {
-        let entry = entry.context("a directory of the plugin couldn't be read")?;
-        let name = entry.filename().to_str().map_err(|_| {
-            anyhow::anyhow!(
-                "`{prefix}` holds a file name that isn't UTF-8, which a plugin can't carry"
-            )
-        })?;
-        if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\', '\0']) {
-            bail!("`{prefix}{name}` isn't a name a file can have");
-        }
-        let relative = format!("{prefix}{name}");
-        match entry.mode().kind() {
-            EntryKind::Blob | EntryKind::BlobExecutable => {
-                stage_blob(repo, entry.object_id(), &out.join(name), &relative, budget)?;
-            }
-            EntryKind::Tree => {
-                if depth >= MAX_DEPTH {
-                    bail!("`{relative}` is nested deeper than {MAX_DEPTH} directories");
-                }
-                let dir = out.join(name);
-                std::fs::create_dir(&dir)
-                    .with_context(|| format!("`{relative}` couldn't be written"))?;
-                let sub = repo.find_tree(entry.object_id())?;
-                stage(repo, sub, &dir, &format!("{relative}/"), budget, depth + 1)?;
-            }
-            EntryKind::Link => bail!(
-                "`{relative}` is a symbolic link; a plugin's files are real files, so nothing is \
-                 followed out of the repository"
-            ),
-            EntryKind::Commit => {
-                bail!("`{relative}` is a submodule, and a fetch never downloads one")
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Writes one blob, measured and capped before its bytes are decoded.
-fn stage_blob(
-    repo: &gix::Repository,
-    oid: gix::ObjectId,
-    destination: &Path,
-    relative: &str,
-    budget: &mut Budget,
-) -> anyhow::Result<()> {
-    let header = repo
-        .find_header(oid)
-        .with_context(|| format!("`{relative}` couldn't be read"))?;
-    if header.kind() != gix::objs::Kind::Blob {
-        bail!("`{relative}` isn't a file");
-    }
-    let size = header.size();
-    if size > limits::MAX_WASM_BYTES {
-        bail!(
-            "`{relative}` is {size} bytes; a plugin's files are at most {} MiB each",
-            limits::MAX_WASM_BYTES >> 20
-        );
-    }
-    budget.take(size, relative)?;
-    // gix decodes an object in one step — there is no streaming decode — so the
-    // header above is what bounds this: at most one capped file's bytes are in
-    // memory at a time, and they are written out and dropped before the next
-    // entry is read.
-    let blob = repo.find_blob(oid)?;
-    if let Some(pointer) = lfs_pointer(&blob.data) {
-        bail!(
-            "`{relative}` is a Git LFS pointer ({pointer}), not the file: Git LFS keeps the bytes \
-             on another server, so nothing here could run. Commit the built file to the \
-             repository itself, without LFS"
-        );
-    }
-    std::fs::write(destination, &blob.data)
-        .with_context(|| format!("`{relative}` couldn't be written"))?;
-    Ok(())
-}
-
-/// The one name in a tree that matches, with its id and kind.
-fn find(tree: &gix::Tree<'_>, name: &str) -> Option<(gix::ObjectId, EntryKind)> {
-    let entry = tree.find_entry(name.as_bytes())?;
-    Some((entry.object_id(), entry.mode().kind()))
+    Ok(current)
 }
 
 /// The first line of a Git LFS pointer, which stands in for a file git doesn't
@@ -337,35 +345,6 @@ fn lfs_pointer(data: &[u8]) -> Option<String> {
         .find_map(|line| line.strip_prefix("oid sha256:"))
         .unwrap_or("no object id");
     Some(format!("oid sha256:{oid}"))
-}
-
-/// The bytes and files written so far, against the caps on what a fetch may
-/// read.
-#[derive(Default)]
-struct Budget {
-    written: u64,
-    files: usize,
-}
-
-impl Budget {
-    fn take(&mut self, bytes: u64, relative: &str) -> anyhow::Result<()> {
-        self.written += bytes;
-        self.files += 1;
-        if self.files > MAX_FILES {
-            bail!(
-                "the plugin holds more than {MAX_FILES} files, at `{relative}`; a plugin is code \
-                 and a little data"
-            );
-        }
-        if self.written > limits::MAX_FETCH_BYTES {
-            bail!(
-                "the plugin's files come to more than the {} MiB a plugin may carry, at \
-                 `{relative}`",
-                limits::MAX_FETCH_BYTES >> 20
-            );
-        }
-        Ok(())
-    }
 }
 
 /// Why a fetch was stopped early.
@@ -463,13 +442,6 @@ mod tests {
     }
 
     #[test]
-    fn a_budget_stops_at_the_cap() {
-        let mut budget = Budget::default();
-        assert!(budget.take(limits::MAX_FETCH_BYTES, "a").is_ok());
-        assert!(budget.take(1, "b").is_err());
-    }
-
-    #[test]
     fn names_a_commit_id_and_not_a_branch() {
         assert!(is_object_id("0123456789abcdef0123456789abcdef01234567"));
         assert!(!is_object_id("main"));
@@ -480,5 +452,20 @@ mod tests {
     fn a_size_the_watchdog_can_read() {
         assert_eq!(Trip::of(0) as u8, Trip::None as u8);
         assert!(matches!(Trip::of(2), Trip::Size));
+    }
+
+    #[test]
+    fn refuses_a_path_that_climbs_out_of_the_plugin() {
+        assert!(checked_parts(Path::new("../outside.wasm"), "../outside.wasm").is_err());
+        assert!(
+            checked_parts(Path::new("/etc/passwd"), "/etc/passwd").is_err(),
+            "an absolute path leaves the folder too"
+        );
+        assert!(checked_parts(Path::new(""), "").is_err());
+        assert_eq!(
+            checked_parts(Path::new("./plugin.wasm"), "./plugin.wasm")
+                .expect("a path that stays inside"),
+            vec!["plugin.wasm".to_owned()]
+        );
     }
 }

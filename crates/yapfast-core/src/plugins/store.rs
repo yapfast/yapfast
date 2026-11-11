@@ -6,7 +6,8 @@
 //! ```text
 //! lock.json            what is installed, and which plugins are on
 //! grants.json          what the person allowed; read by `permissions`
-//! store/<sha256>/      manifest.json and plugin.wasm, content-addressed
+//! store/<sha256>/      manifest.json and plugin.wasm, content-addressed; the
+//!                      current version and the one a roll back returns to
 //! data/<id>/           a plugin's storage and settings
 //! cache/               the helper's compile cache; safe to delete
 //! ```
@@ -24,12 +25,12 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use yapfast_plugin_api::{PluginId, PluginManifest};
@@ -51,6 +52,26 @@ const SAVE_DEBOUNCE: Duration = Duration::from_millis(500);
 /// Bytes read from a module at a time while hashing it: enough to keep the hash
 /// fast, small enough that an 8 MiB module is never in memory whole.
 const HASH_CHUNK: usize = 64 << 10;
+
+/// A plugin that has been fetched and checked, waiting to be written into the
+/// store. Nothing here has run.
+pub struct Package {
+    pub id: PluginId,
+    /// The repository it came from, as `fetch::Spec::source` names it.
+    pub source: String,
+    /// The folder in it, empty when the manifest is at the repository's root.
+    pub path: String,
+    /// The branch or tag it was fetched at; empty for the default branch.
+    pub reference: String,
+    /// The commit, which is the pin.
+    pub rev: String,
+    /// The manifest's text, written as `manifest.json`.
+    pub manifest: String,
+    /// The module, written as `plugin.wasm`.
+    pub module: Vec<u8>,
+    /// `icon.png`, when the manifest names one.
+    pub icon: Option<Vec<u8>>,
+}
 
 /// The plugin directory, and the storage it has read so far.
 pub struct Store {
@@ -82,27 +103,255 @@ impl Store {
     /// installed, which is what a Yapfast that never met a plugin has.
     pub fn lock(&self) -> Result<Lock> {
         let path = self.root.join(LOCK);
+        let lock = self.lock_json()?;
+        serde_json::from_value(lock)
+            .with_context(|| format!("{} isn't a lock file", path.display()))
+    }
+
+    /// The lock file as JSON, which is how it is written: it is edited as JSON
+    /// rather than parsed into this module's own types and printed back, so
+    /// fields another part of the plugin system adds survive an install as well
+    /// as a toggle.
+    ///
+    /// A version this build can't read is refused here, before anything is
+    /// written to it.
+    fn lock_json(&self) -> Result<Value> {
+        let path = self.root.join(LOCK);
         let text = match fs::read_to_string(&path) {
             Ok(text) => text,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(Lock::default());
+                return Ok(serde_json::json!({ "version": LOCK_VERSION, "plugins": {} }));
             }
             Err(error) => {
                 return Err(error).with_context(|| format!("could not read {}", path.display()));
             }
         };
-        let lock: Lock = serde_json::from_str(&text)
+        let lock: Value = serde_json::from_str(&text)
             .with_context(|| format!("{} isn't a lock file", path.display()))?;
-        if lock.version > LOCK_VERSION {
+        let version = lock.get("version").and_then(Value::as_u64).unwrap_or(0);
+        if version > u64::from(LOCK_VERSION) {
             anyhow::bail!(
-                "{} is a version {} lock file and this build reads version {}; \
+                "{} is a version {version} lock file and this build reads version {LOCK_VERSION}; \
                  update Yapfast rather than forgetting what is installed",
                 path.display(),
-                lock.version,
-                LOCK_VERSION
             );
         }
         Ok(lock)
+    }
+
+    /// Writes a checked package into `store/` and `lock.json`: the current
+    /// version becomes the previous one, which Roll back returns to, and the
+    /// one before that is dropped.
+    pub fn install(&mut self, package: &Package) -> Result<()> {
+        let id = package.id.as_str();
+        // Digests are read through a borrow: a module is up to 64 MiB, and this
+        // is the one pass over it that isn't the write itself.
+        let wasm_sha256 = hex(&Sha256::digest(&package.module));
+        let manifest_sha256 = hex(&Sha256::digest(package.manifest.as_bytes()));
+        // The directory a version lives in is named after both, because both
+        // decide what runs. Naming it after the module alone would let a
+        // manifest-only update — the way a plugin asks for a new permission —
+        // land in the same directory as the version it replaces, where the old
+        // manifest would be read beside the new pin.
+        let address = {
+            let mut digest = Sha256::new();
+            digest.update(wasm_sha256.as_bytes());
+            digest.update(b":");
+            digest.update(manifest_sha256.as_bytes());
+            hex(&digest.finalize())
+        };
+
+        let mut lock = self.lock_json()?;
+        let installed = lock
+            .get("plugins")
+            .and_then(Value::as_object)
+            .and_then(|plugins| plugins.get(id))
+            .cloned();
+        if let Some(entry) = &installed {
+            // One id, one install: two folders of a monorepo that declare the
+            // same id are refused rather than overwriting each other, which is
+            // how a copied template escapes review.
+            let source = entry.get("source").and_then(Value::as_str).unwrap_or("");
+            let path = entry.get("path").and_then(Value::as_str).unwrap_or("");
+            if source != package.source || path != package.path {
+                anyhow::bail!("another plugin already uses {id}");
+            }
+        }
+        // A person's choice of whether it is on survives an update.
+        let enabled = installed
+            .as_ref()
+            .and_then(|entry| entry.get("enabled"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        let mut entry = serde_json::json!({
+            "source": package.source,
+            "path": package.path,
+            "ref": package.reference,
+            "rev": package.rev,
+            "origin": "url",
+            "store": address,
+            "wasm_sha256": wasm_sha256,
+            "manifest_sha256": manifest_sha256,
+            "enabled": enabled,
+        });
+        if let Some(installed) = installed {
+            // The version being replaced keeps its fields, since it is what a
+            // roll back returns to, but not its own previous one: only two
+            // versions stay in `store/`, and neither is two deep.
+            let mut previous = installed;
+            if let Some(object) = previous.as_object_mut() {
+                object.remove("previous");
+            }
+            if let Some(object) = entry.as_object_mut() {
+                object.insert("previous".to_owned(), previous);
+            }
+        }
+
+        let before = lock_dirs(&self.root, &lock);
+        self.write_version(package, &address)?;
+        lock.get_mut("plugins")
+            .and_then(Value::as_object_mut)
+            .context("the lock file's plugins aren't an object")?
+            .insert(id.to_owned(), entry);
+
+        if let Err(error) = self.write_lock(&lock) {
+            // No entry names the version that was just written, so nobody could
+            // load it, update it or uninstall it: remove it rather than leave
+            // the store holding files no lock entry mentions. A directory the
+            // lock file already named is another version's and stays.
+            let directory = self.root.join(STORE).join(&address);
+            if !before.contains(&directory)
+                && let Err(removal) = remove_all(&directory)
+            {
+                tracing::warn!(%removal, "could not remove a version no lock entry names");
+            }
+            return Err(error);
+        }
+        self.prune(&before, &lock);
+        Ok(())
+    }
+
+    /// Goes back to the version the last install replaced.
+    pub fn roll_back(&mut self, plugin: &PluginId) -> Result<()> {
+        let mut lock = self.lock_json()?;
+        let entry = lock
+            .get_mut("plugins")
+            .and_then(Value::as_object_mut)
+            .and_then(|plugins| plugins.get_mut(plugin.as_str()))
+            .with_context(|| format!("{plugin} isn't installed"))?;
+        let previous = entry
+            .get("previous")
+            .filter(|value| !value.is_null())
+            .cloned()
+            .with_context(|| format!("{plugin} has no previous version to roll back to"))?;
+        // The version that is current becomes the one a roll back returns to,
+        // so rolling back twice undoes the first: the files of both are already
+        // in the store, and this is only which of them the lock file names.
+        let mut replaced = entry.clone();
+        if let Some(object) = replaced.as_object_mut() {
+            object.remove("previous");
+        }
+        let mut rolled = previous;
+        let object = rolled.as_object_mut().with_context(|| {
+            format!("the version {plugin} keeps to roll back to isn't a lock entry")
+        })?;
+        // A roll back is about the code it runs, not about whether the person
+        // wants it on, so the switch stays where they left it.
+        if let Some(enabled) = entry.get("enabled").cloned() {
+            object.insert("enabled".to_owned(), enabled);
+        }
+        object.insert("previous".to_owned(), replaced);
+        *entry = rolled;
+        self.write_lock(&lock)
+    }
+
+    /// Removes a plugin's files and its lock entry; `delete_data` also removes
+    /// `data/<id>/`, its storage and settings.
+    pub fn uninstall(&mut self, plugin: &PluginId, delete_data: bool) -> Result<()> {
+        let mut lock = self.lock_json()?;
+        let before = lock_dirs(&self.root, &lock);
+        lock.get_mut("plugins")
+            .and_then(Value::as_object_mut)
+            .context("the lock file's plugins aren't an object")?
+            .remove(plugin.as_str())
+            .with_context(|| format!("{plugin} isn't installed"))?;
+        // The entry goes first: a `store/` directory no entry names is found by
+        // the next install, while an entry whose files are gone is a plugin that
+        // fails to load on every start from now on.
+        self.write_lock(&lock)?;
+        self.prune(&before, &lock);
+        if delete_data {
+            remove_all(&self.data_dir(plugin))?;
+            // Storage read into memory goes too, or the next flush would write
+            // it back into the directory that was just removed.
+            self.storage.remove(plugin);
+        }
+        Ok(())
+    }
+
+    /// Writes the lock file, in one step, so a reader sees the old entries or
+    /// the new ones.
+    fn write_lock(&self, lock: &Value) -> Result<()> {
+        let path = self.root.join(LOCK);
+        let text = serde_json::to_vec_pretty(lock).context("could not write the lock file")?;
+        write_atomically(&path, &text)
+    }
+
+    /// Writes one version's files, addressed by the module's digest, in a
+    /// directory that is renamed into place once its bytes are on disk: a
+    /// `store/` directory that is there is whole, so nothing ever runs half a
+    /// module.
+    /// Writes one version at `address`, which names the module and the manifest
+    /// together: the same address is the same bytes, so an install that finds it
+    /// already there has nothing to do.
+    fn write_version(&self, package: &Package, address: &str) -> Result<()> {
+        let store = self.root.join(STORE);
+        fs::create_dir_all(&store)
+            .with_context(|| format!("could not create {}", store.display()))?;
+        let directory = store.join(address);
+        if directory.join("manifest.json").is_file() {
+            // Content-addressed: this address is these bytes, so the version is
+            // already here. Keep it, and leave whichever entry names it alone.
+            return Ok(());
+        }
+        // Named after what is being written, so an install that failed partway
+        // leaves one directory the next attempt at the same version reuses.
+        let temporary = store.join(format!(".{address}.tmp"));
+        remove_all(&temporary)?;
+        fs::create_dir_all(&temporary)
+            .with_context(|| format!("could not create {}", temporary.display()))?;
+        write_file(
+            &temporary.join("manifest.json"),
+            package.manifest.as_bytes(),
+        )?;
+        write_file(&temporary.join("plugin.wasm"), &package.module)?;
+        if let Some(icon) = &package.icon {
+            write_file(&temporary.join("icon.png"), icon)?;
+        }
+        // The files are flushed, and then their names, before the directory is
+        // renamed: a version that appears in `store/` survives a power cut.
+        sync_dir(&temporary)?;
+        if directory.is_dir() {
+            // There, but not whole: replace it.
+            remove_all(&directory)?;
+        }
+        fs::rename(&temporary, &directory)
+            .with_context(|| format!("could not write {}", directory.display()))?;
+        sync_dir(&store)
+    }
+
+    /// Removes the `store/` directories the lock file no longer names: the
+    /// version before the one kept to roll back to, or an uninstalled plugin's.
+    fn prune(&self, before: &[PathBuf], lock: &Value) {
+        let after = lock_dirs(&self.root, lock);
+        for directory in before.iter().filter(|directory| !after.contains(directory)) {
+            if let Err(error) = remove_all(directory) {
+                // What was asked for is written; a directory left behind is a
+                // few MiB of garbage, not a failed install.
+                tracing::warn!(%error, "could not remove a version from the plugin store");
+            }
+        }
     }
 
     /// Records that a plugin is on or off, leaving the rest of the lock file's
@@ -130,13 +379,19 @@ impl Store {
 
     /// The manifest a lock entry names, read from the content-addressed store.
     pub fn manifest(&self, entry: &LockEntry) -> Result<PluginManifest> {
+        let text = self.manifest_text(entry)?;
+        PluginManifest::parse(&text).map_err(|error| anyhow::anyhow!("{error}"))
+    }
+
+    /// The manifest's own text, which the interface reads with
+    /// [`crate::plugins::Manifest`]: it holds the `ui` and `settings` sections
+    /// that the runtime's manifest leaves out.
+    pub fn manifest_text(&self, entry: &LockEntry) -> Result<String> {
         let directory = self
             .store_dir(entry)
             .context("its files are missing from the plugin store")?;
         let path = directory.join("manifest.json");
-        let text = fs::read_to_string(&path)
-            .with_context(|| format!("could not read {}", path.display()))?;
-        PluginManifest::parse(&text).map_err(|error| anyhow::anyhow!("{error}"))
+        fs::read_to_string(&path).with_context(|| format!("could not read {}", path.display()))
     }
 
     /// Where a lock entry's files are.
@@ -482,6 +737,65 @@ fn json_len(value: &Value) -> u64 {
     serde_json::to_vec(value).map_or(0, |bytes| bytes.len() as u64)
 }
 
+/// Writes a file and flushes it to the disk, so what a later rename makes
+/// visible is bytes that are already there.
+fn write_file(path: &Path, bytes: &[u8]) -> Result<()> {
+    let mut file =
+        fs::File::create(path).with_context(|| format!("could not write {}", path.display()))?;
+    file.write_all(bytes)
+        .with_context(|| format!("could not write {}", path.display()))?;
+    file.sync_all()
+        .with_context(|| format!("could not flush {}", path.display()))
+}
+
+/// Flushes a directory's names, so the files it lists survive a power cut.
+fn sync_dir(path: &Path) -> Result<()> {
+    fs::File::open(path)
+        .and_then(|directory| directory.sync_all())
+        .with_context(|| format!("could not flush {}", path.display()))
+}
+
+/// Removes a directory and what is in it, taking one that is already gone as
+/// removed: what matters is that it isn't there afterwards.
+fn remove_all(directory: &Path) -> Result<()> {
+    match fs::remove_dir_all(directory) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => {
+            Err(error).with_context(|| format!("could not remove {}", directory.display()))
+        }
+    }
+}
+
+/// Every `store/` directory a lock file names, for a plugin's current version
+/// and for the one it keeps to roll back to.
+///
+/// What the lock file says rather than what is on disk: it is what an install
+/// has to leave, and what an uninstall has to remove.
+fn lock_dirs(root: &Path, lock: &Value) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    let entries = lock
+        .get("plugins")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|plugins| plugins.values());
+    for entry in entries {
+        for named in [Some(entry), entry.get("previous")].into_iter().flatten() {
+            for key in ["store", "wasm_sha256", "manifest_sha256"] {
+                let sha = named.get(key).and_then(Value::as_str).unwrap_or("");
+                if sha.is_empty() {
+                    continue;
+                }
+                let directory = root.join(STORE).join(sha.to_ascii_lowercase());
+                if !dirs.contains(&directory) {
+                    dirs.push(directory);
+                }
+            }
+        }
+    }
+    dirs
+}
+
 /// Replaces a file in one step: a reader either sees the old bytes or the new
 /// ones, never half of both.
 fn write_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -514,7 +828,7 @@ pub struct Lock {
 
 /// One installed plugin: where it came from, what was installed, and whether
 /// the person turned it on.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct LockEntry {
     #[serde(default)]
     pub source: String,
@@ -539,6 +853,10 @@ pub struct LockEntry {
     /// Whether the person turned it on.
     #[serde(default)]
     pub enabled: bool,
+    /// The version the install before this one wrote: what Roll back returns
+    /// to, with the fields it had then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous: Option<Box<LockEntry>>,
 }
 
 #[cfg(test)]
@@ -553,6 +871,233 @@ mod tests {
 
     fn id(text: &str) -> PluginId {
         PluginId::parse(text).expect("a plugin id")
+    }
+
+    fn package(id_text: &str, version: &str, module: &[u8]) -> Package {
+        Package {
+            id: id(id_text),
+            source: "https://codeberg.org/ada/word-filter".to_owned(),
+            path: String::new(),
+            reference: "main".to_owned(),
+            rev: version.to_owned(),
+            manifest: format!(
+                r#"{{"api":1,"id":"{id_text}","name":"M","version":"{version}","wasm":"plugin.wasm"}}"#
+            ),
+            module: module.to_vec(),
+            icon: None,
+        }
+    }
+
+    /// The version directories in the store, sorted, so a test can count them.
+    fn versions(store: &Store) -> Vec<String> {
+        let Ok(entries) = fs::read_dir(store.root().join(STORE)) else {
+            return Vec::new();
+        };
+        let mut names: Vec<String> = entries
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// The lock entry for one plugin, read from the file as `page` would.
+    fn entry(store: &Store, plugin: &PluginId) -> LockEntry {
+        store
+            .lock()
+            .expect("the lock file")
+            .plugins
+            .remove(plugin)
+            .expect("its entry")
+    }
+
+    #[test]
+    fn an_install_writes_its_files_under_one_content_addressed_name() {
+        let (_directory, mut store) = store();
+        let mut package = package("com.example.install", "1.0.0", b"module one");
+        package.icon = Some(b"png".to_vec());
+        store.install(&package).expect("it installs");
+
+        // The name covers the module and the manifest together: a manifest that
+        // changed with the module unchanged must not share a directory.
+        let address = entry(&store, &package.id).store;
+        let wasm = hex(&Sha256::digest(&package.module));
+        assert_ne!(address, wasm, "the manifest is part of the name");
+        let directory = store.root().join(STORE).join(&address);
+        assert_eq!(
+            fs::read(directory.join("plugin.wasm")).expect("the module"),
+            package.module
+        );
+        assert_eq!(
+            fs::read_to_string(directory.join("manifest.json")).expect("the manifest"),
+            package.manifest
+        );
+        assert_eq!(
+            fs::read(directory.join("icon.png")).expect("the icon"),
+            b"png"
+        );
+        // One directory, whole: no temporary one is left behind.
+        assert_eq!(versions(&store), vec![address.clone()]);
+
+        let installed = entry(&store, &package.id);
+        assert_eq!(installed.source, package.source);
+        assert_eq!(installed.path, "");
+        assert_eq!(installed.reference, "main");
+        assert_eq!(installed.rev, "1.0.0");
+        assert_eq!(installed.store, address);
+        assert_eq!(installed.wasm_sha256, wasm);
+        assert_eq!(
+            installed.manifest_sha256,
+            hex(&Sha256::digest(package.manifest.as_bytes()))
+        );
+        assert!(!installed.enabled, "a new plugin starts off");
+        assert!(installed.previous.is_none());
+
+        let text = fs::read_to_string(store.root().join(LOCK)).expect("the lock file");
+        assert!(text.contains("\"origin\": \"url\""), "{text}");
+    }
+
+    #[test]
+    fn an_update_keeps_one_version_to_roll_back_to() {
+        let (_directory, mut store) = store();
+        let plugin = id("com.example.roll");
+        let first = package("com.example.roll", "1.0.0", b"module one");
+        store.install(&first).expect("it installs");
+        store.set_enabled(&plugin, true).expect("it is on");
+        store
+            .install(&package("com.example.roll", "2.0.0", b"module two"))
+            .expect("it updates");
+
+        let updated = entry(&store, &plugin);
+        assert!(
+            updated.enabled,
+            "the person's choice of on survives an update"
+        );
+        assert_eq!(
+            updated.previous.as_ref().expect("the version before").rev,
+            "1.0.0"
+        );
+
+        store
+            .install(&package("com.example.roll", "3.0.0", b"module three"))
+            .expect("it updates again");
+        let entry_three = entry(&store, &plugin);
+        assert_eq!(entry_three.rev, "3.0.0");
+        assert_eq!(
+            entry_three
+                .previous
+                .as_ref()
+                .expect("the version before")
+                .rev,
+            "2.0.0"
+        );
+        // Current and previous, and nothing older.
+        assert_eq!(versions(&store).len(), 2, "{:?}", versions(&store));
+
+        store.roll_back(&plugin).expect("it rolls back");
+        let rolled = entry(&store, &plugin);
+        assert_eq!(rolled.rev, "2.0.0");
+        assert_eq!(
+            rolled
+                .previous
+                .as_ref()
+                .expect("the version it replaced")
+                .rev,
+            "3.0.0"
+        );
+        // The entry names files that are still there, and the module is checked
+        // against its digest as it is on every load.
+        let manifest = store.manifest(&rolled).expect("its manifest");
+        let module = store.module(&rolled, &manifest).expect("its module");
+        assert_eq!(fs::read(&module.path).expect("the module"), b"module two");
+
+        // A roll back is undone by rolling back again.
+        store.roll_back(&plugin).expect("it rolls forward again");
+        assert_eq!(entry(&store, &plugin).rev, "3.0.0");
+        assert_eq!(versions(&store).len(), 2, "{:?}", versions(&store));
+    }
+
+    #[test]
+    fn a_roll_back_with_nothing_before_it_is_refused() {
+        let (_directory, mut store) = store();
+        let package = package("com.example.only", "1.0.0", b"module one");
+        store.install(&package).expect("it installs");
+        let error = store
+            .roll_back(&package.id)
+            .expect_err("there is nothing before it");
+        assert!(error.to_string().contains("no previous version"), "{error}");
+    }
+
+    #[test]
+    fn one_id_from_two_folders_is_refused() {
+        let (_directory, mut store) = store();
+        let first = package("com.example.monorepo", "1.0.0", b"module one");
+        store.install(&first).expect("it installs");
+
+        let mut copied = package("com.example.monorepo", "1.0.0", b"module one");
+        copied.path = "plugins/copied".to_owned();
+        let error = store.install(&copied).expect_err("two folders, one id");
+        assert_eq!(
+            error.to_string(),
+            "another plugin already uses com.example.monorepo"
+        );
+
+        // The same folder under the same source is an update, not a second
+        // plugin.
+        store.install(&first).expect("it updates");
+    }
+
+    #[test]
+    fn uninstalling_removes_its_files_and_its_data_only_when_asked() {
+        let (_directory, mut store) = store();
+        let plugin = id("com.example.remove");
+        store
+            .install(&package("com.example.remove", "1.0.0", b"module one"))
+            .expect("it installs");
+        store
+            .install(&package("com.example.remove", "2.0.0", b"module two"))
+            .expect("it updates");
+        store
+            .storage_set(&plugin, "seen", serde_json::json!(1), 4096)
+            .expect("it fits");
+        store.flush();
+        let data = store.data_dir(&plugin);
+        assert!(data.join(STORAGE).is_file());
+
+        store.uninstall(&plugin, false).expect("it uninstalls");
+        assert!(versions(&store).is_empty(), "{:?}", versions(&store));
+        assert!(store.lock().expect("the lock file").plugins.is_empty());
+        assert!(
+            data.join(STORAGE).is_file(),
+            "storage and settings stay unless they are asked for"
+        );
+
+        store
+            .install(&package("com.example.remove", "1.0.0", b"module one"))
+            .expect("it installs again");
+        let error = store
+            .uninstall(&id("com.example.never"), true)
+            .expect_err("it was never installed");
+        assert!(error.to_string().contains("isn't installed"), "{error}");
+
+        store.uninstall(&plugin, true).expect("it uninstalls");
+        assert!(!data.is_dir(), "its storage and settings go with it");
+        assert!(versions(&store).is_empty(), "{:?}", versions(&store));
+    }
+
+    #[test]
+    fn a_failed_lock_write_leaves_no_version_behind() {
+        let (directory, mut store) = store();
+        let root = directory.path().join("plugins");
+        // A directory where `write_atomically` writes its temporary file: the
+        // version's files are written, then the lock file can't be.
+        fs::create_dir_all(root.join("lock.tmp")).expect("an obstruction");
+        let package = package("com.example.fail", "1.0.0", b"module one");
+        store
+            .install(&package)
+            .expect_err("the lock can't be written");
+        assert!(versions(&store).is_empty(), "{:?}", versions(&store));
+        assert!(!root.join(LOCK).exists());
     }
 
     #[test]

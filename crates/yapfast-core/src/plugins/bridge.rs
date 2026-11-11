@@ -24,7 +24,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Child;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{Duration, Instant};
 
@@ -79,6 +79,13 @@ const CLOSE_WAIT: Duration = Duration::from_secs(3);
 /// The parent's half of the plugin system.
 pub struct Bridge {
     data_dir: PathBuf,
+    /// A runtime of its own for the work that takes seconds, such as a fetch.
+    /// Separate from the supervisor's so a fetch doesn't hold the helper's
+    /// thread, and created on first use so nothing runs while nothing is asked.
+    background: Option<crate::runtime::BackgroundRuntime>,
+    /// The fetch tasks that runtime holds, capped: a task cancelled by being
+    /// dropped would report nothing, so they are kept until they end.
+    fetches: Vec<crate::runtime::BackgroundTask<()>>,
     shared: Arc<Shared>,
     /// The running supervisor, or nothing when the helper isn't needed.
     supervisor: Option<Supervisor>,
@@ -100,11 +107,16 @@ impl Bridge {
             intercepts: AtomicBool::new(false),
             off: Mutex::new(None),
             gate: Mutex::new(None),
+            // Asked once: a file beside the app doesn't appear while it runs.
+            helper_installed: spawn::program().is_ok(),
+            helper: AtomicU32::new(0),
             wake,
         });
         shared.publish();
         Ok(Bridge {
             data_dir: data_dir.to_owned(),
+            background: None,
+            fetches: Vec::new(),
             shared,
             supervisor: None,
             next_send: 0,
@@ -274,15 +286,16 @@ impl Bridge {
             self.send(Request::Activate {
                 plugins: vec![plugin.clone()],
             });
-        } else {
+        } else if self.enabled() {
             self.send(Request::Deactivate {
                 plugin: plugin.clone(),
             });
-            if !self.enabled() {
-                // Nothing is left to run, so the process goes: that is what an
-                // idle Yapfast is.
-                self.close();
-            }
+        } else {
+            // Nothing is left to run, so the process goes: that is what an idle
+            // Yapfast is. Asking rather than dropping the task lets the helper
+            // write what the plugin saved on its way out, which `close` waits
+            // for.
+            self.close();
         }
         self.announce(plugin);
         Ok(())
@@ -322,6 +335,141 @@ impl Bridge {
     /// Every plugin's state, for the page that lists them.
     pub fn statuses(&self) -> Vec<(PluginId, PluginStatus)> {
         self.shared.statuses()
+    }
+
+    /// What both threads of the plugin system read, which the pages' views are
+    /// built from.
+    pub(crate) fn shared(&self) -> &Shared {
+        &self.shared
+    }
+
+    /// Reads a plugin out of its repository for the page's Add from URL, and
+    /// announces it as [`Notice::Fetched`].
+    ///
+    /// It takes seconds, so it runs on a runtime of its own: the window's thread
+    /// must not wait, and the supervisor's runtime belongs to the helper.
+    pub fn fetch(&mut self, url: String) {
+        let shared = Arc::clone(&self.shared);
+        let asked = url.clone();
+        let task = match self.background() {
+            Ok(runtime) => runtime.spawn(async move {
+                let found =
+                    tokio::task::spawn_blocking(move || crate::plugins::installing::fetch(&asked))
+                        .await;
+                let result = match found {
+                    Ok(Ok(crate::plugins::installing::Outcome::Plugin(fetched))) => Ok(fetched),
+                    // A repository that holds several plugins: each is installed
+                    // by its own address, so say how rather than picking one.
+                    Ok(Ok(crate::plugins::installing::Outcome::Index { paths, .. })) => {
+                        Err(format!(
+                            "That repository holds several plugins; install one by its \
+                             address, as …#path={}.",
+                            paths.first().cloned().unwrap_or_default()
+                        ))
+                    }
+                    Ok(Err(error)) => Err(error),
+                    Err(error) => Err(format!("the fetch didn't finish: {error}")),
+                };
+                shared.announce(Notice::Fetched { url, result });
+            }),
+            Err(error) => {
+                shared.announce(Notice::Fetched {
+                    url,
+                    result: Err(format!("{error:#}")),
+                });
+                return;
+            }
+        };
+        self.fetches.push(task);
+        // Four is more than one person asks for in a row, and each one ends by
+        // itself; the oldest's handle is only kept alive so the task isn't
+        // cancelled before it reports.
+        if self.fetches.len() > 4 {
+            self.fetches.remove(0);
+        }
+    }
+
+    /// Writes a fetched plugin into the store, and reads the store again.
+    ///
+    /// A helper that is running is stopped first: its instances were loaded from
+    /// the versions the store held a moment ago, and the plugin's next trigger
+    /// starts a fresh one from what is there now.
+    pub fn install(&mut self, package: &crate::plugins::store::Package) -> anyhow::Result<()> {
+        {
+            let mut store = self.shared.store();
+            store.install(package)?;
+        }
+        self.reload();
+        Ok(())
+    }
+
+    /// Removes a plugin, and its data when `delete_data`, then reads the store
+    /// again.
+    pub fn uninstall(&mut self, plugin: &PluginId, delete_data: bool) -> anyhow::Result<()> {
+        {
+            let mut store = self.shared.store();
+            store.uninstall(plugin, delete_data)?;
+        }
+        self.reload();
+        Ok(())
+    }
+
+    /// Goes back to the version an install replaced.
+    pub fn roll_back(&mut self, plugin: &PluginId) -> anyhow::Result<()> {
+        {
+            let mut store = self.shared.store();
+            store.roll_back(plugin)?;
+        }
+        self.reload();
+        Ok(())
+    }
+
+    /// Reads the lock file and every installed manifest again, which is what an
+    /// install, an uninstall or a roll back changes, and tells the page.
+    fn reload(&mut self) {
+        // A helper loaded its instances from the versions that were there, so it
+        // goes: what runs next is what the store holds now.
+        self.close();
+        let registry = Registry::load(&self.shared.store());
+        *self.shared.registry_mut() = registry;
+        self.shared.publish();
+        for (plugin, status) in self.shared.statuses() {
+            self.shared.announce(Notice::Status { plugin, status });
+        }
+    }
+
+    /// The runtime the work that takes seconds runs on, started on first use.
+    fn background(&mut self) -> anyhow::Result<&crate::runtime::BackgroundRuntime> {
+        if self.background.is_none() {
+            self.background = Some(crate::runtime::BackgroundRuntime::new()?);
+        }
+        match &self.background {
+            Some(runtime) => Ok(runtime),
+            None => anyhow::bail!("the plugin system's runtime isn't there"),
+        }
+    }
+
+    /// Every installed plugin's manifest, state and recent log, for the page
+    /// that lists them.
+    pub fn listed(&self) -> Vec<crate::plugins::registry::Listed> {
+        self.shared.registry().listed()
+    }
+
+    /// What the helper process is doing, for the page that says so.
+    pub fn helper(&self) -> HelperState {
+        if self.shared.off().is_some() {
+            return if self.shared.helper_installed() {
+                HelperState::Crashed
+            } else {
+                HelperState::Missing
+            };
+        }
+        match self.shared.helper_pid() {
+            Some(pid) => HelperState::Running {
+                memory: resident_memory(pid),
+            },
+            None => HelperState::Stopped,
+        }
     }
 
     /// Why the plugin system is off, when it is: the page shows this, and it is
@@ -377,6 +525,7 @@ impl Bridge {
             ));
             self.supervisor = Some(Supervisor {
                 commands,
+                shared: Arc::clone(&self.shared),
                 task,
                 runtime,
             });
@@ -387,12 +536,10 @@ impl Bridge {
     /// Stops the helper and waits for it, so the next start is a fresh process
     /// rather than a second one beside the first.
     fn close(&mut self) {
-        let Some(Supervisor {
-            commands,
-            task,
-            runtime,
-        }) = self.supervisor.take()
-        else {
+        // Kept whole rather than taken apart: dropping it is what forgets the
+        // helper's process id, and every way out of this function goes through
+        // that drop.
+        let Some(mut supervisor) = self.supervisor.take() else {
             return;
         };
         if self.shared.off().is_some() {
@@ -400,10 +547,9 @@ impl Bridge {
             // is enough, and it holds only a channel.
             return;
         }
-        let _ = commands.send(Request::Shutdown);
-        let mut task = task;
-        runtime.block_on(async {
-            match tokio::time::timeout(CLOSE_WAIT, &mut task).await {
+        let _ = supervisor.commands.send(Request::Shutdown);
+        supervisor.runtime.block_on(async {
+            match tokio::time::timeout(CLOSE_WAIT, &mut supervisor.task).await {
                 Ok(_) => {}
                 Err(_) => tracing::warn!("the plugin helper is still stopping; leaving it to exit"),
             }
@@ -429,15 +575,55 @@ impl Bridge {
     }
 }
 
+impl Drop for Supervisor {
+    /// Forgets the helper's process id: the task is what holds the process, so
+    /// once this is dropped the process is ending, whether it was asked to or
+    /// the task was aborted because nothing is enabled any more. The page would
+    /// otherwise show a helper that isn't there.
+    fn drop(&mut self) {
+        self.shared.set_helper_pid(None);
+    }
+}
+
 impl Drop for Bridge {
     fn drop(&mut self) {
         self.shutdown();
     }
 }
 
+/// What the helper process is doing, for the page that says so.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HelperState {
+    /// No process: nothing has asked for one, or what did has gone quiet.
+    Stopped,
+    /// Its resident memory in bytes, where this system can tell it.
+    Running { memory: Option<u64> },
+    /// The binary isn't beside Yapfast's, so nothing can start.
+    Missing,
+    /// It crashed three times in a minute, so plugins stay off until Yapfast
+    /// starts again.
+    Crashed,
+}
+
+/// How much memory a process has resident, in bytes.
+///
+/// Linux reports it in `/proc/<pid>/status`; elsewhere this doesn't read it,
+/// and the page says the helper is running without a number.
+fn resident_memory(pid: u32) -> Option<u64> {
+    if !cfg!(target_os = "linux") {
+        return None;
+    }
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    let line = status.lines().find(|line| line.starts_with("VmRSS:"))?;
+    let kilobytes: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+    Some(kilobytes * 1024)
+}
+
 /// A running supervisor task and the channel into it.
 struct Supervisor {
     commands: tokio::sync::mpsc::UnboundedSender<Request>,
+    /// The half both threads read, to say the process is gone when this is.
+    shared: Arc<Shared>,
     /// Aborted when this value goes, which also drops the session and with it
     /// the helper's process.
     task: crate::runtime::BackgroundTask<()>,
@@ -448,7 +634,7 @@ struct Supervisor {
 
 /// What both threads of the plugin system read: the application's thread and
 /// the supervisor's.
-struct Shared {
+pub(crate) struct Shared {
     registry: RwLock<Registry>,
     store: Mutex<Store>,
     /// The summary of [`Registry::summary`], kept as plain flags because the
@@ -461,6 +647,10 @@ struct Shared {
     /// The one place a plugin's HTTP request can be made, once the application
     /// has installed one with a transport.
     gate: Mutex<Option<Arc<crate::plugins::network::NetworkGate>>>,
+    /// Whether the helper binary is where [`spawn::program`] looks for it.
+    helper_installed: bool,
+    /// The helper's process id while it runs, and 0 when none does.
+    helper: AtomicU32,
     wake: Arc<dyn Fn(Notice) + Send + Sync>,
 }
 
@@ -478,7 +668,7 @@ impl Shared {
     /// A poisoned lock means some thread panicked while holding it; the registry
     /// is still the last consistent state, and refusing to read it would turn one
     /// panic into a plugin system that never works again.
-    fn registry(&self) -> RwLockReadGuard<'_, Registry> {
+    pub(crate) fn registry(&self) -> RwLockReadGuard<'_, Registry> {
         self.registry.read().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -488,7 +678,7 @@ impl Shared {
             .unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn store(&self) -> MutexGuard<'_, Store> {
+    pub(crate) fn store(&self) -> MutexGuard<'_, Store> {
         self.store.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -506,6 +696,24 @@ impl Shared {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
+    }
+
+    /// Whether the helper's program is installed beside the app.
+    fn helper_installed(&self) -> bool {
+        self.helper_installed
+    }
+
+    /// The helper's process id, while it runs.
+    fn helper_pid(&self) -> Option<u32> {
+        match self.helper.load(Ordering::Relaxed) {
+            0 => None,
+            pid => Some(pid),
+        }
+    }
+
+    /// Keeps the helper's process id, or forgets it when the process is gone.
+    fn set_helper_pid(&self, pid: Option<u32>) {
+        self.helper.store(pid.unwrap_or(0), Ordering::Relaxed);
     }
 
     /// Forgets why plugins were off, so the next trigger starts the helper again.
@@ -718,12 +926,14 @@ async fn supervise(
                 return;
             }
         };
+        shared.set_helper_pid(Some(session.child.id()));
         session.queue(first);
         let ending = session.run(&shared, &mut commands).await;
         // A send that was waiting on this process has to go out as the person
         // wrote it: the chain it was waiting for no longer exists.
         session.fail_open(&shared);
         drop(session);
+        shared.set_helper_pid(None);
         match ending {
             Ending::Asked => return,
             Ending::Idle => continue,
@@ -2144,6 +2354,8 @@ mod tests {
             intercepts: AtomicBool::new(false),
             off: Mutex::new(None),
             gate: Mutex::new(None),
+            helper_installed: false,
+            helper: AtomicU32::new(0),
             wake,
         })
     }

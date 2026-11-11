@@ -23,7 +23,9 @@
 //! ```
 
 pub mod bridge;
+pub mod fetch;
 pub mod grants;
+pub mod installing;
 pub mod network;
 pub mod page;
 pub mod permissions;
@@ -35,6 +37,7 @@ pub mod state;
 pub mod store;
 pub mod transport;
 pub mod ui;
+pub mod view;
 
 pub use state::PluginState;
 

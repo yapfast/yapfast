@@ -120,6 +120,18 @@ pub struct Summary {
     pub intercepts: bool,
 }
 
+/// One installed plugin, copied out of the registry for the settings page
+/// that lists them: the registry itself is read behind a lock, so the page
+/// can't hold a borrow of it.
+#[derive(Clone, Debug)]
+pub struct Listed {
+    pub manifest: PluginManifest,
+    pub enabled: bool,
+    pub status: PluginStatus,
+    /// Its recent log lines, oldest first.
+    pub log: Vec<LogRecord>,
+}
+
 /// Every installed plugin, and the order they run in.
 #[derive(Default)]
 pub struct Registry {
@@ -234,6 +246,19 @@ impl Registry {
     /// What the hot paths need to know about every plugin at once.
     pub fn summary(&self) -> Summary {
         self.summary
+    }
+
+    /// Every installed plugin, in the order the page lists them: by id.
+    pub fn listed(&self) -> Vec<Listed> {
+        self.entries
+            .values()
+            .map(|entry| Listed {
+                manifest: entry.manifest.clone(),
+                enabled: entry.enabled,
+                status: entry.status.clone(),
+                log: entry.log.iter().cloned().collect(),
+            })
+            .collect()
     }
 
     /// One plugin's entry.

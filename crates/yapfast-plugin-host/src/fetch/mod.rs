@@ -1,326 +1,381 @@
-//! `yapfast-plugins fetch`: install a plugin from a git URL.
+//! `yapfast-plugins fetch`: what a plugin's repository holds, read once and
+//! handed to the parent.
 //!
-//! Seconds of work in a process of its own, so `gix` and its memory peak leave
-//! with it. Nothing a fetched repository contains is executed: the manifest and
-//! the `.wasm` are read straight out of git's objects, checked, and only then
-//! copied into the store, where a module is found by its hash.
+//! It runs for seconds in a process of its own, so `gix` and its 18 MiB leave
+//! with it. Nothing a fetched repository contains is executed: the manifest is
+//! read as JSON, the module and the icon are read as bytes from git's objects,
+//! and no file the repository names ever becomes a path this process opens for
+//! writing outside a temporary directory of its own.
 //!
-//! The pipeline is one pass over one commit. `url` turns what a person pasted
-//! into a repository, a ref and a directory inside it; `git` fetches exactly
-//! that commit, shallowly, into a scratch directory that goes away on the way
-//! out; `validate` parses the manifest and reads the module's header and imports
-//! without running it; `store` writes the files under a name derived from both
-//! hashes, and `lock` records where they came from.
+//! ## How the two sides talk
 //!
-//! `--store DIR` decides whether the install is written at all: without it this
-//! only reports what it found. `--review-json` prints the review as JSON, which
-//! is what the parent reads to draw the dialog; without it a person gets a few
-//! lines of prose. Nothing an install writes is enabled — the review's
-//! `reviewed` is `false` — because running a plugin is a decision the person
-//! makes in Yapfast, not something a command line does on their behalf.
+//! This is the whole protocol: **one JSON object on stdout**, tagged by `kind`.
 //!
-//! The module is not compiled into the runtime's cache here. That cache is keyed
-//! by the wasmtime configuration the compiling engine uses, and the engine that
-//! will actually run the plugin is built in `runtime` from the options the
-//! helper was started with; a fetch that guessed both would write entries nothing
-//! reads, so the first activation compiles the module instead — 22 milliseconds
-//! cold, and warm afterwards from the cache the helper already keeps.
+//! ```json
+//! {"kind":"plugin","source":"…","path":"plugins/foo","reference":"main",
+//!  "rev":"051b765b…","manifest":"{…}","wasm":"/tmp/.yapfast-plugin-1-0/plugin.wasm",
+//!  "icon":null}
+//! {"kind":"index","source":"…","paths":["plugins/foo","plugins/quiet-hours"]}
+//! {"kind":"error","error":"That repository has no yapfast-plugin.json at its root."}
+//! ```
+//!
+//! The module and the icon are written to a temporary directory under the
+//! system temp directory, whose path the object carries; the parent copies them
+//! into the store and deletes the directory. Nothing is copied into the store
+//! from here, and a fetch that prints nothing successful leaves nothing behind.
+//! The directory is [`std::mem::forget`]-left in place only after the object
+//! naming it has been written, because a report that never reached the parent
+//! would otherwise name files this process deleted.
+//!
+//! It is JSON and files rather than one self-contained object because a module
+//! is up to 8 MiB and the parent wants to write it into the store once, not
+//! carry it through a pipe; and it is a separate process at all because this
+//! binary links the git machinery the app must never hold.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::{Context, bail};
-use serde::Serialize;
-
-use yapfast_plugin_api::capability::Capability;
+use serde::{Deserialize, Serialize};
+use yapfast_plugin_api::manifest::PluginManifest;
+use yapfast_plugin_api::{API_VERSION, limits};
 
 mod git;
-mod lock;
-mod store;
+mod imports;
 mod url;
-mod validate;
 
-pub use lock::{LOCK_VERSION, LockEntry, LockFile, Pinned, verified_module};
-pub use store::{STORED_MANIFEST, Store, Stored};
-pub use url::Source;
+use git::Cap;
+use url::Source;
 
-/// The manifest a plugin's directory must hold.
-pub(crate) const MANIFEST_FILE: &str = "yapfast-plugin.json";
+/// The manifest a plugin's folder holds.
+pub const MANIFEST_FILE: &str = "yapfast-plugin.json";
 
-/// Runs `fetch` with the arguments after the subcommand.
-pub fn run(arguments: Vec<String>) -> anyhow::Result<()> {
-    let options = Options::parse(arguments)?;
-    let (review, installed) = install(&options)?;
-    if options.review_json {
-        let stdout = std::io::stdout();
-        let mut stdout = stdout.lock();
-        serde_json::to_writer_pretty(&mut stdout, &review)
-            .context("the review couldn't be written as JSON")?;
-        writeln!(stdout).context("the review couldn't be written")?;
-    } else {
-        print_review(&review, installed.as_deref());
+/// The index a repository's root may hold, so a URL that names no folder can
+/// still offer what the repository carries.
+pub const INDEX_FILE: &str = "yapfast-plugins.json";
+
+/// The largest manifest read: a manifest is metadata, which runs to kilobytes.
+const MANIFEST_CAP: Cap = Cap {
+    bytes: 1 << 20,
+    label: "a manifest is at most 1 MiB",
+};
+
+/// An index is a handful of folder names, and is bounded like a manifest.
+const INDEX_CAP: Cap = Cap {
+    bytes: 1 << 20,
+    label: "an index is at most 1 MiB",
+};
+
+/// A module's cap, the same number the parent refuses one at.
+const MODULE_CAP: Cap = Cap {
+    bytes: limits::MAX_WASM_BYTES,
+    label: "a module is at most 8 MiB",
+};
+
+/// An icon's cap: a picture the review dialog draws at 64×64 to 256×256.
+const ICON_CAP: Cap = Cap {
+    bytes: limits::MAX_ICON_BYTES,
+    label: "an icon is at most 64 KiB",
+};
+
+/// What a fetch found, as the parent reads it.
+///
+/// The parent mirrors this shape in its own crate; the field names are the
+/// protocol, so changing one changes both sides.
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum Report {
+    /// One plugin: its folder, its commit, and where its files were written.
+    Plugin {
+        /// The repository's address, as the lock file records it: no ref and no
+        /// folder in it, since those are the two fields below.
+        source: String,
+        /// The folder inside the repository, empty when the plugin is at its
+        /// root. It travels with the pin, so an update reads the same folder.
+        path: String,
+        /// The branch, tag or commit asked for, or `HEAD`.
+        reference: String,
+        /// The full id of the commit that was read.
+        rev: String,
+        /// `yapfast-plugin.json`'s text, exactly as the repository holds it.
+        manifest: String,
+        /// The module, written under the temporary directory; `null` for a
+        /// plugin that only sets tweaks, commands or settings.
+        wasm: Option<String>,
+        /// The icon, when the manifest names one and it was read.
+        icon: Option<String>,
+    },
+    /// A repository that holds several plugins and no manifest at its root: the
+    /// folders its index lists, each reviewed and installed on its own.
+    Index {
+        /// The repository's address, as the lock file records it.
+        source: String,
+        /// The folders the index lists, each holding a `yapfast-plugin.json`.
+        paths: Vec<String>,
+    },
+    /// Why there is nothing to install, as one sentence a person reads.
+    Error {
+        /// The sentence itself.
+        error: String,
+    },
+}
+
+/// What a fetch found, and the files it wrote, which go when this does.
+#[derive(Debug)]
+pub struct Fetched {
+    /// What to print for the parent.
+    pub report: Report,
+    /// The directory the module and icon were written to, if any.
+    handoff: Option<Scratch>,
+}
+
+impl Fetched {
+    /// Leaves the written files in place, for the parent to copy and delete.
+    pub fn keep(self) {
+        if let Some(handoff) = self.handoff {
+            handoff.keep();
+        }
     }
-    Ok(())
 }
 
-/// What `fetch` was asked to do.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct Options {
-    /// The URL as the person typed it.
-    url: String,
-    /// Where installed plugins live; without it the fetch only reports.
-    store: Option<PathBuf>,
-    /// Print the review as JSON, for the parent, instead of prose.
-    review_json: bool,
-}
-
-impl Options {
-    fn parse(arguments: Vec<String>) -> anyhow::Result<Options> {
-        let mut url = None;
-        let mut store = None;
-        let mut review_json = false;
-        let mut arguments = arguments.into_iter();
-        while let Some(argument) = arguments.next() {
-            match argument.as_str() {
-                "--store" => {
-                    let directory = arguments.next().context("`--store` needs a directory")?;
-                    store = Some(PathBuf::from(directory));
-                }
-                "--review-json" => review_json = true,
-                other if other.starts_with('-') => {
-                    bail!("unknown argument `{other}`; try `yapfast-plugins --help`")
-                }
-                other => {
-                    if url.is_some() {
-                        bail!("`fetch` takes one URL, not `{other}` as well");
-                    }
-                    url = Some(other.to_owned());
-                }
+/// Runs `fetch` with the arguments after the subcommand, and returns the exit
+/// status: zero when a plugin or an index was printed, one when an error was.
+pub fn run(arguments: Vec<String>) -> i32 {
+    match url(arguments).and_then(|url| fetch(&url)) {
+        Ok(fetched) => {
+            // The files stay only now: a report that failed to print has told
+            // the parent nothing, so nothing would come for them.
+            if let Err(error) = print(&fetched.report) {
+                eprintln!("yapfast-plugins: the report couldn't be written: {error}");
+                return 1;
             }
+            fetched.keep();
+            0
         }
-        Ok(Options {
-            url: url.context("`fetch` needs the URL of a plugin's repository")?,
-            store,
-            review_json,
-        })
+        Err(error) => {
+            let report = Report::Error {
+                error: error.to_string(),
+            };
+            if let Err(write) = print(&report) {
+                eprintln!("yapfast-plugins: the error couldn't be written: {write}");
+            }
+            1
+        }
     }
 }
 
-/// Fetches one plugin, checks it, and installs it when there is a store.
-fn install(options: &Options) -> anyhow::Result<(Review, Option<PathBuf>)> {
-    let source = Source::parse(&options.url)?;
-    let store = match &options.store {
-        Some(root) => Some(
-            Store::new(root)
-                .with_context(|| format!("`{}` can't hold installed plugins", root.display()))?,
-        ),
-        None => None,
+/// Fetches what `url` names, and writes the files it read to a directory of
+/// their own.
+///
+/// On success the caller owns the files: they stay until the [`Fetched`] is
+/// dropped, and [`Fetched::keep`] leaves them for the parent. On failure
+/// everything this made is gone before the error returns.
+pub fn fetch(url: &str) -> anyhow::Result<Fetched> {
+    let source = Source::parse(url)?;
+    // The scratch directory sits in the system temp directory, and holds the
+    // bare repository alone; it is gone before this returns either way.
+    let work = Scratch::new(".yapfast-fetch")?;
+    let snapshot = git::Snapshot::open(&source, work.path())?;
+
+    let Some(text) = snapshot.file(Path::new(MANIFEST_FILE), MANIFEST_CAP)? else {
+        return index_or_nothing(&source, &snapshot);
     };
-    // The scratch area sits beside the store, so the copy into the store stays
-    // on one filesystem and nothing is left behind in the system temp directory.
-    let parent = store
-        .as_ref()
-        .and_then(|store| store.root().parent().map(Path::to_path_buf))
-        .unwrap_or_else(std::env::temp_dir);
-    let scratch = Scratch::new(&parent)?;
+    let text = String::from_utf8(text)
+        .map_err(|_| anyhow::anyhow!("`{MANIFEST_FILE}` isn't UTF-8 text"))?;
+    let manifest = PluginManifest::parse(&text)
+        .map_err(|error| anyhow::anyhow!("Its `{MANIFEST_FILE}` can't be used: {error}."))?;
 
-    let staged = git::fetch(&source, scratch.path())?;
-    let checked = validate::check(&staged.dir, &staged.manifest)?;
-    let review = Review::of(&source, &staged, &checked);
-    let Some(store) = store else {
-        return Ok((review, None));
-    };
-
-    let address = checked.address();
-    let destination = store.commit(&address, &staged.dir, MANIFEST_FILE)?;
-    let pinned = Pinned {
-        source: source.original.clone(),
-        path: source.path.clone(),
-        reference: source.reference_name().to_owned(),
-        rev: staged.commit.clone(),
-        wasm_sha256: checked.wasm_sha256.clone(),
-        manifest_sha256: checked.manifest_sha256.clone(),
-        store: address,
-        origin: source.repo.clone(),
-        version: checked.manifest.version.to_string(),
-    };
-    let mut lock = LockFile::load(store.root())?;
-    let unneeded = lock.record(
-        checked.manifest.id.clone(),
-        LockEntry {
-            current: pinned,
-            enabled: false,
-            previous: Vec::new(),
-        },
-    );
-    // The lock is written before anything is removed: a version the lock no
-    // longer names can go, but never before the lock says so.
-    lock.save(store.root())?;
-    for address in unneeded {
-        store.remove(&address)?;
-    }
-    Ok((review, Some(destination)))
-}
-
-/// What the review dialog shows, as the parent reads it.
-#[derive(Clone, Debug, Serialize)]
-pub struct Review {
-    /// The plugin's id, which is the key it is installed under.
-    pub id: String,
-    pub name: String,
-    pub version: String,
-    /// The URL as the person pasted it.
-    pub source: String,
-    /// The directory inside the repository, when the URL named one.
-    pub path: Option<String>,
-    /// The branch, tag or commit that was asked for, or `HEAD`.
-    #[serde(rename = "ref")]
-    pub reference: String,
-    /// The full id of the commit that was read.
-    pub rev: String,
-    /// The first seven characters of it, for a line of prose.
-    pub commit: String,
-    /// The module's SHA-256; `null` for a plugin that is only a manifest.
-    pub wasm_sha256: Option<String>,
-    pub manifest_sha256: String,
-    pub memory_pages: u32,
-    /// The same cap in bytes, since that is what a person compares with.
-    pub memory_bytes: u64,
-    pub wasi: bool,
-    pub permissions: Vec<PermissionReview>,
-    pub dependencies: Vec<DependencyReview>,
-    /// A sentence about a combination of permissions worth saying out loud.
-    pub risky: Option<String>,
-    /// Whether a person has read this and agreed. A fetch never sets it; the
-    /// parent does once the dialog has been answered.
-    pub reviewed: bool,
-}
-
-/// One permission, as the review lists it.
-#[derive(Clone, Debug, Serialize)]
-pub struct PermissionReview {
-    /// The name a manifest writes.
-    pub capability: String,
-    /// The line the dialog shows beside it.
-    pub summary: String,
-    /// Whether the dialog draws it in the danger tone.
-    pub dangerous: bool,
-}
-
-/// A plugin this one needs.
-#[derive(Clone, Debug, Serialize)]
-pub struct DependencyReview {
-    pub id: String,
-    pub requirement: String,
-}
-
-impl Review {
-    fn of(source: &Source, staged: &git::Staged, checked: &validate::Checked) -> Review {
-        let manifest = &checked.manifest;
-        Review {
-            id: manifest.id.to_string(),
-            name: manifest.name.clone(),
-            version: manifest.version.to_string(),
-            source: source.original.clone(),
-            path: staged.path.clone(),
+    let handoff = Scratch::new(".yapfast-plugin")?;
+    let wasm = module(&snapshot, &manifest, handoff.path())?;
+    let icon = icon(&snapshot, &manifest, handoff.path())?;
+    Ok(Fetched {
+        report: Report::Plugin {
+            source: source.repo.clone(),
+            path: source.path.clone().unwrap_or_default(),
             reference: source.reference_name().to_owned(),
-            rev: staged.commit.clone(),
-            commit: staged.commit.chars().take(7).collect(),
-            wasm_sha256: checked.wasm_sha256.clone(),
-            manifest_sha256: checked.manifest_sha256.clone(),
-            memory_pages: manifest.limits.memory_pages,
-            memory_bytes: u64::from(manifest.limits.memory_pages) * 64 * 1024,
-            wasi: manifest.wasi,
-            permissions: manifest
-                .capabilities()
-                .into_iter()
-                .map(PermissionReview::of)
-                .collect(),
-            dependencies: manifest
-                .dependencies
-                .iter()
-                .map(|(id, requirement)| DependencyReview {
-                    id: id.to_string(),
-                    requirement: requirement.to_string(),
-                })
-                .collect(),
-            risky: manifest.permissions.risky_combination(),
-            reviewed: false,
-        }
-    }
+            rev: snapshot.commit.clone(),
+            manifest: text,
+            wasm,
+            icon,
+        },
+        handoff: Some(handoff),
+    })
 }
 
-impl PermissionReview {
-    fn of(capability: Capability) -> PermissionReview {
-        PermissionReview {
-            capability: capability.as_str().to_owned(),
-            summary: capability.summary().to_owned(),
-            dangerous: capability.is_dangerous(),
-        }
+/// A repository's root index, or the sentence that says why there is neither a
+/// plugin nor one.
+fn index_or_nothing(source: &Source, snapshot: &git::Snapshot) -> anyhow::Result<Fetched> {
+    if let Some(path) = &source.path {
+        bail!(
+            "`{path}` in `{}` has no `{MANIFEST_FILE}`; a plugin's folder holds one",
+            source.repo
+        );
     }
+    let Some(text) = snapshot.file(Path::new(INDEX_FILE), INDEX_CAP)? else {
+        bail!(
+            "`{}` has no `{MANIFEST_FILE}` at its root and no `{INDEX_FILE}` either; name one of \
+             its folders with `#path=plugins/<name>`",
+            source.repo
+        );
+    };
+    let text =
+        String::from_utf8(text).map_err(|_| anyhow::anyhow!("`{INDEX_FILE}` isn't UTF-8 text"))?;
+    Ok(Fetched {
+        report: Report::Index {
+            source: source.repo.clone(),
+            paths: index_paths(snapshot, &text)?,
+        },
+        handoff: None,
+    })
 }
 
-/// Prints the review for a person: what it is, where it came from, and what it
-/// may do.
-fn print_review(review: &Review, installed: Option<&Path>) {
-    let mut out = format!("{} {} ({})\n", review.name, review.version, review.id);
-    match &review.path {
-        Some(path) => out.push_str(&format!(
-            "from {} in {path} at {}, ref {}\n",
-            review.source, review.commit, review.reference
-        )),
-        None => out.push_str(&format!(
-            "from {} at {}, ref {}\n",
-            review.source, review.commit, review.reference
-        )),
+/// The index's folders, each checked to be a folder of this commit that holds a
+/// plugin.
+fn index_paths(snapshot: &git::Snapshot, text: &str) -> anyhow::Result<Vec<String>> {
+    let index: IndexText = serde_json::from_str(text)
+        .map_err(|error| anyhow::anyhow!("`{INDEX_FILE}` isn't an index Yapfast reads: {error}"))?;
+    if index.api != API_VERSION {
+        bail!(
+            "`{INDEX_FILE}` is for plugin API {}, and this Yapfast speaks {API_VERSION}",
+            index.api
+        );
     }
-    if review.permissions.is_empty() {
-        out.push_str("  asks for nothing but to be installed\n");
+    let mut paths = Vec::with_capacity(index.plugins.len());
+    for listed in index.plugins {
+        // A folder that climbs out of the repository is refused before it is
+        // looked for, and the index says what the repository holds, so a folder
+        // it names that holds nothing is the repository's own bug: said once,
+        // here, instead of at every install. The tree is already fetched, so
+        // checking costs no second clone.
+        let path = url::clean_path(&listed)?;
+        // One folder listed twice is one plugin offered twice; an index holds
+        // tens of folders, so a scan costs less than a set.
+        if paths.contains(&path) {
+            bail!("`{INDEX_FILE}` lists `{path}` twice");
+        }
+        let manifest = Path::new(&path).join(MANIFEST_FILE);
+        if snapshot.file(&manifest, MANIFEST_CAP)?.is_none() {
+            bail!("`{INDEX_FILE}` lists `{listed}`, which holds no `{MANIFEST_FILE}`");
+        }
+        paths.push(path);
     }
-    for permission in &review.permissions {
-        out.push_str(&format!("  {}\n", permission.summary));
+    Ok(paths)
+}
+
+/// A repository's index, as `{ "api": 1, "plugins": ["plugins/foo"] }`.
+#[derive(Deserialize)]
+struct IndexText {
+    api: u32,
+    plugins: Vec<String>,
+}
+
+/// Writes the module the manifest names under `out`, and returns its path.
+fn module(
+    snapshot: &git::Snapshot,
+    manifest: &PluginManifest,
+    out: &Path,
+) -> anyhow::Result<Option<String>> {
+    let Some(named) = &manifest.wasm else {
+        // A plugin that only sets named points or changes the interface has no
+        // module; there is nothing to write and nothing to load.
+        return Ok(None);
+    };
+    let shown = named.display().to_string();
+    let relative = manifest.resolve(named).with_context(|| {
+        format!("`{MANIFEST_FILE}` names `{shown}`, which isn't a path inside the plugin's folder")
+    })?;
+    let bytes = snapshot
+        .file(&relative, MODULE_CAP)?
+        .with_context(|| format!("`{MANIFEST_FILE}` names `{shown}`, which isn't in the plugin"))?;
+    // What it can reach is checked before the parent ever hears of it: the
+    // magic, the version, and every import it declares.
+    imports::check(&bytes, &shown, manifest.wasi)?;
+    write(out, &relative, &bytes).map(Some)
+}
+
+/// Writes the icon the manifest names under `out`, and returns its path.
+fn icon(
+    snapshot: &git::Snapshot,
+    manifest: &PluginManifest,
+    out: &Path,
+) -> anyhow::Result<Option<String>> {
+    let Some(named) = &manifest.icon else {
+        return Ok(None);
+    };
+    let shown = named.display().to_string();
+    let relative = manifest.resolve(named).with_context(|| {
+        format!("`{MANIFEST_FILE}` names `{shown}`, which isn't a path inside the plugin's folder")
+    })?;
+    let bytes = snapshot
+        .file(&relative, ICON_CAP)?
+        .with_context(|| format!("`{MANIFEST_FILE}` names `{shown}`, which isn't in the plugin"))?;
+    write(out, &relative, &bytes).map(Some)
+}
+
+/// Writes one file where the parent can copy it from, at its path inside the
+/// plugin, and returns the absolute path as text.
+fn write(out: &Path, relative: &Path, bytes: &[u8]) -> anyhow::Result<String> {
+    let target = out.join(relative);
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("`{}` couldn't be made", parent.display()))?;
     }
-    out.push_str(&format!(
-        "memory: up to {} MiB{}\n",
-        review.memory_bytes >> 20,
-        if review.wasi { ", with WASI" } else { "" }
-    ));
-    for dependency in &review.dependencies {
-        out.push_str(&format!(
-            "needs {} {}\n",
-            dependency.id, dependency.requirement
-        ));
+    std::fs::write(&target, bytes)
+        .with_context(|| format!("`{}` couldn't be written", target.display()))?;
+    let path = target.to_str().with_context(|| {
+        format!(
+            "`{}` isn't a path the parent can read as text",
+            target.display()
+        )
+    })?;
+    Ok(path.to_owned())
+}
+
+/// The one URL `fetch` was given.
+fn url(arguments: Vec<String>) -> anyhow::Result<String> {
+    let mut url = None;
+    for argument in arguments {
+        if argument.starts_with('-') {
+            bail!("unknown argument `{argument}`; try `yapfast-plugins --help`");
+        }
+        if let Some(first) = &url {
+            bail!("`fetch` takes one URL, not `{first}` and `{argument}`");
+        }
+        url = Some(argument);
     }
-    if let Some(risky) = &review.risky {
-        out.push_str(risky);
-        out.push('\n');
-    }
-    match installed {
-        Some(dir) => out.push_str(&format!("installed in {}; not enabled\n", dir.display())),
-        None => out.push_str("checked, not installed; pass `--store DIR` to install it\n"),
-    }
-    print!("{out}");
+    url.context("`fetch` needs the URL of a plugin's repository")
+}
+
+/// Writes the one object the parent reads, on one line, and flushes it: the
+/// process may exit before a buffer would have gone out.
+fn print(report: &Report) -> anyhow::Result<()> {
+    let stdout = std::io::stdout();
+    let mut out = stdout.lock();
+    serde_json::to_writer(&mut out, report).context("the report isn't writable as JSON")?;
+    writeln!(out).context("the report couldn't be written")?;
+    out.flush().context("the report couldn't be written")
 }
 
 /// A directory of work that is removed when it goes out of scope.
 ///
-/// A fetch needs somewhere to put a bare repository and the plugin's files while
-/// it checks them. `tempfile` isn't a dependency of this crate and the name only
-/// has to be unique within one process, so a counter beside the store is enough.
-pub(crate) struct Scratch {
+/// `tempfile` isn't a dependency of this crate and the name only has to be
+/// unique within one process, so the process id and a counter are enough.
+#[derive(Debug)]
+struct Scratch {
     path: PathBuf,
-    /// Set once the directory has been renamed elsewhere and must be left alone.
+    /// Set once the directory is the parent's to delete, so it must be left
+    /// alone here.
     keep: bool,
 }
 
 impl Scratch {
-    pub(crate) fn new(parent: &Path) -> std::io::Result<Scratch> {
+    fn new(prefix: &str) -> std::io::Result<Scratch> {
         static NEXT: AtomicU64 = AtomicU64::new(0);
-        std::fs::create_dir_all(parent)?;
+        let parent = std::env::temp_dir();
         for _ in 0..64 {
             let path = parent.join(format!(
-                ".yapfast-fetch-{}-{}",
+                "{prefix}-{}-{}",
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
@@ -333,18 +388,18 @@ impl Scratch {
             }
         }
         Err(std::io::Error::other(
-            "a scratch directory couldn't be made",
+            "a temporary directory couldn't be made",
         ))
     }
 
-    pub(crate) fn path(&self) -> &Path {
+    fn path(&self) -> &Path {
         &self.path
     }
 
-    /// Hands the directory over: it has been renamed into the store, so it must
-    /// not be removed.
-    pub(crate) fn keep(&mut self) {
-        self.keep = true;
+    /// Hands the directory over: the parent has been told where it is, and
+    /// deletes it after copying what it holds.
+    fn keep(self) {
+        std::mem::forget(self);
     }
 }
 
@@ -358,380 +413,94 @@ impl Drop for Scratch {
 
 #[cfg(test)]
 mod tests {
-    use std::process::Stdio;
-
-    use super::lock::verified_module;
-    use super::validate::sha256_file;
     use super::*;
-    use yapfast_plugin_api::PluginId;
-    use yapfast_plugin_api::limits;
 
-    const PLUGIN: &str = "com.example.word-filter";
-
-    /// A repository on this disk, built with the `git` command line tool.
-    ///
-    /// The fixture uses git itself so that what is fetched is a repository git
-    /// wrote, and so that the tests fail loudly when git isn't installed rather
-    /// than quietly testing nothing.
-    struct Repository {
-        scratch: Scratch,
-        dir: PathBuf,
-    }
-
-    impl Repository {
-        fn new() -> Repository {
-            let scratch = Scratch::new(&std::env::temp_dir()).expect("a scratch directory");
-            let dir = scratch.path().join("repo");
-            std::fs::create_dir(&dir).expect("the repository directory");
-            let repository = Repository { scratch, dir };
-            repository.git(&["init", "--quiet", "--initial-branch", "main"]);
-            repository
-        }
-
-        fn git(&self, arguments: &[&str]) -> String {
-            let output = std::process::Command::new("git")
-                .arg("-C")
-                .arg(&self.dir)
-                .args([
-                    "-c",
-                    "user.name=Test",
-                    "-c",
-                    "user.email=test@example.com",
-                    "-c",
-                    "commit.gpgsign=false",
-                ])
-                .args(arguments)
-                .output()
-                .expect("git runs");
-            assert!(
-                output.status.success(),
-                "git {arguments:?}: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-            String::from_utf8_lossy(&output.stdout).trim().to_owned()
-        }
-
-        /// Writes `files` and commits them, returning the commit's id.
-        fn commit(&self, files: &[(&str, &[u8])], message: &str) -> String {
-            for (path, bytes) in files {
-                let path = self.dir.join(path);
-                if let Some(parent) = path.parent() {
-                    std::fs::create_dir_all(parent).expect("a directory in the repository");
-                }
-                std::fs::write(&path, bytes).expect("a file in the repository");
-            }
-            self.git(&["add", "--all"]);
-            self.git(&["commit", "--quiet", "--message", message]);
-            self.git(&["rev-parse", "HEAD"])
-        }
-
-        fn branch(&self, name: &str) {
-            self.git(&["branch", name]);
-        }
-
-        fn store(&self) -> PathBuf {
-            self.scratch.path().join("store")
-        }
-
-        fn options(&self, suffix: &str) -> Options {
-            Options {
-                url: format!("file://{}{suffix}", self.dir.display()),
-                store: Some(self.store()),
-                review_json: true,
-            }
-        }
-
-        fn install(&self, suffix: &str) -> anyhow::Result<(Review, Option<PathBuf>)> {
-            install(&self.options(suffix))
-        }
-
-        fn lock(&self) -> LockFile {
-            LockFile::load(&self.store()).expect("the lock file")
-        }
-
-        fn entry(&self) -> Pinned {
-            self.lock()
-                .entry(&PluginId::parse(PLUGIN).expect("a plugin id"))
-                .expect("the plugin is installed")
-                .current
-                .clone()
-        }
-    }
-
-    /// Whether the `git` command line tool is here. Without it a `file://` fetch
-    /// can't run — reading one goes through `git-upload-pack` — so the tests that
-    /// need a repository are skipped rather than failed.
-    fn git_available() -> bool {
-        std::process::Command::new("git")
-            .arg("--version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success())
-    }
-
-    /// A module with the header and nothing else, which is a valid module.
-    fn wasm() -> Vec<u8> {
-        vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]
-    }
-
-    fn manifest(id: &str, version: &str, wasm: &str) -> String {
-        format!(
-            r#"{{
-                "api": 1,
-                "id": "{id}",
-                "name": "Word Filter",
-                "version": "{version}",
-                "wasm": "{wasm}",
-                "permissions": {{
-                    "capabilities": ["messages.read"],
-                    "network": ["api.example.com"]
-                }}
-            }}"#
-        )
-    }
-
-    /// A repository holding one good plugin, as an author would publish it.
-    fn published() -> Option<(Repository, String)> {
-        if !git_available() {
-            return None;
-        }
-        let repository = Repository::new();
-        let text = manifest(PLUGIN, "1.0.0", "plugin.wasm");
-        let commit = repository.commit(
-            &[
-                ("yapfast-plugin.json", text.as_bytes()),
-                ("plugin.wasm", &wasm()),
-            ],
-            "the first version",
-        );
-        Some((repository, commit))
+    #[test]
+    fn the_caps_are_the_ones_the_parent_refuses_at() {
+        assert_eq!(MODULE_CAP.bytes, limits::MAX_WASM_BYTES);
+        assert_eq!(ICON_CAP.bytes, 64 << 10);
+        assert_eq!(ICON_CAP.bytes, limits::MAX_ICON_BYTES);
     }
 
     #[test]
-    fn installs_a_good_plugin_and_records_its_hashes() {
-        let Some((repository, commit)) = published() else {
-            return;
+    fn a_plugin_report_names_its_fields() {
+        let report = Report::Plugin {
+            source: "https://example.com/ada/word-filter".into(),
+            path: String::new(),
+            reference: "main".into(),
+            rev: "051b765b".into(),
+            manifest: "{}".into(),
+            wasm: Some("/tmp/x/plugin.wasm".into()),
+            icon: None,
         };
-        let (review, installed) = repository.install("").expect("the plugin installs");
-
-        assert_eq!(review.name, "Word Filter");
-        assert_eq!(review.id, PLUGIN);
-        assert_eq!(review.rev, commit);
-        assert_eq!(review.commit, commit[..7]);
-        assert!(!review.reviewed, "a fetch never reviews anything");
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&report).expect("a report")).expect("JSON");
+        assert_eq!(json["kind"], "plugin");
+        assert_eq!(json["path"], "");
+        assert_eq!(json["reference"], "main");
+        assert_eq!(json["icon"], serde_json::Value::Null);
+        let mut fields: Vec<&str> = json
+            .as_object()
+            .expect("an object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        fields.sort_unstable();
         assert_eq!(
-            review.permissions.first().map(|p| p.summary.as_str()),
-            Some("Reads your messages")
+            fields,
+            [
+                "icon",
+                "kind",
+                "manifest",
+                "path",
+                "reference",
+                "rev",
+                "source",
+                "wasm"
+            ]
         );
+    }
+
+    #[test]
+    fn an_index_report_is_a_list_of_folders() {
+        let report = Report::Index {
+            source: "https://example.com/ada/plugins".into(),
+            paths: vec!["plugins/word-filter".into(), "plugins/quiet-hours".into()],
+        };
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&report).expect("a report")).expect("JSON");
+        assert_eq!(json["kind"], "index");
+        assert_eq!(json["paths"][1], "plugins/quiet-hours");
+    }
+
+    #[test]
+    fn an_error_report_is_a_sentence() {
+        let report = Report::Error {
+            error: "That repository has no yapfast-plugin.json.".into(),
+        };
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&report).expect("a report")).expect("JSON");
+        assert_eq!(json["kind"], "error");
+        assert_eq!(json["error"], "That repository has no yapfast-plugin.json.");
+    }
+
+    #[test]
+    fn one_url_and_no_flags() {
         assert_eq!(
-            review.memory_bytes,
-            u64::from(limits::DEFAULT_MEMORY_PAGES) * 64 * 1024
+            url(vec!["https://example.com/a/b".into()]).expect("a URL"),
+            "https://example.com/a/b"
         );
-        assert!(
-            review.risky.is_some(),
-            "reading and reaching out is called out"
-        );
-        let installed = installed.expect("a directory in the store");
-        assert!(installed.join(STORED_MANIFEST).is_file());
-        assert!(installed.join("plugin.wasm").is_file());
-
-        let entry = repository.entry();
-        assert!(!repository.lock().plugins[&PluginId::parse(PLUGIN).unwrap()].enabled);
-        assert_eq!(entry.rev, commit);
-        assert_eq!(entry.reference, "HEAD");
-        let store = Store::new(repository.store()).expect("the store opens");
-        let module = verified_module(&store, &entry).expect("the module hashes to the lock");
-        assert_eq!(
-            sha256_file(&module).expect("the module can be hashed"),
-            entry.wasm_sha256.clone().expect("a module hash")
-        );
-        let manifest = std::fs::read(installed.join(STORED_MANIFEST)).expect("the manifest");
-        assert_eq!(
-            super::validate::sha256_bytes(&manifest),
-            entry.manifest_sha256
-        );
+        assert!(url(vec![]).is_err());
+        assert!(url(vec!["a".into(), "b".into()]).is_err());
+        assert!(url(vec!["--store".into()]).is_err());
     }
 
     #[test]
-    fn a_repository_without_a_manifest_says_so() {
-        if !git_available() {
-            return;
-        }
-        let repository = Repository::new();
-        repository.commit(&[("README.md", b"nothing here")], "nothing");
-        let error = repository
-            .install("")
-            .expect_err("no manifest, no install")
-            .to_string();
-        assert!(error.contains(MANIFEST_FILE), "{error}");
-    }
-
-    #[test]
-    fn an_lfs_pointer_is_refused_with_its_own_reason() {
-        let Some((repository, _)) = published() else {
-            return;
-        };
-        let text = manifest(PLUGIN, "1.0.1", "plugin.wasm");
-        repository.commit(
-            &[
-                ("yapfast-plugin.json", text.as_bytes()),
-                (
-                    "plugin.wasm",
-                    b"version https://git-lfs.github.com/spec/v1\noid sha256:4d7a\nsize 17\n",
-                ),
-            ],
-            "the module stayed in LFS",
-        );
-        let error = repository
-            .install("")
-            .expect_err("a pointer isn't a module")
-            .to_string();
-        assert!(error.contains("Git LFS"), "{error}");
-    }
-
-    #[test]
-    fn a_manifest_that_climbs_out_of_its_directory_is_refused() {
-        let Some((repository, _)) = published() else {
-            return;
-        };
-        let text = manifest(PLUGIN, "1.0.1", "../x.wasm");
-        repository.commit(
-            &[
-                ("yapfast-plugin.json", text.as_bytes()),
-                ("x.wasm", &wasm()),
-            ],
-            "a path out of the directory",
-        );
-        let error = repository
-            .install("")
-            .expect_err("a manifest may not escape")
-            .to_string();
-        assert!(error.contains("`wasm`"), "{error}");
-    }
-
-    #[test]
-    fn a_module_over_the_size_cap_is_refused() {
-        let Some((repository, _)) = published() else {
-            return;
-        };
-        let text = manifest(PLUGIN, "1.0.1", "plugin.wasm");
-        let mut big = wasm();
-        big.resize(limits::MAX_WASM_BYTES as usize + 1, 0);
-        repository.commit(
-            &[
-                ("yapfast-plugin.json", text.as_bytes()),
-                ("plugin.wasm", &big),
-            ],
-            "a module past the cap",
-        );
-        let error = repository
-            .install("")
-            .expect_err("an oversized module is refused")
-            .to_string();
-        assert!(error.contains("MiB"), "{error}");
-        assert!(error.contains("plugin.wasm"), "{error}");
-    }
-
-    #[test]
-    fn two_installs_keep_two_versions_and_drop_the_third() {
-        let Some((repository, _)) = published() else {
-            return;
-        };
-        repository.branch("v1");
-        let second = manifest(PLUGIN, "1.0.1", "plugin.wasm");
-        repository.commit(
-            &[
-                ("yapfast-plugin.json", second.as_bytes()),
-                ("plugin.wasm", &wasm()),
-            ],
-            "the second version",
-        );
-        repository.branch("v2");
-        let third = manifest(PLUGIN, "1.0.2", "plugin.wasm");
-        repository.commit(
-            &[
-                ("yapfast-plugin.json", third.as_bytes()),
-                ("plugin.wasm", &wasm()),
-            ],
-            "the third version",
-        );
-        repository.branch("v3");
-
-        repository.install("#ref=v1").expect("the first installs");
-        let first = repository.entry().store;
-        repository.install("#ref=v2").expect("the second installs");
-        let store = Store::new(repository.store()).expect("the store opens");
-        assert_eq!(store.versions().expect("the store is readable").len(), 2);
-
-        repository.install("#ref=v3").expect("the third installs");
-        let versions = store.versions().expect("the store is readable");
-        assert_eq!(versions.len(), 2, "the current and the one before it");
-        assert!(
-            !versions.contains(&first),
-            "the third-oldest version was removed"
-        );
-        let entry = repository
-            .lock()
-            .entry(&PluginId::parse(PLUGIN).unwrap())
-            .cloned();
-        let entry = entry.expect("the plugin is installed");
-        assert_eq!(entry.current.version, "1.0.2");
-        assert_eq!(
-            entry
-                .previous
-                .first()
-                .map(|previous| previous.version.as_str()),
-            Some("1.0.1")
-        );
-        assert!(!entry.enabled, "installing a new version doesn't enable it");
-    }
-
-    #[test]
-    fn a_tampered_module_fails_its_hash_on_read() {
-        let Some((repository, _)) = published() else {
-            return;
-        };
-        repository.install("").expect("the plugin installs");
-        let entry = repository.entry();
-        let store = Store::new(repository.store()).expect("the store opens");
-        let module = store
-            .read(&entry.store)
-            .expect("the version is stored")
-            .module_path()
-            .expect("the manifest names a module")
-            .expect("the module is there");
-        let mut bytes = std::fs::read(&module).expect("the module");
-        bytes.push(0xff);
-        std::fs::write(&module, bytes).expect("the module is changed");
-
-        let error = verified_module(&store, &entry)
-            .expect_err("a changed module is refused")
-            .to_string();
-        assert!(error.contains("hash"), "{error}");
-    }
-
-    #[test]
-    fn reads_the_arguments_the_parent_passes() {
-        let options = Options::parse(vec![
-            "https://example.com/owner/repo".into(),
-            "--store".into(),
-            "/tmp/store".into(),
-            "--review-json".into(),
-        ])
-        .expect("the arguments parse");
-        assert_eq!(options.url, "https://example.com/owner/repo");
-        assert_eq!(options.store, Some(PathBuf::from("/tmp/store")));
-        assert!(options.review_json);
-
-        assert!(Options::parse(Vec::new()).is_err(), "a URL is required");
-        assert!(
-            Options::parse(vec!["--store".into()]).is_err(),
-            "`--store` needs a directory"
-        );
-        assert!(
-            Options::parse(vec!["a".into(), "b".into()]).is_err(),
-            "one URL at a time"
-        );
+    fn a_scratch_directory_goes_when_it_is_dropped() {
+        let scratch = Scratch::new(".yapfast-test").expect("a scratch directory");
+        let path = scratch.path().to_path_buf();
+        assert!(path.is_dir());
+        drop(scratch);
+        assert!(!path.exists(), "nothing is left behind");
     }
 }

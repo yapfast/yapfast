@@ -9,8 +9,9 @@
 //!
 //! * `run` speaks the framed protocol on stdin and stdout. It is what the parent
 //!   starts, and it holds no network access and no Discord token.
-//! * `fetch` installs a plugin from a git URL, for seconds, and exits, taking
-//!   `gix` with it.
+//! * `fetch` reads a plugin out of its git repository, for seconds, and exits,
+//!   taking `gix` with it. It prints one JSON object on stdout, which is how the
+//!   parent learns what it found; see [`fetch`] for that protocol.
 
 use yapfast_plugin_host::{fetch, host};
 
@@ -20,13 +21,14 @@ yapfast-plugins — the process Yapfast runs plugins in
 
 Usage:
   yapfast-plugins run [--cache DIR] [--dev DIR]
-  yapfast-plugins fetch <URL> --store DIR [--review-json]
+  yapfast-plugins fetch <URL>
 
 `run` speaks the framed protocol on stdin and stdout and exits when the
 parent closes it or when no plugin instance is left.
 
-`fetch` resolves a git URL, checks the plugin it holds, and prints what it
-found as JSON; the parent shows the review and commits the install.
+`fetch` fetches a git URL, reads the plugin it holds, and prints what it found
+as one JSON object; the files it read wait in a temporary directory for the
+parent to copy into the store and delete.
 ";
 
 fn main() {
@@ -41,7 +43,9 @@ fn run() -> anyhow::Result<()> {
     let mut arguments = std::env::args().skip(1);
     match arguments.next().as_deref() {
         None | Some("run") => host::run(host::Options::parse(arguments)?),
-        Some("fetch") => fetch::run(arguments.collect()),
+        // `fetch` owns its status: it reports its own failure as part of what it
+        // prints, so an error there is a JSON object and not a line on stderr.
+        Some("fetch") => std::process::exit(fetch::run(arguments.collect())),
         Some("help" | "--help" | "-h") => {
             print!("{HELP}");
             Ok(())

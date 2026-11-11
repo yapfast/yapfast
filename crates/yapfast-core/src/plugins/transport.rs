@@ -50,7 +50,8 @@ impl Transport for PinnedTransport {
             for (name, value) in &plan.headers {
                 // reqwest writes these from the request it is building, and a
                 // plan's copy would either double them or contradict it.
-                if name.eq_ignore_ascii_case("host") || name.eq_ignore_ascii_case("content-length") {
+                if name.eq_ignore_ascii_case("host") || name.eq_ignore_ascii_case("content-length")
+                {
                     continue;
                 }
                 request = request.header(name.as_str(), value.as_str());
@@ -77,7 +78,11 @@ impl Transport for PinnedTransport {
             // rather than by having already held all of it.
             let body: BoxStream<'static, Result<Vec<u8>>> = response
                 .bytes_stream()
-                .map(|chunk| chunk.map(|bytes| bytes.to_vec()).map_err(anyhow::Error::from))
+                .map(|chunk| {
+                    chunk
+                        .map(|bytes| bytes.to_vec())
+                        .map_err(anyhow::Error::from)
+                })
                 .boxed();
             Ok(Served {
                 status,

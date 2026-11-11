@@ -29,5 +29,7 @@ extism.workspace = true
 # Shallow git fetches for `fetch`. Its own process, so its 11.4 MiB leaves with
 # it.
 gix.workspace = true
-# The SHA-256 the lock file records for the module that actually runs.
-sha2.workspace = true
+
+[dev-dependencies]
+# The fetch tests build real repositories in directories of their own.
+tempfile.workspace = true

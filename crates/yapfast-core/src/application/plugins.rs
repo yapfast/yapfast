@@ -52,6 +52,9 @@ pub enum Effect {
         plugin: PluginId,
         status: PluginStatus,
     },
+    /// The page's own state moved — a fetch finished, a review opened, an
+    /// install wrote something — so it draws itself again. Nothing a plugin did.
+    Page,
 }
 
 /// What the plugin system tells the application, arriving as
@@ -87,11 +90,11 @@ impl Application {
         if !crate::cli::plugins_allowed() {
             return vec![];
         }
-        // Without a runtime there is nothing to spawn the helper's run loop
-        // on, and a plugin system that watched nothing would be worse than
-        // none at all.
-        if tokio::runtime::Handle::try_current().is_err() {
-            tracing::warn!("the plugin system needs the background runtime to start");
+        // The bridge starts a runtime of its own for the helper's task, and a
+        // runtime can't be started from inside one: this is called from the
+        // window's thread, which is outside every runtime.
+        if tokio::runtime::Handle::try_current().is_ok() {
+            tracing::warn!("the plugin system starts outside the background runtime");
             return vec![];
         }
         let wake: Arc<dyn Fn(Notice) + Send + Sync> = Arc::new(move |notice| {
@@ -375,6 +378,10 @@ impl Application {
             }
             // A command's answer is a line in the conversation it was typed in,
             // and a failure says why where the person is looking.
+            News::Notice(Notice::Fetched { url, result }) => {
+                self.plugins_fetched(url, result);
+                vec![AppEffect::Plugin(Effect::Page)]
+            }
             News::Notice(Notice::Command { text, .. }) => {
                 self.state.notice = Some(text);
                 vec![]

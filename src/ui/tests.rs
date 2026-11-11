@@ -10926,3 +10926,36 @@ fn a_busy_voice_channel_sums_up_who_is_in_it_and_its_card_goes_with_it() {
         "a deleted channel's card goes"
     );
 }
+
+/// Settings → Plugins draws the runtime's view, not the page that says plugins
+/// can't run: a view handed over while the page is open is what it shows.
+#[cfg(feature = "plugins")]
+#[test]
+fn the_plugins_page_draws_the_runtime_view() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    let page = window.global::<PluginPage>();
+    page.invoke_opened();
+    super::plugin_settings::set_view(
+        &window,
+        yapfast_core::plugins::page::View {
+            helper: yapfast_core::plugins::page::Helper::Running {
+                memory: Some(8 << 20),
+            },
+            ..Default::default()
+        },
+    );
+    // The runtime's sentence, where the page that says plugins can't run leaves
+    // nothing: its text is the helper's, not the runtime's.
+    assert_eq!(page.get_memory(), "Plugins use 8.0 MiB now.");
+    assert_eq!(page.get_helper(), "");
+    page.invoke_closed();
+}

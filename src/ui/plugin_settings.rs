@@ -7,7 +7,7 @@
 //! view moves. Until it exists, the page shows [`Fixture`] in `--preview`,
 //! and says plugins can't run anywhere else. See `docs/plugins/settings.md`.
 
-use std::{cell::RefCell, collections::HashMap, sync::Arc};
+use std::{cell::RefCell, collections::HashMap, rc::Weak, sync::Arc};
 
 use yapfast_core::plugins::{
     page::{
@@ -17,6 +17,8 @@ use yapfast_core::plugins::{
     settings::{self, Edit, Input, Kind, Value},
     ui::Tree,
 };
+
+use yapfast_core::application::Action;
 
 use super::*;
 
@@ -53,26 +55,75 @@ thread_local! {
 }
 
 /// Gives the page the plugin runtime to show: the one place it plugs in.
-/// Until it's called, the page chooses on opening, as [`source_for`] says.
-// Nothing calls it, or `changed`, until the runtime exists.
-#[allow(dead_code)]
-pub(super) fn attach(window: &YapfastWindow, source: Box<dyn Source>) {
+///
+/// Called once the window is built, from [`bind`]. `--preview` keeps the sample
+/// plugins instead, which is how a run without a runtime still shows what the
+/// page can do.
+fn attach(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
+    if window.get_preview() {
+        return;
+    }
+    let view = match adapter.try_borrow() {
+        Ok(adapter) => adapter.app.plugins_page(),
+        // The app is borrowed while the window is built: the page opens later,
+        // and reads the view again then.
+        Err(_) => View::default(),
+    };
+    let source = Box::new(Runtime {
+        adapter: Rc::downgrade(adapter),
+        view,
+    });
     PAGE.with_borrow_mut(|page| match page {
         Some(page) => page.source = source,
         None => *page = Some(Page::new(source)),
     });
-    changed(window);
 }
 
-/// Shows the view again, if the page is open: the runtime calls it after its
-/// view moves.
-#[allow(dead_code)]
-pub(super) fn changed(window: &YapfastWindow) {
+/// The runtime's view moved: the page draws it again if it's open.
+pub(super) fn set_view(window: &YapfastWindow, view: View) {
     PAGE.with_borrow_mut(|page| {
-        if let Some(page) = page.as_mut().filter(|page| page.open) {
+        let Some(page) = page.as_mut() else { return };
+        page.source.set_view(view);
+        if page.open {
             show(window, page);
         }
     });
+}
+
+/// The plugin runtime, as the page reaches it: the copy of its view the page
+/// draws, and one action per request.
+struct Runtime {
+    adapter: Weak<RefCell<Adapter>>,
+    view: View,
+}
+
+impl Source for Runtime {
+    fn view(&self) -> &View {
+        &self.view
+    }
+
+    fn request(&mut self, request: Request) {
+        let Some(adapter) = self.adapter.upgrade() else {
+            return;
+        };
+        // A request comes from a callback that holds the page, not the adapter,
+        // so the adapter is free; `try_borrow_mut` keeps one that ever holds
+        // both from panicking.
+        let Ok(mut adapter) = adapter.try_borrow_mut() else {
+            tracing::warn!(?request, "the plugin page asked while the window was busy");
+            return;
+        };
+        let effects = adapter.app.dispatch(Action::PluginsPage(request));
+        // What the request changed is drawn at once, rather than a frame
+        // later; a status that arrives from the helper comes back as
+        // `Effect::Plugin` and redraws the row then.
+        self.view = adapter.app.plugins_page();
+        adapter.defer(effects);
+    }
+
+    fn set_view(&mut self, view: View) {
+        self.view = view;
+    }
 }
 
 /// The stand-in until a runtime attaches: the sample plugins in the
@@ -101,6 +152,7 @@ impl Page {
 
 pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     bind_page(window);
+    attach(window, adapter);
     // Load folder asks for a folder in the system's dialog, which the
     // adapter runs.
     let state = adapter.clone();
@@ -581,11 +633,18 @@ fn show(window: &YapfastWindow, page: &mut Page) {
             Tone::Normal,
             "No plugin is running now, so they use no memory.".to_owned(),
         ),
-        Helper::Running { memory } => (
+        Helper::Running {
+            memory: Some(memory),
+        } => (
             "",
             Tone::Normal,
             format!("Plugins use {} now.", page::bytes(memory)),
         ),
+        // A system that doesn't report a process's memory: it is up, and that
+        // is all the page can say.
+        Helper::Running { memory: None } => {
+            ("", Tone::Normal, "Plugins are running now.".to_owned())
+        }
         Helper::Missing => (
             "Plugins can't run: yapfast-plugins, the program that runs them, isn't installed beside Yapfast. Everything else works.",
             Tone::Warning,

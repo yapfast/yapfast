@@ -266,7 +266,7 @@ fn clean_reference(text: &str) -> anyhow::Result<String> {
 
 /// Checks a directory inside a repository and returns it with `/` separators,
 /// refusing one that climbs out.
-fn clean_path(text: &str) -> anyhow::Result<String> {
+pub(super) fn clean_path(text: &str) -> anyhow::Result<String> {
     let mut parts: Vec<String> = Vec::new();
     for component in Path::new(text).components() {
         match component {

@@ -1986,6 +1986,10 @@ struct Adapter {
     /// buttons is showing.
     emoji_grid: emoji_grid::EmojiGrid,
     app: Application,
+    /// What a page's request set off, to run once the page has let go of its
+    /// own borrow: see `defer`.
+    #[cfg(feature = "plugins")]
+    deferred: Vec<Effect>,
     models: Models,
     icons: Icons,
     weak: std::rc::Weak<RefCell<Self>>,
@@ -2395,6 +2399,8 @@ impl Adapter {
                 emoji_rows_filled: (0, 0),
                 emoji_grid: Default::default(),
                 app,
+                #[cfg(feature = "plugins")]
+                deferred: Vec::new(),
                 models,
                 icons,
                 weak: weak.clone(),
@@ -2715,6 +2721,14 @@ impl Adapter {
         }
     }
 
+    /// Runs `effects` after the current call returns, for a cause that is
+    /// itself borrowed while it works: the Plugins page asks for something
+    /// while holding the page, and the answer may want to redraw it.
+    #[cfg(feature = "plugins")]
+    fn defer(&mut self, effects: Vec<Effect>) {
+        self.deferred.extend(effects);
+    }
+
     fn stop_backend(&mut self) {
         if let Some(events) = self.events.take() {
             events.abort();
@@ -2730,7 +2744,18 @@ impl Adapter {
                     self.app.remember_channels(self.layout.channels.clone());
                     let (backend, mut events) =
                         Backend::start(self.runtime.clone(), self.root.clone(), start);
+                    #[cfg(feature = "plugins")]
+                    let plugin_events = backend.events();
                     self.backend = Some(backend);
+                    // The plugin system's notices go into this session's own
+                    // event stream, by the same path as everything else.
+                    #[cfg(feature = "plugins")]
+                    {
+                        let opened = self.app.open_plugins(&self.root, plugin_events);
+                        if !opened.is_empty() {
+                            self.execute(opened);
+                        }
+                    }
                     let weak = self.weak.clone();
                     // Network work stays on Tokio. Only channel delivery runs on
                     // Slint's executor, which wakes on an event and never polls idle.
@@ -2783,11 +2808,15 @@ impl Adapter {
                 }
                 #[cfg(feature = "plugins")]
                 Effect::PluginInput(input) => self.plugin_input(input),
-                // The runtime's state for a plugin. The Plugins page still draws
-                // the manifests it found, not the runtime's store, so nothing
-                // shows it yet.
+                // The Plugins page holds a copy of the runtime's view: hand it a
+                // fresh one, which redraws the page if it's open.
                 #[cfg(feature = "plugins")]
-                Effect::Plugin(_) => {}
+                Effect::Plugin(_) => {
+                    let view = self.app.plugins_page();
+                    if let Some(window) = self.window.upgrade() {
+                        plugin_settings::set_view(&window, view);
+                    }
+                }
                 Effect::PreviewCamera(filming) => {
                     self.preview_camera = None;
                     if let Some((camera, feed)) = filming {
@@ -3059,6 +3088,15 @@ impl Adapter {
             Reach::EVERYTHING
         };
         self.execute(effects);
+        // What a page's request set off, which waited for the page to let go of
+        // its own borrow.
+        #[cfg(feature = "plugins")]
+        {
+            let deferred = std::mem::take(&mut self.deferred);
+            if !deferred.is_empty() {
+                self.execute(deferred);
+            }
+        }
         reach
     }
 }

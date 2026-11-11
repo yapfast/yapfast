@@ -42,6 +42,8 @@ mod oauth;
 mod place_search;
 mod places;
 #[cfg(feature = "plugins")]
+mod plugin_page;
+#[cfg(feature = "plugins")]
 pub(crate) mod plugins;
 mod polls;
 mod preview;
@@ -2332,6 +2334,9 @@ pub enum Action {
     /// Something asked of the plugin system; see [`plugins::Action`].
     #[cfg(feature = "plugins")]
     Plugin(plugins::Action),
+    /// Something asked of Settings → Plugins; see [`plugins::page::Request`].
+    #[cfg(feature = "plugins")]
+    PluginsPage(crate::plugins::page::Request),
 }
 
 /// An adapter executes these effects with the shared backend, then applies its events.
@@ -2385,6 +2390,10 @@ pub struct DiscordEmojiLists {
 #[derive(Default)]
 pub struct Application {
     pub state: AppState,
+    /// Settings → Plugins' own state: the fetch, its review, and what a review
+    /// would install, none of which the runtime's view holds.
+    #[cfg(feature = "plugins")]
+    pub plugin_page: plugin_page::PageState,
     feed_asks: activity_panel::FeedAsks,
     /// The lists from Matrix; `state` shows them with Discord's.
     matrix_rooms: Vec<Arc<ChatRoom>>,
@@ -4081,6 +4090,8 @@ impl Application {
             Action::DeafenOnJoin => self.voice_command_quietly(voice::Command::Deafen(true)),
             #[cfg(feature = "plugins")]
             Action::Plugin(action) => self.plugins_action(action),
+            #[cfg(feature = "plugins")]
+            Action::PluginsPage(request) => self.plugins_page_request(request),
         }
     }
 

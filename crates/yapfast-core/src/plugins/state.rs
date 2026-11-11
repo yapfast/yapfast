@@ -48,6 +48,12 @@ pub enum Notice {
     },
     /// A command answered with a line for the person, or failed with a reason.
     Command { plugin: PluginId, text: String },
+    /// A fetch finished, for the page's Add from URL: the plugin it found, or
+    /// the sentence saying why there is none.
+    Fetched {
+        url: String,
+        result: Result<crate::plugins::installing::Fetched, String>,
+    },
     /// A plugin wants a host the person hasn't allowed, so a page can ask.
     ///
     /// The gate asks rather than holding the request open, and the plugin asks
@@ -79,7 +85,9 @@ impl PluginState {
         // socket, because the helper has neither a person to ask nor a client
         // to open one with; until it is installed here, every `http.fetch`
         // answers `unsupported` and no plugin can reach the network at all.
-        let grants = Arc::new(crate::plugins::grants::Grants::load(data_dir.join("grants.json"))?);
+        let grants = Arc::new(crate::plugins::grants::Grants::load(
+            data_dir.join("grants.json"),
+        )?);
         let gate = Arc::new(
             crate::plugins::network::NetworkGate::new(
                 Arc::clone(&grants),
@@ -181,6 +189,50 @@ impl PluginState {
     /// Every plugin's state, for the page that lists them.
     pub fn statuses(&self) -> Vec<(PluginId, PluginStatus)> {
         self.bridge.statuses()
+    }
+
+    /// Every installed plugin's manifest, state and recent log, for the page
+    /// that lists them.
+    pub fn listed(&self) -> Vec<crate::plugins::registry::Listed> {
+        self.bridge.listed()
+    }
+
+    /// Reads a plugin out of its repository, for the page: the answer comes back
+    /// as [`Notice::Fetched`], so the window never waits.
+    pub fn fetch(&mut self, url: String) {
+        self.bridge.fetch(url);
+    }
+
+    /// Writes a fetched plugin into the store, once the person accepted its
+    /// review, and tells the page what the store holds now.
+    pub fn install(&mut self, package: &crate::plugins::store::Package) -> anyhow::Result<()> {
+        self.bridge.install(package)
+    }
+
+    /// Removes a plugin, and its storage and settings when `delete_data`.
+    pub fn uninstall(&mut self, plugin: &PluginId, delete_data: bool) -> anyhow::Result<()> {
+        self.bridge.uninstall(plugin, delete_data)
+    }
+
+    /// Goes back to the version the last install replaced.
+    pub fn roll_back(&mut self, plugin: &PluginId) -> anyhow::Result<()> {
+        self.bridge.roll_back(plugin)
+    }
+
+    /// What Settings → Plugins shows: a copy of what the runtime knows, so
+    /// the page reads it without touching a lock.
+    pub fn page(&self) -> crate::plugins::page::View {
+        self.bridge.page(&self.grants)
+    }
+
+    /// What the helper process is doing, for the page that says so.
+    pub fn helper(&self) -> crate::plugins::bridge::HelperState {
+        self.bridge.helper()
+    }
+
+    /// Why the plugin system is off, when it is.
+    pub fn off(&self) -> Option<String> {
+        self.bridge.off()
     }
 
     /// Stops the helper, if it is running. Called when the application exits.

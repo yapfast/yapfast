@@ -43,6 +43,10 @@ pub const MAX_HELPER_BYTES: u64 = 256 << 20;
 pub const MAX_FETCH_BYTES: u64 = 64 << 20;
 pub const MAX_FETCH_SECONDS: u64 = 120;
 
+/// The largest icon a plugin may bring: a picture the review draws at 64×64 to
+/// 256×256.
+pub const MAX_ICON_BYTES: u64 = 64 << 10;
+
 /// An instance that has made no call for this long may be evicted, unless it
 /// holds a timer or a request in flight.
 pub const IDLE_EVICTION_MS: u64 = 5 * 60 * 1000;
