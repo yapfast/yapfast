@@ -209,6 +209,13 @@ struct yapfast_pw {
   bool failed;
   char why[256];
 
+  /* What the stream did, in the order it did it: the states it passed through and
+   * what the producer answered an enumeration with. A stream that connects and
+   * then negotiates nothing says so here rather than leaving `describe` to report
+   * silence, since PipeWire reports a refused enumeration as a property with no
+   * pod, which is neither an error nor a frame. */
+  char trace[192];
+
   /* What `yapfast_pw_describe` says, and the counters behind it. */
   unsigned frames;
   unsigned stills;
@@ -222,6 +229,56 @@ static int init_status = 0;
 
 static void set_why(struct yapfast_pw *pw, const char *text) {
   snprintf(pw->why, sizeof(pw->why), "%s", text);
+}
+
+/* Adds one thing the stream did to its trace, in the order it happened. */
+static void note(struct yapfast_pw *pw, const char *pattern, ...) {
+  size_t used = strlen(pw->trace);
+  if (used + 2 >= sizeof(pw->trace)) return;
+  if (used > 0) {
+    pw->trace[used++] = ';';
+    pw->trace[used++] = ' ';
+    pw->trace[used] = '\0';
+  }
+  va_list arguments;
+  va_start(arguments, pattern);
+  vsnprintf(pw->trace + used, sizeof(pw->trace) - used, pattern, arguments);
+  va_end(arguments);
+}
+
+/* A param's name, for the trace: the three a negotiated stream is made of, and
+ * the rest by number. */
+static const char *param_name(uint32_t id) {
+  switch ((enum spa_param_type)id) {
+    case SPA_PARAM_EnumFormat:
+      return "EnumFormat";
+    case SPA_PARAM_Format:
+      return "Format";
+    case SPA_PARAM_Buffers:
+      return "Buffers";
+    case SPA_PARAM_Latency:
+      return "Latency";
+    default:
+      return "another param";
+  }
+}
+
+/* A stream's state, for the trace. */
+static const char *state_name(enum pw_stream_state state) {
+  switch (state) {
+    case PW_STREAM_STATE_ERROR:
+      return "error";
+    case PW_STREAM_STATE_UNCONNECTED:
+      return "unconnected";
+    case PW_STREAM_STATE_CONNECTING:
+      return "connecting";
+    case PW_STREAM_STATE_PAUSED:
+      return "paused";
+    case PW_STREAM_STATE_STREAMING:
+      return "streaming";
+    default:
+      return "another state";
+  }
 }
 
 /* Sizes as a person reads them. */
@@ -304,12 +361,25 @@ static void on_process(void *data) {
 
 static void on_param_changed(void *data, uint32_t id, const struct spa_pod *param) {
   struct yapfast_pw *pw = data;
-  if (param == NULL || id != SPA_PARAM_Format) return;
+  if (param == NULL) {
+    /* The producer answered an enumeration with nothing, which is how PipeWire
+     * says that none of the properties offered could be made. Nothing is a frame
+     * and nothing is an error, so without this the capture would sit at "no format
+     * negotiated yet" with no reason anywhere. */
+    note(pw, "%s refused", param_name(id));
+    return;
+  }
+  if (id != SPA_PARAM_Format) {
+    note(pw, "%s", param_name(id));
+    return;
+  }
   struct spa_video_info info;
   if (spa_format_parse(param, &info.media_type, &info.media_subtype) < 0) return;
   if (info.media_type != SPA_MEDIA_TYPE_video || info.media_subtype != SPA_MEDIA_SUBTYPE_raw) return;
   if (spa_format_video_raw_parse(param, &info.info.raw) < 0) return;
   struct spa_video_info_raw raw = info.info.raw;
+  note(pw, "Format %dx%d %s modifier 0x%llx", (int)raw.size.width, (int)raw.size.height,
+       format_name((uint32_t)raw.format), (unsigned long long)raw.modifier);
   if (pw->have_format && (raw.format != pw->raw.format || raw.size.width != pw->raw.size.width ||
                           raw.size.height != pw->raw.size.height ||
                           raw.modifier != pw->raw.modifier)) {
@@ -326,6 +396,7 @@ static void on_param_changed(void *data, uint32_t id, const struct spa_pod *para
 static void on_state_changed(void *data, enum pw_stream_state old, enum pw_stream_state state,
                              const char *error) {
   struct yapfast_pw *pw = data;
+  note(pw, "%s", state_name(state));
   switch (state) {
     case PW_STREAM_STATE_ERROR:
       snprintf(pw->why, sizeof(pw->why), "%s", error != NULL ? error : "the stream failed");
@@ -382,12 +453,19 @@ void yapfast_pw_close(struct yapfast_pw *pw);
  * `pw_stream_connect` enumerates with, `SPA_PARAM_EnumFormat`, and not
  * `SPA_PARAM_Format`, which is the id a negotiated format comes back under in
  * `param_changed`: a pod built with the second is one the producer matches
- * against nothing and answers with silence. The modifier asked for
- * is linear, the one an importer here can map: a compositor on a card with a
- * tiling of its own answers "any modifier" with that tiling (KWin on an NVIDIA
- * screen hands over 0x0300000000e08014, block-linear), and no encoder here reads
- * it. A desktop that has to copy to give a linear buffer spends one copy, and
- * every frame after it is still read where it lies. The second pod asks for the
+ * against nothing and answers with silence.
+ *
+ * Two enumerations are offered, in this order. The first asks for a linear
+ * modifier, the one an importer here maps most cheaply. The second names no
+ * modifier at all, for a producer that can't make a linear buffer: a compositor
+ * on a card with a tiling of its own answers "linear only" with nothing at all
+ * — KWin on an NVIDIA screen hands over 0x0300000000e08014, block-linear — and a
+ * share that negotiates nothing is a share that shows nothing, while a share on a
+ * tiled picture is one the importer and the encoder are asked about with the
+ * modifier in hand. Which of the two answered is in the Format the producer
+ * sends, and the capture reports it.
+ *
+ * The last pod asks for the
  * planes of the one data type an encoder can import, so a producer that can't
  * give a DMA-BUF says so instead of quietly handing over memory the processor
  * would have to copy. */
@@ -409,9 +487,20 @@ static int build_params(struct spa_pod_builder *builder, struct spa_pod_frame *f
                       0 /* the end of spa_pod_builder_add's arguments */);
   params[0] = spa_pod_builder_pop(builder, &frames[0]);
 
-  spa_pod_builder_push_object(builder, &frames[1], SPA_TYPE_OBJECT_ParamBuffers, SPA_PARAM_Buffers);
-  spa_pod_builder_add(builder, SPA_PARAM_BUFFERS_dataType, SPA_POD_Int((1 << SPA_DATA_DmaBuf)), 0);
+  /* The same picture again with no modifier named, for a producer that can't make
+   * a linear buffer: it hands over its own tiling, which the Format it answers
+   * with names, and the importer is asked about that. */
+  spa_pod_builder_push_object(builder, &frames[1], SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat);
+  spa_pod_builder_add(builder, SPA_FORMAT_mediaType, SPA_POD_Id(SPA_MEDIA_TYPE_video),
+                      SPA_FORMAT_mediaSubtype, SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw),
+                      SPA_FORMAT_VIDEO_format,
+                      SPA_POD_CHOICE_ENUM_Id(2, SPA_VIDEO_FORMAT_BGRA, SPA_VIDEO_FORMAT_RGBA),
+                      0 /* the end of spa_pod_builder_add's arguments */);
   params[1] = spa_pod_builder_pop(builder, &frames[1]);
+
+  spa_pod_builder_push_object(builder, &frames[2], SPA_TYPE_OBJECT_ParamBuffers, SPA_PARAM_Buffers);
+  spa_pod_builder_add(builder, SPA_PARAM_BUFFERS_dataType, SPA_POD_Int((1 << SPA_DATA_DmaBuf)), 0);
+  params[2] = spa_pod_builder_pop(builder, &frames[2]);
   return 0;
 }
 
@@ -466,12 +555,12 @@ void *yapfast_pw_open(uint32_t node_id, int fd, char *why, size_t why_size) {
 
   uint8_t pod_buffer[2048];
   struct spa_pod_builder builder = SPA_POD_BUILDER_INIT(pod_buffer, sizeof(pod_buffer));
-  struct spa_pod_frame frames[2];
-  const struct spa_pod *params[2];
+  struct spa_pod_frame frames[3];
+  const struct spa_pod *params[3];
   build_params(&builder, frames, params);
   int res = pw_stream_connect(pw->stream, PW_DIRECTION_INPUT, node_id,
                               PW_STREAM_FLAG_AUTOCONNECT | PW_STREAM_FLAG_DONT_RECONNECT, params,
-                              2);
+                              3);
   if (res < 0) {
     pw_thread_loop_unlock(pw->loop);
     snprintf(why, why_size, "the screen's stream couldn't be connected: %s", strerror(-res));
@@ -556,8 +645,8 @@ int yapfast_pw_frame(struct yapfast_pw *pw, struct yapfast_pw_frame *frame, int 
 void yapfast_pw_describe(struct yapfast_pw *pw, char *text, size_t text_size) {
   if (text == NULL || text_size == 0) return;
   if (!pw->have_format) {
-    snprintf(text, text_size, "node %u, no format negotiated yet, %u frames", pw->node_id,
-             pw->frames);
+    snprintf(text, text_size, "node %u, no format negotiated yet, %u frames, %s", pw->node_id,
+             pw->frames, pw->trace[0] ? pw->trace : "nothing said yet");
     return;
   }
   char modifier[24];
