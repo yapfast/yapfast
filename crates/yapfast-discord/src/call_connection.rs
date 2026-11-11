@@ -966,7 +966,6 @@ impl Speaker {
         })
     }
 
-
     fn push(&mut self, sequence: u16, timestamp: u32, opus: Vec<u8>) {
         self.heard = std::time::Instant::now();
         self.insert(sequence, timestamp, opus);
@@ -979,7 +978,6 @@ impl Speaker {
         self.insert(sequence, timestamp, Vec::new());
     }
 
-
     fn insert(&mut self, sequence: u16, timestamp: u32, opus: Vec<u8>) {
         if self.next.is_some_and(|next| rtp::before(sequence, next)) {
             return;
@@ -987,7 +985,6 @@ impl Speaker {
         let at = self
             .waiting
             .iter()
-
             .rposition(|(waiting, _, _)| !rtp::before(sequence, *waiting))
             .map_or(0, |at| at + 1);
         if at > 0 && self.waiting[at - 1].0 == sequence {
@@ -1002,7 +999,6 @@ impl Speaker {
         // but a run of them is bounded too. A stopped speaker stays
         // stopped: dropped packets piling up mustn't start it.
         while self.queued() > MOST || self.waiting.len() > MOST * 4 {
-
             self.waiting.pop_front();
             if self.next.is_some() {
                 self.next = self.waiting.front().map(|(sequence, _, _)| *sequence);
@@ -1058,7 +1054,6 @@ impl Speaker {
         let mut next = next;
         loop {
             match self.waiting.front() {
-
                 Some((sequence, _, _)) if rtp::before(*sequence, next) => {}
                 // Dropped, but it held 20 ms of the sender's audio: that's
                 // concealed in its place, as Discord's clients, which play
@@ -1282,7 +1277,11 @@ mod tests {
         let mut speaker = Speaker::new(7).unwrap();
         let packets: Vec<Vec<u8>> = (0..6).map(|frame| tone(&mut encoder, frame)).collect();
         for sequence in 0..START as u16 {
-            speaker.push(sequence, at(sequence), packets[usize::from(sequence)].clone());
+            speaker.push(
+                sequence,
+                at(sequence),
+                packets[usize::from(sequence)].clone(),
+            );
         }
         let mut played = Vec::new();
         for _ in 0..START {
@@ -1319,7 +1318,11 @@ mod tests {
         let mut speaker = Speaker::new(7).unwrap();
         let packets: Vec<Vec<u8>> = (0..6).map(|frame| tone(&mut encoder, frame)).collect();
         for sequence in 0..START as u16 {
-            speaker.push(sequence, at(sequence), packets[usize::from(sequence)].clone());
+            speaker.push(
+                sequence,
+                at(sequence),
+                packets[usize::from(sequence)].clone(),
+            );
         }
         let mut played = Vec::new();
         for _ in 0..START {
@@ -1364,7 +1367,6 @@ mod tests {
         let mut played = 0;
         for tick in 0..packets.len() + 20 {
             if let Some(packet) = packets.get(tick) {
-
                 speaker.push(tick as u16, at(tick as u16), packet.clone());
             }
             played += usize::from(speaker.next().is_some());
@@ -1379,7 +1381,6 @@ mod tests {
         let mut speaker = Speaker::new(7).unwrap();
         let packets: Vec<Vec<u8>> = (0..5).map(|frame| tone(&mut encoder, frame)).collect();
         for sequence in 0..3 {
-
             speaker.push(
                 sequence,
                 at(sequence),
@@ -1582,7 +1583,6 @@ mod tests {
         let mut encoder = opus::Encoder::new(1, opus::Application::Voice, BITRATE).unwrap();
         let mut speaker = Speaker::new(7).unwrap();
         for frame in 0..10u16 {
-
             // Each dropped packet shares the next frame's timestamp.
             speaker.push(frame * 2, at(frame), tone(&mut encoder, usize::from(frame)));
             speaker.skip(frame * 2 + 1, at(frame + 1));
@@ -1610,7 +1610,6 @@ mod tests {
             speaker.skip(sequence, at(1));
         }
         for (frame, sequence) in (31..34).enumerate() {
-
             speaker.push(
                 sequence,
                 at(frame as u16 + 1),
@@ -1889,7 +1888,6 @@ mod tests {
         let mut speaker = Speaker::new(7).unwrap();
         let packet = tone(&mut encoder, 0);
         for sequence in 0..(MOST as u16 + 10) {
-
             speaker.push(sequence, at(sequence), packet.clone());
         }
         assert_eq!(speaker.waiting.len(), MOST);

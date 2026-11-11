@@ -646,7 +646,7 @@ impl Input {
                     &mut self.said,
                 ) {
                     say(self.name, news);
-
+                }
                 if flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0 {
                     self.gaps += 1;
                     tracing::debug!(
