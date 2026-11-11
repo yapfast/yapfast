@@ -74,9 +74,6 @@ const ACTIVATE_TIMEOUT: Duration = Duration::from_secs(30);
 const DEACTIVATE_TIMEOUT: Duration = Duration::from_millis(100);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
 const EVICT_TIMEOUT: Duration = Duration::from_millis(500);
-const KICK_TIMEOUT: Duration = Duration::from_millis(250);
-/// A timer the guest asked for: an answer says it was set, nothing more.
-const TIMER_TIMEOUT: Duration = Duration::from_secs(2);
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
 
 /// How long the application waits for the helper to exit before giving up on a
@@ -1536,6 +1533,11 @@ impl Session {
                 None
             }
             FromHelper::Activated { plugin, .. } => {
+                // Its answer: forgetting the request here is what stops the
+                // deadline from faulting a plugin that loaded perfectly well.
+                // The other answers clear their own request where they are
+                // handled, because those handlers need the purpose they carried.
+                self.pending.remove(&frame.id);
                 self.active.insert(plugin.clone());
                 let status = PluginStatus::Active;
                 shared.registry_mut().set_status(&plugin, status.clone());
@@ -1543,6 +1545,7 @@ impl Session {
                 None
             }
             FromHelper::Deactivated { plugin, .. } => {
+                self.pending.remove(&frame.id);
                 self.active.remove(&plugin);
                 let status = PluginStatus::Enabled;
                 shared.registry_mut().set_status(&plugin, status.clone());
@@ -1554,7 +1557,7 @@ impl Session {
                 None
             }
             FromHelper::CommandDone { plugin, outcome } => {
-                self.on_command_done(shared, &plugin, outcome);
+                self.on_command_done(frame.id, shared, &plugin, outcome);
                 None
             }
             FromHelper::EventDone { .. } => None,
@@ -1930,7 +1933,15 @@ impl Session {
 
     /// Reports a command's answer: a line for the person, or the reason it
     /// failed, on the application's own event path.
-    fn on_command_done(&self, shared: &Arc<Shared>, plugin: &PluginId, outcome: CommandOutcome) {
+    fn on_command_done(
+        &mut self,
+        id: u64,
+        shared: &Arc<Shared>,
+        plugin: &PluginId,
+        outcome: CommandOutcome,
+    ) {
+        // Its answer, so its deadline has nothing left to fault.
+        self.pending.remove(&id);
         match outcome {
             CommandOutcome::None => {}
             CommandOutcome::Notice { text } => {
@@ -2074,15 +2085,10 @@ impl Session {
         let message = ToHelper::Kick {
             plugin: key.plugin.clone(),
         };
-        self.request(
-            &message,
-            KICK_TIMEOUT,
-            Purpose::Agent {
-                what: "timer",
-                plugin: key.plugin,
-                budget: TIMER_TIMEOUT,
-            },
-        );
+        // Nothing answers a tick: the clock that asked isn't waiting for one, so
+        // it goes with no id and leaves nothing to expire. A deadline here
+        // faulted a plugin for a request it was never expected to answer.
+        self.send_message(&message, FrameKind::Request);
     }
 
     /// Sends a request and remembers what its answer is for.
@@ -2701,6 +2707,112 @@ mod tests {
         };
         assert_eq!(to, plugin);
         assert_eq!(events.len(), 2, "one burst arrives as one call");
+    }
+
+    /// The answer to an activation clears the request that asked for it. It
+    /// did not, so every plugin that loaded was faulted thirty seconds later
+    /// with "the helper didn't answer its activation request" — a plugin that
+    /// had been running the whole time.
+    #[test]
+    fn an_activation_answer_clears_its_request() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), HOOK_MANIFEST, b"not a real module");
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        runtime().block_on(session.on_command(
+            &shared,
+            Request::Activate {
+                plugins: vec![plugin.clone()],
+            },
+        ));
+        let activate = next_frame(&written);
+        assert!(matches!(
+            message(&activate),
+            ToHelper::Activate { load: Some(_), .. }
+        ));
+        assert_eq!(
+            session.pending.len(),
+            1,
+            "the activation is being waited on"
+        );
+
+        let answer = Frame::new(
+            FrameKind::Reply,
+            activate.id,
+            serde_json::to_vec(&FromHelper::Activated {
+                plugin: plugin.clone(),
+                state: None,
+                memory_pages: 256,
+            })
+            .expect("it serializes"),
+        );
+        assert!(session.on_frame(&shared, answer).is_none());
+        assert!(
+            session.pending.is_empty(),
+            "answered, so its deadline can't fault a plugin that loaded"
+        );
+        assert!(session.active.contains(&plugin));
+    }
+
+    /// A command's answer clears the command's request too: without it every
+    /// `/command` faulted its plugin two seconds after answering, so the person
+    /// saw `pong` and then a plugin that had "kept crashing".
+    #[test]
+    fn a_command_answer_clears_its_request() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), HOOK_MANIFEST, b"not a real module");
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        let invocation = CommandInvocation {
+            name: "ping".to_owned(),
+            options: serde_json::Map::new(),
+        };
+        runtime().block_on(session.on_command(
+            &shared,
+            Request::Command {
+                plugin: plugin.clone(),
+                invocation,
+            },
+        ));
+        let activate = next_frame(&written);
+        let command = next_frame(&written);
+        assert!(matches!(message(&command), ToHelper::Command { .. }));
+        assert_eq!(session.pending.len(), 2, "the activation and the command");
+
+        for (frame, report) in [
+            (
+                activate,
+                FromHelper::Activated {
+                    plugin: plugin.clone(),
+                    state: None,
+                    memory_pages: 256,
+                },
+            ),
+            (
+                command,
+                FromHelper::CommandDone {
+                    plugin: plugin.clone(),
+                    outcome: CommandOutcome::Notice {
+                        text: "pong".to_owned(),
+                    },
+                },
+            ),
+        ] {
+            let answer = Frame::new(
+                FrameKind::Reply,
+                frame.id,
+                serde_json::to_vec(&report).expect("it serializes"),
+            );
+            assert!(session.on_frame(&shared, answer).is_none());
+        }
+        assert!(
+            session.pending.is_empty(),
+            "answered, so neither deadline faults a plugin that worked"
+        );
     }
 
     #[test]

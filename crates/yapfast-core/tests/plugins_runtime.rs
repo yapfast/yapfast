@@ -258,6 +258,21 @@ fn the_sample_ping_plugin_loads_and_declares_its_command() {
         "{commands:?}"
     );
 
+    // And it stays running: the answer to its activation used to leave its
+    // deadline behind, so thirty seconds after loading, a plugin that had been
+    // working the whole time was faulted for "not answering" its activation.
+    std::thread::sleep(std::time::Duration::from_secs(31));
+    assert!(
+        running(),
+        "still active after its deadlines would have passed: {:?} {:?}",
+        state.statuses(),
+        state
+            .page()
+            .installed
+            .first()
+            .map(|plugin| plugin.log.clone())
+    );
+
     state.set_enabled(&id, false).expect("it is off");
     let off = Instant::now();
     while off.elapsed() < END && !matches!(state.helper(), HelperState::Stopped) {
