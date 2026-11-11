@@ -118,6 +118,11 @@ const THUMBNAIL_EVERY: Duration = Duration::from_secs(5 * 60);
 /// again.
 #[cfg(target_os = "linux")]
 const STILL_RETRY: Duration = Duration::from_secs(5);
+
+/// How often a share that has produced no picture says what its capture is
+/// waiting for: a stream nothing negotiates with is otherwise a long silence.
+#[cfg(target_os = "linux")]
+const WAITING_EVERY: Duration = Duration::from_secs(5);
 /// How long a shared stream whose connection ended waits for a server
 /// Discord moved it to.
 const MOVE_GRACE: Duration = Duration::from_secs(5);
@@ -4598,6 +4603,10 @@ fn capture_dmabufs(
     // for the picture and one for the stream's size, made again only when a
     // picture comes at another size.
     let mut scratch = Scratch::default();
+    // When the capture's account of itself was last logged while it had still
+    // produced nothing: a stream that negotiates nothing waits here, and the line
+    // the share opens with is a snapshot taken before that wait began.
+    let mut waited: Option<Instant> = None;
     while !stop.load(Ordering::Relaxed) {
         // The next slot and how long it is away. The capture waits that long for
         // the desktop to change, so a still screen costs one wake-up a slot and
@@ -4673,6 +4682,18 @@ fn capture_dmabufs(
                 continue;
             }
             Found::Still => {
+                // Nothing has come yet: what the capture is waiting for, now and
+                // then, rather than only in the line this share opened with. A
+                // portal stream that never negotiates says which state it is in
+                // and what the producer answered, which is otherwise a share that
+                // shows nothing with no reason anywhere.
+                if !saw_picture && waited.is_none_or(|last| last.elapsed() >= WAITING_EVERY) {
+                    waited = Some(Instant::now());
+                    tracing::info!(
+                        capture = capture.describe().as_str(),
+                        "the share has no picture yet"
+                    );
+                }
                 // Nothing has been drawn since the last picture. It is still a
                 // stream a viewer joining, a decoder that lost its place or a
                 // preview coming back can be shown — from the picture the capture
