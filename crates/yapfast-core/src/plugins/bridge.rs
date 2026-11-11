@@ -1896,8 +1896,8 @@ impl Session {
                 call,
                 HostReturn::Error {
                     message: format!(
-                        "`{}` is the parent's, not a plugin's: a call may only run an export 
-                         the callee has written for it",
+                        "`{}` belongs to the parent, not to the plugin: a call runs only an \
+                         export the callee wrote for it",
                         call_request.function
                     ),
                 },
@@ -2825,6 +2825,14 @@ impl Session {
 
     /// Looks at one folder plugin's files, and reloads it when they changed.
     fn poll_dev(&mut self, shared: &Shared, plugin: &PluginId, folder: &Path, now: Instant) {
+        // A swap already running is one the reload would take the steps of: it
+        // waits for the next look instead.
+        if self.swapping() {
+            if let Some(watch) = self.dev.get_mut(plugin) {
+                watch.due = now + DEV_POLL;
+            }
+            return;
+        }
         let stamp = dev_stamp(folder);
         let unchanged = self
             .dev
