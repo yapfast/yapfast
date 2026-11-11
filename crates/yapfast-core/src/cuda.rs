@@ -78,6 +78,18 @@ unsafe extern "C" {
         v: *mut u8,
         v_stride: c_uint,
     ) -> c_int;
+    #[allow(clippy::too_many_arguments)]
+    fn yapfast_cudaconvert_preview(
+        convert: *mut c_void,
+        width: c_uint,
+        height: c_uint,
+        y: *mut u8,
+        y_stride: c_uint,
+        u: *mut u8,
+        u_stride: c_uint,
+        v: *mut u8,
+        v_stride: c_uint,
+    ) -> c_int;
     fn yapfast_cudaconvert_error(convert: *mut c_void) -> *const c_char;
     fn yapfast_cudaconvert_free(convert: *mut c_void);
     fn yapfast_cudaenc_new(
@@ -368,10 +380,35 @@ impl Convert {
     /// and only when it is asked for.
     pub fn still(
         &self,
+        planes: (&mut [u8], &mut [u8], &mut [u8]),
+        strides: [u32; 3],
+    ) -> Result<()> {
+        self.read_back(None, planes, strides)
+    }
+
+    /// The last picture that came through GL's door — a tiled screen's —
+    /// scaled and converted on the card to `size` and copied back as I420: the
+    /// preview of a window that draws on the processor, which can't sample the
+    /// picture where it lies. Only the preview's pixels cross the bus. A picture
+    /// the driver held as rows left no copy on the card to make one from, and
+    /// is refused: the processor can read its rows itself.
+    pub fn preview(
+        &self,
+        size: (u32, u32),
+        planes: (&mut [u8], &mut [u8], &mut [u8]),
+        strides: [u32; 3],
+    ) -> Result<()> {
+        self.read_back(Some((size.0 & !1, size.1 & !1)), planes, strides)
+    }
+
+    /// The still at the stream's size, or the preview at `preview`'s.
+    fn read_back(
+        &self,
+        preview: Option<(u32, u32)>,
         (y, u, v): (&mut [u8], &mut [u8], &mut [u8]),
         strides: [u32; 3],
     ) -> Result<()> {
-        let (width, height) = self.size();
+        let (width, height) = preview.unwrap_or_else(|| self.size());
         let needs = |stride: u32, columns: u32, rows: u32, plane: &[u8]| {
             stride >= columns && plane.len() >= stride as usize * rows as usize
         };
@@ -384,15 +421,28 @@ impl Convert {
         // SAFETY: each plane holds its rows at its stride, checked above, and the
         // handle is this module's.
         let ok = unsafe {
-            yapfast_cudaconvert_still(
-                self.handle.0,
-                y.as_mut_ptr(),
-                strides[0],
-                u.as_mut_ptr(),
-                strides[1],
-                v.as_mut_ptr(),
-                strides[2],
-            )
+            match preview {
+                None => yapfast_cudaconvert_still(
+                    self.handle.0,
+                    y.as_mut_ptr(),
+                    strides[0],
+                    u.as_mut_ptr(),
+                    strides[1],
+                    v.as_mut_ptr(),
+                    strides[2],
+                ),
+                Some((width, height)) => yapfast_cudaconvert_preview(
+                    self.handle.0,
+                    width,
+                    height,
+                    y.as_mut_ptr(),
+                    strides[0],
+                    u.as_mut_ptr(),
+                    strides[1],
+                    v.as_mut_ptr(),
+                    strides[2],
+                ),
+            }
         };
         if ok == 0 {
             // SAFETY: the string belongs to the handle, which is alive.
@@ -1125,6 +1175,35 @@ mod card_path {
         assert!(
             near(left, 82) && near(right, 145),
             "the still is {left} and {right}"
+        );
+        // A software-drawn window's preview is the same picture scaled on the card,
+        // and only it comes back.
+        let (pw, ph) = (320u32, 180u32);
+        let (mut y_small, mut u_small, mut v_small) = (
+            vec![0u8; (pw * ph) as usize],
+            vec![0u8; (pw * ph / 4) as usize],
+            vec![0u8; (pw * ph / 4) as usize],
+        );
+        convert
+            .preview(
+                (pw, ph),
+                (&mut y_small, &mut u_small, &mut v_small),
+                [pw, pw / 2, pw / 2],
+            )
+            .expect("a preview");
+        let row = (ph / 2 * pw) as usize;
+        let (left, right) = (
+            y_small[row + pw as usize / 4],
+            y_small[row + pw as usize * 3 / 4],
+        );
+        assert!(
+            near(left, 82) && near(right, 145),
+            "the preview is {left} and {right}"
+        );
+        let chroma = (ph / 4 * pw / 2) as usize + pw as usize / 8;
+        assert!(
+            near(u_small[chroma], 90) && near(v_small[chroma], 240),
+            "the preview's red keeps its colour"
         );
         gbm.draw(&fd, (stride, offset, modifier), (width, height), GREEN, RED)
             .expect("drawn again");

@@ -256,6 +256,13 @@ struct gl_api {
  * map and an unmap. Known by the buffer itself — the DMA-BUF's inode, which the
  * import's own reference keeps from being reused — and how the picture lies in
  * it. */
+/* Where the kernels write a picture: the stream's NV12, or the smaller one a
+ * preview is made of. */
+struct nv12_target {
+  CUdeviceptr pixels;
+  unsigned pitch, width, height;
+};
+
 #define GL_KEPT 4
 /* A kept picture not seen for this many frames is let go of: its capture moved
  * to other buffers, after a resize, and the import holds the old ones. */
@@ -309,6 +316,11 @@ struct yapfast_cudaconvert {
   unsigned copy_texture;
   CUgraphicsResource copy_resource;
   unsigned copy_width, copy_height;
+  /* The preview a window drawing on the processor shows, made on the card from
+   * that texture at the preview's size so only its pixels come back: allocated
+   * when one is first asked for, and again when its size changes. */
+  CUdeviceptr preview;
+  struct nv12_target preview_target;
   /* Frames through GL's door, which is what a kept picture's age is counted
    * in. */
   unsigned long long gl_frames;
@@ -815,11 +827,14 @@ const char *yapfast_cudaconvert_error(struct yapfast_cudaconvert *c) {
 }
 
 /* Runs both kernels: the stream's picture comes out as NV12 in `c->nv12`, and
- * the caller hands that buffer to its encoder. The picture is `pitch`-byte rows
- * at `pixels`, or, where `texture` isn't zero, the array that texture reads. */
+ * the caller hands that buffer to its encoder — or in `target`, where that isn't
+ * null. The picture is `pitch`-byte rows at `pixels`, or, where `texture` isn't
+ * zero, the array that texture reads. */
 static int launch(struct yapfast_cudaconvert *c, const void *pixels, unsigned pitch,
-                  int width, int height, int red_first, CUtexObject texture) {
-  unsigned char *frames = (unsigned char *)(uintptr_t)c->nv12;
+                  int width, int height, int red_first, CUtexObject texture,
+                  const struct nv12_target *target) {
+  const struct nv12_target stream = {c->nv12, c->pitch, c->width, c->height};
+  const struct nv12_target *aim = target != NULL ? target : &stream;
   /* Laid out as `native/cuda_convert.cu`'s `bgra_frame`. */
   struct {
     const unsigned char *pixels;
@@ -832,19 +847,20 @@ static int launch(struct yapfast_cudaconvert *c, const void *pixels, unsigned pi
     unsigned char *pixels;
     unsigned pitch;
     int width, height;
-  } nv12 = {frames, c->pitch, (int)c->width, (int)c->height};
+  } nv12 = {(unsigned char *)(uintptr_t)aim->pixels, aim->pitch, (int)aim->width,
+             (int)aim->height};
   void *arguments[] = {&source, &nv12};
   unsigned block = 16;
-  unsigned blocks_x = (c->width + block - 1) / block;
-  unsigned blocks_y = (c->height + block - 1) / block;
+  unsigned blocks_x = (aim->width + block - 1) / block;
+  unsigned blocks_y = (aim->height + block - 1) / block;
   CU(c, cuLaunchKernel(c->to_y, blocks_x, blocks_y, 1, block, block, 1, 0, NULL, arguments, NULL),
      "the luma kernel wouldn't start");
-  blocks_x = ((c->width / 2) + block - 1) / block;
-  blocks_y = ((c->height / 2) + block - 1) / block;
+  blocks_x = ((aim->width / 2) + block - 1) / block;
+  blocks_y = ((aim->height / 2) + block - 1) / block;
   CU(c, cuLaunchKernel(c->to_uv, blocks_x, blocks_y, 1, block, block, 1, 0, NULL, arguments, NULL),
      "the chroma kernel wouldn't start");
   CU(c, cuCtxSynchronize(), "the convert didn't finish");
-  c->frames++;
+  if (target == NULL) c->frames++;
   return 1;
 }
 
@@ -1011,7 +1027,7 @@ static int copy_rows(struct yapfast_cudaconvert *c, void *array, unsigned width,
  * into `c->rows` first where it hasn't. The array holds the picture as GL does,
  * red first, where the descriptor's own memory is blue first. */
 static int convert_array(struct yapfast_cudaconvert *c, void *array, unsigned width,
-                         unsigned height) {
+                         unsigned height, const struct nv12_target *target) {
   if (c->cuda.cuTexObjectCreate != NULL && c->cuda.cuTexObjectDestroy != NULL) {
     cuda_resource_desc resource;
     memset(&resource, 0, sizeof(resource));
@@ -1027,14 +1043,14 @@ static int convert_array(struct yapfast_cudaconvert *c, void *array, unsigned wi
     texture.flags = CU_TRSF_READ_AS_INTEGER;
     CUtexObject object = 0;
     if (c->cuda.cuTexObjectCreate(&object, &resource, &texture, NULL) == CUDA_SUCCESS) {
-      int ok = launch(c, NULL, 0, (int)width, (int)height, 1, object);
+      int ok = launch(c, NULL, 0, (int)width, (int)height, 1, object, target);
       c->cuda.cuTexObjectDestroy(object);
       return ok;
     }
   }
   if (!copy_rows(c, array, width, height)) return 0;
   return launch(c, (const void *)(uintptr_t)c->rows, (unsigned)c->rows_pitch, (int)width,
-                (int)height, 1, 0);
+                (int)height, 1, 0, target);
 }
 
 /* Lets go of a kept picture: GL's texture and the import, in that order. GL's
@@ -1141,7 +1157,7 @@ static int convert_kept(struct yapfast_cudaconvert *c, struct gl_kept *kept) {
     put(c->gl_why, sizeof(c->gl_why), "CUDA wouldn't say where GL's picture lies: %s",
         cuda_name(c, r));
   } else {
-    ok = convert_array(c, array, kept->width, kept->height);
+    ok = convert_array(c, array, kept->width, kept->height, NULL);
     if (!ok) put(c->gl_why, sizeof(c->gl_why), "%s", c->error);
   }
   c->cuda.cuGraphicsUnmapResources(1, &c->copy_resource, NULL);
@@ -1303,7 +1319,7 @@ int yapfast_cudaconvert_convert(struct yapfast_cudaconvert *c, int fd, unsigned 
       c->source_width = width;
       c->source_height = height;
       ok = launch(c, (const void *)(uintptr_t)frame.frame.pDevPtr[0], frame.pitch, (int)width,
-                  (int)height, 0, 0);
+                  (int)height, 0, 0, NULL);
     }
   } else if (frame.frameType == CU_EGL_FRAME_TYPE_ARRAY && frame.frame.pArray[0] != NULL) {
     /* A picture the driver holds as an array rather than rows: its rows are
@@ -1316,7 +1332,7 @@ int yapfast_cudaconvert_convert(struct yapfast_cudaconvert *c, int fd, unsigned 
       c->source_width = width;
       c->source_height = height;
       ok = launch(c, (const void *)(uintptr_t)c->rows, (unsigned)c->rows_pitch, (int)width,
-                  (int)height, 0, 0);
+                  (int)height, 0, 0, NULL);
     }
   } else {
     put(c->error, sizeof(c->error),
@@ -1347,50 +1363,41 @@ done:
   return ok;
 }
 
-/* Copies the picture the last convert wrote, at the stream's size, back into
- * the processor's memory as I420: Discord's still is made from it every few
- * minutes, and a tiled picture has no rows the processor could read it from
- * instead. The luma rows go straight into `y`; the chroma, interleaved on the
- * card, is copied once into memory here and split into `u` and `v`. Returns 1,
- * or 0 with the reason in `yapfast_cudaconvert_error`. */
-int yapfast_cudaconvert_still(struct yapfast_cudaconvert *c, unsigned char *y, unsigned y_stride,
-                              unsigned char *u, unsigned u_stride, unsigned char *v,
-                              unsigned v_stride) {
-  if (c == NULL || c->frames == 0) return 0;
+/* Copies `from`, an NV12 picture on the card, into the processor's memory as
+ * I420: the luma rows straight into `y`, and the chroma, interleaved on the
+ * card, copied once into memory here and split into `u` and `v`. CUDA's context
+ * is current. */
+static int download(struct yapfast_cudaconvert *c, const struct nv12_target *from,
+                    unsigned char *y, unsigned y_stride, unsigned char *u, unsigned u_stride,
+                    unsigned char *v, unsigned v_stride) {
   if (c->cuda.cuMemcpy3D == NULL) {
     put(c->error, sizeof(c->error), "the CUDA driver can't copy the picture back");
     return 0;
   }
-  const unsigned width = c->width, height = c->height;
-  const unsigned chroma_width = width / 2, chroma_height = height / 2;
+  const unsigned chroma_width = from->width / 2, chroma_height = from->height / 2;
   unsigned char *interleaved = malloc((size_t)chroma_width * 2 * chroma_height);
   if (interleaved == NULL) {
     put(c->error, sizeof(c->error), "no memory for the picture's colour");
     return 0;
   }
-  if (!enter(c)) {
-    free(interleaved);
-    return 0;
-  }
   cuda_memcpy3d copy;
   memset(&copy, 0, sizeof(copy));
   copy.srcMemoryType = CU_MEMORYTYPE_DEVICE;
-  copy.srcDevice = c->nv12;
-  copy.srcPitch = c->pitch;
+  copy.srcDevice = from->pixels;
+  copy.srcPitch = from->pitch;
   copy.dstMemoryType = CU_MEMORYTYPE_HOST;
   copy.dstHost = y;
   copy.dstPitch = y_stride;
-  copy.WidthInBytes = width;
-  copy.Height = height;
+  copy.WidthInBytes = from->width;
+  copy.Height = from->height;
   copy.Depth = 1;
   CUresult luma = c->cuda.cuMemcpy3D(&copy);
-  copy.srcDevice = c->nv12 + (CUdeviceptr)c->pitch * height;
+  copy.srcDevice = from->pixels + (CUdeviceptr)from->pitch * from->height;
   copy.dstHost = interleaved;
   copy.dstPitch = chroma_width * 2;
   copy.WidthInBytes = chroma_width * 2;
   copy.Height = chroma_height;
   CUresult chroma = luma == CUDA_SUCCESS ? c->cuda.cuMemcpy3D(&copy) : luma;
-  leave(c);
   if (chroma != CUDA_SUCCESS) {
     put(c->error, sizeof(c->error), "the card wouldn't copy the picture back: %s",
         cuda_name(c, chroma));
@@ -1398,15 +1405,91 @@ int yapfast_cudaconvert_still(struct yapfast_cudaconvert *c, unsigned char *y, u
     return 0;
   }
   for (unsigned row = 0; row < chroma_height; row++) {
-    const unsigned char *from = interleaved + (size_t)row * chroma_width * 2;
+    const unsigned char *pair = interleaved + (size_t)row * chroma_width * 2;
     unsigned char *to_u = u + (size_t)row * u_stride, *to_v = v + (size_t)row * v_stride;
     for (unsigned x = 0; x < chroma_width; x++) {
-      to_u[x] = from[2 * x];
-      to_v[x] = from[2 * x + 1];
+      to_u[x] = pair[2 * x];
+      to_v[x] = pair[2 * x + 1];
     }
   }
   free(interleaved);
   return 1;
+}
+
+/* Copies the picture the last convert wrote, at the stream's size, back into
+ * the processor's memory as I420: Discord's still is made from it every few
+ * minutes, and a tiled picture has no rows the processor could read it from
+ * instead. Returns 1, or 0 with the reason in `yapfast_cudaconvert_error`. */
+int yapfast_cudaconvert_still(struct yapfast_cudaconvert *c, unsigned char *y, unsigned y_stride,
+                              unsigned char *u, unsigned u_stride, unsigned char *v,
+                              unsigned v_stride) {
+  if (c == NULL || c->frames == 0) return 0;
+  if (!enter(c)) return 0;
+  const struct nv12_target stream = {c->nv12, c->pitch, c->width, c->height};
+  int ok = download(c, &stream, y, y_stride, u, u_stride, v, v_stride);
+  leave(c);
+  return ok;
+}
+
+/* The last picture GL's door took, scaled and converted on the card to `width`
+ * by `height` and copied back as I420: the preview of a window that draws on the
+ * processor, which can't sample the picture where it lies. Only the preview's
+ * pixels cross the bus. A picture that didn't come through GL's door has no copy
+ * on the card to make one from, and is said so: its rows are the processor's to
+ * read. Returns 1, or 0 with the reason in `yapfast_cudaconvert_error`. */
+int yapfast_cudaconvert_preview(struct yapfast_cudaconvert *c, unsigned width, unsigned height,
+                                unsigned char *y, unsigned y_stride, unsigned char *u,
+                                unsigned u_stride, unsigned char *v, unsigned v_stride) {
+  if (c == NULL) return 0;
+  if (c->copy_resource == NULL || c->copy_width == 0) {
+    put(c->error, sizeof(c->error), "no picture of GL's door is on the card to preview");
+    return 0;
+  }
+  width &= ~1u;
+  height &= ~1u;
+  if (width == 0 || height == 0) {
+    put(c->error, sizeof(c->error), "a preview of %ux%u", width, height);
+    return 0;
+  }
+  if (!enter(c)) return 0;
+  struct nv12_target *target = &c->preview_target;
+  if (target->width != width || target->height != height) {
+    const unsigned pitch = (width + 255u) & ~255u;
+    const size_t size = (size_t)pitch * height * 3 / 2;
+    if (c->preview != 0) c->cuda.cuMemFree(c->preview);
+    c->preview = 0;
+    memset(target, 0, sizeof(*target));
+    if (c->cuda.cuMemAlloc(&c->preview, size) != CUDA_SUCCESS) {
+      c->preview = 0;
+      put(c->error, sizeof(c->error), "no room on the card for the preview");
+      leave(c);
+      return 0;
+    }
+    *target = (struct nv12_target){c->preview, pitch, width, height};
+  }
+  int ok = 0;
+  c->egl.eglMakeCurrent(c->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+  if (!c->egl.eglMakeCurrent(c->gl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, c->gl_context)) {
+    put(c->error, sizeof(c->error), "EGL wouldn't make GL's context current (0x%x)",
+        c->egl.eglGetError());
+  } else if (c->cuda.cuGraphicsMapResources(1, &c->copy_resource, NULL) != CUDA_SUCCESS) {
+    put(c->error, sizeof(c->error), "CUDA wouldn't map the picture to preview");
+  } else {
+    void *array = NULL;
+    if (c->cuda.cuGraphicsSubResourceGetMappedArray(&array, c->copy_resource, 0, 0) ==
+            CUDA_SUCCESS &&
+        array != NULL) {
+      ok = convert_array(c, array, c->copy_width, c->copy_height, target);
+    } else {
+      put(c->error, sizeof(c->error), "CUDA wouldn't say where the picture to preview lies");
+    }
+    c->cuda.cuGraphicsUnmapResources(1, &c->copy_resource, NULL);
+  }
+  c->egl.eglMakeCurrent(c->gl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+  c->egl.eglMakeCurrent(c->display, EGL_NO_SURFACE, EGL_NO_SURFACE, c->context);
+  if (ok) ok = download(c, target, y, y_stride, u, u_stride, v, v_stride);
+  leave(c);
+  return ok;
 }
 
 void yapfast_cudaconvert_free(struct yapfast_cudaconvert *c) {
@@ -1429,6 +1512,7 @@ void yapfast_cudaconvert_free(struct yapfast_cudaconvert *c) {
     c->cuda.cuCtxPushCurrent(c->cuda_context);
     if (c->nv12 != 0 && c->cuda.cuMemFree != NULL) c->cuda.cuMemFree(c->nv12);
     if (c->rows != 0 && c->cuda.cuMemFree != NULL) c->cuda.cuMemFree(c->rows);
+    if (c->preview != 0 && c->cuda.cuMemFree != NULL) c->cuda.cuMemFree(c->preview);
     c->cuda.cuCtxPopCurrent(NULL);
     c->cuda.cuCtxDestroy(c->cuda_context);
   }

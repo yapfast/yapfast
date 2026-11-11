@@ -1788,6 +1788,27 @@ impl Sink {
         )
     }
 
+    /// The preview of a window that draws on the processor, made on the card
+    /// from the picture the card's own path took last, at the size a preview is
+    /// made at, in `scratch.full`: only its pixels come back. None when the card
+    /// isn't what encodes this share, and an error for a picture the card holds
+    /// no copy of — one whose rows the processor reads itself.
+    #[cfg(nvcuda)]
+    fn card_preview(&self, scratch: &mut Scratch) -> Option<Result<()>> {
+        let Some(Encoding::Cuda(cuda)) = self.video.as_ref()?.encoder.as_ref() else {
+            return None;
+        };
+        let (width, height) = cuda.convert.size();
+        let (width, height) = fit(width, height, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+        let full = buffer(&mut scratch.full, width & !1, height & !1);
+        let (y_stride, u_stride, v_stride) = full.strides();
+        Some(cuda.convert.preview(
+            (width, height),
+            full.data_mut(),
+            [y_stride, u_stride, v_stride],
+        ))
+    }
+
     /// Whether a machine short of memory has this share giving back what it can
     /// spare: a smaller preview, and buffers it will never use again.
     #[cfg(any(wgc, dup))]
@@ -4569,6 +4590,8 @@ fn capture_dmabufs(
     // Whether the tile's preview is read back, because the window draws on the
     // processor and can't sample the picture the card made: decided once, on the
     // first picture the window refused.
+    // Whether a read-back preview failed already, which is said once.
+    let mut preview_refused = false;
     let mut readback = false;
     // The buffers a picture is converted in, when the encoder reads memory: one
     // for the picture and one for the stream's size, made again only when a
@@ -4773,11 +4796,26 @@ fn capture_dmabufs(
         // the picture the window can't sample: one copy of the screen a preview
         // frame, which is what a software renderer costs a share.
         if readback && wanted {
-            if let Err(error) = shot.still(&mut scratch) {
-                tracing::warn!(
-                    error = format!("{error:#}"),
-                    "sharing without a preview: the picture couldn't be read back"
-                );
+            // A picture the card's own path took through GL's door — a tiled
+            // screen, which has no rows to read — is scaled on the card and only
+            // the preview comes back; one with rows is read by the processor.
+            #[cfg(nvcuda)]
+            let read = match sink.card_preview(&mut scratch) {
+                Some(Ok(())) => Ok(()),
+                _ => shot.still(&mut scratch),
+            };
+            #[cfg(not(nvcuda))]
+            let read = shot.still(&mut scratch);
+            if let Err(error) = read {
+                // Once a share: a picture that can't be read back now won't be
+                // on the next frame either, and this is asked at frame rate.
+                if !preview_refused {
+                    preview_refused = true;
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        "sharing without a preview: the picture couldn't be read back"
+                    );
+                }
             } else if let Some(full) = scratch.full.as_ref() {
                 sink.preview(full);
                 preview_pending = false;
