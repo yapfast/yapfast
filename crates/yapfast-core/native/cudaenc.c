@@ -364,6 +364,13 @@ struct yapfast_cudaenc {
   unsigned supported;
   const struct nvenc_tuning *tuning;
   unsigned long long frames;
+  /* The access unit the last encode produced, still locked in the driver's
+   * bitstream buffer until `yapfast_cudaenc_drain` copies it out: the caller
+   * learns its size first and has a buffer that holds it ready, so the unit is
+   * copied once, straight into what is sent. */
+  int held;
+  const void *unit;
+  size_t unit_length;
   /* Frames' pixels moved by the processor since this encoder opened: a count
    * the encode path keeps at zero, and says so. */
   unsigned long long copied;
@@ -873,15 +880,24 @@ failed:
 
 /* Encodes the picture now in the buffer this was opened on, whose time is `pts`
  * in 90 kHz units — the stream's own clock, which labels the frame's packets
- * too — and copies the access unit into `out`, which holds `capacity` bytes.
+ * too — and keeps the access unit locked where the driver wrote it, for
+ * `yapfast_cudaenc_drain` to copy out.
  * `keyframe` asks for an IDR on this frame, which is what a viewer who joins, or
  * whose picture broke, waits for. Returns the access unit's length, 0 when this
  * call produced no unit (the driver may hand one back a frame late), or -1 with
- * the reason in `error` and `yapfast_cudaenc_error`. The copy out of the
- * driver's locked bitstream is the only copy this path makes: the picture's
+ * the reason in `error` and `yapfast_cudaenc_error`. The drain's copy out of
+ * the driver's locked bitstream is the only copy this path makes: the picture's
  * pixels stay where the converter put them. */
+static void let_go_of_unit(struct yapfast_cudaenc *e) {
+  if (!e->held) return;
+  library.functions.nvEncUnlockBitstream(e->session, e->bitstream);
+  e->held = 0;
+  e->unit = NULL;
+  e->unit_length = 0;
+}
+
 long yapfast_cudaenc_encode(struct yapfast_cudaenc *e, unsigned long long pts, int keyframe,
-                            unsigned char *out, size_t capacity, char *error, size_t size) {
+                            char *error, size_t size) {
   NV_ENC_PIC_PARAMS picture;
   NV_ENC_LOCK_BITSTREAM locked;
   NVENCSTATUS status;
@@ -891,9 +907,9 @@ long yapfast_cudaenc_encode(struct yapfast_cudaenc *e, unsigned long long pts, i
     put(error, size, "no CUDA encoder");
     return -1;
   }
-  if (!out || !capacity)
-    return fail(e, error, size, "the encoder was given nowhere to put a frame");
   if (enter(e, why, sizeof why)) return fail(e, error, size, "%s", why);
+  /* A unit nobody drained is let go of before the buffer is written again. */
+  let_go_of_unit(e);
 
   memset(&picture, 0, sizeof picture);
   picture.version = NV_ENC_PIC_PARAMS_VER;
@@ -942,22 +958,41 @@ long yapfast_cudaenc_encode(struct yapfast_cudaenc *e, unsigned long long pts, i
     return answer;
   }
   size_t length = locked.bitstreamSizeInBytes;
-  long answer = 0;
   if (!length) {
     /* Nothing came out of this frame and nothing went wrong: the answer the
      * caller's loop expects for a frame the driver is holding. */
-  } else if (length > capacity) {
-    /* The picture is encoded and the packet exists, so re-encoding it into a
-     * larger buffer would send a frame referencing one the receiver never got.
-     * The unit is the caller's to hold, and the size it needed is what the log
-     * says so the next buffer is big enough. */
-    answer = fail(e, error, size, "the frame is %zu bytes and the buffer holds %zu", length,
+    library.functions.nvEncUnlockBitstream(e->session, locked.outputBitstream);
+    leave();
+    return 0;
+  }
+  e->held = 1;
+  e->unit = locked.bitstreamBufferPtr;
+  e->unit_length = length;
+  leave();
+  return (long)length;
+}
+
+/* Copies the unit the last encode produced into `out`, which holds `capacity`
+ * bytes, and gives the driver its buffer back. Returns the unit's length, or -1
+ * when there is none or it doesn't fit: the picture is encoded and the unit
+ * exists, so encoding it again into a larger buffer would send a frame
+ * referencing one the receiver never got. Either way the unit is let go of. */
+long yapfast_cudaenc_drain(struct yapfast_cudaenc *e, unsigned char *out, size_t capacity) {
+  char why[192] = "";
+  if (!e || !e->held) return -1;
+  if (enter(e, why, sizeof why)) {
+    fail(e, NULL, 0, "%s", why);
+    return -1;
+  }
+  long answer;
+  if (!out || e->unit_length > capacity) {
+    answer = fail(e, NULL, 0, "the frame is %zu bytes and the buffer holds %zu", e->unit_length,
                   capacity);
   } else {
-    memcpy(out, locked.bitstreamBufferPtr, length);
-    answer = (long)length;
+    memcpy(out, e->unit, e->unit_length);
+    answer = (long)e->unit_length;
   }
-  library.functions.nvEncUnlockBitstream(e->session, locked.outputBitstream);
+  let_go_of_unit(e);
   leave();
   return answer;
 }
@@ -1032,6 +1067,7 @@ void yapfast_cudaenc_free(struct yapfast_cudaenc *e) {
   current = e->context && cuda.api.cuCtxPushCurrent &&
             cuda.api.cuCtxPushCurrent(e->context) == CUDA_SUCCESS;
   if (e->session) {
+    let_go_of_unit(e);
     if (e->mapped) library.functions.nvEncUnmapInputResource(e->session, e->mapped);
     if (e->registered) library.functions.nvEncUnregisterResource(e->session, e->registered);
     if (e->bitstream) library.functions.nvEncDestroyBitstreamBuffer(e->session, e->bitstream);

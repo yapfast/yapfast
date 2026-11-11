@@ -476,6 +476,13 @@ failed:
   return NULL;
 }
 
+/* The descriptor's buffer is `h->desc`, which the encoder owns: a reference to
+ * it frees nothing. */
+static void keep_descriptor(void *opaque, uint8_t *data) {
+  (void)opaque;
+  (void)data;
+}
+
 /* One picture, as the card holds it: the DRM object the caller's descriptor
  * names, with the format's planes in it — NV12's two, which is the one shape
  * FFmpeg imports as a VA-API surface without a conversion, or the one plane of
@@ -500,6 +507,11 @@ static void describe_picture(struct yapfast_hwenc_dmabuf *h,
   h->drm->width = picture->width;
   h->drm->height = picture->height;
   h->drm->data[0] = (uint8_t *)desc;
+  /* A counted buffer for the frame, as kmsgrab gives its own: the map keeps a
+   * reference to its source, and a frame with no buffer is one av_frame_ref
+   * tries to allocate and copy, which a DRM PRIME frame can't be — every map
+   * would fail with EINVAL, after FFmpeg had imported a surface it then leaks. */
+  h->drm->buf[0] = av_buffer_create((uint8_t *)desc, sizeof *desc, keep_descriptor, NULL, 0);
 }
 
 #ifdef YAPFAST_VPP

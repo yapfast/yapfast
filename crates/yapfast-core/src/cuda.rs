@@ -26,7 +26,10 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 
-use yapfast_discord::rtp::Codec;
+use yapfast_discord::{
+    rtp::Codec,
+    stream_connection::{Encoded, Pool},
+};
 
 use crate::dmabuf::Descriptor;
 
@@ -82,10 +85,13 @@ unsafe extern "C" {
         encoder: *mut c_void,
         pts: c_ulonglong,
         keyframe: c_int,
-        out: *mut c_char,
-        capacity: usize,
         error: *mut c_char,
         size: usize,
+    ) -> std::ffi::c_long;
+    fn yapfast_cudaenc_drain(
+        encoder: *mut c_void,
+        out: *mut u8,
+        capacity: usize,
     ) -> std::ffi::c_long;
     fn yapfast_cudaenc_set_bitrate(
         encoder: *mut c_void,
@@ -135,6 +141,10 @@ impl Drop for Handle {
 
 // SAFETY: the driver's handle is used by the thread that made the share.
 unsafe impl Send for Handle {}
+// SAFETY: a shared `Handle` does nothing with its pointer but free it, once,
+// when the last of the converter and its session lets go; the calls that use
+// the pointer are made through those two, which aren't shared between threads.
+unsafe impl Sync for Handle {}
 
 /// The import and the convert, opened on one DRM device and one stream size.
 pub struct Convert {
@@ -254,7 +264,8 @@ impl Convert {
                     // so the picture is refused rather than the stream broken.
                     if Arc::strong_count(&self.handle) > 1 {
                         return Err(error.context(
-                            "another device's picture, and a session already reads this one's memory",
+                            "a session already reads this converter's memory, so no other device \
+                             is tried",
                         ));
                     }
                     let Some(next) = self.rest.first().cloned() else {
@@ -375,8 +386,10 @@ pub struct Encoder {
     /// it is the keeping that matters.
     _keep: Arc<Handle>,
     codec: Codec,
-    /// The buffer an access unit is handed back in, grown when one doesn't fit.
-    out: Vec<u8>,
+    /// The buffers access units are copied into and sent from, reused as their
+    /// frames go out: the one copy of a frame's bytes between the driver and the
+    /// packetizer, as the encoders FFmpeg opens make theirs.
+    out: Arc<Pool>,
 }
 
 // SAFETY: the session is the driver's and is used by the thread that made the
@@ -386,7 +399,7 @@ unsafe impl Send for Encoder {}
 /// One encoded picture, as it goes out: the access unit and whether it stands on
 /// its own.
 pub struct Packet {
-    pub data: Vec<u8>,
+    pub data: Encoded,
     pub keyframe: bool,
 }
 
@@ -444,12 +457,10 @@ impl Encoder {
             raw,
             _keep: Arc::clone(&convert.handle),
             codec,
-            // The driver's own bitstream buffer is 4 MiB, which a 1440p keyframe
-            // can pass: a unit bigger than the buffer it is handed back in is one
-            // this path can't deliver, and the picture is already the session's,
-            // so submitting it again would reference a frame nobody got. Room for
-            // two bytes a pixel, made once.
-            out: vec![0; ((width as usize * height as usize) * 2).max(4 << 20)],
+            // The unit's size is known before it is copied, so the pool grows to
+            // hold it: up to two bytes a pixel, a keyframe of noise, beyond which
+            // no unit of this size goes.
+            out: Arc::new(Pool::new(width as usize * height as usize * 2 + 4096)),
         })
     }
 
@@ -464,30 +475,39 @@ impl Encoder {
                 self.raw,
                 pts as c_ulonglong,
                 c_int::from(keyframe),
-                self.out.as_mut_ptr().cast(),
-                self.out.len(),
                 error.as_mut_ptr(),
                 error.len(),
             )
         };
-        match written {
+        let size = match written {
             ..0 => bail!("{:?} encoding failed: {}", self.codec, said(&error)),
-            0 => Ok(None),
-            size => Ok(Some(Packet {
-                data: self.out[..size as usize].to_vec(),
-                keyframe,
-            })),
+            0 => return Ok(None),
+            size => size as usize,
+        };
+        // A unit too large for the pool still goes to the drain, which lets the
+        // driver's buffer go and says so.
+        while self.out.capacity() < size && self.out.grow() {}
+        let mut data = self.out.checkout();
+        let spare = data.spare();
+        // SAFETY: the session is open and holds the unit the encode above
+        // produced; the buffer is `spare.len()` bytes and stays put meanwhile.
+        let copied = unsafe { yapfast_cudaenc_drain(self.raw, spare.as_mut_ptr(), spare.len()) };
+        if copied <= 0 {
+            bail!("{:?} encoding lost its frame: {}", self.codec, self.error());
         }
+        data.finish(copied as usize);
+        Ok(Some(Packet { data, keyframe }))
     }
 
     /// Reconfigures the open session's rate, which is what Discord's estimate
     /// moving does to a stream.
     pub fn set_bitrate(&mut self, kbps: u32) -> Result<()> {
         let mut error = [0 as c_char; ERROR];
+        // The C side answers 0 for a session reconfigured and -1 for a refusal.
         // SAFETY: the session is open for the length of the call.
-        let ok =
+        let status =
             unsafe { yapfast_cudaenc_set_bitrate(self.raw, kbps, error.as_mut_ptr(), error.len()) };
-        if ok == 0 {
+        if status != 0 {
             bail!("{}", said(&error));
         }
         Ok(())
@@ -588,5 +608,494 @@ mod tests {
             ours.starts_with(&theirs),
             "the card's own memory asks NVENC for `{ours}`, and a share is measured at `{theirs}`"
         );
+    }
+}
+
+/// A converter let go of leaves the others on the same card working: EGL hands
+/// every converter on one device the same display, and a share opens one for
+/// each codec it could send before it keeps one. Needs NVIDIA's card and driver,
+/// and says so rather than failing where they aren't.
+#[cfg(all(test, nvcuda))]
+mod displays {
+    use super::Convert;
+    use crate::dmabuf::{Descriptor, Plane};
+    use std::os::fd::AsRawFd;
+
+    #[test]
+    fn a_converter_let_go_of_leaves_the_others_on_its_card_importing() {
+        let (first, mut kept) = match (Convert::open(64, 64), Convert::open(64, 64)) {
+            (Ok(first), Ok(kept)) => (first, kept),
+            (Err(error), _) | (_, Err(error)) => {
+                eprintln!("no NVIDIA card path here: {error:#}");
+                return;
+            }
+        };
+        drop(first);
+        // Memory that is no picture: the import refuses it, and what matters is
+        // that it got as far as asking, with its display still initialised.
+        let null = std::fs::File::open("/dev/null").expect("/dev/null opens");
+        let planes = [Plane {
+            offset: 0,
+            stride: 256,
+        }];
+        let fds = [null.as_raw_fd()];
+        let picture = Descriptor {
+            width: 64,
+            height: 64,
+            fourcc: 0x3432_5258,
+            modifier: 0,
+            planes: &planes,
+            fds: &fds,
+        };
+        let error = format!(
+            "{:#}",
+            kept.import(&picture).expect_err("/dev/null is no picture")
+        );
+        assert!(
+            !error.contains("wouldn't enter"),
+            "the converter kept lost its display with the one let go of: {error}"
+        );
+    }
+}
+
+/// The card's path end to end, on the picture a compositor on NVIDIA's driver
+/// shares: a tiled buffer (KWin's `0x0300000000e08014`) made by the driver's own
+/// gbm, imported, scaled and converted on the card, encoded by NVENC, and
+/// decoded again, whose colours are the ones drawn. Converters are opened for
+/// every codec first and all but one let go of, as a share does. Needs NVIDIA's
+/// card, driver and gbm backend, and says so rather than failing where they
+/// aren't.
+#[cfg(all(test, nvcuda))]
+mod card_path {
+    use super::{Convert, Encoder};
+    use crate::decode::Decoder;
+    use crate::dmabuf::{Descriptor, Plane};
+    use std::ffi::{CStr, c_int, c_void};
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use yapfast_discord::rtp::Codec;
+
+    /// The modifier KWin's screencast hands over on NVIDIA's driver.
+    const KWIN_TILED: u64 = 0x0300_0000_00e0_8014;
+    const XRGB8888: u32 = 0x3432_5258;
+    const ARGB8888: u32 = 0x3432_5241;
+    const GBM_BO_USE_RENDERING: u32 = 1 << 2;
+
+    /// libgbm's few entry points, dlopened as the converter opens its own.
+    struct Gbm {
+        library: *mut c_void,
+        device: *mut c_void,
+        _node: std::fs::File,
+    }
+
+    impl Gbm {
+        fn function<T: Copy>(&self, name: &str) -> T {
+            let name = std::ffi::CString::new(name).unwrap();
+            // SAFETY: the library is open; the name is a C string.
+            let found = unsafe { libc::dlsym(self.library, name.as_ptr()) };
+            assert!(!found.is_null(), "libgbm has no {name:?}");
+            // SAFETY: T is the function's type as gbm.h declares it.
+            unsafe { std::mem::transmute_copy(&found) }
+        }
+
+        fn open() -> Result<Self, String> {
+            let node = (128..136)
+                .map(|n| format!("renderD{n}"))
+                .find(|name| {
+                    std::fs::read_link(format!("/sys/class/drm/{name}/device/driver"))
+                        .is_ok_and(|driver| driver.ends_with("nvidia"))
+                })
+                .ok_or("no render node of NVIDIA's driver")?;
+            let node = std::fs::File::options()
+                .read(true)
+                .write(true)
+                .open(format!("/dev/dri/{node}"))
+                .map_err(|error| error.to_string())?;
+            // SAFETY: a library name; null is an answer.
+            let library = unsafe { libc::dlopen(c"libgbm.so.1".as_ptr(), libc::RTLD_NOW) };
+            if library.is_null() {
+                // SAFETY: dlerror's string is valid until the next dl call.
+                return Err(unsafe { CStr::from_ptr(libc::dlerror()) }
+                    .to_string_lossy()
+                    .into_owned());
+            }
+            let mut gbm = Self {
+                library,
+                device: std::ptr::null_mut(),
+                _node: node,
+            };
+            let create: unsafe extern "C" fn(c_int) -> *mut c_void =
+                gbm.function("gbm_create_device");
+            // SAFETY: the node is open for as long as the device is.
+            gbm.device = unsafe { create(gbm._node.as_raw_fd()) };
+            if gbm.device.is_null() {
+                return Err("gbm made no device on NVIDIA's node".into());
+            }
+            Ok(gbm)
+        }
+
+        /// A buffer of `width` by `height` the driver tiles, filled with red on
+        /// the left half and green on the right: its descriptor, stride, offset
+        /// and the modifier it was laid out with.
+        fn tiled(&self, width: u32, height: u32) -> Result<(OwnedFd, u32, u32, u64), String> {
+            let with_modifiers: unsafe extern "C" fn(
+                *mut c_void,
+                u32,
+                u32,
+                u32,
+                *const u64,
+                u32,
+            ) -> *mut c_void = self.function("gbm_bo_create_with_modifiers");
+            let plain: unsafe extern "C" fn(*mut c_void, u32, u32, u32, u32) -> *mut c_void =
+                self.function("gbm_bo_create");
+            // SAFETY: the device is open; the list is one modifier long.
+            let mut bo =
+                unsafe { with_modifiers(self.device, width, height, XRGB8888, &KWIN_TILED, 1) };
+            if bo.is_null() {
+                // SAFETY: as above.
+                bo = unsafe { plain(self.device, width, height, XRGB8888, GBM_BO_USE_RENDERING) };
+            }
+            if bo.is_null() {
+                return Err("gbm made no buffer".into());
+            }
+            let modifier: unsafe extern "C" fn(*mut c_void) -> u64 =
+                self.function("gbm_bo_get_modifier");
+            let stride: unsafe extern "C" fn(*mut c_void) -> u32 =
+                self.function("gbm_bo_get_stride");
+            let offset: unsafe extern "C" fn(*mut c_void, c_int) -> u32 =
+                self.function("gbm_bo_get_offset");
+            let fd: unsafe extern "C" fn(*mut c_void) -> c_int = self.function("gbm_bo_get_fd");
+            let destroy: unsafe extern "C" fn(*mut c_void) = self.function("gbm_bo_destroy");
+            // SAFETY: the buffer is alive; each call reads it.
+            let (raw, stride, offset, modifier) =
+                unsafe { (fd(bo), stride(bo), offset(bo, 0), modifier(bo)) };
+            // The descriptor holds the memory; the buffer object is let go of.
+            // SAFETY: made above, let go of once.
+            unsafe { destroy(bo) };
+            if raw < 0 {
+                return Err("the buffer exported no descriptor".into());
+            }
+            // SAFETY: a descriptor gbm made for this caller.
+            let fd = unsafe { OwnedFd::from_raw_fd(raw) };
+            self.draw(&fd, stride, offset, modifier, width, height)?;
+            Ok((fd, stride, offset, modifier))
+        }
+
+        /// Red on the left half and green on the right, drawn into the buffer by
+        /// GL on the card, as a compositor draws its screen: the driver won't map
+        /// a tiled buffer for the processor to write.
+        fn draw(
+            &self,
+            fd: &OwnedFd,
+            stride: u32,
+            offset: u32,
+            modifier: u64,
+            width: u32,
+            height: u32,
+        ) -> Result<(), String> {
+            // SAFETY: a library name; null is an answer.
+            let egl = unsafe { libc::dlopen(c"libEGL.so.1".as_ptr(), libc::RTLD_NOW) };
+            if egl.is_null() {
+                return Err("no libEGL".into());
+            }
+            // SAFETY: the library is open, and the name a C string.
+            let get_proc: unsafe extern "C" fn(*const libc::c_char) -> *mut c_void =
+                unsafe { std::mem::transmute(libc::dlsym(egl, c"eglGetProcAddress".as_ptr())) };
+            macro_rules! f {
+                ($name:literal: $($ty:tt)*) => {{
+                    // SAFETY: the name is a C string; null is checked.
+                    let found = unsafe { get_proc(concat!($name, "\0").as_ptr().cast()) };
+                    if found.is_null() {
+                        return Err(format!("EGL has no {}", $name));
+                    }
+                    // SAFETY: the type is the one the headers declare.
+                    unsafe { std::mem::transmute::<*mut c_void, $($ty)*>(found) }
+                }};
+            }
+            type P = *mut c_void;
+            let get_display =
+                f!("eglGetPlatformDisplayEXT": unsafe extern "C" fn(u32, P, *const i32) -> P);
+            let initialize =
+                f!("eglInitialize": unsafe extern "C" fn(P, *mut i32, *mut i32) -> u32);
+            let bind_api = f!("eglBindAPI": unsafe extern "C" fn(u32) -> u32);
+            let choose = f!("eglChooseConfig": unsafe extern "C" fn(P, *const i32, *mut P, i32, *mut i32) -> u32);
+            let create_context =
+                f!("eglCreateContext": unsafe extern "C" fn(P, P, P, *const i32) -> P);
+            let make_current = f!("eglMakeCurrent": unsafe extern "C" fn(P, P, P, P) -> u32);
+            let create_image =
+                f!("eglCreateImageKHR": unsafe extern "C" fn(P, P, u32, P, *const i32) -> P);
+            let destroy_image = f!("eglDestroyImageKHR": unsafe extern "C" fn(P, P) -> u32);
+            let destroy_context = f!("eglDestroyContext": unsafe extern "C" fn(P, P) -> u32);
+            let terminate = f!("eglTerminate": unsafe extern "C" fn(P) -> u32);
+            let get_error = f!("eglGetError": unsafe extern "C" fn() -> i32);
+            let gen_textures = f!("glGenTextures": unsafe extern "C" fn(i32, *mut u32));
+            let bind_texture = f!("glBindTexture": unsafe extern "C" fn(u32, u32));
+            let target = f!("glEGLImageTargetTexture2DOES": unsafe extern "C" fn(u32, P));
+            let gen_framebuffers = f!("glGenFramebuffers": unsafe extern "C" fn(i32, *mut u32));
+            let bind_framebuffer = f!("glBindFramebuffer": unsafe extern "C" fn(u32, u32));
+            let attach =
+                f!("glFramebufferTexture2D": unsafe extern "C" fn(u32, u32, u32, u32, i32));
+            let status = f!("glCheckFramebufferStatus": unsafe extern "C" fn(u32) -> u32);
+            let enable = f!("glEnable": unsafe extern "C" fn(u32));
+            let scissor = f!("glScissor": unsafe extern "C" fn(i32, i32, i32, i32));
+            let clear_color = f!("glClearColor": unsafe extern "C" fn(f32, f32, f32, f32));
+            let clear = f!("glClear": unsafe extern "C" fn(u32));
+            let finish = f!("glFinish": unsafe extern "C" fn());
+            let delete_framebuffers =
+                f!("glDeleteFramebuffers": unsafe extern "C" fn(i32, *const u32));
+            let delete_textures = f!("glDeleteTextures": unsafe extern "C" fn(i32, *const u32));
+            const NONE: i32 = 0x3038;
+            let null: P = std::ptr::null_mut();
+            // SAFETY: every call is EGL's and GL's as their headers declare
+            // them, on the display, context and image made here, let go of
+            // before the function returns.
+            unsafe {
+                let display = get_display(0x31D7, self.device, std::ptr::null());
+                if display.is_null() || initialize(display, null.cast(), null.cast()) == 0 {
+                    return Err("EGL wouldn't open gbm's display".into());
+                }
+                bind_api(0x30A2);
+                let mut config = null;
+                let mut found = 0;
+                choose(
+                    display,
+                    [0x3040, 0x8, NONE].as_ptr(),
+                    &mut config,
+                    1,
+                    &mut found,
+                );
+                let context = create_context(
+                    display,
+                    if found > 0 { config } else { null },
+                    null,
+                    [NONE].as_ptr(),
+                );
+                if context.is_null() || make_current(display, null, null, context) == 0 {
+                    return Err(format!(
+                        "no GL context on gbm's display (0x{:x})",
+                        get_error()
+                    ));
+                }
+                let attribs = [
+                    0x3057,
+                    width as i32,
+                    0x3056,
+                    height as i32,
+                    0x3271,
+                    ARGB8888 as i32,
+                    0x3272,
+                    fd.as_raw_fd(),
+                    0x3273,
+                    offset as i32,
+                    0x3274,
+                    stride as i32,
+                    0x3443,
+                    (modifier & 0xffff_ffff) as u32 as i32,
+                    0x3444,
+                    (modifier >> 32) as i32,
+                    NONE,
+                ];
+                let image = create_image(display, null, 0x3270, null, attribs.as_ptr());
+                if image.is_null() {
+                    return Err(format!(
+                        "GL wouldn't import the buffer (0x{:x})",
+                        get_error()
+                    ));
+                }
+                let (mut texture, mut framebuffer) = (0, 0);
+                gen_textures(1, &mut texture);
+                bind_texture(0x0DE1, texture);
+                target(0x0DE1, image);
+                gen_framebuffers(1, &mut framebuffer);
+                bind_framebuffer(0x8D40, framebuffer);
+                attach(0x8D40, 0x8CE0, 0x0DE1, texture, 0);
+                let complete = status(0x8D40) == 0x8CD5;
+                if complete {
+                    enable(0x0C11);
+                    let half = (width / 2) as i32;
+                    scissor(0, 0, half, height as i32);
+                    clear_color(1.0, 0.0, 0.0, 1.0);
+                    clear(0x4000);
+                    scissor(half, 0, width as i32 - half, height as i32);
+                    clear_color(0.0, 1.0, 0.0, 1.0);
+                    clear(0x4000);
+                    finish();
+                }
+                delete_framebuffers(1, &framebuffer);
+                delete_textures(1, &texture);
+                destroy_image(display, image);
+                make_current(display, null, null, null);
+                destroy_context(display, context);
+                terminate(display);
+                if !complete {
+                    return Err("GL can't draw into the buffer".into());
+                }
+            }
+            Ok(())
+        }
+    }
+
+    impl Drop for Gbm {
+        fn drop(&mut self) {
+            // A device that didn't open is nothing to destroy.
+            if self.device.is_null() {
+                return;
+            }
+            let destroy: unsafe extern "C" fn(*mut c_void) = self.function("gbm_device_destroy");
+            // SAFETY: made by `open`, let go of once.
+            unsafe { destroy(self.device) };
+        }
+    }
+
+    /// The decoded picture's luma and chroma a quarter of the way in from each
+    /// side, halfway down: the red half's and the green half's.
+    /// Luma, then each chroma plane, at the left and right samples, and the size.
+    type Sampled = ([u8; 2], [u8; 2], [u8; 2], (u32, u32));
+
+    fn sampled(codec: Codec, units: &[Vec<u8>]) -> Option<Sampled> {
+        let mut decoder = Decoder::with_threads(codec, 1).ok()?;
+        let mut last = None;
+        for unit in units {
+            if let Ok(Some(picture)) = decoder.decode(unit) {
+                let planes = picture.i420();
+                let (w, h) = (planes.width as usize, planes.height as usize);
+                let at =
+                    |plane: &[u8], stride: u32, x: usize, y: usize| plane[y * stride as usize + x];
+                let [ys, us, vs] = planes.strides;
+                let (left, right) = (w / 4, w * 3 / 4);
+                last = Some((
+                    [
+                        at(planes.y, ys, left, h / 2),
+                        at(planes.y, ys, right, h / 2),
+                    ],
+                    [
+                        at(planes.u, us, left / 2, h / 4),
+                        at(planes.u, us, right / 2, h / 4),
+                    ],
+                    [
+                        at(planes.v, vs, left / 2, h / 4),
+                        at(planes.v, vs, right / 2, h / 4),
+                    ],
+                    (planes.width, planes.height),
+                ));
+            }
+        }
+        last
+    }
+
+    fn near(value: u8, expected: u8) -> bool {
+        value.abs_diff(expected) <= 8
+    }
+
+    /// Every codec a share could send, each opened with its own converter and
+    /// session as the share's own encoders are; `kept` is the one sent.
+    fn opened(width: u32, height: u32) -> Vec<(Codec, Convert, Encoder)> {
+        [Codec::Av1, Codec::H265, Codec::H264]
+            .into_iter()
+            .filter_map(|codec| {
+                let convert = Convert::open(width, height)
+                    .map_err(|error| eprintln!("{codec:?}: no converter: {error:#}"))
+                    .ok()?;
+                let encoder = Encoder::open(codec, width, height, 60, 8_000, &convert)
+                    .map_err(|error| eprintln!("{codec:?}: no session: {error:#}"))
+                    .ok()?;
+                Some((codec, convert, encoder))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_tiled_screen_is_encoded_on_the_card_in_every_codec_as_it_was_drawn() {
+        let gbm = match Gbm::open() {
+            Ok(gbm) => gbm,
+            Err(why) => {
+                eprintln!("no NVIDIA gbm here: {why}");
+                return;
+            }
+        };
+        // The screen of the share this was found on.
+        let (width, height) = (3440, 1440);
+        let (fd, stride, offset, modifier) = gbm.tiled(width, height).expect("a tiled buffer");
+        eprintln!("the driver laid the buffer out as {modifier:#018x}, {stride} bytes a row");
+        assert_ne!(
+            modifier, 0,
+            "a linear buffer tests nothing a compositor shares"
+        );
+        let planes = [Plane { offset, stride }];
+        let fds = [fd.as_raw_fd()];
+        // The same memory as a compositor names it with alpha and without: a
+        // screencast is usually the second.
+        for fourcc in [XRGB8888, ARGB8888] {
+            let picture = Descriptor {
+                width,
+                height,
+                fourcc,
+                modifier,
+                planes: &planes,
+                fds: &fds,
+            };
+            // Sent at the screen's own size, and scaled down to a share's.
+            for (sent_width, sent_height) in [(width, height), (1920, 804)] {
+                for kept in [Codec::Av1, Codec::H265, Codec::H264] {
+                    let mut all = opened(sent_width, sent_height);
+                    if all.is_empty() {
+                        eprintln!("no NVIDIA card path here");
+                        return;
+                    }
+                    let Some(at) = all.iter().position(|(codec, ..)| *codec == kept) else {
+                        eprintln!("{kept:?}: this card doesn't encode it");
+                        continue;
+                    };
+                    let (codec, mut convert, mut encoder) = all.remove(at);
+                    let what = format!("{codec:?} of {fourcc:#010x} at {sent_width}x{sent_height}");
+                    let mut units = Vec::new();
+                    for frame in 0..10u64 {
+                        convert
+                            .convert(&picture)
+                            .unwrap_or_else(|error| panic!("{what}: {error:#}"));
+                        if let Some(packet) = encoder.encode(frame, frame == 0).expect("an encode")
+                        {
+                            units.push(packet.data.to_vec());
+                        }
+                        // The sessions not sent go once the first picture is in,
+                        // as a share's do: the one kept goes on.
+                        all.clear();
+                        // Discord's estimate moves the rate mid-stream, and the
+                        // session takes it without a keyframe.
+                        if frame == 4 {
+                            encoder
+                                .set_bitrate(4_000)
+                                .unwrap_or_else(|error| panic!("{what}: a new rate: {error:#}"));
+                        }
+                    }
+                    assert_eq!(encoder.copied(), 0, "{what}: the processor moved a picture");
+                    assert!(!units.is_empty(), "{what}: the session gave nothing back");
+                    let Some((y, u, v, size)) = sampled(codec, &units) else {
+                        eprintln!(
+                            "{what}: this build doesn't decode it; {} units",
+                            units.len()
+                        );
+                        continue;
+                    };
+                    eprintln!("{what}: decoded {size:?}, Y {y:?} U {u:?} V {v:?}");
+                    assert_eq!(size, (sent_width, sent_height), "{what}: the stream's size");
+                    // BT.601, limited range: red is Y 82 U 90 V 240, green Y 145
+                    // U 54 V 34. Blue on the left would be red and blue swapped.
+                    assert!(
+                        near(y[0], 82) && near(u[0], 90) && near(v[0], 240),
+                        "{what}: the left half isn't red: Y {} U {} V {}",
+                        y[0],
+                        u[0],
+                        v[0]
+                    );
+                    assert!(
+                        near(y[1], 145) && near(u[1], 54) && near(v[1], 34),
+                        "{what}: the right half isn't green: Y {} U {} V {}",
+                        y[1],
+                        u[1],
+                        v[1]
+                    );
+                }
+            }
+        }
     }
 }

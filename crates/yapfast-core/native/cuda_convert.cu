@@ -1,5 +1,5 @@
 /* The convert and scale a screen's DMA-BUF goes through on NVIDIA's card:
- * BGRA or BGRX pixels come out as the NV12 a NVENC session reads, at the
+ * BGRA or BGRX pixels (or RGBA, from GL's array) come out as the NV12 a NVENC session reads, at the
  * stream's size rather than the screen's.
  *
  * This is the only CUDA C in the build, and it is compiled to PTX at build time
@@ -31,6 +31,9 @@ struct bgra_frame {
   const uchar *pixels;
   uint pitch;
   int width, height;
+  /* Red in the first byte rather than blue: the rows copied out of the array
+   * behind a GL texture, which holds the picture as GL does. */
+  int red_first;
 };
 
 struct nv12_frame {
@@ -69,6 +72,11 @@ __device__ static struct vec4 source_at(struct bgra_frame frame, float x, float 
   out.y = (a[1] * (1 - fx) + b[1] * fx) * (1 - fy) + (c[1] * (1 - fx) + d[1] * fx) * fy;
   out.z = (a[2] * (1 - fx) + b[2] * fx) * (1 - fy) + (c[2] * (1 - fx) + d[2] * fx) * fy;
   out.w = 1.0f;
+  if (frame.red_first) {
+    float red = out.x;
+    out.x = out.z;
+    out.z = red;
+  }
   return out;
 }
 

@@ -119,9 +119,12 @@ static yapfast_pw_api api;
  * reaches the shared node, not anything about which library this is, so any
  * libpipewire-0.3 will do; one that isn't there is said by name. */
 static int bind_api(char *why, size_t why_size) {
-  static void *library;
-  if (library != NULL) return 0;
-  library = dlopen("libpipewire-0.3.so.0", RTLD_NOW | RTLD_LOCAL);
+  /* Set only once every entry point is in the table: a library missing one
+   * fails this open and every one after it, rather than letting the next call
+   * through to a NULL function. */
+  static void *bound;
+  if (bound != NULL) return 0;
+  void *library = dlopen("libpipewire-0.3.so.0", RTLD_NOW | RTLD_LOCAL);
   if (library == NULL) {
     snprintf(why, why_size, "PipeWire's library isn't here (%s)", dlerror());
     return -1;
@@ -130,6 +133,7 @@ static int bind_api(char *why, size_t why_size) {
   *(void **)(&api.field) = dlsym(library, "pw_" #field);                      \
   if (api.field == NULL) {                                                    \
     snprintf(why, why_size, "libpipewire-0.3 has no pw_" #field);             \
+    dlclose(library);                                                         \
     return -1;                                                                \
   }
   YAPFAST_PW_BIND(context_connect_fd)
@@ -155,6 +159,7 @@ static int bind_api(char *why, size_t why_size) {
   YAPFAST_PW_BIND(thread_loop_timed_wait_full)
   YAPFAST_PW_BIND(thread_loop_unlock)
 #undef YAPFAST_PW_BIND
+  bound = library;
   return 0;
 }
 

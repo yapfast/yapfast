@@ -543,6 +543,12 @@ pub struct Encoder {
     /// next.
     #[cfg(all(target_os = "linux", dmabufenc, vaapivpp))]
     converts: bool,
+    /// Whether this stream's pictures are still offered to the card's encoder
+    /// where they lie: given up once one is refused, as `converts` is, so a
+    /// driver that won't import one isn't asked again, and warned about, on
+    /// every frame.
+    #[cfg(all(target_os = "linux", dmabufenc))]
+    imports: bool,
     /// The card's video processor's arguments for this stream's pictures, and the
     /// shape they were made for: `None` until a picture needs a conversion, and
     /// made again when the pictures' shape changes.
@@ -826,6 +832,8 @@ impl Encoder {
             // SAFETY: the shim answers whether it was built with the video
             // processor without touching an encoder or a device.
             converts: unsafe { yapfast_hwenc_dmabuf_converts() != 0 },
+            #[cfg(all(target_os = "linux", dmabufenc))]
+            imports: true,
             #[cfg(all(target_os = "linux", dmabufenc, vaapivpp))]
             vpp: None,
             moved: 0,
@@ -1356,6 +1364,9 @@ impl Encoder {
         at: u64,
         keyframe: bool,
     ) -> std::result::Result<Result<Option<Frame>>, Refused> {
+        if !self.imports {
+            return Err(Refused::Failed);
+        }
         let raw = self.descriptor_encoder()?;
         let mut is_key: c_int = 0;
         // SAFETY: raw is the descriptor encoder's and is open, and the picture
@@ -1371,11 +1382,12 @@ impl Encoder {
         };
         let (size, keyframe) = match written {
             ..0 => {
+                self.imports = false;
                 tracing::warn!(
                     engine = self.engine(),
                     why = self.descriptor_error().as_str(),
-                    "the card's encoder wouldn't take the picture where it lies; it goes through \
-                     the processor instead"
+                    "the card's encoder wouldn't take the picture where it lies; it and the \
+                     pictures after it go through the processor instead"
                 );
                 return Err(Refused::Failed);
             }
@@ -3372,5 +3384,128 @@ mod tests {
              rc_mode=VBR(required) async_depth=1(required) rate=2500 kbit/s capped at 2500 \
              kbit/s over 500 ms(required)"
         );
+    }
+}
+
+/// A picture VA-API decoded is encoded where it lies by VA-API's encoder: the
+/// NV12 DMA-BUF the decoder exported is wrapped as a surface on the same card,
+/// encoded, and decodes again to the stream it came from. The wrap is the one a
+/// capture's NV12 picture takes, and gives FFmpeg the counted buffer its map
+/// references. Needs a VA-API driver that decodes and encodes H264, on the node
+/// `YAPFAST_VAAPI_NODE` names; says so rather than failing where there is none.
+#[cfg(all(test, dmabufenc, vaapidec))]
+mod in_place {
+    use super::*;
+    use crate::decode::{Decoder, vaapi::Hardware, vaapi_export::units};
+    use std::ffi::CStr;
+
+    #[test]
+    fn a_decoded_picture_is_encoded_where_it_lies() {
+        let Ok(node) = std::env::var("YAPFAST_VAAPI_NODE") else {
+            eprintln!("YAPFAST_VAAPI_NODE names no VA-API node to test on");
+            return;
+        };
+        let driver = std::env::var("LIBVA_DRIVER_NAME").unwrap_or_default();
+        let node_c = std::ffi::CString::new(node.as_str()).unwrap();
+        let mut decoder = match Hardware::on(Codec::H264, &node_c) {
+            Ok(decoder) => decoder,
+            Err(error) => {
+                eprintln!("no VA-API decoder on {node}: {error:#}");
+                return;
+            }
+        };
+        let units = units();
+        let (name, driver_c) = (c"h264_vaapi", std::ffi::CString::new(driver).unwrap());
+        let mut encoder: *mut Raw = std::ptr::null_mut();
+        let mut reference = Decoder::with_threads(Codec::H264, 1).unwrap();
+        let mut again = Decoder::with_threads(Codec::H264, 1).unwrap();
+        let (mut encoded, mut compared) = (0, 0);
+        for (index, unit) in units.iter().enumerate() {
+            // The stream as the software decoder reads it, for the comparison.
+            let want = reference
+                .decode(unit)
+                .unwrap()
+                .map(|picture| (picture.width, picture.height, mean(picture.i420().y)));
+            if !decoder.decode(unit, index == 0).expect("a VA-API decode") {
+                continue;
+            }
+            let descriptor = decoder.dmabuf().expect("the picture as a descriptor");
+            let picture = Encoder::described(&descriptor, NV12, 2).expect("an NV12 picture");
+            if encoder.is_null() {
+                let mut report = [0u8; 128];
+                // SAFETY: the strings outlive the call; the report is its size.
+                encoder = unsafe {
+                    yapfast_hwenc_dmabuf_new(
+                        0,
+                        descriptor.width,
+                        descriptor.height,
+                        30,
+                        2_000,
+                        name.as_ptr(),
+                        node_c.as_ptr(),
+                        driver_c.as_ptr(),
+                        report.as_mut_ptr().cast(),
+                        report.len(),
+                    )
+                };
+                if encoder.is_null() {
+                    // SAFETY: a failed open leaves its reason in the shim.
+                    let why = unsafe { CStr::from_ptr(yapfast_hwenc_dmabuf_error(encoder)) };
+                    eprintln!(
+                        "no VA-API H264 encoder on {node}: {}",
+                        why.to_string_lossy()
+                    );
+                    return;
+                }
+            }
+            let mut is_key = 0;
+            // SAFETY: the encoder is open; the picture names the decoder's
+            // surface, which it holds until `release`.
+            let size = unsafe {
+                yapfast_hwenc_dmabuf_encode(
+                    encoder,
+                    &picture,
+                    index as c_longlong * 3000,
+                    c_int::from(encoded == 0),
+                    &mut is_key,
+                )
+            };
+            decoder.release();
+            assert!(
+                size >= 0,
+                "the picture wasn't encoded where it lies: {}",
+                unsafe { CStr::from_ptr(yapfast_hwenc_dmabuf_error(encoder)).to_string_lossy() }
+            );
+            if size == 0 {
+                continue;
+            }
+            let mut unit = vec![0u8; size as usize];
+            // SAFETY: the unit the encode above produced, into a buffer its size.
+            let drained =
+                unsafe { yapfast_hwenc_dmabuf_drain(encoder, unit.as_mut_ptr(), unit.len()) };
+            assert_eq!(drained, size as c_long);
+            encoded += 1;
+            if let (Some(picture), Some((width, height, luma))) =
+                (again.decode(&unit).unwrap(), want)
+            {
+                assert_eq!((picture.width, picture.height), (width, height));
+                let ours = mean(picture.i420().y);
+                assert!(
+                    (ours - luma).abs() < 6.0,
+                    "unit {index}: the picture encoded in place averages {ours:.1}, the stream {luma:.1}"
+                );
+                compared += 1;
+            }
+        }
+        if !encoder.is_null() {
+            // SAFETY: opened above, freed once.
+            unsafe { yapfast_hwenc_dmabuf_free(encoder) };
+        }
+        eprintln!("{encoded} pictures encoded where they lay, {compared} compared");
+        assert!(compared > 0, "no picture came back to compare");
+    }
+
+    fn mean(plane: &[u8]) -> f64 {
+        plane.iter().map(|&value| f64::from(value)).sum::<f64>() / plane.len().max(1) as f64
     }
 }

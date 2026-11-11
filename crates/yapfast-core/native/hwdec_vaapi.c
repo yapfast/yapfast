@@ -555,6 +555,10 @@ int yapfast_vadec_decode(struct yapfast_vadec *decoder, const unsigned char *dat
    * unreferenced. */
   const int level = hush();
   g_reason[0] = 0;
+  /* The map is chosen by the format the destination asks for, and an
+   * unreferenced frame asks for none, which maps the surface into memory
+   * instead: every picture is asked for as a DMA-BUF. */
+  decoder->drm->format = AV_PIX_FMT_DRM_PRIME;
   const int mapped = av_hwframe_map(decoder->drm, decoder->frame,
                                     AV_HWFRAME_MAP_READ | AV_HWFRAME_MAP_DIRECT);
   unhush(level);

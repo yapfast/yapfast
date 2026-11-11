@@ -684,6 +684,22 @@ impl Capture {
             .composite_name_window_pixmap(self.watched, pixmap)?
             .check()
             .with_context(|| format!("naming the off-screen storage of {}", self.subject))?;
+        // The name holds the storage only for the export to be made from, so it
+        // is freed however the export goes: a refusal on a reconfigure would
+        // otherwise keep a window-sized pixmap in the server for as long as the
+        // connection lives.
+        let exported = self.export(pixmap, region);
+        let _ = self.conn.free_pixmap(pixmap);
+        let picture = exported?;
+        self.size = size;
+        self.picture = Some(picture);
+        self.fresh = true;
+        Ok(())
+    }
+
+    /// The window's storage, named as `pixmap`, exported as a DMA-BUF of
+    /// `region`. The caller frees the name, whatever this answers.
+    fn export(&self, pixmap: u32, region: Region) -> Result<Picture> {
         // A server can name a pixmap that has nothing in it — Xwayland answers
         // the Composite overlay window's name with an empty one — and the export
         // of an empty pixmap fails with an error about a pixmap that is not
@@ -695,7 +711,6 @@ impl Capture {
             .reply()
             .with_context(|| format!("measuring the storage of {}", self.subject))?;
         if stored.width == 0 || stored.height == 0 {
-            let _ = self.conn.free_pixmap(pixmap);
             bail!(
                 "the off-screen storage of {} is {}x{}, so this X server has no picture of it to export",
                 self.subject,
@@ -720,13 +735,7 @@ impl Capture {
                 .with_context(|| format!("exporting {} as a DMA-BUF", self.subject))?;
             Picture(Arc::new(Buffer::from_buffer(reply, region)?))
         };
-        // The export holds the storage now: the name only keeps it allocated for
-        // the export to be made from.
-        let _ = self.conn.free_pixmap(pixmap);
-        self.size = size;
-        self.picture = Some(picture);
-        self.fresh = true;
-        Ok(())
+        Ok(picture)
     }
 
     /// Asks for the next frame: the picture if anything was drawn since the last

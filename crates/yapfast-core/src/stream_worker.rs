@@ -722,6 +722,9 @@ enum Footage {
 /// [`Encoding::encode_i420`], [`Encoding::encode_dmabuf`] or
 /// [`d3d11::D3d11Encoder::encode_texture`] in [`encode::Frame`], and go on to
 /// the sender as one shape.
+// One per stream, held for its length: its size is no cost, and boxing the
+// encoder would add a pointer to every frame's call instead.
+#[allow(clippy::large_enum_variant)]
 enum Encoding {
     /// FFmpeg's encoder on the processor — x264, libvpx, or one of FFmpeg's
     /// hardware encoders — reading an I420 picture the capture converted.
@@ -848,8 +851,8 @@ impl Cuda {
             "the card copied a picture's pixels"
         );
         Ok(Ok(packet.map(|packet| encode::Frame {
-            // The unit is moved into the buffer the sender takes, not copied.
-            data: stream_connection::Encoded::from(packet.data),
+            // The unit is the pool's buffer the sender takes, not a copy of it.
+            data: packet.data,
             keyframe: packet.keyframe,
             // The one picture this submission made, at the time it was made: as
             // the encoder fed from memory stamps each of its own.
@@ -4543,9 +4546,9 @@ fn capture_dmabufs(
     let mut saw_picture = false;
     let mut preview_pending = false;
     let mut was_wanted = false;
-    /// Whether the tile's preview is read back, because the window draws on the
-    /// processor and can't sample the picture the card made: decided once, on the
-    /// first picture the window refused.
+    // Whether the tile's preview is read back, because the window draws on the
+    // processor and can't sample the picture the card made: decided once, on the
+    // first picture the window refused.
     let mut readback = false;
     // The buffers a picture is converted in, when the encoder reads memory: one
     // for the picture and one for the stream's size, made again only when a

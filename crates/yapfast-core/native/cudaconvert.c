@@ -36,6 +36,7 @@
 #include <dlfcn.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+#include <pthread.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -232,6 +233,12 @@ struct yapfast_cudaconvert {
   unsigned gl_texture;
   int gl_open;
   char gl_why[160];
+  /* The layout the EGLImage's own resource refused and GL's texture took: a
+   * driver that holds one tiled picture as an array it won't map holds them all
+   * so, and every frame after the first goes straight to GL rather than paying
+   * for an import, a registration and a refusal first. */
+  unsigned long long gl_only_modifier;
+  int gl_only;
   /* The card's node, kept open for the gbm device GL's display is made from: a
    * gbm device reads the driver's memory through that descriptor. */
   int drm;
@@ -303,6 +310,54 @@ static void leave(struct yapfast_cudaconvert *c) {
 
 static void *symbol(void *library, const char *name) {
   return library == NULL ? NULL : dlsym(library, name);
+}
+
+/* An EGLDisplay is the process's, not the converter's: every
+ * `eglGetPlatformDisplay` for the same device answers the same handle,
+ * `eglInitialize` on one already initialised does nothing, and one
+ * `eglTerminate` ends it for everyone holding it. A share opens a converter for
+ * each codec it could send and keeps one, so the ones it lets go of would
+ * terminate the display the kept one imports on, whose next `eglMakeCurrent`
+ * then answers EGL_NOT_INITIALIZED. Each display is counted here instead:
+ * initialised by the first converter that takes it, terminated by the last that
+ * lets go. A display the table has no room for is never terminated, which keeps
+ * it initialised rather than ending it under another converter. */
+static pthread_mutex_t displays_lock = PTHREAD_MUTEX_INITIALIZER;
+static struct {
+  EGLDisplay display;
+  unsigned users;
+} displays[16];
+
+static int display_take(struct yapfast_cudaconvert *c, EGLDisplay display) {
+  pthread_mutex_lock(&displays_lock);
+  int free_slot = -1;
+  for (int i = 0; i < (int)(sizeof(displays) / sizeof(displays[0])); i++) {
+    if (displays[i].users > 0 && displays[i].display == display) {
+      displays[i].users++;
+      pthread_mutex_unlock(&displays_lock);
+      return 1;
+    }
+    if (displays[i].users == 0 && free_slot < 0) free_slot = i;
+  }
+  EGLint major = 0, minor = 0;
+  int ok = c->egl.eglInitialize(display, &major, &minor) == EGL_TRUE;
+  if (ok && free_slot >= 0) {
+    displays[free_slot].display = display;
+    displays[free_slot].users = 1;
+  }
+  pthread_mutex_unlock(&displays_lock);
+  return ok;
+}
+
+static void display_let_go(struct yapfast_cudaconvert *c, EGLDisplay display) {
+  pthread_mutex_lock(&displays_lock);
+  for (int i = 0; i < (int)(sizeof(displays) / sizeof(displays[0])); i++) {
+    if (displays[i].users > 0 && displays[i].display == display) {
+      if (--displays[i].users == 0) c->egl.eglTerminate(display);
+      break;
+    }
+  }
+  pthread_mutex_unlock(&displays_lock);
 }
 
 /* libcuda: the driver's own library, which every machine with the NVIDIA driver
@@ -477,9 +532,9 @@ static int open_egl(struct yapfast_cudaconvert *c, int drm_fd, const char *node,
     put(c->error, sizeof(c->error), "EGL wouldn't open a display for %s", node);
     return 0;
   }
-  EGLint major = 0, minor = 0;
-  if (!c->egl.eglInitialize(c->display, &major, &minor)) {
-    put(c->error, sizeof(c->error), "EGL wouldn't initialize %s", node);
+  if (!display_take(c, c->display)) {
+    put(c->error, sizeof(c->error), "EGL wouldn't initialize %s (0x%x)", node,
+        c->egl.eglGetError());
     c->display = EGL_NO_DISPLAY;
     return 0;
   }
@@ -561,6 +616,7 @@ struct yapfast_cudaconvert *yapfast_cudaconvert_new(int drm_fd, unsigned width,
   ssize_t length = readlink(link, node, sizeof(node) - 1);
   if (length <= 0) {
     put(error, size, "the descriptor's device has no name");
+    if (c->drm >= 0) close(c->drm);
     free(c);
     return NULL;
   }
@@ -678,13 +734,14 @@ const char *yapfast_cudaconvert_error(struct yapfast_cudaconvert *c) {
 /* Runs both kernels: the stream's picture comes out as NV12 in `c->nv12`, and
  * the caller hands that buffer to its encoder. */
 static int launch(struct yapfast_cudaconvert *c, const void *pixels, unsigned pitch,
-                  int width, int height, const char *node) {
+                  int width, int height, int red_first) {
   unsigned char *frames = (unsigned char *)(uintptr_t)c->nv12;
   struct {
     const unsigned char *pixels;
     unsigned pitch;
     int width, height;
-  } source = {pixels, pitch, width, height};
+    int red_first;
+  } source = {pixels, pitch, width, height, red_first};
   struct {
     unsigned char *pixels;
     unsigned pitch;
@@ -701,7 +758,6 @@ static int launch(struct yapfast_cudaconvert *c, const void *pixels, unsigned pi
   CU(c, cuLaunchKernel(c->to_uv, blocks_x, blocks_y, 1, block, block, 1, 0, NULL, arguments, NULL),
      "the chroma kernel wouldn't start");
   CU(c, cuCtxSynchronize(), "the convert didn't finish");
-  (void)node;
   c->frames++;
   return 1;
 }
@@ -794,8 +850,7 @@ static int gl_ready(struct yapfast_cudaconvert *c) {
     put(c->gl_why, sizeof(c->gl_why), "no EGL display GL can be made on");
     return 0;
   }
-  EGLint major = 0, minor = 0;
-  if (!c->egl.eglInitialize(c->gl_display, &major, &minor)) {
+  if (!display_take(c, c->gl_display)) {
     put(c->gl_why, sizeof(c->gl_why), "EGL wouldn't initialize GL's display (0x%x)",
         c->egl.eglGetError());
     c->gl_display = EGL_NO_DISPLAY;
@@ -868,10 +923,15 @@ static int take_through_gl(struct yapfast_cudaconvert *c, int fd, unsigned offse
                            unsigned width, unsigned height) {
   c->gl_why[0] = '\0';
   if (!gl_ready(c)) return 0;
+  /* A picture without alpha is imported as one with it: the memory is laid out
+   * the same, the kernels never read the fourth byte, and a texture of three
+   * channels — what the driver makes of XRGB8888 — is one CUDA refuses to
+   * register (CUDA_ERROR_INVALID_VALUE). */
+  (void)fourcc;
   const EGLint attribs[] = {
       EGL_WIDTH,                          (EGLint)width,
       EGL_HEIGHT,                         (EGLint)height,
-      EGL_LINUX_DRM_FOURCC_EXT,           (EGLint)fourcc,
+      EGL_LINUX_DRM_FOURCC_EXT,           (EGLint)DRM_FORMAT_ARGB8888,
       EGL_DMA_BUF_PLANE0_FD_EXT,          fd,
       EGL_DMA_BUF_PLANE0_OFFSET_EXT,      (EGLint)offset,
       EGL_DMA_BUF_PLANE0_PITCH_EXT,       (EGLint)stride,
@@ -954,6 +1014,21 @@ int yapfast_cudaconvert_convert(struct yapfast_cudaconvert *c, int fd, unsigned 
     put(error, size, "%s", c->error);
     return 0;
   }
+  if (c->gl_only && c->gl_only_modifier == modifier) {
+    int ok = 0;
+    if (take_through_gl(c, fd, offset, stride, fourcc, modifier, width, height)) {
+      c->source_width = width;
+      c->source_height = height;
+      /* Red first, as below. */
+      ok = launch(c, (const void *)(uintptr_t)c->rows, (unsigned)c->rows_pitch, (int)width,
+                  (int)height, 1);
+    } else {
+      put(c->error, sizeof(c->error), "through GL's texture: %s", c->gl_why);
+    }
+    leave(c);
+    if (!ok) put(error, size, "%s", c->error);
+    return ok;
+  }
   /* The descriptor's own memory, as an EGLImage: with the modifier, since a
    * compositor draws tiled buffers and the driver has to be told which layout
    * the bytes are in. */
@@ -1005,7 +1080,7 @@ int yapfast_cudaconvert_convert(struct yapfast_cudaconvert *c, int fd, unsigned 
       c->source_width = width;
       c->source_height = height;
       ok = launch(c, (const void *)(uintptr_t)frame.frame.pDevPtr[0], frame.pitch, (int)width,
-                  (int)height, NULL);
+                  (int)height, 0);
     }
   } else if (frame.frameType == CU_EGL_FRAME_TYPE_ARRAY && frame.frame.pArray[0] != NULL) {
     /* A picture the driver holds as an array rather than rows: its rows are
@@ -1018,7 +1093,7 @@ int yapfast_cudaconvert_convert(struct yapfast_cudaconvert *c, int fd, unsigned 
       c->source_width = width;
       c->source_height = height;
       ok = launch(c, (const void *)(uintptr_t)c->rows, (unsigned)c->rows_pitch, (int)width,
-                  (int)height, NULL);
+                  (int)height, 0);
     }
   } else {
     put(c->error, sizeof(c->error),
@@ -1039,8 +1114,14 @@ done:
     if (take_through_gl(c, fd, offset, stride, fourcc, modifier, width, height)) {
       c->source_width = width;
       c->source_height = height;
+      /* The array behind GL's texture holds the picture as GL does, red first,
+       * where the descriptor's own memory is blue first. */
       ok = launch(c, (const void *)(uintptr_t)c->rows, (unsigned)c->rows_pitch, (int)width,
-                  (int)height, NULL);
+                  (int)height, 1);
+      if (ok) {
+        c->gl_only = 1;
+        c->gl_only_modifier = modifier;
+      }
     } else if (c->gl_why[0] != '\0') {
       put(c->error, sizeof(c->error), "%s; and through GL's texture: %s", first, c->gl_why);
     }
@@ -1064,11 +1145,11 @@ void yapfast_cudaconvert_free(struct yapfast_cudaconvert *c) {
   if (c->display != EGL_NO_DISPLAY) {
     c->egl.eglMakeCurrent(c->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     if (c->context != EGL_NO_CONTEXT) c->egl.eglDestroyContext(c->display, c->context);
-    c->egl.eglTerminate(c->display);
+    display_let_go(c, c->display);
   }
   if (c->gl_display != EGL_NO_DISPLAY) {
     if (c->gl_context != EGL_NO_CONTEXT) c->egl.eglDestroyContext(c->gl_display, c->gl_context);
-    c->egl.eglTerminate(c->gl_display);
+    display_let_go(c, c->gl_display);
   }
   if (c->gbm_device != NULL && c->gbm != NULL) {
     void (*destroy)(void *) = symbol(c->gbm, "gbm_device_destroy");

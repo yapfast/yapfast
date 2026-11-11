@@ -252,7 +252,7 @@ pub fn shares_on_the_card() -> bool {
                 })
             });
         }
-        return false;
+        false
     }
     #[cfg(not(target_os = "linux"))]
     {

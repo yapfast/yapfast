@@ -69,8 +69,12 @@ const LINEAR: u64 = 0;
 /// The picture's memory, mapped for reading: `rows` is its first byte, and
 /// [`Readback::stride`] is how far the next row is from it.
 pub struct Readback {
+    /// The mapping as `mmap` made it, which is what `munmap` is given back.
     memory: NonNull<u8>,
     length: usize,
+    /// Where the picture starts in it: a plane can begin partway into its
+    /// memory.
+    start: usize,
     stride: u32,
 }
 
@@ -78,9 +82,15 @@ impl Readback {
     /// The picture's bytes, its first row first: `stride` bytes apart, of which
     /// the first `width * 4` are the row's pixels.
     pub fn rows(&self) -> &[u8] {
-        // SAFETY: `memory` is a mapping of `length` bytes this struct owns, and
-        // `length` was worked out from the stride and height it was made with.
-        unsafe { std::slice::from_raw_parts(self.memory.as_ptr(), self.length) }
+        // SAFETY: `memory` is a mapping of `length` bytes this struct owns,
+        // `length` was worked out from the stride and height it was made with,
+        // and `start` is no further into it than its end.
+        unsafe {
+            std::slice::from_raw_parts(
+                self.memory.as_ptr().add(self.start),
+                self.length - self.start,
+            )
+        }
     }
 
     /// How many bytes apart the picture's rows are.
@@ -159,19 +169,17 @@ pub fn read(
             .context("mapping the picture the compositor drew, to read it back");
     }
     let memory = NonNull::new(memory.cast::<u8>()).expect("mmap answers nothing, which is checked");
-    let mut picture = Readback {
-        memory,
-        length,
-        stride,
-    };
     // The offset is where the picture starts, which is not always zero: a plane
     // can begin partway into an allocation. The mapping starts at the memory's
-    // own first byte, so the picture's rows begin later in it.
-    let start = usize::try_from(offset).unwrap_or(0).min(picture.length);
-    picture.memory = NonNull::new(unsafe { picture.memory.as_ptr().add(start) })
-        .expect("a pointer into a mapping is not null");
-    picture.length -= start;
-    Ok(picture)
+    // own first byte, so the picture's rows begin later in it, and the mapping
+    // itself is what is unmapped.
+    let start = usize::try_from(offset).unwrap_or(0).min(length);
+    Ok(Readback {
+        memory,
+        length,
+        start,
+        stride,
+    })
 }
 
 #[cfg(test)]

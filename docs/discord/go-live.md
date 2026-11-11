@@ -693,10 +693,22 @@ texture over the same picture maps, so the picture is wrapped as a texture
 (`glEGLImageTargetTexture2DOES`, on a display made from a gbm device, which is
 the one whose GL CUDA binds to) and the array behind it is copied on the card
 with `cuMemcpy3D` — the copy a block-linear array takes, where `cuMemcpy2D`
-answers `CUDA_ERROR_INVALID_VALUE` — into linear rows the kernels read. Both
+answers `CUDA_ERROR_INVALID_VALUE` — into linear rows the kernels read. The
+texture is made as ARGB8888 whatever the descriptor says, since a screencast's
+XRGB8888 becomes a three-channel texture CUDA refuses to register and the bytes
+are the same either way, and the rows it gives back are red first, as GL holds
+them, which the kernels are told. A layout the first door refused once goes to
+GL's from the next picture on, rather than being refused again every frame. Both
 doors leave every pixel on the card, and GL is opened only when a picture takes
-it. A format that isn't 32-bit BGRA, a picture the driver holds in neither rows
-nor an array, and a device that isn't the picture's are one sentence and the
+it. The session hands its access unit back in two steps: the encode leaves it
+locked in the driver's bitstream buffer and says its size, and the drain copies
+it into a buffer from the stream's pool, which is what is sent. EGL gives every converter on one device the same display, and a share
+opens one for each codec it could send before it keeps one, so the displays are
+counted across the process: the first converter to take one initialises it and
+the last to let go terminates it, and a converter dropped never ends the display
+the kept one imports on. A format that isn't 32-bit BGRA, a picture the driver
+holds in neither rows nor an array, and a device that isn't the picture's are
+one sentence and the
 processor's copy, which is the ladder every encoder here walks. The session's
 settings are `native/hwenc.c`'s NVENC row, and a test holds the two tables to one
 answer.

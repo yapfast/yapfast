@@ -619,7 +619,7 @@ pub struct Planes {
 /// codec the card has no decoder for, and the descriptor a picture is exported
 /// as.
 #[cfg(all(target_os = "linux", not(d3d11dec), any(vaapidec, test)))]
-mod vaapi {
+pub(crate) mod vaapi {
     #[cfg(test)]
     use std::ffi::c_void;
     use std::{
@@ -776,15 +776,26 @@ mod vaapi {
         /// one. VP8 never has one — no hardware decoder takes it — and the
         /// software decoder reads the rest.
         pub fn new(codec: Codec) -> Result<Self> {
+            Self::open(codec, ptr::null())
+        }
+
+        /// The card's decoder on the render node `node` names, rather than the
+        /// one FFmpeg finds: a machine with two cards has one it doesn't.
+        #[cfg(test)]
+        pub fn on(codec: Codec, node: &std::ffi::CStr) -> Result<Self> {
+            Self::open(codec, node.as_ptr().cast())
+        }
+
+        fn open(codec: Codec, device: *const c_uchar) -> Result<Self> {
             let (which, what) = match codec {
                 Codec::H264 => (0, "H264"),
                 Codec::H265 => (1, "H265"),
                 Codec::Av1 => (2, "AV1"),
                 Codec::Vp8 => bail!("the graphics card has no VP8 decoder"),
             };
-            // SAFETY: plain values, and the null device is one FFmpeg finds and
-            // keeps for the decoder.
-            let raw = unsafe { yapfast_vadec_new(which, 0, 0, ptr::null()) };
+            // SAFETY: plain values, and a device that is a C string the call
+            // reads, or the null one FFmpeg finds and keeps for the decoder.
+            let raw = unsafe { yapfast_vadec_new(which, 0, 0, device) };
             if raw.is_null() {
                 // SAFETY: the null decoder is what `error` reads the reason off.
                 let reason = unsafe { message(yapfast_vadec_error(ptr::null())) };
@@ -2421,5 +2432,91 @@ mod tests {
             compared > 0,
             "no codec was compared: this machine's card decodes none of them"
         );
+    }
+}
+
+/// VA-API's decoder hands its picture over as a DMA-BUF, on whichever card's
+/// libva driver initialises: the export is asked for as DRM PRIME on every
+/// picture, where an unreferenced frame would have mapped it into memory and
+/// been refused. Needs a VA-API driver, and says so rather than failing where
+/// there is none.
+#[cfg(all(test, vaapidec))]
+pub(crate) mod vaapi_export {
+    use super::vaapi::Hardware;
+    use yapfast_discord::rtp::Codec;
+
+    /// The fixture's access units, split at its delimiters as a viewer
+    /// reassembles them, each NAL with a four-byte start code.
+    pub(crate) fn units() -> Vec<Vec<u8>> {
+        let file = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../testing/fixtures/stream-h264.h264"),
+        )
+        .expect("the H264 fixture");
+        let starts: Vec<usize> = (0..file.len() - 2)
+            .filter(|&at| file[at..at + 3] == [0, 0, 1])
+            .map(|at| at + 3)
+            .collect();
+        let mut units: Vec<Vec<u8>> = vec![];
+        for (index, &start) in starts.iter().enumerate() {
+            let mut end = starts.get(index + 1).map_or(file.len(), |next| next - 3);
+            if file[end - 1] == 0 {
+                end -= 1;
+            }
+            let nal = &file[start..end];
+            let delimiter = nal[0] & 0x1f == 9;
+            if delimiter || units.is_empty() {
+                units.push(vec![]);
+            }
+            if !delimiter {
+                let unit = units.last_mut().unwrap();
+                unit.extend_from_slice(&[0, 0, 0, 1]);
+                unit.extend_from_slice(nal);
+            }
+        }
+        units.retain(|unit| !unit.is_empty());
+        units
+    }
+
+    #[test]
+    fn a_decoded_picture_is_handed_over_as_a_dmabuf() {
+        // The node `YAPFAST_VAAPI_NODE` names, for a machine whose first card
+        // isn't the one with a VA-API driver; FFmpeg's own pick otherwise.
+        let node = std::env::var("YAPFAST_VAAPI_NODE").ok();
+        let opened = match node {
+            Some(node) => Hardware::on(Codec::H264, &std::ffi::CString::new(node).unwrap()),
+            None => Hardware::new(Codec::H264),
+        };
+        let mut decoder = match opened {
+            Ok(decoder) => decoder,
+            Err(error) => {
+                eprintln!("no VA-API decoder here: {error:#}");
+                return;
+            }
+        };
+        let mut pictures = 0;
+        for (index, unit) in units().iter().enumerate() {
+            if decoder
+                .decode(unit, index == 0)
+                .unwrap_or_else(|error| panic!("unit {index}: {error:#}"))
+            {
+                let picture = decoder.dmabuf().expect("a picture, as a descriptor");
+                assert!(!picture.fds.is_empty(), "the picture has its memory");
+                assert!(picture.width > 0 && picture.height > 0);
+                if pictures == 0 {
+                    eprintln!(
+                        "{}x{} as {:#010x}, modifier {:#018x}, {} planes",
+                        picture.width,
+                        picture.height,
+                        picture.fourcc,
+                        picture.modifier,
+                        picture.planes.len()
+                    );
+                }
+                pictures += 1;
+                decoder.release();
+            }
+        }
+        assert!(pictures > 0, "the card decoded no picture of the stream");
     }
 }
