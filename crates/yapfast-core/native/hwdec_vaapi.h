@@ -20,6 +20,35 @@ enum {
  * limit; the pictures the tile pass shows have two. */
 enum { YAPFAST_VA_PLANES = 4 };
 
+/* How a picture's samples became colour, as the tile pass reads it: the range
+ * its codes use, the matrix luma and chroma are combined with, and the curve
+ * they are in. The numbers are decode.rs's and the tile pass's, so they are
+ * written down here: a picture's colour is three of these. */
+enum {
+  /* 16..235 luma and 16..240 chroma, as every 8-bit stream Discord carries is,
+   * or the full range of the sample's own depth. */
+  YAPFAST_VA_LIMITED = 0,
+  YAPFAST_VA_FULL = 1,
+};
+enum {
+  YAPFAST_VA_BT709 = 0,
+  /* BT.2020's non-constant-luminance matrix, which HDR10 is coded with. */
+  YAPFAST_VA_BT2020_NCL = 1,
+};
+enum {
+  /* A display-referred curve: BT.709's for 8-bit, BT.1886's gamma for 10-bit. */
+  YAPFAST_VA_SDR = 0,
+  /* SMPTE ST 2084, which HDR10 is coded with. */
+  YAPFAST_VA_PQ = 1,
+};
+
+/* The colour signal a picture was coded with, in the numbers above. */
+struct yapfast_vacolour {
+  int range;
+  int matrix;
+  int transfer;
+};
+
 struct yapfast_vadec;
 
 /* One plane of the picture's buffer: which buffer, where the plane starts in
@@ -41,11 +70,14 @@ struct yapfast_vapicture {
    * where the codec codes in whole macroblocks. */
   int width;
   int height;
-  /* The buffer's format, as DRM names it: NV12, the one shape the tile pass
-   * shows, and the only one this shim exports. */
+  /* The buffer's format, as DRM names it: NV12 for an 8-bit picture, P010 for
+   * a 10-bit one — the two shapes the tile pass shows, both 4:2:0. */
   uint32_t fourcc;
   uint32_t planes;
   struct yapfast_vaplane plane[YAPFAST_VA_PLANES];
+  /* The matrix, range and curve the samples are in, which the tile pass needs
+   * to turn them into the colour that was coded. */
+  struct yapfast_vacolour colour;
 };
 
 /* A decoder for `codec` that leaves its pictures on the graphics card, on the
@@ -60,7 +92,8 @@ struct yapfast_vadec *yapfast_vadec_new(int codec, int hint_width, int hint_heig
 /* Feeds one whole frame, and exports the newest picture as a DMA-BUF: 1 says
  * one is ready, 0 that the decoder kept the frame for the pictures after it,
  * -2 that the stream's pictures are ones the tile pass can't show (anything
- * but 8-bit 4:2:0), and any other negative number that the frame wasn't
+ * but 4:2:0 at 8 or 10 bits, and a 10-bit picture whose colour signal the
+ * pass has no curve for), and any other negative number that the frame wasn't
  * decoded. A picture exported by the call before is released here. */
 int yapfast_vadec_decode(struct yapfast_vadec *decoder, const unsigned char *data, size_t size,
                          int keyframe);

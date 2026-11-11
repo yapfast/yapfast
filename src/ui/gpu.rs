@@ -1314,7 +1314,7 @@ mod plane {
 
     use ash::vk;
     use slint::wgpu_30::wgpu;
-    use yapfast_core::dmabuf::{MAX_PLANES, Picture, Plane};
+    use yapfast_core::dmabuf::{Colour, MAX_PLANES, Picture, Plane};
 
     /// `DRM_FORMAT_MOD_LINEAR`: the memory is the picture's rows one after
     /// another, and nothing else about it needs saying. A picture the tests make
@@ -1348,8 +1348,15 @@ mod plane {
         /// buffer of 32-bit pixels usually is.
         Bgra,
         /// A plane of luma and one of interleaved chroma: `DRM_FORMAT_NV12`,
-        /// 8-bit 4:2:0, which is what the card's decoder exports.
+        /// 8-bit 4:2:0, which is what the card's decoder exports for an 8-bit
+        /// stream.
         Nv12,
+        /// The same planes at 10 bits, in 16-bit samples with the 10 at their
+        /// top: `DRM_FORMAT_P010`, which is what VA-API's decoder exports.
+        P010,
+        /// The same planes at 10 bits, in 16-bit samples with the 10 at their
+        /// bottom: `DRM_FORMAT_P016`, which is what NVDEC decodes into.
+        P016,
     }
 
     impl Shape {
@@ -1359,17 +1366,28 @@ mod plane {
         pub const ARGB8888: u32 = fourcc(*b"AR24");
         /// `DRM_FORMAT_NV12`.
         pub const NV12: u32 = fourcc(*b"NV12");
+        /// `DRM_FORMAT_P010`, which is the fourcc VA-API's decoder exports.
+        /// Named apart from the variant, which a `match` on the fourcc would
+        /// otherwise read as one.
+        pub const P010_FOURCC: u32 = fourcc(*b"P010");
+        /// The fourcc NVDEC's P016 is carried as: 16-bit samples with the 10
+        /// bits at their bottom. The kernel names the same four characters for
+        /// its own 16-bit format, and the shims are the only ones that write
+        /// this one, so the depth travels with it — [`Self::depth`].
+        pub const P016_FOURCC: u32 = fourcc(*b"P016");
 
         /// The shape the fourcc names, or the reason this importer can't show
         /// a picture of it. Only the shapes Skia or the tile pass can read are
-        /// here: a ten-bit, a 4:2:2 or a planar picture would be a texture of a
-        /// format this renderer can't sample, and an import of it is a picture
-        /// shown wrongly rather than not at all.
+        /// here: a 4:2:2 or a planar picture would be a texture of a format this
+        /// renderer can't sample, and an import of it is a picture shown wrongly
+        /// rather than not at all.
         pub fn of(fourcc: u32) -> Result<Self, String> {
             match fourcc {
                 Self::ABGR8888 => Ok(Self::Rgba),
                 Self::ARGB8888 => Ok(Self::Bgra),
                 Self::NV12 => Ok(Self::Nv12),
+                Self::P010_FOURCC => Ok(Self::P010),
+                Self::P016_FOURCC => Ok(Self::P016),
                 other => Err(format!(
                     "the picture is DRM format {other:08x} ({}), which this importer can't show",
                     spelled(other)
@@ -1383,6 +1401,8 @@ mod plane {
                 Self::Rgba => "RGBA",
                 Self::Bgra => "BGRA",
                 Self::Nv12 => "NV12",
+                Self::P010 => "P010",
+                Self::P016 => "P016",
             }
         }
 
@@ -1391,17 +1411,41 @@ mod plane {
         pub fn planes(self) -> usize {
             match self {
                 Self::Rgba | Self::Bgra => 1,
-                Self::Nv12 => 2,
+                Self::Nv12 | Self::P010 | Self::P016 => 2,
             }
         }
 
+        /// Whether the shape is one the tile pass reads, rather than one Skia
+        /// samples as it is: luma and chroma planes, 8 or 10 bits a sample.
+        pub fn tiled(self) -> bool {
+            self.planes() == 2
+        }
+
+        /// Whether chroma is shared by each two pixels across and down, which
+        /// leaves a picture of an odd side with nowhere to put its last sample.
+        pub fn subsampled(self) -> bool {
+            self.tiled()
+        }
+
         /// The fewest bytes one row of `plane` takes in a picture `width` pixels
-        /// wide: four to a pixel, or — for NV12, whose chroma is two bytes a
-        /// pair — one to a pixel in either plane.
+        /// wide: four to a pixel, or — for the 4:2:0 shapes, whose chroma is two
+        /// bytes a pair — one to a pixel at 8 bits and two at 10.
         pub fn row(self, width: u32, plane: usize) -> u32 {
             match (self, plane) {
                 (Self::Rgba | Self::Bgra, _) => width.saturating_mul(4),
                 (Self::Nv12, _) => width,
+                (Self::P010 | Self::P016, _) => width.saturating_mul(2),
+            }
+        }
+
+        /// What the tile pass is told the samples are, which is how it reads a
+        /// 16-bit word as the 10 bits in it: the number the shader's `signal.w`
+        /// holds.
+        pub fn depth(self) -> u32 {
+            match self {
+                Self::Rgba | Self::Bgra | Self::Nv12 => 0,
+                Self::P010 => 1,
+                Self::P016 => 2,
             }
         }
 
@@ -1412,29 +1456,53 @@ mod plane {
                 Self::Rgba => vk::Format::R8G8B8A8_UNORM,
                 Self::Bgra => vk::Format::B8G8R8A8_UNORM,
                 Self::Nv12 => vk::Format::G8_B8R8_2PLANE_420_UNORM,
+                Self::P010 => vk::Format::G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16,
+                Self::P016 => vk::Format::G16_B16R16_2PLANE_420_UNORM,
             }
         }
 
         /// The wgpu format the texture is declared as: the same memory, under
-        /// the name wgpu has for it.
+        /// the name wgpu has for it. wgpu names one 16-bit 4:2:0 format and not
+        /// two, and its plane views are 16-bit unsigned samples either way —
+        /// wider than both P010 and P016 hold — so the tile pass reads the depth
+        /// out of the words itself, from [`Self::depth`].
         pub fn wgpu(self) -> wgpu::TextureFormat {
             match self {
                 Self::Rgba => wgpu::TextureFormat::Rgba8Unorm,
                 Self::Bgra => wgpu::TextureFormat::Bgra8Unorm,
                 Self::Nv12 => wgpu::TextureFormat::NV12,
+                Self::P010 | Self::P016 => wgpu::TextureFormat::P010,
+            }
+        }
+
+        /// The format one plane of the picture is viewed as, and which plane it
+        /// is: one sample a pixel for luma, two for chroma, at the shape's own
+        /// depth.
+        pub fn view(self, plane: usize) -> (wgpu::TextureFormat, wgpu::TextureAspect) {
+            match (self, plane) {
+                (Self::Nv12, 0) => (wgpu::TextureFormat::R8Unorm, wgpu::TextureAspect::Plane0),
+                (Self::Nv12, _) => (wgpu::TextureFormat::Rg8Unorm, wgpu::TextureAspect::Plane1),
+                (Self::P010 | Self::P016, 0) => {
+                    (wgpu::TextureFormat::R16Unorm, wgpu::TextureAspect::Plane0)
+                }
+                (Self::P010 | Self::P016, _) => {
+                    (wgpu::TextureFormat::Rg16Unorm, wgpu::TextureAspect::Plane1)
+                }
+                (Self::Rgba | Self::Bgra, 0) => (self.wgpu(), wgpu::TextureAspect::All),
+                (Self::Rgba | Self::Bgra, _) => (self.wgpu(), wgpu::TextureAspect::All),
             }
         }
 
         /// What the window asks of the texture it wraps the picture in. A
         /// picture Skia samples itself has to be renderable too, which is what
-        /// `slint::Image` asks of a texture it is given; an NV12 picture is only
-        /// ever read, by the pass that writes the tile.
+        /// `slint::Image` asks of a texture it is given; the pictures the tile
+        /// pass reads are only ever read, by the pass that writes the tile.
         pub fn uses(self) -> wgpu::TextureUsages {
             match self {
                 Self::Rgba | Self::Bgra => {
                     wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT
                 }
-                Self::Nv12 => wgpu::TextureUsages::TEXTURE_BINDING,
+                Self::Nv12 | Self::P010 | Self::P016 => wgpu::TextureUsages::TEXTURE_BINDING,
             }
         }
     }
@@ -1474,6 +1542,9 @@ mod plane {
         /// an image is created as and not something an importer may choose.
         pub modifier: u64,
         pub shape: Shape,
+        /// The colour signal the picture was coded with, which the tile pass
+        /// reads to show a 10-bit picture in its own colour.
+        pub colour: Colour,
         /// Each plane of the shape, in its order.
         pub planes: [Option<Placed>; MAX_PLANES],
         /// Each buffer the planes are in, as the descriptor the picture names
@@ -1508,6 +1579,9 @@ mod plane {
         pub height: u32,
         pub fourcc: u32,
         pub modifier: u64,
+        /// The range, matrix and curve the samples are in, as the worker's shim
+        /// read them out of the stream.
+        pub colour: Colour,
         /// Each plane's place and the descriptor it is in, in the order the
         /// picture names them, and `None` past the last.
         pub planes: [Option<(Plane, RawFd)>; MAX_PLANES],
@@ -1525,6 +1599,7 @@ mod plane {
                 height: picture.height(),
                 fourcc: picture.fourcc(),
                 modifier: picture.modifier(),
+                colour: picture.colour(),
                 planes,
             }
         }
@@ -1537,18 +1612,20 @@ mod plane {
             height,
             fourcc,
             modifier,
+            colour,
             planes,
         } = *numbers;
         if width == 0 || height == 0 {
             return Err(format!("the picture is {width} by {height}"));
         }
         let shape = Shape::of(fourcc)?;
-        // NV12's chroma is one sample for each two pixels across and down, so a
-        // picture of an odd side has nowhere to put its last one: an importer
-        // told it is NV12 would read the row below as chroma.
-        if shape == Shape::Nv12 && (!width.is_multiple_of(2) || !height.is_multiple_of(2)) {
+        // Chroma is one sample for each two pixels across and down, so a picture
+        // of an odd side has nowhere to put its last one: an importer told it is
+        // 4:2:0 would read the row below as chroma.
+        if shape.subsampled() && (!width.is_multiple_of(2) || !height.is_multiple_of(2)) {
             return Err(format!(
-                "an NV12 picture of {width} by {height} has half a chroma sample at its edge"
+                "a {} picture of {width} by {height} has half a chroma sample at its edge",
+                shape.named()
             ));
         }
         if modifier == MOD_INVALID {
@@ -1602,6 +1679,7 @@ mod plane {
             height,
             modifier,
             shape,
+            colour,
             planes: placed,
             memories,
         })
@@ -1610,6 +1688,7 @@ mod plane {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use yapfast_core::dmabuf::{Matrix, Range, Transfer};
 
         fn plane(offset: u32, stride: u32) -> (Plane, RawFd) {
             (Plane { offset, stride }, 7)
@@ -1638,6 +1717,39 @@ mod plane {
                 height,
                 fourcc: Shape::NV12,
                 modifier: MOD_LINEAR,
+                colour: Colour::SDR,
+                planes,
+            }
+        }
+
+        /// The same picture at 10 bits: 16-bit samples, so its rows are twice as
+        /// long and its chroma starts where two luma rows' bytes end.
+        fn ten_bit(width: u32, height: u32, fourcc: u32) -> Numbers {
+            let mut planes = [None; MAX_PLANES];
+            planes[0] = Some((
+                Plane {
+                    offset: 0,
+                    stride: width * 2,
+                },
+                7,
+            ));
+            planes[1] = Some((
+                Plane {
+                    offset: width * 2 * height,
+                    stride: width * 2,
+                },
+                7,
+            ));
+            Numbers {
+                width,
+                height,
+                fourcc,
+                modifier: MOD_LINEAR,
+                colour: Colour {
+                    range: Range::Limited,
+                    matrix: Matrix::Bt2020Ncl,
+                    transfer: Transfer::Pq,
+                },
                 planes,
             }
         }
@@ -1651,12 +1763,38 @@ mod plane {
             assert_eq!(Shape::of(Shape::ARGB8888), Ok(Shape::Bgra));
             assert_eq!(Shape::of(Shape::ABGR8888), Ok(Shape::Rgba));
             assert_eq!(Shape::of(Shape::NV12), Ok(Shape::Nv12));
+            assert_eq!(Shape::of(Shape::P010_FOURCC), Ok(Shape::P010));
+            assert_eq!(Shape::of(Shape::P016_FOURCC), Ok(Shape::P016));
             assert_eq!(Shape::Bgra.vk(), vk::Format::B8G8R8A8_UNORM);
             assert_eq!(Shape::Bgra.wgpu(), wgpu::TextureFormat::Bgra8Unorm);
             assert_eq!(Shape::Rgba.vk(), vk::Format::R8G8B8A8_UNORM);
             assert_eq!(Shape::Rgba.wgpu(), wgpu::TextureFormat::Rgba8Unorm);
             assert_eq!(Shape::Nv12.vk(), vk::Format::G8_B8R8_2PLANE_420_UNORM);
             assert_eq!(Shape::Nv12.wgpu(), wgpu::TextureFormat::NV12);
+            assert_eq!(
+                Shape::P010.vk(),
+                vk::Format::G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16,
+                "10 bits at the top of each 16-bit sample"
+            );
+            assert_eq!(
+                Shape::P016.vk(),
+                vk::Format::G16_B16R16_2PLANE_420_UNORM,
+                "16-bit samples, which is what NVDEC decodes into"
+            );
+            assert_eq!(
+                Shape::P010.wgpu(),
+                wgpu::TextureFormat::P010,
+                "wgpu's one 16-bit 4:2:0 format, whose plane views are R16 and Rg16"
+            );
+            assert_eq!(Shape::P016.wgpu(), wgpu::TextureFormat::P010);
+            assert_eq!(
+                Shape::P010.view(0),
+                (wgpu::TextureFormat::R16Unorm, wgpu::TextureAspect::Plane0)
+            );
+            assert_eq!(
+                Shape::P010.view(1),
+                (wgpu::TextureFormat::Rg16Unorm, wgpu::TextureAspect::Plane1)
+            );
             assert_eq!(
                 Shape::Bgra.uses(),
                 wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -1666,6 +1804,17 @@ mod plane {
                 Shape::Nv12.uses(),
                 wgpu::TextureUsages::TEXTURE_BINDING,
                 "NV12 is only read, by the pass that writes the tile"
+            );
+            assert_eq!(Shape::P010.uses(), wgpu::TextureUsages::TEXTURE_BINDING);
+            // The depth the tile pass is told, which is how it reads a 16-bit
+            // word: P010 keeps its 10 bits at the top and P016 at the bottom.
+            assert_eq!(
+                (
+                    Shape::Nv12.depth(),
+                    Shape::P010.depth(),
+                    Shape::P016.depth()
+                ),
+                (0, 1, 2)
             );
         }
 
@@ -1680,8 +1829,9 @@ mod plane {
             assert!(refused.contains("XR24"), "the reason names it: {refused}");
             assert!(refused.contains("2") || refused.contains("plane"));
 
-            // Ten-bit NV12 is a picture this renderer has no sample format for.
-            numbers.fourcc = fourcc(*b"P010");
+            // 4:2:2 in 16-bit samples is a picture the tile pass has no layout
+            // for: its chroma is not shared by two rows.
+            numbers.fourcc = fourcc(*b"NV16");
             assert!(layout(&numbers).is_err());
 
             // One plane and an NV12 fourcc is a picture whose memory was read
@@ -1742,6 +1892,63 @@ mod plane {
             assert_eq!((planes[0].memory, planes[1].memory), (0, 1));
         }
 
+        /// A 10-bit picture is two planes of one buffer like an 8-bit one, at
+        /// rows of twice the bytes and with the colour signal it was coded with
+        /// carried into the plan the tile pass reads.
+        #[test]
+        fn a_ten_bit_picture_is_two_wide_rows_of_one_memory() {
+            for (fourcc, shape) in [
+                (Shape::P010_FOURCC, Shape::P010),
+                (Shape::P016_FOURCC, Shape::P016),
+            ] {
+                let numbers = ten_bit(4, 2, fourcc);
+                let plan = layout(&numbers).expect("a 10-bit picture");
+                assert_eq!(plan.shape, shape);
+                assert!(!plan.disjoint(), "one buffer, so one memory");
+                let planes: Vec<_> = plan.planes().collect();
+                assert_eq!(planes.len(), 2);
+                assert_eq!(
+                    planes[0],
+                    Placed {
+                        offset: 0,
+                        stride: 8,
+                        memory: 0
+                    },
+                    "16 bits a sample"
+                );
+                assert_eq!(
+                    planes[1],
+                    Placed {
+                        offset: 16,
+                        stride: 8,
+                        memory: 0
+                    }
+                );
+                assert_eq!(
+                    plan.colour,
+                    Colour {
+                        range: Range::Limited,
+                        matrix: Matrix::Bt2020Ncl,
+                        transfer: Transfer::Pq,
+                    },
+                    "the matrix, range and curve the stream declared"
+                );
+
+                // A 10-bit row is two bytes a pixel, so an 8-bit stride is a
+                // picture read at half its width.
+                let mut narrow = numbers;
+                narrow.planes[0] = Some((
+                    Plane {
+                        offset: 0,
+                        stride: 4,
+                    },
+                    7,
+                ));
+                let refused = layout(&narrow).expect_err("a row too narrow for 10 bits");
+                assert!(refused.contains("at least 8"), "{refused}");
+            }
+        }
+
         /// A picture whose memory was laid out by a driver that didn't say how,
         /// or whose rows are closer together than its pixels, is refused rather
         /// than imported as something it isn't.
@@ -1791,6 +1998,7 @@ mod plane {
                 height: 2,
                 fourcc: Shape::ARGB8888,
                 modifier: MOD_LINEAR,
+                colour: Colour::SDR,
                 planes,
             };
             let plan = layout(&numbers).expect("a colour picture");
@@ -2233,12 +2441,12 @@ mod present {
         let imported = unsafe { texture(device, &plan) }?;
         let tile = match plan.shape {
             plane::Shape::Rgba | plane::Shape::Bgra => None,
-            plane::Shape::Nv12 => {
+            plane::Shape::Nv12 | plane::Shape::P010 | plane::Shape::P016 => {
                 let pass = match pass.as_mut() {
                     Some(pass) => pass,
                     None => pass.insert(Pass::new(device)?),
                 };
-                Some(pass.tile(device, queue, &imported, plan.width, plan.height)?)
+                Some(pass.tile(device, queue, &imported, &plan)?)
             }
         };
         Ok(Shown {
@@ -2282,6 +2490,19 @@ mod present {
         {
             return Err(
                 "the window's Vulkan device has no NV12 texture, which is the card's picture"
+                    .to_string(),
+            );
+        }
+        // A 10-bit picture is imported as a texture of 16-bit planes, which is
+        // the feature wgpu gates behind P010's name whatever the fourcc was.
+        if plan.shape.tiled()
+            && plan.shape.depth() != 0
+            && !device
+                .features()
+                .contains(wgpu::Features::TEXTURE_FORMAT_P010)
+        {
+            return Err(
+                "the window's Vulkan device has no 16-bit texture for a 10-bit picture (P010)"
                     .to_string(),
             );
         }
@@ -2642,13 +2863,18 @@ mod present {
     /// Direct3D path's pictures are in, so both look the same.
     const TILE: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
 
-    /// The pass that turns the card's NV12 into what Skia samples: one triangle
-    /// over the tile, reading the picture's luma and chroma planes and writing
-    /// colour, which is also where the tile's own size is the scale.
+    /// The pass that turns the card's picture into what Skia samples: one
+    /// triangle over the tile, reading the picture's luma and chroma planes and
+    /// writing colour, which is also where the tile's own size is the scale.
     struct Pass {
         pipeline: wgpu::RenderPipeline,
         layout: wgpu::BindGroupLayout,
         sampler: wgpu::Sampler,
+        /// The colour signal the shader reads — the range, matrix, curve and
+        /// depth — in one uniform: it is the same for every picture of a stream,
+        /// so it is written only when a picture changes it.
+        signal: wgpu::Buffer,
+        written: RefCell<Option<[u32; 4]>>,
     }
 
     impl Pass {
@@ -2685,6 +2911,14 @@ mod present {
                     entry(
                         2,
                         wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    ),
+                    entry(
+                        3,
+                        wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
                     ),
                 ],
             });
@@ -2728,24 +2962,37 @@ mod present {
                 min_filter: wgpu::FilterMode::Linear,
                 ..Default::default()
             });
+            // Four numbers, the uniform block's own size: nothing here is read
+            // back, and the pass only ever writes it from the processor.
+            let signal = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("a stream's picture colour"),
+                size: 16,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
             Ok(Self {
                 pipeline,
                 layout,
                 sampler,
+                signal,
+                written: RefCell::new(None),
             })
         }
 
-        /// Reads the picture's two planes into a tile `width` by `height`, on the
-        /// window's queue, and says the texture it wrote.
+        /// Reads the picture's two planes into a tile the picture's own size, on
+        /// the window's queue, and says the texture it wrote. The plan says how
+        /// deep the samples are and the signal they are in, which the shader
+        /// turns into the colour that was coded.
         fn tile(
             &self,
             device: &wgpu::Device,
             queue: &wgpu::Queue,
             picture: &wgpu::Texture,
-            width: u32,
-            height: u32,
+            plan: &plane::Plan,
         ) -> Result<wgpu::Texture, String> {
-            let plane = |label, format, aspect| {
+            let (width, height, shape, colour) = (plan.width, plan.height, plan.shape, plan.colour);
+            let plane = |label, plane| {
+                let (format, aspect) = shape.view(plane);
                 picture.create_view(&wgpu::TextureViewDescriptor {
                     label: Some(label),
                     format: Some(format),
@@ -2758,16 +3005,25 @@ mod present {
                     array_layer_count: None,
                 })
             };
-            let luma = plane(
-                "a stream's picture luma",
-                wgpu::TextureFormat::R8Unorm,
-                wgpu::TextureAspect::Plane0,
-            );
-            let chroma = plane(
-                "a stream's picture chroma",
-                wgpu::TextureFormat::Rg8Unorm,
-                wgpu::TextureAspect::Plane1,
-            );
+            let luma = plane("a stream's picture luma", 0);
+            let chroma = plane("a stream's picture chroma", 1);
+            // The numbers the shader reads: the range, the matrix, the curve,
+            // and how deep the samples are, which is what says where in a 16-bit
+            // word the 10 bits are.
+            let signal = [
+                colour.range as u32,
+                colour.matrix as u32,
+                colour.transfer as u32,
+                shape.depth(),
+            ];
+            if *self.written.borrow() != Some(signal) {
+                let mut bytes = [0; 16];
+                for (word, number) in bytes.chunks_exact_mut(4).zip(signal) {
+                    word.copy_from_slice(&number.to_ne_bytes());
+                }
+                queue.write_buffer(&self.signal, 0, &bytes);
+                *self.written.borrow_mut() = Some(signal);
+            }
             let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("a stream's picture planes"),
                 layout: &self.layout,
@@ -2783,6 +3039,10 @@ mod present {
                     wgpu::BindGroupEntry {
                         binding: 2,
                         resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: self.signal.as_entire_binding(),
                     },
                 ],
             });
@@ -2833,9 +3093,13 @@ mod present {
 
     /// One triangle over the whole tile: its vertices are named by their index,
     /// so it needs no buffer, and its texture coordinates come out of the same
-    /// numbers. The card's NV12 is BT.709 limited range, which is what the
-    /// colours are converted from; the chroma planes are sampled at their own
-    /// resolution, which the sampler does with the picture's texels.
+    /// numbers. The chroma planes are sampled at their own resolution, which the
+    /// sampler does with the picture's texels.
+    ///
+    /// The 8-bit path is what it has always been: the card's NV12 is BT.709
+    /// limited range, and that is what those six numbers convert. A 10-bit
+    /// picture is one of two matrices, a range, and a curve, which the shim read
+    /// out of the stream and the uniform carries in.
     const SHADER: &str = r#"
 struct Vertex {
     @builtin(position) position: vec4<f32>,
@@ -2855,16 +3119,145 @@ fn vs_main(@builtin(vertex_index) index: u32) -> Vertex {
 @group(0) @binding(1) var chroma: texture_2d<f32>;
 @group(0) @binding(2) var planes: sampler;
 
+// The colour signal of the picture being shown, in the numbers the worker's
+// shim read out of the stream: x = the range (0 limited, 1 full), y = the matrix
+// (0 BT.709, 1 BT.2020's non-constant-luminance), z = the curve (0 SDR, 1 PQ),
+// and w = how deep the samples are (0 eight bits, 1 P010, 2 P016).
+@group(0) @binding(3) var<uniform> signal: vec4<u32>;
+
+// The 10-bit codes a limited-range sample spans: luma 64..940 and chroma
+// 64..960 out of 0..1023, which is the studio range of 10 bits.
+const LUMA_LIMITED = vec2<f32>(64.0, 940.0);
+const CHROMA_LIMITED = vec2<f32>(64.0, 960.0);
+
+// One 16-bit plane sample as its 10-bit code, 0..1023. A P010 word keeps the
+// ten bits at its top, so dividing by 64 is reading them; a P016 word keeps
+// them at its bottom, which is what is left below the top six.
+fn ten(bit: f32, depth: u32) -> f32 {
+    let word = bit * 65535.0;
+    var code = word / 64.0;
+    if depth == 2u {
+        code = word - 64.0 * floor(word / 64.0);
+    }
+    return clamp(code, 0.0, 1023.0);
+}
+
+// A 10-bit code in the range it uses, as 0..1: 64..940 for luma and 64..960 for
+// chroma where the stream is limited, and the whole of 0..1023 where it is full.
+fn expand(code: f32, limited: vec2<f32>, full: bool) -> f32 {
+    if full {
+        return code / 1023.0;
+    }
+    return (code - limited.x) / (limited.y - limited.x);
+}
+
+// SMPTE ST 2084's inverse EOTF: a PQ code, 0..1, as the light it stands for,
+// 0..1 of the 10000 nits the curve maps.
+fn from_pq(e: f32) -> f32 {
+    let m1 = 2610.0 / 16384.0;
+    let m2 = (2523.0 / 4096.0) * 128.0;
+    let c1 = 3424.0 / 4096.0;
+    let c2 = (2413.0 / 4096.0) * 32.0;
+    let c3 = (2392.0 / 4096.0) * 32.0;
+    let p = pow(max(e, 0.0), 1.0 / m2);
+    return pow(max(p - c1, 0.0) / max(c2 - c3 * p, 1e-5), 1.0 / m1);
+}
+
+// The light a PQ picture holds, tone mapped to what SDR shows. `light` is in
+// units of 100 nits, which is SDR's white: everything below the 0.85 the knee
+// starts at — 85 nits, which is most of a picture most of the time — is left
+// exactly as it is, and the highlights roll off through the Hermite spline a
+// BT.2390 tone map is made of, to white at 400 nits, with the colour scaled by
+// how far its own luminance moved so that it keeps its hue. A BT.2390 EETF is
+// the shape the standard asks for; the knee and the peak are this window's own,
+// because a stream is shown on a desktop rather than on a graded monitor.
+fn tone_map(light: vec3<f32>) -> vec3<f32> {
+    // BT.2020's luma coefficients, which is the light this picture is in.
+    let luma = dot(light, vec3<f32>(0.2627, 0.6780, 0.0593));
+    if luma <= 0.0 {
+        return light;
+    }
+    let knee = 0.85;
+    let peak = 4.0;
+    var mapped = luma;
+    if luma > knee {
+        let t = min((luma - knee) / (peak - knee), 1.0);
+        mapped = knee + (1.0 - knee) * (t * t * (3.0 - 2.0 * t));
+    }
+    return light * (mapped / luma);
+}
+
+// Linear light in BT.2020's primaries as linear light in BT.709's, which is the
+// matrix BT.2087 gives and what shrinking a wide gamut into a narrow one is. A
+// negative channel is a colour BT.709 has no way to show — the gamut clamp — and
+// `encoded` takes it to none of that channel.
+fn to_bt709(light: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(
+        1.6605 * light.x - 0.5876 * light.y - 0.0729 * light.z,
+        -0.1246 * light.x + 1.1329 * light.y - 0.0083 * light.z,
+        -0.0182 * light.x - 0.1006 * light.y + 1.1187 * light.z,
+    );
+}
+
+// Linear light as the display-referred codes the tile holds: BT.1886's 2.4
+// gamma, which is what SDR video is, so that the tile shows the light a tone
+// map chose rather than a code that happens to be near it.
+fn encoded(light: vec3<f32>) -> vec3<f32> {
+    return pow(clamp(light, vec3<f32>(0.0), vec3<f32>(1.0)), vec3<f32>(1.0 / 2.4));
+}
+
 @fragment
 fn fs_main(in: Vertex) -> @location(0) vec4<f32> {
-    let y = 1.164 * (textureSample(luma, planes, in.uv).r - 16.0 / 255.0);
-    let c = textureSample(chroma, planes, in.uv).rg - vec2<f32>(128.0 / 255.0);
-    let rgb = vec3<f32>(
-        y + 1.793 * c.y,
-        y - 0.213 * c.x - 0.533 * c.y,
-        y + 2.112 * c.x,
+    // Sampled out here, so that every branch below reads the same texels.
+    let luma_bit = textureSample(luma, planes, in.uv).r;
+    let chroma_bit = textureSample(chroma, planes, in.uv).rg;
+    if signal.w == 0u {
+        // Eight bits: the 8-bit 4:2:0 path, BT.709 limited range.
+        let y = 1.164 * (luma_bit - 16.0 / 255.0);
+        let c = chroma_bit - vec2<f32>(128.0 / 255.0);
+        let rgb = vec3<f32>(
+            y + 1.793 * c.y,
+            y - 0.213 * c.x - 0.533 * c.y,
+            y + 2.112 * c.x,
+        );
+        return vec4<f32>(clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+    }
+    // Ten bits, at the depth the picture's own words hold them.
+    let full = signal.x == 1u;
+    let depth = signal.w;
+    let y = expand(ten(luma_bit, depth), LUMA_LIMITED, full);
+    let c = vec2<f32>(
+        expand(ten(chroma_bit.r, depth), CHROMA_LIMITED, full) - 0.5,
+        expand(ten(chroma_bit.g, depth), CHROMA_LIMITED, full) - 0.5,
     );
-    return vec4<f32>(clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+    // The picture's own non-linear R'G'B', which is what its matrix and curve
+    // are said about.
+    var rgb: vec3<f32>;
+    if signal.y == 1u {
+        // BT.2020's non-constant-luminance matrix, which HDR10 is coded with.
+        rgb = vec3<f32>(
+            y + 1.4746 * c.y,
+            y - 0.16455 * c.x - 0.57135 * c.y,
+            y + 1.8814 * c.x,
+        );
+    } else {
+        // BT.709's, which is what a 10-bit stream that names no matrix is.
+        rgb = vec3<f32>(
+            y + 1.5748 * c.y,
+            y - 0.1873 * c.x - 0.4681 * c.y,
+            y + 1.8556 * c.x,
+        );
+    }
+    if signal.z == 1u {
+        // PQ: the light the codes stand for, in units of 100 nits, tone mapped
+        // into what SDR shows and shrunk into BT.709's gamut.
+        let light = vec3<f32>(from_pq(rgb.x), from_pq(rgb.y), from_pq(rgb.z)) * 100.0;
+        return vec4<f32>(encoded(to_bt709(tone_map(light))), 1.0);
+    }
+    // SDR: BT.1886's gamma is what the picture was graded in and what the tile
+    // holds, so only the gamut matrix is left to do.
+    let light = pow(max(rgb, vec3<f32>(0.0)), vec3<f32>(2.4));
+    return vec4<f32>(encoded(to_bt709(light)), 1.0);
 }
 "#;
 

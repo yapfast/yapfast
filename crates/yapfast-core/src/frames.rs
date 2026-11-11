@@ -2491,6 +2491,7 @@ mod tests {
             fourcc: u32::from_le_bytes(*b"XR24"),
             modifier: 0,
             planes,
+            colour: dmabuf::Colour::SDR,
             fds,
         }
     }

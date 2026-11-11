@@ -751,6 +751,7 @@ mod displays {
             fourcc: 0x3432_5258,
             modifier: 0,
             planes: &planes,
+            colour: crate::dmabuf::Colour::SDR,
             fds: &fds,
         };
         let error = format!(
@@ -1131,6 +1132,7 @@ mod card_path {
             fourcc: XRGB8888,
             modifier,
             planes: &planes,
+            colour: crate::dmabuf::Colour::SDR,
             fds: &fds,
         };
         let Ok(mut convert) = Convert::open(width, height) else {
@@ -1233,6 +1235,7 @@ mod card_path {
             fourcc: XRGB8888,
             modifier,
             planes: &planes,
+            colour: crate::dmabuf::Colour::SDR,
             fds: &fds,
         };
         let mut convert = Convert::open(width, height).expect("a converter");
@@ -1276,6 +1279,7 @@ mod card_path {
                 fourcc,
                 modifier,
                 planes: &planes,
+                colour: crate::dmabuf::Colour::SDR,
                 fds: &fds,
             };
             // Sent at the screen's own size, and scaled down to a share's.

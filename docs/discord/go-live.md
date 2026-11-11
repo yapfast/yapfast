@@ -568,7 +568,33 @@ window grown to full screen grows the file once.
 dav1d takes 0.07 of a core for 1080p30 AV1 at 3.6 Mbit/s, against 0.1 for
 H265 at the same bitrate. That FFmpeg is built with
 its x86-64 assembly, without which H265 took over three times the processor
-time. Watching is possible only in the call you're in, so clicking someone
+time.
+
+Everything above is what reads a stream the machine's card can't. Where it can,
+the picture never comes back to the processor: `decode.rs` asks the card first
+— FFmpeg's Direct3D 11 decoder on Windows (`native/hwdec.c`), FFmpeg's VA-API
+decoder on Linux (`native/hwdec_vaapi.c`), and NVIDIA's own NVDEC where VA-API
+opens nothing (`native/hwdec_cuda.c`) — and each of them leaves the picture in
+a surface on the card and hands the window a DMA-BUF: the buffer's file
+descriptors, over the stream's own socket (`dmabuf.rs`), which the window
+imports into a texture over that same memory (`src/ui/gpu.rs`), so no pixel of
+it is copied anywhere. What shows it is a tile pass on the window's Vulkan
+device, reading the picture's planes: an 8-bit stream is NV12 and BT.709
+limited range, and a 10-bit one is P010 (`hwdec_vaapi.c`) or P016
+(`hwdec_cuda.c`) — 10 bits in the top or the bottom of each 16-bit sample —
+read with the range, matrix and transfer curve each shim took out of the
+stream's own VUI. That is BT.709's matrix or BT.2020's non-constant-luminance
+one, and for HDR10's PQ curve the SMPTE ST 2084 inverse EOTF, a tone map into
+SDR, and a BT.2020 to BT.709 gamut clamp. HLG and BT.2020's constant-luminance
+matrix are refused by name rather than shown in a curve they aren't, as 4:2:2,
+4:4:4 and 12-bit pictures are, and such a stream stays with the software
+decoders above. H.264 High 10 is one of those here whatever the card: no
+GeForce's NVDEC decodes it, and a UHD 770's VA-API driver has no such profile.
+The software decoder a H264 stream falls back to takes 8-bit 4:2:0 pictures
+only (`native/decode.c`), so a 10-bit H264 stream shows no picture at all on a
+machine with these cards. Discord sends none.
+
+Watching is possible only in the call you're in, so clicking someone
 sharing in another channel joins it first, once asked, and watches once the
 call is connected; Discord drops a watch sent before. The stream's sound, Opus
 on the streamer's audio SSRC, is DAVE-decrypted as audio and handed to the

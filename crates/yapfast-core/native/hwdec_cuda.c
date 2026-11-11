@@ -43,12 +43,19 @@
  *    picture the tile is sampling is never the one being written, and the
  *    descriptor of each is exported once and kept.
  *
- * Every picture is one buffer of pitch-linear NV12, whose chroma plane starts
- * pitch * height bytes in: that is what both an NVDEC surface and the shim's copy
- * are, and it is what the window imports through a modifier of linear with each
- * plane's offset and pitch given explicitly. A stream whose pictures are 10-bit,
- * 4:2:2 or 4:4:4 is refused before the decoder is made — the tile pass has no
- * curve or layout for those — and the stream stays with the software decoder.
+ * Every picture is one buffer of pitch-linear luma and chroma, whose chroma
+ * plane starts pitch * height bytes in: that is what both an NVDEC surface and
+ * the shim's copy are, and it is what the window imports through a modifier of
+ * linear with each plane's offset and pitch given explicitly. Pitch is bytes,
+ * so a 10-bit surface's pitch and plane size are twice an 8-bit one's and the
+ * same arithmetic places both. A stream whose pictures are neither 8-bit nor
+ * 10-bit 4:2:0 — 4:2:2, 4:4:4, 9-bit, 12-bit — is refused before the decoder
+ * is made, and one whose 10-bit pictures carry a colour signal the tile pass
+ * has no curve for (HLG, or BT.2020's constant luminance) at its sequence
+ * header; the stream stays with the software decoder either way. A 10-bit
+ * picture comes out as P016, whose 10 bits are the low bits of each 16-bit
+ * sample, and it carries the matrix, range and transfer curve its VUI declared
+ * out with it for the tile pass to show it in the colour it was coded with.
  *
  * Nothing is read back: the counters count pictures and copies on the card, and
  * the bytes that crossed to the processor, which stay zero. */
@@ -77,10 +84,60 @@
 
 /* cuMemGetHandleForAddressRange, which the vendored dynlink_cuda.h predates: it
  * is what turns a range of the card's memory into a file descriptor the kernel,
- * and so the window, can take as a DMA-BUF. The declaration matches cuda.h's. */
+ * and so the window, can take as a DMA-BUF. The declaration matches cuda.h's,
+ * as the virtual-memory management API below does: cuMemAlloc's memory can't be
+ * handed out at all, so a picture the shim copies is in an allocation made with
+ * cuMemCreate, whose own shareable handle cuMemExportToShareableHandle gives.
+ * Only declarations are borrowed: no CUDA toolkit is needed to build this. */
 #define YAPFAST_CU_MEM_RANGE_HANDLE_TYPE_DMA_BUF_FD 1
 typedef CUresult (*tcuMemGetHandleForAddressRange)(void *handle, CUdeviceptr dptr, size_t size,
                                                    int handle_type, unsigned long long flags);
+
+/* CUmemGenericAllocationHandle, and the values of the two enumerations the calls
+ * below take; the layout of each structure is cuda.h's. */
+typedef struct CUmemGenericAllocationHandle_st *CUmemGenericAllocationHandle;
+#define YAPFAST_CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR 1
+typedef struct {
+  int type;
+  int id;
+} CUmemLocation;
+typedef struct {
+  int type;
+  int requested_handle_types;
+  CUmemLocation location;
+  void *win32_handle_metadata;
+  struct {
+    unsigned char compression_type;
+    unsigned char gpu_direct_rdma_capable;
+    unsigned short usage;
+    unsigned char reserved[4];
+  } alloc_flags;
+} CUmemAllocationProp;
+typedef struct {
+  CUmemLocation location;
+  int flags;
+} CUmemAccessDesc;
+#define YAPFAST_CU_MEM_ALLOCATION_TYPE_PINNED 1
+#define YAPFAST_CU_MEM_LOCATION_TYPE_DEVICE 1
+#define YAPFAST_CU_MEM_ACCESS_FLAGS_PROT_READWRITE 3
+#define YAPFAST_CU_MEM_ALLOC_GRANULARITY_MINIMUM 0
+
+typedef CUresult (*tcuMemGetAllocationGranularity)(size_t *granularity,
+                                                   const CUmemAllocationProp *prop, int option);
+typedef CUresult (*tcuMemCreate)(CUmemGenericAllocationHandle *handle, size_t size,
+                                 const CUmemAllocationProp *prop, unsigned long long flags);
+typedef CUresult (*tcuMemAddressReserve)(CUdeviceptr *ptr, size_t size, size_t alignment,
+                                         CUdeviceptr address, unsigned long long flags);
+typedef CUresult (*tcuMemMap)(CUdeviceptr ptr, size_t size, size_t offset,
+                             CUmemGenericAllocationHandle handle, unsigned long long flags);
+typedef CUresult (*tcuMemSetAccess)(CUdeviceptr ptr, size_t size, const CUmemAccessDesc *desc,
+                                   size_t count);
+typedef CUresult (*tcuMemExportToShareableHandle)(void *shareable_handle,
+                                                 CUmemGenericAllocationHandle handle,
+                                                 int handle_type, unsigned long long flags);
+typedef CUresult (*tcuMemUnmap)(CUdeviceptr ptr, size_t size);
+typedef CUresult (*tcuMemRelease)(CUmemGenericAllocationHandle handle);
+typedef CUresult (*tcuMemAddressFree)(CUdeviceptr ptr, size_t size);
 
 /* The widest or tallest picture a stream may send, as in native/hwdec_vaapi.c. */
 enum { MAX_SIDE = 8192 };
@@ -112,11 +169,14 @@ static size_t page_bytes(void) {
  * a little past the end of the frame it was given. */
 enum { PADDING = 64 };
 
-/* DRM's four name bytes for NV12, as native/hwdec_vaapi.c spells it: the one
- * shape the tile pass shows. libdrm's header isn't read here. */
+/* DRM's four name bytes for NV12 and P016, as native/hwdec_vaapi.c spells
+ * them: the two shapes the tile pass shows. Not libdrm's header — this needs
+ * the two names and no more — and P016 is the kernel's own name for a 16-bit
+ * sample holding 10 bits at its bottom, which is what NVDEC decodes into. */
 #define YAPFAST_FOURCC(a, b, c, d)                                                 \
   ((uint32_t)(a) | ((uint32_t)(b) << 8) | ((uint32_t)(c) << 16) | ((uint32_t)(d) << 24))
 #define YAPFAST_DRM_FORMAT_NV12 YAPFAST_FOURCC('N', 'V', '1', '2')
+#define YAPFAST_DRM_FORMAT_P016 YAPFAST_FOURCC('P', '0', '1', '6')
 
 /* --------------------------------------------------------------- the driver */
 
@@ -143,6 +203,16 @@ struct driver {
   CUresult (*cuStreamSynchronize)(CUstream);
   CUresult (*cuGetErrorName)(CUresult, const char **);
   tcuMemGetHandleForAddressRange cuMemGetHandleForAddressRange;
+  tcuMemGetAllocationGranularity cuMemGetAllocationGranularity;
+  tcuMemCreate cuMemCreate;
+  tcuMemAddressReserve cuMemAddressReserve;
+  tcuMemMap cuMemMap;
+  tcuMemSetAccess cuMemSetAccess;
+  tcuMemExportToShareableHandle cuMemExportToShareableHandle;
+  tcuMemUnmap cuMemUnmap;
+  tcuMemRelease cuMemRelease;
+  tcuMemAddressFree cuMemAddressFree;
+  tcuvidGetDecoderCaps *cuvidGetDecoderCaps;
   tcuvidCreateVideoParser *cuvidCreateVideoParser;
   tcuvidParseVideoData *cuvidParseVideoData;
   tcuvidDestroyVideoParser *cuvidDestroyVideoParser;
@@ -200,10 +270,15 @@ static int take(void *library, const char *name, const char *versioned, void **i
 /* libcuda.so.1 holds the CUDA driver API, which every NVIDIA machine with a
  * driver has; libnvcuvid.so.1 the NVDEC parser and decoder. Both are opened with
  * RTLD_LOCAL and kept open to the process's end, so that the handles the sessions
- * hold stay valid. */
+ * hold stay valid. Native/hwdec_vaapi.c's sibling, this file is built by a
+ * distribution's toolchain as often as by NVIDIA's: a build whose loader searches
+ * only its own prefix — a Nix shell's glibc, for one — has to be told where the
+ * driver installed itself, so that directory is tried by name as well. */
 static void load_driver(void) {
-  static const char *const cuda_names[] = {"libcuda.so.1", "libcuda.so", NULL};
-  static const char *const cuvid_names[] = {"libnvcuvid.so.1", "libnvcuvid.so", NULL};
+  static const char *const cuda_names[] = {"libcuda.so.1", "libcuda.so", "/usr/lib/libcuda.so.1",
+                                           NULL};
+  static const char *const cuvid_names[] = {"libnvcuvid.so.1", "libnvcuvid.so",
+                                            "/usr/lib/libnvcuvid.so.1", NULL};
   for (int i = 0; cuda_names[i] && !g_driver.cuda; i++)
     g_driver.cuda = dlopen(cuda_names[i], RTLD_NOW | RTLD_LOCAL);
   if (!g_driver.cuda) {
@@ -220,7 +295,11 @@ static void load_driver(void) {
   TAKE(cuCtxPopCurrent, "cuCtxPopCurrent");
   TAKE(cuMemAlloc, "cuMemAlloc");
   TAKE(cuMemFree, "cuMemFree");
-  TAKE_PLAIN(cuMemcpyDtoDAsync, "cuMemcpyDtoDAsync");
+  /* The copy's versioned entry point, before the one that isn't: libcuda's
+   * unversioned cuMemcpyDtoD and cuMemcpyDtoDAsync answer
+   * CUDA_ERROR_INVALID_CONTEXT on a driver of 620, where the _v2 symbols — the
+   * ones cuda.h's own macros name — copy. */
+  TAKE(cuMemcpyDtoDAsync, "cuMemcpyDtoDAsync");
   TAKE_PLAIN(cuStreamCreate, "cuStreamCreate");
   TAKE(cuStreamDestroy, "cuStreamDestroy");
   TAKE_PLAIN(cuStreamSynchronize, "cuStreamSynchronize");
@@ -233,6 +312,7 @@ static void load_driver(void) {
              dl_reason());
     return;
   }
+  TAKE_CUVID(cuvidGetDecoderCaps, "cuvidGetDecoderCaps");
   TAKE_CUVID(cuvidCreateVideoParser, "cuvidCreateVideoParser");
   TAKE_CUVID(cuvidParseVideoData, "cuvidParseVideoData");
   TAKE_CUVID(cuvidDestroyVideoParser, "cuvidDestroyVideoParser");
@@ -243,12 +323,34 @@ static void load_driver(void) {
   TAKE_CUVID(cuvidUnmapVideoFrame, "cuvidUnmapVideoFrame64");
   /* The export is not looked up here: a driver too old to have it isn't a
    * machine that can't decode, only one whose picture has to be copied on the
-   * card, and the copy route asks for the entry point when it needs it. */
+   * card, and the copy route asks for the entry points when it needs them. */
   g_driver.cuMemGetHandleForAddressRange =
       (tcuMemGetHandleForAddressRange)dlsym(g_driver.cuda, "cuMemGetHandleForAddressRange");
+  g_driver.cuMemGetAllocationGranularity =
+      (tcuMemGetAllocationGranularity)dlsym(g_driver.cuda, "cuMemGetAllocationGranularity");
+  g_driver.cuMemCreate = (tcuMemCreate)dlsym(g_driver.cuda, "cuMemCreate");
+  g_driver.cuMemAddressReserve =
+      (tcuMemAddressReserve)dlsym(g_driver.cuda, "cuMemAddressReserve");
+  g_driver.cuMemMap = (tcuMemMap)dlsym(g_driver.cuda, "cuMemMap");
+  g_driver.cuMemSetAccess = (tcuMemSetAccess)dlsym(g_driver.cuda, "cuMemSetAccess");
+  g_driver.cuMemExportToShareableHandle =
+      (tcuMemExportToShareableHandle)dlsym(g_driver.cuda, "cuMemExportToShareableHandle");
+  g_driver.cuMemUnmap = (tcuMemUnmap)dlsym(g_driver.cuda, "cuMemUnmap");
+  g_driver.cuMemRelease = (tcuMemRelease)dlsym(g_driver.cuda, "cuMemRelease");
+  g_driver.cuMemAddressFree = (tcuMemAddressFree)dlsym(g_driver.cuda, "cuMemAddressFree");
 }
 
 /* -------------------------------------------------------------- the session */
+
+/* One buffer of the shim's own on the card: an allocation the driver will hand
+ * out as a DMA-BUF, the address it is mapped at, the file descriptor that names
+ * it, and how much of the card's memory it took. */
+struct slot {
+  CUmemGenericAllocationHandle handle;
+  CUdeviceptr pointer;
+  size_t window;
+  int fd;
+};
 
 struct yapfast_cudec {
   CUcontext context;
@@ -258,14 +360,28 @@ struct yapfast_cudec {
   /* The codec, as decode.rs numbers it, and the driver's own name for it. */
   int codec;
   cudaVideoCodec driver_codec;
+  /* The device the context is on, which the memory a picture is copied into is
+   * allocated for. */
+  CUdevice device;
   /* What the stream's pictures are, from the sequence callback: the visible
    * picture the tile shows, and the coded height and pitch its surface's chroma
-   * plane is placed by. `described` says a sequence header has been seen. */
+   * plane is placed by. `described` says a sequence header has been seen, and
+   * `ten_bit` that the samples are 16-bit with 10 bits in them, which is what
+   * makes the picture P016 rather than NV12. */
   int width;
   int height;
   int surface_height;
   unsigned int pitch;
   int described;
+  int ten_bit;
+  /* How many frames the parser has read without ever saying what the stream's
+   * pictures are, which is how it answers a profile it has no decoder for: a
+   * H264 High 10 stream on a GeForce is parsed and dropped without a word. */
+  int undescribed;
+  /* The colour signal the newest picture carries, as the numbers
+   * hwdec_cuda.h lists: the range, matrix and curve its samples are in, taken
+   * from the sequence header's own VUI. */
+  struct yapfast_cucolour colour;
   /* Set where the pictures are ones the tile pass can't show, which
    * yapfast_cuvadec_decode answers with -2 rather than as a plain failure. */
   int refused;
@@ -287,9 +403,11 @@ struct yapfast_cudec {
   int fd;
   size_t exported_size;
   uint32_t exported_shift;
-  int slot_fd[2];
-  CUdeviceptr slot[2];
-  size_t slot_size;
+  /* The two buffers of the shim's own the picture is copied into, and which the
+   * descriptor the caller has names. `window` is how much memory one took, which
+   * is the picture rounded up to the driver's allocation granularity. */
+  struct slot slot[2];
+  size_t slot_window;
   int slot_last;
   unsigned char *padded;
   size_t padded_size;
@@ -402,59 +520,106 @@ void yapfast_cuvadec_release(struct yapfast_cudec *decoder) {
 /* Frees what the shim's own buffers were, when the stream's size changed or the
  * decoder is being dropped: their descriptors close with their memory. */
 static void drop_slots(struct yapfast_cudec *decoder) {
-  for (int slot = 0; slot < 2; slot++) {
-    if (decoder->slot_fd[slot] >= 0) {
-      close(decoder->slot_fd[slot]);
-      decoder->slot_fd[slot] = -1;
+  for (int which = 0; which < 2; which++) {
+    struct slot *slot = &decoder->slot[which];
+    if (slot->fd >= 0) {
+      close(slot->fd);
+      slot->fd = -1;
     }
-    if (decoder->slot[slot]) {
-      g_driver.cuMemFree(decoder->slot[slot]);
-      decoder->slot[slot] = 0;
+    if (slot->pointer) {
+      /* The descriptor names the memory as long as its own reference to it is
+       * open, so the mapping goes back even while a window still holds it. */
+      if (g_driver.cuMemUnmap) g_driver.cuMemUnmap(slot->pointer, slot->window);
+      if (g_driver.cuMemRelease) g_driver.cuMemRelease(slot->handle);
+      if (g_driver.cuMemAddressFree) g_driver.cuMemAddressFree(slot->pointer, slot->window);
+      slot->pointer = 0;
+      slot->handle = NULL;
+      slot->window = 0;
     }
   }
-  decoder->slot_size = 0;
+  decoder->slot_window = 0;
   decoder->slot_last = 0;
 }
 
-/* A buffer of the shim's own on the card, `size` bytes, and its DMA-BUF: the
- * inside of the fallback hand-off. The address is rounded up to a page of its
- * own, so that the export starts at the allocation and no plane's offset has to
- * carry a difference. */
-static int make_slot(struct yapfast_cudec *decoder, int slot, size_t size) {
-  if (!g_driver.cuMemGetHandleForAddressRange) {
+/* A buffer of the shim's own on the card, at least `size` bytes, and its
+ * DMA-BUF: the inside of the fallback hand-off.
+ *
+ * Not with cuMemAlloc, whose memory the driver won't hand out at all: a range is
+ * exported only from an allocation made with cuMemCreate for exactly that,
+ * which is why the picture is in a shareable allocation of its own, mapped into
+ * the context and given to the window as the descriptor cuMemExportToShareableHandle
+ * answers. The allocation is the driver's granularity — 2 MiB of the card's
+ * memory here — so a picture of another size takes that much and no more, and
+ * the descriptor's planes are at their own offsets from its start. */
+static int make_slot(struct yapfast_cudec *decoder, int which, size_t size) {
+  if (!g_driver.cuMemCreate || !g_driver.cuMemAddressReserve || !g_driver.cuMemMap ||
+      !g_driver.cuMemSetAccess || !g_driver.cuMemExportToShareableHandle ||
+      !g_driver.cuMemGetAllocationGranularity) {
     fail_text(decoder,
-              "this driver can't hand a picture out as a DMA-BUF "
-              "(no cuMemGetHandleForAddressRange: it is older than 520)");
+              "this driver can't hand a picture out as a DMA-BUF (no cuMemCreate and "
+              "cuMemExportToShareableHandle: it is older than 520)");
     return -1;
   }
-  CUdeviceptr pointer = 0;
-  CUresult status = g_driver.cuMemAlloc(&pointer, size);
+  CUmemAllocationProp prop;
+  memset(&prop, 0, sizeof prop);
+  prop.type = YAPFAST_CU_MEM_ALLOCATION_TYPE_PINNED;
+  prop.requested_handle_types = YAPFAST_CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
+  prop.location.type = YAPFAST_CU_MEM_LOCATION_TYPE_DEVICE;
+  prop.location.id = decoder->device;
+  size_t granularity = 0;
+  CUresult status =
+      g_driver.cuMemGetAllocationGranularity(&granularity, &prop, YAPFAST_CU_MEM_ALLOC_GRANULARITY_MINIMUM);
+  if (status != CUDA_SUCCESS || !granularity) {
+    fail_status(decoder, "the card wouldn't say how it holds a picture", status);
+    return -1;
+  }
+  const size_t window = (size + granularity - 1) / granularity * granularity;
+  CUmemGenericAllocationHandle handle = NULL;
+  status = g_driver.cuMemCreate(&handle, window, &prop, 0);
   if (status != CUDA_SUCCESS) {
     fail_status(decoder, "the card wouldn't hold a picture of the stream", status);
     return -1;
   }
+  CUdeviceptr pointer = 0;
+  status = g_driver.cuMemAddressReserve(&pointer, window, 0, 0, 0);
+  if (status == CUDA_SUCCESS) status = g_driver.cuMemMap(pointer, window, 0, handle, 0);
+  CUmemAccessDesc access;
+  memset(&access, 0, sizeof access);
+  access.location = prop.location;
+  access.flags = YAPFAST_CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+  if (status == CUDA_SUCCESS) status = g_driver.cuMemSetAccess(pointer, window, &access, 1);
   int fd = -1;
-  status = g_driver.cuMemGetHandleForAddressRange(&fd, pointer, size,
-                                                  YAPFAST_CU_MEM_RANGE_HANDLE_TYPE_DMA_BUF_FD, 0);
+  if (status == CUDA_SUCCESS) {
+    status = g_driver.cuMemExportToShareableHandle(
+        &fd, handle, YAPFAST_CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR, 0);
+  }
   if (status != CUDA_SUCCESS) {
-    g_driver.cuMemFree(pointer);
+    if (pointer) {
+      g_driver.cuMemUnmap(pointer, window);
+      g_driver.cuMemAddressFree(pointer, window);
+    }
+    g_driver.cuMemRelease(handle);
     fail_status(decoder, "the card's memory wasn't handed out as a DMA-BUF", status);
     return -1;
   }
-  decoder->slot[slot] = pointer;
-  decoder->slot_fd[slot] = fd;
+  struct slot *slot = &decoder->slot[which];
+  slot->handle = handle;
+  slot->pointer = pointer;
+  slot->window = window;
+  slot->fd = fd;
   return 0;
 }
 
 /* Makes the picture yapfast_cuvadec_picture describes out of the geometry the
  * sequence header gave: two planes of one buffer, chroma where a pitch-linear
- * NV12 surface puts it, linear layout. */
+ * surface puts it, linear layout. A 16-bit surface's pitch is bytes, so the
+ * plane's offset and size follow the same arithmetic. */
 static void describe_picture(const struct yapfast_cudec *decoder, struct yapfast_cupicture *picture,
                              int fd, size_t size, uint32_t shift) {
   memset(picture, 0, sizeof *picture);
   picture->width = decoder->width;
   picture->height = decoder->height;
-  picture->fourcc = YAPFAST_DRM_FORMAT_NV12;
+  picture->fourcc = decoder->ten_bit ? YAPFAST_DRM_FORMAT_P016 : YAPFAST_DRM_FORMAT_NV12;
   picture->planes = YAPFAST_CU_PLANES;
   const uint32_t luma = decoder->pitch * (uint32_t)decoder->surface_height;
   for (int plane = 0; plane < YAPFAST_CU_PLANES; plane++) {
@@ -514,24 +679,24 @@ static int export_picture(struct yapfast_cudec *decoder) {
   }
   /* The copy route: the newest slot, so that the one the tile may still be
    * sampling is not the one being written. */
-  const size_t window = (total + page - 1) & ~(page - 1);
-  if (decoder->slot_size != window) {
+  if (decoder->slot_window < total) {
     drop_slots(decoder);
-    for (int slot = 0; slot < 2; slot++) {
-      if (make_slot(decoder, slot, window) < 0) {
+    for (int which = 0; which < 2; which++) {
+      if (make_slot(decoder, which, total) < 0) {
         drop_slots(decoder);
         pop_context(decoder);
         return -1;
       }
     }
-    decoder->slot_size = window;
+    decoder->slot_window = decoder->slot[0].window;
   }
-  const int slot = decoder->slot_last ^ 1;
-  decoder->slot_last = slot;
+  const int which = decoder->slot_last ^ 1;
+  decoder->slot_last = which;
+  const struct slot *slot = &decoder->slot[which];
   /* One flat move: both the surface and the buffer are the same pitch-linear
-   * NV12, so the copy is the whole plane pair at once rather than one line at a
-   * time. */
-  const CUresult status = g_driver.cuMemcpyDtoDAsync(decoder->slot[slot], decoder->mapped_pointer,
+   * picture, so the copy is the whole plane pair at once rather than one line at
+   * a time. */
+  const CUresult status = g_driver.cuMemcpyDtoDAsync(slot->pointer, decoder->mapped_pointer,
                                                      total, decoder->stream);
   if (status != CUDA_SUCCESS) {
     fail_status(decoder, "the card wouldn't copy the stream's picture", status);
@@ -545,10 +710,10 @@ static int export_picture(struct yapfast_cudec *decoder) {
   decoder->mapped = 0;
   decoder->mapped_pointer = 0;
   pop_context(decoder);
-  decoder->fd = decoder->slot_fd[slot];
+  decoder->fd = slot->fd;
   decoder->direct = 0;
   decoder->exported = 1;
-  decoder->exported_size = window;
+  decoder->exported_size = slot->window;
   decoder->exported_shift = 0;
   decoder->counts.copied++;
   return 0;
@@ -561,10 +726,116 @@ int yapfast_cuvadec_picture(struct yapfast_cudec *decoder, struct yapfast_cupict
     return -1;
   }
   describe_picture(decoder, picture, decoder->fd, decoder->exported_size, decoder->exported_shift);
+  picture->colour = decoder->colour;
   return 0;
 }
 
 /* ------------------------------------------------------------- the callbacks */
+
+/* H.273's code points for the matrix and transfer curve a stream's VUI
+ * declares, which is what NVDEC hands over: the three the tile pass reads for
+ * at 10 bits, and the ones it refuses by name. */
+enum {
+  YAPFAST_VUI_MATRIX_BT709 = 1,
+  YAPFAST_VUI_MATRIX_BT2020_NCL = 9,
+  YAPFAST_VUI_MATRIX_BT2020_CL = 10,
+  YAPFAST_VUI_TRANSFER_BT709 = 1,
+  YAPFAST_VUI_TRANSFER_BT2020_10 = 14,
+  YAPFAST_VUI_TRANSFER_BT2020_12 = 15,
+  YAPFAST_VUI_TRANSFER_PQ = 16,
+  YAPFAST_VUI_TRANSFER_HLG = 18,
+};
+
+/* What the card says it decodes of this kind of picture, which is the driver's
+ * own answer rather than a guess: a GeForce's NVDEC takes H264 at 8 bits and no
+ * more, so a 10-bit H264 stream gets nothing from it however the decoder is
+ * asked, and a stream that would decode into nothing must stay with the software
+ * decoders instead. 1 says the card decodes it and whether it can give 16-bit
+ * surfaces, 0 that no answer could be had and the decoder is worth trying, -1
+ * with the reason that it can't. */
+static int card_decodes(struct yapfast_cudec *decoder, unsigned int depth, unsigned int width,
+                        unsigned int height, int *sixteen) {
+  *sixteen = 0;
+  if (!g_driver.cuvidGetDecoderCaps) return 0;
+  CUVIDDECODECAPS caps;
+  memset(&caps, 0, sizeof caps);
+  caps.eCodecType = decoder->driver_codec;
+  caps.eChromaFormat = cudaVideoChromaFormat_420;
+  caps.nBitDepthMinus8 = depth;
+  if (g_driver.cuvidGetDecoderCaps(&caps) != CUDA_SUCCESS) return 0;
+  if (!caps.bIsSupported) {
+    decoder->refused = 1;
+    snprintf(decoder->error, sizeof decoder->error,
+             "the card has no %s decoder for %u-bit pictures", codec_name(decoder->codec),
+             depth + 8);
+    return -1;
+  }
+  if (width > caps.nMaxWidth || height > caps.nMaxHeight) {
+    decoder->refused = 1;
+    snprintf(decoder->error, sizeof decoder->error,
+             "the card's %s decoder takes pictures up to %ux%u, and this one is %ux%u",
+             codec_name(decoder->codec), caps.nMaxWidth, caps.nMaxHeight, width, height);
+    return -1;
+  }
+  *sixteen = (caps.nOutputFormatMask >> cudaVideoSurfaceFormat_P016) & 1;
+  if (depth == 2 && !*sixteen) {
+    decoder->refused = 1;
+    snprintf(decoder->error, sizeof decoder->error,
+             "the card's %s decoder has no 16-bit surface for a 10-bit picture",
+             codec_name(decoder->codec));
+    return -1;
+  }
+  return 1;
+}
+
+/* Takes the colour signal the stream's sequence header declared: the range its
+ * codes use, the matrix luma and chroma are combined with, and the curve they
+ * are in, which the tile pass needs to show a 10-bit picture in its own colour.
+ * An 8-bit picture keeps the pass's one fixed matrix, so only a 10-bit one is
+ * refused here, by the name of what it carried, when the pass has no
+ * conversion or curve for it. 0 when the stream can be shown, -1 with the
+ * reason when it can't. */
+static int take_colour(struct yapfast_cudec *decoder, const CUVIDEOFORMAT *format, int ten_bit) {
+  const unsigned int matrix = format->video_signal_description.matrix_coefficients;
+  const unsigned int transfer = format->video_signal_description.transfer_characteristics;
+  decoder->colour.range = format->video_signal_description.video_full_range_flag
+                              ? YAPFAST_CU_FULL
+                              : YAPFAST_CU_LIMITED;
+  decoder->colour.matrix = YAPFAST_CU_BT709;
+  decoder->colour.transfer = YAPFAST_CU_SDR;
+  if (!ten_bit) return 0;
+  switch (matrix) {
+    case 0:
+    case YAPFAST_VUI_MATRIX_BT709:
+      break;
+    case YAPFAST_VUI_MATRIX_BT2020_NCL:
+      decoder->colour.matrix = YAPFAST_CU_BT2020_NCL;
+      break;
+    default:
+      decoder->refused = 1;
+      snprintf(decoder->error, sizeof decoder->error,
+               "the 10-bit picture is coded with %s, which the tile pass has no conversion for",
+               matrix == YAPFAST_VUI_MATRIX_BT2020_CL ? "BT.2020's constant-luminance matrix"
+                                                      : "a matrix");
+      return -1;
+  }
+  switch (transfer) {
+    case 0:
+    case YAPFAST_VUI_TRANSFER_BT709:
+    case YAPFAST_VUI_TRANSFER_BT2020_10:
+    case YAPFAST_VUI_TRANSFER_BT2020_12:
+      return 0;
+    case YAPFAST_VUI_TRANSFER_PQ:
+      decoder->colour.transfer = YAPFAST_CU_PQ;
+      return 0;
+    default:
+      decoder->refused = 1;
+      snprintf(decoder->error, sizeof decoder->error,
+               "the 10-bit picture is coded in %s, which the tile pass has no tone map for",
+               transfer == YAPFAST_VUI_TRANSFER_HLG ? "HLG" : "a transfer curve");
+      return -1;
+  }
+}
 
 /* The stream's sequence header: what its pictures are, and the decoder for them.
  * 0 fails the parse, which is how a stream whose pictures the tile pass can't
@@ -576,20 +847,31 @@ static int CUDAAPI sequence_callback(void *user, CUVIDEOFORMAT *format) {
     fail_text(decoder, "the card's parser read another codec's stream");
     return 0;
   }
-  /* 8-bit 4:2:0, and nothing else: a 10-bit stream's surface is P016, and the
-   * tile pass has no curve for it, 4:2:2 and 4:4:4 have no layout. */
-  if (format->bit_depth_luma_minus8 || format->bit_depth_chroma_minus8 ||
+  /* 4:2:0 at 8 or 10 bits, and nothing else: a 10-bit stream decodes into
+   * P016, whose samples are 16 bits, and 9- and 12-bit pictures, 4:2:2 and
+   * 4:4:4 have no layout the tile pass can read. */
+  const int depth = format->bit_depth_luma_minus8;
+  if ((depth != 0 && depth != 2) || format->bit_depth_chroma_minus8 != depth ||
       format->chroma_format != cudaVideoChromaFormat_420) {
     decoder->refused = 1;
-    fail_text(decoder, "the card's picture isn't 8-bit 4:2:0, which the tile pass shows");
+    fail_text(decoder, "the card's picture isn't 8-bit or 10-bit 4:2:0, which the tile pass shows");
     return 0;
   }
+  /* The colour it declared, taken before a decoder is made for it: 10 bits of
+   * a signal the pass has no curve for is a picture shown wrongly, so the
+   * stream ends on the card here and stays with the software decoder. */
+  if (take_colour(decoder, format, depth == 2) < 0) return 0;
+  decoder->ten_bit = depth == 2;
   const unsigned int width = format->coded_width;
   const unsigned int height = format->coded_height;
   if (!width || !height || width > MAX_SIDE || height > MAX_SIDE) {
     fail_text(decoder, "the stream never said how large its pictures are");
     return 0;
   }
+  /* The card's own answer on whether it decodes pictures of this depth and size
+   * at all, asked before a decoder is made for them. */
+  int sixteen = 0;
+  if (card_decodes(decoder, (unsigned int)depth, width, height, &sixteen) < 0) return 0;
   /* A stream that changed size gets a decoder for its new pictures, made before
    * the old one is dropped so that a driver that won't make it leaves the old
    * one in place rather than the stream with none. */
@@ -605,14 +887,17 @@ static int CUDAAPI sequence_callback(void *user, CUVIDEOFORMAT *format) {
   info.ChromaFormat = cudaVideoChromaFormat_420;
   /* The dedicated video engines, not the CUDA cores standing in for them. */
   info.ulCreationFlags = cudaVideoCreate_PreferCUVID;
-  info.bitDepthMinus8 = 0;
+  info.bitDepthMinus8 = (unsigned int)depth;
   info.ulMaxWidth = width;
   info.ulMaxHeight = height;
   info.display_area.left = (short)format->display_area.left;
   info.display_area.top = (short)format->display_area.top;
   info.display_area.right = (short)format->display_area.right;
   info.display_area.bottom = (short)format->display_area.bottom;
-  info.OutputFormat = cudaVideoSurfaceFormat_NV12;
+  /* 16-bit samples for a 10-bit stream, which is the surface the tile pass
+   * imports as P016: NVDEC keeps the 10 bits in the low bits of the 16. */
+  info.OutputFormat =
+      depth ? cudaVideoSurfaceFormat_P016 : cudaVideoSurfaceFormat_NV12;
   info.DeinterlaceMode = cudaVideoDeinterlaceMode_Weave;
   info.ulTargetWidth = width;
   info.ulTargetHeight = height;
@@ -703,8 +988,8 @@ struct yapfast_cudec *yapfast_cuvadec_new(int codec) {
   struct yapfast_cudec *decoder = calloc(1, sizeof *decoder);
   if (!decoder) return NULL;
   decoder->fd = -1;
-  decoder->slot_fd[0] = -1;
-  decoder->slot_fd[1] = -1;
+  decoder->slot[0].fd = -1;
+  decoder->slot[1].fd = -1;
   const char *what = codec_name(codec);
   if (g_driver.why[0]) {
     /* Both are bounded as they are printed: the error is one sentence a report
@@ -739,6 +1024,7 @@ struct yapfast_cudec *yapfast_cuvadec_new(int codec) {
              status_name(status));
     goto failed;
   }
+  decoder->device = device;
   /* Created once, reused for every copy: a stream makes a stream, not one per
    * picture. */
   const unsigned int flags = 0;
@@ -824,7 +1110,22 @@ int yapfast_cuvadec_decode(struct yapfast_cudec *decoder, const unsigned char *d
     if (!decoder->error[0]) fail_status(decoder, "the card's parser refused a frame", status);
     return decoder->refused ? -2 : -1;
   }
-  if (!decoder->fresh) return 0;
+  if (!decoder->fresh) {
+    /* A stream's first frame carries its sequence header, so a parser that has
+     * read this many without one has nothing to decode the rest of it with:
+     * the stream ends on the card here rather than showing nothing for as long
+     * as it runs, and the software decoder reads it from the next keyframe. */
+    if (!decoder->described && ++decoder->undescribed >= 4) {
+      decoder->refused = 1;
+      snprintf(decoder->error, sizeof decoder->error,
+               "the card's %s parser read %d frames without saying what their pictures are, "
+               "which is how it answers a profile it has no decoder for",
+               codec_name(decoder->codec), decoder->undescribed);
+      return -2;
+    }
+    return 0;
+  }
+  decoder->undescribed = 0;
   if (export_picture(decoder) < 0) return decoder->refused ? -2 : -1;
   decoder->counts.pictures++;
   return 1;

@@ -3075,6 +3075,7 @@ mod tests {
             fourcc: NV12,
             modifier: 0x0100_0000_0000_0002,
             planes: &planes,
+            colour: dmabuf::Colour::SDR,
             fds: &fds,
         };
         assert_eq!(
@@ -3117,6 +3118,7 @@ mod tests {
                 fourcc,
                 modifier: 0,
                 planes,
+                colour: dmabuf::Colour::SDR,
                 fds,
             }
         }
@@ -3236,6 +3238,7 @@ mod tests {
             fourcc: NV12,
             modifier: 0,
             planes: &planes,
+            colour: dmabuf::Colour::SDR,
             fds: &fds,
         };
         assert!(matches!(
@@ -3344,6 +3347,7 @@ mod tests {
             fourcc: AR24,
             modifier: 0,
             planes: &planes,
+            colour: dmabuf::Colour::SDR,
             fds: &fds,
         };
         // The import takes one NV12 picture of the encoder's size and nothing

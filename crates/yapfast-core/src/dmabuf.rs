@@ -51,7 +51,121 @@ const DRAINED: usize = SLOTS * 4;
 /// descriptors it carried are closed rather than taken for a picture of this
 /// one.
 const MAGIC: u32 = u32::from_le_bytes(*b"YPDM");
-const VERSION: u16 = 1;
+/// Version 2 carries the colour signal a picture was coded with, in the bytes
+/// version 1 kept as padding.
+const VERSION: u16 = 2;
+
+/// The range a picture's codes use.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Range {
+    /// 16..235 luma and 16..240 chroma, which is how every 8-bit stream
+    /// Discord carries is coded.
+    Limited = 0,
+    /// The whole range of the sample's own depth.
+    Full = 1,
+}
+
+/// The matrix a picture's luma and chroma are combined with.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Matrix {
+    Bt709 = 0,
+    /// BT.2020's non-constant-luminance matrix, which HDR10 is coded with.
+    Bt2020Ncl = 1,
+}
+
+/// The curve a picture's samples are in.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Transfer {
+    /// A display-referred curve: BT.709's for 8-bit, BT.1886's gamma for 10-bit.
+    Sdr = 0,
+    /// SMPTE ST 2084, which HDR10 is coded with.
+    Pq = 1,
+}
+
+/// The colour signal a picture was coded with, as the worker's shim read it out
+/// of the stream: the range its codes use, the matrix luma and chroma are
+/// combined with, and the curve they are in. The numbers are the shim's — see
+/// `native/hwdec_vaapi.h` — and the tile pass reads them to show a 10-bit
+/// picture in the colour it was coded with rather than in the 8-bit path's one
+/// fixed matrix.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Colour {
+    pub range: Range,
+    pub matrix: Matrix,
+    pub transfer: Transfer,
+}
+
+impl Colour {
+    /// The colour an 8-bit stream is, and what a caller that has nothing to say
+    /// about its pictures says: the tile pass's 8-bit path has one matrix.
+    pub const SDR: Self = Self {
+        range: Range::Limited,
+        matrix: Matrix::Bt709,
+        transfer: Transfer::Sdr,
+    };
+
+    /// What the shim's three numbers name, which are `Range`, `Matrix` and
+    /// `Transfer`'s own discriminants: a number this build doesn't know is the
+    /// 8-bit answer, since no stream it can't read a colour off is one it shows
+    /// as 10-bit.
+    pub fn of(range: i32, matrix: i32, transfer: i32) -> Self {
+        let range = match range {
+            1 => Range::Full,
+            _ => Range::Limited,
+        };
+        let matrix = match matrix {
+            1 => Matrix::Bt2020Ncl,
+            _ => Matrix::Bt709,
+        };
+        let transfer = match transfer {
+            1 => Transfer::Pq,
+            _ => Transfer::Sdr,
+        };
+        Self {
+            range,
+            matrix,
+            transfer,
+        }
+    }
+
+    /// How the three travel: one byte each, laid out as the shim numbers them.
+    fn bytes(self) -> [u8; 3] {
+        [self.range as u8, self.matrix as u8, self.transfer as u8]
+    }
+
+    /// The colour three bytes name, or none while one of them isn't a number
+    /// this build knows: a message of another layout's colour is no picture.
+    fn read(bytes: [u8; 3]) -> Option<Self> {
+        let [range, matrix, transfer] = bytes;
+        Some(Self {
+            range: match range {
+                0 => Range::Limited,
+                1 => Range::Full,
+                _ => return None,
+            },
+            matrix: match matrix {
+                0 => Matrix::Bt709,
+                1 => Matrix::Bt2020Ncl,
+                _ => return None,
+            },
+            transfer: match transfer {
+                0 => Transfer::Sdr,
+                1 => Transfer::Pq,
+                _ => return None,
+            },
+        })
+    }
+}
+
+impl Default for Colour {
+    fn default() -> Self {
+        Self::SDR
+    }
+}
 
 /// One plane of a picture: where it starts in the memory its descriptor names,
 /// and how many bytes apart its rows are.
@@ -82,6 +196,9 @@ pub struct Descriptor<'a> {
     pub modifier: u64,
     /// Each plane's place in the memory, in the order of [`Self::fds`].
     pub planes: &'a [Plane],
+    /// The colour signal the picture was coded with, which the tile pass reads
+    /// to show a 10-bit picture in its own colour.
+    pub colour: Colour,
     /// One descriptor for each plane: the memory itself.
     pub fds: &'a [RawFd],
 }
@@ -106,7 +223,9 @@ struct Message {
     /// How many of [`Self::places`], and of the descriptors attached, are the
     /// picture's.
     planes: u8,
-    _pad: [u8; 3],
+    /// The colour signal, in [`Colour::bytes`]'s three bytes, where version 1
+    /// had padding.
+    colour: [u8; 3],
     modifier: u64,
     places: [Plane; MAX_PLANES],
 }
@@ -128,7 +247,7 @@ impl Message {
             height: picture.height,
             fourcc: picture.fourcc,
             planes: planes as u8,
-            _pad: [0; 3],
+            colour: picture.colour.bytes(),
             modifier: picture.modifier,
             places,
         }
@@ -185,6 +304,7 @@ pub struct Picture {
     /// Each plane's place in the memory and the descriptor that holds it, in
     /// the order the worker sent them.
     planes: [Option<(Plane, OwnedFd)>; MAX_PLANES],
+    colour: Colour,
 }
 
 impl Picture {
@@ -217,6 +337,12 @@ impl Picture {
     /// The DRM modifier the memory was laid out with.
     pub fn modifier(&self) -> u64 {
         self.modifier
+    }
+
+    /// The colour signal the picture was coded with: its range, its matrix and
+    /// its transfer curve, which the tile pass reads for a 10-bit picture.
+    pub fn colour(&self) -> Colour {
+        self.colour
     }
 
     /// How many planes the picture has, and how many descriptors came with it.
@@ -573,11 +699,13 @@ fn read(fd: RawFd) -> Read {
         // A message of another layout, one that lost descriptors, or one whose
         // planes and descriptors don't agree, is no picture: the descriptors
         // taken out of it go with it.
-        let named = message
-            .as_ref()
-            .and_then(Message::plane_count)
-            .filter(|planes| *planes == carried);
-        let Some((message, named)) = message.zip(named) else {
+        let Some(message) = message else {
+            return Read::Ignored;
+        };
+        let Some(named) = Message::plane_count(&message).filter(|planes| *planes == carried) else {
+            return Read::Ignored;
+        };
+        let Some(colour) = Colour::read(message.colour) else {
             return Read::Ignored;
         };
         let mut planes: [Option<(Plane, OwnedFd)>; MAX_PLANES] = std::array::from_fn(|_| None);
@@ -592,6 +720,7 @@ fn read(fd: RawFd) -> Read {
             fourcc: message.fourcc,
             modifier: message.modifier,
             planes,
+            colour,
         });
     }
 }
@@ -729,6 +858,7 @@ mod tests {
             fourcc: u32::from_le_bytes(*b"XR24"),
             modifier: 0,
             planes,
+            colour: Colour::SDR,
             fds,
         }
     }
@@ -814,6 +944,46 @@ mod tests {
         drop(picture);
         drop(memory);
         assert_eq!(holding(name), 0);
+    }
+
+    /// The colour signal a picture was coded with travels with it, which is what
+    /// lets the window show a 10-bit picture in its own matrix and curve; a
+    /// message whose colour names something this build has no reading for is no
+    /// picture at all.
+    #[test]
+    fn a_pictures_colour_travels_with_it() {
+        let name = "yapfast-test-dmabuf-colour";
+        let (mut reader, mut sender) = Reader::paired();
+        let memory = memory(name);
+        let planes = [Plane {
+            offset: 0,
+            stride: 8,
+        }];
+        let own = [memory.as_raw_fd()];
+        let sent = Colour {
+            range: Range::Full,
+            matrix: Matrix::Bt2020Ncl,
+            transfer: Transfer::Pq,
+        };
+        let picture = Descriptor {
+            colour: sent,
+            ..descriptor(&planes, &own)
+        };
+        assert!(sender.send(0, 3, &picture), "one message, one sendmsg");
+        reader.drain();
+        let taken = reader.take(0, 3).expect("the picture that arrived");
+        assert_eq!(
+            taken.colour(),
+            sent,
+            "the range, matrix and curve it was sent with"
+        );
+
+        // Three bytes of anything else are a message of another layout.
+        assert!(Colour::read([0, 0, 0]).is_some(), "the 8-bit answer");
+        assert!(Colour::read([1, 1, 1]).is_some(), "full range, BT.2020, PQ");
+        assert!(Colour::read([2, 0, 0]).is_none(), "no third range");
+        assert!(Colour::read([0, 2, 0]).is_none(), "no third matrix");
+        assert!(Colour::read([0, 0, 2]).is_none(), "no third curve");
     }
 
     /// A message this build can't read is not a picture: its descriptors are

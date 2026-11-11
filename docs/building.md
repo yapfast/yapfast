@@ -377,6 +377,10 @@ files named here are in `crates/yapfast-core/native/`.
   H264, HEVC, AV1 and VP9 decoders and parsers; and on Windows Direct3D 11's
   hwaccel, which `hwdec.c` drives for the three codecs a watched stream uses —
   H264, HEVC and AV1 — beside the HEVC decoder for software H265 in `hevc.c`.
+  On Linux it decodes on the card too: `hwdec_vaapi.c` drives FFmpeg's VA-API
+  decoder and exports each picture as a DMA-BUF, and `hwdec_cuda.c` decodes
+  with NVDEC through the ffnvcodec declarations in `include/ffnvcodec`, which
+  need no CUDA toolkit.
 - `vendor/x264-src` encodes H264 on the CPU, in `h264.c`, for Go Live and
   the camera.
 - PipeWire, the system library, is where a Wayland share's pictures come from:

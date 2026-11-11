@@ -8,8 +8,13 @@
  *
  * The surfaces are described once, when the stream's first frame says how
  * large its picture is, so a stream allocates no surfaces per frame; a stream
- * whose pictures aren't 8-bit 4:2:0 — a 10-bit one, which the tile pass has no
- * curve for — is refused before any surface is made.
+ * whose pictures are neither 8-bit nor 10-bit 4:2:0 — 4:2:2, 4:4:4 and 12-bit
+ * are the ones Discord never sends — is refused before any surface is made,
+ * and a 10-bit stream whose colour signal the tile pass has no curve for (HLG,
+ * or BT.2020's constant-luminance matrix) is refused at its first picture.
+ * Every picture carries its colour signal out with it: the range, the matrix
+ * and the transfer curve the samples are in, which is what the tile pass needs
+ * to show a 10-bit picture as the colour it was coded with.
  *
  * C, because it reads nothing but FFmpeg's C headers: FFmpeg's public API,
  * not libva's, and not any of FFmpeg's own VA-API internals. */
@@ -27,6 +32,7 @@
 #include "libavutil/frame.h"
 #include "libavutil/hwcontext.h"
 #include "libavutil/hwcontext_drm.h"
+#include "libavutil/pixdesc.h"
 #include "libavutil/pixfmt.h"
 
 #include "hwdec_vaapi.h"
@@ -54,6 +60,10 @@ enum { MOST_HELD = 8 };
 #define YAPFAST_DRM_FORMAT_R8 YAPFAST_FOURCC('R', '8', ' ', ' ')
 #define YAPFAST_DRM_FORMAT_GR88 YAPFAST_FOURCC('G', 'R', '8', '8')
 #define YAPFAST_DRM_FORMAT_P010 YAPFAST_FOURCC('P', '0', '1', '0')
+/* The plane pair a driver that exports 10-bit luma and chroma separately names
+ * them: 16 bits a sample, one plane each. */
+#define YAPFAST_DRM_FORMAT_R16 YAPFAST_FOURCC('R', '1', '6', ' ')
+#define YAPFAST_DRM_FORMAT_GR32 YAPFAST_FOURCC('G', 'R', '3', '2')
 
 struct yapfast_vadec {
   AVCodecContext *context;
@@ -76,6 +86,9 @@ struct yapfast_vadec {
    * pictures aren't ones the tile pass shows, which yapfast_vadec_decode
    * answers with -2 rather than as a plain failure. */
   int refused;
+  /* The colour signal the newest picture carries, as the numbers
+   * hwdec_vaapi.h lists: the range, matrix and curve its samples are in. */
+  struct yapfast_vacolour colour;
   char error[256];
 };
 
@@ -171,9 +184,10 @@ static int has_card_decoder(const AVCodec *implementation) {
 /* What the stream's pictures are: the coded size — the picture rounded up to
  * whole macroblocks, 1088 rows for a 1080p H264 stream — which is what the
  * decoder codes into and what the surfaces are made of. NV12 is the surface
- * format, since that is what the tile pass reads; a stream whose pictures are
- * anything else is refused here, before a surface exists, and the reason says
- * which. 0 says the stream hasn't said, or said one the pass can't show. */
+ * format of an 8-bit picture and P010 of a 10-bit one, since those are what
+ * the tile pass reads; a stream whose pictures are anything else is refused
+ * here, before a surface exists, and the reason says which. 0 says the stream
+ * hasn't said, or said one the pass can't show. */
 static int surface_params(struct yapfast_vadec *decoder, const AVCodecContext *context, int *width,
                           int *height, enum AVPixelFormat *format) {
   decoder->refused = 0;
@@ -190,20 +204,39 @@ static int surface_params(struct yapfast_vadec *decoder, const AVCodecContext *c
   *width = coded_width;
   *height = coded_height;
   /* The format the decoder would give in the processor's memory, which
-   * ff_get_format recorded before it asked this file for one. A 10-bit
-   * stream's is P010, and 9- and 12-bit, 4:2:2 and 4:4:4 streams have theirs:
-   * pictures the tile pass has no curve, matrix or layout for, which the
-   * software decoders hand back as SDR already. */
+   * ff_get_format recorded before it asked this file for one: the decoder's own
+   * name for the picture, whichever of the planar or the packed spelling of
+   * 4:2:0 it settled on. The surface is made in the packed one, NV12 at 8 bits
+   * and P010 at 10, because that is the memory the tile pass reads; 9- and
+   * 12-bit, 4:2:2 and 4:4:4 streams have theirs, pictures the tile pass has no
+   * curve, matrix or layout for. */
   switch (context->sw_pix_fmt) {
     case AV_PIX_FMT_YUV420P:
     case AV_PIX_FMT_YUVJ420P:
     case AV_PIX_FMT_NV12:
       *format = AV_PIX_FMT_NV12;
       return 1;
-    default:
+    case AV_PIX_FMT_P010:
+    /* A decoder that named its 10-bit picture by its own planar spelling —
+     * which the HEVC decoder does — is the same picture, and 10 bits of 4:2:0
+     * is what the surface is made in either way. */
+    case AV_PIX_FMT_YUV420P10LE:
+#if AV_PIX_FMT_YUV420P10 != AV_PIX_FMT_YUV420P10LE
+    case AV_PIX_FMT_YUV420P10:
+#endif
+      *format = AV_PIX_FMT_P010;
+      return 1;
+    default: {
+      /* The format by name, which is what tells a reader of the log what the
+       * stream carried where the pass couldn't show it. */
+      const char *name = av_get_pix_fmt_name(context->sw_pix_fmt);
       decoder->refused = 1;
-      fail_text(decoder, "the card's picture isn't 8-bit 4:2:0, which the tile pass shows");
+      snprintf(decoder->error, sizeof decoder->error,
+               "the card's picture is %s, which isn't the 8-bit or 10-bit 4:2:0 the tile pass "
+               "shows",
+               name ? name : "in a format this build has no name for");
       return 0;
+    }
   }
 }
 
@@ -295,17 +328,103 @@ static const char *fourcc_name(uint32_t fourcc) {
       return "GR88";
     case YAPFAST_DRM_FORMAT_P010:
       return "P010";
+    case YAPFAST_DRM_FORMAT_R16:
+      return "R16";
+    case YAPFAST_DRM_FORMAT_GR32:
+      return "GR32";
     default:
       return "a format this build has no name for";
   }
 }
 
+/* The name the tile pass knows a colour matrix by, for a refusal that says
+ * what the stream carried. */
+static const char *matrix_name(enum AVColorSpace space) {
+  switch (space) {
+    case AVCOL_SPC_BT709:
+      return "BT.709's";
+    case AVCOL_SPC_BT2020_CL:
+      return "BT.2020's constant-luminance one";
+    case AVCOL_SPC_ICTCP:
+      return "ICtCp's";
+    case AVCOL_SPC_SMPTE2085:
+      return "ST 2085's";
+    default:
+      return "a matrix";
+  }
+}
+
+/* The name the tile pass knows a transfer curve by. */
+static const char *transfer_name(enum AVColorTransferCharacteristic trc) {
+  switch (trc) {
+    case AVCOL_TRC_BT709:
+      return "BT.709's";
+    case AVCOL_TRC_SMPTE2084:
+      return "ST 2084's";
+    case AVCOL_TRC_ARIB_STD_B67:
+      return "HLG";
+    case AVCOL_TRC_BT2020_10:
+    case AVCOL_TRC_BT2020_12:
+      return "BT.2020's";
+    default:
+      return "a transfer curve";
+  }
+}
+
+/* Takes the colour signal the newest picture was coded with: the range its
+ * codes use, the matrix luma and chroma are combined with, and the curve they
+ * are in. The frame carries what its VUI said, and the context what the
+ * decoder read before it had a frame. A 10-bit picture is the only one the
+ * tile pass reads this for — its 8-bit path has one fixed matrix — so a 10-bit
+ * picture whose signal the pass has no conversion or curve for is refused
+ * here, with the name of what it carried, rather than shown wrongly. 0 when
+ * the picture can be shown, -1 with the reason when it can't. */
+static int take_colour(struct yapfast_vadec *decoder, const AVFrame *frame, int ten_bit) {
+  const AVCodecContext *context = decoder->context;
+  const enum AVColorSpace space =
+      frame->colorspace != AVCOL_SPC_UNSPECIFIED ? frame->colorspace : context->colorspace;
+  const enum AVColorTransferCharacteristic trc =
+      frame->color_trc != AVCOL_TRC_UNSPECIFIED ? frame->color_trc : context->color_trc;
+  const enum AVColorRange range =
+      frame->color_range != AVCOL_RANGE_UNSPECIFIED ? frame->color_range : context->color_range;
+  decoder->colour.range = range == AVCOL_RANGE_JPEG ? YAPFAST_VA_FULL : YAPFAST_VA_LIMITED;
+  decoder->colour.matrix = YAPFAST_VA_BT709;
+  decoder->colour.transfer = YAPFAST_VA_SDR;
+  if (!ten_bit) return 0;
+  if (space == AVCOL_SPC_BT709 || space == AVCOL_SPC_BT2020_NCL) {
+    decoder->colour.matrix =
+        space == AVCOL_SPC_BT2020_NCL ? YAPFAST_VA_BT2020_NCL : YAPFAST_VA_BT709;
+  } else if (space != AVCOL_SPC_UNSPECIFIED) {
+    decoder->refused = 1;
+    snprintf(decoder->error, sizeof decoder->error,
+             "the 10-bit picture is %s, which the tile pass has no conversion for",
+             matrix_name(space));
+    return -1;
+  }
+  switch (trc) {
+    case AVCOL_TRC_SMPTE2084:
+      decoder->colour.transfer = YAPFAST_VA_PQ;
+      return 0;
+    case AVCOL_TRC_UNSPECIFIED:
+    case AVCOL_TRC_BT709:
+    case AVCOL_TRC_BT2020_10:
+    case AVCOL_TRC_BT2020_12:
+      return 0;
+    default:
+      decoder->refused = 1;
+      snprintf(decoder->error, sizeof decoder->error,
+               "the 10-bit picture is %s, which the tile pass has no tone map for",
+               transfer_name(trc));
+      return -1;
+  }
+}
+
 /* Reads a DRM PRIME export as the picture the tile pass imports: one buffer's
- * NV12 — which libva exports either as one NV12 layer of two planes or as
- * separate R8 and GR88 layers, one plane each — and says why for anything
- * else, so a picture the pass can't show is refused rather than imported
- * wrongly. Every plane's fd is the descriptor's, borrowed: it lives as long as
- * the frame it came from. */
+ * NV12 or P010 — which libva exports either as one layer of two planes or as
+ * separate single-plane layers, R8 and GR88 for 8-bit, R16 and GR32 for 10-bit
+ * — and says why for anything else, so a picture the pass can't show is
+ * refused rather than imported wrongly. Every plane's fd is the descriptor's,
+ * borrowed: it lives as long as the frame it came from. */
 static int describe(const AVDRMFrameDescriptor *desc, struct yapfast_vapicture *picture,
                     char *error, size_t error_size) {
   if (!desc || desc->nb_layers <= 0 || desc->nb_objects <= 0) {
@@ -313,19 +432,33 @@ static int describe(const AVDRMFrameDescriptor *desc, struct yapfast_vapicture *
     return -1;
   }
   const AVDRMPlaneDescriptor *planes[2];
+  /* The format the picture is: the layer's own for the two-plane export, and
+   * what the pair of layers names for the split one. */
+  uint32_t fourcc = 0;
   if (desc->nb_layers == 1 && desc->layers[0].nb_planes == 2 &&
-      desc->layers[0].format == YAPFAST_DRM_FORMAT_NV12) {
+      (desc->layers[0].format == YAPFAST_DRM_FORMAT_NV12 ||
+       desc->layers[0].format == YAPFAST_DRM_FORMAT_P010)) {
+    fourcc = desc->layers[0].format;
     planes[0] = &desc->layers[0].planes[0];
     planes[1] = &desc->layers[0].planes[1];
   } else if (desc->nb_layers == 2 && desc->layers[0].nb_planes == 1 &&
              desc->layers[1].nb_planes == 1 &&
              desc->layers[0].format == YAPFAST_DRM_FORMAT_R8 &&
              desc->layers[1].format == YAPFAST_DRM_FORMAT_GR88) {
+    fourcc = YAPFAST_DRM_FORMAT_NV12;
+    planes[0] = &desc->layers[0].planes[0];
+    planes[1] = &desc->layers[1].planes[0];
+  } else if (desc->nb_layers == 2 && desc->layers[0].nb_planes == 1 &&
+             desc->layers[1].nb_planes == 1 &&
+             desc->layers[0].format == YAPFAST_DRM_FORMAT_R16 &&
+             desc->layers[1].format == YAPFAST_DRM_FORMAT_GR32) {
+    fourcc = YAPFAST_DRM_FORMAT_P010;
     planes[0] = &desc->layers[0].planes[0];
     planes[1] = &desc->layers[1].planes[0];
   } else {
     snprintf(error, error_size,
-             "the picture is exported as %s, in %d layer%s, not the NV12 the tile pass shows",
+             "the picture is exported as %s, in %d layer%s, not the NV12 or P010 the tile pass "
+             "shows",
              fourcc_name(desc->layers[0].format), desc->nb_layers,
              desc->nb_layers == 1 ? "" : "s");
     return -1;
@@ -338,7 +471,7 @@ static int describe(const AVDRMFrameDescriptor *desc, struct yapfast_vapicture *
              "the picture's planes are in different buffers, which one modifier can't describe");
     return -1;
   }
-  picture->fourcc = YAPFAST_DRM_FORMAT_NV12;
+  picture->fourcc = fourcc;
   picture->planes = 2;
   for (int plane = 0; plane < 2; plane++) {
     const AVDRMPlaneDescriptor *descriptor = planes[plane];
@@ -548,6 +681,11 @@ int yapfast_vadec_decode(struct yapfast_vadec *decoder, const unsigned char *dat
     fail_text(decoder, "the picture has no surfaces to lie in");
     return -1;
   }
+  /* The colour the picture was coded with, taken before it is exported: a
+   * 10-bit picture the tile pass has no curve for ends the stream on the card
+   * here, as one it has no layout for ends it before a surface is made. */
+  const AVHWFramesContext *held = (const AVHWFramesContext *)decoder->frame->hw_frames_ctx->data;
+  if (take_colour(decoder, decoder->frame, held->sw_format == AV_PIX_FMT_P010) < 0) return -2;
   /* The surface as a DMA-BUF, its own buffer and no copy of it: MAP_READ waits
    * for the decode to finish and exports the surface read-only, and DIRECT
    * keeps the export tied to these surfaces rather than a copy of them. The
@@ -584,8 +722,12 @@ int yapfast_vadec_picture(struct yapfast_vadec *decoder, struct yapfast_vapictur
    * out to whole macroblocks, and the tile shows the picture in it. */
   picture->width = decoder->drm->width;
   picture->height = decoder->drm->height;
-  return describe((const AVDRMFrameDescriptor *)decoder->drm->data[0], picture, decoder->error,
-                  sizeof decoder->error);
+  if (describe((const AVDRMFrameDescriptor *)decoder->drm->data[0], picture, decoder->error,
+               sizeof decoder->error) < 0) {
+    return -1;
+  }
+  picture->colour = decoder->colour;
+  return 0;
 }
 
 const char *yapfast_vadec_error(const struct yapfast_vadec *decoder) {

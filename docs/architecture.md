@@ -71,10 +71,13 @@ modifier, plane offsets and strides (`src/ui/gpu.rs`'s `plane` module, which is
 the part a test can check without a card), one `VkDeviceMemory` is imported for
 each buffer its planes are in, and wgpu wraps the image as a texture. A 32-bit
 picture, which is what a compositor's screen is, is shown from that texture
-directly and Skia scales it into the tile. A card's decoded picture is NV12,
-which the vendored Skia import can't sample — it wraps single-plane 8-bit
-RGBA — so the window's `present` module runs one pass over the two plane views
-and writes the tile in BGRA instead; no pixel of either path crosses the
+directly and Skia scales it into the tile. A card's decoded picture is NV12 at
+8 bits and P010 or P016 at 10 — the same two planes in 16-bit samples, 10 bits
+at the top for P010 and at the bottom for P016 — which the vendored Skia import
+can't sample (it wraps single-plane 8-bit RGBA), so the window's `present`
+module runs one pass over the two plane views and writes the tile in BGRA
+instead, with the matrix, range and transfer curve the worker's decoder read out
+of the stream carried in a uniform. No pixel of either path crosses the
 processor.
 `stream_audio.rs` is a
 stream's sound both ways: what other applications play for a share, and the
