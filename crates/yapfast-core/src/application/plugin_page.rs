@@ -39,6 +39,10 @@ pub struct PageState {
     /// Whether the registry was asked for since the page opened, so that
     /// showing the tab again doesn't fetch it twice.
     pub asked: bool,
+    /// Whether the page that asked for the marketplace is open. A catalog
+    /// that arrives after it closed is dropped rather than held: nothing of
+    /// the marketplace outlives the page.
+    pub open: bool,
 }
 
 /// What a fetch the page started is for.
@@ -247,6 +251,14 @@ impl Application {
         source: String,
         result: Result<Box<Registry>, String>,
     ) {
+        // The page may have closed while the registry was being read. Holding
+        // the answer then would keep the catalog, its entries and its icons
+        // alive with no page to show them, which is exactly what closing it is
+        // for.
+        if !self.plugin_page.open {
+            tracing::debug!(%source, "the marketplace arrived after its page closed, so it wasn't kept");
+            return;
+        }
         match result {
             Ok(registry) => {
                 for refused in &registry.refused {
@@ -292,6 +304,7 @@ impl Application {
 
     /// The page opened: the marketplace is read if it isn't already.
     fn plugins_catalog_open(&mut self) -> Vec<AppEffect> {
+        self.plugin_page.open = true;
         self.plugins_catalog_ask(false)
     }
 
@@ -304,6 +317,7 @@ impl Application {
         self.plugin_page.registry = None;
         self.plugin_page.ask = None;
         self.plugin_page.asked = false;
+        self.plugin_page.open = false;
         let forgot = self.forget_plugin_icons();
         if held || forgot {
             vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)]
@@ -654,76 +668,13 @@ mod tests {
     #[test]
     fn closing_the_page_drops_the_catalog_and_its_icons() {
         let mut app = Application::default();
-        let listing = page::Listing {
-            id: "com.example.word-filter".into(),
-            name: "Word Filter".into(),
-            ..page::Listing::default()
-        };
-        let icon = vec![0u8; 512];
-        let catalog = crate::plugins::marketplace::Catalog::read(
-            "https://codeberg.org/yapfast/plugin-registry",
-            &"a".repeat(40),
-            r#"{ "api": 1, "plugins": ["com.example.word-filter"], "delisted": [] }"#,
-            &[(
-                "plugins/com.example.word-filter.json".to_owned(),
-                serde_json::json!({
-                    "api": 1,
-                    "id": "com.example.word-filter",
-                    "name": "Word Filter",
-                    "version": "1.4.0",
-                    "repo": "https://codeberg.org/ada/word-filter",
-                    "path": "",
-                    "rev": "a".repeat(40),
-                    "sha256": "0".repeat(64),
-                    "source": "https://codeberg.org/ada/word-filter",
-                    "license": "MIT"
-                })
-                .to_string(),
-            )],
-            &[(
-                "icons/com.example.word-filter.webp".to_owned(),
-                icon.clone(),
-            )],
-        )
-        .expect("a registry");
-        assert_eq!(catalog.listings.len(), 1);
-        assert_eq!(catalog.icon_count(), 0, "a 512-byte zero icon isn't one");
-
-        let mut listing = listing;
-        listing.icon = Some(crate::plugins::marketplace::icon_url("com.example.word-filter"));
-        let catalog = crate::plugins::marketplace::Catalog::read(
-            "https://codeberg.org/yapfast/plugin-registry",
-            &"a".repeat(40),
-            r#"{ "api": 1, "plugins": ["com.example.word-filter"], "delisted": [] }"#,
-            &[(
-                "plugins/com.example.word-filter.json".to_owned(),
-                serde_json::json!({
-                    "api": 1,
-                    "id": "com.example.word-filter",
-                    "name": "Word Filter",
-                    "version": "1.4.0",
-                    "repo": "https://codeberg.org/ada/word-filter",
-                    "path": "",
-                    "rev": "a".repeat(40),
-                    "sha256": "0".repeat(64),
-                    "source": "https://codeberg.org/ada/word-filter",
-                    "license": "MIT",
-                    "icon": "icons/com.example.word-filter.webp"
-                })
-                .to_string(),
-            )],
-            &[(
-                "icons/com.example.word-filter.webp".to_owned(),
-                webp_fixture(),
-            )],
-        )
-        .expect("a registry with an icon");
+        let catalog = registry(Some(webp_fixture()));
         assert_eq!(catalog.icon_count(), 1, "its icon's bytes are held");
-
+        app.plugin_page.catalog = Catalog::Ready(std::sync::Arc::clone(&catalog.listings));
         app.plugin_page.registry = Some(std::sync::Arc::new(catalog));
-        app.plugin_page.catalog = page::Catalog::Ready(std::sync::Arc::from(vec![listing]));
         app.plugin_page.asked = true;
-        assert!(matches!(app.plugins_page().catalog, page::Catalog::Ready(_)));
+        app.plugin_page.open = true;
+        assert!(matches!(app.plugins_page().catalog, Catalog::Ready(_)));
 
         let effects = app.plugins_page_request(Request::Close);
         assert_eq!(effects.len(), 1, "the page draws itself again");
@@ -731,7 +682,56 @@ mod tests {
             app.plugin_page.registry.is_none(),
             "the entries and the icons' bytes are gone"
         );
-        assert!(matches!(app.plugins_page().catalog, page::Catalog::Unloaded));
+        assert!(matches!(app.plugins_page().catalog, Catalog::Unloaded));
+    }
+
+    /// A registry read that arrives after the page closed is dropped rather
+    /// than held: the page is what keeps a marketplace in memory, and a fetch
+    /// in flight when it closes is no exception.
+    #[test]
+    fn a_catalog_that_arrives_after_the_page_closed_is_dropped() {
+        let mut app = Application::default();
+        app.plugins_page_request(Request::Open);
+        app.plugins_page_request(Request::Close);
+        app.plugins_catalog_read(
+            "https://codeberg.org/yapfast/plugin-registry".into(),
+            Ok(Box::new(registry(Some(webp_fixture())))),
+        );
+        assert!(app.plugin_page.registry.is_none(), "nothing is kept");
+        assert!(matches!(app.plugins_page().catalog, Catalog::Unloaded));
+    }
+
+    /// A registry holding one plugin, for the page's own tests: the entries
+    /// and the icons a closed page has to let go of.
+    fn registry(icon: Option<Vec<u8>>) -> crate::plugins::marketplace::Catalog {
+        let mut written = serde_json::json!({
+            "api": 1,
+            "id": "com.example.word-filter",
+            "name": "Word Filter",
+            "version": "1.4.0",
+            "repo": "https://codeberg.org/ada/word-filter",
+            "path": "",
+            "rev": "a".repeat(40),
+            "sha256": "0".repeat(64),
+            "source": "https://codeberg.org/ada/word-filter",
+            "license": "MIT"
+        });
+        let mut icons = Vec::new();
+        if let Some(bytes) = icon {
+            written["icon"] = serde_json::json!("icons/com.example.word-filter.webp");
+            icons.push(("icons/com.example.word-filter.webp".to_owned(), bytes));
+        }
+        crate::plugins::marketplace::Catalog::read(
+            "https://codeberg.org/yapfast/plugin-registry",
+            &"a".repeat(40),
+            r#"{ "api": 1, "plugins": ["com.example.word-filter"], "delisted": [] }"#,
+            &[(
+                "plugins/com.example.word-filter.json".to_owned(),
+                written.to_string(),
+            )],
+            &icons,
+        )
+        .expect("a registry")
     }
 
     /// A WebP header for a 128 by 128 picture, which is what a listing's icon
