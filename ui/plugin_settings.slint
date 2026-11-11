@@ -485,12 +485,13 @@ component InstalledCard inherits Rectangle {
         open := TouchArea { mouse-cursor: pointer; clicked => { PluginPage.open-plugin(root.plugin.id); } }
     }
     VerticalLayout {
-        padding: 14px; spacing: 8px;
+        // A card stretched to its taller neighbour keeps its lines at the top.
+        padding: 14px; spacing: 8px; alignment: start;
         HorizontalLayout {
             spacing: 10px;
             Middle { PluginIcon { size: 44px; corner: 11px; initial: root.plugin.initial; picture: root.plugin.picture; } }
             VerticalLayout {
-                spacing: 2px; horizontal-stretch: 1;
+                alignment: center; spacing: 2px; horizontal-stretch: 1;
                 Text { text: root.plugin.name; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; }
                 Text { text: root.plugin.byline; color: Theme.muted; font-size: 12px; overflow: elide; }
             }
@@ -508,9 +509,12 @@ component InstalledCard inherits Rectangle {
             color: root.plugin.log-error ? Theme.danger-text : Theme.faint;
             font-size: 12px; font-family: "monospace"; overflow: elide;
         }
-        if root.plugin.update != "": ActionButton {
-            text: "Update"; label: "Update " + root.plugin.name + " to v" + root.plugin.update; small: true;
-            clicked => { PluginPage.update(root.plugin.id); }
+        if root.plugin.update != "": HorizontalLayout {
+            alignment: start;
+            ActionButton {
+                text: "Update"; label: "Update " + root.plugin.name + " to v" + root.plugin.update; small: true;
+                clicked => { PluginPage.update(root.plugin.id); }
+            }
         }
     }
 }
@@ -950,6 +954,9 @@ export component PluginSettings inherits Rectangle {
                     middle := Rectangle { horizontal-stretch: 1; }
                     Middle {
                         Choices {
+                            // Room for both words, which the switch otherwise
+                            // squeezes against each other.
+                            width: 160px;
                             label: "Show plugins as"; options: ["List", "Cards"];
                             current: PluginPage.view; controlled: true;
                             chosen(index) => { PluginPage.view-chosen(index); }
@@ -962,9 +969,13 @@ export component PluginSettings inherits Rectangle {
                 }
                 if PluginPage.view == 1: VerticalLayout {
                     spacing: 8px;
+                    // Each card takes half the row, a lone last one too, so the
+                    // grid's columns line up whatever the cards say.
                     for pair in PluginPage.card-rows: HorizontalLayout {
-                        spacing: 8px;
-                        for plugin in pair: InstalledCard { plugin: plugin; horizontal-stretch: 1; }
+                        spacing: 8px; alignment: start;
+                        for plugin in pair: InstalledCard {
+                            plugin: plugin; width: (installed.width - installed.padding-right - 8px) / 2;
+                        }
                     }
                 }
                 if PluginPage.memory != "" && PluginPage.installed.length > 0: Label { text: PluginPage.memory; }
