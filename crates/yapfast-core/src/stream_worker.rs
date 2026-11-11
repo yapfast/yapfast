@@ -8230,7 +8230,7 @@ root.mainloop()
             // a report of its own; and a moment apart, as frames are.
             self.pictures += 1;
             std::thread::sleep(Duration::from_millis(1));
-            Ok(Found::Picture(if self.pictures % 2 == 0 {
+            Ok(Found::Picture(if self.pictures.is_multiple_of(2) {
                 shot(64, 48)
             } else {
                 shot(32, 24)
