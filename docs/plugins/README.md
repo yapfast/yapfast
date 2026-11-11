@@ -139,18 +139,12 @@ when it first installs a plugin and not before.
 
 The core is in place: the helper and its scheduler, the Extism runtime, the bridge
 with its registry and store, the content-addressed store and the `fetch`
-subcommand, permissions, grants and the network gate, the application's actions
-and taps, the Rust PDK, and the fixtures and tests for all of it.
+subcommand, permissions, the network gate and the dialog that asks about a host,
+grants and the page that revokes them, the application's actions and taps, the
+Rust PDK, and the fixtures and tests for all of it.
 
-Four things are deliberately not there yet:
+Two things are deliberately not there yet:
 
-- **A consent dialog and a grants page.** `plugins/grants.rs` records an
-  approval and `plugins/network.rs` waits for one, but nothing asks: the first
-  host a plugin doesn't declare leaves its request waiting for an answer no page
-  can give yet. Until a page answers, an undeclared host is a refusal.
-- **A transport for the gate.** `plugins/network.rs` defines `Transport` and
-  `Resolver` and leaves them to whoever owns the HTTP client. Until one is
-  installed, `http.fetch` answers `unsupported`.
 - **Chunked response bodies.** A body larger than one frame is refused rather
   than streamed to a file, because the answer has no field naming the file.
 - **Matrix messages.** Selection, voice, focus and account-ready events are

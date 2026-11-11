@@ -127,16 +127,15 @@ A request body is at most 768 KiB undone from its base64, because it arrives
 inside one frame. A response body above 752 KiB is streamed to a file rather than
 carried in the answer.
 
-Two parts of this are seams in the build as it stands, and both fail closed.
-`http.fetch` answers `unsupported` until the parent is handed a transport:
-`yapfast-core` has no HTTP client and no trust roots of its own, so
+The gate is handed a transport by the application, `plugins/transport.rs`,
+because `yapfast-core` has no HTTP client and no trust roots of its own:
 `plugins/network.rs` defines `Transport` and `Resolver` and leaves them to the
-crate that owns the client. A body streamed to a file has no field in the answer
-yet either, so it is refused with a reason rather than truncated; a chunked-body
-frame is what lifts that. The methods are
-`GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE` and `OPTIONS`, and a fixed set
-because `CONNECT` would ask a server for a tunnel and `TRACE` would echo the
-request back.
+crate that owns the client. One seam is left, and it fails closed: a body
+streamed to a file has no field in the answer yet, so it is refused with a
+reason rather than truncated. A chunked-body frame is what lifts that. The
+methods are `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE` and `OPTIONS`, and a
+fixed set because `CONNECT` would ask a server for a tunnel and `TRACE` would
+echo the request back.
 
 Loopback is the one deliberate exception, and it is its own capability: a plugin
 that declared `network.local` and named one port in `local-port` may reach that
@@ -160,7 +159,10 @@ and the plugin's request.
 ## Grants
 
 A host in the manifest is granted by accepting the install. A host that isn't
-declared is a request the person answers the first time the plugin tries it:
+declared is a request the person answers the first time the plugin tries it, in
+a dialog that sits over whatever is on screen:
+
+> Word Filter wants to connect to api.example.com
 
 | Choice | Effect |
 | --- | --- |
@@ -169,15 +171,36 @@ declared is a request the person answers the first time the plugin tries it:
 | Deny | For this session |
 | Deny, and don't ask again | Written to `grants.json` |
 
-The fetch answers `pending` to the plugin at once and is finished by a later
-event, so nothing is held open while the dialog is up.
+Closing the dialog without choosing is a Deny: the plugin asked, and nobody said
+yes. The question belongs to the application and not to the Settings page, so it
+is asked wherever the person is and survives the page closing.
+
+### What the plugin sees
+
+`http.fetch` answers `pending` at once, and the guest's call is finished later,
+under the same call id: the response on an allow, and a refusal with the reason
+on a deny. The guest holds nothing while it waits.
+
+The parent does. The request is kept, with no socket and no place in the gate's
+concurrency limits, and it is made again through the gate once there is an
+answer: every check runs a second time, and the second run is the one that
+reaches a server.
+
+A request let go because nothing will answer it any more — the plugin was turned
+off or removed, the helper stopped, Yapfast is exiting, or the host's grant was
+taken back — is refused with the reason saying so, so none waits forever.
+
+### Asking is bounded
 
 Asking is bounded, because a plugin that keeps asking is asking a person who has
 already said no:
 
 - one dialog per plugin at a time, so the person answers about one server at a
-  time; a request for a host whose dialog is already open joins it, and one for
-  a different host waits;
+  time. A request for a host whose dialog is already open joins it, and one for
+  another host is refused with a reason telling the plugin to ask again, rather
+  than queued behind a question the plugin can't see;
+- four of a plugin's requests wait at once at most, so a plugin that asks in a
+  loop holds a handful of bodies and no more;
 - after three refusals in a session, that plugin's further requests are refused
   without a dialog, and its row says how many were refused without asking. A
   host can still be allowed from the plugin's page.
@@ -200,9 +223,9 @@ The plugin's page lists the hosts it has been allowed, and each one can be
 revoked there. Revoking removes the grant from the file and from this session,
 and refuses the host for the rest of the session, so it takes effect on the next
 request and not on the next start: the gate asks on every request rather than
-remembering an answer, and a request already in flight finds nothing that would
-let it through. Turning a plugin off forgets its session answers and closes its
-dialog.
+remembering an answer, a request already in flight finds nothing that would let
+it through, and a request waiting on a dialog about that host is refused at
+once. Turning a plugin off forgets its session answers and closes its dialog.
 
 Disabling a plugin, or turning the plugin system off, stops all of this: no
 helper, no request, no dialog.
