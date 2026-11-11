@@ -4,7 +4,8 @@
 //! default while that's gone; every [`LOOK`] it also sees whether it's on the
 //! endpoint it would open now, and moves there if not, so it goes back to
 //! the chosen device once that returns, and follows the default on Windows,
-//! whose streams stay where they opened. While no device opens at all, the
+//! whose streams stay where they opened. A microphone opens again too once
+//! [`super::set_windows_effects`] changes. While no device opens at all, the
 //! stream keeps time with silence.
 //!
 //! Only a failure opens a device again: the stop that ends a stream cuts its
@@ -17,7 +18,7 @@ use std::{
 
 use anyhow::Result;
 
-use super::{Input, Output, Sample, platform};
+use super::{Input, Output, Sample, platform, windows_effects};
 
 /// How often a stream sees whether it's on the endpoint it should be.
 const LOOK: Duration = Duration::from_secs(2);
@@ -56,6 +57,8 @@ struct Lasting<T> {
     stream: Option<T>,
     /// As `endpoint` names it, and none while the system can't say.
     on: Option<String>,
+    /// Whether a microphone opened with Windows' effects.
+    effects: bool,
     /// When to look again.
     look: Instant,
     /// What ends a wait for the device before it answers, and with it the
@@ -80,6 +83,7 @@ impl<T: Stopping> Lasting<T> {
             endpoint,
             stream: None,
             on: None,
+            effects: false,
             look: Instant::now() + LOOK,
             stop: None,
         };
@@ -113,7 +117,14 @@ impl<T: Stopping> Lasting<T> {
         }
         self.stream = Some(stream);
         self.on = on;
+        self.effects = self.effects_wanted();
         Ok(())
+    }
+
+    /// Whether the stream should be open with Windows' effects: only a
+    /// microphone has a choice.
+    fn effects_wanted(&self) -> bool {
+        !self.output && windows_effects()
     }
 
     /// Ends waits for the device as soon as `stop` is set: this stream's and
@@ -134,7 +145,7 @@ impl<T: Stopping> Lasting<T> {
         if now >= self.look {
             let should = (self.endpoint)(self.device.as_deref(), self.output);
             let moved = should.is_some() && should != self.on;
-            if self.stream.is_none() || moved {
+            if self.stream.is_none() || moved || self.effects != self.effects_wanted() {
                 match self.reopen(should) {
                     Ok(()) => tracing::info!(stream = self.name, "device opened again"),
                     Err(error) => tracing::debug!(
@@ -452,6 +463,28 @@ mod tests {
         lasting.lost(&anyhow::anyhow!("gone"));
         assert_eq!(lasting.stream().copied(), None);
         assert!(lasting.look > Instant::now(), "waits before trying again");
+    }
+
+    #[test]
+    fn a_microphone_opens_again_as_windows_effects_change() {
+        let _turns = taking_turns();
+        static OPENED: Mutex<u32> = Mutex::new(0);
+        let open = |_: Option<&str>| {
+            *OPENED.lock().unwrap() += 1;
+            Ok("microphone")
+        };
+        let endpoint = |_: Option<&str>, _: bool| Some(String::from("microphone"));
+        let mut microphone = Lasting::open(None, false, "Test", Box::new(open), endpoint).unwrap();
+        let mut speakers = Lasting::open(None, true, "Test", Box::new(open), endpoint).unwrap();
+        look_now(&mut microphone);
+        look_now(&mut speakers);
+        assert_eq!(*OPENED.lock().unwrap(), 2, "nothing changed");
+        super::super::set_windows_effects(true);
+        look_now(&mut microphone);
+        look_now(&mut speakers);
+        super::super::set_windows_effects(false);
+        assert_eq!(*OPENED.lock().unwrap(), 3, "only the microphone");
+        assert!(microphone.effects);
     }
 
     #[test]
