@@ -183,18 +183,18 @@ pub enum FromHelper {
     Bye { reason: String },
 }
 
-/// The guest exports the helper calls, with the arguments they take.
+/// The guest exports the helper requires, in the order a PDK generates them.
 ///
 /// A guest that doesn't export one gets [`FaultKind::BadModule`] at activation,
 /// so a PDK that forgets `yf_event` fails early and clearly rather than on the
-/// first message.
-pub const EXPORTS: [&str; 6] = [
+/// first message. `yf_decorate` is not here: drawing beside a row is the
+/// interface half of the API, which doesn't exist yet.
+pub const EXPORTS: [&str; 5] = [
     "yf_activate",
     "yf_deactivate",
     "yf_event",
     "yf_hook",
     "yf_command",
-    "yf_decorate",
 ];
 
 /// The host functions a guest imports.

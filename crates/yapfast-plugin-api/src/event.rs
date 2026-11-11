@@ -121,10 +121,17 @@ impl EventEnvelope {
     pub fn truncated(mut self) -> Self {
         let text = self.payload.to_string();
         if text.len() > limits::MAX_PAYLOAD_BYTES {
+            // On a character boundary: a byte offset that lands inside a
+            // multi-byte character would panic, and a message in a script that
+            // isn't ASCII is ordinary, not exceptional.
+            let mut cut = limits::MAX_PAYLOAD_BYTES;
+            while cut > 0 && !text.is_char_boundary(cut) {
+                cut -= 1;
+            }
             self.payload = serde_json::json!({
                 "truncated": true,
                 "bytes": text.len(),
-                "text": &text[..limits::MAX_PAYLOAD_BYTES],
+                "text": &text[..cut],
             });
         }
         self

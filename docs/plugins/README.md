@@ -130,11 +130,10 @@ and taps, the Rust PDK, and the fixtures and tests for all of it.
 
 Four things are deliberately not there yet:
 
-- **The interface.** No Plugins page, consent dialog, slot or widget exists. The
-  Slint adapter has to call `Application::open_plugins` at startup and handle
-  `Effect::Plugin` and `Event::Plugin` before a build with the feature on can
-  compile — `src/ui.rs`'s `execute` match is exhaustive, so it refuses to build
-  until then. The site is `src/ui/refresh.rs`'s `Reach` for a repaint.
+- **A consent dialog and a grants page.** `plugins/grants.rs` records an
+  approval and `plugins/network.rs` waits for one, but nothing asks: the first
+  host a plugin doesn't declare leaves its request waiting for an answer no page
+  can give yet. Until a page answers, an undeclared host is a refusal.
 - **A transport for the gate.** `plugins/network.rs` defines `Transport` and
   `Resolver` and leaves them to whoever owns the HTTP client. Until one is
   installed, `http.fetch` answers `unsupported`.
@@ -144,3 +143,13 @@ Four things are deliberately not there yet:
   tapped where both networks pass; a Matrix message isn't tapped yet, so only
   Discord's gateway feeds `message_create`, `message_update` and
   `message_delete`.
+
+Beyond those, the API is a first slice rather than the surface a plugin author
+would want: of the method groups a manifest can name, `storage`, `settings`,
+`timers` and `log` are answered, and `messages`, `people`, `rooms`, `account`,
+`composer`, `plugin`, `notify`, `clipboard`, `open` and `ui` answer
+`unsupported`. `message.pre_send` and `message.pre_edit` exist and fail open;
+`typing.pre_send`, `attachment.pre_upload` and `activity.pre_publish` don't. The
+OS sandbox under the helper, the marketplace, and update checks are not started.
+`docs/plugins/manifest.md` lists the fields; a manifest may declare `menus`,
+`settings` and `tweaks` that nothing draws yet.

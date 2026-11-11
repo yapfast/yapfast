@@ -77,8 +77,8 @@ pub fn send(method: &str, payload: impl Serialize) -> Result<HostReturn, Error> 
         payload: json::to_value(payload)?,
     };
     let request = json::to_string(&request)?;
-    // The import is unsafe because it crosses into the host: the helper is
-    // trusted to give back a well-formed UTF-8 payload, which is then checked.
+    // Safety: the import crosses into the host, which is trusted to hand back
+    // a well-formed UTF-8 payload; the bytes are decoded and checked below.
     #[allow(unsafe_code, reason = "an Extism host import")]
     let answer = unsafe { yf_call(request)? };
     if answer.is_empty() {

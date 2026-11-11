@@ -560,6 +560,12 @@ impl Shared {
                 },
             });
         }
+        // The flags the send and event paths read say there is nothing to wait
+        // for any more: without this, every message is still serialized and
+        // every hook chain still built, for a helper that is gone.
+        self.enabled.store(false, Ordering::Relaxed);
+        self.wanted.store(0, Ordering::Relaxed);
+        self.intercepts.store(false, Ordering::Relaxed);
     }
 }
 
@@ -1066,6 +1072,16 @@ impl Session {
         if self.active.contains(plugin) {
             return true;
         }
+        // A trigger can outlive the plugin it was for — a queued event, a
+        // timer that fired a moment before the person turned it off. Starting
+        // it here would run a plugin nothing says should run.
+        if !shared
+            .registry()
+            .entry(plugin)
+            .is_some_and(|entry| entry.enabled)
+        {
+            return false;
+        }
         if !self.loaded.contains(plugin) {
             let Some(module) = self.ready_module(shared, plugin) else {
                 return false;
@@ -1123,6 +1139,9 @@ impl Session {
 
     /// Drops one plugin's instance, keeping what it hands over.
     fn deactivate(&mut self, plugin: &PluginId) {
+        // Before the early return: a plugin that faulted or was evicted is off
+        // already, and its timers still have to go.
+        self.forget_timers(plugin);
         if !self.active.contains(plugin) {
             return;
         }
@@ -1729,6 +1748,15 @@ impl Session {
                 shared.announce(Notice::Status { plugin, status });
             }
         }
+    }
+
+    /// Drops every timer a plugin holds.
+    ///
+    /// A repeating timer is the plugin asking to be called again on its own
+    /// initiative, so it lives exactly as long as the plugin is on: leaving one
+    /// behind would wake a plugin the person turned off.
+    fn forget_timers(&mut self, plugin: &PluginId) {
+        self.timers.retain(|key, _| key.plugin != *plugin);
     }
 
     /// Fires one timer, as a call into its plugin with nothing new.

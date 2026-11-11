@@ -59,6 +59,3 @@ pub const MAX_CRASHES: u32 = 3;
 
 /// Consent dialogs one plugin may have open, and denials that silence it.
 pub const MAX_DENIALS_BEFORE_SILENCE: u32 = 3;
-
-/// A rule list edited in a plugin's settings, by entries.
-pub const MAX_SETTINGS_LIST_ENTRIES: usize = 256;

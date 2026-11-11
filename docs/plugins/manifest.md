@@ -178,7 +178,7 @@ before the plugin has ever run:
 | `pattern` | For `string`: a regular expression the value must match |
 | `when` | The same conditions a menu row takes |
 
-A `list` is a list of records a person adds to and edits, up to 256 entries.
+A `list` is a list of records a person adds to and edits.
 
 ## Dependencies
 

@@ -11,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::call::{HostCall, HostReturn};
+use crate::call::HostReturn;
 use crate::event::EventEnvelope;
 use crate::ids::PluginId;
 
@@ -57,9 +57,6 @@ pub struct CallResult {
     pub call: u64,
     pub answer: HostReturn,
 }
-
-/// What `yf_post` is given: a call with no answer.
-pub type PostPayload = HostCall;
 
 impl EventBatch {
     /// A batch of one, which is what most events arrive as.

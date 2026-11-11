@@ -107,18 +107,6 @@ pub struct Budget {
     pub chain_ms: Option<u64>,
 }
 
-/// What a plugin does when its hook fails or runs late.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OnFailure {
-    /// The default: the message goes as it was.
-    #[default]
-    Open,
-    /// The send is stopped, and the person is told why. Needs
-    /// `messages.intercept`, and is listed in the consent dialog.
-    Block,
-}
-
 /// The thing a hook is about.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -206,7 +194,7 @@ mod tests {
         assert_eq!(
             HookKind::MessagePreSend.budget().chain_ms,
             Some(100),
-            "the plan's per-send budget"
+            "a whole send may wait 100 ms, and no more"
         );
         assert_eq!(
             HookKind::MessagePreEdit.budget(),

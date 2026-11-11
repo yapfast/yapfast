@@ -30,7 +30,7 @@ numbers say; it exits non-zero only when one could not be.
         --parent target/measure/yapfast \\
         --helper target/measure/yapfast-plugins \\
         --plugin testing/plugins/echo.wasm \\
-        --plugin-dir testing/plugins/example-plugin
+        --plugin-dir testing/plugins
 """
 import argparse
 import contextlib
@@ -43,8 +43,8 @@ import struct
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
 import time
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 

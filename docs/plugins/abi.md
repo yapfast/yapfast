@@ -1,7 +1,7 @@
 # The ABI
 
 There are two boundaries. Yapfast and the helper speak a frame protocol over the
-helper's stdin and stdout; the helper and a guest speak JSON through six exports
+helper's stdin and stdout; the helper and a guest speak JSON through five exports
 and two imports of the ABI's own, on top of the ones Extism supplies to a guest.
 Both boundaries are described by
 [`crates/yapfast-plugin-api`](../../crates/yapfast-plugin-api), which carries
@@ -68,7 +68,7 @@ round trip per plugin. Each plugin in it sees the previous one's subject.
 | `t` | Fields | Meaning |
 | --- | --- | --- |
 | `ready` | `api`, `version` | The answer to `hello` |
-| `call` | `plugin`, `call` | A guest wants something from Yapfast, which answers `return` |
+| `call` | `plugin`, `call`, `request` | A guest wants something from Yapfast: its own number for the call, and the method with its payload. The answer is a `return` frame with that number |
 | `activated` | `plugin`, `state`, `memory_pages` | The instance is up, with what the last `yf_deactivate` handed on |
 | `deactivated` | `plugin`, `state` | The instance is gone, with its hand-off |
 | `hook_done` | `outcome`, `failures` | A chain's final answer, and the plugins that failed on the way |
@@ -99,13 +99,14 @@ surface. The method is a name inside the payload, an unknown method answers
 | | `yf_event` | A batch of events and of finished host calls |
 | | `yf_hook` | A hook, for a plugin that intercepts |
 | | `yf_command` | A command the person typed |
-| | `yf_decorate` | What to draw beside a row |
 | Host import | `yf_call(request) -> answer` | Ask Yapfast something, and get its answer |
 | | `yf_post(message)` | Say something and don't wait |
 
-A guest that doesn't export one of the six is a `bad_module` fault at activation,
-so a PDK that forgets `yf_event` fails early and clearly rather than on the first
-message.
+A guest that doesn't export one of those five is a `bad_module` fault at
+activation, so a PDK that forgets `yf_event` fails early and clearly rather than
+on the first message. `yf_decorate` and `yf_ui_event` are for drawing beside a
+row, which is the interface half of the API and not in this build; a module that
+declares them is left alone.
 
 ### The payloads
 
@@ -119,7 +120,6 @@ a log.
 | `yf_event` | `EventBatch { events, results }` | Nothing |
 | `yf_hook` | `HookRequest { hook, subject }` | `HookOutcome` |
 | `yf_command` | `CommandInvocation { name, options }` | `CommandOutcome` |
-| `yf_decorate` | The row to decorate: its kind and id, and the payload the plugin itself put there | The tree to draw |
 | `yf_call` | `HostCall { method, payload }` | `HostReturn` |
 | `yf_post` | `HostCall` | Nothing |
 

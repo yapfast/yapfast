@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Formatting, doc links, Clippy, tests and a smoke run of the default build,
-# Discord on the desktop; then the plugin helper with Extism on, and the
-# measurement harness's tests. --matrix adds the builds with Matrix.
+# Discord on the desktop; then the application's half of the plugin system with
+# the `plugins` feature on. --matrix adds the builds with Matrix.
 # Usage: scripts/check [--fast] [--matrix]
 # --fast builds with the `fast` profile, which local work uses. Each step
 # prints `=== step` and `rc=N` when it ends; its full output is in
@@ -73,20 +73,15 @@ else
   echo "=== smoke: skipped, as the build failed"
 fi
 
-# The plugin helper and the wire types it shares with Yapfast. The helper is a
-# binary of its own, linking Extism and wasmtime, so no step above builds it and
-# everyday builds stay without both. Its tests drive the framed protocol against
-# the guest fixtures in testing/plugins. The application's half of the plugin
-# system is behind yapfast-core's `plugins` feature, off by default, so it has
-# steps of its own; the executable itself needs the interface's side of that
-# feature before a build with it on compiles, which is why only the core crate
-# is checked here. See docs/plugins/.
-plugins=(-p yapfast-plugin-api -p yapfast-plugin-host)
-run clippy-plugins "${clippy[@]}" "${plugins[@]}" -- -D warnings
-run test-plugins cargo test --locked "${profile[@]}" "${plugins[@]}"
-run clippy-plugins-core "${clippy[@]}" -p yapfast-core --features plugins -- -D warnings
-run test-plugins-core cargo test --locked "${profile[@]}" -p yapfast-core --features plugins
-steps+=(clippy-plugins test-plugins clippy-plugins-core test-plugins-core)
+# The application's half of the plugin system, which the steps above don't
+# reach: it is behind yapfast-core's `plugins` feature, and that feature is off
+# in the build they check. The two plugin crates themselves need no step of
+# their own, since both are workspace members. The executable still needs the
+# interface's half of the feature before a build with it on compiles, so only
+# the core crate is checked here. See docs/plugins/.
+run clippy-plugins "${clippy[@]}" -p yapfast-core --features plugins -- -D warnings
+run test-plugins cargo test --locked "${profile[@]}" -p yapfast-core --features plugins
+steps+=(clippy-plugins test-plugins)
 
 # The builds with Matrix: Matrix beside Discord, with its tests; Matrix
 # alone, in the desktop and in the shared core with its tests; and the

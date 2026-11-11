@@ -59,7 +59,12 @@ each one also checks that the helper is still serving afterwards.
 
 ```sh
 cargo test --profile fast -p yapfast-core --features plugins plugins
+cargo test --profile fast -p yapfast-core --features plugins --test plugins_gate
 ```
+
+The filter in the first line matches test names, so it runs the plugin modules'
+unit tests; the gate's rules are integration tests of their own and need the
+second line.
 
 The plugin system is behind the `plugins` feature, so these tests only exist in a
 build that has it. They cover the network gate, permissions, grants, the store,
@@ -93,9 +98,10 @@ runs the tests against `testing/fake_discord.ts`, whose gateway events are what
 the Discord event taps turn into plugin events. The argument is a filter, as it is
 for any other area; run it with no filter before the last commit of work on the
 plugin bridge or the core's Discord side, which takes about 30 seconds.
-`scripts/check` runs `cargo test --workspace`, which builds and tests the helper
-crate, but not the parent's half: the `plugins` feature is off in the build it
-checks. It doesn't run the fake Discord suite either.
+`scripts/check` runs `cargo test --workspace`, which builds and tests both plugin
+crates, and has steps of its own for `yapfast-core` with the `plugins` feature,
+which the workspace build doesn't reach. It doesn't run the fake Discord suite
+either.
 
 `scripts/ui-session` runs the app on a private display with screenshots and input,
 which is how the Plugins page, a plugin's settings rows and a consent dialog are
