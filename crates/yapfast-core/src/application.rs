@@ -2431,6 +2431,10 @@ pub struct Application {
     /// gone through again.
     pictured_timeline: Arc<Vec<Arc<ChatMessage>>>,
     visible_messages: Vec<String>,
+    /// Files the `attachment.pre_upload` chain is holding, by the id it
+    /// answered under, each with the room it was going to.
+    #[cfg(feature = "plugins")]
+    pending_uploads: std::collections::BTreeMap<u64, (String, crate::chat::Staged)>,
     /// How many pictures other than custom emoji were kept the last time
     /// those off screen went.
     pictures_kept: usize,

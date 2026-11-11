@@ -177,9 +177,9 @@ application already knows, and of `plugin`, the `call`, `publish` and
 `notify`, `clipboard` and `open` answer `unsupported`. `message.pre_send` and
 `message.pre_edit` exist, run as a chain with a deadline per plugin and for the
 whole thing, and fail open unless a plugin's manifest asks for
-`on_failure: "block"`; `typing.pre_send`, `attachment.pre_upload` and
-`activity.pre_publish` don't, and neither does `message.decorate`: a plugin can
-draw in its slots and in a dialog, and nothing draws beside a message yet. The
+`on_failure: "block"`; `typing.pre_send` and `attachment.pre_upload` do too, and
+`activity.pre_publish` and `message.decorate` don't: a plugin can draw in its
+slots and in a dialog, and nothing draws beside a message yet. The
 OS sandbox under the helper is not started, and the marketplace is read while
 its page is open but not yet checked by a remote-refs query, so an update is
 fetched when asked for rather than offered

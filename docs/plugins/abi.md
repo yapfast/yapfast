@@ -177,17 +177,30 @@ so a plugin still sees that its message was long. Typing, presence and speaking
 are opt-in and coalesced, so a burst is one call with several events rather than
 one call each.
 
-A hook's subject is a draft about to be sent, a file on its way up, or an
-activity about to be published. The answer is `unchanged`, `changed` with the new
-subject, which the next plugin in the chain sees, or `block` with a reason. A
-`block` stops the message only from a plugin whose manifest says
-`"on_failure": "block"`, which needs `messages.intercept`; from any other it
-is the fail-open answer and the message goes as it was.
+A hook's subject is a draft about to be sent, a file on its way up, a typing
+indicator about to go, or an activity about to be published. The answer is
+`unchanged`, `changed` with the new subject, which the next plugin in the chain
+sees, or `block` with a reason. A `block` stops the message only from a plugin
+whose manifest says `"on_failure": "block"`, which needs `messages.intercept`;
+from any other it is the fail-open answer and the message goes as it was.
 
 ```json
 { "hook": "message_pre_send",
   "subject": { "draft": { "room": "room-1", "body": "hi", "attachments": [] } } }
+{ "hook": "typing_pre_send",
+  "subject": { "typing": { "room": "room-1" } } }
+{ "hook": "attachment_pre_upload",
+  "subject": { "attachment": { "room": "room-1", "name": "cat.JPG", "bytes": 2048,
+                               "content_type": "image/jpeg" } } }
 ```
+
+An indicator has nothing to change, so `changed` is refused for it: a plugin
+either lets it go or, with `typing.intercept`, withholds it with `block`. A file
+is answered by `changed` with the `attachment` it should be uploaded as — a new
+`name`, and a `content_type` or a byte count it may narrow but not raise — or by
+`block` with the reason the person sees where the file would have gone. Both
+chains answer under a deadline of their own, so the composer never waits longer
+than the plan's table for one.
 
 A command's answer is `none`, `notice` with a line for the person to see in the
 room they typed it in, `value` with the plugin's own JSON, or `failed` with a

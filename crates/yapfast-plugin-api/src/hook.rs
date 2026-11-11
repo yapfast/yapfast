@@ -113,6 +113,8 @@ pub struct Budget {
 pub enum HookSubject {
     /// Text about to be sent.
     Draft(Draft),
+    /// A typing indicator about to be sent, which a plugin may withhold.
+    Typing(TypingPending),
     Attachment(AttachmentPending),
     /// An activity about to be published, as its JSON.
     Activity(serde_json::Value),
@@ -158,6 +160,16 @@ pub enum HookOutcome {
     /// `"on_failure": "block"`, which needs `messages.intercept`; from any
     /// other it is the fail-open answer and the message goes as it was.
     Block { reason: String },
+}
+
+/// A typing indicator about to be sent.
+///
+/// There is nothing in it to change: a plugin either lets it go or withholds
+/// it, which is what `typing.intercept` is for. The room is there so a plugin
+/// can tell one conversation from another.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TypingPending {
+    pub room: String,
 }
 
 impl HookOutcome {

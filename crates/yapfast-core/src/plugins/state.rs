@@ -18,7 +18,7 @@ use serde_json::Value;
 use yapfast_plugin_api::PluginId;
 use yapfast_plugin_api::call::{CommandInvocation, SettingsNews, WidgetInput};
 use yapfast_plugin_api::event::{EventEnvelope, EventKind};
-use yapfast_plugin_api::hook::Draft;
+use yapfast_plugin_api::hook::{AttachmentPending, Draft};
 use yapfast_plugin_api::manifest::CommandDecl;
 use yapfast_plugin_api::message::PluginStatus;
 
@@ -53,6 +53,17 @@ pub enum Notice {
     SendReady { id: u64, draft: Draft },
     /// A `message.pre_send` chain stopped the send, and why.
     SendBlocked { id: u64, reason: String },
+    /// A `typing.pre_send` chain let a typing indicator go: the application
+    /// sends it now, which is the only way a plugin may withhold one without
+    /// the composer waiting.
+    Typing { id: u64, room: String },
+    /// An `attachment.pre_upload` chain answered about a file the composer is
+    /// taking: the name the upload should go under, or the reason it doesn't.
+    Attachment {
+        id: u64,
+        name: Option<String>,
+        blocked: Option<String>,
+    },
     /// A plugin's state changed, for the page that lists them.
     Status {
         plugin: PluginId,
@@ -314,6 +325,18 @@ impl PluginState {
     /// Runs the chain in front of an edit, which is its own set of plugins.
     pub fn pre_edit(&mut self, draft: Draft) -> PreSend {
         self.bridge.pre_edit(draft)
+    }
+
+    /// Runs the chain in front of a typing indicator, and answers the id it is
+    /// held under when a plugin may withhold it.
+    pub fn typing(&mut self, room: &str) -> Option<u64> {
+        self.bridge.typing(room)
+    }
+
+    /// Runs the chain in front of an upload, and answers the id it is held
+    /// under when a plugin may rename or withhold it.
+    pub fn attachment(&mut self, pending: AttachmentPending) -> Option<u64> {
+        self.bridge.attachment(pending)
     }
 
     /// Turns a plugin on or off: the registry entry, the helper's instances and

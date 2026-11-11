@@ -15,11 +15,13 @@ use tokio::sync::mpsc::UnboundedSender;
 use yapfast_plugin_api::PluginId;
 use yapfast_plugin_api::call::CommandInvocation;
 use yapfast_plugin_api::event::{EventEnvelope, EventKind, Network as PluginNetwork, RoomView};
-use yapfast_plugin_api::hook::Draft;
+use yapfast_plugin_api::hook::{AttachmentPending, Draft};
+
 use yapfast_plugin_api::manifest::{CommandDecl, OptionKind};
 use yapfast_plugin_api::message::PluginStatus;
 
 use super::{Action as AppAction, Application, Compose, Effect as AppEffect};
+use crate::chat::Command;
 use crate::chat::Event;
 use crate::network::Network;
 use crate::plugins::PluginState;
@@ -369,6 +371,83 @@ impl Application {
         }
     }
 
+    /// The `typing.pre_send` chain, asked before a typing indicator goes.
+    ///
+    /// True when a plugin may withhold it: the indicator then goes when the
+    /// chain answers, as [`Notice::Typing`], so the composer never waits on a
+    /// plugin. A chain that runs out of time lets it go, as every hook does.
+    pub(super) fn plugins_typing(&mut self, room: &str) -> bool {
+        if self.state.preview || !self.plugins_on() {
+            return false;
+        }
+        self.state
+            .plugins
+            .as_mut()
+            .and_then(|plugins| plugins.typing(room))
+            .is_some()
+    }
+
+    /// The `attachment.pre_upload` chain, asked about a file the composer is
+    /// taking.
+    ///
+    /// True when a plugin may rename or withhold it: the file stays here, in
+    /// [`Application::pending_uploads`], until [`Notice::Attachment`] says what
+    /// became of it, and the composer keeps working in the meantime.
+    pub(super) fn plugins_upload(&mut self, room: &str, file: &crate::chat::Staged) -> bool {
+        if self.state.preview || !self.plugins_on() {
+            return false;
+        }
+        let pending = AttachmentPending {
+            room: room.to_owned(),
+            name: file.name.clone(),
+            bytes: file.size,
+            content_type: content_type(&file.name),
+        };
+        let held = self
+            .state
+            .plugins
+            .as_mut()
+            .and_then(|plugins| plugins.attachment(pending));
+        match held {
+            Some(id) => {
+                self.pending_uploads
+                    .insert(id, (room.to_owned(), file.clone()));
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Carries out what the `attachment.pre_upload` chain said about a file it
+    /// held: the name it gives it, or the reason it doesn't go.
+    fn plugins_upload_answered(
+        &mut self,
+        id: u64,
+        name: Option<String>,
+        blocked: Option<String>,
+    ) -> Vec<AppEffect> {
+        let Some((room, mut file)) = self.pending_uploads.remove(&id) else {
+            return vec![];
+        };
+        if let Some(reason) = blocked {
+            self.state.notice = Some(reason);
+            return vec![];
+        }
+        if let Some(name) = name {
+            file.name = upload_name(&name, &file.name);
+        }
+        let staged = self.state.staged.entry(room).or_default();
+        if staged.len() >= crate::chat::MAX_FILES {
+            self.state.notice = Some(format!(
+                "A message carries up to {} files.",
+                crate::chat::MAX_FILES
+            ));
+            return vec![];
+        }
+        staged.push(file);
+        vec![]
+    }
+
     /// Sends the draft a held chain answered with, once its answer comes.
     fn plugins_send_held(&mut self, draft: Draft) -> Vec<AppEffect> {
         // The hold left `sending` set so that nothing overtook the answer; the
@@ -451,6 +530,12 @@ impl Application {
                 self.dispatch(AppAction::Plugin(Action::SendHeld(draft)))
             }
             News::Notice(Notice::SendBlocked { reason, .. }) => self.plugins_send_blocked(reason),
+            News::Notice(Notice::Typing { room, .. }) => {
+                vec![AppEffect::Backend(Command::Typing { room, typing: true })]
+            }
+            News::Notice(Notice::Attachment { id, name, blocked }) => {
+                self.plugins_upload_answered(id, name, blocked)
+            }
             News::Notice(Notice::Status { plugin, status }) => {
                 vec![AppEffect::Plugin(Effect::Status { plugin, status })]
             }
@@ -906,6 +991,53 @@ fn typed(value: &str, kind: OptionKind) -> Option<Value> {
             .and_then(serde_json::Number::from_f64)
             .map(Value::Number),
     }
+}
+
+/// The type a file names, from its extension, for the
+/// `attachment.pre_upload` chain: the same name the network would guess, said
+/// once here so a plugin can decide without reading the file.
+fn content_type(name: &str) -> Option<String> {
+    let extension = name
+        .rsplit_once('.')
+        .map(|(_, extension)| extension.to_ascii_lowercase())?;
+    let kind = match extension.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "txt" | "log" => "text/plain",
+        "md" => "text/markdown",
+        "json" => "application/json",
+        "pdf" => "application/pdf",
+        "mp3" => "audio/mpeg",
+        "ogg" => "audio/ogg",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "zip" => "application/zip",
+        _ => return None,
+    };
+    Some(kind.to_owned())
+}
+
+/// The name a renamed upload goes under: the last part of what the chain
+/// answered, so a plugin can't send a file called `../../x`, and the file's own
+/// name when what it answered has no usable part.
+fn upload_name(answered: &str, fallback: &str) -> String {
+    let last = answered
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or_default()
+        .trim();
+    if last.is_empty() || last == "." || last == ".." {
+        return fallback.to_owned();
+    }
+    // A name is bytes on every filesystem Yapfast writes to, and one answer is
+    // one frame: a plugin can't hand over a name no file can have.
+    let mut end = last.len().min(255);
+    while end > 0 && !last.is_char_boundary(end) {
+        end -= 1;
+    }
+    last[..end].to_owned()
 }
 
 #[cfg(test)]

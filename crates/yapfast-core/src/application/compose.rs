@@ -82,13 +82,22 @@ impl Application {
             vec![]
         } else {
             let typing = !body.trim().is_empty();
-            vec![
-                Effect::Backend(Command::Typing {
+            let mut effects = Vec::new();
+            // `typing.pre_send` sees the indicator before it goes: a plugin may
+            // withhold it, and then sends it itself when its chain answers, so
+            // the composer never waits on one.
+            #[cfg(feature = "plugins")]
+            let held = typing && self.plugins_typing(&id);
+            #[cfg(not(feature = "plugins"))]
+            let held = false;
+            if !held {
+                effects.push(Effect::Backend(Command::Typing {
                     room: id.clone(),
                     typing,
-                }),
-                Effect::Backend(Command::SaveDraft { room: id, body }),
-            ]
+                }));
+            }
+            effects.push(Effect::Backend(Command::SaveDraft { room: id, body }));
+            effects
         }
     }
 
@@ -432,10 +441,11 @@ impl Application {
         else {
             return;
         };
-        let staged = self.state.staged.entry(id).or_default();
+        let mut files = Vec::new();
         let mut problem = None;
+        let mut taken = 0;
         for path in paths {
-            if staged.len() >= chat::MAX_FILES {
+            if self.state.staged.get(&id).map_or(0, Vec::len) + taken >= chat::MAX_FILES {
                 problem = Some(format!(
                     "A message carries up to {} files.",
                     chat::MAX_FILES
@@ -443,10 +453,23 @@ impl Application {
                 break;
             }
             match chat::Staged::read(path, limit) {
-                Ok(file) => staged.push(file),
+                Ok(file) => {
+                    // `attachment.pre_upload` sees the file before the composer
+                    // takes it: a plugin may rename it or withhold it, and the
+                    // answer stages it, so nothing here waits on a plugin.
+                    #[cfg(feature = "plugins")]
+                    if self.plugins_upload(&id, &file) {
+                        taken += 1;
+                        continue;
+                    }
+                    files.push(file);
+                    taken += 1;
+                }
                 Err(error) => problem = problem.or(Some(error)),
             }
         }
+        let staged = self.state.staged.entry(id).or_default();
+        staged.extend(files);
         self.state.notice = problem;
     }
 

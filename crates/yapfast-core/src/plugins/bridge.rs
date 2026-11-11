@@ -38,7 +38,9 @@ use yapfast_plugin_api::call::{
 use yapfast_plugin_api::capability::{Capability, HostPattern};
 use yapfast_plugin_api::event::{EventEnvelope, EventKind, TopicEvent};
 use yapfast_plugin_api::frame::{self, Frame, FrameKind};
-use yapfast_plugin_api::hook::{Draft, HookKind, HookOutcome, HookRequest, HookSubject};
+use yapfast_plugin_api::hook::{
+    AttachmentPending, Draft, HookKind, HookOutcome, HookRequest, HookSubject, TypingPending,
+};
 use yapfast_plugin_api::limits;
 use yapfast_plugin_api::manifest::CommandDecl;
 use yapfast_plugin_api::message::{
@@ -255,13 +257,58 @@ impl Bridge {
         }
         self.intercept(HookKind::MessagePreSend, draft)
     }
-
     /// Runs the chain in front of an edit, which is a different set of plugins
     /// from the one in front of a send: a plugin that rewrites what is typed
     /// needn't intercept what leaves, and one that filters sends usually
     /// doesn't want to see the same text twice.
     pub fn pre_edit(&mut self, draft: Draft) -> PreSend {
         self.intercept(HookKind::MessagePreEdit, draft)
+    }
+
+    /// Runs the `typing.pre_send` chain in front of a typing indicator, and
+    /// answers the id it is held under when one may withhold it.
+    ///
+    /// `None` leaves the indicator exactly as it was: nothing intercepts
+    /// typing, which is the whole cost of this call in the common case. A
+    /// hold's answer comes back as [`Notice::Typing`], and the indicator goes
+    /// then, so the person's composer never waits on a plugin.
+    pub fn typing(&mut self, room: &str) -> Option<u64> {
+        self.hold_hook(
+            HookKind::TypingPreSend,
+            HookSubject::Typing(TypingPending {
+                room: room.to_owned(),
+            }),
+            room,
+        )
+    }
+
+    /// Runs the `attachment.pre_upload` chain in front of a file the composer
+    /// is about to take, and answers the id it is held under when one may
+    /// rename or withhold it.
+    ///
+    /// The file itself stays in the application: the chain is about its name,
+    /// its size and its type, and the answer names what the upload should be
+    /// called or why it doesn't go. [`Notice::Attachment`] carries it back.
+    pub fn attachment(&mut self, pending: AttachmentPending) -> Option<u64> {
+        let room = pending.room.clone();
+        self.hold_hook(
+            HookKind::AttachmentPreUpload,
+            HookSubject::Attachment(pending),
+            &room,
+        )
+    }
+
+    /// Holds a hook that isn't a send until its chain answers. False when
+    /// nothing intercepts it, which is the answer that costs one lookup.
+    fn hold_hook(&mut self, hook: HookKind, subject: HookSubject, room: &str) -> Option<u64> {
+        self.next_send += 1;
+        let id = self.next_send;
+        let held = held_hook(&self.shared, id, hook, room)?;
+        let request = HookRequest { hook, subject };
+        if !self.send(Request::Hook { held, request }) {
+            return None;
+        }
+        Some(id)
     }
 
     /// What the application knows, for it to publish into: the account, the
@@ -1332,6 +1379,7 @@ struct HeldSend {
     /// The composer's id for this send, echoed back to the application.
     id: u64,
     /// The draft as the person wrote it: what goes out if the chain fails.
+    /// For a hook that isn't a send, only its room is filled in.
     draft: Draft,
     hook: HookKind,
     /// The plugins the chain runs through, dependencies first.
@@ -1339,6 +1387,35 @@ struct HeldSend {
     /// When the person stops waiting: the moment they sent it plus the hook's
     /// whole-chain budget.
     deadline: Instant,
+}
+
+impl HeldSend {
+    /// What the application does with a chain that let its subject go as it
+    /// was, or that answered nothing at all: a held send goes out, a typing
+    /// indicator goes, a file stages as it was read. It is the fail-open answer
+    /// every hook gets when a plugin traps, runs late or answers nonsense.
+    fn let_go(self, shared: &Shared) {
+        match self.hook {
+            HookKind::MessagePreSend | HookKind::MessagePreEdit => {
+                shared.announce(Notice::SendReady {
+                    id: self.id,
+                    draft: self.draft,
+                });
+            }
+            HookKind::TypingPreSend => shared.announce(Notice::Typing {
+                id: self.id,
+                room: self.draft.room,
+            }),
+            HookKind::AttachmentPreUpload => shared.announce(Notice::Attachment {
+                id: self.id,
+                name: None,
+                blocked: None,
+            }),
+            // Nothing holds an activity: Yapfast publishes none, so a chain in
+            // front of one can't have anything waiting on it.
+            HookKind::ActivityPrePublish => {}
+        }
+    }
 }
 
 /// How a session ended.
@@ -1423,10 +1500,7 @@ async fn supervise(
 async fn stand_down(shared: &Shared, commands: &mut tokio::sync::mpsc::UnboundedReceiver<Request>) {
     while let Some(command) = commands.recv().await {
         if let Request::Hook { held, .. } = command {
-            shared.announce(Notice::SendReady {
-                id: held.id,
-                draft: held.draft,
-            });
+            held.let_go(shared);
         }
     }
 }
@@ -1599,6 +1673,34 @@ struct Timer {
     interval: Duration,
     repeating: bool,
     due: Instant,
+}
+
+/// The work a chain for a hook that isn't a message holds, or `None` when
+/// nothing intercepts that hook.
+///
+/// Only the room travels in the held draft: the subject a chain that changes
+/// nothing keeps is the one it was asked about, and none of these hooks has a
+/// draft to hand back.
+fn held_hook(shared: &Shared, id: u64, hook: HookKind, room: &str) -> Option<HeldSend> {
+    let chain = shared.registry().chain(hook);
+    if chain.is_empty() {
+        return None;
+    }
+    let budget = hook.budget();
+    let deadline =
+        Instant::now() + Duration::from_millis(budget.chain_ms.unwrap_or(budget.per_plugin_ms));
+    Some(HeldSend {
+        id,
+        draft: Draft {
+            room: room.to_owned(),
+            body: String::new(),
+            reply_to: None,
+            attachments: Vec::new(),
+        },
+        hook,
+        chain,
+        deadline,
+    })
 }
 
 /// A plugin loaded from a folder, and when its files are looked at again.
@@ -1829,10 +1931,7 @@ impl Session {
         let pending = std::mem::take(&mut self.pending);
         for pending in pending.into_values() {
             match pending.purpose {
-                Purpose::Hook(held) => shared.announce(Notice::SendReady {
-                    id: held.id,
-                    draft: held.draft,
-                }),
+                Purpose::Hook(held) => held.let_go(shared),
                 // The two that answer a guest are dropped with the process:
                 // there is no instance left to be told.
                 Purpose::Agent { .. } | Purpose::Invocation { .. } | Purpose::Swap { .. } => {}
@@ -2212,10 +2311,7 @@ impl Session {
                 hook = %held.hook,
                 "a hook chain was already out of time when the helper had it; the message goes unchanged"
             );
-            shared.announce(Notice::SendReady {
-                id: held.id,
-                draft: held.draft,
-            });
+            held.let_go(shared);
             return;
         }
         // Frames are handled in order, so loading each plugin in the chain first
@@ -2224,10 +2320,7 @@ impl Session {
         held.chain
             .retain(|plugin| self.activate(shared, plugin).runs());
         if held.chain.is_empty() {
-            shared.announce(Notice::SendReady {
-                id: held.id,
-                draft: held.draft,
-            });
+            held.let_go(shared);
             return;
         }
         let message = ToHelper::Hook {
@@ -3400,50 +3493,85 @@ impl Session {
         let Purpose::Hook(held) = pending.purpose else {
             return;
         };
-        // A block stops the person's message, so it is honoured only from a
-        // plugin whose manifest asked for that: `on_failure: "block"`, which
-        // needs `messages.intercept` and shows in the review dialog. Anyone
-        // else's is the fail-open answer, whatever it meant by it.
-        let may_block = by.as_ref().is_some_and(|plugin| {
-            shared
-                .registry()
-                .entry(plugin)
-                .is_some_and(|entry| entry.manifest.on_failure.blocks())
-        });
-        match outcome {
-            HookOutcome::Block { reason } if may_block => {
-                shared.announce(Notice::SendBlocked {
-                    id: held.id,
-                    reason,
-                });
+        // A plugin may stop what is going only where the person granted it.
+        // For a message that is `on_failure: "block"`, which needs
+        // `messages.intercept` and shows in the review dialog; anyone else's is
+        // the fail-open answer, whatever it meant by it. The other chains are
+        // the grant itself: a plugin is in the typing chain because
+        // `typing.intercept` lets it withhold the indicator, and in the upload
+        // chain because `uploads.intercept` lets it drop the file.
+        let may_block = match held.hook {
+            HookKind::MessagePreSend | HookKind::MessagePreEdit => {
+                by.as_ref().is_some_and(|plugin| {
+                    shared
+                        .registry()
+                        .entry(plugin)
+                        .is_some_and(|entry| entry.manifest.on_failure.blocks())
+                })
             }
+            HookKind::TypingPreSend
+            | HookKind::AttachmentPreUpload
+            | HookKind::ActivityPrePublish => true,
+        };
+        match outcome {
+            HookOutcome::Block { reason } if may_block => match held.hook {
+                HookKind::MessagePreSend | HookKind::MessagePreEdit => {
+                    shared.announce(Notice::SendBlocked {
+                        id: held.id,
+                        reason,
+                    });
+                }
+                // The indicator is simply not sent, and the reason goes to the
+                // log rather than the room: the person didn't ask for it.
+                HookKind::TypingPreSend => tracing::debug!(
+                    plugin = ?by,
+                    %reason,
+                    "a plugin withheld a typing indicator"
+                ),
+                HookKind::AttachmentPreUpload => shared.announce(Notice::Attachment {
+                    id: held.id,
+                    name: None,
+                    blocked: Some(reason),
+                }),
+                HookKind::ActivityPrePublish => {}
+            },
             HookOutcome::Block { .. } => {
                 tracing::warn!(
                     plugin = %by.as_ref().map_or_else(String::new, PluginId::to_string),
-                    "a plugin stopped a send without `on_failure` saying it may; the message goes unchanged"
+                    "a plugin stopped a message without `on_failure` saying it may; the draft goes as it was"
                 );
-                shared.announce(Notice::SendReady {
-                    id: held.id,
-                    draft: held.draft,
-                });
+                held.let_go(shared);
             }
-            HookOutcome::Changed(HookSubject::Draft(draft)) => {
+            HookOutcome::Changed(HookSubject::Draft(draft))
+                if matches!(
+                    held.hook,
+                    HookKind::MessagePreSend | HookKind::MessagePreEdit
+                ) =>
+            {
                 shared.announce(Notice::SendReady { id: held.id, draft });
             }
-            HookOutcome::Changed(_) => {
-                // A pre-send chain answers about the draft it was given; another
-                // subject means a plugin answered the wrong question, and the
-                // message goes as the person wrote it.
-                tracing::warn!("a pre-send chain answered about something else");
-                shared.announce(Notice::SendReady {
+            HookOutcome::Changed(HookSubject::Attachment(attachment))
+                if held.hook == HookKind::AttachmentPreUpload =>
+            {
+                shared.announce(Notice::Attachment {
                     id: held.id,
-                    draft: held.draft,
+                    name: Some(attachment.name),
+                    blocked: None,
                 });
             }
-            HookOutcome::Unchanged => shared.announce(Notice::SendReady {
-                id: held.id,
-                draft: held.draft,
-            }),
+            HookOutcome::Changed(HookSubject::Typing(_)) => {
+                // There is nothing in an indicator to change; a chain that
+                // answered with one let it go.
+                held.let_go(shared);
+            }
+            HookOutcome::Changed(_) => {
+                // A chain answers about the subject it was given; another one
+                // means a plugin answered the wrong question, and the subject
+                // goes as it was.
+                tracing::warn!(hook = %held.hook, "a hook chain answered about something else");
+                held.let_go(shared);
+            }
+            HookOutcome::Unchanged => held.let_go(shared),
         }
     }
 
@@ -3645,12 +3773,9 @@ impl Session {
                 tracing::warn!(
                     chain = held.chain.len(),
                     hook = %held.hook,
-                    "a hook chain ran out of time; the message goes unchanged"
+                    "a hook chain ran out of time; the subject goes as it was"
                 );
-                shared.announce(Notice::SendReady {
-                    id: held.id,
-                    draft: held.draft,
-                });
+                held.let_go(shared);
             }
             Purpose::Agent {
                 what,
@@ -4177,6 +4302,33 @@ mod tests {
         "on_failure":"block",
         "permissions":{"capabilities":["messages.intercept"]},
         "activation":{"on":["event:typing"]}}"#;
+
+    /// Holds a hook that isn't a message through the session these tests own,
+    /// as `Bridge::typing` and `Bridge::attachment` do through the bridge.
+    fn hold(
+        session: &mut Session,
+        shared: &Arc<Shared>,
+        id: u64,
+        hook: HookKind,
+        subject: HookSubject,
+        room: &str,
+    ) -> Option<u64> {
+        let held = held_hook(shared, id, hook, room)?;
+        runtime().block_on(session.on_command(
+            shared,
+            Request::Hook {
+                held,
+                request: HookRequest { hook, subject },
+            },
+        ));
+        Some(id)
+    }
+
+    fn typing(room: &str) -> HookSubject {
+        HookSubject::Typing(TypingPending {
+            room: room.to_owned(),
+        })
+    }
 
     fn draft(body: &str) -> Draft {
         Draft {
@@ -6019,6 +6171,231 @@ mod tests {
         assert_eq!(
             load.wasm, installed.path,
             "what runs is the file the folder holds now"
+        );
+    }
+
+    /// A manifest for a plugin that may withhold typing, and one that may
+    /// rename an upload: each needs the capability its hook names.
+    const TYPING_MANIFEST: &str = r#"{"api":1,"id":"com.example.typing","name":"Typing","version":"1.0.0",
+        "wasm":"plugin.wasm",
+        "permissions":{"capabilities":["typing.intercept"]}}"#;
+
+    const UPLOAD_MANIFEST: &str = r#"{"api":1,"id":"com.example.upload","name":"Upload","version":"1.0.0",
+        "wasm":"plugin.wasm",
+        "permissions":{"capabilities":["uploads.intercept"]}}"#;
+
+    /// The reply a chain sends for the request it was handed: the helper's own
+    /// frame id is the one the parent is waiting under.
+    fn hook_done(id: u64, outcome: HookOutcome, by: Option<PluginId>) -> Frame {
+        Frame::new(
+            FrameKind::Reply,
+            id,
+            serde_json::to_vec(&FromHelper::HookDone {
+                outcome,
+                failures: Vec::new(),
+                by,
+            })
+            .expect("it serializes"),
+        )
+    }
+
+    #[test]
+    fn a_typing_indicator_is_held_for_a_chain_and_goes_when_it_answers() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), TYPING_MANIFEST, b"not a real module");
+        let (wake, notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        let held = hold(
+            &mut session,
+            &shared,
+            7,
+            HookKind::TypingPreSend,
+            typing("room-1"),
+            "room-1",
+        )
+        .expect("a chain holds the indicator");
+        let activate = next_frame(&written);
+        assert!(matches!(
+            message(&activate),
+            ToHelper::Activate { plugin: started, .. } if started == plugin
+        ));
+        let hook = next_frame(&written);
+        let ToHelper::Hook { chain, request } = message(&hook) else {
+            panic!("the second frame is the chain");
+        };
+        assert_eq!(chain, vec![plugin.clone()]);
+        assert_eq!(request.hook, HookKind::TypingPreSend);
+        assert_eq!(
+            request.subject,
+            HookSubject::Typing(TypingPending {
+                room: "room-1".to_owned()
+            }),
+            "an indicator has a room and nothing to change"
+        );
+
+        assert!(
+            session
+                .on_frame(&shared, hook_done(hook.id, HookOutcome::Unchanged, None))
+                .is_none()
+        );
+        assert_eq!(
+            notices
+                .recv_timeout(Duration::from_secs(2))
+                .expect("a notice"),
+            Notice::Typing {
+                id: held,
+                room: "room-1".to_owned()
+            },
+            "the application sends the indicator the chain let go"
+        );
+    }
+
+    #[test]
+    fn a_plugin_that_may_hide_typing_withholds_the_indicator() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), TYPING_MANIFEST, b"not a real module");
+        let (wake, notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        hold(
+            &mut session,
+            &shared,
+            8,
+            HookKind::TypingPreSend,
+            typing("room-1"),
+            "room-1",
+        )
+        .expect("a chain holds it");
+        let activate = next_frame(&written);
+        assert!(matches!(message(&activate), ToHelper::Activate { .. }));
+        let hook = next_frame(&written);
+        assert!(matches!(message(&hook), ToHelper::Hook { .. }));
+
+        // `typing.intercept` is the grant: the plugin is in this chain because
+        // the person said it may hide the indicator, so its refusal is honoured
+        // without `on_failure: "block"`, which is about messages.
+        assert!(
+            session
+                .on_frame(
+                    &shared,
+                    hook_done(
+                        hook.id,
+                        HookOutcome::Block {
+                            reason: "typing is off".to_owned(),
+                        },
+                        Some(plugin),
+                    ),
+                )
+                .is_none()
+        );
+        assert!(
+            notices.recv_timeout(Duration::from_millis(50)).is_err(),
+            "a withheld indicator is not sent, and the person isn't told"
+        );
+    }
+
+    #[test]
+    fn a_file_is_held_for_the_upload_chain_and_comes_back_renamed() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), UPLOAD_MANIFEST, b"not a real module");
+        let (wake, notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        let pending = AttachmentPending {
+            room: "room-1".to_owned(),
+            name: "cat.JPG".to_owned(),
+            bytes: 2_048,
+            content_type: Some("image/jpeg".to_owned()),
+        };
+        let held = hold(
+            &mut session,
+            &shared,
+            9,
+            HookKind::AttachmentPreUpload,
+            HookSubject::Attachment(pending.clone()),
+            "room-1",
+        )
+        .expect("a chain holds the file");
+        let activate = next_frame(&written);
+        assert!(matches!(message(&activate), ToHelper::Activate { .. }));
+        let hook = next_frame(&written);
+        let ToHelper::Hook { chain, request } = message(&hook) else {
+            panic!("the second frame is the chain");
+        };
+        assert_eq!(chain, vec![plugin.clone()]);
+        assert_eq!(request.subject, HookSubject::Attachment(pending.clone()));
+
+        let renamed = AttachmentPending {
+            name: "cat.jpg".to_owned(),
+            ..pending
+        };
+        assert!(
+            session
+                .on_frame(
+                    &shared,
+                    hook_done(
+                        hook.id,
+                        HookOutcome::Changed(HookSubject::Attachment(renamed)),
+                        Some(plugin),
+                    ),
+                )
+                .is_none()
+        );
+        assert_eq!(
+            notices
+                .recv_timeout(Duration::from_secs(2))
+                .expect("a notice"),
+            Notice::Attachment {
+                id: held,
+                name: Some("cat.jpg".to_owned()),
+                blocked: None,
+            }
+        );
+    }
+
+    #[test]
+    fn nothing_holds_what_no_plugin_intercepts() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        // This one intercepts sends, and neither typing nor uploads.
+        installed(directory.path(), HOOK_MANIFEST, b"not a real module");
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        assert!(
+            hold(
+                &mut session,
+                &shared,
+                10,
+                HookKind::TypingPreSend,
+                typing("room-1"),
+                "room-1",
+            )
+            .is_none()
+        );
+        assert!(
+            hold(
+                &mut session,
+                &shared,
+                11,
+                HookKind::AttachmentPreUpload,
+                HookSubject::Attachment(AttachmentPending {
+                    room: "room-1".to_owned(),
+                    name: "a.txt".to_owned(),
+                    bytes: 1,
+                    content_type: None,
+                }),
+                "room-1",
+            )
+            .is_none()
+        );
+        assert!(
+            written.recv_timeout(Duration::from_millis(50)).is_err(),
+            "nothing is asked of a helper when nothing intercepts"
         );
     }
 }
