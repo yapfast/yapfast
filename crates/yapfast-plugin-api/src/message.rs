@@ -179,10 +179,15 @@ pub enum FromHelper {
         plugin: PluginId,
         state: Option<String>,
     },
-    /// A chain's final answer, and the plugins that failed on the way.
+    /// A chain's final answer, the plugins that failed on the way, and the
+    /// plugin that answered, when one changed or stopped the subject.
     HookDone {
         outcome: HookOutcome,
         failures: Vec<(PluginId, Fault)>,
+        /// Which plugin produced `outcome`, for a parent that has to ask what
+        /// its manifest allows. Absent for a chain nobody answered into.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by: Option<PluginId>,
     },
     /// A command's answer.
     CommandDone {

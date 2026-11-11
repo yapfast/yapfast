@@ -79,7 +79,7 @@ impl Channel {
 /// round trip for something it can't do. Names that are listed and not yet
 /// implemented still travel, because the parent knows which capabilities it has
 /// and answers with the reason a person would want to read.
-const FORWARDED: [&str; 33] = [
+const FORWARDED: [&str; 34] = [
     method::APP_VERSION,
     method::APP_LOCALE,
     method::APP_THEME_MODE,
@@ -95,6 +95,7 @@ const FORWARDED: [&str; 33] = [
     method::STORAGE_DELETE,
     method::STORAGE_LIST,
     method::SETTINGS_GET,
+    method::SETTINGS_ON_CHANGE,
     method::HTTP_FETCH,
     method::TIMERS_AFTER,
     method::TIMERS_EVERY,

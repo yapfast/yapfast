@@ -47,7 +47,7 @@ use yapfast_plugin_api::limits::MAX_HANDOFF_BYTES;
 use yapfast_plugin_api::message::{Fault, FaultKind, FromHelper};
 use yapfast_plugin_api::{API_VERSION, PluginId};
 
-use crate::backend::{Backend, HookRun, LoadSpec};
+use crate::backend::{Backend, LoadSpec};
 
 /// How long one guest call may run when nothing else stops it.
 ///
@@ -245,41 +245,8 @@ impl Backend for ExtismBackend {
         loaded.call::<()>("yf_event", &bytes).map(|_| ())
     }
 
-    fn hook(&self, chain: &[PluginId], request: &HookRequest) -> HookRun {
-        let mut asked = request.clone();
-        let mut outcome = None;
-        let mut failures = Vec::new();
-        for plugin in chain {
-            match self.one_hook(plugin, &asked) {
-                Ok(answer) => match &answer {
-                    // The next plugin sees what this one produced, and the chain
-                    // answers with the last subject anyone produced: a later
-                    // plugin that leaves it alone doesn't take that back.
-                    HookOutcome::Changed(subject) => {
-                        asked.subject = subject.clone();
-                        outcome = Some(answer);
-                    }
-                    HookOutcome::Block { .. } => {
-                        outcome = Some(answer);
-                        break;
-                    }
-                    HookOutcome::Unchanged => {}
-                },
-                // A hook fails open: the next plugin sees the subject as it
-                // was, because a plugin that trapped has no opinion on it.
-                Err(fault) => failures.push((plugin.clone(), fault)),
-            }
-        }
-        match outcome {
-            Some(outcome) => HookRun {
-                outcome: Some(outcome),
-                failures,
-            },
-            None => HookRun {
-                failures,
-                ..HookRun::unchanged()
-            },
-        }
+    fn hook(&self, plugin: &PluginId, request: &HookRequest) -> Result<HookOutcome, Fault> {
+        self.one_hook(plugin, request)
     }
 
     fn command(
@@ -790,13 +757,7 @@ mod tests {
                 .reason
                 .contains("never loaded")
         );
-        assert_eq!(
-            backend
-                .hook(std::slice::from_ref(&plugin), &request())
-                .failures
-                .len(),
-            1
-        );
+        assert!(backend.hook(&plugin, &request()).is_err());
         assert_eq!(
             backend.command(&plugin, &invocation()).unwrap_err().kind,
             FaultKind::BadModule

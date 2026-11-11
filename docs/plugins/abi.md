@@ -63,6 +63,19 @@ A hook's `chain` is the plugin ids in activation order, dependencies first and
 then by id, so the whole chain is one exchange with the parent rather than one
 round trip per plugin. Each plugin in it sees the previous one's subject.
 
+The helper runs that chain one plugin at a time, and gives each its own
+deadline: 25 ms for `message_pre_send`, and the chain as a whole 100 ms. A
+plugin that runs past its own is cancelled, thrown away and left out of the
+answer with a `deadline` fault against it, and the chain goes on with the
+subject as it was. `by` names the plugin whose answer the chain ended with, so
+the parent can ask what its manifest allows before it acts on a `block`.
+
+A hook's deadlines are the parent's as well as the helper's: it starts the
+clock when the person pressed send, so the helper's start, the hello and the
+first compile of a module all come out of the same 100 ms. A chain that has
+spent its budget before the helper has it is answered unchanged rather than
+given a fresh one.
+
 ### The helper to Yapfast
 
 | `t` | Fields | Meaning |
@@ -71,7 +84,7 @@ round trip per plugin. Each plugin in it sees the previous one's subject.
 | `call` | `plugin`, `call`, `request` | A guest wants something from Yapfast: its own number for the call, and the method with its payload. The answer is a `return` frame with that number |
 | `activated` | `plugin`, `state`, `memory_pages` | The instance is up, with what the last `yf_deactivate` handed on |
 | `deactivated` | `plugin`, `state` | The instance is gone, with its hand-off |
-| `hook_done` | `outcome`, `failures` | A chain's final answer, and the plugins that failed on the way |
+| `hook_done` | `outcome`, `failures`, `by` | A chain's final answer, the plugins that failed on the way, and the plugin whose answer it is |
 | `command_done` | `plugin`, `outcome` | A command's answer |
 | `event_done` | `plugin` | An event batch finished |
 | `status` | `plugin`, `status` | A plugin's state changed, for the page and the registry |
@@ -152,7 +165,10 @@ one call each.
 
 A hook's subject is a draft about to be sent, a file on its way up, or an
 activity about to be published. The answer is `unchanged`, `changed` with the new
-subject, which the next plugin in the chain sees, or `block` with a reason.
+subject, which the next plugin in the chain sees, or `block` with a reason. A
+`block` stops the message only from a plugin whose manifest says
+`"on_failure": "block"`, which needs `messages.intercept`; from any other it
+is the fail-open answer and the message goes as it was.
 
 ```json
 { "hook": "message_pre_send",
@@ -162,6 +178,15 @@ subject, which the next plugin in the chain sees, or `block` with a reason.
 A command's answer is `none`, `notice` with a line for the person to see in the
 room they typed it in, `value` with the plugin's own JSON, or `failed` with a
 message.
+
+A settings change arrives as the answer to the `settings.on_change` call that
+asked for it: the keys that changed, with the values they hold now, and the
+input of a widget one of its settings draws when that was what the person used.
+
+```json
+{ "changed": { "mode": "hide" } }
+{ "widget": { "setting": "preview", "id": "reset", "value": "clicked" } }
+```
 
 ### Host calls
 
@@ -183,6 +208,13 @@ ABI lists — `account.me`, the `rooms`, `messages` and `people` reads,
 `plugin.call`, `publish` and `subscribe`, `notify.send`, `clipboard.write` and
 `open.url` — is named from the first version so a plugin can feature-detect it,
 and answers `unsupported` until the runtime has it.
+
+`settings.get` answers one of the plugin's settings as the person set it, and
+`settings.on_change` is how a plugin hears about a change while it runs: the
+call is answered `pending`, and every change after it arrives as the answer to
+that call, in the guest's next event batch, so the plugin sees it without being
+restarted. A plugin that isn't running isn't woken for one: it reads its values
+with `settings.get` when it next starts.
 
 Every host call is a request the parent answers, because the parent holds the
 token, the network gate and the consent dialogs, and the guest's function is

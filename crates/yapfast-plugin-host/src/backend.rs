@@ -56,7 +56,11 @@ pub trait Backend: Send + Sync {
 
     /// The whole hook chain, in the order given, as one exchange: each plugin
     /// sees the previous one's result.
-    fn hook(&self, chain: &[PluginId], request: &HookRequest) -> HookRun;
+    ///
+    /// One plugin's answer to one hook, with the subject the chain carries.
+    /// The chain itself is the scheduler's: it decides how long each plugin
+    /// gets, so a call here is always one plugin's own budget.
+    fn hook(&self, plugin: &PluginId, request: &HookRequest) -> Result<HookOutcome, Fault>;
 
     /// One command, as `yf_command`.
     fn command(
@@ -91,6 +95,9 @@ pub trait Backend: Send + Sync {
 pub struct HookRun {
     /// The last subject any plugin produced, or the one asked about.
     pub outcome: Option<HookOutcome>,
+    /// The plugin that produced [`HookRun::outcome`], when one changed or
+    /// stopped the subject.
+    pub by: Option<PluginId>,
     pub failures: Vec<(PluginId, Fault)>,
 }
 
@@ -99,6 +106,7 @@ impl HookRun {
     pub fn unchanged() -> Self {
         HookRun {
             outcome: Some(HookOutcome::Unchanged),
+            by: None,
             failures: Vec::new(),
         }
     }

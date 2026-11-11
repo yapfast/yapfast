@@ -115,6 +115,24 @@ until one is used; `event:<kind>` subscribes to an event. The event kinds are
 whether or not it says so, because the first message must not go out before it
 is ready.
 
+## Hooks and their failure
+
+`on_failure` says what happens when the plugin fails or runs late in a hook. It
+is `fail_open` unless the manifest writes it, and the only other value is
+`block`:
+
+```json
+{ "on_failure": "block" }
+```
+
+`block` needs `messages.intercept`, and a manifest that asks for it without that
+capability is refused with `on_failure: "block"` needs the
+`messages.intercept` capability rather than installed. With it, the plugin's
+`block` outcome stops the send and the reason is shown where the person typed;
+from a plugin that didn't say it, a `block` is the fail-open answer. Both ways
+the message is held no longer than the hook's budget: 25 ms for the plugin and
+100 ms for the chain.
+
 ## Commands
 
 Each command is a row in the composer's `/` list. A command needs a name and a

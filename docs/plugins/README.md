@@ -162,7 +162,9 @@ Beyond those, the API is a first slice rather than the surface a plugin author
 would want: of the method groups a manifest can name, `storage`, `settings`,
 `timers` and `log` are answered, and `messages`, `people`, `rooms`, `account`,
 `composer`, `plugin`, `notify`, `clipboard`, `open` and `ui` answer
-`unsupported`. `message.pre_send` and `message.pre_edit` exist and fail open;
+`unsupported`. `message.pre_send` and `message.pre_edit` exist, run as a chain
+with a deadline per plugin and for the whole thing, and fail open unless a
+plugin's manifest asks for `on_failure: "block"`;
 `typing.pre_send`, `attachment.pre_upload` and `activity.pre_publish` don't. The
 OS sandbox under the helper, the marketplace, and update checks are not started.
 `docs/plugins/manifest.md` lists the fields; a manifest may declare `menus`,

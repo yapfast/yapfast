@@ -46,6 +46,10 @@ pub const PATTERN_BYTES: usize = 256;
 pub const SLIDER_STEPS: f64 = 1000.0;
 /// The most tests in one `show` or `enable`.
 pub const TESTS: usize = 8;
+/// The most `settings.on_change` calls one plugin may have outstanding: a
+/// plugin asks once, and a guest that asks again and again would otherwise
+/// have the parent keep a list of its ids for the instance's life.
+pub const MAX_WATCHERS: usize = 4;
 /// The largest `settings.json` read; a larger one is left alone and the
 /// defaults apply.
 pub const FILE_BYTES: u64 = 1024 * 1024;

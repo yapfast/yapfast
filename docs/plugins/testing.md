@@ -23,6 +23,8 @@ status code. Zero means the call succeeded.
 | `bad_activate.wat` | Returns a non-zero status from `yf_activate` | An `activate_failed` fault, and a helper that is still running |
 | `bad_answer.wat` | Answers its own question where a `HookOutcome` belongs | A `bad_answer` fault, the message going out as it was, and the rest of the chain still running |
 | `slow_host.wat` | Asks for `http.fetch` in `yf_event` and returns | The call arriving at the parent, its answer arriving as a later event, and another plugin still running while it waits |
+| `filter.wat` | Answers `yf_hook` with a draft of its own: another room, other text | The chain carrying that draft, and the send going out with it — M4's first exit criterion |
+| `spin_hook.wat` | Activates, then never leaves `yf_hook` | A `deadline` fault, the chain answering without it, and a helper still serving — M4's second |
 
 `echo.wat` exports all six guest functions because a hook chain may include it;
 the exports a scenario never reaches return 0 with no answer, which the ABI reads
@@ -87,6 +89,23 @@ The application's side is tested with a fake bridge in
 `crates/yapfast-core/src/application/tests.rs`: a send with an intercepting
 plugin goes out once, in order, and a chain that fails or runs late lets it go
 unchanged.
+
+A hook's budgets are tested where they are enforced, which is two places. In the
+helper, `crates/yapfast-plugin-host/tests/e2e.rs` sends a chain to
+`spin_hook.wat` and measures the whole thing from the frame to `HookDone`: the
+plugin's own 25 ms, not the chain's 100 and not an activation's two seconds, with
+a `deadline` fault against it and the helper still serving afterwards. The same
+file times 200 hook exchanges against `echo.wat` and 200 JSON round trips of the
+same messages, and prints the share JSON is of a hook;
+[the measurements](../measurements/README.md#a-hooks-json) record the number and
+what it means for MessagePack. In the parent, `plugins_runtime.rs` runs both M4
+scenarios through the real helper: `filter.wat` rewrites the text and the
+rewritten draft is the answer the send goes out with, and `spin_hook.wat` holds a
+send for no longer than its budget while the message goes out as it was written.
+`plugins::bridge`'s unit tests cover the rest without a helper: a `block` from a
+plugin whose manifest doesn't say `on_failure: "block"` fails open, and a plugin
+that asked for `settings.on_change` is answered `pending` and then told of a
+change, while one that never asked is told nothing.
 
 Two tests run the real helper, which is the only way to see the two halves
 agree, and both say so and pass when `YAPFAST_PLUGINS` names no binary:

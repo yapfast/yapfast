@@ -15,10 +15,10 @@ use yapfast_plugin_api::PluginId;
 use yapfast_plugin_api::call::{CommandInvocation, CommandOutcome};
 use yapfast_plugin_api::event::{EventEnvelope, EventKind, Network};
 use yapfast_plugin_api::frame::{Frame, FrameKind, read_frame};
-use yapfast_plugin_api::hook::{Draft, HookKind, HookRequest, HookSubject};
+use yapfast_plugin_api::hook::{Draft, HookKind, HookOutcome, HookRequest, HookSubject};
 use yapfast_plugin_api::message::{Fault, FaultKind, FromHelper, PluginStatus};
 
-use yapfast_plugin_host::backend::{Backend, CancelToken, HookRun, LoadSpec};
+use yapfast_plugin_host::backend::{Backend, CancelToken, LoadSpec};
 use yapfast_plugin_host::pipe::{Pipe, Signal};
 use yapfast_plugin_host::scheduler::{Config, Held, Message, Scheduler};
 
@@ -674,17 +674,10 @@ impl Backend for Fake {
         self.calls.enter(format!("event:{plugin}:{label}"))
     }
 
-    fn hook(&self, chain: &[PluginId], request: &HookRequest) -> HookRun {
-        let names: Vec<&str> = chain.iter().map(|plugin| plugin.as_str()).collect();
-        let result = self.calls.enter(format!("hook:{}", names.join(",")));
-        if let Err(fault) = result {
-            return HookRun {
-                outcome: None,
-                failures: vec![(chain[0].clone(), fault)],
-            };
-        }
+    fn hook(&self, plugin: &PluginId, request: &HookRequest) -> Result<HookOutcome, Fault> {
+        self.calls.enter(format!("hook:{plugin}"))?;
         let _ = request;
-        HookRun::unchanged()
+        Ok(HookOutcome::Unchanged)
     }
 
     fn command(

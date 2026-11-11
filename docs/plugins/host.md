@@ -77,17 +77,27 @@ timer at all.
 | `attachment_pre_upload` | Interactive | 50 ms per plugin, 150 ms for the chain |
 | `activity_pre_publish` | Background | 25 ms per plugin, 100 ms for the chain |
 | A batch of events | Background | 250 ms |
-| A command | Interactive | 250 ms |
+| A command | Interactive | 2 s |
 | Loading, `yf_activate`, `yf_deactivate` | Interactive | 2 s |
 
-A hook's chain deadline is the budget when the hook has one, and otherwise the
-per-plugin budget times the number of plugins in the chain, so the chain's
-budget can't be smaller than one plugin's. Events and commands get a quarter of
-a second: not much, but a batch that never returns would hold its mailbox and its
-instance's memory, and a command that is still running after it has missed its
-deadline is better reported than left to run. Instantiation and activation get
-two seconds because they are slow on a cold cache and a slow start isn't a
-plugin misbehaving.
+A hook's chain is run one plugin at a time, and each plugin has its own
+deadline as well as the chain having one: the plugin gets the smaller of its own
+budget and what is left of the chain's. That is what a hung plugin costs — its
+own 25 ms, not the chain's 100 and not an activation's two seconds — and a chain
+that has spent its budget stops before the plugins whose turn never came. A
+plugin that misses its own deadline is thrown away and left out of the answer,
+and the chain goes on with the subject as it was. Events and commands get a
+quarter of a second each, and a command was once reported as 250 ms here when
+the parent had given it two seconds: a command that is still running after it
+has missed its deadline is better reported than left to run. Instantiation and
+activation get two seconds because they are slow on a cold cache and a slow
+start isn't a plugin misbehaving.
+
+The parent holds a hook's whole-chain deadline too, and starts it when the
+person pressed send rather than when the helper had the frame: the helper's
+start, the hello and a module's first compile all come out of the same 100 ms,
+so a slow start can't hold a message either. A chain whose budget is spent
+before the helper sees it is answered unchanged rather than given a fresh one.
 
 A missed deadline cancels the call at whatever point it reached, and the
 instance is therefore thrown away rather than reused: it stopped in the middle of
@@ -103,10 +113,20 @@ plugin sees the subject as it was before the failure, not the failed plugin's
 half-finished change. That is the default, and it is why a plugin can't stop a
 message by accident.
 
-Only a plugin that holds `messages.intercept` may stop one, and that capability
-is one of the four the consent dialog shows in its danger tone. Its answer is a
-`block` outcome with a reason the person is shown; without the capability the
-block is ignored and the message goes as it was.
+A plugin that must stop one — one that encrypts what leaves, so sending it
+anyway would put plain text on the wire — says so in its manifest:
+
+```json
+{ "on_failure": "block" }
+```
+
+That needs `messages.intercept`, which is one of the four capabilities the
+consent dialog shows in its danger tone: a manifest that asks for it without
+the capability is refused outright, so an update can't quietly turn a filter
+into something that stops messages. With it, the plugin's `block` outcome holds
+the send back and its reason is shown where the person typed; from a plugin
+whose manifest doesn't say it, a `block` is the fail-open answer and the
+message goes as it was.
 
 ## Faults and strikes
 
