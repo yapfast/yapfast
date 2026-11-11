@@ -17,10 +17,12 @@
 //! be made again too. A file gives its room back as well: a share that went
 //! full-screen once doesn't hold four-K slots for the stream's life, since the
 //! worker shortens the file once the frames have needed a fraction of it for
-//! long enough. A reader maps the file for the length of one take and lets it
-//! go after, holding the file shared while it does, so nothing is ever
-//! shortened under a mapping: the worker takes the file to itself for it, and
-//! a reader that is reading is what it finds there.
+//! long enough. A reader keeps its view from take to take, holding the file
+//! shared while it does, so a frame costs no mapping of the file and no page
+//! faults over it; nothing is ever shortened under a mapping, since the worker
+//! takes the file to itself for it. It asks for that in the header first, and
+//! a reader that sees the request lets its view go after the take it is in
+//! and maps the file for each take until the room has gone back.
 //!
 //! A slot holds either pixels or a picture the worker drew on the GPU and
 //! shared with the UI's process, which the UI shows without copying it: the
@@ -74,7 +76,7 @@ const MAGIC: u32 = u32::from_le_bytes(*b"TKFR");
 /// meaning (Linux). Windows leaves the field it is in zero, and reads it not at
 /// all.
 #[cfg(target_os = "linux")]
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 /// Where the slots start. It's well past what the header says, so a field
 /// added later lands in the room this one leaves rather than moving every
 /// slot in a file the other process has already mapped.
@@ -155,6 +157,11 @@ struct Header {
     /// Windows, where a picture crosses as a handle in a slot instead.
     #[cfg(target_os = "linux")]
     socket: AtomicU32,
+    /// Nonzero while the worker wants the file to itself, to give its room
+    /// back: a reader that sees it lets its view go after the take it is in,
+    /// and maps the file for each take until the worker has shortened it,
+    /// rather than keeping one view from take to take.
+    release: AtomicU32,
 }
 
 /// One slot's picture, when the worker drew it on the GPU instead of writing
@@ -411,6 +418,8 @@ impl Mapping {
                 .store(u32::try_from(self.capacity)?, Ordering::Release);
             header.middle.fetch_and(!FRESH, Ordering::AcqRel);
         }
+        // The shortening that left no view is over: readers may keep theirs.
+        self.header().release.store(0, Ordering::Release);
         Ok(())
     }
 
@@ -526,29 +535,28 @@ impl Mapping {
     }
 }
 
-/// A reader's view of the file, held for the length of one take and let go with
-/// the shared lock that goes with it. A reader that isn't reading has no view up,
-/// which is what lets the worker give the file's room back: it shortens the file
-/// only while it can hold the file to itself, and it asks by taking the lock.
-struct Reading<'a> {
-    file: &'a File,
+/// A reader's view of the file, kept from take to take and let go when the
+/// worker asks for the file, with the shared lock that goes with it: the worker
+/// shortens the file only while it can hold the file to itself, and it asks by
+/// raising [`Header::release`] and then taking the lock. The lock is the open
+/// file's, which every view in this process would share, so the process keeps
+/// one view, in [`Front`], and lets it go only through [`Self::let_go`].
+struct Reading {
     /// Whether the file is held shared for as long as this view exists. A file
     /// system that can't lock the file is one where the room isn't given back
     /// either — the worker's own attempt fails there too — so a refusal is not
     /// a reason to stop showing frames.
     locked: bool,
-    /// The view, or none for the moment between letting it go and the lock
-    /// going with it.
-    map: Option<MmapMut>,
+    map: MmapMut,
     /// The bytes a slot held when this view was made, which is the stride its
     /// slots are read at.
     capacity: usize,
 }
 
-impl<'a> Reading<'a> {
-    /// Maps the file for a read: the lock comes first and the view after it, so
-    /// a view never exists while the worker could be shortening the file.
-    fn open(file: &'a File) -> Result<Self> {
+impl Reading {
+    /// Maps the file for reading: the lock comes first and the view after it,
+    /// so a view never exists while the worker could be shortening the file.
+    fn open(file: &File) -> Result<Self> {
         // A lock error is not a reason to stop showing frames: it is the same
         // answer the writer gets when it asks, so nothing shortens this file.
         let locked = file.lock_shared().is_ok();
@@ -563,58 +571,86 @@ impl<'a> Reading<'a> {
                 return Err(error).context("could not map the video frames");
             }
         };
-        // From here the view letting go of the file is also what unlocks it,
-        // so a file that isn't the frames file is let go of like one that is.
         let mut reading = Self {
-            file,
             locked,
-            map: Some(map),
+            map,
             capacity: 0,
         };
-        ensure!(
-            reading.view().len() >= HEADER,
-            "the video frames file is too short"
-        );
-        ensure!(reading.header().magic == MAGIC, "not a video frames file");
-        #[cfg(target_os = "linux")]
-        ensure!(
-            reading.header().version.load(Ordering::Acquire) == VERSION,
-            "not this version of a video frames file"
-        );
-        reading.capacity = reading.capacity_now();
-        ensure!(
-            reading.view().len() >= HEADER + SLOTS as usize * reading.capacity,
-            "the video frames file is too short"
-        );
+        let checked = (|| {
+            ensure!(
+                reading.map.len() >= HEADER,
+                "the video frames file is too short"
+            );
+            ensure!(reading.header().magic == MAGIC, "not a video frames file");
+            #[cfg(target_os = "linux")]
+            ensure!(
+                reading.header().version.load(Ordering::Acquire) == VERSION,
+                "not this version of a video frames file"
+            );
+            reading.capacity = reading.capacity_now();
+            ensure!(
+                reading.map.len() >= HEADER + SLOTS as usize * reading.capacity,
+                "the video frames file is too short"
+            );
+            Ok(())
+        })();
+        // A file that isn't the frames file is let go of like one that is.
+        if let Err(error) = checked {
+            reading.let_go(file);
+            return Err(error);
+        }
         Ok(reading)
     }
 
-    fn view(&self) -> &MmapMut {
-        self.map.as_ref().expect("the frames are mapped")
+    /// The view goes before the lock: the worker shortens the file only while
+    /// nothing has a view of it, and a lock let go with the view still up would
+    /// say the file was the worker's to shorten.
+    fn let_go(self, file: &File) {
+        let locked = self.locked;
+        drop(self.map);
+        if locked {
+            let _ = file.unlock();
+        }
     }
 
     fn header(&self) -> &Header {
-        header_of(self.view())
+        header_of(&self.map)
     }
 
     fn capacity_now(&self) -> usize {
         self.header().capacity.load(Ordering::Acquire) as usize
     }
 
+    /// Whether the worker wants the file to itself.
+    fn asked_for(&self) -> bool {
+        self.header().release.load(Ordering::Acquire) != 0
+    }
+
     fn slot(&self, index: u32) -> *mut u8 {
-        slot_of(self.view(), self.capacity, index)
+        slot_of(&self.map, self.capacity, index)
     }
 }
 
-impl Drop for Reading<'_> {
-    fn drop(&mut self) {
-        // The view goes before the lock: the worker shortens the file only
-        // while nothing has a view of it, and a lock let go with the view still
-        // up would say the file was the worker's to shorten.
-        self.map = None;
-        if self.locked {
-            let _ = self.file.unlock();
-        }
+/// The view `kept` holds, made now if there is none or the one there is no
+/// longer fits: the worker grew the file since, or wants it to itself.
+fn reading<'a>(kept: &'a mut Option<Reading>, file: &File) -> Result<&'a Reading> {
+    if let Some(view) = kept.as_ref()
+        && (view.asked_for() || view.capacity_now() != view.capacity)
+    {
+        kept.take().expect("a view was kept").let_go(file);
+    }
+    if kept.is_none() {
+        *kept = Some(Reading::open(file)?);
+    }
+    Ok(kept.as_ref().expect("a view was just made"))
+}
+
+/// After a use of the view: let go of it when the worker has asked for the file,
+/// so it gets it before the next take rather than waiting on a view nobody is
+/// reading.
+fn done_reading(kept: &mut Option<Reading>, file: &File) {
+    if kept.as_ref().is_some_and(Reading::asked_for) {
+        kept.take().expect("a view was kept").let_go(file);
     }
 }
 
@@ -625,9 +661,7 @@ pub struct Frames {
     /// out again as soon as the process makes a new one — by the allocator
     /// that just freed the old, typically at the same size.
     id: u64,
-    /// The file, mapped for the length of a take and let go after it: the
-    /// worker shortens it only while nothing has it mapped, so a view held
-    /// between takes would hold the file's room with it.
+    /// The file, whose view [`Front::kept`] holds between takes.
     file: File,
     /// The slot the UI read last, which is the one it hands back when it takes
     /// the middle one.
@@ -642,6 +676,9 @@ static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new
 /// itself, which is mapped again for each take.
 struct Front {
     slot: u32,
+    /// The view of the file this process reads through, kept between takes;
+    /// see [`Reading`].
+    kept: Option<Reading>,
     /// The socket the worker's pictures arrive on, and the pictures taken out of
     /// it that no take has asked for yet (Linux).
     #[cfg(target_os = "linux")]
@@ -713,10 +750,11 @@ impl std::fmt::Debug for Frames {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // A frame being read holds the file, and a log line doesn't wait for
         // it: what it holds is printed when it can be read.
-        let capacity = self.front.try_lock().ok().and_then(|_front| {
-            Reading::open(&self.file)
-                .ok()
-                .map(|reading| reading.capacity)
+        let capacity = self.front.try_lock().ok().and_then(|mut front| {
+            let kept = &mut front.kept;
+            let capacity = reading(kept, &self.file).ok().map(|view| view.capacity);
+            done_reading(kept, &self.file);
+            capacity
         });
         formatter
             .debug_struct("Frames")
@@ -762,6 +800,7 @@ impl Frames {
             file,
             front: Mutex::new(Front {
                 slot: 2,
+                kept: None,
                 #[cfg(target_os = "linux")]
                 pictures: dmabuf::Reader::default(),
             }),
@@ -780,21 +819,23 @@ impl Frames {
     /// pictures that would have crossed it.
     #[cfg(target_os = "linux")]
     pub fn open_pictures(&self) -> Result<u32> {
-        let fd = {
-            let mut front = self
-                .front
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            front
-                .pictures
-                .open()
-                .context("could not make the pictures socket")?
-        };
+        let mut front = self
+            .front
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let fd = front
+            .pictures
+            .open()
+            .context("could not make the pictures socket")?;
+        let fd = u32::try_from(fd)?;
         // The header names it before the process that inherits it starts, so a
         // worker that finds no descriptor there is one whose window made none.
-        let reading = Reading::open(&self.file)?;
-        let fd = u32::try_from(fd)?;
-        reading.header().socket.store(fd, Ordering::Release);
+        let kept = &mut front.kept;
+        reading(kept, &self.file)?
+            .header()
+            .socket
+            .store(fd, Ordering::Release);
+        done_reading(kept, &self.file);
         Ok(fd)
     }
 
@@ -842,20 +883,33 @@ impl Frames {
 
     /// As [`Self::take_frame`], with when the frame shows in a video file.
     pub fn take_frame_timed<T>(&self, show: impl FnOnce(Frame<'_>) -> T) -> Option<(T, u64)> {
-        let mut front = self
+        let mut guard = self
             .front
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Every way out of the take, a frame shown or none, ends with the view
+        // let go if the worker asked for the file meanwhile.
+        let taken = self.take_with(&mut guard, show);
+        done_reading(&mut guard.kept, &self.file);
+        taken
+    }
+
+    fn take_with<T>(
+        &self,
+        front: &mut Front,
+        show: impl FnOnce(Frame<'_>) -> T,
+    ) -> Option<(T, u64)> {
         // What the worker sent over the stream's socket since the last take,
         // taken out of it here whatever this take goes on to show: a picture's
         // descriptors arrive with the message that announces them, and a message
         // nobody reads is memory the window holds for nothing.
         #[cfg(target_os = "linux")]
         front.pictures.drain();
-        // The file is mapped for this take and not held between them: the worker
-        // shortens it only while nothing has it mapped, and a view of a file that
-        // shrank reads another frame's pixels.
-        let reading = match Reading::open(&self.file) {
+        // The view kept from the take before, or one made now: a file that grew
+        // is mapped again, and one the worker wants to itself is let go of after
+        // this take, since a view of a file that shrank reads another frame's
+        // pixels.
+        let reading = match reading(&mut front.kept, &self.file) {
             Ok(reading) => reading,
             Err(error) => {
                 // The frames are lost with this view, but a stream's sound and
@@ -987,21 +1041,33 @@ impl Frames {
     /// until the picture it replaced is off it. Says whether this was the
     /// first time the slot heard it.
     pub fn retire(&self, slot: u32, generation: u64) -> bool {
-        let _front = self
+        self.with_header(|header| {
+            let shared = &header.pictures[slot as usize];
+            if shared.generation.load(Ordering::Acquire) != generation {
+                // A slot the worker has drawn into since is not this picture's
+                // to retire: the worker only draws there after a retirement, so
+                // this is a retirement of something already finished with.
+                return false;
+            }
+            shared.retired.fetch_max(generation, Ordering::AcqRel) < generation
+        })
+        .unwrap_or(false)
+    }
+
+    /// Runs `use_header` on the header, through the view this process keeps.
+    /// Held under `front`, so that one reader uses the view at a time: the lock
+    /// it takes is the file's, and two views of one process would share it.
+    fn with_header<T>(&self, use_header: impl FnOnce(&Header) -> T) -> Option<T> {
+        let mut front = self
             .front
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let Ok(reading) = Reading::open(&self.file) else {
-            return false;
-        };
-        let shared = &reading.header().pictures[slot as usize];
-        if shared.generation.load(Ordering::Acquire) != generation {
-            // A slot the worker has drawn into since is not this picture's to
-            // retire: the worker only draws there after a retirement, so this
-            // is a retirement of something already finished with.
-            return false;
-        }
-        shared.retired.fetch_max(generation, Ordering::AcqRel) < generation
+        let kept = &mut front.kept;
+        let answer = reading(kept, &self.file)
+            .ok()
+            .map(|view| use_header(view.header()));
+        done_reading(kept, &self.file);
+        answer
     }
 
     /// Says the UI can show this stream's pictures from the GPU, on `luid`,
@@ -1029,21 +1095,14 @@ impl Frames {
     /// Writes the UI's answer into the header: it can show this stream's
     /// pictures, drawn on `luid`.
     fn accept_pictures(&self, luid: u64) -> bool {
-        // Held so that one reader maps the file at a time: the lock each view
-        // takes is the file's, and two views of one process would share it.
-        let _front = self
-            .front
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let Ok(reading) = Reading::open(&self.file) else {
-            return false;
-        };
-        let header = reading.header();
-        // The adapter before the answer, so a worker that reads the answer
-        // reads the adapter it goes with.
-        let moved = header.ui_luid.swap(luid, Ordering::Relaxed) != luid;
-        let said = header.ui.swap(UI_USABLE, Ordering::AcqRel) != UI_USABLE;
-        said || moved
+        self.with_header(|header| {
+            // The adapter before the answer, so a worker that reads the answer
+            // reads the adapter it goes with.
+            let moved = header.ui_luid.swap(luid, Ordering::Relaxed) != luid;
+            let said = header.ui.swap(UI_USABLE, Ordering::AcqRel) != UI_USABLE;
+            said || moved
+        })
+        .unwrap_or(false)
     }
 
     /// Says it can't, once: whether a stream's pictures can be shown is a
@@ -1051,16 +1110,8 @@ impl Frames {
     /// while the stream lasts, so there's nothing to retry. Says whether this
     /// was the first refusal, so the reason is logged once.
     pub fn refuse_gpu(&self) -> bool {
-        // Held so that one reader maps the file at a time, as `accept_gpu`
-        // holds it.
-        let _front = self
-            .front
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let Ok(reading) = Reading::open(&self.file) else {
-            return false;
-        };
-        reading.header().ui.swap(UI_REFUSED, Ordering::AcqRel) != UI_REFUSED
+        self.with_header(|header| header.ui.swap(UI_REFUSED, Ordering::AcqRel) != UI_REFUSED)
+            .unwrap_or(false)
     }
 }
 
@@ -1204,14 +1255,14 @@ impl Writer {
         if since.elapsed() < waited {
             return;
         }
+        // Readers keep their view between takes, so the file is asked for first:
+        // a reader lets its view go after the take it is in once it sees this.
+        self.mapping.header().release.store(1, Ordering::Release);
         match self.file.try_lock() {
             Ok(()) => {}
-            // A reader is reading, and the room waits for one that isn't: a
-            // frame is not worth shortening a file a reader has open.
-            Err(TryLockError::WouldBlock) => {
-                self.small = Some((largest, Instant::now()));
-                return;
-            }
+            // A reader is still in a take, or hasn't taken since it was asked:
+            // the next frame asks again, and the wait doesn't start over.
+            Err(TryLockError::WouldBlock) => return,
             // A file system that can't lock the file is one no reader is
             // holding for the writer either, so nothing here is certain enough
             // to end a file over.
@@ -1220,11 +1271,18 @@ impl Writer {
                     error = format!("{error:#}"),
                     "the video frames keep their room"
                 );
+                self.mapping.header().release.store(0, Ordering::Release);
                 self.small = Some((largest, Instant::now()));
                 return;
             }
         }
         let shortened = self.mapping.shorten(&self.file, largest);
+        // Whatever the shortening did, readers may keep their views again. A
+        // shortening that left no view says so the next time a frame needs one,
+        // and its header is the file's either way.
+        if self.mapping.map.is_some() {
+            self.mapping.header().release.store(0, Ordering::Release);
+        }
         let _ = self.file.unlock();
         self.small = None;
         match shortened {
@@ -1608,8 +1666,23 @@ mod tests {
         assert_eq!(grown, HEADER as u64 + SLOTS as u64 * 64 * 48 * 4);
 
         // A frame much smaller than the slots, and the wait the room goes back
-        // after: a test's wait is none, and a stream's is ten seconds.
+        // after: a test's wait is none, and a stream's is ten seconds. The
+        // reader kept its view from the take before, so the worker's first ask
+        // finds the file held, and the room waits for the reader.
         writer.write(4, 2, |pixels| pixels.fill(2));
+        writer.give_room_back(4 * 2 * 4, Duration::ZERO);
+        assert_eq!(
+            writer.file.metadata().unwrap().len(),
+            grown,
+            "a view kept between takes keeps the room"
+        );
+        // The reader's next take reads at the stride its view has, and lets the
+        // view go after it, having seen the ask.
+        assert_eq!(
+            frames.take(|width, height, pixels| (width, height, pixels.to_vec())),
+            Some((4, 2, vec![2; 32]))
+        );
+        writer.write(4, 2, |pixels| pixels.fill(4));
         writer.give_room_back(4 * 2 * 4, Duration::ZERO);
         let held = writer.file.metadata().unwrap().len();
         assert_eq!(held, HEADER as u64 + SLOTS as u64 * 4 * 2 * 4);
@@ -1632,6 +1705,78 @@ mod tests {
 
         drop((writer, frames));
         assert!(!path.exists(), "gone once both let go");
+    }
+
+    /// A reader keeps its view from take to take, so a frame costs no mapping of
+    /// the file and no page faults over it: the second take reads through the
+    /// view the first one made.
+    #[test]
+    fn a_reader_keeps_its_view_between_takes() {
+        let frames = Frames::create(4, 2).unwrap();
+        let path = frames.path().unwrap();
+        let mut writer = Writer::open(&path).unwrap();
+        frames.unlink();
+        let view = |frames: &Frames| {
+            frames
+                .front
+                .lock()
+                .unwrap()
+                .kept
+                .as_ref()
+                .map(|kept| kept.map.as_ptr())
+        };
+        writer.write(4, 2, |pixels| pixels.fill(1));
+        assert!(frames.take(|_, _, _| ()).is_some());
+        let first = view(&frames);
+        assert!(first.is_some(), "the view outlives the take");
+        writer.write(4, 2, |pixels| pixels.fill(2));
+        assert_eq!(
+            frames.take(|_, _, pixels| pixels.to_vec()),
+            Some(vec![2; 32])
+        );
+        assert_eq!(view(&frames), first, "the second take used the same view");
+        drop((writer, frames));
+        assert!(!path.exists(), "gone once both let go");
+    }
+
+    /// Measures a take of a 4K frame, the cost a stream shown full-screen pays a
+    /// frame on the window's thread.
+    #[test]
+    #[ignore = "measures; run with --ignored --nocapture"]
+    fn measures_a_take_of_a_4k_frame() {
+        let frames = Frames::create(3840, 2160).unwrap();
+        let path = frames.path().unwrap();
+        let mut writer = Writer::open(&path).unwrap();
+        frames.unlink();
+        let mut spent = Duration::ZERO;
+        let mut sum = 0u64;
+        for frame in 0..200u32 {
+            writer.write(3840, 2160, |pixels| pixels.fill(frame as u8));
+            let started = Instant::now();
+            sum += frames
+                .take(|_, _, pixels| {
+                    pixels
+                        .iter()
+                        .step_by(4096)
+                        .map(|&b| u64::from(b))
+                        .sum::<u64>()
+                })
+                .unwrap();
+            spent += started.elapsed();
+        }
+        eprintln!("a 4K take: {:?} on average ({sum})", spent / 200);
+    }
+
+    /// The worker asks for the file, and the reader, which kept its view from
+    /// its last take, lets it go at the end of the next one: what a stream's
+    /// frames do over two of them before the room can go back.
+    fn reader_lets_go(writer: &mut Writer, frames: &Frames) {
+        writer.give_room_back(4 * 2 * 4, Duration::ZERO);
+        let _ = frames.take(|_, _, _| ());
+        assert!(
+            frames.front.lock().unwrap().kept.is_none(),
+            "the reader let its view go once asked"
+        );
     }
 
     /// A picture the worker drew on the GPU, as it hands one to
@@ -2175,6 +2320,7 @@ mod tests {
 
         // Neither the shortened file nor the file it was lengthened back to can
         // be mapped: no view is left, and the frame after asks for one.
+        reader_lets_go(&mut writer, &frames);
         writer.mapping.fail_remap = 2;
         writer.give_room_back(4 * 2 * 4, Duration::ZERO);
         assert!(writer.mapping.map.is_none(), "no view is left");
@@ -2204,6 +2350,7 @@ mod tests {
 
         // Neither the shortened file nor the file put back can be mapped, so no
         // view is left — and the card path is what runs before the pixel one.
+        reader_lets_go(&mut writer, &frames);
         writer.mapping.fail_remap = 2;
         writer.give_room_back(4 * 2 * 4, Duration::ZERO);
         assert!(writer.mapping.map.is_none(), "no view is left");
@@ -2319,13 +2466,13 @@ mod tests {
     #[cfg(target_os = "linux")]
     fn socketed(frames: &Frames, path: &Path) -> Writer {
         let (reader, sender) = dmabuf::Reader::paired();
-        *frames
+        let mut front = frames
             .front
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Front {
-            slot: 2,
-            pictures: reader,
-        };
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        front.slot = 2;
+        front.pictures = reader;
+        drop(front);
         let mut writer = Writer::open(path).unwrap();
         writer.pictures = sender;
         writer
