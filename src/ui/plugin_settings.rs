@@ -234,6 +234,15 @@ fn bind_page(window: &YapfastWindow) {
     // pastes when asking why it broke.
     {
         let weak = window.as_weak();
+        // The repository and its commit open as a message's links do.
+        let opener = window.as_weak();
+        page.on_open_link(move |url| {
+            if let Some(window) = opener.upgrade()
+                && web_url(&url).is_some()
+            {
+                window.invoke_open_link(url);
+            }
+        });
         page.on_copy_log(move || {
             let Some(_window) = weak.upgrade() else {
                 return;
@@ -656,7 +665,11 @@ fn detail(plugin: &Installed) -> PluginDetail {
             .into(),
         previous: plugin.previous.clone().unwrap_or_default().into(),
         source: plugin.source.as_str().into(),
+        source_link: web_url(&plugin.source).unwrap_or_default().into(),
         commit: page::short_commit(&plugin.commit).into(),
+        commit_link: commit_url(&plugin.source, &plugin.commit)
+            .unwrap_or_default()
+            .into(),
         license: plugin.license.as_str().into(),
         origin: match plugin.origin {
             Origin::Marketplace => "The marketplace",
@@ -695,6 +708,41 @@ fn listing(listing: &Listing, installed: bool) -> ListingRow {
     }
 }
 
+/// The repository's address when it's a web page to open, http or https,
+/// without the `#path=` that names a folder in it.
+fn web_url(source: &str) -> Option<&str> {
+    let url = source.trim();
+    let url = url.split_once('#').map_or(url, |(url, _)| url);
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
+    let host = rest.split('/').next().unwrap_or_default();
+    (!host.is_empty() && !url.chars().any(char::is_whitespace)).then_some(url)
+}
+
+/// The commit's page on its forge, for a repository on GitHub, GitLab or
+/// Codeberg; `None` elsewhere, where the page's address isn't known.
+fn commit_url(source: &str, commit: &str) -> Option<String> {
+    let url = web_url(source)?;
+    if commit.is_empty() || !commit.chars().all(|letter| letter.is_ascii_hexdigit()) {
+        return None;
+    }
+    let repo = url.trim_end_matches('/');
+    let repo = repo.strip_suffix(".git").unwrap_or(repo);
+    let rest = repo.split_once("://")?.1;
+    let (host, path) = rest.split_once('/')?;
+    // An owner and a repository at least.
+    if path.split('/').filter(|part| !part.is_empty()).count() < 2 {
+        return None;
+    }
+    let commit_path = match host.to_ascii_lowercase().as_str() {
+        "github.com" | "www.github.com" | "codeberg.org" => "commit",
+        "gitlab.com" => "-/commit",
+        _ => return None,
+    };
+    Some(format!("{repo}/{commit_path}/{commit}"))
+}
+
 fn review(review: &Review) -> PluginReview {
     let (memory, memory_tone) = page::memory(review.memory_pages);
     let dependencies: Vec<Line> = review
@@ -724,7 +772,11 @@ fn review(review: &Review) -> PluginReview {
         icon_url: review.icon.clone().unwrap_or_default().into(),
         version: review.version.as_str().into(),
         source: review.source.as_str().into(),
+        source_link: web_url(&review.source).unwrap_or_default().into(),
         commit: page::short_commit(&review.commit).into(),
+        commit_link: commit_url(&review.source, &review.commit)
+            .unwrap_or_default()
+            .into(),
         reviewed: review.reviewed,
         lines: lines(&page::permission_lines(
             &review.capabilities,
@@ -1467,6 +1519,68 @@ mod tests {
             line_markdown("Keeps its own data", false, &hosts),
             "Keeps its own data"
         );
+    }
+
+    #[test]
+    fn a_repository_links_only_to_the_web_and_a_known_forges_commit() {
+        let commit = "051b765bb6abe4fe95d5e4f489f03ad7b137edbc";
+        assert_eq!(
+            web_url("https://codeberg.org/ada/word-filter"),
+            Some("https://codeberg.org/ada/word-filter")
+        );
+        assert_eq!(
+            web_url("https://github.com/bea/translate#path=plugins/translate"),
+            Some("https://github.com/bea/translate")
+        );
+        assert_eq!(web_url("/home/ada/plugins/word-filter"), None);
+        assert_eq!(web_url("git@github.com:bea/translate.git"), None);
+        assert_eq!(web_url("file:///home/ada/plugin"), None);
+        assert_eq!(
+            commit_url("https://codeberg.org/ada/word-filter", commit).as_deref(),
+            Some(
+                "https://codeberg.org/ada/word-filter/commit/051b765bb6abe4fe95d5e4f489f03ad7b137edbc"
+            )
+        );
+        assert_eq!(
+            commit_url("https://github.com/bea/translate.git", commit).as_deref(),
+            Some(
+                "https://github.com/bea/translate/commit/051b765bb6abe4fe95d5e4f489f03ad7b137edbc"
+            )
+        );
+        assert_eq!(
+            commit_url("https://gitlab.com/dee/quiet-hours/", commit).as_deref(),
+            Some(
+                "https://gitlab.com/dee/quiet-hours/-/commit/051b765bb6abe4fe95d5e4f489f03ad7b137edbc"
+            )
+        );
+        assert_eq!(
+            commit_url("https://git.example.org/ada/word-filter", commit),
+            None
+        );
+        assert_eq!(commit_url("https://github.com/bea", commit), None);
+        assert_eq!(
+            commit_url("https://github.com/bea/translate", "not-a-hash"),
+            None
+        );
+    }
+
+    #[test]
+    fn the_source_links_open_through_the_windows_link_path() {
+        let window = open_page(true);
+        let opened = Rc::new(RefCell::new(Vec::<String>::new()));
+        let record = opened.clone();
+        window.on_open_link(move |link| record.borrow_mut().push(link.into()));
+        let page = window.global::<PluginPage>();
+        page.invoke_open_plugin("com.example.word-filter".into());
+        let detail = page.get_detail();
+        assert_eq!(detail.source_link, "https://codeberg.org/ada/word-filter");
+        assert_eq!(
+            detail.commit_link,
+            "https://codeberg.org/ada/word-filter/commit/051b765bb6abe4fe95d5e4f489f03ad7b137edbc"
+        );
+        page.invoke_open_link(detail.source_link.clone());
+        page.invoke_open_link("file:///etc/passwd".into());
+        assert_eq!(*opened.borrow(), vec![detail.source_link.to_string()]);
     }
 
     #[test]
