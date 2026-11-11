@@ -38,9 +38,22 @@ events! {
     /// What READY left out to be smaller: DMs, presences, voice states.
     ReadySupplemental = "READY_SUPPLEMENTAL",
     MessageCreate = "MESSAGE_CREATE",
+    /// This account's interactions, by their nonce: Discord passed one to
+    /// its app, the app answered, or it failed.
+    InteractionCreate = "INTERACTION_CREATE",
     InteractionSuccess = "INTERACTION_SUCCESS",
     InteractionFailure = "INTERACTION_FAILURE",
+    /// An app answered an interaction with a form, or with a web page.
     InteractionModalCreate = "INTERACTION_MODAL_CREATE",
+    InteractionIframeModalCreate = "INTERACTION_IFRAME_MODAL_CREATE",
+    /// An app's choices for an option being typed in a command.
+    ApplicationCommandAutocompleteResponse = "APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE",
+    /// A server's command index changed.
+    GuildApplicationCommandIndexUpdate = "GUILD_APPLICATION_COMMAND_INDEX_UPDATE",
+    /// An app this account installed for itself changed, or went: its own
+    /// command index did.
+    UserApplicationUpdate = "USER_APPLICATION_UPDATE",
+    UserApplicationRemove = "USER_APPLICATION_REMOVE",
     MessageUpdate = "MESSAGE_UPDATE",
     MessageDelete = "MESSAGE_DELETE",
     MessageDeleteBulk = "MESSAGE_DELETE_BULK",

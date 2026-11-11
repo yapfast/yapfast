@@ -747,16 +747,12 @@ impl Adapter {
         window.set_emoji_card(card);
     }
 
+    /// Bots' controls waiting for Discord, and the select menu and form
+    /// one opened.
     pub(super) fn show_bot_interactions(&mut self, window: &YapfastWindow) {
         let state = &self.app.state;
         // The newest control waiting shows so; the core holds back any.
-        window.set_bot_busy_item(
-            state
-                .pending_interactions
-                .last()
-                .map_or("", |pending| pending.item.as_str())
-                .into(),
-        );
+        window.set_bot_busy_item(state.interactions.newest_busy().unwrap_or("").into());
         let (failed, why) = state
             .interaction_failed
             .as_ref()
@@ -770,12 +766,20 @@ impl Adapter {
             window.set_bot_select_query(select.query.as_str().into());
             window.set_bot_select_min(select.min as i32);
             window.set_bot_select_max(select.max as i32);
+            window.set_bot_select_searchable(matches!(select.kind, 5..=8));
             use std::hash::{Hash, Hasher};
             let mut hasher = std::hash::DefaultHasher::new();
             select.hash(&mut hasher);
             let shown = hasher.finish();
             if self.bot_select_shown != Some(shown) {
                 let query = select.query.to_lowercase();
+                // A message's menu shows its custom emoji as the message does.
+                let emoji = self
+                    .app
+                    .state
+                    .message(&select.item)
+                    .map(|message| message.emoji.as_slice())
+                    .unwrap_or_default();
                 let rows = select
                     .choices
                     .iter()
@@ -791,6 +795,7 @@ impl Adapter {
                         value: choice.value.as_str().into(),
                         description: choice.description.as_str().into(),
                         selected: choice.selected,
+                        emoji: custom_emoji::text(&choice.emoji, emoji).into(),
                     })
                     .collect::<Vec<_>>();
                 let current = window.get_bot_select_choices();
@@ -811,21 +816,65 @@ impl Adapter {
             window.set_bot_modal_supported(modal.supported);
             window.set_bot_modal_saving(modal.saving());
             window.set_bot_modal_error(modal.error.as_deref().unwrap_or_default().into());
+            let current = window.get_bot_modal_fields();
+            let shown = current.as_any().downcast_ref::<VecModel<ModalField>>();
             let fields = modal
                 .fields
                 .iter()
-                .map(|field| ModalField {
+                .enumerate()
+                .map(|(index, field)| ModalField {
                     label: field.label.as_str().into(),
+                    description: field.description.as_str().into(),
+                    // Text to read is laid out again only when it changes.
+                    blocks: match shown.and_then(|shown| shown.row_data(index)) {
+                        Some(row) if row.kind == 10 && row.value == field.value.as_str() => {
+                            row.blocks
+                        }
+                        _ if field.kind == 10 => {
+                            ModelRc::new(VecModel::from(messages::text_blocks(&field.value)))
+                        }
+                        _ => ModelRc::default(),
+                    },
+                    choices: if matches!(field.kind, 21 | 22) {
+                        ModelRc::new(VecModel::from(
+                            field
+                                .options
+                                .iter()
+                                .enumerate()
+                                .map(|(index, option)| SelectChoice {
+                                    index: index as i32,
+                                    label: option.label.as_str().into(),
+                                    value: option.value.as_str().into(),
+                                    description: option.description.as_str().into(),
+                                    selected: field.values.contains(&option.value),
+                                    emoji: option.emoji.as_str().into(),
+                                })
+                                .collect::<Vec<_>>(),
+                        ))
+                    } else {
+                        ModelRc::default()
+                    },
+                    checked: field.checked,
+                    files: ModelRc::new(VecModel::from(
+                        field
+                            .files
+                            .iter()
+                            .map(|path| {
+                                SharedString::from(
+                                    path.file_name()
+                                        .unwrap_or(path.as_os_str())
+                                        .to_string_lossy()
+                                        .as_ref(),
+                                )
+                            })
+                            .collect::<Vec<_>>(),
+                    )),
+                    max_files: field.max_values as i32,
                     value: field.value.as_str().into(),
                     placeholder: field.placeholder.as_str().into(),
                     required: field.required,
                     paragraph: field.paragraph,
                     kind: field.kind as i32,
-                    blocks: if field.kind == 10 {
-                        ModelRc::new(VecModel::from(messages::text_blocks(&field.label)))
-                    } else {
-                        ModelRc::default()
-                    },
                     summary: field
                         .values
                         .iter()
@@ -842,13 +891,16 @@ impl Adapter {
                 })
                 .collect::<Vec<_>>();
             // Keep the repeater's model alive while typing so Slint keeps
-            // each input's focus and cursor.
-            let current = window.get_bot_modal_fields();
-            if let Some(model) = current.as_any().downcast_ref::<VecModel<ModalField>>()
+            // each input's focus and cursor. Only a row that changed is
+            // set again: its lists are compared by what they hold.
+            if let Some(model) = shown
                 && model.row_count() == fields.len()
             {
                 for (index, field) in fields.into_iter().enumerate() {
-                    if model.row_data(index).as_ref() != Some(&field) {
+                    if model
+                        .row_data(index)
+                        .is_none_or(|shown| !same_field(&shown, &field))
+                    {
                         model.set_row_data(index, field);
                     }
                 }
@@ -4078,6 +4130,8 @@ impl Adapter {
             self.emoji_word = None;
             self.show_emoji_suggestions(window);
         }
+        // The `/` picker and the command being written follow each keystroke.
+        self.show_app_commands(window);
     }
 
     /// Emoji for the `:name` being typed, or none.
@@ -5650,6 +5704,24 @@ fn thread_row(thread: &yapfast_core::chat::ListedThread, now: u64) -> ThreadRow 
 }
 
 /// A forum's tag, or an emoji, as a card or the form for a post shows it.
+/// Whether a form's field shows the same: its text laid out is the same
+/// model when its text is, and its lists hold the same.
+fn same_field(shown: &ModalField, field: &ModalField) -> bool {
+    shown.label == field.label
+        && shown.description == field.description
+        && shown.value == field.value
+        && shown.placeholder == field.placeholder
+        && shown.required == field.required
+        && shown.paragraph == field.paragraph
+        && shown.kind == field.kind
+        && shown.summary == field.summary
+        && shown.checked == field.checked
+        && shown.max_files == field.max_files
+        && shown.blocks == field.blocks
+        && shown.choices.iter().eq(field.choices.iter())
+        && shown.files.iter().eq(field.files.iter())
+}
+
 fn post_tag(name: &str, emoji: Option<&yapfast_core::chat::ShownEmoji>) -> PostTag {
     PostTag {
         name: name.into(),

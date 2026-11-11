@@ -44,6 +44,12 @@ const USER_INSTALL: &str = "1";
 
 /// The message flag that hides its embeds.
 const SUPPRESS_EMBEDS: u64 = 1 << 2;
+/// The message flag of an app's answer only the person who used the app
+/// sees, which Discord keeps out of the channel's history.
+pub const EPHEMERAL: u64 = 1 << 6;
+/// The message flag of an app's answer still to come: the app is
+/// "thinking".
+pub const LOADING: u64 = 1 << 7;
 /// The message flag of a voice message, whose only attachment is its
 /// recording.
 const IS_VOICE_MESSAGE: u64 = 1 << 13;
@@ -171,12 +177,94 @@ pub struct Message {
     /// account, who may delete it as their own.
     #[serde(default)]
     pub invoker: Option<String>,
+    /// The interaction it answers: whose, and the command they used.
+    #[serde(default)]
+    pub interaction: Option<Interaction>,
     /// The poll it asks, if it's one.
     #[serde(default)]
     pub poll: Option<Poll>,
+    /// An app's answer only this account sees ([`EPHEMERAL`]): it isn't in
+    /// the channel's history, and it's never kept on disk.
+    #[serde(default)]
+    pub ephemeral: bool,
+    /// An app's answer still to come ([`LOADING`]), shown as the app
+    /// thinking until Discord updates it.
+    #[serde(default)]
+    pub loading: bool,
     /// What a voice message's recording, its first attachment, sounds like.
     #[serde(default)]
     pub voice: Option<VoiceMessage>,
+}
+
+/// The interaction an app's message answers, from its
+/// `interaction_metadata`, or the deprecated `interaction` without it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Interaction {
+    /// The id INTERACTION_CREATE gave it.
+    pub id: String,
+    /// Who used it, by id and the name the interaction carries.
+    pub user_id: String,
+    pub user: String,
+    /// The command used, with its subcommands' names, as `ban user`: for a
+    /// form's answer, the command that opened the form. None for a button
+    /// or a menu.
+    pub name: Option<String>,
+    /// [`CHAT_INPUT`], [`USER_COMMAND`] or [`MESSAGE_COMMAND`].
+    pub command_type: Option<u64>,
+    /// The person a user command was used on, by id and name.
+    pub target_user: Option<(String, String)>,
+    /// The message a message command was used on.
+    pub target_message_id: Option<String>,
+    /// The message whose button or menu was used.
+    pub interacted_message_id: Option<String>,
+}
+
+/// An application command's `command_type`: a slash command.
+pub const CHAT_INPUT: u64 = 1;
+/// One used on a person, from their menu.
+pub const USER_COMMAND: u64 = 2;
+/// One used on a message, from its menu.
+pub const MESSAGE_COMMAND: u64 = 3;
+
+/// The interaction types whose metadata names what was used.
+const COMPONENT_INTERACTION: u64 = 3;
+const MODAL_SUBMIT: u64 = 5;
+
+impl Interaction {
+    fn of(value: &Value) -> Option<Self> {
+        let metadata = match &value["interaction_metadata"] {
+            Value::Object(_) => &value["interaction_metadata"],
+            _ => &value["interaction"],
+        };
+        // A form's answer names the command, or the button, that opened it.
+        let used = match metadata["triggering_interaction_metadata"] {
+            Value::Object(_) if metadata["type"].as_u64() == Some(MODAL_SUBMIT) => {
+                &metadata["triggering_interaction_metadata"]
+            }
+            _ => metadata,
+        };
+        let user = &metadata["user"];
+        let id = |value: &Value| value.as_str().map(str::to_owned);
+        Some(Self {
+            id: metadata["id"].as_str()?.to_owned(),
+            user_id: id(&user["id"]).unwrap_or_default(),
+            user: ready::display_name(user)
+                .unwrap_or("Discord user")
+                .to_owned(),
+            name: (used["type"].as_u64() != Some(COMPONENT_INTERACTION))
+                .then(|| id(&used["name"]))
+                .flatten()
+                .filter(|name| !name.is_empty()),
+            // The deprecated object has no type; it's for slash commands.
+            command_type: used["command_type"].as_u64(),
+            target_user: id(&used["target_user"]["id"]).map(|target| {
+                let name = ready::display_name(&used["target_user"]).unwrap_or("Discord user");
+                (target, name.to_owned())
+            }),
+            target_message_id: id(&used["target_message_id"]),
+            interacted_message_id: id(&used["interacted_message_id"]),
+        })
+    }
 }
 
 /// A voice message's recording as Discord describes it, to show before it's
@@ -389,6 +477,9 @@ pub struct Attachment {
     pub shown: Shown,
     /// Marked as a spoiler: by a name starting `SPOILER_`, or by its flags.
     pub spoiler: bool,
+    /// Its alt text, which a screen reader reads in place of the picture.
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 /// Where a message's picture shows.
@@ -669,12 +760,25 @@ pub fn parse(value: &Value) -> Option<Message> {
         _ => value,
     };
     // `null` says the original was deleted; no field at all says nothing.
-    let reply = (kind == REPLY).then(|| match value.get("referenced_message") {
+    // An app's answer to a command used on a message quotes that message,
+    // and one to a button or menu the message that has it, when Discord
+    // doesn't make it a reply itself. A type 23 answer that names a message
+    // replies to it even without the metadata saying it's a message
+    // command's (docs.discord.food gives `referenced_message` for type 23).
+    let interaction = Interaction::of(value);
+    let quoted = interaction
+        .as_ref()
+        .and_then(|interaction| interaction_quotes(value, interaction));
+    let replies = kind == REPLY
+        || quoted.is_some()
+        || (kind == CONTEXT_MENU_COMMAND && value["message_reference"]["message_id"].is_string());
+    let reply = replies.then(|| match value.get("referenced_message") {
         Some(original @ Value::Object(_)) => Reply::of(original),
         Some(_) => Reply::Deleted,
         None => Reply::Unknown {
             id: value["message_reference"]["message_id"]
                 .as_str()
+                .or(quoted.as_deref())
                 .unwrap_or_default()
                 .into(),
         },
@@ -714,6 +818,7 @@ pub fn parse(value: &Value) -> Option<Message> {
                 shown: Shown::Message,
                 spoiler: name.starts_with("SPOILER_")
                     || attachment["flags"].as_u64().unwrap_or_default() & IS_SPOILER != 0,
+                description: alt_text(&attachment["description"]),
             })
         })
         .collect::<Vec<_>>();
@@ -776,6 +881,7 @@ pub fn parse(value: &Value) -> Option<Message> {
             animated: false,
             shown: Shown::Sticker,
             spoiler: false,
+            description: None,
         });
     }
     attachments.extend(components.media);
@@ -849,9 +955,32 @@ pub fn parse(value: &Value) -> Option<Message> {
             .all(|field| value[*field].is_null()),
         undeletable: kind == CALL,
         invoker: invoker(&value["interaction_metadata"]),
+        interaction,
         poll: Poll::of(&shown["poll"]),
+        ephemeral: value["flags"].as_u64().unwrap_or_default() & EPHEMERAL != 0,
+        loading: value["flags"].as_u64().unwrap_or_default() & LOADING != 0,
         voice: VoiceMessage::of(shown),
     })
+}
+
+/// The message an app's answer to a message command, a button or a menu
+/// quotes: the one it was used on, which a context menu command's answer
+/// references, or the one with the button, unless that's the answer itself,
+/// which the button updated.
+fn interaction_quotes(value: &Value, interaction: &Interaction) -> Option<String> {
+    let id = value["id"].as_str();
+    if value["type"].as_u64() == Some(CONTEXT_MENU_COMMAND)
+        && interaction.command_type == Some(MESSAGE_COMMAND)
+    {
+        return value["message_reference"]["message_id"]
+            .as_str()
+            .or(interaction.target_message_id.as_deref())
+            .map(str::to_owned);
+    }
+    interaction
+        .interacted_message_id
+        .clone()
+        .filter(|interacted| Some(interacted.as_str()) != id)
 }
 
 /// Who ran the command an app's message answers, when the app answered
@@ -945,6 +1074,15 @@ pub const VIEW_HEIGHT: u64 = 1200;
 /// so it moves. With `animated`, as Discord's client asks, an animated
 /// picture, such as an AVIF, comes as an animated WebP rather than its first
 /// frame; a video's poster asks without, for its first frame alone.
+/// Alt text Discord gave a picture or file, when it has any.
+pub(crate) fn alt_text(description: &Value) -> Option<String> {
+    description
+        .as_str()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_owned)
+}
+
 pub(crate) fn scaled_url(
     attachment: &Value,
     max_width: u64,
@@ -2321,6 +2459,12 @@ mod tests {
         };
         let mine = answer(json!({"1": "1"}));
         assert_eq!(mine.invoker.as_deref(), Some("1"));
+        assert_eq!(
+            mine.interaction
+                .map(|interaction| interaction.id)
+                .as_deref(),
+            Some("901")
+        );
         assert!(!mine.undeletable);
         assert_eq!(
             answer(json!({"0": "10", "1": "1"})).invoker,
@@ -2570,6 +2714,135 @@ mod tests {
         .unwrap();
         assert!(!reply.forwarded);
         assert_eq!(reply.content, "mine");
+    }
+
+    #[test]
+    fn tells_who_used_which_command_an_apps_answer_answers() {
+        let answer = |kind: u64, extra: Value| {
+            let mut value = json!({"id": "900", "type": kind, "channel_id": "11",
+                "author": {"id": "5", "username": "app", "bot": true}, "content": "Done"});
+            value
+                .as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            parse(&value).unwrap()
+        };
+        let alice = json!({"id": "1", "username": "alice", "global_name": "Alice"});
+        // A slash command, with its subcommand.
+        let slash = answer(
+            20,
+            json!({"interaction_metadata": {"id": "901", "type": 2,
+            "name": "config set", "command_type": 1, "user": alice,
+            "authorizing_integration_owners": {"0": "10"}}}),
+        );
+        let interaction = slash.interaction.unwrap();
+        assert_eq!(
+            (
+                interaction.user_id.as_str(),
+                interaction.user.as_str(),
+                interaction.name.as_deref(),
+                interaction.command_type
+            ),
+            ("1", "Alice", Some("config set"), Some(CHAT_INPUT))
+        );
+        assert!(slash.reply.is_none());
+        // Only the deprecated object.
+        let old = answer(
+            20,
+            json!({"interaction": {"id": "902", "type": 2, "name": "ping",
+            "user": {"id": "1", "username": "alice"}}}),
+        );
+        let interaction = old.interaction.unwrap();
+        assert_eq!(
+            (interaction.id.as_str(), interaction.user.as_str()),
+            ("902", "alice")
+        );
+        assert_eq!(interaction.name.as_deref(), Some("ping"));
+        // A user command names the person it was used on.
+        let user = answer(
+            23,
+            json!({"interaction_metadata": {"id": "903", "type": 2,
+            "name": "High five", "command_type": 2, "user": alice,
+            "target_user": {"id": "2", "username": "bob", "global_name": "Bob"}}}),
+        );
+        let interaction = user.interaction.unwrap();
+        assert_eq!(interaction.command_type, Some(USER_COMMAND));
+        assert_eq!(
+            interaction.target_user,
+            Some(("2".to_owned(), "Bob".to_owned()))
+        );
+        assert!(user.reply.is_none());
+        // A message command's answer quotes the message.
+        let quote = answer(
+            23,
+            json!({"interaction_metadata": {"id": "904", "type": 2,
+            "name": "Quote", "command_type": 3, "user": alice, "target_message_id": "500"},
+            "message_reference": {"message_id": "500", "channel_id": "11"},
+            "referenced_message": {"id": "500", "author": {"id": "2", "username": "bob"},
+                "content": "Wise words"}}),
+        );
+        assert_eq!(
+            quote.interaction.unwrap().target_message_id.as_deref(),
+            Some("500")
+        );
+        assert!(matches!(quote.reply, Some(Reply::Message { id, .. }) if id == "500"));
+        // A button's follow-up quotes the message with the button, by id
+        // when Discord doesn't send it.
+        let button = |id: &str| {
+            answer(
+                0,
+                json!({"id": id, "interaction_metadata": {"id": "905", "type": 3,
+                "user": alice, "interacted_message_id": "600"}}),
+            )
+        };
+        let follow_up = button("900");
+        assert!(matches!(&follow_up.reply, Some(Reply::Unknown { id }) if id == "600"));
+        assert_eq!(follow_up.interaction.unwrap().name, None);
+        // The message the button updated quotes nothing.
+        assert!(button("600").reply.is_none());
+        // A form's answer names the command that opened the form.
+        let form = answer(
+            20,
+            json!({"interaction_metadata": {"id": "906", "type": 5,
+            "user": alice,
+            "triggering_interaction_metadata": {"id": "907", "type": 2, "name": "feedback",
+                "command_type": 1, "user": alice}}}),
+        );
+        let interaction = form.interaction.unwrap();
+        assert_eq!(
+            (interaction.id.as_str(), interaction.name.as_deref()),
+            ("906", Some("feedback"))
+        );
+        // One a button opened quotes the button's message.
+        let form = answer(
+            0,
+            json!({"interaction_metadata": {"id": "908", "type": 5,
+            "user": alice,
+            "triggering_interaction_metadata": {"id": "909", "type": 3, "user": alice,
+                "interacted_message_id": "600"}}}),
+        );
+        assert_eq!(form.interaction.unwrap().name, None);
+        assert!(matches!(&form.reply, Some(Reply::Unknown { id }) if id == "600"));
+    }
+
+    #[test]
+    fn tells_an_answer_only_this_account_sees_and_one_still_to_come() {
+        let answer = |flags: u64| {
+            parse(&json!({
+                "id": "5", "channel_id": "2", "type": 20, "content": "", "flags": flags,
+                "author": {"id": "9", "username": "Status Bot", "bot": true},
+                "interaction_metadata": {"id": "7", "type": 2, "user": {"id": "1"}},
+            }))
+            .unwrap()
+        };
+        let thinking = answer(EPHEMERAL | LOADING);
+        assert!(thinking.ephemeral && thinking.loading);
+        let answered = answer(EPHEMERAL);
+        assert!(answered.ephemeral && !answered.loading);
+        let public = answer(LOADING);
+        assert!(!public.ephemeral && public.loading);
+        let plain = answer(0);
+        assert!(!plain.ephemeral && !plain.loading);
     }
 
     #[test]
