@@ -69,6 +69,16 @@ unsafe extern "C" {
     fn yapfast_cudaconvert_device(convert: *mut c_void) -> *const c_char;
     fn yapfast_cudaconvert_driver(convert: *mut c_void) -> *const c_char;
     fn yapfast_cudaconvert_copied(convert: *mut c_void) -> c_ulonglong;
+    fn yapfast_cudaconvert_still(
+        convert: *mut c_void,
+        y: *mut u8,
+        y_stride: c_uint,
+        u: *mut u8,
+        u_stride: c_uint,
+        v: *mut u8,
+        v_stride: c_uint,
+    ) -> c_int;
+    fn yapfast_cudaconvert_error(convert: *mut c_void) -> *const c_char;
     fn yapfast_cudaconvert_free(convert: *mut c_void);
     fn yapfast_cudaenc_new(
         codec: c_uint,
@@ -345,6 +355,51 @@ impl Convert {
     pub fn copied(&self) -> u64 {
         // SAFETY: the handle is this module's.
         unsafe { yapfast_cudaconvert_copied(self.handle.0) }
+    }
+
+    /// The stream's size, which every picture is scaled to.
+    pub fn size(&self) -> (u32, u32) {
+        (self.width & !1, self.height & !1)
+    }
+
+    /// The picture the last convert made, at [`Self::size`], copied back into
+    /// `y`, `u` and `v` as I420 at the strides given: what Discord's still is
+    /// made from every few minutes. The one copy of a picture this path makes,
+    /// and only when it is asked for.
+    pub fn still(
+        &self,
+        (y, u, v): (&mut [u8], &mut [u8], &mut [u8]),
+        strides: [u32; 3],
+    ) -> Result<()> {
+        let (width, height) = self.size();
+        let needs = |stride: u32, columns: u32, rows: u32, plane: &[u8]| {
+            stride >= columns && plane.len() >= stride as usize * rows as usize
+        };
+        if !(needs(strides[0], width, height, y)
+            && needs(strides[1], width / 2, height / 2, u)
+            && needs(strides[2], width / 2, height / 2, v))
+        {
+            bail!("the planes don't hold a {width}x{height} picture");
+        }
+        // SAFETY: each plane holds its rows at its stride, checked above, and the
+        // handle is this module's.
+        let ok = unsafe {
+            yapfast_cudaconvert_still(
+                self.handle.0,
+                y.as_mut_ptr(),
+                strides[0],
+                u.as_mut_ptr(),
+                strides[1],
+                v.as_mut_ptr(),
+                strides[2],
+            )
+        };
+        if ok == 0 {
+            // SAFETY: the string belongs to the handle, which is alive.
+            let why = unsafe { CStr::from_ptr(yapfast_cudaconvert_error(self.handle.0)) };
+            bail!("{}", why.to_string_lossy());
+        }
+        Ok(())
     }
 }
 
@@ -1036,7 +1091,7 @@ mod card_path {
             eprintln!("no H264 session here");
             return;
         };
-        let mut shown = |frame: u64| {
+        let shown = |convert: &mut Convert, encoder: &mut Encoder, frame: u64| {
             convert.convert(&picture).expect("a convert");
             let unit = encoder
                 .encode(frame, true)
@@ -1045,12 +1100,35 @@ mod card_path {
             sampled(Codec::H264, &[unit.data.to_vec()]).expect("a picture")
         };
         // Twice, so the second frame is the kept import's.
-        shown(0);
-        let (y, ..) = shown(1);
+        shown(&mut convert, &mut encoder, 0);
+        let (y, ..) = shown(&mut convert, &mut encoder, 1);
         assert!(near(y[0], 82) && near(y[1], 145), "red then green: {y:?}");
+        // Discord's still is the picture the card made last, copied back: red on
+        // the left, green on the right, at the stream's size.
+        let (w, h) = convert.size();
+        let (mut y_plane, mut u_plane, mut v_plane) = (
+            vec![0u8; (w * h) as usize],
+            vec![0u8; (w * h / 4) as usize],
+            vec![0u8; (w * h / 4) as usize],
+        );
+        convert
+            .still(
+                (&mut y_plane, &mut u_plane, &mut v_plane),
+                [w, w / 2, w / 2],
+            )
+            .expect("a still");
+        let row = (h / 2 * w) as usize;
+        let (left, right) = (
+            y_plane[row + w as usize / 4],
+            y_plane[row + w as usize * 3 / 4],
+        );
+        assert!(
+            near(left, 82) && near(right, 145),
+            "the still is {left} and {right}"
+        );
         gbm.draw(&fd, (stride, offset, modifier), (width, height), GREEN, RED)
             .expect("drawn again");
-        let (y, ..) = shown(2);
+        let (y, ..) = shown(&mut convert, &mut encoder, 2);
         assert!(
             near(y[0], 145) && near(y[1], 82),
             "the buffer was drawn green then red, and the stream shows {y:?}"

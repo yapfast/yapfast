@@ -1347,6 +1347,68 @@ done:
   return ok;
 }
 
+/* Copies the picture the last convert wrote, at the stream's size, back into
+ * the processor's memory as I420: Discord's still is made from it every few
+ * minutes, and a tiled picture has no rows the processor could read it from
+ * instead. The luma rows go straight into `y`; the chroma, interleaved on the
+ * card, is copied once into memory here and split into `u` and `v`. Returns 1,
+ * or 0 with the reason in `yapfast_cudaconvert_error`. */
+int yapfast_cudaconvert_still(struct yapfast_cudaconvert *c, unsigned char *y, unsigned y_stride,
+                              unsigned char *u, unsigned u_stride, unsigned char *v,
+                              unsigned v_stride) {
+  if (c == NULL || c->frames == 0) return 0;
+  if (c->cuda.cuMemcpy3D == NULL) {
+    put(c->error, sizeof(c->error), "the CUDA driver can't copy the picture back");
+    return 0;
+  }
+  const unsigned width = c->width, height = c->height;
+  const unsigned chroma_width = width / 2, chroma_height = height / 2;
+  unsigned char *interleaved = malloc((size_t)chroma_width * 2 * chroma_height);
+  if (interleaved == NULL) {
+    put(c->error, sizeof(c->error), "no memory for the picture's colour");
+    return 0;
+  }
+  if (!enter(c)) {
+    free(interleaved);
+    return 0;
+  }
+  cuda_memcpy3d copy;
+  memset(&copy, 0, sizeof(copy));
+  copy.srcMemoryType = CU_MEMORYTYPE_DEVICE;
+  copy.srcDevice = c->nv12;
+  copy.srcPitch = c->pitch;
+  copy.dstMemoryType = CU_MEMORYTYPE_HOST;
+  copy.dstHost = y;
+  copy.dstPitch = y_stride;
+  copy.WidthInBytes = width;
+  copy.Height = height;
+  copy.Depth = 1;
+  CUresult luma = c->cuda.cuMemcpy3D(&copy);
+  copy.srcDevice = c->nv12 + (CUdeviceptr)c->pitch * height;
+  copy.dstHost = interleaved;
+  copy.dstPitch = chroma_width * 2;
+  copy.WidthInBytes = chroma_width * 2;
+  copy.Height = chroma_height;
+  CUresult chroma = luma == CUDA_SUCCESS ? c->cuda.cuMemcpy3D(&copy) : luma;
+  leave(c);
+  if (chroma != CUDA_SUCCESS) {
+    put(c->error, sizeof(c->error), "the card wouldn't copy the picture back: %s",
+        cuda_name(c, chroma));
+    free(interleaved);
+    return 0;
+  }
+  for (unsigned row = 0; row < chroma_height; row++) {
+    const unsigned char *from = interleaved + (size_t)row * chroma_width * 2;
+    unsigned char *to_u = u + (size_t)row * u_stride, *to_v = v + (size_t)row * v_stride;
+    for (unsigned x = 0; x < chroma_width; x++) {
+      to_u[x] = from[2 * x];
+      to_v[x] = from[2 * x + 1];
+    }
+  }
+  free(interleaved);
+  return 1;
+}
+
 void yapfast_cudaconvert_free(struct yapfast_cudaconvert *c) {
   if (c == NULL) return;
   /* The kept pictures first, while both contexts they were made in still are:

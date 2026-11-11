@@ -399,7 +399,12 @@ to the processor with it; now the capture stays on the card, the encoder goes on
 reading the descriptor (VA-API's import, or the CUDA rung NVIDIA's cards need) and
 the tile's preview is the picture read back — the same `mmap` the still is made
 of — said once in the log. So a software-rendered window costs one copy of the
-screen per preview frame it shows, and nothing of the stream. A session whose
+screen per preview frame it shows, and nothing of the stream. Where NVIDIA's CUDA
+rung encodes, Discord's still is copied back from the NV12 picture the card made
+for the stream (`cuda::Convert::still`) rather than mapped from the descriptor:
+a tiled screen has no rows the processor could read, and the card's picture is
+the one that was sent. A still that can't be read back is asked for again five
+seconds later, not on every frame. A session whose
 build has neither an importer nor an encoder that reads descriptors keeps the
 processor's capturer, which is where its frames have always been pixels. A size
 change (`Resized`, or a descriptor of another size) is reported to the UI at the

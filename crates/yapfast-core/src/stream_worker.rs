@@ -114,6 +114,10 @@ const WATCH_TILE_HEIGHT: u32 = 270;
 const THUMBNAIL_WIDTH: u32 = 512;
 const THUMBNAIL_HEIGHT: u32 = 288;
 const THUMBNAIL_EVERY: Duration = Duration::from_secs(5 * 60);
+/// How long a still that couldn't be read back waits before it is asked for
+/// again.
+#[cfg(target_os = "linux")]
+const STILL_RETRY: Duration = Duration::from_secs(5);
 /// How long a shared stream whose connection ended waits for a server
 /// Discord moved it to.
 const MOVE_GRACE: Duration = Duration::from_secs(5);
@@ -1766,6 +1770,22 @@ impl Sink {
     #[cfg(any(wgc, dup, target_os = "linux"))]
     fn still_wanted(&self) -> bool {
         self.preview_due.is_some_and(|due| due <= Instant::now())
+    }
+
+    /// Discord's still from the picture the card's own path converted last, in
+    /// `scratch.full`: none when the card isn't what encodes this share.
+    #[cfg(nvcuda)]
+    fn card_still(&self, scratch: &mut Scratch) -> Option<Result<()>> {
+        let Some(Encoding::Cuda(cuda)) = self.video.as_ref()?.encoder.as_ref() else {
+            return None;
+        };
+        let (width, height) = cuda.convert.size();
+        let full = buffer(&mut scratch.full, width, height);
+        let (y_stride, u_stride, v_stride) = full.strides();
+        Some(
+            cuda.convert
+                .still(full.data_mut(), [y_stride, u_stride, v_stride]),
+        )
     }
 
     /// Whether a machine short of memory has this share giving back what it can
@@ -4678,11 +4698,24 @@ fn capture_dmabufs(
         // from the frame the share has just sent. This is the one picture a share
         // of DMA-BUFs copies.
         if sink.still_wanted() {
-            match shot.still(&mut scratch) {
-                Err(error) => tracing::warn!(
-                    error = format!("{error:#}"),
-                    "sharing without Discord's still: the picture couldn't be read back"
-                ),
+            // A share the card encodes has the picture it just sent on the card
+            // already, at the stream's size, and a tiled screen has no rows the
+            // processor could read it from instead.
+            #[cfg(nvcuda)]
+            let still = sink
+                .card_still(&mut scratch)
+                .unwrap_or_else(|| shot.still(&mut scratch));
+            #[cfg(not(nvcuda))]
+            let still = shot.still(&mut scratch);
+            match still {
+                Err(error) => {
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        "sharing without Discord's still: the picture couldn't be read back"
+                    );
+                    // Asked again in a while, not on every frame.
+                    sink.preview_due = Some(Instant::now() + STILL_RETRY);
+                }
                 Ok(()) => {
                     if let Some(full) = scratch.full.as_ref() {
                         let shown = planes(full);
