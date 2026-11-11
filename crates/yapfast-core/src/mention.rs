@@ -238,7 +238,11 @@ pub fn query(text: &str, cursor: usize) -> Option<(usize, char, &str)> {
 
 /// The candidates `query` may mean, at most `limit`: names that start with it,
 /// then usernames that do, then names with a later word that does.
-pub fn matching<'a>(candidates: &'a [Candidate], query: &str, limit: usize) -> Vec<&'a Candidate> {
+pub fn matching<'a, C: std::borrow::Borrow<Candidate>>(
+    candidates: &'a [C],
+    query: &str,
+    limit: usize,
+) -> Vec<&'a Candidate> {
     let query = query.to_lowercase();
     let rank = |candidate: &Candidate| {
         let name = candidate.name.to_lowercase();
@@ -262,6 +266,7 @@ pub fn matching<'a>(candidates: &'a [Candidate], query: &str, limit: usize) -> V
     };
     let mut found: Vec<(u8, &Candidate)> = candidates
         .iter()
+        .map(std::borrow::Borrow::borrow)
         .filter_map(|candidate| Some((rank(candidate)?, candidate)))
         .collect();
     found.sort_by_key(|(rank, _)| *rank);

@@ -126,7 +126,10 @@ Discord's client asks for them: 720p, 1080p or the screen's own size (up to
 4K), at 15, 30 or 60 fps. Its "Higher quality" checkbox, which Discord's client
 doesn't have, has x264 work harder on each frame. Yapfast remembers the choice
 beside the chosen audio devices (`devices.json`), and starts at 1080p30 without
-it. Larger screens, and those of another shape, are scaled down to fit. Yapfast
+it. The menu lists every screen, window and camera, and is never taller than
+the window: where they don't all fit, as with many windows open or the window
+short or zoomed, the choices scroll as one above Go Live, which stays in view.
+Larger screens, and those of another shape, are scaled down to fit. Yapfast
 caps them at the bitrates Discord's client uses: at most 3.5 Mbit/s up to 720p
 and 9 Mbit/s above, the cap op 12 announces, with the frame rate as its
 `max_framerate`. Discord's client allows accounts without Nitro 720p30, but

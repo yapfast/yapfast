@@ -102,7 +102,9 @@ Voice channels and DM calls, with mute, deafen, a volume for each person,
 noise suppression, echo removal, and a voice gate you can tune, or
 push-to-talk on any key you like, held in any app. Go Live, watch other
 people's streams, turn on your camera and play the soundboard. The call
-stays up while you read other channels.
+stays up while you read other channels, busy voice channels say how long
+their call has gone on, and pointing at a Discord voice channel shows who is
+in it, who is live and whose camera is on.
 
 The noise suppression could be better, though. Know an open source one that
 does a better job? PLEASE tell me.
@@ -165,7 +167,12 @@ interested. Folders show up as they do in Discord.
   mute or close a DM from its menu, leave a group DM, and accept or ignore
   message requests.
 - **Messages** you can send, reply to, edit, react to, pin, forward and attach
-  files to, with Markdown, embeds, custom emoji, stickers and spoilers.
+  files to, with Markdown, embeds, custom emoji, stickers and spoilers. Bots'
+  buttons, dropdown menus and forms work too, radio buttons, checkboxes and
+  file uploads included, and so do apps' slash commands: type `/`, pick one
+  and fill in its options, files and autocomplete included; an app's answer
+  says who used which command. Apps' message and user commands are under Apps
+  in a message's or a person's menu.
   Discord's own links to servers, channels, messages and profiles open in
   Yapfast, including one handed to it by the desktop.
 - **Threads**: start one from a message, browse a channel's threads, join or

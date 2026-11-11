@@ -193,6 +193,10 @@ pub struct Server {
     /// Its boost level, from 0 to 3, which raises everyone's upload limit
     /// in it; see [`crate::api::upload_limit`].
     pub premium_tier: u8,
+    /// Marked explicit or age-restricted as a whole (`nsfw_level` 1 or 3),
+    /// which lets age-restricted commands into all its channels.
+    #[serde(default)]
+    pub age_restricted: bool,
     /// Whether its boosts, or Discord, let its roles have icons: the
     /// `ROLE_ICONS` feature, which boost level 2 gives. Discord keeps a
     /// role's icon after a server loses it, so without this a member list
@@ -1404,6 +1408,13 @@ pub fn server(guild: &Value) -> Option<Server> {
         member_count: guild["member_count"].as_u64(),
         owner_id,
         premium_tier: u8::try_from(premium_tier).unwrap_or(u8::MAX),
+        // EXPLICIT and AGE_RESTRICTED.
+        age_restricted: matches!(
+            guild["nsfw_level"]
+                .as_u64()
+                .or_else(|| guild["properties"]["nsfw_level"].as_u64()),
+            Some(1 | 3)
+        ),
         role_icons_allowed: premium_tier >= 2 || has("ROLE_ICONS"),
         activity_feed: if has("ACTIVITY_FEED_ENABLED_BY_USER") {
             Some(true)

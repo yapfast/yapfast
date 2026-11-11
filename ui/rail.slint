@@ -3,9 +3,9 @@ import { NewTag } from "yapfast/new-tags.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ListView } from "scrollview.slint";
 import { Theme, Tip, Middle, Label } from "theme.slint";
-import { Avatar, Nameplate, PictureStore, StatusText, StyledName, NameStyleRow, VoiceSpot, ServerTagChip } from "controls.slint";
+import { Avatar, Nameplate, PictureStore, StatusText, StyledName, NameStyleRow, VoiceSpot, ServerTagChip, ActivityClock } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
-import { PersonRow, LivePill } from "voice.slint";
+import { PersonRow, LivePill, VoiceCard } from "voice.slint";
 
 /// A server in a closed folder's tile: its icon, or its initial.
 export struct FolderServer { initial: string, picture-url: string }
@@ -51,8 +51,12 @@ export struct RoomRow {
     locked: bool,
     /// A one-to-one DM, whose other person has a profile.
     person: bool,
-    /// Who is in a Discord voice channel, shown without joining it.
+    /// Who is in a Discord voice channel, shown without joining it, and when
+    /// its session started, in ActivityClock's seconds; 0 when unknown.
     people: [PersonRow],
+    voice-started: int,
+    /// The line summing them up on its card, such as "3 people · 1 live".
+    voice-summary: string,
     /// A DM with a call going on.
     call: bool,
     /// The server tag a one-to-one DM's person wears, and its badge's address.
@@ -435,6 +439,40 @@ export component ChannelRow inherits Rectangle {
     in property <bool> thread;
     /// A voice channel with a chat, which a button on the row opens.
     in property <bool> chat;
+    /// When a busy voice channel's session started, in ActivityClock's
+    /// seconds, which the row counts from; 0 for none.
+    in property <int> voice-started;
+    /// A busy voice channel's room id, who is in it and the line summing
+    /// them up, which a card beside the row shows while the pointer is on it.
+    in property <string> voice-id;
+    in property <[PersonRow]> voice-people;
+    in property <string> voice-summary;
+    // Clicked, dragged or its menu opened, the card stays away until the pointer leaves.
+    property <bool> card-dismissed;
+    property <bool> card-wanted: pointer.has-hover && !root.dragging && !root.card-dismissed;
+    // Where the card points, which moves as people above join or leave.
+    property <length> card-y: root.voice-people.length > 0 ? root.absolute-position.y + root.height / 2 : 0px;
+    /// Shows the voice card for this row, or with `false` hides it if it's
+    /// this row's.
+    function show-voice-card(shown: bool) {
+        if shown && root.voice-people.length > 0 {
+            VoiceCard.channel = root.voice-id;
+            VoiceCard.people = root.voice-people;
+            VoiceCard.summary = root.voice-summary;
+            VoiceCard.x = root.absolute-position.x + root.width;
+            VoiceCard.y = root.card-y;
+        } else if VoiceCard.channel == root.voice-id || pointer.has-hover {
+            // Under the pointer, this row may be showing another channel
+            // than it did, the rows above having changed.
+            VoiceCard.people = [];
+        }
+    }
+    // Who is there may change while the card shows.
+    changed voice-people => { root.show-voice-card(root.card-wanted); }
+    changed voice-summary => { root.show-voice-card(root.card-wanted); }
+    changed card-y => {
+        if VoiceCard.channel == root.voice-id && VoiceCard.people.length > 0 { VoiceCard.y = root.card-y; }
+    }
     /// It may be dragged: once the pointer has moved a few pixels with the
     /// button down, `start-drag` asks whether it may, given how far down
     /// the row it was pressed, `dragged` says where the pointer is in the
@@ -496,6 +534,9 @@ export component ChannelRow inherits Rectangle {
                 root.clicked(); return accept;
             }
             if event.text == Key.Menu || (event.text == Key.F10 && event.modifiers.shift) {
+                // From the keyboard, the pointer may be elsewhere, and its next visit shows the card.
+                root.card-dismissed = pointer.has-hover;
+                root.show-voice-card(false);
                 root.context-menu(self.absolute-position.x + 16px, self.absolute-position.y + self.height);
                 return accept;
             }
@@ -506,17 +547,26 @@ export component ChannelRow inherits Rectangle {
             // Slint reports the click before the button going up, which
             // ends a drag.
             clicked => {
+                root.card-dismissed = true;
+                root.show-voice-card(false);
                 if !root.dragging { root.clicked(); }
+            }
+            changed has-hover => {
+                if !self.has-hover { root.card-dismissed = false; }
+                root.show-voice-card(root.card-wanted);
             }
             moved => {
                 if self.pressed && root.draggable && !root.dragging && !root.refused && abs(self.mouse-y - self.pressed-y) > 4px {
                     root.dragging = root.start-drag(self.pressed-y);
                     root.refused = !root.dragging;
+                    if root.dragging { root.card-dismissed = true; root.show-voice-card(false); }
                 }
                 if root.dragging { root.dragged(self.absolute-position.y + self.mouse-y); }
             }
             pointer-event(event) => {
                 if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                    root.card-dismissed = true;
+                    root.show-voice-card(false);
                     root.context-menu(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
                 }
                 if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
@@ -622,6 +672,13 @@ export component ChannelRow inherits Rectangle {
                     source: @image-url("icons/pin.svg"); width: 14px; image-fit: contain; colorize: Theme.faint;
                 }
                 if root.fresh: Middle { NewTag { } }
+                // How long a busy voice channel's call has gone on, as
+                // Discord's client counts it from its first person in.
+                if root.voice-started > 0: Text {
+                    text: ActivityClock.lasted(root.voice-started, ActivityClock.minute * 60);
+                    color: Theme.muted; font-size: 12px; vertical-alignment: center;
+                    accessible-role: none;
+                }
                 if root.badge != "": Middle {
                     Rectangle {
                         width: max(18px, badge-text.preferred-width + 10px); height: 18px; border-radius: 9px; background: Theme.danger;
@@ -660,6 +717,50 @@ export component ChannelRow inherits Rectangle {
                     }
                 }
             }
+        }
+    }
+}
+
+// Who is in the busy voice channel under the pointer, beside its row, as
+// Discord's client shows it: a line summing them up, then each person with
+// their camera and LIVE marks, the first eight and how many more. This
+// account on another client is dimmed, without its marks, as under the row.
+export component VoiceCardView inherits Rectangle {
+    /// The window's size, which the card stays within.
+    in property <length> bounds;
+    in property <length> bounds-width;
+    property <int> shown: min(8, VoiceCard.people.length);
+    property <int> more: VoiceCard.people.length - self.shown;
+    width: 232px;
+    height: card-layout.preferred-height;
+    x: min(VoiceCard.x + 8px, root.bounds-width - self.width - 8px);
+    y: max(8px, min(root.bounds - self.height - 8px, VoiceCard.y - self.height / 2));
+    border-radius: 8px; background: Theme.tooltip;
+    drop-shadow-blur: 12px; drop-shadow-color: #00000080; drop-shadow-offset-y: 3px;
+    card-layout := VerticalLayout {
+        padding: 12px; padding-top: 10px; spacing: 4px;
+        Text {
+            text: VoiceCard.summary; color: Theme.secondary;
+            font-size: 12px; font-weight: 700; overflow: elide;
+        }
+        for index in root.shown: card-row := HorizontalLayout {
+            property <PersonRow> person: VoiceCard.people[index];
+            height: 26px;
+            spacing: 8px;
+            opacity: card-row.person.elsewhere ? 0.5 : 1;
+            Middle { Avatar { size: 20px; initial: card-row.person.initial; tint: card-row.person.tint; picture: card-row.person.picture; } }
+            Text {
+                text: card-row.person.name; color: Theme.text; font-size: 14px; font-weight: 500;
+                vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+            }
+            if card-row.person.video && !card-row.person.elsewhere: Image {
+                source: @image-url("icons/video.svg"); width: 16px; image-fit: contain;
+                colorize: Theme.muted; accessible-role: image; accessible-label: card-row.person.name + "'s camera is on";
+            }
+            if card-row.person.live && !card-row.person.elsewhere: Middle { LivePill { clickable: false; } }
+        }
+        if root.more > 0: Text {
+            text: "and " + root.more + " more"; color: Theme.muted; font-size: 12px;
         }
     }
 }
@@ -1212,7 +1313,9 @@ export component RoomList inherits Rectangle {
             if root.sidebar-empty != "": HorizontalLayout { padding: 8px; Label { text: root.sidebar-empty; } }
         }
         // A list view makes only the rows in sight, which matters with hundreds of DMs.
+        // Scrolled, it moves the row a voice card is beside from under the pointer.
         list := ListView {
+            changed content-y => { VoiceCard.people = []; }
             vertical-stretch: 1;
             for room[index] in root.rooms: VerticalLayout {
                 padding-left: 8px; padding-right: 8px;
@@ -1302,9 +1405,14 @@ export component RoomList inherits Rectangle {
                         + (room.voice-room != "" ? ", in " + room.voice-channel + " in " + room.voice-server : "")
                         + (room.detail != "" ? ", " + room.detail : "")
                         + (room.pinned ? ", pinned" : "") + (room.muted ? ", muted" : "")
-                        + (room.locked ? ", locked" : "") + (room.call ? ", in a call" : "") + (room.badge != "" ? ", " + room.badge + " mentions" : room.unread ? ", unread" : "");
+                        + (room.locked ? ", locked" : "") + (room.call ? ", in a call" : "")
+                        + (room.voice-started > 0 ? ", call going for " + ActivityClock.lasted(room.voice-started, ActivityClock.minute * 60) : "")
+                        + (room.badge != "" ? ", " + room.badge + " mentions" : room.unread ? ", unread" : "");
                     icon: room.icon; person: room.direct; initial: room.initial; tint: room.tint;
-                    chat: room.chat;
+                    chat: room.chat; voice-started: room.voice-started;
+                    voice-id: room.id;
+                    voice-people: room.voice && !room.direct ? room.people : [];
+                    voice-summary: room.voice-summary;
                     open-chat => { root.open-chat(room.id); }
                     picture: room.picture; picture-url: room.picture-url; discord: room.discord;
                     decoration-url: room.decoration-url; nameplate-url: room.nameplate-url;

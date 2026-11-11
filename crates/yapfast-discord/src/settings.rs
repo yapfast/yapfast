@@ -22,6 +22,10 @@ const STATUS_CUSTOM: u64 = 2;
 /// `StatusSettings.show_current_game`, a `BoolValue`: whether the account
 /// shares the game it plays and the Rich Presence games send.
 const STATUS_SHOW_GAME: u64 = 3;
+/// `PreloadedUserSettings.text_and_images`, and in it `view_nsfw_commands`,
+/// a `BoolValue`: age-restricted commands are offered in DMs.
+const TEXT_AND_IMAGES: u64 = 6;
+const VIEW_NSFW_COMMANDS: u64 = 23;
 /// `CustomStatus`'s fields.
 const CUSTOM_TEXT: u64 = 1;
 const CUSTOM_EMOJI_ID: u64 = 2;
@@ -82,6 +86,8 @@ pub struct StatusSettings {
     pub afk_timeout: Option<u64>,
     /// Whether the account shares the game it plays.
     pub show_game: Option<bool>,
+    /// Whether apps' age-restricted commands are offered in DMs.
+    pub nsfw_commands_in_dms: Option<bool>,
 }
 
 /// The status in base64 settings, as READY's `user_settings_proto` or a
@@ -101,8 +107,12 @@ pub fn read(encoded: &str) -> StatusSettings {
                 })
                 .unwrap_or(0)
         });
+    let nsfw_commands_in_dms = message(&data, TEXT_AND_IMAGES)
+        .and_then(|text| message(text, VIEW_NSFW_COMMANDS))
+        .map(bool_value);
     let mut settings = StatusSettings {
         afk_timeout,
+        nsfw_commands_in_dms,
         ..StatusSettings::default()
     };
     let Some(status) = message(&data, STATUS) else {
@@ -139,16 +149,19 @@ pub fn read(encoded: &str) -> StatusSettings {
                 }
                 settings.custom = Some((!status.is_empty()).then_some(status));
             }
-            // A BoolValue leaves out a false value.
             (STATUS_SHOW_GAME, Field::Bytes(wrapper)) => {
-                settings.show_game = Some(fields(wrapper).any(|(number, value)| {
-                    number == 1 && matches!(value, Field::Varint(shown) if shown != 0)
-                }));
+                settings.show_game = Some(bool_value(wrapper));
             }
             _ => {}
         }
     }
     settings
+}
+
+/// A `BoolValue`'s value, which leaves out a false one.
+fn bool_value(wrapper: &[u8]) -> bool {
+    fields(wrapper)
+        .any(|(number, value)| number == 1 && matches!(value, Field::Varint(on) if on != 0))
 }
 
 /// The last field `number` of `data` that holds a message.
@@ -579,6 +592,7 @@ mod tests {
                 custom: Some(Some(status.clone())),
                 afk_timeout: None,
                 show_game: None,
+                nsfw_commands_in_dms: None,
             }
         );
         assert_eq!(read(&write_custom(None)).custom, Some(None));
@@ -589,6 +603,7 @@ mod tests {
                 custom: None,
                 afk_timeout: None,
                 show_game: None,
+                nsfw_commands_in_dms: None,
             },
             "setting the status leaves the custom status as it was"
         );
@@ -614,6 +629,25 @@ mod tests {
         assert_eq!(read(&write_show_game(false)).show_game, Some(false));
         assert_eq!(read(&write_show_game(true)).show_game, Some(true));
         assert_eq!(read(&write_status("idle")).show_game, None);
+    }
+
+    #[test]
+    fn reads_whether_age_restricted_commands_are_offered_in_dms() {
+        let encoded = |on: bool| {
+            let mut wrapper = Vec::new();
+            if on {
+                put_varint(&mut wrapper, 1 << 3 | VARINT);
+                put_varint(&mut wrapper, 1);
+            }
+            let mut text = Vec::new();
+            put_bytes(&mut text, VIEW_NSFW_COMMANDS, &wrapper);
+            let mut settings = Vec::new();
+            put_bytes(&mut settings, TEXT_AND_IMAGES, &text);
+            base64::engine::general_purpose::STANDARD.encode(settings)
+        };
+        assert_eq!(read(&encoded(true)).nsfw_commands_in_dms, Some(true));
+        assert_eq!(read(&encoded(false)).nsfw_commands_in_dms, Some(false));
+        assert_eq!(read(&write_status("idle")).nsfw_commands_in_dms, None);
     }
 
     #[test]

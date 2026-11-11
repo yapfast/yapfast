@@ -1,0 +1,47 @@
+import { Theme } from "theme.slint";
+
+// Where the bot's select menu that was opened last sits in the window,
+// which its dropdown opens under: the box clicked writes it before it
+// asks to open, as a message's card and a bot's form both draw one.
+export global BotSelectAnchor {
+    in-out property <length> x;
+    in-out property <length> y;
+    in-out property <length> width;
+    in-out property <length> height;
+}
+
+// A bot's select menu as it shows closed: what it has picked, or its
+// placeholder, and a chevron. Clicking it opens its dropdown under it.
+export component BotSelectBox inherits Rectangle {
+    in property <string> text;
+    /// Something is picked: the text shows as the pick, not the placeholder.
+    in property <bool> picked;
+    in property <bool> enabled: true;
+    /// It waits for Discord's word on its last pick.
+    in property <bool> busy;
+    callback clicked;
+    height: 40px; border-radius: 8px; opacity: root.enabled && !root.busy ? 1 : 0.5;
+    background: Theme.field; border-width: 1px; border-color: touch.has-hover && root.enabled ? Theme.secondary : Theme.edge;
+    accessible-role: combobox; accessible-label: root.text; accessible-enabled: root.enabled && !root.busy;
+    accessible-action-default => { root.open(); }
+    function open() {
+        if !root.enabled || root.busy { return; }
+        BotSelectAnchor.x = root.absolute-position.x;
+        BotSelectAnchor.y = root.absolute-position.y;
+        BotSelectAnchor.width = root.width;
+        BotSelectAnchor.height = root.height;
+        root.clicked();
+    }
+    HorizontalLayout {
+        padding-left: 12px; padding-right: 12px; spacing: 8px;
+        Text {
+            text: root.text; color: root.picked ? Theme.text : Theme.secondary; font-weight: 500;
+            vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+        }
+        Image { source: @image-url("icons/chevron-down.svg"); width: 18px; image-fit: contain; colorize: Theme.secondary; }
+    }
+    touch := TouchArea {
+        enabled: root.enabled && !root.busy; mouse-cursor: MouseCursor.pointer;
+        clicked => { root.open(); }
+    }
+}

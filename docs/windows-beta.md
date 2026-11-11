@@ -94,6 +94,13 @@ keeps them, for a laptop microphone that needs its driver's beamforming; a
 call's microphone opens again within 2 s of the switch. Matrix calls record
 through LiveKit's WebRTC, which opens the microphone itself, with the effects.
 
+A Discord call's threads join MMCSS tasks, the microphone's "Audio" and the
+call's and speakers' "Pro Audio", and while the call goes on the process opts
+out of power throttling and asks for a 1 ms timer; see
+[Voice](discord/voice.md#playing-what-others-say). Whether that keeps the
+microphone whole on a weak processor sharing its screen through x264, with
+Yapfast's window minimized, needs checking on real Windows.
+
 Wine's capture starts 0.3–1 s after it's opened, so the first moments a
 microphone hears are lost there. Real Windows needs checking for that, along
 with Bluetooth headsets, a device unplugged during a call, a default device
