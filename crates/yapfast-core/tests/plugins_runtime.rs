@@ -521,7 +521,10 @@ fn wait_active(state: &PluginState, plugins: &[PluginId]) {
 
 /// Waits for the draft a held send is answered with, and answers how long it
 /// took from the moment the send was asked about.
-fn wait_send_ready(notices: &Notices, within: Duration) -> (Duration, yapfast_plugin_api::hook::Draft) {
+fn wait_send_ready(
+    notices: &Notices,
+    within: Duration,
+) -> (Duration, yapfast_plugin_api::hook::Draft) {
     let started = Instant::now();
     while started.elapsed() < within + START {
         if let Some(notice) = notices
@@ -537,7 +540,10 @@ fn wait_send_ready(notices: &Notices, within: Duration) -> (Duration, yapfast_pl
         }
         std::thread::sleep(Duration::from_millis(2));
     }
-    panic!("the send was never answered: {:?}", notices.lock().map(|notices| notices.len()));
+    panic!(
+        "the send was never answered: {:?}",
+        notices.lock().map(|notices| notices.len())
+    );
 }
 
 fn a_draft(body: &str) -> yapfast_plugin_api::hook::Draft {

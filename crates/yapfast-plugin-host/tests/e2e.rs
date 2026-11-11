@@ -217,10 +217,7 @@ fn a_hook_that_answers_nonsense_fails_open() {
                 HookOutcome::Unchanged,
                 "a hook that fails leaves the draft as it was"
             );
-            assert!(
-                by.is_none(),
-                "a chain nobody answered into has no answerer"
-            );
+            assert!(by.is_none(), "a chain nobody answered into has no answerer");
             assert_eq!(failures.len(), 1, "the failure is reported, not hidden");
             assert_eq!(failures[0].0, bad);
             assert_eq!(failures[0].1.kind, FaultKind::BadAnswer);

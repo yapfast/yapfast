@@ -614,10 +614,7 @@ impl Application {
                 vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)]
             }
             Err(error) => {
-                self.state.notice = Some(format!(
-                    "Couldn't load {}: {error:#}",
-                    folder.display()
-                ));
+                self.state.notice = Some(format!("Couldn't load {}: {error:#}", folder.display()));
                 Vec::new()
             }
         }

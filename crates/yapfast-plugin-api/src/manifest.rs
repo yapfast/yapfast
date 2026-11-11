@@ -537,8 +537,7 @@ impl PluginManifest {
         // Stopping a send by failing is a use of the capability that stops one
         // on purpose: a manifest may not claim it with nothing to ask the
         // person for.
-        if self.on_failure.blocks() && !self.permissions.allows(Capability::MessagesIntercept)
-        {
+        if self.on_failure.blocks() && !self.permissions.allows(Capability::MessagesIntercept) {
             return Err(ManifestError::BlockWithoutCapability);
         }
         if self
@@ -793,7 +792,10 @@ mod tests {
         let allowed = refusing.replace("\"storage\"", "\"storage\", \"messages.intercept\"");
         let manifest = PluginManifest::parse(&allowed).unwrap();
         assert!(manifest.on_failure.blocks());
-        assert!(manifest.activates_at_startup(), "a hook is ready before the first send");
+        assert!(
+            manifest.activates_at_startup(),
+            "a hook is ready before the first send"
+        );
 
         // Left out, it is fail open: the message goes as the person wrote it.
         let manifest = PluginManifest::parse(WORD_FILTER).unwrap();

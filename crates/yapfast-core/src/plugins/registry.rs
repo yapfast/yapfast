@@ -259,12 +259,7 @@ impl Registry {
     /// A topic is the publishing plugins' own name, so nothing checks it against
     /// a list: what is checked is the shape `plugin.publish` and
     /// `plugin.subscribe` both take, and how many topics one plugin may hold.
-    pub fn subscribe(
-        &mut self,
-        plugin: &PluginId,
-        topic: &str,
-        on: bool,
-    ) -> Result<bool, String> {
+    pub fn subscribe(&mut self, plugin: &PluginId, topic: &str, on: bool) -> Result<bool, String> {
         if topic.is_empty() || topic.len() > limits::MAX_TOPIC_NAME_BYTES {
             return Err(format!(
                 "a topic's name is 1 to {} bytes",
@@ -372,7 +367,12 @@ impl Registry {
             }
         }
         let mut dependents: Vec<PluginId> = found.into_iter().cloned().collect();
-        dependents.sort_by_key(|id| (std::cmp::Reverse(rank.get(id).copied().unwrap_or(0)), id.clone()));
+        dependents.sort_by_key(|id| {
+            (
+                std::cmp::Reverse(rank.get(id).copied().unwrap_or(0)),
+                id.clone(),
+            )
+        });
         dependents
     }
 
@@ -838,7 +838,11 @@ mod tests {
         assert!(registry.subscribe(&id("b.base"), "", true).is_err());
         assert!(
             registry
-                .subscribe(&id("b.base"), &"x".repeat(limits::MAX_TOPIC_NAME_BYTES + 1), true)
+                .subscribe(
+                    &id("b.base"),
+                    &"x".repeat(limits::MAX_TOPIC_NAME_BYTES + 1),
+                    true
+                )
                 .is_err()
         );
     }

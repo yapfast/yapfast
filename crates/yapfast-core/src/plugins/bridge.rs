@@ -283,8 +283,8 @@ impl Bridge {
         // A chain that has none of it left when it reaches the helper doesn't
         // get a fresh one there.
         let budget = hook.budget();
-        let deadline = Instant::now()
-            + Duration::from_millis(budget.chain_ms.unwrap_or(budget.per_plugin_ms));
+        let deadline =
+            Instant::now() + Duration::from_millis(budget.chain_ms.unwrap_or(budget.per_plugin_ms));
         let held = HeldSend {
             id,
             draft: draft.clone(),
@@ -339,9 +339,7 @@ impl Bridge {
             }
             if self.enabled() {
                 for id in &turning {
-                    self.send(Request::Deactivate {
-                        plugin: id.clone(),
-                    });
+                    self.send(Request::Deactivate { plugin: id.clone() });
                 }
             } else {
                 // Nothing is left to run, so the process goes: that is what an idle
@@ -402,10 +400,7 @@ impl Bridge {
         let entry = shared.store().lock().ok()?.plugins.get(plugin).cloned()?;
         let mut store = shared.store();
         Some(crate::plugins::view::form(
-            &mut store,
-            plugin,
-            &manifest,
-            &entry,
+            &mut store, plugin, &manifest, &entry,
         ))
     }
 
@@ -910,6 +905,12 @@ pub(crate) enum Answered {
     Denied(String),
 }
 
+/// The requests waiting on one consent dialog, by the call that asked.
+///
+/// A person is asked about one host at a time, so the answers all share one
+/// dialog: the tasks that asked are woken by the one answer it gives.
+type Waiting = Vec<tokio::sync::oneshot::Sender<Answered>>;
+
 /// What both threads of the plugin system read: the application's thread and
 /// the supervisor's.
 pub(crate) struct Shared {
@@ -928,7 +929,7 @@ pub(crate) struct Shared {
     /// The `http.fetch` calls kept waiting on a consent dialog, per plugin and
     /// host. The person's answer is what lets them go: the task that made the
     /// request is still holding it, and makes it again once this says yes.
-    held: Mutex<BTreeMap<(PluginId, String), Vec<tokio::sync::oneshot::Sender<Answered>>>>,
+    held: Mutex<BTreeMap<(PluginId, String), Waiting>>,
     /// Whether the helper binary is where [`spawn::program`] looks for it.
     helper_installed: bool,
     /// The helper's process id while it runs, and 0 when none does.
@@ -1239,7 +1240,10 @@ fn frame_payload(
             .iter()
             .map(|event| event.json.len() + 1)
             .sum::<usize>()
-            + topics.iter().map(|topic| topic.json.len() + 1).sum::<usize>(),
+            + topics
+                .iter()
+                .map(|topic| topic.json.len() + 1)
+                .sum::<usize>(),
     );
     payload.extend_from_slice(b"{\"t\":\"event\",\"plugin\":");
     match serde_json::to_vec(plugin) {
@@ -1485,9 +1489,9 @@ enum Inbound {
 /// What made the session's loop look up from waiting.
 enum Waking {
     /// The helper sent a frame, or its pipe closed.
-    Helper(Option<Inbound>),
+    Helper(Option<Box<Inbound>>),
     /// The application sent a command, or went away.
-    Application(Option<Request>),
+    Application(Option<Box<Request>>),
     /// A deadline came due: a timer, a batch, a request's budget or a save.
     Clock,
 }
@@ -1725,9 +1729,7 @@ impl Session {
                 }),
                 // The two that answer a guest are dropped with the process:
                 // there is no instance left to be told.
-                Purpose::Agent { .. }
-                | Purpose::Invocation { .. }
-                | Purpose::Swap { .. } => {}
+                Purpose::Agent { .. } | Purpose::Invocation { .. } | Purpose::Swap { .. } => {}
             }
         }
     }
@@ -1758,20 +1760,22 @@ impl Session {
             let deadline = self.next_deadline(shared);
             let waking = tokio::select! {
                 biased;
-                incoming = self.inbound.recv() => Waking::Helper(incoming),
-                command = commands.recv() => Waking::Application(command),
+                incoming = self.inbound.recv() => Waking::Helper(incoming.map(Box::new)),
+                command = commands.recv() => Waking::Application(command.map(Box::new)),
                 () = sleep_until(deadline) => Waking::Clock,
             };
             match waking {
-                Waking::Helper(Some(Inbound::Frame(frame))) => {
-                    if let Some(ending) = self.on_frame(shared, frame) {
-                        return ending;
+                Waking::Helper(Some(inbound)) => match *inbound {
+                    Inbound::Frame(frame) => {
+                        if let Some(ending) = self.on_frame(shared, frame) {
+                            return ending;
+                        }
                     }
-                }
-                Waking::Helper(Some(Inbound::Closed(reason))) => return self.ending(reason),
+                    Inbound::Closed(reason) => return self.ending(reason),
+                },
                 Waking::Helper(None) => return self.ending(None),
                 Waking::Application(Some(command)) => {
-                    if let Some(ending) = self.on_command(shared, command).await {
+                    if let Some(ending) = self.on_command(shared, *command).await {
                         return ending;
                     }
                 }
@@ -2101,7 +2105,8 @@ impl Session {
         // Frames are handled in order, so loading each plugin in the chain first
         // means the chain arrives at instances that are already up. A plugin
         // that can't be loaded leaves the chain rather than holding the send.
-        held.chain.retain(|plugin| self.activate(shared, plugin).runs());
+        held.chain
+            .retain(|plugin| self.activate(shared, plugin).runs());
         if held.chain.is_empty() {
             shared.announce(Notice::SendReady {
                 id: held.id,
@@ -2250,11 +2255,7 @@ impl Session {
                 function: call_request.function.clone(),
             },
         );
-        self.calls.push(InFlight {
-            frame,
-            from,
-            to,
-        });
+        self.calls.push(InFlight { frame, from, to });
     }
 
     /// The chain a call would close into a loop, if it would.
@@ -2903,8 +2904,8 @@ impl Session {
             },
             call::method::PEOPLE_MEMBER => match parsed::<PeopleMember>(&call, method) {
                 Ok(request) => match shared.world.member(&request.server, &request.person) {
-                    Ok(found) => answered_option(found),
-                    Err(()) => HostReturn::Error {
+                    crate::plugins::world::MemberAnswer::Open(found) => answered_option(found),
+                    crate::plugins::world::MemberAnswer::NotOpen => HostReturn::Error {
                         message: format!(
                             "the members of {} aren't open: `people.member` answers for the \
                              conversation on screen",
@@ -3860,10 +3861,7 @@ mod tests {
         std::fs::create_dir_all(directory.join("plugins")).expect("a plugin directory");
         std::fs::write(
             directory.join("plugins").join("lock.json"),
-            format!(
-                r#"{{"version":1,"plugins":{{{}}}}}"#,
-                entries.join(",")
-            ),
+            format!(r#"{{"version":1,"plugins":{{{}}}}}"#, entries.join(",")),
         )
         .expect("a lock file");
         ids
@@ -3991,7 +3989,11 @@ mod tests {
     #[test]
     fn a_blocked_send_says_why_and_a_failed_chain_lets_it_through() {
         let directory = tempfile::tempdir().expect("a temporary directory");
-        let plugin = installed(directory.path(), BLOCKING_HOOK_MANIFEST, b"not a real module");
+        let plugin = installed(
+            directory.path(),
+            BLOCKING_HOOK_MANIFEST,
+            b"not a real module",
+        );
         let (wake, notices) = notice_channel();
         let shared = shared(directory.path(), wake);
         let (_session_directory, mut session, written, _inbound) = session_stub();
@@ -4107,14 +4109,22 @@ mod tests {
             serde_json::to_vec(&FromHelper::Call {
                 plugin: plugin.clone(),
                 call: 5,
-                request: call::HostCall::new(call::method::SETTINGS_ON_CHANGE, &serde_json::json!({}))
-                    .expect("a call"),
+                request: call::HostCall::new(
+                    call::method::SETTINGS_ON_CHANGE,
+                    serde_json::json!({}),
+                )
+                .expect("a call"),
             })
             .expect("it serializes"),
         );
         assert!(session.on_frame(&shared, ask).is_none());
         let reply = next_frame(&written);
-        let ToHelper::Return { call: answered, answer, .. } = message(&reply) else {
+        let ToHelper::Return {
+            call: answered,
+            answer,
+            ..
+        } = message(&reply)
+        else {
             panic!("a host call is answered with a return");
         };
         assert_eq!(answered, 5);
@@ -4155,7 +4165,12 @@ mod tests {
             },
         ));
         let news = next_frame(&written);
-        let ToHelper::Return { call: answered, answer, .. } = message(&news) else {
+        let ToHelper::Return {
+            call: answered,
+            answer,
+            ..
+        } = message(&news)
+        else {
             panic!("a settings change is the answer to the call that asked");
         };
         assert_eq!(answered, 5);
@@ -5100,7 +5115,12 @@ mod tests {
         // The other way round: base declares nothing, so it may not call top.
         session.on_call(&shared, 3, base.clone(), call_request(&top, "answer"));
         let reply = next_frame(&written);
-        let ToHelper::Return { plugin, call: 3, answer } = message(&reply) else {
+        let ToHelper::Return {
+            plugin,
+            call: 3,
+            answer,
+        } = message(&reply)
+        else {
             panic!("a refused call is answered");
         };
         assert_eq!(plugin, base);
@@ -5509,7 +5529,12 @@ mod tests {
         // The running instance says goodbye, and the replacement carries the new
         // module.
         let stop = next_frame(&written);
-        assert_eq!(message(&stop), ToHelper::Deactivate { plugin: plugin.clone() });
+        assert_eq!(
+            message(&stop),
+            ToHelper::Deactivate {
+                plugin: plugin.clone()
+            }
+        );
         session.on_frame(
             &shared,
             Frame::new(

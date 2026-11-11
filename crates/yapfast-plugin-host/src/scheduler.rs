@@ -632,10 +632,9 @@ impl<B: Backend + 'static> Shared<B> {
             return;
         }
         let plugin = self.id(slot);
-        let (result, late) =
-            self.call(&[slot], EVENT_BUDGET, |backend| {
-                backend.event(&plugin, &[], &[])
-            });
+        let (result, late) = self.call(&[slot], EVENT_BUDGET, |backend| {
+            backend.event(&plugin, &[], &[])
+        });
         if late {
             self.discard(slot, deadline_fault("a timer tick"), None);
             return;
@@ -1335,7 +1334,10 @@ enum Job {
         function: String,
         args_base64: String,
     },
-    Return { call: u64, answer: HostReturn },
+    Return {
+        call: u64,
+        answer: HostReturn,
+    },
 }
 
 /// One unit of work, with the reply frame it answers.

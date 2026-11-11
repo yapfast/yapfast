@@ -351,29 +351,52 @@ impl World {
 
     /// `people.member`: one person as one server sees them.
     ///
-    /// `Some(None)` when the server isn't the one open, so the caller can say
-    /// which one it would have to be; `None` when it is and nobody there has
-    /// that id.
-    pub fn member(&self, server: &str, id: &str) -> Result<Option<MemberView>, ()> {
+    /// Only the conversation on screen has its members in memory, so a question
+    /// about any other server is [`Members::NotOpen`]: the caller can say which
+    /// one it would have to be.
+    pub fn member(&self, server: &str, id: &str) -> MemberAnswer {
         let held = self.read();
         let Some(members) = held.members.as_ref() else {
-            return Err(());
+            return MemberAnswer::NotOpen;
         };
         if room_server(&members.room).as_deref() != Some(server) {
-            return Err(());
+            return MemberAnswer::NotOpen;
         }
-        Ok(members
-            .people
-            .iter()
-            .find(|member| member.id == id)
-            .map(|member| MemberView {
-                person: person(member),
-                roles: member.roles.iter().cloned().collect(),
-                presence: member.presence.map(|around| presence(around).to_owned()),
-                colour: member.color,
-                activity: member.activity.clone(),
-                timed_out_until: member.timed_out_until,
-            }))
+        MemberAnswer::Open(
+            members
+                .people
+                .iter()
+                .find(|member| member.id == id)
+                .map(|member| MemberView {
+                    person: person(member),
+                    roles: member.roles.iter().cloned().collect(),
+                    presence: member.presence.map(|around| presence(around).to_owned()),
+                    colour: member.color,
+                    activity: member.activity.clone(),
+                    timed_out_until: member.timed_out_until,
+                }),
+        )
+    }
+}
+
+/// What `people.member` found.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MemberAnswer {
+    /// The server's members are the open conversation's, and this is who is
+    /// there, when anyone with that id is.
+    Open(Option<MemberView>),
+    /// The members of another server aren't in memory: only the conversation on
+    /// screen has its people loaded.
+    NotOpen,
+}
+
+impl MemberAnswer {
+    /// The member, or nothing, when the server's list is the open one.
+    pub fn open(self) -> Option<Option<MemberView>> {
+        match self {
+            MemberAnswer::Open(found) => Some(found),
+            MemberAnswer::NotOpen => None,
+        }
     }
 }
 
@@ -644,6 +667,7 @@ mod tests {
         world.publish_members("discord:1:2", &Arc::new(vec![member]));
         let found = world
             .member("1", "person-2")
+            .open()
             .expect("the server is open")
             .expect("the member");
         assert_eq!(found.person.name, "Bo");
@@ -651,11 +675,14 @@ mod tests {
         assert_eq!(found.presence.as_deref(), Some("dnd"));
         assert_eq!(found.colour, Some(0x00ff00));
         assert!(
-            world.member("2", "person-2").is_err(),
+            world.member("2", "person-2").open().is_none(),
             "another server's list isn't here"
         );
         assert_eq!(
-            world.member("1", "person-9").expect("the server is open"),
+            world
+                .member("1", "person-9")
+                .open()
+                .expect("the server is open"),
             None
         );
         assert_eq!(

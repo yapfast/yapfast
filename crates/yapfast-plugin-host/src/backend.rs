@@ -84,8 +84,12 @@ pub trait Backend: Send + Sync {
     /// The bytes are the caller's and go to the callee's export unchanged, and
     /// what it returns is what the caller gets. `None` is an export that
     /// answered nothing, which is a call with no answer rather than a failure.
-    fn invoke(&self, plugin: &PluginId, function: &str, args: &[u8])
-    -> Result<Option<Vec<u8>>, Fault>;
+    fn invoke(
+        &self,
+        plugin: &PluginId,
+        function: &str,
+        args: &[u8],
+    ) -> Result<Option<Vec<u8>>, Fault>;
 
     /// Answers a guest's host call that was left pending.
     fn answer(&self, plugin: &PluginId, call: u64, answer: &HostReturn) -> Result<(), Fault>;
