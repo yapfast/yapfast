@@ -129,6 +129,14 @@ pub trait Plugin: Default + 'static {
     fn command(&mut self, _ctx: &Context<'_>, _command: Command) -> Result<Reply> {
         Ok(Reply::None)
     }
+
+    /// One thing another plugin published to a topic this one subscribed to.
+    ///
+    /// Called after the batch's events, once per publish, in the order they were
+    /// published. An error here is logged and the rest of the batch still runs.
+    fn topic(&mut self, _ctx: &Context<'_>, _topic: wire::TopicEvent) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// The exports the helper calls, generated for one [`Plugin`] type.
@@ -240,7 +248,11 @@ pub mod __private {
     /// does, it does through host calls, and a failure is logged rather than
     /// thrown away with the rest of the batch.
     pub fn event<P: Plugin>(plugin: &mut P, input: &str) -> Result<String> {
-        let wire::EventBatch { events, results } = json::from_str(input)?;
+        let wire::EventBatch {
+            events,
+            results,
+            topics,
+        } = json::from_str(input)?;
         let context = Context::for_call(Call::Event, &results);
         if !results.is_empty() {
             plugin.answered(&context);
@@ -251,6 +263,12 @@ pub mod __private {
             let kind = envelope.kind.clone();
             if let Err(error) = plugin.event(&context, Event::from(envelope)) {
                 crate::log::error(format!("handling `{kind}` failed: {error}"));
+            }
+        }
+        for topic in topics {
+            let name = topic.topic.clone();
+            if let Err(error) = plugin.topic(&context, topic) {
+                crate::log::error(format!("handling topic `{name}` failed: {error}"));
             }
         }
         Ok("null".to_owned())

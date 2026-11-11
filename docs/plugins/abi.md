@@ -49,12 +49,13 @@ Every payload is a JSON object with a `t` naming the variant. The first is
 | `hello` | `api` | Which API the parent speaks |
 | `load` | `plugin`, `wasm`, `memory_pages`, `wasi` | Load a module and its limits, without activating it |
 | `unload` | `plugin` | Drop an instance, keeping nothing |
-| `activate` | `plugin`, `load` | Load the module when `load` is there, then instantiate and call `yf_activate`: one request for the whole phase, so the helper is never between a module and its instance |
+| `activate` | `plugin`, `load` | Load the module when `load` is there, then instantiate and call `yf_activate`: one request for the whole phase, so the helper is never between a module and its instance. A `load` that replaces a running version carries the hand-off its `yf_deactivate` left, which is how a plugin's state crosses an update |
 | `deactivate` | `plugin` | Call `yf_deactivate`, which may hand state to the next activation |
 | `kick` | `plugin` | Run an instance again with nothing new: an eviction clock's trigger |
 | `event` | `plugin`, `events` | A batch of events, already filtered and serialized |
 | `hook` | `chain`, `request` | One hook, for the whole chain at once |
 | `command` | `plugin`, `command` | A command the person typed, with its options |
+| `invoke` | `plugin`, `function`, `args_base64` | One export of one plugin, called for another: `plugin.call`. Answered with `invoked` |
 | `return` | `plugin`, `call`, `answer` | The answer to a guest's host call |
 | `evict` | `plugin` | Evict now: the idle clock ran out or the memory budget is full |
 | `shutdown` | | The parent is going away; exit |
@@ -73,6 +74,7 @@ round trip per plugin. Each plugin in it sees the previous one's subject.
 | `deactivated` | `plugin`, `state` | The instance is gone, with its hand-off |
 | `hook_done` | `outcome`, `failures` | A chain's final answer, and the plugins that failed on the way |
 | `command_done` | `plugin`, `outcome` | A command's answer |
+| `invoked` | `answer_base64`, `fault` | The export's answer, or the fault that stopped it |
 | `event_done` | `plugin` | An event batch finished |
 | `status` | `plugin`, `status` | A plugin's state changed, for the page and the registry |
 | `fault` | `plugin`, `fault` | An instance was discarded, and why |
@@ -138,9 +140,21 @@ An event batch arrives as:
       "payload": { "body": "hi", "id": "message-1" }
     }
   ],
-  "results": [{ "call": 7, "answer": { "ok": { "status": 200 } } }]
+  "results": [{ "call": 7, "answer": { "ok": { "status": 200 } } }],
+  "topics": [
+    {
+      "topic": "word-filter.words",
+      "from": "com.example.base",
+      "at": 1767225600123,
+      "payload": { "words": ["spam"] }
+    }
+  ]
 }
 ```
+
+`topics` is there only when something was published to a topic the plugin
+subscribed to; a batch with none has no field at all. Each entry is one
+`plugin.publish`, and a subscriber handles them after the batch's events.
 
 The top-level fields are what a subscription filter reads, so the parent filters
 before the helper is woken and a plugin that didn't subscribe is never sent a
@@ -176,13 +190,53 @@ message.
 | `{ "error": { "message": … } }` | The call was understood and failed |
 
 The methods are names, so adding one never changes the link surface. `storage`,
-`settings`, `http`, `timers` and `app` have typed payloads in the contract crate,
-because they are the calls the runtime implements first. Every other name the
-ABI lists — `account.me`, the `rooms`, `messages` and `people` reads,
-`messages.send`, `edit`, `delete`, `react` and `jump_to`, the `composer` calls,
-`plugin.call`, `publish` and `subscribe`, `notify.send`, `clipboard.write` and
-`open.url` — is named from the first version so a plugin can feature-detect it,
-and answers `unsupported` until the runtime has it.
+`settings`, `http`, `timers`, `app` and the `plugin` group have typed payloads in
+the contract crate, because they are the calls the runtime implements first.
+Every other name the ABI lists — `account.me`, the `rooms`, `messages` and
+`people` reads, `messages.send`, `edit`, `delete`, `react` and `jump_to`, the
+`composer` calls, `notify.send`, `clipboard.write` and `open.url` — is named from
+the first version so a plugin can feature-detect it, and answers `unsupported`
+until the runtime has it.
+
+### Calls between plugins
+
+```json
+{ "method": "plugin.call",
+  "payload": { "plugin": "com.example.base", "function": "lookup",
+               "args_base64": "aGk=" } }
+```
+
+A call runs one export of the named plugin and answers with what it returned:
+`{ "ok": { "answer_base64": "…" } }`, `{ "ok": null }` when the export returned
+nothing, or `{ "error": { "message": … } }` for a fault or a deadline of two
+seconds. The bytes are the two plugins' own — the ABI only carries them — so a
+pair that agreed on JSON, MessagePack or a single string all work. The callee is
+started first if it was idle, and an export the ABI reserves (`yf_activate` and
+the other four) can't be reached this way: the parent owns those phases.
+
+The caller must declare the callee as a `dependencies` or
+`optional_dependencies` entry, and no other call is routed. That is what makes a
+loop of calls impossible; a call that would come back around anyway, such as a
+callee calling its own caller, is refused with the chain that would have made the
+loop (`a → b → a`).
+
+`plugin.publish` and `plugin.subscribe` are the other direction: asynchronous,
+and never waited on.
+
+```json
+{ "method": "plugin.publish",
+  "payload": { "topic": "word-filter.words", "payload": { "words": ["spam"] } } }
+{ "method": "plugin.subscribe", "payload": { "topic": "word-filter.words" } }
+{ "method": "plugin.subscribe",
+  "payload": { "topic": "word-filter.words", "cancel": true } }
+```
+
+A publish answers at once with the number of plugins it was handed to. It is
+delivered in the subscriber's next `yf_event` batch, under `topics`, in the same
+quarter-second window typing waits in, and the receiver pays one event batch's
+budget for it. A publisher never receives its own topic. A topic's name is 1 to
+128 bytes and a plugin may hold 32 of them; the payload is cut and flagged at
+64 KiB as an event's is.
 
 Every host call is a request the parent answers, because the parent holds the
 token, the network gate and the consent dialogs, and the guest's function is

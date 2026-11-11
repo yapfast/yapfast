@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use yapfast_plugin_api::PluginId;
 use yapfast_plugin_api::call::{CommandInvocation, CommandOutcome};
-use yapfast_plugin_api::event::{EventEnvelope, EventKind, Network};
+use yapfast_plugin_api::event::{EventEnvelope, EventKind, Network, TopicEvent};
 use yapfast_plugin_api::frame::{Frame, FrameKind, read_frame};
 use yapfast_plugin_api::hook::{Draft, HookKind, HookRequest, HookSubject};
 use yapfast_plugin_api::message::{Fault, FaultKind, FromHelper, PluginStatus};
@@ -49,11 +49,13 @@ fn interactive_work_goes_before_background_work() {
         id: 2,
         plugin: b.clone(),
         events: vec![event("e1")],
+        topics: Vec::new(),
     });
     harness.send(Message::Event {
         id: 3,
         plugin: b.clone(),
         events: vec![event("e2")],
+        topics: Vec::new(),
     });
     harness.send(Message::Command {
         id: 4,
@@ -92,6 +94,7 @@ fn one_plugins_work_keeps_its_order() {
             id,
             plugin: a.clone(),
             events: vec![event(label)],
+            topics: Vec::new(),
         });
     }
     harness.hold(false);
@@ -431,6 +434,7 @@ impl Harness {
                 wasm: PathBuf::from("/dev/null"),
                 memory_pages,
                 wasi: false,
+                state: None,
             },
         });
         self.wait_log(&format!("load:{plugin}"));
@@ -666,12 +670,29 @@ impl Backend for Fake {
         Ok(None)
     }
 
-    fn event(&self, plugin: &PluginId, events: &[EventEnvelope]) -> Result<(), Fault> {
+    fn event(
+        &self,
+        plugin: &PluginId,
+        events: &[EventEnvelope],
+        topics: &[TopicEvent],
+    ) -> Result<(), Fault> {
+        let _ = topics;
         let label = events
             .first()
             .map(|event| event.payload["label"].as_str().unwrap_or("?").to_owned())
             .unwrap_or_else(|| "none".to_owned());
         self.calls.enter(format!("event:{plugin}:{label}"))
+    }
+
+    fn invoke(
+        &self,
+        plugin: &PluginId,
+        function: &str,
+        args: &[u8],
+    ) -> Result<Option<Vec<u8>>, Fault> {
+        self.calls
+            .enter(format!("invoke:{plugin}:{function}"))?;
+        Ok(Some(args.to_vec()))
     }
 
     fn hook(&self, chain: &[PluginId], request: &HookRequest) -> HookRun {
@@ -758,6 +779,7 @@ fn the_helper_finishes_once_the_last_instance_is_gone() {
             wasm: PathBuf::from("/dev/null"),
             memory_pages: 256,
             wasi: false,
+            state: None,
         },
     });
     scheduler.send(Message::Activate {
@@ -812,6 +834,7 @@ fn a_background_call_does_not_hold_an_interactive_send() {
         id: 1,
         plugin: a.clone(),
         events: vec![event("e1")],
+        topics: Vec::new(),
     });
     harness.send(Message::Command {
         id: 2,

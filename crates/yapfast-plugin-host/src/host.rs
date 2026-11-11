@@ -191,6 +191,7 @@ fn dispatch(
                     wasm: module_path(dev, wasm),
                     memory_pages,
                     wasi,
+                    state: None,
                 },
             });
             After::Continue
@@ -205,6 +206,7 @@ fn dispatch(
                 wasm: module_path(dev, load.wasm),
                 memory_pages: load.memory_pages,
                 wasi: load.wasi,
+                state: load.state,
             });
             scheduler.send(Message::Activate { id, plugin, load });
             After::Continue
@@ -217,8 +219,17 @@ fn dispatch(
             scheduler.send(Message::Kick { plugin });
             After::Continue
         }
-        ToHelper::Event { plugin, events } => {
-            scheduler.send(Message::Event { id, plugin, events });
+        ToHelper::Event {
+            plugin,
+            events,
+            topics,
+        } => {
+            scheduler.send(Message::Event {
+                id,
+                plugin,
+                events,
+                topics,
+            });
             After::Continue
         }
         ToHelper::Hook { chain, request } => {
@@ -230,6 +241,19 @@ fn dispatch(
                 id,
                 plugin,
                 command,
+            });
+            After::Continue
+        }
+        ToHelper::Invoke {
+            plugin,
+            function,
+            args_base64,
+        } => {
+            scheduler.send(Message::Invoke {
+                id,
+                plugin,
+                function,
+                args_base64,
             });
             After::Continue
         }

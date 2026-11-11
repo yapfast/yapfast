@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use yapfast_plugin_api::PluginId;
 use yapfast_plugin_api::call::{CommandInvocation, CommandOutcome, HostReturn};
-use yapfast_plugin_api::event::EventEnvelope;
+use yapfast_plugin_api::event::{EventEnvelope, TopicEvent};
 use yapfast_plugin_api::hook::{HookOutcome, HookRequest};
 use yapfast_plugin_api::message::Fault;
 
@@ -28,6 +28,10 @@ pub struct LoadSpec {
     pub memory_pages: u32,
     /// Whether the guest needs WASI, as Go and JavaScript builds do.
     pub wasi: bool,
+    /// The hand-off its last `yf_deactivate` left, when this load replaces a
+    /// running version: the state crosses the swap, so an update doesn't cost
+    /// the plugin its memory of where it was.
+    pub state: Option<String>,
 }
 
 /// Runs one plugin's calls.
@@ -51,8 +55,14 @@ pub trait Backend: Send + Sync {
     /// hand-off for the next activation, cut to the limit.
     fn deactivate(&self, plugin: &PluginId) -> Result<Option<String>, Fault>;
 
-    /// One batch of events, as `yf_event`.
-    fn event(&self, plugin: &PluginId, events: &[EventEnvelope]) -> Result<(), Fault>;
+    /// One batch of events, as `yf_event`; `topics` is what other plugins
+    /// published to this one's topics, which arrives in the same call.
+    fn event(
+        &self,
+        plugin: &PluginId,
+        events: &[EventEnvelope],
+        topics: &[TopicEvent],
+    ) -> Result<(), Fault>;
 
     /// The whole hook chain, in the order given, as one exchange: each plugin
     /// sees the previous one's result.
@@ -64,6 +74,14 @@ pub trait Backend: Send + Sync {
         plugin: &PluginId,
         command: &CommandInvocation,
     ) -> Result<CommandOutcome, Fault>;
+
+    /// One export of one plugin, called on behalf of another: `plugin.call`.
+    ///
+    /// The bytes are the caller's and go to the callee's export unchanged, and
+    /// what it returns is what the caller gets. `None` is an export that
+    /// answered nothing, which is a call with no answer rather than a failure.
+    fn invoke(&self, plugin: &PluginId, function: &str, args: &[u8])
+    -> Result<Option<Vec<u8>>, Fault>;
 
     /// Answers a guest's host call that was left pending.
     fn answer(&self, plugin: &PluginId, call: u64, answer: &HostReturn) -> Result<(), Fault>;

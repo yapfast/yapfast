@@ -40,7 +40,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use yapfast_plugin_api::call::{CommandInvocation, CommandOutcome, HostReturn};
-use yapfast_plugin_api::event::EventEnvelope;
+use yapfast_plugin_api::event::{EventEnvelope, TopicEvent};
 use yapfast_plugin_api::guest::{ActivatePayload, CallResult, DeactivatePayload};
 use yapfast_plugin_api::hook::{HookOutcome, HookRequest};
 use yapfast_plugin_api::limits::MAX_HANDOFF_BYTES;
@@ -169,6 +169,7 @@ impl Backend for ExtismBackend {
         let shape = module::check_file(&spec.wasm, spec.wasi)?;
         let channel = Arc::new(host::Channel::new(spec.plugin.clone(), self.outbox.clone()));
         let compiled = self.compile(&spec, channel.clone())?;
+        let state = spec.state.clone();
         let mut loaded = self
             .loaded
             .lock()
@@ -180,7 +181,7 @@ impl Backend for ExtismBackend {
                 compiled,
                 shape,
                 instance: None,
-                state: None,
+                state,
             })),
         );
         drop(loaded);
@@ -230,10 +231,16 @@ impl Backend for ExtismBackend {
         Ok(state)
     }
 
-    fn event(&self, plugin: &PluginId, events: &[EventEnvelope]) -> Result<(), Fault> {
+    fn event(
+        &self,
+        plugin: &PluginId,
+        events: &[EventEnvelope],
+        topics: &[TopicEvent],
+    ) -> Result<(), Fault> {
         let bytes = encode(&Batch {
             events,
             results: &[],
+            topics,
         })?;
         let live = self.live.clone();
         let slot = self.slot(plugin).ok_or_else(|| not_loaded(plugin))?;
@@ -309,6 +316,7 @@ impl Backend for ExtismBackend {
         let bytes = encode(&Batch {
             events: &[],
             results: std::slice::from_ref(&result),
+            topics: &[],
         })?;
         // A batch's answer isn't part of the ABI, and a guest that writes one
         // anyway mustn't be faulted for it: the events were delivered, which is
@@ -324,6 +332,22 @@ impl Backend for ExtismBackend {
                 .instance = None;
         }
         self.forget(plugin);
+    }
+
+    fn invoke(
+        &self,
+        plugin: &PluginId,
+        function: &str,
+        args: &[u8],
+    ) -> Result<Option<Vec<u8>>, Fault> {
+        let live = self.live.clone();
+        let slot = self.slot(plugin).ok_or_else(|| not_loaded(plugin))?;
+        let mut guard = slot
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let loaded = &mut *guard;
+        loaded.ensure(&live)?;
+        loaded.call_bytes(function, args)
     }
 
     fn memory_pages(&self, plugin: &PluginId) -> Option<u32> {
@@ -413,7 +437,8 @@ struct Loaded {
     /// What the last `yf_deactivate` handed on, for the next activation. The
     /// parent persists it, but only the helper holds it between the two calls,
     /// so a hand-off doesn't survive the helper being restarted: anything
-    /// durable belongs in storage.
+    /// durable belongs in storage. A replacement load brings its own, so the
+    /// state crosses the swap of a version as it crosses a deactivation.
     state: Option<String>,
 }
 
@@ -490,21 +515,40 @@ impl Loaded {
         export: &str,
         input: &[u8],
     ) -> Result<Option<T>, Fault> {
+        let plugin = self.spec.plugin.clone();
+        self.call_raw(export, input, |bytes| {
+            serde_json::from_slice(bytes).map_err(|error| Fault {
+                kind: FaultKind::BadAnswer,
+                reason: format!(
+                    "`{plugin}`'s {export} answered something else than the ABI says: {error}"
+                ),
+            })
+        })
+    }
+
+    /// Calls one export and keeps the bytes it answered, which is what
+    /// `plugin.call` is: the two plugins agree on what those bytes mean, and
+    /// the runtime only carries them.
+    fn call_bytes(&mut self, export: &str, input: &[u8]) -> Result<Option<Vec<u8>>, Fault> {
+        self.call_raw(export, input, |bytes| Ok(bytes.to_vec()))
+    }
+
+    /// Calls one export and reads its answer while it is still borrowed from
+    /// the store, so nothing is copied to hand it back.
+    fn call_raw<T>(
+        &mut self,
+        export: &str,
+        input: &[u8],
+        read: impl FnOnce(&[u8]) -> Result<T, Fault>,
+    ) -> Result<Option<T>, Fault> {
+        let plugin = self.spec.plugin.clone();
         let Some(instance) = self.instance.as_mut() else {
-            return Err(not_loaded(&self.spec.plugin));
+            return Err(not_loaded(&plugin));
         };
         let cancel = instance.cancel.clone();
         match instance.plugin.call::<&[u8], Option<&[u8]>>(export, input) {
             Ok(None) => Ok(None),
-            Ok(Some(bytes)) => serde_json::from_slice(bytes)
-                .map(Some)
-                .map_err(|error| Fault {
-                    kind: FaultKind::BadAnswer,
-                    reason: format!(
-                        "`{}`'s {export} answered something else than the ABI says: {error}",
-                        self.spec.plugin
-                    ),
-                }),
+            Ok(Some(bytes)) => read(bytes).map(Some),
             Err(error) => {
                 let (kind, discard) = classify(
                     &error,
@@ -512,7 +556,7 @@ impl Loaded {
                 );
                 let fault = Fault {
                     kind,
-                    reason: summarize(format!("`{}`'s {export}: {error}", self.spec.plugin)),
+                    reason: summarize(format!("`{plugin}`'s {export}: {error}")),
                 };
                 if discard {
                     // Out of memory or cancelled: it stopped somewhere of the
@@ -544,6 +588,10 @@ struct Instance {
 struct Batch<'a> {
     events: &'a [EventEnvelope],
     results: &'a [CallResult],
+    /// What other plugins published, which arrives in the same call because a
+    /// subscriber handles both in one function.
+    #[serde(skip_serializing_if = "<[TopicEvent]>::is_empty")]
+    topics: &'a [TopicEvent],
 }
 
 /// What a failed call means, and whether the instance survives it.
@@ -684,11 +732,13 @@ mod tests {
         let borrowed = serde_json::to_vec(&Batch {
             events: std::slice::from_ref(&event),
             results: std::slice::from_ref(&result),
+            topics: &[],
         })
         .unwrap();
         let owned = serde_json::to_vec(&EventBatch {
             events: vec![event],
             results: vec![result],
+            topics: Vec::new(),
         })
         .unwrap();
         assert_eq!(borrowed, owned);
@@ -785,7 +835,7 @@ mod tests {
         );
         assert!(
             backend
-                .event(&plugin, &[envelope()])
+                .event(&plugin, &[envelope()], &[])
                 .unwrap_err()
                 .reason
                 .contains("never loaded")

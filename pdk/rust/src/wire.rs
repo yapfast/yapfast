@@ -205,6 +205,20 @@ pub struct EventBatch {
     pub events: Vec<EventEnvelope>,
     #[serde(default)]
     pub results: Vec<CallResult>,
+    /// What other plugins published to topics this one subscribed to.
+    #[serde(default)]
+    pub topics: Vec<TopicEvent>,
+}
+
+/// One `plugin.publish`, as a plugin that subscribed to its topic receives it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TopicEvent {
+    pub topic: String,
+    pub from: String,
+    /// Milliseconds since the Unix epoch.
+    pub at: u64,
+    #[serde(default)]
+    pub payload: Value,
 }
 
 /// The answer to one host call that was left pending.
