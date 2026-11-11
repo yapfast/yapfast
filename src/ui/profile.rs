@@ -664,6 +664,9 @@ pub(super) fn profile_data(
         role_rows_large: role_rows(&profile.roles, PROFILE_LARGE_WIDTH),
         created: profile.created.clone().unwrap_or_default().into(),
         joined: profile.joined.clone().unwrap_or_default().into(),
+        server_initial: initial(&profile.server_name),
+        server_name: profile.server_name.as_str().into(),
+        server_icon: cached_picture(pictures, state, profile.server_icon.as_deref()),
         servers: ModelRc::new(VecModel::from(
             profile
                 .servers

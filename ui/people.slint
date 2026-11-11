@@ -440,6 +440,9 @@ export struct ProfileData {
     role-rows: [ProfileRoleRow], role-rows-large: [ProfileRoleRow],
     /// Dates: on Discord since, and in this server since.
     created: string, joined: string,
+    /// The server `joined` is of, whose icon shows beside it, or its
+    /// initial without one.
+    server-name: string, server-initial: string, server-icon: image,
     servers: [ProfileServerRow], friends: [ProfileFriendRow],
     /// Loading, or why there's no more.
     note: string,
@@ -567,6 +570,42 @@ export component ProfileTitle inherits Text {
 
 export component ProfileHeading inherits Text {
     color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
+}
+
+// Member Since's dates in one row, as Discord's: the Discord logo and the
+// account's date, then a bullet, the server's icon and the date of joining it.
+export component MemberSince inherits HorizontalLayout {
+    in property <string> created;
+    in property <string> joined;
+    in property <string> server-name;
+    in property <string> server-initial;
+    in property <image> server-icon;
+    in property <color> ink: Theme.secondary;
+    in property <length> font-size: 14px;
+    spacing: 8px; alignment: start;
+    if root.created != "": HorizontalLayout {
+        spacing: 8px;
+        accessible-role: text; accessible-label: "On Discord since " + root.created;
+        Middle { Image { source: @image-url("icons/discord.svg"); width: 16px; height: 16px; colorize: root.ink; } }
+        Text { text: root.created; color: root.ink; font-size: root.font-size; vertical-alignment: center; }
+    }
+    if root.created != "" && root.joined != "": Text { text: "\u{2022}"; color: root.ink; font-size: root.font-size; vertical-alignment: center; }
+    if root.joined != "": HorizontalLayout {
+        spacing: 8px;
+        accessible-role: text; accessible-label: "In " + root.server-name + " since " + root.joined;
+        Middle {
+            Rectangle {
+                width: 16px; height: 16px; border-radius: 4px; clip: true;
+                background: root.server-icon.width > 0 ? transparent : Theme.raised;
+                if root.server-icon.width == 0: Text {
+                    text: root.server-initial; color: root.ink; font-size: 8px; font-weight: 700;
+                    horizontal-alignment: center; vertical-alignment: center;
+                }
+                if root.server-icon.width > 0: Image { source: root.server-icon; width: 16px; height: 16px; image-fit: cover; }
+            }
+        }
+        Text { text: root.joined; color: root.ink; font-size: root.font-size; vertical-alignment: center; }
+    }
 }
 
 // A badge on a profile: its picture, with its name on hover, opening its
@@ -1263,21 +1302,15 @@ export component ProfileCard inherits Rectangle {
                             }
                         }
                         // The card leaves the dates to the full profile and the DM panel:
-                        // "Member Since", then each date over what it's of, side by side:
-                        // On Discord, In this server. Alone, the account's needs no line.
+                        // "Member Since", then the Discord logo and the account's date, and
+                        // the server's icon and the date of joining it.
                         if root.full && (root.data.created != "" || root.data.joined != ""): VerticalLayout {
                             spacing: 6px;
                             ProfileTitle { text: "Member Since"; color: root.ink; }
-                            HorizontalLayout {
-                                spacing: 24px; alignment: start;
-                                if root.data.created != "": VerticalLayout {
-                                    Text { text: root.data.created; color: root.ink; font-size: 14px; }
-                                    if root.data.joined != "": Text { text: "On Discord"; color: root.ink3; font-size: 12px; }
-                                }
-                                if root.data.joined != "": VerticalLayout {
-                                    Text { text: root.data.joined; color: root.ink; font-size: 14px; }
-                                    Text { text: "In this server"; color: root.ink3; font-size: 12px; }
-                                }
+                            MemberSince {
+                                created: root.data.created; joined: root.data.joined;
+                                server-name: root.data.server-name; server-initial: root.data.server-initial; server-icon: root.data.server-icon;
+                                ink: root.ink2;
                             }
                         }
                         // For a friend, as Discord's: when the friendship began.

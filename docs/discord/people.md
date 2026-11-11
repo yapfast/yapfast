@@ -254,11 +254,14 @@ profile once each time the open DM changes to someone else. Yapfast fetches it
 from `GET /users/{id}/profile` with the open server's id, so the server's
 nickname, avatar, banner, bio and pronouns win over the person's own, and the
 profile lists their roles in role order, when they joined Discord and the server,
-and the servers and friends the account shares with them. The full profile
-and the DM's panel show the dates under "Member Since", each over what it's
-of, side by side: "On Discord" and "In this server". A friend's also show
-"Friends Since", from `since` on their relationship in READY and
-RELATIONSHIP_ADD, as the friend list keeps it. Profiles are kept for
+and the servers and friends the account shares with them. The full profile,
+the DM's panel and the profile editor's preview show the dates under "Member
+Since" in one row, as the client does: the Discord logo and the account's
+date, then a bullet, the server's icon (its initial without one) and the date
+of joining it; a profile not asked for a server has only the first. A
+friend's also show "Friends Since", from `since` on their relationship in
+READY and RELATIONSHIP_ADD, as the friend list keeps it. These dates read as
+the client writes them, "Nov 5, 2026", whatever date format is chosen. Profiles are kept for
 five minutes, at most 32 of them. This account's own profile shares its
 friends and servers with nobody, so, as in Discord's client, its card shows
 no mutual line, its full profile no mutual tabs, and it has no Friends

@@ -227,6 +227,9 @@ fn the_full_profiles_tabs_and_dates_are_discords() {
                 name: "Bob".into(),
                 avatar: None,
             }],
+            created: Some("May 4, 2024".into()),
+            joined: Some("Nov 5, 2026".into()),
+            server_name: "Server".into(),
             ..Default::default()
         },
         ..Default::default()
@@ -342,6 +345,10 @@ fn the_full_profiles_tabs_and_dates_are_discords() {
         assert_eq!(shows(&window, "1 Mutual Friend"), tabs, "Mutual Friends");
         assert_eq!(shows(&window, "1 Mutual Server"), tabs, "Mutual Servers");
         assert_eq!(shows(&window, empty_activity), activity, "on Activity");
+        // Member Since in one row: the Discord logo and a date, then the
+        // server's icon and a date.
+        assert!(shows(&window, "On Discord since May 4, 2024"));
+        assert!(shows(&window, "In Server since Nov 5, 2026"));
         assert!(!shows(&window, "You don't have any activity here"));
         window.set_profile_open(false);
         settle(&window);
