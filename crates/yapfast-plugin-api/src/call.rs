@@ -30,6 +30,7 @@ pub mod method {
     pub const MESSAGES_GET: &str = "messages.get";
     pub const MESSAGES_HISTORY: &str = "messages.history";
     pub const PEOPLE_GET: &str = "people.get";
+    pub const PEOPLE_MEMBER: &str = "people.member";
     pub const STORAGE_GET: &str = "storage.get";
     pub const STORAGE_SET: &str = "storage.set";
     pub const STORAGE_DELETE: &str = "storage.delete";
@@ -283,12 +284,107 @@ pub struct WidgetInput {
     pub value: String,
 }
 
-/// `app.version` and `app.locale`'s answer.
+/// `app.version`, `app.locale` and `app.theme_mode`'s answer: each gives the
+/// whole of what Yapfast is, so a plugin asks once and keeps it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppInfo {
     pub version: String,
+    /// A language tag, such as `en-GB`.
     pub locale: String,
+    /// `light` or `dark`.
     pub theme_mode: String,
+}
+
+/// `account.me`'s answer: the account this Yapfast is signed in as.
+///
+/// It carries no token and no email: what a plugin may know about the person
+/// is what every other surface shows of them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccountView {
+    /// The user id on the account's network.
+    pub id: String,
+    /// The name it shows, which is its display name here.
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    /// A `discord://` or `matrix://` reference, as [`crate::event::PersonView`]
+    /// names one; never an authenticated address.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<String>,
+    /// `online`, `idle`, `dnd` or `invisible`, when the network says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    /// Whether this device is trusted, which is a thing only the person and
+    /// Yapfast know; a plugin is told so it can say "this device" honestly.
+    #[serde(default)]
+    pub trusted: bool,
+}
+
+/// `rooms.get` and `messages.*`: which room, by the id the sidebar uses.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoomGet {
+    pub room: String,
+}
+
+/// `rooms.list`: every room the account can see, newest activity first.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoomsList {
+    /// How many to answer with; the runtime's own cap applies on top.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+}
+
+/// `messages.get`: one message of a room.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageGet {
+    pub room: String,
+    pub message: String,
+}
+
+/// `messages.history`: a page of a room's timeline, newest first.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageHistory {
+    pub room: String,
+    /// The message to stop before; the newest page when it is absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+}
+
+/// `people.get`: one person the application knows of.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PeopleGet {
+    pub person: String,
+}
+
+/// `people.member`: one person as one server sees them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PeopleMember {
+    pub server: String,
+    pub person: String,
+}
+
+/// `people.member`'s answer: the person, with what the server adds about them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemberView {
+    #[serde(flatten)]
+    pub person: crate::event::PersonView,
+    /// The ids of their roles in that server, as far as Yapfast knows.
+    #[serde(default)]
+    pub roles: Vec<String>,
+    /// `online`, `idle`, `dnd` or `offline`, when the network says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presence: Option<String>,
+    /// The RGB colour of their name there, from their highest coloured role.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub colour: Option<u32>,
+    /// Their custom status, else what they're doing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activity: Option<String>,
+    /// When their timeout there ends, in Unix milliseconds, while it lasts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timed_out_until: Option<u64>,
 }
 
 /// A command a person typed in the composer.

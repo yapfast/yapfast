@@ -2921,6 +2921,8 @@ impl Application {
         // A keystroke in the composer shows no picture that wasn't on screen.
         let composing = matches!(action, Action::SetDraft(_) | Action::MentionQuery(_));
         let mut effects = self.dispatch_action(action);
+        #[cfg(feature = "plugins")]
+        self.plugins_sync_world();
         effects.extend(self.send_pending_message());
         effects.extend(self.show_panel_profile());
         if !composing {
@@ -2931,6 +2933,10 @@ impl Application {
 
     pub fn apply(&mut self, event: Event) -> Vec<Effect> {
         let mut effects = self.apply_event(event);
+        // What a plugin's reads answer from follows the application's own
+        // state, whether or not anything subscribed to an event.
+        #[cfg(feature = "plugins")]
+        self.plugins_sync_world();
         // A DM just started, or a thread asked for, opens once the lists
         // have it.
         if let Some(room) = self

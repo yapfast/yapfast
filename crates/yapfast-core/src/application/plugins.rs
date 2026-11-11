@@ -104,9 +104,12 @@ impl Application {
     /// background runtime entered. It is called once, at startup: before it,
     /// and in a build or a run without plugins, every tap is one check of
     /// [`super::AppState::plugins`].
+    /// `version` is the program's own version, which a plugin reads as
+    /// `app.version`; only the root package knows it.
     pub fn open_plugins(
         &mut self,
         data_dir: &Path,
+        version: &str,
         events: UnboundedSender<Event>,
     ) -> Vec<AppEffect> {
         // `--no-plugins` reads nothing and starts nothing, as a build without
@@ -124,7 +127,7 @@ impl Application {
         let wake: Arc<dyn Fn(Notice) + Send + Sync> = Arc::new(move |notice| {
             let _ = events.send(Event::Plugin(News::Notice(notice)));
         });
-        let mut plugins = match PluginState::open(data_dir, wake) {
+        let mut plugins = match PluginState::open(data_dir, version, wake) {
             Ok(plugins) => plugins,
             Err(error) => {
                 tracing::warn!(
@@ -483,6 +486,55 @@ impl Application {
                 self.plugins_observe(envelope);
                 vec![]
             }
+        }
+    }
+
+    /// Hands the plugin system what a guest's reads answer from, when it has
+    /// changed: the account, the lists, the open room's timeline and members.
+    ///
+    /// This runs on every event and every action, so each part compares
+    /// against what the world already holds and publishes nothing when nothing
+    /// moved. The timeline and the member list are `Arc`s the application
+    /// already shares, so publishing one is a count rather than a copy, and
+    /// with no plugin enabled this is one check of an `Option`.
+    pub(super) fn plugins_sync_world(&mut self) {
+        let Some(plugins) = self.state.plugins.as_ref() else {
+            return;
+        };
+        let world = plugins.world();
+        let state = &self.state;
+        world.publish_account(
+            state.account.as_deref(),
+            state.account_name.as_deref(),
+            state.account_username.as_deref(),
+            state.account_avatar.as_deref(),
+            state.account_status.as_deref(),
+            state.trusted,
+        );
+        if world.lists() != Some(state.list_changes) {
+            world.publish_lists(
+                state.list_changes,
+                state
+                    .rooms
+                    .iter()
+                    .map(|room| crate::plugins::world::room_view(room))
+                    .collect(),
+            );
+        }
+        world.publish_selected(state.selected.as_deref());
+        if let Some(room) = state.selected.as_deref() {
+            world.publish_timeline(room, &state.messages);
+            if let Some(Ok(members)) = &state.members {
+                world.publish_members(room, members);
+            }
+        }
+    }
+
+    /// Tells the plugins whether the interface is dark, which `app.theme_mode`
+    /// answers. The theme is the window's, so this is called from there.
+    pub fn plugins_theme(&mut self, dark: bool) {
+        if let Some(plugins) = self.state.plugins.as_ref() {
+            plugins.world().publish_theme(dark);
         }
     }
 
@@ -1000,7 +1052,7 @@ mod tests {
         let directory = tempfile::tempdir().expect("a data directory");
         let mut app = Application::default();
         let (events, _received) = tokio::sync::mpsc::unbounded_channel();
-        app.open_plugins(directory.path(), events);
+        app.open_plugins(directory.path(), "0.3.0", events);
         let plugin = PluginId::parse("com.example.weather").expect("a plugin id");
         let host = "api.example.com";
         app.state.plugin_consent = Some(ConsentAsk {

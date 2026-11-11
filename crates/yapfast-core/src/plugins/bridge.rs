@@ -30,8 +30,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use yapfast_plugin_api::call::{
-    self, CommandInvocation, CommandOutcome, HostCall, HostReturn, HttpRequest, PluginCall,
-    PluginSubscribe, SettingsNews, StorageGet, StorageList, StorageSet, TimerCancel, TimerRequest,
+    self, CommandInvocation, CommandOutcome, HostCall, HostReturn, HttpRequest, MessageGet,
+    MessageHistory, PeopleGet, PeopleMember, PluginCall, PluginSubscribe, RoomGet, RoomsList,
+    SettingsNews, StorageGet, StorageList, StorageSet, TimerCancel, TimerRequest,
 };
 use yapfast_plugin_api::capability::{Capability, HostPattern};
 use yapfast_plugin_api::event::{EventEnvelope, EventKind, TopicEvent};
@@ -105,7 +106,15 @@ pub struct Bridge {
 
 impl Bridge {
     /// Reads the store and the enabled manifests; starts nothing.
-    pub fn open(data_dir: &Path, wake: Arc<dyn Fn(Notice) + Send + Sync>) -> anyhow::Result<Self> {
+    ///
+    /// `version` is the version of the program that is running, which
+    /// `app.version` answers with: Yapfast's version is the root package's,
+    /// and this crate only knows its own.
+    pub fn open(
+        data_dir: &Path,
+        version: &str,
+        wake: Arc<dyn Fn(Notice) + Send + Sync>,
+    ) -> anyhow::Result<Self> {
         let store = Store::open(data_dir)?;
         let registry = Registry::load(&store);
         let shared = Arc::new(Shared {
@@ -120,6 +129,7 @@ impl Bridge {
             // Asked once: a file beside the app doesn't appear while it runs.
             helper_installed: spawn::program().is_ok(),
             helper: AtomicU32::new(0),
+            world: Arc::new(crate::plugins::world::World::new(version)),
             wake,
         });
         shared.publish();
@@ -250,6 +260,13 @@ impl Bridge {
     /// doesn't want to see the same text twice.
     pub fn pre_edit(&mut self, draft: Draft) -> PreSend {
         self.intercept(HookKind::MessagePreEdit, draft)
+    }
+
+    /// What the application knows, for it to publish into: the account, the
+    /// lists, the open room and its members. The bridge answers a guest's
+    /// reads from the same value.
+    pub fn world(&self) -> &Arc<crate::plugins::world::World> {
+        &self.shared.world
     }
 
     /// Holds an outgoing draft for one chain, whichever hook it is.
@@ -916,6 +933,9 @@ pub(crate) struct Shared {
     helper_installed: bool,
     /// The helper's process id while it runs, and 0 when none does.
     helper: AtomicU32,
+    /// What the application knows, which the reads answer from: a host call
+    /// is answered in this task, not on the thread that holds the state.
+    world: Arc<crate::plugins::world::World>,
     wake: Arc<dyn Fn(Notice) + Send + Sync>,
 }
 
@@ -2722,6 +2742,16 @@ impl Session {
             | call::method::STORAGE_SET
             | call::method::STORAGE_DELETE
             | call::method::STORAGE_LIST => Some(Capability::Storage),
+            // A read is a capability, and it is checked here rather than by
+            // the method that answers it: a plugin that declares none of these
+            // gets `denied` with the capability's name in the sentence.
+            call::method::ROOMS_SELECTED | call::method::ROOMS_GET | call::method::ROOMS_LIST => {
+                Some(Capability::ServersRead)
+            }
+            call::method::MESSAGES_GET | call::method::MESSAGES_HISTORY => {
+                Some(Capability::MessagesRead)
+            }
+            call::method::PEOPLE_GET | call::method::PEOPLE_MEMBER => Some(Capability::PeopleRead),
             _ => None,
         };
         if let Some(capability) = capability
@@ -2827,6 +2857,63 @@ impl Session {
             }
             call::method::PLUGIN_PUBLISH => self.publish(shared, plugin, call),
             call::method::PLUGIN_SUBSCRIBE => self.subscribe(shared, plugin, call),
+            call::method::APP_VERSION | call::method::APP_LOCALE | call::method::APP_THEME_MODE => {
+                answered(shared.world.app())
+            }
+            call::method::ACCOUNT_ME => match shared.world.me() {
+                Some(me) => answered(me),
+                // Nobody is signed in, which is a thing a plugin can be told
+                // rather than a failure: a build without a link has no account.
+                None => HostReturn::Error {
+                    message: "no account is signed in".to_owned(),
+                },
+            },
+            call::method::ROOMS_SELECTED => answered_option(shared.world.selected()),
+            call::method::ROOMS_GET => match parsed::<RoomGet>(&call, method) {
+                Ok(request) => answered_option(shared.world.room(&request.room)),
+                Err(answer) => answer,
+            },
+            call::method::ROOMS_LIST => match parsed::<RoomsList>(&call, method) {
+                Ok(request) => answered(shared.world.rooms(request.limit)),
+                Err(answer) => answer,
+            },
+            call::method::MESSAGES_GET => match parsed::<MessageGet>(&call, method) {
+                Ok(request) => match shared.world.message(&request.room, &request.message) {
+                    Some(message) => answered(message),
+                    None => unknown_room(&request.room, "that message"),
+                },
+                Err(answer) => answer,
+            },
+            call::method::MESSAGES_HISTORY => match parsed::<MessageHistory>(&call, method) {
+                Ok(request) => {
+                    match shared.world.history(
+                        &request.room,
+                        request.before.as_deref(),
+                        request.limit,
+                    ) {
+                        Some(page) => answered(page),
+                        None => unknown_room(&request.room, "its history"),
+                    }
+                }
+                Err(answer) => answer,
+            },
+            call::method::PEOPLE_GET => match parsed::<PeopleGet>(&call, method) {
+                Ok(request) => answered_option(shared.world.person(&request.person)),
+                Err(answer) => answer,
+            },
+            call::method::PEOPLE_MEMBER => match parsed::<PeopleMember>(&call, method) {
+                Ok(request) => match shared.world.member(&request.server, &request.person) {
+                    Ok(found) => answered_option(found),
+                    Err(()) => HostReturn::Error {
+                        message: format!(
+                            "the members of {} aren't open: `people.member` answers for the \
+                             conversation on screen",
+                            request.server
+                        ),
+                    },
+                },
+                Err(answer) => answer,
+            },
             // Everything else is named in the contract so a plugin can
             // feature-detect it, and answers so rather than failing to link.
             _ => HostReturn::Unsupported,
@@ -3479,6 +3566,46 @@ fn wrong_payload(method: &str, error: serde_json::Error) -> HostReturn {
     }
 }
 
+/// A read's answer, or the sentence saying the value couldn't be written as
+/// JSON. That can't happen for the views the world answers with, and a call
+/// that answered `ok: null` instead would look like an empty result.
+fn answered<T: serde::Serialize>(answer: T) -> HostReturn {
+    match serde_json::to_value(answer) {
+        Ok(value) => HostReturn::Ok(value),
+        Err(error) => HostReturn::Error {
+            message: format!("could not write the answer: {error}"),
+        },
+    }
+}
+
+/// A read that may have nothing to say: `null`, which is what a plugin reads as
+/// "there is none" without an error to catch.
+fn answered_option<T: serde::Serialize>(answer: Option<T>) -> HostReturn {
+    match answer {
+        Some(answer) => answered(answer),
+        None => HostReturn::Ok(serde_json::Value::Null),
+    }
+}
+
+/// A read's payload, or the answer saying it couldn't be read.
+fn parsed<T: serde::de::DeserializeOwned>(call: &HostCall, method: &str) -> Result<T, HostReturn> {
+    call.parse().map_err(|error| wrong_payload(method, error))
+}
+
+/// The answer to a read about a room the application isn't showing.
+///
+/// The application keeps one timeline and one member list, the open room's, so
+/// a question about another room is answered with why rather than with an empty
+/// page that would look like a room nobody has spoken in.
+fn unknown_room(room: &str, what: &str) -> HostReturn {
+    HostReturn::Error {
+        message: format!(
+            "{what} of {room} isn't open: Yapfast keeps the conversation on screen, \
+             and `rooms.selected` names it"
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3536,6 +3663,7 @@ mod tests {
         let counted = woken.clone();
         let mut bridge = Bridge::open(
             directory.path(),
+            "0.0.0",
             Arc::new(move |_| {
                 counted.fetch_add(1, Ordering::Relaxed);
             }),
@@ -3567,7 +3695,8 @@ mod tests {
     #[test]
     fn a_missing_helper_is_reported_rather_than_retried() {
         let directory = tempfile::tempdir().expect("a temporary directory");
-        let mut bridge = Bridge::open(directory.path(), Arc::new(|_| {})).expect("a bridge");
+        let mut bridge =
+            Bridge::open(directory.path(), "0.0.0", Arc::new(|_| {})).expect("a bridge");
         // Nothing is enabled, so nothing is started and nothing is claimed.
         bridge.start();
         assert!(bridge.off().is_none(), "no plugin asked for the helper");
@@ -3756,6 +3885,7 @@ mod tests {
             held: Mutex::new(BTreeMap::new()),
             helper_installed: false,
             helper: AtomicU32::new(0),
+            world: Arc::new(crate::plugins::world::World::new("0.0.0")),
             wake,
         })
     }
@@ -4074,6 +4204,216 @@ mod tests {
                 draft: draft("hi"),
             }
         );
+    }
+
+    /// A manifest that may read what the application knows.
+    const READ_MANIFEST: &str = r#"{"api":1,"id":"com.example.reader","name":"Reader",
+        "version":"1.0.0","wasm":"plugin.wasm",
+        "permissions":{"capabilities":["messages.read","people.read","servers.read"]}}"#;
+
+    /// One host call, as the helper hands it over, answered the way a guest is.
+    fn ask(
+        session: &mut Session,
+        written: &std::sync::mpsc::Receiver<Frame>,
+        shared: &Arc<Shared>,
+        plugin: &PluginId,
+        call: HostCall,
+    ) -> HostReturn {
+        let frame = Frame::new(
+            FrameKind::Request,
+            0,
+            serde_json::to_vec(&FromHelper::Call {
+                plugin: plugin.clone(),
+                call: 3,
+                request: call,
+            })
+            .expect("it serializes"),
+        );
+        assert!(session.on_frame(shared, frame).is_none());
+        let reply = next_frame(written);
+        let ToHelper::Return { answer, .. } = message(&reply) else {
+            panic!("a host call is answered with a return");
+        };
+        answer
+    }
+
+    #[test]
+    fn a_read_is_answered_from_what_the_application_published() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), READ_MANIFEST, b"not a real module");
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+        let world = &shared.world;
+        world.publish_account(
+            Some("person-1"),
+            Some("Ann"),
+            Some("ann"),
+            None,
+            Some("online"),
+            true,
+        );
+        world.publish_lists(
+            1,
+            vec![yapfast_plugin_api::event::RoomView {
+                id: "discord:1:2".to_owned(),
+                name: "general".to_owned(),
+                network: Network::Discord,
+                server: Some("1".to_owned()),
+                dm: false,
+            }],
+        );
+        world.publish_selected(Some("discord:1:2"));
+        world.publish_timeline(
+            "discord:1:2",
+            &Arc::new(vec![Arc::new(crate::chat::ChatMessage {
+                id: "message-1".to_owned(),
+                item: "message-1".to_owned(),
+                sender: "person-2".to_owned(),
+                author: "Bo".to_owned(),
+                body: "hello".to_owned(),
+                timestamp: 1_700_000_000,
+                ..crate::chat::ChatMessage::default()
+            })]),
+        );
+
+        // `app.version` is the program's own, which only it knows.
+        let app = ask(
+            &mut session,
+            &written,
+            &shared,
+            &plugin,
+            HostCall::new(call::method::APP_VERSION, serde_json::json!({})).expect("a call"),
+        );
+        let HostReturn::Ok(answer) = app else {
+            panic!("`app.version` answers: {app:?}");
+        };
+        assert_eq!(answer["version"], "0.0.0");
+
+        let me = ask(
+            &mut session,
+            &written,
+            &shared,
+            &plugin,
+            HostCall::new(call::method::ACCOUNT_ME, serde_json::json!({})).expect("a call"),
+        );
+        let HostReturn::Ok(me) = me else {
+            panic!("`account.me` answers: {me:?}");
+        };
+        assert_eq!(me["name"], "Ann");
+
+        let rooms = ask(
+            &mut session,
+            &written,
+            &shared,
+            &plugin,
+            HostCall::new(call::method::ROOMS_LIST, RoomsList { limit: Some(5) }).expect("a call"),
+        );
+        let HostReturn::Ok(rooms) = rooms else {
+            panic!("`rooms.list` answers: {rooms:?}");
+        };
+        assert_eq!(rooms[0]["name"], "general");
+
+        let selected = ask(
+            &mut session,
+            &written,
+            &shared,
+            &plugin,
+            HostCall::new(call::method::ROOMS_SELECTED, serde_json::json!({})).expect("a call"),
+        );
+        assert_eq!(
+            selected,
+            HostReturn::Ok(serde_json::json!({
+                "id": "discord:1:2",
+                "name": "general",
+                "network": "discord",
+                "server": "1",
+                "dm": false,
+            }))
+        );
+
+        let history = ask(
+            &mut session,
+            &written,
+            &shared,
+            &plugin,
+            HostCall::new(
+                call::method::MESSAGES_HISTORY,
+                MessageHistory {
+                    room: "discord:1:2".to_owned(),
+                    before: None,
+                    limit: None,
+                },
+            )
+            .expect("a call"),
+        );
+        let HostReturn::Ok(history) = history else {
+            panic!("`messages.history` answers: {history:?}");
+        };
+        assert_eq!(history[0]["body"], "hello");
+        assert_eq!(history[0]["at"], 1_700_000_000_000_u64);
+    }
+
+    #[test]
+    fn a_read_without_its_capability_is_denied_by_the_name_of_what_it_needs() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        // The hook plugin keeps storage and messages.read, and nothing about
+        // servers or people.
+        let plugin = installed(directory.path(), HOOK_MANIFEST, b"not a real module");
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        let rooms = ask(
+            &mut session,
+            &written,
+            &shared,
+            &plugin,
+            HostCall::new(call::method::ROOMS_LIST, serde_json::json!({})).expect("a call"),
+        );
+        let HostReturn::Denied { reason } = rooms else {
+            panic!("a read without its capability is denied: {rooms:?}");
+        };
+        assert!(reason.contains("servers.read"), "{reason}");
+
+        let people = ask(
+            &mut session,
+            &written,
+            &shared,
+            &plugin,
+            HostCall::new(
+                call::method::PEOPLE_GET,
+                PeopleGet {
+                    person: "person-2".to_owned(),
+                },
+            )
+            .expect("a call"),
+        );
+        let HostReturn::Denied { reason } = people else {
+            panic!("a read without its capability is denied: {people:?}");
+        };
+        assert!(reason.contains("people.read"), "{reason}");
+
+        // `messages.read` is declared, so the same shape answers.
+        let history = ask(
+            &mut session,
+            &written,
+            &shared,
+            &plugin,
+            HostCall::new(
+                call::method::MESSAGES_HISTORY,
+                MessageHistory {
+                    room: "discord:1:2".to_owned(),
+                    before: None,
+                    limit: None,
+                },
+            )
+            .expect("a call"),
+        );
+        let HostReturn::Error { message } = history else {
+            panic!("a room nobody has open says why: {history:?}");
+        };
+        assert!(message.contains("rooms.selected"), "{message}");
     }
 
     #[test]
@@ -4651,7 +4991,7 @@ mod tests {
         let directory = tempfile::tempdir().expect("a temporary directory");
         let plugin = installed(directory.path(), CONSENT_MANIFEST, b"not a real module");
         let (wake, _notices) = notice_channel();
-        let mut bridge = Bridge::open(directory.path(), wake).expect("a bridge");
+        let mut bridge = Bridge::open(directory.path(), "0.0.0", wake).expect("a bridge");
         let shared = Arc::clone(&bridge.shared);
         let (_session_directory, mut session, written, _inbound) = session_stub();
         install_gate(&shared, directory.path(), &plugin);
@@ -5080,7 +5420,7 @@ mod tests {
         let ids = install_all(directory.path(), &[BASE_MANIFEST, TOP_MANIFEST]);
         let (base, top) = (ids[0].clone(), ids[1].clone());
         let (wake, _notices) = notice_channel();
-        let mut bridge = Bridge::open(directory.path(), wake).expect("a bridge");
+        let mut bridge = Bridge::open(directory.path(), "0.0.0", wake).expect("a bridge");
 
         bridge.set_enabled(&base, false).expect("it is installed");
         let statuses = bridge.statuses();
@@ -5114,7 +5454,7 @@ mod tests {
             b"\0asm and then some",
         );
         let (wake, _notices) = notice_channel();
-        let mut bridge = Bridge::open(directory.path(), wake).expect("a bridge");
+        let mut bridge = Bridge::open(directory.path(), "0.0.0", wake).expect("a bridge");
 
         let plugin = bridge
             .load_folder(folder.path())
@@ -5143,7 +5483,7 @@ mod tests {
             b"\0asm first",
         );
         let (wake, _notices) = notice_channel();
-        let mut bridge = Bridge::open(directory.path(), wake).expect("a bridge");
+        let mut bridge = Bridge::open(directory.path(), "0.0.0", wake).expect("a bridge");
         let plugin = bridge.load_folder(folder.path()).expect("a plugin");
         drop(bridge);
 

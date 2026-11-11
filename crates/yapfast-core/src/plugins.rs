@@ -39,6 +39,7 @@ pub mod store;
 pub mod transport;
 pub mod ui;
 pub mod view;
+pub mod world;
 
 pub use state::PluginState;
 

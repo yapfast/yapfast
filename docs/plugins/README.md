@@ -170,12 +170,13 @@ Two things are deliberately not there yet:
 
 Beyond those, the API is a first slice rather than the surface a plugin author
 would want: of the method groups a manifest can name, `storage`, `settings`,
-`timers` and `log` are answered, and of `plugin`, the `call`, `publish` and
-`subscribe` calls are; `messages`, `people`, `rooms`, `account`, `composer`,
-`notify`, `clipboard`, `open` and `ui` answer `unsupported`. `message.pre_send`
-and `message.pre_edit` exist, run as a chain with a deadline per plugin and for
-the whole thing, and fail open unless a plugin's manifest asks for
-`on_failure: "block"`;
+`timers`, `log` and `http` are answered, the reads `app`, `account`, `rooms`,
+`messages.get`/`history` and `people` are answered from what the application
+already knows, and of `plugin`, the `call`, `publish` and `subscribe` calls are;
+`messages.send` and the rest of that group, `composer`, `notify`, `clipboard`,
+`open` and `ui` answer `unsupported`. `message.pre_send` and `message.pre_edit`
+exist, run as a chain with a deadline per plugin and for the whole thing, and
+fail open unless a plugin's manifest asks for `on_failure: "block"`;
 `typing.pre_send`, `attachment.pre_upload` and `activity.pre_publish` don't. The
 OS sandbox under the helper is not started, and the marketplace is read while
 its page is open but not yet checked by a remote-refs query, so an update is

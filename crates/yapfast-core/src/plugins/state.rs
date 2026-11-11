@@ -97,8 +97,12 @@ impl PluginState {
     ///
     /// `wake` is called with every [`Notice`]; the application turns it into an
     /// event, so a hook's answer arrives without a poll.
-    pub fn open(data_dir: &Path, wake: Arc<dyn Fn(Notice) + Send + Sync>) -> anyhow::Result<Self> {
-        let mut bridge = bridge::Bridge::open(data_dir, wake)?;
+    pub fn open(
+        data_dir: &Path,
+        version: &str,
+        wake: Arc<dyn Fn(Notice) + Send + Sync>,
+    ) -> anyhow::Result<Self> {
+        let mut bridge = bridge::Bridge::open(data_dir, version, wake)?;
         // The gate is this side's to build. It holds the grants and opens the
         // socket, because the helper has neither a person to ask nor a client
         // to open one with; until it is installed here, every `http.fetch`
@@ -121,6 +125,14 @@ impl PluginState {
             settings: settings::Store::new(data_dir.join("plugins")),
             refused: BTreeMap::new(),
         })
+    }
+
+    /// What the application knows, for it to publish into: the account, the
+    /// lists, the open room's messages and members. The bridge answers a
+    /// guest's reads from the same value, which is why it is cheap to publish
+    /// into: an `Arc` clone per change, and nothing at all when nothing moved.
+    pub fn world(&self) -> &Arc<crate::plugins::world::World> {
+        self.bridge.world()
     }
 
     /// What the person has allowed, for the page that asks and revokes.
