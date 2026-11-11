@@ -12632,6 +12632,75 @@ fn recent_activity_is_asked_for_once_when_the_activity_tab_opens() {
 
 #[cfg(feature = "discord")]
 #[test]
+fn a_badge_opens_its_persons_badge_window_and_this_accounts_opens_its_own() {
+    let asked = |effects: &[Effect]| {
+        effects
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::Backend(Command::Discord(DiscordCommand::Badges { user })) => {
+                    Some(user.clone())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut app = full_profile_with_tabs(true);
+    app.state.profile.as_mut().unwrap().profile.name = "Bob".into();
+    app.state.discord_user = Some("1".into());
+    // Someone's asks for theirs, and this account's, which says what the
+    // window offers it.
+    let effects = app.dispatch(Action::ShowBadges {
+        user: "2".into(),
+        badge: Some(20),
+    });
+    assert_eq!(asked(&effects), ["2", "@me"]);
+    let window = app.state.badge_window.clone().unwrap();
+    assert_eq!((window.user.as_str(), window.name.as_str()), ("2", "Bob"));
+    assert_eq!(window.badge, Some(20));
+    let badge = |id, owned| chat::DirectoryBadge {
+        id,
+        owned,
+        ..Default::default()
+    };
+    app.apply(Event::Badges {
+        user: "2".into(),
+        result: Ok(vec![badge(20, true)]),
+    });
+    app.apply(Event::Badges {
+        user: "@me".into(),
+        result: Ok(vec![badge(14, true), badge(20, false)]),
+    });
+    let window = app.state.badge_window.as_ref().unwrap();
+    assert_eq!(window.badges.as_ref().unwrap()[0].id, 20);
+    assert_eq!(app.state.own_badges.as_ref().unwrap().len(), 2);
+    // A failure can be asked again, and theirs only once this account's are
+    // known.
+    app.apply(Event::Badges {
+        user: "2".into(),
+        result: Err("no".into()),
+    });
+    assert_eq!(asked(&app.dispatch(Action::RetryBadges)), ["2"]);
+    // To this account's own, on the badge it came from.
+    let effects = app.dispatch(Action::ShowOwnBadges(Some(20)));
+    assert_eq!(asked(&effects), ["@me"]);
+    let window = app.state.badge_window.as_ref().unwrap();
+    assert!(window.user.is_empty());
+    assert_eq!(window.badge, Some(20));
+    // This account's own badge opens its own window.
+    app.dispatch(Action::CloseBadges);
+    assert!(app.state.badge_window.is_none());
+    app.dispatch(Action::ShowBadges {
+        user: "1".into(),
+        badge: None,
+    });
+    assert!(app.state.badge_window.as_ref().unwrap().user.is_empty());
+    // Closing the profile closes it too.
+    app.dispatch(Action::CloseProfile);
+    assert!(app.state.badge_window.is_none());
+}
+
+#[cfg(feature = "discord")]
+#[test]
 fn a_profile_without_a_wishlist_has_an_empty_one() {
     let mut app = discord_server();
     app.dispatch(Action::EditProfile);

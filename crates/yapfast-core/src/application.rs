@@ -386,6 +386,23 @@ pub struct ProfileView {
     pub wishlist_open: bool,
 }
 
+/// A badge window, opened from a badge on a profile: someone's, or this
+/// account's own, whose badges are [`AppState::own_badges`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BadgeWindow {
+    /// Whose it is; empty for this account's own.
+    pub user: String,
+    pub name: String,
+    /// The address of their avatar.
+    pub avatar: Option<String>,
+    /// The badge to show first, by the window's number.
+    pub badge: Option<u64>,
+    /// What they own, once Discord says.
+    pub badges: Option<Vec<crate::chat::DirectoryBadge>>,
+    /// Why Discord didn't say.
+    pub error: Option<String>,
+}
+
 /// A tab on the full profile that asks Discord for more when it first opens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProfileTab {
@@ -597,6 +614,13 @@ pub struct AppState {
     /// The account's own Discord profile, for its card's banner, theme, name
     /// and badges, once its card asked for it.
     pub account_profile: Option<Arc<Profile>>,
+    /// The badge window open over the profile, if any.
+    pub badge_window: Option<BadgeWindow>,
+    /// This account's badges, every badge there is, owned or not: its own
+    /// window lists them, and someone's says from them what it offers. Asked
+    /// for again each time a window opens.
+    pub own_badges: Option<Vec<crate::chat::DirectoryBadge>>,
+    pub own_badges_error: Option<String>,
     pub account_status: Option<String>,
     pub preview: bool,
     pub busy: bool,
@@ -2269,6 +2293,17 @@ pub enum Action {
     ActivityCardsHidden(bool),
     /// A tab of the full profile opened.
     OpenProfileTab(ProfileTab),
+    /// A badge on someone's profile was clicked: open their badge window on
+    /// it, by the window's number. This account's own opens its own window.
+    ShowBadges {
+        user: String,
+        badge: Option<u64>,
+    },
+    /// From someone's badge window, to this account's, on this badge if any.
+    ShowOwnBadges(Option<u64>),
+    /// Ask again for the open badge window's badges.
+    RetryBadges,
+    CloseBadges,
     /// The account's card opened: ask for its own profile, which it draws from.
     LoadOwnProfile,
     /// Pick the server whose tag to wear in the profile editor; empty for none.
@@ -3951,6 +3986,17 @@ impl Application {
                 vec![]
             }
             Action::OpenProfileTab(tab) => self.open_profile_tab(tab),
+            Action::ShowBadges { user, badge } => self.show_badges(user, badge),
+            Action::ShowOwnBadges(badge) => self.show_own_badges(badge),
+            Action::RetryBadges => match self.state.badge_window.take() {
+                Some(window) if window.user.is_empty() => self.show_own_badges(window.badge),
+                Some(window) => self.show_badges(window.user, window.badge),
+                None => vec![],
+            },
+            Action::CloseBadges => {
+                self.state.badge_window = None;
+                vec![]
+            }
             Action::LoadOwnProfile => self.load_own_profile(),
             Action::OpenWishlist => self.open_wishlist(),
             Action::ChooseServerTag(server) => {
@@ -4010,6 +4056,7 @@ impl Application {
             }
             Action::CloseProfile => {
                 self.state.profile = None;
+                self.state.badge_window = None;
                 vec![]
             }
             Action::ShowRole(role) => self.show_role(role),
@@ -4222,6 +4269,7 @@ impl Application {
             Event::Wishlist { id, wishlist } => self.wishlist_loaded(&id, wishlist),
             Event::ProfileBoard { user, widgets } => self.profile_board_named(&user, widgets),
             Event::ProfileRecent { user, recent } => self.profile_recent_came(&user, recent),
+            Event::Badges { user, result } => self.badges_came(&user, result),
             Event::BadgeLevels { user, badges } => self.show_badge_levels(&user, badges),
             Event::ProfileEffect(effect) => {
                 // The few of the cards seen lately.

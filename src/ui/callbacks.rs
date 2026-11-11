@@ -946,6 +946,39 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     bind!(on_accept_request, Action::AnswerRequest(true));
     bind!(on_enlarge_profile, Action::EnlargeProfile);
     bind!(on_close_profile, Action::CloseProfile);
+    bind!(on_close_badges, Action::CloseBadges);
+    bind!(on_retry_badges, Action::RetryBadges);
+    {
+        let (state, weak) = (adapter.clone(), window.as_weak());
+        window.global::<BadgeWindows>().on_open(move |user, badge| {
+            if let Some(window) = weak.upgrade() {
+                state.borrow_mut().action(
+                    &window,
+                    Action::ShowBadges {
+                        user: user.into(),
+                        badge: u64::try_from(badge).ok().filter(|badge| *badge > 0),
+                    },
+                );
+            }
+        });
+        let (state, weak) = (adapter.clone(), window.as_weak());
+        window.on_view_own_badges(move |badge| {
+            if let Some(window) = weak.upgrade() {
+                state
+                    .borrow_mut()
+                    .action(&window, Action::ShowOwnBadges(u64::try_from(badge).ok()));
+            }
+        });
+        // Join on the full profile's call: the profile makes way for it.
+        let (state, weak) = (adapter.clone(), window.as_weak());
+        window.global::<ProfileCalls>().on_join(move |room| {
+            if let Some(window) = weak.upgrade() {
+                let mut adapter = state.borrow_mut();
+                adapter.action(&window, Action::CloseProfile);
+                adapter.action(&window, Action::RequestJoinVoice(room.into()));
+            }
+        });
+    }
     bind!(on_ignore_request, Action::AnswerRequest(false));
     bind!(on_leave_voice, Action::Voice(voice::Command::Leave));
     let state = adapter.clone();

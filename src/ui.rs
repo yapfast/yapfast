@@ -39,6 +39,7 @@ use crate::{autostart, custom_emoji, emoji, emoji_text, graphics, zoom};
 mod app_commands;
 mod appearance;
 mod away;
+mod badges;
 mod browser;
 mod call_link;
 mod call_timer;

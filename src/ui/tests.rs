@@ -204,6 +204,208 @@ fn equal_lists_stay_so_rows_count_as_unchanged() {
 }
 
 #[test]
+fn a_themed_full_profiles_buttons_take_the_clients_colour() {
+    let view = |theme: Option<[u32; 2]>| yapfast_core::application::ProfileView {
+        profile: yapfast_core::chat::Profile {
+            id: "7".into(),
+            name: "Sam".into(),
+            theme,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let state = AppState::default();
+    let mut pictures = HashMap::new();
+    let white_on = |colour: slint::Color| {
+        let linear = |channel: u8| {
+            let channel = f32::from(channel) / 255.;
+            if channel > 0.03928 {
+                ((channel + 0.055) / 1.055).powf(2.4)
+            } else {
+                channel / 12.92
+            }
+        };
+        1.05 / (0.2126 * linear(colour.red())
+            + 0.7152 * linear(colour.green())
+            + 0.0722 * linear(colour.blue())
+            + 0.05)
+    };
+    // The first colour, stepped in Lab till white reads on it, as the
+    // client's: a pale one darkens, and a near-black one lightens while white
+    // still reads on it.
+    for theme in [
+        [0xfde2e4, 0xbee3f8],
+        [0x101010, 0x202020],
+        [0x4a2a8c, 0x125e60],
+    ] {
+        let button = profile_data(&mut pictures, &state, &view(Some(theme))).theme_button;
+        let contrast = white_on(button);
+        assert!(contrast >= 7., "{theme:x?}: {contrast}");
+    }
+    let black = profile_data(&mut pictures, &state, &view(Some([0x101010, 0x202020])));
+    assert!(black.theme_button.red() > 0x10);
+}
+
+#[test]
+fn a_full_profile_shows_the_call_its_person_is_in() {
+    use yapfast_core::chat::{ChatRoom, Reacts, VoicePerson};
+    let person = |id: &str| VoicePerson {
+        id: id.into(),
+        name: id.into(),
+        ..Default::default()
+    };
+    let room = |id: &str, name: &str, voice: bool, people: Vec<VoicePerson>| ChatRoom {
+        id: id.into(),
+        network: Network::Discord,
+        capabilities: Network::Discord.capabilities(),
+        name: name.into(),
+        direct: !voice,
+        voice,
+        encrypted: false,
+        members: 0,
+        unread: 0,
+        mentions: 0,
+        muted: false,
+        last_read: None,
+        locked: false,
+        join_locked: false,
+        read_only: false,
+        reacts: Reacts::Any,
+        slowed: false,
+        timed_out_until: None,
+        category: String::new(),
+        category_id: None,
+        request: false,
+        person: None,
+        people,
+        ringing: Vec::new(),
+        incoming: false,
+        avatar: None,
+        decoration: None,
+        nameplate: None,
+        style: None,
+        upload_limit: 0,
+        presence: None,
+        activity: None,
+        activities: Default::default(),
+        parent: None,
+        forum: false,
+        mark: Default::default(),
+        unlisted: false,
+        tag: None,
+        official: false,
+        empty: false,
+        preview: None,
+        voice_started: None,
+    };
+    let view = |id: &str| yapfast_core::application::ProfileView {
+        profile: yapfast_core::chat::Profile {
+            id: id.into(),
+            name: id.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut state = AppState::default();
+    state.discord_online = true;
+    state.rooms = [
+        room("1", "general", false, vec![]),
+        room("2", "Lounge", true, vec![person("7"), person("8")]),
+    ]
+    .map(Arc::new)
+    .into();
+    let mut pictures = HashMap::new();
+    let seven = profile_data(&mut pictures, &state, &view("7"));
+    assert_eq!(seven.call_room, "2");
+    assert_eq!(seven.call_name, "Lounge");
+    assert_eq!(seven.call_heading, "In a voice channel");
+    assert!(seven.call_can_join);
+    // Someone in no call has no call card.
+    let nine = profile_data(&mut pictures, &state, &view("9"));
+    assert_eq!(nine.call_room, "");
+    assert!(!nine.call_can_join);
+}
+
+#[test]
+fn someones_badge_window_shows_their_level_and_what_this_account_has() {
+    use super::badges::{badge_window_name, person_badge_row};
+    use yapfast_core::chat::{DirectoryBadge, DirectoryLevel};
+    let level = |name: &str, owned| DirectoryLevel {
+        name: name.into(),
+        owned,
+        ..Default::default()
+    };
+    let game_time = DirectoryBadge {
+        id: 20,
+        name: "Game Time".into(),
+        owned: true,
+        earnable: true,
+        description: "Play games.".into(),
+        level: Some("Ironclad".into()),
+        first_level: false,
+        level_rarity: 3,
+        unlocked: Some("27 Oct 2026".into()),
+        levels: vec![
+            level("Casual", true),
+            level("Ironclad", true),
+            level("Eternal", false),
+        ],
+        ..Default::default()
+    };
+    // Theirs, at their level, with the badge's name over it; this account
+    // has none, so it's told what the badge is and offered nothing of its own.
+    let row = person_badge_row(&game_time, None);
+    assert_eq!(row.eyebrow, "Game Time");
+    assert_eq!(row.name, "IRONCLAD");
+    assert_eq!(row.rarity, "Epic");
+    assert_eq!(row.date_label, "Level unlocked");
+    assert_eq!(row.unlocked, "27 Oct 2026");
+    assert!(row.beta && !row.view_yours && !row.gone);
+    assert_eq!(row.levels.row_count(), 3);
+    // With this account's own at its last level, it's told it's maxed out,
+    // and offered its own.
+    let mine = DirectoryBadge {
+        next_name: None,
+        ..game_time.clone()
+    };
+    let row = person_badge_row(&game_time, Some(&mine));
+    assert!(row.description.starts_with("You've maxed out this badge."));
+    assert!(row.view_yours);
+    // A badge no longer given out, without a date, says so, and has one of
+    // the client's lines in its place.
+    let house = DirectoryBadge {
+        id: 5,
+        name: "HypeSquad Bravery".into(),
+        owned: true,
+        first_level: true,
+        ..Default::default()
+    };
+    let row = person_badge_row(&house, None);
+    assert!(row.legacy && row.gone);
+    assert_eq!(row.date_label, "Date unlocked");
+    assert!(!row.unlocked.is_empty());
+    // Nitro goes by its level's name, with its page's button.
+    let nitro = DirectoryBadge {
+        id: 1,
+        name: "Nitro".into(),
+        owned: true,
+        earnable: true,
+        level: Some("Gold".into()),
+        ..Default::default()
+    };
+    let row = person_badge_row(&nitro, None);
+    assert_eq!(
+        (row.eyebrow.as_str(), row.name.as_str()),
+        ("", "NITRO GOLD")
+    );
+    assert_eq!(row.action, "Get Nitro");
+    assert_eq!(
+        badge_window_name("Someone With A Long Name"),
+        "Someone With A Long..."
+    );
+}
+
+#[test]
 fn this_accounts_own_profile_shows_no_mutuals() {
     use i_slint_core::{accessibility::AccessibleStringProperty, item_tree::ItemRc};
     i_slint_backend_testing::init_no_event_loop();

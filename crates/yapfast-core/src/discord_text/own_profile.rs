@@ -134,6 +134,28 @@ pub(super) fn command(
                 let _ = events.send(Event::ProfileRecent { user, recent });
             });
         }
+        DiscordCommand::Badges { user } => {
+            let Ok(discord) = discord else {
+                let why = discord.err().unwrap_or(NOT_DISCORD);
+                let _ = events.send(Event::Badges {
+                    user,
+                    result: Err(why.into()),
+                });
+                return None;
+            };
+            let discord = discord.clone();
+            tokio::spawn(async move {
+                let result = discord
+                    .badge_directory(&user)
+                    .await
+                    .map(|badges| badges.into_iter().map(Into::into).collect())
+                    .map_err(|error| {
+                        tracing::warn!(%error, user, "could not fetch badges");
+                        error.to_string()
+                    });
+                let _ = events.send(Event::Badges { user, result });
+            });
+        }
         DiscordCommand::ProfilePicture { kind, path } => {
             tokio::task::spawn_blocking(move || {
                 let result = read_picture(&path, kind);

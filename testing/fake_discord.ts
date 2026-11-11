@@ -137,6 +137,8 @@
 // GET /users/{id}/profile answers for everyone: Bob has a bio, pronouns, a
 // banner, a server bio and three badges, Carol a banner colour, and the rest
 // nothing more. GET /users/{id}/badges gives Bob's playing time its level,
+// as his badge window lists it with his HypeSquad house; GET
+// /users/@me/badges lists every badge for Alice's own window, owning Quests.
 // GET /_control/badge-reads counts those requests, and /assets/content/ serves
 // the level's SVGs.
 // POST /_control/components makes Discord's own account write Alice a
@@ -6227,32 +6229,49 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     return json(wireProfile(user, url.searchParams.get("guild_id"), origin));
   }
 
-  // The levels of someone's badges, as the client asks for them to fill a
-  // badge's tooltip: Bob has played for 1,816 hours, "Eisern".
-  if (method === "GET" && (m = path.match(/^\/users\/(\d+)\/badges$/))) {
-    if (!userById.get(m[1]!)) return notFound("Unknown User", 10013);
+  // Someone's badges, as the client asks for them to fill a badge's tooltip
+  // and their badge window: Bob has played for 1,816 hours, "Eisern", and is
+  // in HypeSquad Bravery. For @me, every badge there is, owned or not.
+  if (method === "GET" && (m = path.match(/^\/users\/(\d+|@me)\/badges$/))) {
+    if (m[1] !== "@me" && !userById.get(m[1]!)) return notFound("Unknown User", 10013);
     badgeReads += 1;
+    const icon = (hash: string) => origin + `/badge-icons/${hash}.png`;
+    const gameTime = (owned: boolean) => ({
+      badge_id: 20,
+      name: "Spielzeit",
+      description: "Play games while sharing your activity to level up.",
+      is_earnable: true,
+      rarity: 1,
+      owned,
+      ...(owned
+        ? {
+            info_label: "1.816 Stunden gespielt",
+            current_tier: "ironclad",
+            tier_obtained_at: { ironclad: "2026-10-27T00:00:00+00:00" },
+          }
+        : {}),
+      next_tier: owned ? "eternal" : "casual",
+      simple_icon_url: origin + IRONCLAD_ICON,
+      simple_icon_raster_url: icon("208e1bb66e311286cae364bc6f19277a"),
+      complex_icon_static_url: origin + "/assets/content/d7a2df844cda56877b016e667f2fecead85a65c68a1487d4b2f94300d9d20f71.svg",
+      tiers: [
+        { key: "casual", name: "Locker", owned, rarity: 1, milestone_text: "1 Stunde", simple_icon_raster_url: icon("208e1bb66e311286cae364bc6f19277a"), complex_icon_static_url: origin + "/assets/content/1f9d42f34184814a137e40b0de83e2cac0ae44d83531777b9369d2e2a6ddfeb3.svg" },
+        { key: "ironclad", name: "Eisern", owned, rarity: 3, milestone_text: "1.000 Stunden", simple_icon_url: origin + IRONCLAD_ICON, simple_icon_raster_url: icon("208e1bb66e311286cae364bc6f19277a"), complex_icon_static_url: origin + "/assets/content/d7a2df844cda56877b016e667f2fecead85a65c68a1487d4b2f94300d9d20f71.svg" },
+        { key: "eternal", name: "Ewig", owned: false, rarity: 5, milestone_text: "5.000 Stunden", simple_icon_raster_url: icon("208e1bb66e311286cae364bc6f19277a") },
+      ],
+    });
+    const bravery = { badge_id: 5, name: "HypeSquad Bravery", description: "Joined HypeSquad, which no longer takes members.", is_earnable: false, rarity: 2, owned: true, simple_icon_raster_url: icon("8a88d63823d8a71cd5e390baa45efa02") };
+    const quests = (owned: boolean) => ({ badge_id: 14, name: "Quests", description: "Complete a Quest.", is_earnable: true, rarity: 1, owned, ...(owned ? { obtained_at: "2026-09-12T00:00:00+00:00" } : {}), simple_icon_raster_url: icon("7d9ae358c8c5e118768335dbe68b4fb8") });
     return json({
       badges:
-        m[1] === users.bob.id
-          ? [
-              {
-                badge_id: 20,
-                name: "Spielzeit",
-                info_label: "1.816 Stunden gespielt",
-                owned: true,
-                simple_icon_url: origin + IRONCLAD_ICON,
-                complex_icon_static_url: origin + "/assets/content/d7a2df844cda56877b016e667f2fecead85a65c68a1487d4b2f94300d9d20f71.svg",
-                current_tier: "ironclad",
-                tiers: [
-                  { key: "casual", name: "Locker", owned: true, complex_icon_static_url: origin + "/assets/content/1f9d42f34184814a137e40b0de83e2cac0ae44d83531777b9369d2e2a6ddfeb3.svg" },
-                  { key: "ironclad", name: "Eisern", owned: true, simple_icon_url: origin + IRONCLAD_ICON, complex_icon_static_url: origin + "/assets/content/d7a2df844cda56877b016e667f2fecead85a65c68a1487d4b2f94300d9d20f71.svg" },
-                ],
-              },
-            ]
-          : [],
+        m[1] === "@me"
+          ? [quests(true), gameTime(false)]
+          : m[1] === users.bob.id
+            ? [gameTime(true), bravery]
+            : [],
     });
   }
+
 
   // Opening a DM finds the one Alice has with them, or starts one; with
   // several people, it makes a group.

@@ -509,6 +509,7 @@ impl Adapter {
         }
         self.show_viewer(window);
         self.show_profile(window);
+        self.show_badges(window);
         window.set_can_go_back(self.app.state.can_go_back());
         window.set_can_go_forward(self.app.state.can_go_forward());
         if window.get_inbox_open() {

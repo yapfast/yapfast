@@ -522,6 +522,99 @@ fn effect_layers(effect: &yapfast_core::chat::ProfileEffect) -> Vec<EffectLayer>
         .collect()
 }
 
+/// A colour's CIE Lab, the space Discord's client works profile colours out
+/// in, from RGB.
+fn to_lab(rgb: u32) -> [f32; 3] {
+    let linear = |shift: u32| {
+        let channel = ((rgb >> shift) & 0xff) as f32 / 255.;
+        if channel > 0.04045 {
+            ((channel + 0.055) / 1.055).powf(2.4)
+        } else {
+            channel / 12.92
+        }
+    };
+    let (r, g, b) = (linear(16), linear(8), linear(0));
+    let f = |t: f32| {
+        if t > 0.008856 {
+            t.cbrt()
+        } else {
+            7.787 * t + 16. / 116.
+        }
+    };
+    let x = f((0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047);
+    let y = f(0.2126 * r + 0.7152 * g + 0.0722 * b);
+    let z = f((0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883);
+    [116. * y - 16., 500. * (x - y), 200. * (y - z)]
+}
+
+/// Lab back to RGB, clamped to what can show.
+fn from_lab([l, a, b]: [f32; 3]) -> u32 {
+    let y = (l + 16.) / 116.;
+    let g = |t: f32| {
+        if t.powi(3) > 0.008856 {
+            t.powi(3)
+        } else {
+            (t - 16. / 116.) / 7.787
+        }
+    };
+    let (x, z) = (g(y + a / 500.) * 0.95047, g(y - b / 200.) * 1.08883);
+    let y = g(y);
+    let channel = |value: f32| {
+        let value = value.clamp(0., 1.);
+        let value = if value > 0.0031308 {
+            1.055 * value.powf(1. / 2.4) - 0.055
+        } else {
+            12.92 * value
+        };
+        (value * 255.).round() as u32
+    };
+    channel(3.2406 * x - 1.5372 * y - 0.4986 * z) << 16
+        | channel(-0.9689 * x + 1.8758 * y + 0.0415 * z) << 8
+        | channel(0.0557 * x - 0.204 * y + 1.057 * z)
+}
+
+/// A colour's relative luminance, as WCAG's contrast takes it.
+fn luminance(rgb: u32) -> f32 {
+    let linear = |shift: u32| {
+        let channel = ((rgb >> shift) & 0xff) as f32 / 255.;
+        if channel > 0.03928 {
+            ((channel + 0.055) / 1.055).powf(2.4)
+        } else {
+            channel / 12.92
+        }
+    };
+    0.2126 * linear(16) + 0.7152 * linear(8) + 0.0722 * linear(0)
+}
+
+/// A themed profile's main button, as the client's
+/// `--profile-gradient-button-color`: its first colour darkened in Lab till
+/// white on it contrasts at least 7, or brightened while it contrasts more
+/// than 10 and would still contrast 7.
+fn theme_button(top: u32) -> slint::Color {
+    const WHITE: f32 = 1.05;
+    // Lab's step for darken and brighten in the client's colour library.
+    const STEP: f32 = 18.;
+    let contrast = |rgb: u32| WHITE / (luminance(rgb) + 0.05);
+    let mut lab = to_lab(top);
+    let mut colour = top;
+    for _ in 0..8 {
+        let now = contrast(colour);
+        if now < 7. {
+            lab[0] -= STEP;
+        } else if now > 10. {
+            let brighter = from_lab([lab[0] + STEP, lab[1], lab[2]]);
+            if contrast(brighter) < 7. {
+                break;
+            }
+            lab[0] += STEP;
+        } else {
+            break;
+        }
+        colour = from_lab(lab);
+    }
+    slint::Color::from_rgb_u8((colour >> 16) as u8, (colour >> 8) as u8, colour as u8)
+}
+
 /// A profile as a card, the full profile or the DM panel shows it.
 pub(super) fn profile_data(
     pictures: &mut HashMap<String, slint::Image>,
@@ -559,6 +652,15 @@ pub(super) fn profile_data(
     // Discord's client doesn't: it shares them with nobody.
     let own = discord && state.relation(&profile.id) == Relation::Me;
     let (wishlist, wishlist_note) = wishlist_rows(profile);
+    // The call they're in, as the voice states this account sees say.
+    let call = discord
+        .then(|| {
+            state
+                .rooms
+                .iter()
+                .find(|room| room.people.iter().any(|person| person.id == profile.id))
+        })
+        .flatten();
     // With no banner, accent colour or theme, Discord tints the banner area
     // with the avatar's dominant colour.
     let accent = profile.accent.or_else(|| {
@@ -615,6 +717,10 @@ pub(super) fn profile_data(
                 .badges
                 .iter()
                 .map(|badge| ProfileBadgeRow {
+                    directory: badge
+                        .directory
+                        .and_then(|id| i32::try_from(id).ok())
+                        .unwrap_or(0),
                     icon: badge.icon.as_str().into(),
                     description: badge.description.as_str().into(),
                     link: badge.link.as_deref().unwrap_or_default().into(),
@@ -755,6 +861,22 @@ pub(super) fn profile_data(
                     && (state.relation(&profile.id) == Relation::Friend
                         || !profile.servers.is_empty()))),
         own,
+        bot: profile.bot,
+        call_room: call.map_or("", |room| room.id.as_str()).into(),
+        call_name: call.map_or("", |room| room.name.as_str()).into(),
+        call_heading: call
+            .map_or("", |room| {
+                if room.voice {
+                    "In a voice channel"
+                } else {
+                    "In a call"
+                }
+            })
+            .into(),
+        call_can_join: call.is_some_and(|room| state.can_join_voice(&room.id)),
+        theme_button: profile
+            .theme
+            .map_or_else(slint::Color::default, |[top, _]| theme_button(top)),
         mutual_friends_text: mutual_count(profile.friends.len(), "friend").into(),
         mutual_servers_text: mutual_count(profile.servers.len(), "server").into(),
         note_text: profile.note.as_str().into(),

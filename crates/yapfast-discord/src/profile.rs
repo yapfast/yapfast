@@ -57,6 +57,10 @@ pub struct Profile {
     /// Where their wishlist is, if they have one that's said.
     #[serde(default)]
     pub wishlist: Option<crate::wishlist::Place>,
+    /// They're a bot, whose badges keep their links rather than open a
+    /// window of badges.
+    #[serde(default)]
+    pub bot: bool,
 }
 
 /// A past thing on someone's Activity tab.
@@ -233,6 +237,183 @@ pub fn with_levels(badges: &mut [Badge], value: &Value) {
             badge.level = Some(level);
         }
     }
+}
+
+/// A level of a badge that levels up, in a badge window.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DirectoryLevel {
+    pub name: String,
+    pub icon: String,
+    pub owned: bool,
+    /// What it takes, such as `3 months`.
+    pub milestone: String,
+}
+
+/// A badge in a badge window, from `GET /users/{id}/badges`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DirectoryBadge {
+    pub id: u64,
+    pub name: String,
+    pub owned: bool,
+    /// Still to be had, rather than given out once.
+    pub earnable: bool,
+    pub description: String,
+    /// What it says of its owner, such as `Subscriber since 2/22/26`.
+    pub info: String,
+    /// 1 common, 2 rare, 3 epic, 5 mythic.
+    pub rarity: u8,
+    pub icon: String,
+    /// Its large moving picture, when it has one Yapfast can draw.
+    pub art: Option<String>,
+    /// When the level it's at was reached, as a date.
+    pub unlocked: Option<String>,
+    /// The next level, and how far along to it, out of `span`.
+    pub next_name: Option<String>,
+    pub next_icon: Option<String>,
+    pub done: u64,
+    pub span: u64,
+    pub helper: String,
+    pub levels: Vec<DirectoryLevel>,
+    /// The level the client shows it at: the one reached, else the next, else
+    /// the first; none for a badge without levels.
+    pub level: Option<String>,
+    /// That level is the first, which the client's tile dates differently.
+    pub first_level: bool,
+    /// That level's rarity, and its picture, moving if it has one Yapfast can
+    /// draw, else its icon.
+    pub level_rarity: u8,
+    pub level_art: String,
+}
+
+/// The number the badge window knows a profile's badge by, from its `id`, as
+/// the client's `legacyBadgeId` map does; the newer ones are their own names.
+pub fn directory_id(id: &str) -> Option<u64> {
+    Some(match id {
+        "staff" | "staff_hidden" | "staff_personal" => 22,
+        "premium" => 1,
+        "partner" => 2,
+        "certified_moderator" => 3,
+        "hypesquad" => 4,
+        "hypesquad_house_1" => 5,
+        "hypesquad_house_2" => 6,
+        "hypesquad_house_3" => 7,
+        "bug_hunter_level_1" => 8,
+        "bug_hunter_level_2" => 9,
+        "verified_developer" => 10,
+        "early_supporter" => 11,
+        "legacy_username" => 13,
+        "quest_completed" => 14,
+        "april_fools_2026" => 15,
+        "orb_profile_badge" => 16,
+        "gifting" => 17,
+        "account_age" => 18,
+        "streaming" => 19,
+        "game_time" => 20,
+        "game_variety" => 21,
+        id if id.starts_with("premium_tenure_") && id.ends_with("_month_v2") => 1,
+        id if id.starts_with("guild_booster_lvl") => 12,
+        _ => return None,
+    })
+}
+
+/// The badges in Discord's answer to `GET /users/{id}/badges`, in its order:
+/// for `@me` every badge there is, and for someone else what they own.
+pub fn badge_directory(value: &Value) -> Vec<DirectoryBadge> {
+    let level_name = |tier: &Value| {
+        text(&tier["name"])
+            .or_else(|| text(&tier["milestone_text"]))
+            .unwrap_or_default()
+            .to_owned()
+    };
+    value["badges"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|badge| {
+            let tiers = badge["tiers"].as_array().map_or(&[][..], Vec::as_slice);
+            let tier = |key: &Value| {
+                tiers
+                    .iter()
+                    .find(|tier| key.is_string() && tier["key"] == *key)
+            };
+            let owned = badge["owned"] == true;
+            // The client's choice of which level to show it at.
+            let shown = tier(if owned {
+                &badge["current_tier"]
+            } else {
+                &badge["next_tier"]
+            })
+            .or(tiers.first());
+            let rarity = badge["rarity"]
+                .as_u64()
+                .and_then(|n| u8::try_from(n).ok())
+                .unwrap_or(1);
+            let icon = text(&badge["simple_icon_raster_url"])
+                .or_else(|| text(&badge["simple_icon_url"]))
+                .unwrap_or_default();
+            let obtained = badge["current_tier"]
+                .as_str()
+                .and_then(|key| badge["tier_obtained_at"][key].as_str())
+                .or_else(|| badge["obtained_at"].as_str());
+            let progress = &badge["progress"][0];
+            let (floor, threshold, current) = (
+                progress["floor"].as_u64().unwrap_or(0),
+                progress["threshold"].as_u64().unwrap_or(0),
+                progress["current"].as_u64().unwrap_or(0),
+            );
+            let next = tier(&badge["next_tier"]);
+            let tier_icon = |tier: &Value| {
+                text(&tier["simple_icon_raster_url"])
+                    .or_else(|| text(&tier["simple_icon_url"]))
+                    .unwrap_or_default()
+                    .to_owned()
+            };
+            Some(DirectoryBadge {
+                id: badge["badge_id"].as_u64()?,
+                name: text(&badge["name"])?.to_owned(),
+                owned,
+                earnable: badge["is_earnable"] == true,
+                description: text(&badge["description"]).unwrap_or_default().to_owned(),
+                info: text(&badge["info_label"]).unwrap_or_default().to_owned(),
+                rarity,
+                icon: icon.to_owned(),
+                unlocked: obtained
+                    .filter(|_| owned)
+                    .and_then(iso_ms)
+                    .map(crate::message::date),
+                art: text(&badge["complex_icon_animated_url"]).map(str::to_owned),
+                next_name: next.map(level_name),
+                next_icon: next.map(tier_icon).filter(|icon| !icon.is_empty()),
+                done: current.saturating_sub(floor),
+                span: threshold.saturating_sub(floor),
+                helper: text(&progress["progress_helper_text"])
+                    .unwrap_or_default()
+                    .to_owned(),
+                levels: tiers
+                    .iter()
+                    .map(|tier| DirectoryLevel {
+                        name: level_name(tier),
+                        icon: tier_icon(tier),
+                        owned: tier["owned"] == true,
+                        milestone: text(&tier["milestone_text"]).unwrap_or_default().to_owned(),
+                    })
+                    .collect(),
+                level: shown.map(level_name),
+                first_level: shown.is_none_or(|shown| tiers.first() == Some(shown)),
+                level_rarity: shown
+                    .and_then(|tier| tier["rarity"].as_u64())
+                    .and_then(|n| u8::try_from(n).ok())
+                    .unwrap_or(rarity),
+                // An SVG can't be drawn, so the raster stands in for it.
+                level_art: shown
+                    .and_then(|tier| text(&tier["complex_icon_animated_url"]))
+                    .or_else(|| text(&badge["complex_icon_animated_url"]))
+                    .map(str::to_owned)
+                    .or_else(|| shown.map(tier_icon).filter(|icon| !icon.is_empty()))
+                    .unwrap_or_else(|| icon.to_owned()),
+            })
+        })
+        .collect()
 }
 
 /// A server this account shares with someone.
@@ -414,10 +595,17 @@ pub fn parse(value: &Value, guild: Option<&str>) -> Option<Profile> {
         tag: Tag::parse(&user["primary_guild"]),
         effect: profile_effect::sku(value, guild.is_some()),
         theme: theme_colors(&server["theme_colors"]).or_else(|| theme_colors(&own["theme_colors"])),
+        // The server's own badges follow theirs, in a server only.
         badges: value["badges"]
             .as_array()
             .into_iter()
             .flatten()
+            .chain(
+                guild
+                    .and_then(|_| value["guild_badges"].as_array())
+                    .into_iter()
+                    .flatten(),
+            )
             .filter_map(|badge| {
                 Some(Badge {
                     id: text(&badge["id"])?.to_owned(),
@@ -448,6 +636,7 @@ pub fn parse(value: &Value, guild: Option<&str>) -> Option<Profile> {
             .collect(),
         widgets: crate::widgets::parse(value),
         wishlist: crate::wishlist::place(value),
+        bot: user["bot"] == true,
         user_id: id,
     })
 }
@@ -457,6 +646,80 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn a_servers_own_badges_follow_theirs_only_in_that_server() {
+        let answer = json!({
+            "user": {"id": "1", "username": "ann"},
+            "badges": [{"id": "early", "description": "Early", "icon": "abc"}],
+            "guild_badges": [{"id": "guild", "description": "Guild", "icon": "def"}],
+        });
+        let ids = |guild| {
+            parse(&answer, guild)
+                .unwrap()
+                .badges
+                .into_iter()
+                .map(|badge| badge.id)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids(None), ["early"]);
+        assert_eq!(ids(Some("9")), ["early", "guild"]);
+    }
+
+    #[test]
+    fn a_profiles_badges_know_their_number_in_the_window() {
+        for (id, number) in [
+            ("quest_completed", Some(14)),
+            ("premium_tenure_12_month_v2", Some(1)),
+            ("guild_booster_lvl3", Some(12)),
+            ("game_time", Some(20)),
+            ("something_new", None),
+        ] {
+            assert_eq!(directory_id(id), number, "{id}");
+        }
+    }
+
+    #[test]
+    fn a_badge_shows_at_its_level_and_one_without_levels_at_its_own_name() {
+        let value = json!({"badges": [
+            {
+                "badge_id": 20, "name": "Game Time", "owned": true, "rarity": 1,
+                "is_earnable": true, "current_tier": "b", "next_tier": "c",
+                "simple_icon_raster_url": "https://icon",
+                "complex_icon_static_url": "https://art.svg",
+                "tier_obtained_at": {"b": "2026-10-27T00:00:00+00:00"},
+                "tiers": [
+                    {"key": "a", "name": "Casual", "owned": true, "rarity": 1, "milestone_text": "1 hour", "simple_icon_raster_url": "https://a"},
+                    {"key": "b", "name": "Ironclad", "owned": true, "rarity": 3, "milestone_text": "2 hours", "simple_icon_raster_url": "https://b"},
+                    {"key": "c", "name": "Eternal", "owned": false, "rarity": 5, "milestone_text": "3 hours", "simple_icon_raster_url": "https://c"},
+                ],
+            },
+            {
+                "badge_id": 14, "name": "Quests", "owned": true, "rarity": 1,
+                "simple_icon_raster_url": "https://quests",
+            },
+            {"badge_id": 1, "name": "Nitro", "owned": true, "is_earnable": true,
+             "current_tier": "gold", "next_tier": "platinum",
+             "progress": [{"current": 255, "floor": 181, "threshold": 365, "progress_helper_text": "4 more months"}],
+             "tiers": [{"key": "gold", "name": "Gold", "owned": true}, {"key": "platinum", "name": "Platinum"}]},
+            {"name": "No id"},
+        ]});
+        let badges = badge_directory(&value);
+        assert_eq!((badges[2].done, badges[2].span), (74, 184));
+        assert_eq!(badges[2].helper, "4 more months");
+        assert_eq!(badges.len(), 3);
+        assert_eq!(badges[0].level.as_deref(), Some("Ironclad"));
+        assert_eq!(badges[0].next_name.as_deref(), Some("Eternal"));
+        assert!(!badges[0].first_level);
+        assert_eq!(badges[0].level_rarity, 3);
+        assert_eq!(badges[0].levels.len(), 3);
+        assert!(!badges[0].levels[2].owned);
+        assert_eq!(badges[0].level_art, "https://b");
+        assert!(badges[0].unlocked.as_deref().unwrap().ends_with(" 2026"));
+        assert_eq!(badges[1].level, None);
+        assert_eq!(badges[1].unlocked, None);
+        assert_eq!(badges[1].level_art, "https://quests");
+    }
 
     #[test]
     fn recent_activity_reads_songs_and_games_and_leaves_the_rest() {

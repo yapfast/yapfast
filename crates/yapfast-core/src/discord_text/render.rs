@@ -603,6 +603,7 @@ pub(super) fn chat_badges(badges: Vec<yapfast_discord::profile::Badge>) -> Vec<P
     badges
         .into_iter()
         .map(|badge| ProfileBadge {
+            directory: yapfast_discord::profile::directory_id(&badge.id),
             description: badge.description,
             icon: badge.icon,
             link: badge.link,
@@ -725,6 +726,7 @@ pub(super) fn chat_profile(
         board_named: false,
         recent: Vec::new(),
         recent_asked: false,
+        bot: profile.bot,
         handle: profile.username,
         id: profile.user_id,
         // What the member list knows; the profile doesn't say.

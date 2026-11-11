@@ -261,9 +261,17 @@ no mutual line and its full profile no mutual tabs. Presence and activity
 come from the member list, since the profile doesn't carry them. Their
 custom status, or what
 they're doing, sits in a thought bubble beside the picture, as in
-Discord's: two lines at most, and all of it while pointed at. One's
-own card, small or full, has Edit Profile in place of the friend and
-message buttons, which opens the [editor](#editing-ones-main-profile).
+Discord's: two lines at most, and all of it while pointed at. The full
+profile has Discord's buttons under the name: Message, a round friend button
+for a friend, which opens the person's menu (with Remove Friend and Block), a
+round Add Friend for anyone else (Friend Request
+Sent while one waits, Accept Friend Request when they sent one), and More.
+On a themed profile Message takes the client's
+`--profile-gradient-button-color`: the theme's first colour, darkened or
+brightened in Lab by 18 at a time till white on it contrasts 7 to 10, or as near as it gets without going under 7
+(`theme_button` in `src/ui/profile.rs`). One's
+own card, small or full, has Edit Profile in place of those buttons, in the
+same colour, which opens the [editor](#editing-ones-main-profile).
 The More button of a card, a full profile and a DM's profile panel opens
 the person's menu, as a right click on them does: a member's in a server, a
 DM's in their DM, and elsewhere Message, the friend request, Block, or
@@ -337,8 +345,11 @@ under the name and handle: HypeSquad, Active Developer, a Nitro subscriber's
 and the like, in the order the profile lists them. They come from the
 `badges` of `GET /users/{id}/profile`: each has an `id`, a `description`, an
 `icon` hash that Yapfast fetches from `/badge-icons/{icon}.png`, and
-sometimes a `link`. Pointing at one shows its description; clicking one that
-has a link opens it. A badge missing its description or icon is left out, and
+sometimes a `link`. Fetched for a server, the profile's `guild_badges`, the
+same shape, follow them. Pointing at one shows its description; clicking one
+on a card or full profile opens the person's [badge window](#badge-windows) on
+it, and one on the DM's panel or a bot's, or one the window doesn't know,
+opens its link if it has one. A badge missing its description or icon is left out, and
 a profile with none shows no row. Badges show on profile cards only, not
 beside names in messages or the member list.
 
@@ -369,6 +380,54 @@ card is `BadgeTipCard` in `ui/people.slint`, set by `BadgeTip` in
 `ui/theme.slint` and drawn by the window above everything else, with
 Discord's own values: 200px wide, 8px corners, the picture 64px high, the
 kind and progress in 14px medium and the level in 16px black.
+
+## Badge windows
+
+Clicking a badge on someone's card or full profile opens their badge window on
+that badge, as Discord's client does; on one's own, it opens the account's own
+window. Both come from `GET /users/{id}/badges`, asked each time a window
+opens: for someone, what they own; for `@me`, every badge there is, owned or
+not, which the account's own window lists, and which someone's window reads
+to say what it offers this account. A profile's badge `id` maps to the
+window's number (`badge_id`) by the client's table
+(`yapfast_discord::profile::directory_id`); one it doesn't know keeps its link.
+
+Someone's window has, on the left, their avatar and name, shortened past 19
+characters, their badges and View Your Badges. On the right is the chosen
+badge at the level the client picks: the one reached if owned, else the next,
+else the first. There's its art, the badge's name over the level's, or
+"Nitro" and the level for Nitro, or the badge's name alone without levels.
+Under that are "Beta" for Account Age, Streaming, Game Time and Game Variety,
+"{name}'s badge" and their `info_label`, and "View yours" when this account
+owns the badge too, which opens its own window on it. Then come the tiles:
+"Date unlocked" at the first level or "Level unlocked" past it, from
+`tier_obtained_at` (else `obtained_at`), and rarity, the level's over the
+badge's (1 common, 2 rare, 3 epic, 5 mythic). The description is this
+account's version, or the client's "You've maxed out this badge" when it has
+the last level. Then every level of theirs: dimmed and locked if not reached.
+
+A badge that can no longer be earned (`is_earnable` false, numbered below
+Gifting's 17) is marked Legacy Badge, says so to anyone without it, and gets
+one of the client's lines for a missing date, the same each time where the
+client picks at random. Its button opens Discord's page in the browser, and
+never gives or buys anything:
+
+| Badge | Button | Page |
+| --- | --- | --- |
+| Staff | Work With Us | `/careers` |
+| Nitro | Nitro Home, or Get Nitro without it | `/store` |
+| Orbs | Orbs Shop | `/shop?tab=orbs` |
+| Quests | Quests Home | `/quest-home` |
+| Gifting | Send Gift | `/shop`; the client opens its gift dialog in place |
+
+Boosting has none, as the client's goes to settings. The account's own window
+lists what it has, then what it can still earn, each with its level, its
+rarity, when it was unlocked, and how far it is to the next level from
+`progress[0]` (`current` past `floor`, out of `threshold`) with its
+`progress_helper_text`. When Discord doesn't answer, a window says so and
+someone's offers Try Again. Escape or a click outside closes a window, and the
+profile under it takes the keyboard back. The windows are `BadgesWindow` in
+`ui/badges.slint`, filled by `src/ui/badges.rs`.
 
 ## The Activity panel
 
@@ -424,7 +483,11 @@ rules:
 | Wishlist | It's one's own, or it's public and they're a friend or share a server |
 | Mutual friends, mutual servers | It isn't one's own |
 
-It opens on Activity. Activity lists their activities, then, under "Recent
+It opens on Activity. Activity starts with the call they're in, when the voice
+states Yapfast keeps for each DM and channel this account sees put them in one:
+"In a voice channel" or "In a call", with its name and Join when this account
+could join it (`AppState::can_join_voice`), which closes the profile and joins.
+Then come their activities, then, under "Recent
 activity", from `GET /content-inventory/users/{id}/outbox` when the tab first
 opens, what they listened to (`extra.entries[0].media`: its `title`, first
 artist and `image_url`), watched (`extra.media_title`) and played

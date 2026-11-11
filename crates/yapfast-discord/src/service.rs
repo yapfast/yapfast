@@ -1723,6 +1723,13 @@ impl Discord {
         true
     }
 
+    /// Someone's badges for their badge window, as the client asks for them
+    /// each time it opens: for `@me` every badge there is, owned or not, and
+    /// for anyone else what they own.
+    pub async fn badge_directory(&self, user: &str) -> Result<Vec<profile::DirectoryBadge>> {
+        Ok(profile::badge_directory(&self.api.badges(user).await?))
+    }
+
     /// A member's nickname and avatar in a server, as Names knows them.
     fn member_face(&self, guild: &str, user: &str) -> (Option<String>, String) {
         let names = self.read_names();
