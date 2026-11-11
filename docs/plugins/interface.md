@@ -1,10 +1,9 @@
 # Plugins
 
-Plugins are behind the `plugins` Cargo feature, off by default:
-`cargo build --profile fast --features plugins`. This document is the
-interface's side of the system: reading and checking what a plugin's manifest
-changes in
-Yapfast's own interface, and the Plugins page in settings
+Plugins are behind the `plugins` Cargo feature, which is on by default, so a
+plain build carries them. This document is the interface's side of the system:
+reading and checking what a plugin's manifest changes in Yapfast's own
+interface, and the Plugins page in settings
 ([`settings.md`](settings.md)). Nothing runs a plugin's
 WebAssembly yet.
 
