@@ -4,9 +4,16 @@ A proposal built on `SKELETON_PLUGIN_DRAFT.md`. It answers each question the
 draft raises, and backs the memory and speed decisions with numbers measured
 against Extism 1.41.0 (wasmtime 49.0.5) and against this repository's code.
 
-**Status:** M0 implementation in progress: the protocol, helper, fixtures and
-measurement harness have landed. M0 has not exited: its latency budget is not
-met by the current Windows measurements, and Linux and Go/Rust checks remain.
+**Status:** M1 wired and M2's install path in place. The runtime starts with the
+session, the Plugins page draws it (`plugins_page` and `attach`), a plugin
+installed in a store receives `message_create` and disabling it ends the helper
+(`crates/yapfast-core/tests/plugins_runtime.rs`), and a `#path=` URL is fetched
+by the helper, reviewed, installed, rolled back and removed
+(`crates/yapfast-core/tests/plugins_install.rs`). M0 still has not exited: its
+latency budget is not met by the current Windows measurements, and Linux and
+Go/Rust checks remain. Exact-commit fetch against the four hosts, the
+marketplace, a plugin's own settings form and the memory budgets are still to
+come.
 
 ---
 
@@ -541,7 +548,9 @@ my-plugin/
   src/                  optional; never read by Yapfast
 ```
 
-A monorepo gives a path: `https://host/owner/repo#path=plugins/foo`.
+One repository may hold several plugins, one folder each, in which case the
+folder is what's installed: `https://host/owner/repo#path=plugins/foo`. See
+[§8.7](#87-a-repository-that-holds-several-plugins).
 
 Authors should build for size and run `wasm-opt`. Extism's own sample modules
 range from under 1 KiB to 4.9 MiB, and a larger module costs clone time,
@@ -643,6 +652,12 @@ rollback; older ones are removed.
 `rev` is the pin. Git's object names are SHA-1, so the SHA-256 of what actually
 runs is recorded too and checked each time a module is loaded from `store/`.
 
+`path` is the folder inside the repository the manifest was read from, and is
+empty when the manifest is at its root: without it a monorepo's entries are
+indistinguishable, and an update or an uninstall can't read the same folder
+again. Two entries that declare one `id` are refused rather than overwriting
+each other — a copied template in a monorepo is how that happens.
+
 ### 8.5 Installing from a URL
 
 `yapfast-plugins fetch` runs for seconds and exits, taking its 18 MiB with it.
@@ -650,17 +665,20 @@ runs is recorded too and checked each time a module is loaded from `store/`.
 1. **Normalize.** Accept `https://host/owner/repo`, `.git`, `@ref`, GitHub's
    `/tree/<ref>/<path>`, GitLab's `/-/tree/…`, and `#path=`. Only `https`, plus
    `file` for dev. Reject SSH (no credential prompts), `http`, and `ext::`
-   transports.
+   transports. A `path` names a folder of a repository that holds several
+   plugins, and is refused when it isn't relative or reaches above the
+   repository with `..` ([§8.7](#87-a-repository-that-holds-several-plugins)).
 2. **Fetch** to a temporary bare repository: depth 1, no checkout, no
    submodules, and enforced size and time caps.
-3. **Read** the manifest and `.wasm` straight from the tree objects. Reject
-   symlinks, path traversal, and a blob that's a Git LFS pointer, with a clear
-   message for that case.
+3. **Read** the manifest and `.wasm` straight from the tree objects at `path`.
+   Reject symlinks, path traversal, and a blob that's a Git LFS pointer, with a
+   clear message for that case.
 4. **Validate:** schema, API version, limits, the module's magic, then compile
    it, which also fills the cache. Check its imports against what Yapfast
    offers.
-5. **Show the review dialog:** name, source, short commit, permissions, memory,
-   and what it depends on. Nothing has executed.
+5. **Show the review dialog:** name, source, short commit, the `path` when the
+   repository holds several plugins, permissions, memory, and what it depends
+   on. Nothing has executed.
 6. **Commit** with temporary file + fsync + rename into `store/`, then
    `lock.json`. Remove the temporary repository.
 
@@ -704,6 +722,67 @@ yapfast-plugin-registry/
   the review dialog.
 - A delisted entry with a `security` flag triggers a notice for those who have
   it, and offers removal.
+
+### 8.7 A repository that holds several plugins
+
+An author with more than one plugin keeps them together, one folder each:
+
+```
+ada-yapfast-plugins/
+  yapfast-plugins.json          optional index; see below
+  plugins/
+    word-filter/
+      yapfast-plugin.json
+      plugin.wasm
+      icon.png
+      assets/
+      src/                      never read by Yapfast
+    quiet-hours/
+      yapfast-plugin.json
+      plugin.wasm
+```
+
+**The folder is the unit and the repository is only how it travels.** One lock
+entry, one id, one memory cap, one set of grants, one rollback per plugin.
+Nothing about the repository is installed or remembered: there is no
+"installed from this repo" state, and removing one sibling touches no other.
+
+- **A folder may not reach above itself.** The install copies exactly that
+  folder into `store/<sha256>/`, and every path the manifest names (`wasm`,
+  `icon`, assets) is relative to it. An asset or a module shared from the
+  repository's root is refused by the same rule that refuses `..` and symlinks
+  (§8.5 step 3), so a monorepo builds one module per folder instead of linking
+  one shared `target/`.
+- **Ids don't follow the folders.** `id` is reverse-DNS and stable forever
+  (§8.2) and the folder name is free, so two folders that declare one id are
+  refused at install: *"another plugin already uses com.example.word-filter."*
+- **Optional index.** `yapfast-plugins.json` at the root lists what the
+  repository holds, so a URL that names no folder can still offer it:
+
+```json
+{ "api": 1, "plugins": ["plugins/word-filter", "plugins/quiet-hours"] }
+```
+
+- **A bare repository URL** — one with no `#path=` and no manifest at its root —
+  offers the index's plugins, and each is reviewed, pinned and installed on its
+  own. Without an index the error says what to do rather than reading as a
+  repository that has no plugin at all: *"This repository holds plugins but no
+  yapfast-plugin.json at its root; name one with `#path=plugins/<name>`."* The
+  depth-1 fetch already has the tree, so finding them costs no second clone.
+- **One fetch and one query per repository.** Installing four plugins of one
+  repository is one fetch, four reviews and four commits, not four clones;
+  update checks make one remote-refs query per `source` per day and hand the
+  answer to every entry that names it (§8.5).
+- **The path travels with the pin.** It is in the lock entry (§8.4) and shown in
+  the review (§11.6), because `codeberg.org/ada/yapfast-plugins` alone doesn't
+  say which plugin is being installed, and an update or an uninstall has to read
+  the same folder again.
+- **Siblings are strangers.** A plugin from the same repository gets no shared
+  grant, no shared memory budget and no shared fate, and depending on a sibling
+  is a `depends` like any other: shown at review, installed explicitly (§17).
+- **Authors try a monorepo as it is.** `YAPFAST_PLUGINS_DIR` already loads one
+  plugin per subfolder, so `YAPFAST_PLUGINS_DIR=<repo>/plugins` runs the whole
+  collection without installing anything.
 
 ---
 
@@ -1160,11 +1239,13 @@ Git repository   [ https://codeberg.org/ada/word-filter        ]
                                                 [ Find plugin ]
 ```
 
-*Find plugin* moves to a review dialog showing the plugin's name, icon, source
-and commit, what it can do, its memory cap and dependencies, with an
-*Unreviewed source* warning, and **Install** or **Cancel**. Progress and errors
-are stated plainly: *"That repository has no yapfast-plugin.json."* *"plugin.wasm
-is a Git LFS pointer; check in the file itself."*
+*Find plugin* moves to a review dialog showing the plugin's name, icon, source,
+short commit and — when the repository holds several plugins — the folder in it
+(§8.7), what it can do, its memory cap and dependencies, with an *Unreviewed
+source* warning, and **Install** or **Cancel**. A URL that names no folder of a
+repository with an index shows its plugins to choose from instead. Progress and
+errors are stated plainly: *"That repository has no yapfast-plugin.json."*
+*"plugin.wasm is a Git LFS pointer; check in the file itself."*
 
 Advanced (footer of the page): Load folder; memory budget; idle eviction time.
 
@@ -1362,13 +1443,32 @@ and `--no-plugins`.
 **Exit:** a Rust plugin receives `message_create` against
 `testing/fake_discord.ts`; disabling it ends the helper; budgets hold.
 
+The runtime half is wired: `Application::open_plugins` starts with each session,
+the helper's pid and resident memory reach the page, and a disabled plugin's last
+instance takes the helper with it
+(`crates/yapfast-core/tests/plugins_runtime.rs`). What the exit still wants is
+the same run against the fake Discord server rather than an event built in a
+test.
+
 ### M2: Git install
 
 `fetch`, URL normalization, lock file, content store, atomic commit,
 rollback. Settings page: Installed and Add from URL. Exact-commit fetch
 tested on four hosts.
 
-**Exit:** paste a Codeberg URL, review, install, enable, without a restart.
+**Exit:** paste a Codeberg URL, review, install, enable, without a restart; and
+a `#path=` URL installs one plugin of a repository that holds several, with its
+index offered when the URL names no folder (§8.7).
+
+What is in place: `yapfast-plugins fetch` reads one commit without a checkout and
+prints what it found ([`host.md`](docs/plugins/host.md)); `fetch::parse` and
+`fetch::parse_index` read every address a person can paste, `#path=` included
+(§8.7); `Store::{install, roll_back, uninstall}` write the content-addressed
+store and the lock file, refusing an id two folders claim; and the page's Add
+from URL fetches, reviews, installs, rolls back and removes, with the answer
+arriving as a notice so the window never waits. Still to come: four hosts tested
+by exact commit, the index offered by name in the review dialog, and enabling a
+freshly installed plugin in the same session.
 
 ### M3: Permissions and network
 
