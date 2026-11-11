@@ -207,7 +207,9 @@ pub enum Catalog {
     Unloaded,
     Loading,
     Failed(String),
-    Ready(Vec<Listing>),
+    /// The listings, held in one `Arc` so that the copy the page draws from
+    /// costs a pointer rather than every row.
+    Ready(Arc<[Listing]>),
 }
 
 /// A plugin in the marketplace.
@@ -300,6 +302,10 @@ pub enum FetchError {
     TimedOut,
     /// Git's answer, when the host or the repository can't be reached.
     Unreachable(String),
+    /// What the marketplace listed and what its repository holds disagree, in
+    /// its own words: the commit or the hash of the module changed under the
+    /// pin a maintainer reviewed, so nothing was installed.
+    Mismatch(String),
 }
 
 impl FetchError {
@@ -319,6 +325,7 @@ impl FetchError {
             FetchError::TooLarge => "That repository is over 64 MiB.".into(),
             FetchError::TimedOut => "Fetching that repository took over 2 minutes.".into(),
             FetchError::Unreachable(why) => format!("Couldn't fetch that repository: {why}."),
+            FetchError::Mismatch(why) => why.clone(),
         }
     }
 }
@@ -1135,7 +1142,7 @@ impl Source for Fixture {
             Request::Open => {}
             Request::Close => self.view.catalog = Catalog::Unloaded,
             Request::LoadCatalog => {
-                self.view.catalog = Catalog::Ready(self.listings.clone());
+                self.view.catalog = Catalog::Ready(Arc::from(self.listings.clone()));
             }
             Request::SetEnabled { plugin, enabled } => {
                 if let Some(plugin) = self.plugin_mut(&plugin) {

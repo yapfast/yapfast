@@ -23,6 +23,9 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 # The wire types shared with the parent.
 yapfast-plugin-api = { path = "../yapfast-plugin-api" }
+# A registry entry pins the SHA-256 of the module it lists, which `verify-entry`
+# checks against the module at that commit.
+sha2.workspace = true
 # WebAssembly, sandboxed, with the compile cache that takes a cold 22 ms to
 # 2.8 ms.
 extism.workspace = true

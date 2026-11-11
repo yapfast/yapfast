@@ -7,9 +7,12 @@ threads. [`crates/yapfast-plugin-host`](../../crates/yapfast-plugin-host) is the
 binary; [`crates/yapfast-plugin-api`](../../crates/yapfast-plugin-api) is the
 contract it shares with the parent, described in [the ABI](abi.md).
 
-It has two subcommands. `run` speaks the framed protocol on stdin and stdout,
+It has four subcommands. `run` speaks the framed protocol on stdin and stdout,
 which is what the parent starts. `fetch` reads a plugin out of its git
-repository, for seconds, and exits, taking `gix` with it.
+repository, for seconds, and exits, taking `gix` with it. `catalog` reads a
+marketplace registry the same way, and `verify-entry` checks one of its entries
+against the repository it pins, which is what a registry's CI runs
+([`marketplace.md`](marketplace.md)).
 
 A separate process buys three things at once. Nothing of a plugin's outlives it,
 wasmtime's compile threads and a guest's linear memory included. A wasmtime or

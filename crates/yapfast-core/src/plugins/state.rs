@@ -54,6 +54,12 @@ pub enum Notice {
         url: String,
         result: Result<crate::plugins::installing::Fetched, String>,
     },
+    /// The marketplace was read, or why it couldn't be: its listings and
+    /// icons, which are held only while the page that asked is open.
+    Catalog {
+        source: String,
+        result: Result<Box<crate::plugins::marketplace::Catalog>, String>,
+    },
     /// A plugin wants a host the person hasn't allowed, so a page can ask.
     ///
     /// The gate asks rather than holding the request open, and the plugin asks
@@ -208,6 +214,12 @@ impl PluginState {
     /// as [`Notice::Fetched`], so the window never waits.
     pub fn fetch(&mut self, url: String) {
         self.bridge.fetch(url);
+    }
+
+    /// Reads the marketplace's registry for the page: the answer comes back as
+    /// [`Notice::Catalog`], so the window never waits on it either.
+    pub fn catalog(&mut self, url: String) {
+        self.bridge.catalog(url);
     }
 
     /// Writes a fetched plugin into the store, once the person accepted its
