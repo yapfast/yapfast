@@ -509,10 +509,6 @@ static int build_params(struct spa_pod_builder *builder, struct spa_pod_frame *f
                       SPA_POD_CHOICE_ENUM_Id(2, SPA_VIDEO_FORMAT_BGRA, SPA_VIDEO_FORMAT_RGBA),
                       0 /* the end of spa_pod_builder_add's arguments */);
   params[1] = spa_pod_builder_pop(builder, &frames[1]);
-
-  spa_pod_builder_push_object(builder, &frames[2], SPA_TYPE_OBJECT_ParamBuffers, SPA_PARAM_Buffers);
-  spa_pod_builder_add(builder, SPA_PARAM_BUFFERS_dataType, SPA_POD_Int((1 << SPA_DATA_DmaBuf)), 0);
-  params[2] = spa_pod_builder_pop(builder, &frames[2]);
   return 0;
 }
 
@@ -567,12 +563,12 @@ void *yapfast_pw_open(uint32_t node_id, int fd, char *why, size_t why_size) {
 
   uint8_t pod_buffer[2048];
   struct spa_pod_builder builder = SPA_POD_BUILDER_INIT(pod_buffer, sizeof(pod_buffer));
-  struct spa_pod_frame frames[3];
-  const struct spa_pod *params[3];
+  struct spa_pod_frame frames[2];
+  const struct spa_pod *params[2];
   build_params(&builder, frames, params);
   int res = pw_stream_connect(pw->stream, PW_DIRECTION_INPUT, node_id,
                               PW_STREAM_FLAG_AUTOCONNECT | PW_STREAM_FLAG_DONT_RECONNECT, params,
-                              3);
+                              2);
   if (res < 0) {
     pw_thread_loop_unlock(pw->loop);
     snprintf(why, why_size, "the screen's stream couldn't be connected: %s", strerror(-res));
