@@ -533,6 +533,7 @@ component InstalledRow inherits Rectangle {
         if root.plugin.update != "": Middle {
             ActionButton {
                 text: "Update"; label: "Update " + root.plugin.name + " to v" + root.plugin.update; small: true;
+                icon: @image-url("icons/download.svg");
                 clicked => { PluginPage.update(root.plugin.id); }
             }
         }
@@ -593,6 +594,7 @@ component InstalledCard inherits Rectangle {
             alignment: start;
             ActionButton {
                 text: "Update"; label: "Update " + root.plugin.name + " to v" + root.plugin.update; small: true;
+                icon: @image-url("icons/download.svg");
                 clicked => { PluginPage.update(root.plugin.id); }
             }
         }
@@ -826,7 +828,7 @@ component PluginDetailView inherits VerticalLayout {
     if PluginPage.detail.update != "" || PluginPage.detail.previous != "": HorizontalLayout {
         spacing: 8px; alignment: start;
         if PluginPage.detail.update != "": ActionButton {
-            text: "Update to v" + PluginPage.detail.update; primary: true;
+            text: "Update to v" + PluginPage.detail.update; primary: true; icon: @image-url("icons/download.svg");
             clicked => { PluginPage.update(PluginPage.detail.id); }
         }
         if PluginPage.detail.previous != "": ActionButton {
