@@ -981,12 +981,7 @@ impl<B: Backend + 'static> Shared<B> {
     /// The cancel triggers are taken before the call starts, because the
     /// watchdog must reach a guest that is inside a call and holding its own
     /// plugin's lock: that is the whole reason they exist.
-    fn call<T>(
-        &self,
-        slots: &[usize],
-        budget: Duration,
-        call: impl FnOnce(&B) -> T,
-    ) -> (T, bool) {
+    fn call<T>(&self, slots: &[usize], budget: Duration, call: impl FnOnce(&B) -> T) -> (T, bool) {
         // The names first, so the state lock is released before the backend's.
         // The deadline is stamped once the call has the backend, not before:
         // a call queued behind another's backend lock hasn't started, and

@@ -310,7 +310,11 @@ impl Backend for ExtismBackend {
             events: &[],
             results: std::slice::from_ref(&result),
         })?;
-        self.ask::<()>(plugin, "yf_event", &bytes).map(|_| ())
+        // A batch's answer isn't part of the ABI, and a guest that writes one
+        // anyway mustn't be faulted for it: the events were delivered, which is
+        // what this call was for. Read as a value, so anything parses.
+        self.ask::<serde_json::Value>(plugin, "yf_event", &bytes)
+            .map(|_| ())
     }
 
     fn evict(&self, plugin: &PluginId) {
@@ -324,7 +328,9 @@ impl Backend for ExtismBackend {
 
     fn memory_pages(&self, plugin: &PluginId) -> Option<u32> {
         let slot = self.slot(plugin)?;
-        let loaded = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let loaded = slot
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         loaded.instance.as_ref().map(|_| loaded.spec.memory_pages)
     }
 
@@ -760,7 +766,7 @@ mod tests {
     #[test]
     fn asking_for_a_plugin_that_was_never_loaded_is_a_fault_and_not_a_panic() {
         let (outbox, _inbox) = mpsc::channel();
-        let mut backend =
+        let backend =
             ExtismBackend::new(&std::env::temp_dir().join("yapfast-no-cache"), outbox).unwrap();
         let plugin = PluginId::parse("com.example.word-filter").unwrap();
         let fault = backend.activate(&plugin).unwrap_err();
