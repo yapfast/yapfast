@@ -192,8 +192,7 @@ taken back — is refused with the reason saying so, so none waits forever.
 
 ### Asking is bounded
 
-Asking is bounded, because a plugin that keeps asking is asking a person who has
-already said no:
+A plugin that keeps asking is asking a person who has already said no:
 
 - one dialog per plugin at a time, so the person answers about one server at a
   time. A request for a host whose dialog is already open joins it, and one for
@@ -202,8 +201,8 @@ already said no:
 - four of a plugin's requests wait at once at most, so a plugin that asks in a
   loop holds a handful of bodies and no more;
 - after three refusals in a session, that plugin's further requests are refused
-  without a dialog, and its row says how many were refused without asking. A
-  host can still be allowed from the plugin's page.
+  without a dialog, and its row says how many were refused without asking.
+  Turning it off and on asks again.
 
 `grants.json` holds hosts, and only hosts: never a URL, never anything sent to
 one. An allow for `api.example.com` says which server may be contacted and

@@ -74,7 +74,7 @@ impl Bridge {
                         .collect(),
                     grants: granted(grants, &listed),
                     memory_pages: listed.manifest.limits.memory_pages,
-                    quiet_denials: 0,
+                    quiet_denials: grants.quiet_denials(&listed.manifest.id),
                     settings: settings(&mut store, &listed, &entry),
                     log: listed.log.iter().map(log_line).collect(),
                 }

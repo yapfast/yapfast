@@ -204,8 +204,8 @@ impl Grants {
             runtime.silenced = runtime.silenced.saturating_add(1);
             return Ask::Denied {
                 reason: format!(
-                    "this plugin has had {} requests refused, so Yapfast no longer asks; \
-                     you can allow {host} from the plugin's page",
+                    "this plugin has had {} requests refused, so Yapfast no longer asks \
+                     about {host} this session; turning the plugin off and on asks again",
                     runtime.denials
                 ),
             };
@@ -330,6 +330,16 @@ impl Grants {
             hosts.extend(runtime.session.allowed.iter().cloned());
         }
         hosts
+    }
+
+    /// How many of `plugin`'s requests were refused without a dialog, after its
+    /// prompts were silenced, for the page that lists it.
+    pub fn quiet_denials(&self, plugin: &PluginId) -> u32 {
+        let state = self.state.read().unwrap_or_else(PoisonError::into_inner);
+        state
+            .runtime
+            .get(plugin)
+            .map_or(0, |runtime| runtime.silenced)
     }
 
     /// A sentence about the requests this plugin can no longer ask about, for
@@ -544,8 +554,14 @@ mod tests {
         };
         assert!(reason.contains("no longer asks"), "{reason}");
         assert!(grants.summary(&plugin).is_some());
+        assert_eq!(
+            grants.quiet_denials(&plugin),
+            1,
+            "the page counts the request nobody was asked about"
+        );
         // The sentinel: a plugin that was never refused still gets its dialog.
         assert_eq!(grants.summary(&id("com.example.other")), None);
+        assert_eq!(grants.quiet_denials(&id("com.example.other")), 0);
     }
 
     #[test]
