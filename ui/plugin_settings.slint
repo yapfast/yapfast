@@ -110,7 +110,12 @@ export struct PluginDetail {
     /// The version Roll back goes to; empty without one.
     previous: string,
     source: string,
+    /// The repository's web page, which Source links; empty when it isn't
+    /// an http or https address.
+    source-link: string,
     commit: string,
+    /// The commit's page on its forge; empty off GitHub, GitLab and Codeberg.
+    commit-link: string,
     license: string,
     /// Marketplace, URL or folder, in words.
     origin: string,
@@ -142,7 +147,10 @@ export struct PluginReview {
     icon-url: string,
     version: string,
     source: string,
+    /// As PluginDetail's.
+    source-link: string,
     commit: string,
+    commit-link: string,
     reviewed: bool,
     lines: [PluginLine],
     memory: PluginLine,
@@ -209,6 +217,9 @@ export global PluginPage {
     /// Copies the open plugin's details and its whole log, for pasting into a
     /// report.
     callback copy-log();
+    /// Opens a repository's or a commit's page in the browser, as a
+    /// message's link opens.
+    callback open-link(string);
     callback revoke(string, string);
     callback update(string);
     callback roll-back(string);
@@ -242,6 +253,41 @@ export global PluginPage {
 // A plugin's icon: its picture while on screen, or its initial.
 component PluginIcon inherits Avatar {
     size: 40px; corner: 10px; tint: Theme.avatar;
+}
+
+// A fact that opens in the browser, as a repository's address: in the link
+// colour, underlined while pointed at or focused, and opened by a click,
+// Enter or Space. A fact without a page to open is plain Text instead.
+component FactLink inherits Rectangle {
+    in property <string> text;
+    in property <string> url;
+    in property <length> font-size: 14px;
+    in property <bool> monospace;
+    property <bool> lit: touch.has-hover || focus.has-focus;
+    min-height: label.preferred-height; horizontal-stretch: 1;
+    label := Text {
+        width: parent.width; height: parent.height;
+        text: root.text; color: Theme.link; font-size: root.font-size;
+        font-family: root.monospace ? "monospace" : ClientStyle.font-family;
+        vertical-alignment: center; overflow: elide;
+        accessible-role: none;
+    }
+    if root.lit: Rectangle {
+        x: 0px; y: (parent.height + root.font-size) / 2 + 1px; height: 1px;
+        width: min(parent.width, label.preferred-width); background: Theme.link;
+    }
+    // Only the words take the click, not the row's space after them.
+    focus := FocusScope {
+        x: 0px; width: min(parent.width, label.preferred-width);
+        accessible-role: button;
+        accessible-label: "Open " + root.text + " in the browser";
+        accessible-action-default => { PluginPage.open-link(root.url); }
+        key-pressed(event) => {
+            if event.text == "\n" || event.text == " " { PluginPage.open-link(root.url); return accept; }
+            return reject;
+        }
+        touch := TouchArea { mouse-cursor: pointer; clicked => { PluginPage.open-link(root.url); } }
+    }
 }
 
 // A small marker, as "Reviewed" or "Unreviewed source".
@@ -396,8 +442,19 @@ component ReviewDialog inherits PageDialog {
             spacing: 12px; padding-right: 12px;
             VerticalLayout {
                 spacing: 2px;
-                Text { text: PluginPage.review.source; color: Theme.text; font-size: 13px; wrap: word-wrap; }
-                Text { text: "Commit " + PluginPage.review.commit; color: Theme.muted; font-size: 12px; font-family: "monospace"; }
+                if PluginPage.review.source-link == "": Text { text: PluginPage.review.source; color: Theme.text; font-size: 13px; wrap: word-wrap; }
+                if PluginPage.review.source-link != "": FactLink { text: PluginPage.review.source; url: PluginPage.review.source-link; font-size: 13px; }
+                HorizontalLayout {
+                    spacing: 7px;
+                    Text { text: "Commit"; color: Theme.muted; font-size: 12px; font-family: "monospace"; vertical-alignment: center; }
+                    if PluginPage.review.commit-link == "": Text {
+                        text: PluginPage.review.commit; color: Theme.muted; font-size: 12px; font-family: "monospace";
+                        horizontal-stretch: 1;
+                    }
+                    if PluginPage.review.commit-link != "": FactLink {
+                        text: PluginPage.review.commit; url: PluginPage.review.commit-link; font-size: 12px; monospace: true;
+                    }
+                }
             }
             SettingsHeading { text: "WHAT IT CAN DO"; }
             if PluginPage.review.lines.length == 0: Label { text: "Nothing beyond adding its own commands and buttons."; }
@@ -755,14 +812,15 @@ component PluginDetailView inherits VerticalLayout {
     VerticalLayout {
         spacing: 4px;
         for fact in [
-            { name: "From", value: PluginPage.detail.origin },
-            { name: "Repository", value: PluginPage.detail.source },
-            { name: "Commit", value: PluginPage.detail.commit },
-            { name: "License", value: PluginPage.detail.license },
+            { name: "From", value: PluginPage.detail.origin, link: "" },
+            { name: "Repository", value: PluginPage.detail.source, link: PluginPage.detail.source-link },
+            { name: "Commit", value: PluginPage.detail.commit, link: PluginPage.detail.commit-link },
+            { name: "License", value: PluginPage.detail.license, link: "" },
         ]: HorizontalLayout {
             spacing: 12px;
             Text { text: fact.name; width: 96px; color: Theme.muted; font-size: 14px; }
-            Text { text: fact.value == "" ? "—" : fact.value; color: Theme.text; font-size: 14px; wrap: word-wrap; horizontal-stretch: 1; }
+            if fact.link == "": Text { text: fact.value == "" ? "—" : fact.value; color: Theme.text; font-size: 14px; wrap: word-wrap; horizontal-stretch: 1; }
+            if fact.link != "": FactLink { text: fact.value; url: fact.link; }
         }
     }
     if PluginPage.detail.update != "" || PluginPage.detail.previous != "": HorizontalLayout {
