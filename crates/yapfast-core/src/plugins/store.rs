@@ -135,7 +135,11 @@ impl Store {
     /// manifest's digest is accepted for a layout that names the directory after
     /// it.
     fn store_dir(&self, entry: &LockEntry) -> Option<PathBuf> {
-        let candidates = [&entry.wasm_sha256, &entry.manifest_sha256];
+        // The installer names the directory, so this reads it rather than
+        // guessing: the address is over the module and manifest together, and
+        // one digest alone doesn't give it. The digests stay as a fallback for
+        // lock files written before the address was recorded.
+        let candidates = [&entry.store, &entry.wasm_sha256, &entry.manifest_sha256];
         candidates
             .into_iter()
             .filter(|sha| !sha.is_empty())
@@ -500,6 +504,11 @@ pub struct LockEntry {
     /// The commit that was installed, which is the pin.
     #[serde(default)]
     pub rev: String,
+    /// The store directory the installer wrote, named by the lock file rather
+    /// than derived here: the address covers the module and the manifest
+    /// together, so a side that has only one digest can't compute it.
+    #[serde(default)]
+    pub store: String,
     /// The SHA-256 of the module that runs.
     #[serde(default)]
     pub wasm_sha256: String,
