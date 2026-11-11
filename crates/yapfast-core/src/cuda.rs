@@ -123,6 +123,7 @@ unsafe extern "C" {
         size: usize,
     ) -> c_int;
     fn yapfast_cudaenc_copied(encoder: *mut c_void) -> c_ulonglong;
+    fn yapfast_cudaenc_codecs(encoder: *mut c_void) -> c_uint;
     fn yapfast_cudaenc_tuning(encoder: *mut c_void, out: *mut c_char, size: usize);
     fn yapfast_cudaenc_config(encoder: *mut c_void, out: *mut c_char, size: usize);
     fn yapfast_cudaenc_error(encoder: *mut c_void) -> *const c_char;
@@ -625,6 +626,24 @@ impl Encoder {
         unsafe { yapfast_cudaenc_copied(self.raw) }
     }
 
+    /// The codecs this session's driver encodes, most wanted first, or `None`
+    /// when the driver wouldn't say which: what a share offers Discord, asked of
+    /// the session it keeps rather than of one opened for each codec and given up
+    /// beside it. The driver answers it from one session whichever codec that
+    /// session encodes.
+    pub fn driver_codecs(&self) -> Option<Vec<Codec>> {
+        // SAFETY: the session is open.
+        let supported = unsafe { yapfast_cudaenc_codecs(self.raw) };
+        (supported != 0).then(|| {
+            [Codec::Av1, Codec::H265, Codec::H264]
+                .into_iter()
+                .filter(|codec| {
+                    codec_number(*codec).is_ok_and(|number| supported & (1 << number) != 0)
+                })
+                .collect()
+        })
+    }
+
     /// What the session was opened with, and what it dropped, in the words the
     /// share's report and the log use.
     pub fn tuning(&self) -> String {
@@ -718,9 +737,9 @@ mod tests {
 }
 
 /// A converter let go of leaves the others on the same card working: EGL hands
-/// every converter on one device the same display, and a share opens one for
-/// each codec it could send before it keeps one. Needs NVIDIA's card and driver,
-/// and says so rather than failing where they aren't.
+/// every converter on one device the same display, and a share that switches
+/// codec lets one converter go while it opens another. Needs NVIDIA's card and
+/// driver, and says so rather than failing where they aren't.
 #[cfg(all(test, nvcuda))]
 mod displays {
     use super::Convert;
@@ -796,6 +815,50 @@ mod displays {
         assert!(
             current.is_null(),
             "the converter's context is still current on the thread that opened it"
+        );
+    }
+
+    /// A session's driver names every codec it encodes, whatever codec that
+    /// session encodes: what a share offers Discord, read from the session it
+    /// keeps rather than from a session opened for each codec and given up
+    /// beside it.
+    #[test]
+    fn a_session_names_the_codecs_its_driver_encodes() {
+        let Ok(convert) = Convert::open(320, 180) else {
+            eprintln!("no NVIDIA card path here");
+            return;
+        };
+        let Ok(h264) = super::Encoder::open(super::Codec::H264, 320, 180, 30, 2_000, &convert)
+        else {
+            eprintln!("no NVENC on this card here");
+            return;
+        };
+        let named = h264
+            .driver_codecs()
+            .expect("the driver says what it encodes");
+        assert!(
+            named.contains(&super::Codec::H264),
+            "every card here encodes H264: {named:?}"
+        );
+        // Most wanted first, as Discord's client orders them.
+        let mut order = [super::Codec::Av1, super::Codec::H265, super::Codec::H264].into_iter();
+        assert!(
+            named.iter().all(|codec| order.any(|next| next == *codec)),
+            "in order: {named:?}"
+        );
+        // The session that encodes one codec names the others too, which is why
+        // a share opens no second one to ask. The first session goes before the
+        // next opens, as a share's does.
+        drop(h264);
+        let Ok(av1) = super::Encoder::open(super::Codec::Av1, 320, 180, 30, 2_000, &convert) else {
+            eprintln!("this card has no AV1 encoder");
+            return;
+        };
+        assert_eq!(
+            av1.driver_codecs()
+                .expect("the driver says what it encodes"),
+            named,
+            "one list of codecs, whichever codec the session encodes"
         );
     }
 }

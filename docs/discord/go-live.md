@@ -772,11 +772,10 @@ GL's from the next picture on, rather than being refused again every frame. Both
 doors leave every pixel on the card, and GL is opened only when a picture takes
 it. The session hands its access unit back in two steps: the encode leaves it
 locked in the driver's bitstream buffer and says its size, and the drain copies
-it into a buffer from the stream's pool, which is what is sent. EGL gives every converter on one device the same display, and a share
-opens one for each codec it could send before it keeps one, so the displays are
-counted across the process: the first converter to take one initialises it and
-the last to let go terminates it, and a converter dropped never ends the display
-the kept one imports on. A format that isn't 32-bit BGRA, a picture the driver
+it into a buffer from the stream's pool, which is what is sent. EGL gives every converter on one device the same display, so the displays are
+counted across the process: the first converter to take one initialises it
+and the last to let go terminates it, and a converter dropped never ends the
+display another one imports on. A format that isn't 32-bit BGRA, a picture the driver
 holds in neither rows nor an array, and a device that isn't the picture's are
 one sentence and the
 processor's copy, which is the ladder every encoder here walks. The session's
@@ -822,8 +821,8 @@ the card at all ([Voice](voice.md#camera-video)). When the GPU's H264 encoder
 fails during a stream, x264 takes over from that frame with a keyframe, and the
 log says which encoder runs now and what the GPU's refusal was. The worker
 logs which encoder each stream got ("encoding the stream", `engine` and
-`codec`), and for each codec none opened for, why each GPU encoder failed
-("no GPU encoder opened"). The call's Stream tab shows the encoder and the
+`codec`), and for each codec tried before the one that opened, why each GPU
+encoder failed ("no GPU encoder opened"). The call's Stream tab shows the encoder and the
 codec Discord chose ([Voice](voice.md)).
 
 FFmpeg is built from `vendor/ffmpeg-src` into the one binary, with only its
@@ -896,14 +895,23 @@ the GPU: NVENC's slowest preset looked no better than p4.
 Where the GPU's encoder encodes AV1 or H265, the stream offers them too,
 first, AV1 before H265, as Discord's client orders them: each looks better
 than the one after it at the same bitrate. When the stream starts, the
-worker opens each to see that it opens, and keeps the first: an encoder
-FFmpeg has isn't enough, the GPU and its driver must encode the codec. There
+worker opens the first of them that opens and keeps it: an encoder FFmpeg
+has isn't enough, the GPU and its driver must encode the codec. What else
+the card can send is read from that kept session — NVENC's driver names every
+codec it encodes whichever codec the session encodes (`yapfast_cudaenc_codecs`)
+— rather than from a session opened for each codec and given up again beside it:
+a session let go of while another is live is a teardown the driver doesn't
+survive, and a share's worker died with SIGSEGV in `libnvcuvid`'s own thread a
+second after its two codec probes had been given up. FFmpeg's hardware encoders
+have no such list to read, and are still opened for each codec, one at a time.
+There
 is no AV1 encoder on the processor, so with "Encode streams with the GPU"
 off, the stream offers H264 alone. Discord picks the codec Yapfast offers
 first that every viewer's client decodes (op 4's `video_codec`), and when
 someone who can't decode it starts watching, switches the stream with op
-14; Yapfast then opens the other encoder and starts it with a keyframe,
-dropping frames still in the old codec. When AV1 or H265 fails mid-stream,
+14; Yapfast then lets its session go and opens the other encoder, which
+starts with a keyframe, and drops frames still in the old codec. When AV1 or
+H265 fails mid-stream,
 or doesn't open again for a new size or after a switch, Yapfast withdraws
 it with its own op 14 `codecs`, marking it not to encode, and goes on in the
 next codec offered, H264 last. Another Yapfast watching keeps the stream in

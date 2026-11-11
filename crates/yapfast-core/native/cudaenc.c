@@ -1082,6 +1082,13 @@ unsigned long long yapfast_cudaenc_copied(struct yapfast_cudaenc *e) {
   return e ? e->copied : 0;
 }
 
+/* Which of the codecs this session's driver encodes, as bits of codec ids: what
+ * a share offers Discord, read from the session it keeps rather than from one
+ * opened for each codec and given up beside it. The driver answers this from one
+ * session whichever codec that session encodes. Zero when the driver wouldn't
+ * say, which leaves the share to learn it by opening one. */
+unsigned yapfast_cudaenc_codecs(struct yapfast_cudaenc *e) { return e ? e->supported : 0; }
+
 /* The tuning it was opened with, as native/hwenc.c and native/d3d11enc.c report
  * the same thing, so a stream's picture is compared with the encoder that made
  * it. */

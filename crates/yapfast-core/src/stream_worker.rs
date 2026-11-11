@@ -1640,7 +1640,11 @@ impl Sink {
             .as_ref()
             .is_none_or(|encoder| encoder.size() != (width, height));
         // An encoder the card took away between frames is opened again at the
-        // size the frames are now, whether or not that changed.
+        // size the frames are now, whether or not that changed. The session that
+        // is going is let go of first, before another opens: a driver does not
+        // survive one session's teardown while another is live (see
+        // [`Sink::offers`]), and a switch to the codec Discord chose is exactly
+        // that.
         if resized
             || video.reopen
             || video
@@ -1648,6 +1652,9 @@ impl Sink {
                 .as_ref()
                 .is_none_or(|encoder| encoder.codec() != codec)
         {
+            if let Some(video) = self.video.as_mut() {
+                video.encoder = None;
+            }
             let opened = self.encoder(codec, width, height, device);
             let video = self.video.as_mut().expect("checked above");
             match opened {
@@ -1871,27 +1878,57 @@ impl Sink {
 
     /// The codecs to offer Discord, most wanted first, and an encoder for
     /// the first: AV1, then H265, where the GPU's encoder for each opens,
-    /// then H264. Discord streams the first every viewer decodes. Each is
-    /// opened to see that it opens, and only the first kept.
+    /// then H264. Discord streams the first every viewer decodes.
+    ///
+    /// A card's own session is asked which codecs its driver encodes rather
+    /// than another opened for each codec and given up beside it: a driver does
+    /// not survive a session's teardown while another is live. A share's worker
+    /// died with SIGSEGV in `libnvcuvid`'s own thread a second after its two
+    /// codec probes had been let go of, the kept session encoding at the time,
+    /// so what a card can send is read from the session that stays open. An
+    /// encoder FFmpeg opens has no such list to read, and is opened for each
+    /// codec as it always was.
     fn offers(
         &self,
         width: u32,
         height: u32,
         device: Option<*mut c_void>,
     ) -> Result<(Vec<Codec>, Encoding)> {
-        let mut offers = vec![];
         let mut first = None;
         for codec in GPU_CODECS.iter().copied().filter(|_| self.hardware) {
             if let Ok(encoder) = self.open(codec, width, height, device) {
-                offers.push(codec);
-                first.get_or_insert(encoder);
+                first = Some(encoder);
+                break;
             }
         }
-        offers.push(stream_connection::SEND_CODEC);
         let encoder = match first {
             Some(encoder) => encoder,
             None => self.open(stream_connection::SEND_CODEC, width, height, device)?,
         };
+        let mut offers = match &encoder {
+            // The codecs the session's driver encodes, which is what the card
+            // can send: nothing else is opened to ask.
+            Encoding::Cuda(cuda) => cuda.encoder.driver_codecs().unwrap_or_default(),
+            // What FFmpeg's encoders can send, asked by opening one for each
+            // codec: a hardware encoder has no list of its own to read.
+            _ => {
+                let mut offers = vec![encoder.codec()];
+                for codec in GPU_CODECS
+                    .iter()
+                    .copied()
+                    .filter(|codec| self.hardware && *codec != encoder.codec())
+                {
+                    if self.open(codec, width, height, device).is_ok() {
+                        offers.push(codec);
+                    }
+                }
+                offers.sort_by_key(|codec| GPU_CODECS.iter().position(|one| one == codec));
+                offers
+            }
+        };
+        if !offers.contains(&stream_connection::SEND_CODEC) {
+            offers.push(stream_connection::SEND_CODEC);
+        }
         log_encoder(&encoder);
         Ok((offers, encoder))
     }
@@ -2001,14 +2038,26 @@ impl Sink {
                 // NVENC is on the card the picture is already on, so the driver
                 // imports it where the compositor drew it and converts it there,
                 // and the session that reads it needs no copy of any pixel. The
-                // encoder opened above is given up for it rather than kept as a
-                // second session on the same card; a card that can't take the
-                // path says why once, and every picture goes the processor's way.
+                // encoder opened above is given up before that one opens rather
+                // than kept beside it: a driver does not survive a session's
+                // teardown while another is live (see [`Sink::offers`]). A card
+                // that can't take the path says why once, and every picture goes
+                // the processor's way, through the session opened again for it.
                 #[cfg(nvcuda)]
-                if encoder.engine().ends_with("_nvenc")
-                    && let Some(cuda) = Cuda::open(codec, width, height, self.fps, aimed)
-                {
-                    return Ok(Encoding::Cuda(cuda));
+                if encoder.engine().ends_with("_nvenc") {
+                    drop(encoder);
+                    if let Some(cuda) = Cuda::open(codec, width, height, self.fps, aimed) {
+                        return Ok(Encoding::Cuda(cuda));
+                    }
+                    return Ok(Encoding::Picture(Encoder::new(
+                        codec,
+                        width,
+                        height,
+                        self.fps,
+                        aimed,
+                        self.effort,
+                        self.hardware,
+                    )?));
                 }
                 Ok(Encoding::Picture(encoder))
             }
