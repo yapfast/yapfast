@@ -50,6 +50,10 @@ run() {
 }
 
 clippy=(cargo clippy --locked "${profile[@]}" --all-targets)
+# The dev shell's Skia archive is the one built with Vulkan, so the check names
+# the feature that links it: it is not a default, because rust-skia publishes no
+# archive with Vulkan in it and a build outside Nix keeps to OpenGL (Cargo.toml).
+skia=(--features skia-vulkan)
 # feature-union is for the Matrix steps below; with it, the default build would
 # resolve as the full one and compile Slint apart from `cargo build`.
 workspace=(--workspace --exclude feature-union)
@@ -61,9 +65,9 @@ run doc-links scripts/check-doc-links
 # only as a dependency, with plain rustc: it neither lints the generated
 # interface nor checks it a second time in test mode, as --all-targets would
 # a member despite its `test = false`.
-run clippy "${clippy[@]}" "${workspace[@]}" -- -D warnings
-run test cargo test --locked "${profile[@]}" "${workspace[@]}"
-run build cargo build --locked "${profile[@]}" "${workspace[@]}"
+run clippy "${clippy[@]}" "${workspace[@]}" "${skia[@]}" -- -D warnings
+run test cargo test --locked "${profile[@]}" "${workspace[@]}" "${skia[@]}"
+run build cargo build --locked "${profile[@]}" "${workspace[@]}" "${skia[@]}"
 # The binary the build step made: `cargo run` would resolve the dependencies'
 # features for yapfast alone, not the workspace, and compile it again.
 if [[ "$(cat "$logs/build.rc")" == 0 ]]; then
@@ -85,8 +89,8 @@ if [[ $matrix ]]; then
   run clippy-matrix "${clippy[@]}" --workspace "${full[@]}" -- -D warnings
   run test-matrix cargo test --locked "${profile[@]}" --workspace "${full[@]}"
   # `yapfast/skia-vulkan` is named so the UI crate resolves as it does in the
-  # step before and is checked once: every Linux build carries Vulkan now
-  # (Cargo.toml's defaults), and a build without it is a Windows one.
+  # step before and is checked once: this step would otherwise leave out what
+  # the steps above name (Cargo.toml keeps it off the defaults).
   run clippy-matrix-only "${clippy[@]}" -p yapfast -p yapfast-core -p feature-union \
     --no-default-features \
     --features yapfast/desktop,yapfast/matrix,yapfast-core/matrix,yapfast/skia-vulkan -- -D warnings

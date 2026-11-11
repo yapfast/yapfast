@@ -72,9 +72,9 @@ rendering at the same CPU, and scrolling a long history cost less CPU
 
 The GPU setting and `--renderer gpu` request Skia GPU through an explicit
 renderer, so Slint cannot quietly draw with something else: `skia` with a
-Vulkan device Yapfast makes where one opens (`src/ui/vulkan.rs`),
-`skia-opengl` everywhere else on Linux — every Linux build carries both halves
-— and on Windows
+Vulkan device Yapfast makes where one opens and the build carries Skia's Vulkan
+(`src/ui/vulkan.rs`), `skia-opengl` everywhere else on Linux — the archive the
+release links has both halves — and on Windows
 `skia` with Direct3D required, which Slint draws through wgpu's Direct3D 12.
 With OpenGL on Windows, NVIDIA's driver kept a core busy while Yapfast drew.
 The generic `skia` renderer without a required API would silently substitute a

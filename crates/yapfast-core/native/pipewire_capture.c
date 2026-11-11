@@ -390,7 +390,13 @@ static int build_params(struct spa_pod_builder *builder, struct spa_pod_frame *f
                       SPA_FORMAT_VIDEO_format,
                       SPA_POD_CHOICE_ENUM_Id(2, SPA_VIDEO_FORMAT_BGRA, SPA_VIDEO_FORMAT_RGBA),
                       SPA_FORMAT_VIDEO_modifier,
-                      SPA_POD_CHOICE_ENUM_Long(1, (int64_t)0 /* DRM_FORMAT_MOD_LINEAR */),
+                      /* Linear, and only linear — the modifier a reader here can map.
+                       * The same value is named twice because the header PipeWire 1.6
+                       * ships wants an alternative beside a choice's default, and a
+                       * list with one value has none to give; 1.4's header took it
+                       * either way, so this spelling is the one both compile. */
+                      SPA_POD_CHOICE_ENUM_Long(2, (int64_t)0 /* DRM_FORMAT_MOD_LINEAR */,
+                                               (int64_t)0 /* the same, again */),
                       0 /* the end of spa_pod_builder_add's arguments */);
   params[0] = spa_pod_builder_pop(builder, &frames[0]);
 

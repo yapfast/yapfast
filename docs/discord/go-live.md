@@ -296,10 +296,10 @@ another version, or one whose planes and descriptors disagree — is closed as i
 is read, and one it displaces is closed then too, so a window that stopped
 taking pictures holds one per slot and no more. The device a picture has to be
 opened on is the window's own: Skia on Vulkan through a wgpu 30 device Yapfast
-makes where the machine's driver opens one — every Linux build carries Skia's
-Vulkan, see [building.md](../building.md#skia-with-vulkan), and Windows draws
-with Direct3D 12 — and Skia on OpenGL otherwise, which the same archive
-carries (`src/ui/vulkan.rs`). Where the two adapters can't share a
+makes where the machine's driver opens one — a build carrying Skia's Vulkan does,
+which the release is, see [building.md](../building.md#skia-with-vulkan), and
+Windows draws with Direct3D 12 — and Skia on OpenGL otherwise, which the same
+archive carries (`src/ui/vulkan.rs`). Where the two adapters can't share a
 texture, or the window draws in software, the tile is read back into one
 staging texture at 1280×720 at most instead, ten times a second while the UI
 shows a preview. Everything else — a window or a camera, the processor setting,

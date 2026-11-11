@@ -17,14 +17,20 @@ exclude = ["crates/yapfast-ui", "vendor/matrix-rtc-livekit", "vendor/webrtc-sys"
 resolver = "3"
 
 [features]
-# The release's features: Discord on the desktop, drawn through Vulkan where the
-# machine opens one (see `skia-vulkan` below). Matrix is optional, as is each
+# The release's features: Discord on the desktop. Matrix is optional, as is each
 # network, so a build can carry Matrix, Discord or both; scripts/check --matrix
 # checks the builds with Matrix.
 #
+# `skia-vulkan` is not here on purpose: it links a Skia built with Vulkan, which
+# rust-skia does not publish, so the build that carries it is the one the Nix
+# package and the dev shell make, and they name the feature (nix/package.nix's
+# `vulkan`, scripts/check, scripts/ui-session). A build with no Skia's Vulkan
+# draws the window on OpenGL and still shares, reads and plays a stream; see
+# docs/building.md#skia-with-vulkan.
+#
 # A Windows build passes --no-default-features and names what it wants, since
-# Skia's Vulkan archive here is Linux's alone (scripts/build-windows).
-default = ["desktop", "discord", "skia-vulkan"]
+# that archive is Linux's alone (scripts/build-windows).
+default = ["desktop", "discord"]
 matrix = ["yapfast-core/matrix"]
 discord = ["yapfast-core/discord", "dep:qrcode"]
 desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:ksni", "dep:windows-sys", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym", "dep:pollster", "dep:windows"]
