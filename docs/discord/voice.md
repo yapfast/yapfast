@@ -371,11 +371,35 @@ stream at rid "100", at most 1280×720 and 30 frames a second. Discord's
 clients offer a second layer at quality 50; Yapfast sends one, as its Go Live
 does. Turning it off sends op 12 again with a video SSRC of 0 and no
 streams. Yapfast offers H264 to encode, as for Go Live, and both H264 and VP8 to
-decode. The camera's pictures go to x264 on the camera's own thread, at Go
-Live's lighter effort and 1.5 Mbit/s, and each frame to the call's thread, which encrypts it with DAVE
-and sends it as Go Live's packetizer does: sender reports, a resend from RTX
-for each NACK, and a keyframe when someone asks with a PLI. A frame the
-call's thread can't take in time is dropped, and the next one is a keyframe.
+decode. The camera's pictures are encoded on the camera's own thread, in H264
+at Go Live's lighter effort and 1.5 Mbit/s, by the encoder that reads them where
+they are: x264 where the camera films in memory, and the card's encoder where it
+films on the card, opened as a stream opens one
+([Go Live](go-live.md#encoding-on-the-gpu)). Each frame goes to the call's
+thread, which encrypts it with DAVE and sends it as Go Live's packetizer does:
+sender reports, a resend from RTX for each NACK, and a keyframe when someone
+asks with a PLI. A frame the call's thread can't take in time is dropped, and
+the next one is a keyframe.
+
+Which way a camera is filmed is what picks that encoder. A camera is filmed in
+memory by libwebrtc's capture module (`native/camera.cc`: V4L2 on Linux and
+DirectShow on Windows), which asks the device for 1280×720 at 30 frames a second
+and converts each frame into I420 planes in buffers it reuses, a larger frame
+scaled down to fit; every camera on Windows is filmed there, and the card's
+encoder measures no better at that size and rate once each picture is uploaded
+to it. Where the build can import a DMA-BUF into an encoder and "Encode streams
+with the GPU" in Settings is on, a Linux camera that films 1280×720 as NV12 in
+buffers it exports is filmed by V4L2's own capture (`capture/v4l2.rs`) instead:
+each picture arrives in the driver's own buffer, which the encoder imports and
+reads where the card holds it, so no pixel of it crosses to the processor, and
+the tile showing your own camera reads the same picture converted once a frame
+into I420 planes (`native/camera.cc`'s `yapfast_camera_nv12_to_i420`). A camera
+that can't be filmed that way stays on the module — a device with no NV12
+format, one whose driver won't export what it films, one that answers with
+another size than the call asks, and every camera on a platform other than
+Linux — and the log says once which way it went, with the reason when it is the
+module's. A descriptor the encoder refuses leaves that call's pictures on their
+planes from then on, and the log says so once.
 
 The others' cameras arrive the same way round. Op 12 says who films on which
 SSRC, and Discord forwards a camera only to those who ask for it with op 15

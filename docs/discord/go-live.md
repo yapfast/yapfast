@@ -90,12 +90,19 @@ Linux, its DirectShow filter on Windows). The share menu lists the cameras
 [the call's camera](voice.md#camera-video) lists, under CAMERAS, after the
 screens and windows; on Wayland, where the portal picks a screen or window, a
 "Screen or window" choice comes first, and switching with no camera listed
-goes straight to the dialog. The worker films the camera through the same
-capture module (`camera::Camera::open_at`), asking for the stream's
-resolution and frame rate rather than the call camera's 720p at 30, and
-copies each picture into one buffer it keeps for the next before the encoder
-takes it. Switching between a camera and a screen works as between two
-screens. `YAPFAST_CAMERA_TEST_PATTERN=1` lists a test pattern camera to share.
+goes straight to the dialog. The worker films the camera through libwebrtc's
+capture module (`camera::Camera::open_at`), the same one a call's camera is
+filmed by where it isn't filmed on the card ([Voice](voice.md#camera-video)),
+asking for the stream's resolution and frame rate rather than the call camera's
+720p at 30, and copies each picture into one buffer it keeps for the next
+before the encoder takes it. A shared camera is in memory whatever the device
+can export — a call camera is the one that opens the device itself — so the
+stream's encoder is what takes it, the one its screens and windows go through:
+the card's where one opens, x264 where none does or "Encode streams with the
+GPU" is off, and one that falls back to the processor mid-stream takes the
+camera with it. Switching between a camera and a screen works as between two
+screens.
+`YAPFAST_CAMERA_TEST_PATTERN=1` lists a test pattern camera to share.
 
 Once Discord has started the stream, Yapfast unpauses it with op 22, as
 Discord-video-stream does, and the worker gets its server and sends the video
@@ -772,9 +779,10 @@ own, and `Encoder::encoded_in_place` counts the ones the card made into the
 encoder's frames, imported where they lay or converted by its video processor
 first.
 The setting lives in `layout.json` and reaches the worker with each
-`Job::Share`; the camera stays on x264. When the GPU's H264 encoder fails
-during a stream, x264 takes over from that frame with a keyframe, and the log
-says which encoder runs now and what the GPU's refusal was. The worker
+`Job::Share`; a call's camera reads it too, as the switch that lets it film on
+the card at all ([Voice](voice.md#camera-video)). When the GPU's H264 encoder
+fails during a stream, x264 takes over from that frame with a keyframe, and the
+log says which encoder runs now and what the GPU's refusal was. The worker
 logs which encoder each stream got ("encoding the stream", `engine` and
 `codec`), and for each codec none opened for, why each GPU encoder failed
 ("no GPU encoder opened"). The call's Stream tab shows the encoder and the
