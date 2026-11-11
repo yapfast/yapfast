@@ -36,6 +36,7 @@ use yapfast_core::{
 use crate::drop::Drag;
 use crate::{autostart, custom_emoji, emoji, emoji_text, graphics, zoom};
 
+mod app_commands;
 mod appearance;
 mod away;
 mod browser;
@@ -1251,6 +1252,9 @@ struct Layout {
     sidebar_width: Option<f32>,
     /// The width of a Discord thread shown beside its channel.
     aside_width: Option<f32>,
+    /// The member list's width, as its edge was last dragged; none for the
+    /// style's own.
+    members_width: Option<f32>,
     /// The expression picker's width, the GIFs and the emoji alike, as its
     /// left edge last dragged it wider. `gif_picker_width` named it while only
     /// the GIFs took it.
@@ -1637,6 +1641,7 @@ impl Layout {
         if let Some(width) = self.aside_width {
             window.set_aside_width(width);
         }
+        window.set_members_width(self.members_width.unwrap_or(0.));
         if let Some(width) = self.picker_width {
             window.set_picker_width(width);
         }
@@ -2044,11 +2049,18 @@ struct Adapter {
     window: slint::Weak<YapfastWindow>,
     away: away::Away,
     call_timer: call_timer::CallTimer,
-    /// Ticks ActivityClock while a profile on screen times an activity.
+    /// Ticks ActivityClock while a profile on screen times an activity, or
+    /// the channel list a busy voice channel's call.
     activity_clock: slint::Timer,
+    /// A row of the channel list counts a voice channel's call time.
+    voice_timed: bool,
     navigation: Navigation,
     /// Whether the forward dialog was open at the last refresh.
     forwarding: bool,
+    /// What the message menu's Apps rows were built for: the room and its
+    /// command index, by address, and the app icons they still lack. A
+    /// menu opening builds them again; see `show_app_menu_commands`.
+    app_menu: Option<(String, usize, Vec<String>)>,
     selection_version: u64,
     /// The conversation just shown was still loading, when its composer is
     /// disabled and takes no focus; it takes it once the messages come.
@@ -2433,8 +2445,10 @@ impl Adapter {
                 away: away::Away::default(),
                 call_timer: call_timer::CallTimer::default(),
                 activity_clock: slint::Timer::default(),
+                voice_timed: false,
                 navigation: Navigation::default(),
                 forwarding: false,
+                app_menu: None,
                 selection_version: 0,
                 focus_when_ready: false,
                 reset_version: 0,
@@ -3006,7 +3020,10 @@ impl Adapter {
         let composing = matches!(action, Action::SetDraft(_) | Action::MentionQuery(_));
         let bot_input = matches!(
             action,
-            Action::SetModalField { .. } | Action::SearchSelect(_) | Action::ToggleSelect(_)
+            Action::SetModalField { .. }
+                | Action::SearchSelect(_)
+                | Action::ToggleSelect(_)
+                | Action::RemoveModalFile { .. }
         );
         let profiling = matches!(action, Action::WriteProfile { .. });
         // Typing on Roles changes only the settings, too.

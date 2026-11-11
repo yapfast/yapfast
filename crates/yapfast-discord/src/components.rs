@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use crate::message::{
     Attachment, IS_SPOILER, PREVIEW_HEIGHT, PREVIEW_WIDTH, Shown, VIEW_HEIGHT, VIEW_WIDTH,
-    animated, scaled_url,
+    alt_text, animated, scaled_url,
 };
 
 /// The message flag of a message made of components alone, without content
@@ -135,6 +135,9 @@ pub struct SelectOption {
     pub value: String,
     pub description: Option<String>,
     pub default: bool,
+    /// Shown before its label, in Discord's markup, as a button's.
+    #[serde(default)]
+    pub emoji: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -216,7 +219,8 @@ impl Parsed {
                         let slot = self.slot();
                         let spoiler = spoiler || accessory["spoiler"].as_bool().unwrap_or(false);
                         let size = (THUMBNAIL_SIZE, THUMBNAIL_SIZE);
-                        media(&accessory["media"], slot, size, spoiler).map(|picture| {
+                        media(&accessory["media"], slot, size, spoiler).map(|mut picture| {
+                            picture.description = alt_text(&accessory["description"]);
                             self.media.push(picture);
                             Beside::Thumbnail(slot)
                         })
@@ -234,12 +238,14 @@ impl Parsed {
                     .flatten()
                     .filter_map(|item| {
                         let spoiler = spoiler || item["spoiler"].as_bool().unwrap_or(false);
-                        media(
+                        let mut picture = media(
                             &item["media"],
                             slot,
                             (PREVIEW_WIDTH, PREVIEW_HEIGHT),
                             spoiler,
-                        )
+                        )?;
+                        picture.description = alt_text(&item["description"]);
+                        Some(picture)
                     })
                     .collect();
                 (!pictures.is_empty()).then(|| {
@@ -305,19 +311,7 @@ fn button(component: &Value) -> Option<Button> {
         6 => Style::Premium,
         _ => return None,
     };
-    let emoji = &component["emoji"];
-    let emoji = match (emoji["id"].as_str(), emoji["name"].as_str()) {
-        (Some(id), name) => {
-            let prefix = if emoji["animated"].as_bool().unwrap_or(false) {
-                "a"
-            } else {
-                ""
-            };
-            Some(format!("<{prefix}:{}:{id}>", name.unwrap_or("emoji")))
-        }
-        (None, Some(name)) => Some(name.to_owned()),
-        (None, None) => None,
-    };
+    let emoji = emoji(&component["emoji"]);
     let label = component["label"].as_str().unwrap_or_default().to_owned();
     if label.is_empty() && emoji.is_none() && style != Style::Premium {
         return None;
@@ -336,6 +330,23 @@ fn button(component: &Value) -> Option<Button> {
     })
 }
 
+/// A partial emoji object in Discord's markup: the emoji itself, or
+/// `<:name:id>`.
+fn emoji(emoji: &Value) -> Option<String> {
+    match (emoji["id"].as_str(), emoji["name"].as_str()) {
+        (Some(id), name) => {
+            let prefix = if emoji["animated"].as_bool().unwrap_or(false) {
+                "a"
+            } else {
+                ""
+            };
+            Some(format!("<{prefix}:{}:{id}>", name.unwrap_or("emoji")))
+        }
+        (None, Some(name)) => Some(name.to_owned()),
+        (None, None) => None,
+    }
+}
+
 /// A select menu, by the options it picks by default or its placeholder.
 fn select(component: &Value) -> Row {
     let options: Vec<SelectOption> = component["options"]
@@ -348,15 +359,18 @@ fn select(component: &Value) -> Row {
                 value: option["value"].as_str()?.to_owned(),
                 description: option["description"].as_str().map(str::to_owned),
                 default: option["default"].as_bool().unwrap_or(false),
+                emoji: emoji(&option["emoji"]),
             })
         })
         .collect();
-    let picked: Vec<&str> = component["options"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|option| option["default"].as_bool().unwrap_or(false))
-        .filter_map(|option| option["label"].as_str())
+    // As Discord shows the options picked: each with its emoji.
+    let picked: Vec<String> = options
+        .iter()
+        .filter(|option| option.default)
+        .map(|option| match &option.emoji {
+            Some(emoji) => format!("{emoji} {}", option.label),
+            None => option.label.clone(),
+        })
         .collect();
     let text = if picked.is_empty() {
         component["placeholder"]
@@ -418,6 +432,7 @@ fn media(item: &Value, slot: usize, size: (u64, u64), spoiler: bool) -> Option<A
         animated: !video && animated(item),
         shown: Shown::Component(slot),
         spoiler: spoiler || item["flags"].as_u64().unwrap_or_default() & IS_SPOILER != 0,
+        description: None,
     })
 }
 
@@ -442,6 +457,7 @@ fn file(component: &Value, slot: usize, spoiler: bool) -> Option<Attachment> {
         animated: false,
         shown: Shown::Component(slot),
         spoiler,
+        description: None,
     })
 }
 
@@ -536,7 +552,8 @@ mod tests {
                         label: "A".into(),
                         value: "a".into(),
                         description: None,
-                        default: false
+                        default: false,
+                        emoji: None,
                     }],
                     defaults: vec![],
                     channel_types: vec![],
@@ -562,6 +579,32 @@ mod tests {
         assert!(parsed.media[0].preview_url.is_some());
         assert_eq!(parsed.media[3].preview_url, None);
         assert_eq!(parsed.media[3].size, Some(12));
+    }
+
+    #[test]
+    fn options_keep_their_emoji_and_pictures_their_alt_text() {
+        let parsed = parse(&json!([
+            {"type": 9, "components": [{"type": 10, "content": "Build"}],
+             "accessory": {"type": 11, "media": picture("t.png"), "description": "A green tick"}},
+            {"type": 12, "items": [{"media": picture("a.png"), "description": " Before "},
+                                   {"media": picture("b.png"), "description": ""}]},
+            {"type": 1, "components": [{"type": 3, "custom_id": "env", "options": [
+                {"label": "Staging", "value": "s", "emoji": {"name": "🧪"}, "default": true},
+                {"label": "Live", "value": "l", "emoji": {"id": "5", "name": "live", "animated": true}},
+            ]}]},
+        ]));
+        let alt: Vec<_> = parsed
+            .media
+            .iter()
+            .map(|media| media.description.as_deref())
+            .collect();
+        assert_eq!(alt, [Some("A green tick"), Some("Before"), None]);
+        let Row::Select { text, options, .. } = &parsed.cards[0].rows[2] else {
+            panic!("a select menu");
+        };
+        assert_eq!(text, "🧪 Staging");
+        assert_eq!(options[0].emoji.as_deref(), Some("🧪"));
+        assert_eq!(options[1].emoji.as_deref(), Some("<a:live:5>"));
     }
 
     #[test]

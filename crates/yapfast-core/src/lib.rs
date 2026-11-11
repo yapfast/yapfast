@@ -115,6 +115,7 @@ pub mod voice;
 pub mod voice_demo;
 #[cfg(feature = "discord")]
 mod voice_message;
+pub mod voice_roster;
 pub mod volume;
 #[cfg(all(feature = "discord", wgc))]
 pub mod wgc;

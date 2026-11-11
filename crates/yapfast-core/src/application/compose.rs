@@ -4,6 +4,11 @@ use super::*;
 
 impl Application {
     pub(super) fn edit_last(&mut self) -> Vec<Effect> {
+        // Up in an empty option of a command being written, or in the `/`
+        // picker, is the command's.
+        if self.state.command_draft().is_some() || self.state.slash_query().is_some() {
+            return vec![];
+        }
         let last = self
             .state
             .messages
@@ -45,9 +50,18 @@ impl Application {
     }
 
     pub(super) fn set_draft(&mut self, body: String) -> Vec<Effect> {
-        match self.state.selected.clone() {
-            Some(id) => self.set_draft_in(id, body),
-            None => vec![],
+        let Some(id) = self.state.selected.clone() else {
+            return vec![];
+        };
+        // `/` opens the app command picker; with a command being written,
+        // the text is its focused option's. See application/slash.rs.
+        match self.slash_draft(&id, &body) {
+            Some(mut effects) if self.state.command_draft().is_none() => {
+                effects.extend(self.set_draft_in(id, body));
+                effects
+            }
+            Some(effects) => effects,
+            None => self.set_draft_in(id, body),
         }
     }
 
@@ -169,6 +183,14 @@ impl Application {
 
     pub(super) fn send(&mut self) -> Vec<Effect> {
         match self.state.selected.clone() {
+            Some(id) if self.state.command_draft().is_some() => self.run_written_command(&id),
+            // Until the room's commands come, `/` and what follows may be one
+            // of them: it isn't sent as a message.
+            Some(id)
+                if self.state.slash_query().is_some() && self.state.app_commands.loading(&id) =>
+            {
+                vec![]
+            }
             Some(id) => self.send_in(id),
             None => vec![],
         }

@@ -997,6 +997,26 @@ fn pinning_a_message_takes_leave_and_unpins_a_pinned_one() {
 }
 
 #[test]
+fn only_an_answer_only_this_account_sees_is_dismissed() {
+    let mut app = connected();
+    let mut ephemeral = message("d:5", false);
+    ephemeral.flags = 1 << 6;
+    app.apply(Event::Timeline {
+        room: "dm".into(),
+        messages: timeline(vec![message("d:4", false), ephemeral]),
+    });
+    assert!(
+        app.dispatch(Action::DismissEphemeral("d:4".into()))
+            .is_empty()
+    );
+    assert!(matches!(
+        app.dispatch(Action::DismissEphemeral("d:5".into())).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::DismissEphemeral { room, item }))]
+            if room == "dm" && item == "d:5"
+    ));
+}
+
+#[test]
 fn deletion_needs_confirmation_and_queue_actions_need_a_pending_message() {
     let mut app = connected();
     let mut pending = message("t:txn", true);
@@ -2026,6 +2046,126 @@ fn menus_offer_what_fits_their_conversation_or_server() {
     assert!(app.state.menu_choices("friends").is_empty());
     app.dispatch(Action::RequestJoinVoice("lounge".into()));
     assert!(app.state.menu_choices("lounge").is_empty(), "already in it");
+
+    // A Discord channel's people and messages offer its apps' user and
+    // message commands under Apps, once a menu opening asked for its index.
+    #[cfg(feature = "discord")]
+    {
+        use yapfast_discord::commands::CommandIndex;
+        const GENERAL: &str = "discord:10:11";
+        let mut app = discord_server();
+        app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+        app.dispatch(Action::SelectRoom(GENERAL.into()));
+        assert!(!app.person_choices("2").contains(&Apps), "no index yet");
+        let asked = app.dispatch(Action::AskAppCommands);
+        assert!(asked.iter().any(|effect| matches!(effect,
+            Effect::Backend(Command::Discord(DiscordCommand::CommandIndex { room })) if room == GENERAL)));
+        // Status Bot's Wave needs Use Application Commands, which Alice
+        // lacks in "Test"; Notes is installed for her, so its work anywhere.
+        let server = CommandIndex::parse(
+            &serde_json::json!({
+                "applications": [{"id": "7", "name": "Status Bot", "bot_id": "7", "flags": "0"}],
+                "application_commands": [
+                    {"id": "6", "type": 2, "application_id": "7", "name": "Wave", "description": "", "version": "1"}],
+            }),
+            false,
+        );
+        let own = CommandIndex::parse(
+            &serde_json::json!({
+                "applications": [{"id": "8", "name": "Notes", "flags": "0"}],
+                "application_commands": [
+                    {"id": "1", "type": 1, "application_id": "8", "name": "note", "description": "Keeps a note",
+                     "integration_types": [1], "contexts": [0, 1, 2], "version": "1"},
+                    {"id": "4", "type": 3, "application_id": "8", "name": "Save note", "description": "",
+                     "integration_types": [1], "contexts": [0, 1, 2], "version": "1"},
+                    {"id": "5", "type": 2, "application_id": "8", "name": "Note about", "description": "",
+                     "integration_types": [1], "contexts": [0, 1, 2], "version": "1"}],
+            }),
+            true,
+        );
+        app.apply(Event::CommandIndex {
+            room: GENERAL.into(),
+            index: Ok(Arc::new(own.merged(&server))),
+        });
+        let names = |target| -> Vec<String> {
+            app.commands_for_target(GENERAL, target)
+                .into_iter()
+                .map(|command| command.name)
+                .collect()
+        };
+        assert_eq!(names(CommandTarget::Message), ["Save note"]);
+        assert_eq!(names(CommandTarget::User), ["Note about"]);
+        let choices = app.person_choices("2");
+        assert!(choices.contains(&Apps));
+        // Before how this account stands with them, as Discord's has it.
+        if let Some(befriend) = choices.iter().position(|choice| *choice == AddFriend) {
+            assert!(choices.iter().position(|choice| *choice == Apps) < Some(befriend));
+        }
+        assert!(
+            !app.person_choices("@bob:matrix.org").contains(&Apps),
+            "not on Discord"
+        );
+
+        let ran = |effects: Vec<Effect>| -> Vec<(String, Option<String>, serde_json::Value)> {
+            effects
+                .into_iter()
+                .filter_map(|effect| match effect {
+                    Effect::Backend(Command::Discord(DiscordCommand::RunCommand(run))) => Some((
+                        run.command["name"].as_str().unwrap_or_default().to_owned(),
+                        run.target,
+                        run.options,
+                    )),
+                    _ => None,
+                })
+                .collect()
+        };
+        let message = |item: &str, flags: u64| {
+            Arc::new(ChatMessage {
+                id: item.into(),
+                item: item.into(),
+                flags,
+                ..Default::default()
+            })
+        };
+        app.state.messages = Arc::new(vec![message("d:5", 0), message("d:6", 1 << 6)]);
+        let run = |app: &mut Application, command: &str, target: &str| {
+            ran(app.dispatch(Action::RunAppCommand {
+                command: command.into(),
+                target: Some(target.into()),
+            }))
+        };
+        // On the message by its Discord id, and on the person, with no
+        // options; each shows as sending.
+        assert_eq!(
+            run(&mut app, "4", "d:5"),
+            [(
+                "Save note".to_owned(),
+                Some("5".to_owned()),
+                serde_json::json!([])
+            )]
+        );
+        assert_eq!(
+            run(&mut app, "5", "2"),
+            [(
+                "Note about".to_owned(),
+                Some("2".to_owned()),
+                serde_json::json!([])
+            )]
+        );
+        let sending = app
+            .state
+            .messages
+            .iter()
+            .filter(|message| message.item.starts_with("c:"))
+            .count();
+        assert_eq!(sending, 2);
+        // Not on an answer only Alice sees, not a user command on a
+        // message or a message command on a person, nor one she can't use.
+        assert!(run(&mut app, "4", "d:6").is_empty());
+        assert!(run(&mut app, "5", "d:5").is_empty());
+        assert!(run(&mut app, "4", "2").is_empty());
+        assert!(run(&mut app, "6", "2").is_empty());
+    }
 }
 
 #[test]
@@ -2890,6 +3030,7 @@ fn videos_play_in_the_open_room_until_it_closes() {
         spoiler: false,
         video,
         url: None,
+        description: None,
     };
     app.apply(Event::Timeline {
         room: "dm".into(),
@@ -3008,13 +3149,47 @@ fn a_voice_message_plays_and_pauses_one_at_a_time() {
     ));
     let other = app.state.voice_message.clone().unwrap();
     assert_eq!((other.item.as_str(), other.position_ms), ("d:2", 0));
+    // Its waveform moves it, playing as it was; another's waits there
+    // paused in its place.
+    let moved = |app: &mut Application, item: &str, fraction| {
+        app.dispatch(Action::MoveVoiceMessage(item.into(), fraction))
+    };
+    assert!(matches!(
+        moved(&mut app, "d:2", 0.5).as_slice(),
+        [Effect::Backend(Command::MoveVoiceMessage { item, at_ms: 2500, .. })] if item == "d:2"
+    ));
+    let playback = app.state.voice_message.clone().unwrap();
+    assert!(playback.playing && playback.position_ms == 2500);
+    assert!(matches!(
+        moved(&mut app, "d:1", 2.0).as_slice(),
+        [Effect::Backend(Command::MoveVoiceMessage { item, at_ms: 5000, .. })] if item == "d:1"
+    ));
+    let playback = app.state.voice_message.clone().unwrap();
+    assert_eq!(playback.item, "d:1");
+    assert!(!playback.playing && playback.position_ms == 5000);
+    assert!(
+        moved(&mut app, "d:3", 0.5).is_empty(),
+        "not a voice message"
+    );
+    app.state.voice_message = Some(other.clone());
     // Its speed and volume change as it plays, and last for the next.
     app.dispatch(Action::CycleVoiceMessageSpeed);
     assert!(matches!(
         app.dispatch(Action::VoiceMessageVolume(0.5)).as_slice(),
         [Effect::Backend(Command::TuneVoiceMessage(tuning))]
-            if *tuning == chat::VoiceTuning { speed: 1.5, volume: 0.5 }
+            if *tuning == chat::VoiceTuning { speed: 1.5, volume: 0.5, muted: false }
     ));
+    // Muting keeps its volume to unmute to; the slider at 0 mutes it too.
+    app.dispatch(Action::MuteVoiceMessages(true));
+    assert!(app.state.voice_tuning.muted);
+    app.dispatch(Action::VoiceMessageVolume(0.25));
+    assert!(!app.state.voice_tuning.muted, "turning it up unmutes it");
+    app.dispatch(Action::VoiceMessageVolume(0.0));
+    assert_eq!(
+        (app.state.voice_tuning.muted, app.state.voice_tuning.volume),
+        (true, 0.25)
+    );
+    app.dispatch(Action::MuteVoiceMessages(false));
     app.dispatch(Action::CycleVoiceMessageSpeed);
     assert_eq!(app.state.voice_tuning.speed, 2.0);
     app.dispatch(Action::CycleVoiceMessageSpeed);
@@ -3044,6 +3219,7 @@ fn the_viewer_steps_through_a_messages_images() {
         spoiler: false,
         video: false,
         url: None,
+        description: None,
     };
     app.apply(Event::Timeline {
         room: "dm".into(),
@@ -3125,6 +3301,7 @@ fn a_picture_with_an_address_is_copied_to_the_clipboard() {
         spoiler: false,
         video: false,
         url: url.map(Into::into),
+        description: None,
     };
     app.apply(Event::Timeline {
         room: "dm".into(),
@@ -3457,6 +3634,8 @@ fn discord_mentions_search_the_server_and_name_roles() {
             premium_type: 2,
             mfa_enabled: false,
             has_email: true,
+            nsfw_allowed: false,
+            nsfw_commands_in_dms: false,
         }),
         servers: vec![MarkedServer::from(Server {
             id: "10".into(),
@@ -3771,6 +3950,7 @@ fn discord_threads_show_beside_their_channel() {
                 spoiler: false,
                 video: false,
                 url: None,
+                description: None,
             }],
             can_react: true,
             can_reply: true,
@@ -4276,6 +4456,8 @@ fn decorations_and_nameplates_reach_profiles_and_the_account() {
             premium_type: 0,
             mfa_enabled: false,
             has_email: true,
+            nsfw_allowed: false,
+            nsfw_commands_in_dms: false,
         }),
         ..Default::default()
     }));
@@ -4334,6 +4516,8 @@ fn profile_switches_that_are_off_ask_for_nothing() {
                 premium_type: 0,
                 mfa_enabled: false,
                 has_email: true,
+                nsfw_allowed: false,
+                nsfw_commands_in_dms: false,
             }),
             ..Default::default()
         }));
@@ -5523,6 +5707,7 @@ fn closed_channels_keep_metadata_without_pinning_previews() {
             spoiler: false,
             video: false,
             url: None,
+            description: None,
         }],
         ..message(&format!("e:${index}"), false)
     };
@@ -8523,6 +8708,8 @@ fn a_server_profile_is_edited_as_discords_per_server_profile_editor_does() {
         premium_type: 2,
         mfa_enabled: false,
         has_email: true,
+        nsfw_allowed: false,
+        nsfw_commands_in_dms: false,
     });
     app.apply(discord_event(snapshot));
     app.dispatch(Action::EditServerProfile("discord:10".into()));
@@ -8768,6 +8955,8 @@ fn the_main_profile_is_edited_as_discords_profile_editor_does() {
         premium_type: 2,
         mfa_enabled: false,
         has_email: true,
+        nsfw_allowed: false,
+        nsfw_commands_in_dms: false,
     });
     app.apply(discord_event(snapshot));
     app.dispatch(Action::EditProfile);
@@ -9836,6 +10025,7 @@ fn favourite_gifs_show_from_disk_and_stars_wait_for_discords() {
             spoiler: false,
             video: false,
             url: None,
+            description: None,
         }],
         ..message("e:$1", false)
     };
@@ -11684,6 +11874,8 @@ fn another_servers_emoji_and_stickers_need_the_channels_leave() {
             premium_type: 2,
             mfa_enabled: false,
             has_email: true,
+            nsfw_allowed: false,
+            nsfw_commands_in_dms: false,
         }),
         servers: vec![
             MarkedServer::from(Server {
@@ -11821,6 +12013,8 @@ mod arrange;
 mod audit_log;
 #[cfg(feature = "discord")]
 mod channel_settings;
+#[cfg(feature = "discord")]
+mod commands;
 #[cfg(feature = "discord")]
 mod expressions;
 #[cfg(feature = "discord")]
@@ -12450,4 +12644,400 @@ fn a_profile_without_a_wishlist_has_an_empty_one() {
         app.state.profile_editor.as_ref().unwrap().wishlist,
         chat::Wishlist::Loaded(Vec::new())
     );
+}
+
+/// A Discord server channel open, "discord:10:21", with Bob to mention.
+#[cfg(feature = "discord")]
+fn in_discord_channel() -> (Application, String) {
+    use yapfast_discord::{
+        ready::{Channel, Server},
+        service::{Snapshot, Status},
+    };
+    let mut app = connected();
+    app.apply(discord_event(Snapshot {
+        status: Status::Online,
+        user_id: Some("1".into()),
+        servers: vec![MarkedServer::from(Server {
+            id: "10".into(),
+            name: "Test".into(),
+            // Alice's, so she may use every command.
+            owner_id: Some("1".into()),
+            text_channels: vec![Channel {
+                id: "21".into(),
+                name: "general".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        })],
+        ..Default::default()
+    }));
+    app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    app.dispatch(Action::SelectRoom("discord:10:21".into()));
+    let room = "discord:10:21".to_owned();
+    app.apply(Event::Timeline {
+        room: room.clone(),
+        messages: timeline(vec![]),
+    });
+    app.apply(Event::Members {
+        room: room.clone(),
+        members: Ok(vec![member("2", "Bob")]),
+    });
+    (app, room)
+}
+
+/// A command index in Discord's shape: Status Bot's commands, and a
+/// user-installed app's that only DMs take.
+#[cfg(feature = "discord")]
+fn command_index() -> Arc<crate::chat::CommandIndex> {
+    let index = serde_json::json!({
+        "version": "1",
+        "applications": [
+            {"id": "500", "name": "Status Bot", "description": "", "icon": "abc", "flags": "0"},
+            {"id": "600", "name": "Notes", "description": "", "icon": null, "flags": "0"}
+        ],
+        "application_commands": [
+            {"id": "501", "application_id": "500", "version": "1", "type": 1,
+             "name": "ping", "description": "Pong", "default_member_permissions": null},
+            {"id": "502", "application_id": "500", "version": "1", "type": 1,
+             "name": "echo", "description": "Says it back", "default_member_permissions": null,
+             "options": [
+                {"type": 3, "name": "text", "description": "What to say", "required": true},
+                {"type": 4, "name": "times", "description": "How often", "min_value": 1, "max_value": 5}
+             ]},
+            {"id": "503", "application_id": "500", "version": "1", "type": 1,
+             "name": "config", "description": "Settings", "default_member_permissions": null,
+             "options": [
+                {"type": 1, "name": "set", "description": "Sets one", "options": [
+                    {"type": 5, "name": "on", "description": "On or off", "required": true}
+                ]},
+                {"type": 1, "name": "get", "description": "Shows one"}
+             ]},
+            {"id": "504", "application_id": "500", "version": "1", "type": 3,
+             "name": "Quote", "description": "", "default_member_permissions": null},
+            {"id": "601", "application_id": "600", "version": "1", "type": 1,
+             "name": "note", "description": "Keeps a note", "default_member_permissions": null,
+             "integration_types": [1], "contexts": [1, 2]}
+        ]
+    });
+    Arc::new(crate::chat::CommandIndex::parse(&index, false))
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn typing_a_slash_offers_commands_that_fit_the_channel() {
+    let (mut app, room) = in_discord_channel();
+    let fetches = |effects: &[Effect]| {
+        effects
+            .iter()
+            .filter(|effect| {
+                matches!(effect, Effect::Backend(Command::Discord(DiscordCommand::CommandIndex { room: at })) if at == "discord:10:21")
+            })
+            .count()
+    };
+    // Nothing is asked before a `/`.
+    assert_eq!(fetches(&app.dispatch(Action::SetDraft("hi".into()))), 0);
+    app.dispatch(Action::SetDraft(String::new()));
+    assert_eq!(fetches(&app.dispatch(Action::SetDraft("/".into()))), 1);
+    assert_eq!(
+        app.command_heading(&app.command_rows()),
+        "Loading commands…"
+    );
+    app.apply(Event::CommandIndex {
+        room: room.clone(),
+        index: Ok(command_index()),
+    });
+    // Slash commands only, a subcommand each on its own, in the index's order; the
+    // DM-only command and the message command stay out.
+    let names = |app: &Application| -> Vec<String> {
+        app.command_rows().into_iter().map(|row| row.name).collect()
+    };
+    assert_eq!(names(&app), ["ping", "echo", "config set", "config get"]);
+    let first = &app.command_rows()[0];
+    assert_eq!(first.app, "Status Bot");
+    assert!(
+        first
+            .icon
+            .as_deref()
+            .is_some_and(|icon| icon.contains("/app-icons/500/abc.png"))
+    );
+    // Typing narrows them, without asking again.
+    assert_eq!(fetches(&app.dispatch(Action::SetDraft("/e".into()))), 0);
+    assert_eq!(names(&app), ["echo"]);
+    // Escape closes the picker until the `/` goes.
+    app.dispatch(Action::CloseCommand(false));
+    assert!(app.command_rows().is_empty());
+    app.dispatch(Action::SetDraft(String::new()));
+    assert_eq!(fetches(&app.dispatch(Action::SetDraft("/".into()))), 0);
+    assert_eq!(names(&app).len(), 4);
+    // Once Discord says the server's commands changed, the next `/` asks.
+    app.dispatch(Action::SetDraft(String::new()));
+    app.apply(Event::CommandIndexChanged {
+        guild: Some("10".into()),
+    });
+    assert_eq!(fetches(&app.dispatch(Action::SetDraft("/".into()))), 1);
+    // Picking one writes it: its options show, and the `/word` is gone.
+    app.apply(Event::CommandIndex {
+        room: room.clone(),
+        index: Ok(command_index()),
+    });
+    app.dispatch(Action::SetDraft("/conf".into()));
+    app.dispatch(Action::PickCommand(0));
+    let command = app.state.command_draft().expect("a command is written");
+    assert_eq!(command.name, "config set");
+    assert_eq!(command.options.len(), 1);
+    assert_eq!(app.state.draft(), "");
+    // A boolean offers True and False.
+    let values: Vec<String> = app.command_rows().into_iter().map(|row| row.name).collect();
+    assert_eq!(values, ["True", "False"]);
+    app.dispatch(Action::PickCommand(1));
+    let Some(Effect::Backend(Command::Discord(DiscordCommand::RunCommand(run)))) =
+        app.dispatch(Action::Send).into_iter().next()
+    else {
+        panic!("the command runs");
+    };
+    assert_eq!(
+        run.options,
+        serde_json::json!([{"type": 1, "name": "set", "options": [
+            {"type": 5, "name": "on", "value": false}
+        ]}])
+    );
+    assert_eq!(run.application, "500");
+    assert_eq!(run.command["id"], "503");
+    assert!(app.state.command_draft().is_none());
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_command_with_missing_required_options_does_not_send() {
+    let (mut app, room) = in_discord_channel();
+    app.dispatch(Action::SetDraft("/".into()));
+    app.apply(Event::CommandIndex {
+        room: room.clone(),
+        index: Ok(command_index()),
+    });
+    app.dispatch(Action::SetDraft("/echo".into()));
+    app.dispatch(Action::PickCommand(0));
+    let runs = |effects: Vec<Effect>| {
+        effects
+            .into_iter()
+            .filter(|effect| {
+                matches!(
+                    effect,
+                    Effect::Backend(Command::Discord(DiscordCommand::RunCommand(_)))
+                )
+            })
+            .count()
+    };
+    let errors = |app: &Application| -> Vec<Option<String>> {
+        let command = app.state.command_draft().expect("still written");
+        app.state.option_errors(command)
+    };
+    // Nothing is wrong before Enter; then the empty required option says so.
+    assert_eq!(errors(&app), [None, None]);
+    assert_eq!(runs(app.dispatch(Action::Send)), 0);
+    assert_eq!(errors(&app), [Some("Required".into()), None]);
+    // The composer writes the focused option; Tab moves on.
+    app.dispatch(Action::SetDraft("hi".into()));
+    app.dispatch(Action::FocusCommandOption(1));
+    assert_eq!(app.state.draft(), "");
+    app.dispatch(Action::SetDraft("9".into()));
+    assert_eq!(errors(&app), [None, Some("Must be at most 5".into())]);
+    assert_eq!(runs(app.dispatch(Action::Send)), 0);
+    app.dispatch(Action::SetDraft("two".into()));
+    assert_eq!(errors(&app), [None, Some("Must be a whole number".into())]);
+    // Back on the first option, its text is there to change.
+    app.dispatch(Action::FocusCommandOption(0));
+    assert_eq!(app.state.draft(), "hi");
+    app.dispatch(Action::FocusCommandOption(1));
+    app.dispatch(Action::SetDraft("3".into()));
+    let Some(Effect::Backend(Command::Discord(DiscordCommand::RunCommand(run)))) =
+        app.dispatch(Action::Send).into_iter().next()
+    else {
+        panic!("the command runs");
+    };
+    assert_eq!(
+        run.options,
+        serde_json::json!([
+            {"type": 3, "name": "text", "value": "hi"},
+            {"type": 4, "name": "times", "value": 3}
+        ])
+    );
+    assert_eq!(run.room, room);
+    assert!(run.target.is_none() && run.files.is_empty());
+    assert_eq!(app.state.draft(), "");
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_sent_command_shows_until_its_answer_and_a_failed_one_retries() {
+    let (mut app, room) = in_discord_channel();
+    app.dispatch(Action::SetDraft("/".into()));
+    app.apply(Event::CommandIndex {
+        room: room.clone(),
+        index: Ok(command_index()),
+    });
+    let send = |effects: Vec<Effect>| -> String {
+        effects
+            .into_iter()
+            .find_map(|effect| match effect {
+                Effect::Backend(Command::Discord(DiscordCommand::RunCommand(run))) => {
+                    Some(run.nonce)
+                }
+                _ => None,
+            })
+            .expect("the command runs")
+    };
+    let rows = |app: &Application| -> Vec<(String, chat::Delivery)> {
+        app.state
+            .messages
+            .iter()
+            .filter(|message| message.item.starts_with("c:"))
+            .map(|message| (message.body.clone(), message.delivery))
+            .collect()
+    };
+    app.dispatch(Action::SetDraft("/ping".into()));
+    app.dispatch(Action::PickCommand(0));
+    let effects = app.dispatch(Action::Send);
+    let nonce = send(effects);
+    assert_eq!(
+        rows(&app),
+        [("Sending command…".into(), chat::Delivery::Sent)]
+    );
+    assert_eq!(app.state.messages.last().unwrap().author, "Status Bot");
+    // A timeline that comes keeps it; the answer, naming the interaction,
+    // takes its place.
+    app.apply(Event::InteractionCreated {
+        nonce: nonce.clone(),
+        id: "900".into(),
+    });
+    app.apply(Event::Timeline {
+        room: room.clone(),
+        messages: timeline(vec![message("d:1", true)]),
+    });
+    assert_eq!(rows(&app).len(), 1);
+    app.apply(Event::Timeline {
+        room: room.clone(),
+        messages: timeline(vec![
+            message("d:1", true),
+            ChatMessage {
+                interaction: Some("900".into()),
+                ..message("d:2", false)
+            },
+        ]),
+    });
+    assert!(rows(&app).is_empty());
+    assert_eq!(app.state.messages.len(), 2);
+
+    // A failed one says why, and Retry sends it again with a new nonce.
+    app.dispatch(Action::SetDraft("/ping".into()));
+    app.dispatch(Action::PickCommand(0));
+    let effects = app.dispatch(Action::Send);
+    let nonce = send(effects);
+    app.apply(Event::InteractionFailed {
+        nonce: nonce.clone(),
+        reason: "The app didn't answer.".into(),
+    });
+    assert_eq!(
+        rows(&app),
+        [("The app didn't answer.".into(), chat::Delivery::Failed)]
+    );
+    let item = format!("c:{nonce}");
+    let effects = app.dispatch(Action::Retry(item));
+    let again = send(effects);
+    assert_ne!(again, nonce);
+    assert_eq!(rows(&app)[0].1, chat::Delivery::Sent);
+    // Answered without a message, as with a form, it goes too.
+    app.apply(Event::InteractionSucceeded(again.clone()));
+    assert!(rows(&app).is_empty());
+    // Cancel lets a failed one go.
+    app.dispatch(Action::SetDraft("/ping".into()));
+    app.dispatch(Action::PickCommand(0));
+    let effects = app.dispatch(Action::Send);
+    let nonce = send(effects);
+    app.apply(Event::InteractionSettled(nonce.clone()));
+    assert_eq!(rows(&app)[0].1, chat::Delivery::Failed);
+    app.dispatch(Action::CancelSend(format!("c:{nonce}")));
+    assert!(rows(&app).is_empty());
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_sent_command_keeps_hidden_blocked_messages_to_bring_back() {
+    let (mut app, room) = in_discord_channel();
+    app.dispatch(Action::HideBlocked(true));
+    app.dispatch(Action::SetDraft("/".into()));
+    app.apply(Event::CommandIndex {
+        room: room.clone(),
+        index: Ok(command_index()),
+    });
+    app.apply(Event::Timeline {
+        room: room.clone(),
+        messages: timeline(vec![
+            ChatMessage {
+                blocked: true,
+                ..message("d:1", false)
+            },
+            message("d:2", false),
+        ]),
+    });
+    let items = |app: &Application| -> Vec<String> {
+        app.state
+            .messages
+            .iter()
+            .map(|message| message.item.chars().take(2).collect())
+            .collect()
+    };
+    assert_eq!(items(&app), ["d:"]);
+    app.dispatch(Action::SetDraft("/ping".into()));
+    app.dispatch(Action::PickCommand(0));
+    app.dispatch(Action::Send);
+    assert_eq!(items(&app), ["d:", "c:"]);
+    // Showing blocked messages again brings them back, the row kept.
+    app.dispatch(Action::HideBlocked(false));
+    assert_eq!(items(&app), ["d:", "d:", "c:"]);
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_user_option_takes_a_pasted_mention_and_asks_discord_for_names() {
+    let (mut app, room) = in_discord_channel();
+    let index = serde_json::json!({
+        "version": "1",
+        "applications": [{"id": "500", "name": "Status Bot", "flags": "0"}],
+        "application_commands": [
+            {"id": "505", "application_id": "500", "version": "1", "type": 1,
+             "name": "kick", "description": "Kicks", "default_member_permissions": null,
+             "options": [{"type": 6, "name": "who", "description": "Who", "required": true}]}
+        ]
+    });
+    app.dispatch(Action::SetDraft("/".into()));
+    app.apply(Event::CommandIndex {
+        room: room.clone(),
+        index: Ok(Arc::new(crate::chat::CommandIndex::parse(&index, false))),
+    });
+    app.dispatch(Action::SetDraft("/kick ".into()));
+    assert!(app.state.command_draft().is_some());
+    // A name the list doesn't have is asked of Discord, once.
+    let searched = |effects: &[Effect]| {
+        effects.iter().any(|effect| {
+            matches!(effect,
+                Effect::Backend(Command::Discord(DiscordCommand::SearchMembers { query, .. })) if query == "Car")
+        })
+    };
+    assert!(searched(&app.dispatch(Action::SetDraft("Car".into()))));
+    app.dispatch(Action::SetDraft("Ca".into()));
+    assert!(!searched(&app.dispatch(Action::SetDraft("Car".into()))));
+    // A mention pasted in names someone Yapfast didn't list.
+    app.dispatch(Action::SetDraft("<@140000000000000099>".into()));
+    let command = app.state.command_draft().unwrap();
+    assert_eq!(app.state.option_errors(command), [None]);
+    let run = app
+        .dispatch(Action::Send)
+        .into_iter()
+        .find_map(|effect| match effect {
+            Effect::Backend(Command::Discord(DiscordCommand::RunCommand(run))) => Some(run),
+            _ => None,
+        })
+        .expect("it runs");
+    assert_eq!(run.options[0]["value"], "140000000000000099");
 }

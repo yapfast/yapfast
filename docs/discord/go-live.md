@@ -179,6 +179,17 @@ Mbit/s, under the cap; a 3440x1440@60 share asks for 20.8 and a 4K30 one for
 for, whatever the picture's size: a screen above 1080 lines offered 60 sends 60,
 and declares what that is worth up to the cap.
 
+it. The menu lists every screen, window and camera, and is never taller than
+the window: where they don't all fit, as with many windows open or the window
+short or zoomed, the choices scroll as one above Go Live, which stays in view.
+Larger screens, and those of another shape, are scaled down to fit. Yapfast
+caps them at the bitrates Discord's client uses: at most 3.5 Mbit/s up to 720p
+and 9 Mbit/s above, the cap op 12 announces, with the frame rate as its
+`max_framerate`. Discord's client allows accounts without Nitro 720p30, but
+trials 1080p30 at 3.5 or 5 Mbit/s for them. The worker converts captured
+frames to I420 with libyuv, scales them with libyuv's filtering scaler, and
+encodes those; the preview is the same picture scaled down to 720p.
+
 9 Mbit/s is the safe cap because it is already well above what Discord's own
 web client asks for: its screen-share ladder is `desktopBitrate {min: 500_000,
 max: 3_500_000, target: 600_000}`, its 1080p30 overrides are 3.5 or 5 Mbit/s
