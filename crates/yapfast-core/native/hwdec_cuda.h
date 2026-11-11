@@ -19,9 +19,36 @@ enum {
   YAPFAST_CU_AV1 = 2,
 };
 
-/* The planes the tile pass reads: NV12 is luma and one interleaved chroma
- * plane, the one shape this shim exports, and the only one it decodes. */
+/* The planes the tile pass reads: the picture is luma and one interleaved chroma
+ * plane, the one shape this shim exports, 8-bit as NV12 and 10-bit as P016. */
 enum { YAPFAST_CU_PLANES = 2 };
+
+/* How a picture's samples became colour, as the tile pass reads it: the range
+ * its codes use, the matrix luma and chroma are combined with, and the curve
+ * they are in. The numbers are decode.rs's and the tile pass's, and the same
+ * ones native/hwdec_vaapi.h writes down. */
+enum {
+  YAPFAST_CU_LIMITED = 0,
+  YAPFAST_CU_FULL = 1,
+};
+enum {
+  YAPFAST_CU_BT709 = 0,
+  /* BT.2020's non-constant-luminance matrix, which HDR10 is coded with. */
+  YAPFAST_CU_BT2020_NCL = 1,
+};
+enum {
+  /* A display-referred curve: BT.709's for 8-bit, BT.1886's gamma for 10-bit. */
+  YAPFAST_CU_SDR = 0,
+  /* SMPTE ST 2084, which HDR10 is coded with. */
+  YAPFAST_CU_PQ = 1,
+};
+
+/* The colour signal a picture was coded with, in the numbers above. */
+struct yapfast_cucolour {
+  int range;
+  int matrix;
+  int transfer;
+};
 
 struct yapfast_cudec;
 
@@ -47,11 +74,16 @@ struct yapfast_cupicture {
    * where the codec codes in whole macroblocks. */
   int width;
   int height;
-  /* The buffer's format, as DRM names it: NV12, the one shape the tile pass
-   * shows, and the only one this shim exports. */
+  /* The buffer's format, as DRM names it: NV12 for an 8-bit picture and P016
+   * for a 10-bit one — the two shapes this shim exports, both 4:2:0. P016
+   * keeps its 10 bits in the low bits of each 16-bit sample, which is why it is
+   * named apart from P010. */
   uint32_t fourcc;
   uint32_t planes;
   struct yapfast_cuplane plane[YAPFAST_CU_PLANES];
+  /* The matrix, range and curve the samples are in, which the tile pass needs
+   * to turn them into the colour that was coded. */
+  struct yapfast_cucolour colour;
 };
 
 /* What decoding moved, for a log to quote: how many pictures the card decoded,
@@ -75,9 +107,10 @@ struct yapfast_cucounts {
 struct yapfast_cudec *yapfast_cuvadec_new(int codec);
 /* Feeds one whole frame, and exports the newest picture as a DMA-BUF: 1 says one
  * is ready, 0 that the decoder kept the frame for the pictures after it, -2 that
- * the stream's pictures are ones the tile pass can't show (anything but 8-bit
- * 4:2:0), and any other negative number that the frame wasn't decoded. A
- * picture exported by the call before is released here. */
+ * the stream's pictures are ones the tile pass can't show (anything but 4:2:0 at
+ * 8 or 10 bits, and a 10-bit picture whose colour signal the pass has no curve
+ * for), and any other negative number that the frame wasn't decoded. A picture
+ * exported by the call before is released here. */
 int yapfast_cuvadec_decode(struct yapfast_cudec *decoder, const unsigned char *data, size_t size,
                            int keyframe);
 /* The newest picture's descriptor, as yapfast_cuvadec_decode left it. 0 when

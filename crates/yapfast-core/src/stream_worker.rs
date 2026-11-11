@@ -4146,6 +4146,7 @@ impl Shot {
             fourcc: self.order.fourcc(),
             modifier: self.modifier.unwrap_or(0),
             planes: &self.planes,
+            colour: dmabuf::Colour::SDR,
             fds: &self.fds,
         }
     }

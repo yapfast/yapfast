@@ -631,7 +631,7 @@ pub(crate) mod vaapi {
     use anyhow::{Result, bail};
     use yapfast_discord::rtp::Codec;
 
-    use crate::dmabuf::{Descriptor, MAX_PLANES, Plane};
+    use crate::dmabuf::{Colour, Descriptor, MAX_PLANES, Plane};
 
     use super::message;
 
@@ -665,7 +665,25 @@ pub(crate) mod vaapi {
         pub fourcc: u32,
         pub nb_planes: u32,
         pub plane: [RawPlane; MAX_PLANES],
+        pub colour: RawColour,
     }
+
+    /// The colour signal a picture was coded with, as the shim read it out of
+    /// the stream: the range, matrix and curve its samples are in, in the
+    /// numbers native/hwdec_vaapi.h lists.
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub(super) struct RawColour {
+        pub range: c_int,
+        pub matrix: c_int,
+        pub transfer: c_int,
+    }
+
+    /// The C header's struct is this size: four 32-bit fields, four planes of
+    /// 32 bytes, and the colour's three values, rounded up to the eight-byte
+    /// alignment the planes' 64-bit fields ask for. A field added on either side
+    /// without the other fails here instead of reading a neighbour's memory.
+    const _: () = assert!(std::mem::size_of::<RawPicture>() == 160);
 
     unsafe extern "C" {
         /// A decoder for `codec` (0 H264, 1 HEVC, 2 AV1), on `device` — a
@@ -715,6 +733,7 @@ pub(crate) mod vaapi {
         nb_planes: usize,
         planes: [Plane; MAX_PLANES],
         fds: [RawFd; MAX_PLANES],
+        colour: Colour,
     }
 
     impl Picture {
@@ -740,6 +759,7 @@ pub(crate) mod vaapi {
                 nb_planes,
                 planes,
                 fds,
+                colour: Colour::of(raw.colour.range, raw.colour.matrix, raw.colour.transfer),
             }
         }
 
@@ -750,6 +770,7 @@ pub(crate) mod vaapi {
                 fourcc: self.fourcc,
                 modifier: self.modifier,
                 planes: &self.planes[..self.nb_planes],
+                colour: self.colour,
                 fds: &self.fds[..self.nb_planes],
             }
         }
@@ -819,8 +840,9 @@ pub(crate) mod vaapi {
         /// Feeds one whole frame and exports the newest picture, which
         /// [`Self::dmabuf`] hands over. True says there is one, false that the
         /// decoder kept the frame for the pictures after it. A picture the tile
-        /// pass can't show — a 10-bit one, or a layout no NV12 export has — is
-        /// refused here, before any surface is made of it, with the reason.
+        /// pass can't show — 4:2:2, 4:4:4, 12-bit, or a 10-bit one whose colour
+        /// signal the pass has no curve for — is refused with the reason, and
+        /// the stream stays with the software decoder.
         pub fn decode(&mut self, frame: &[u8], keyframe: bool) -> Result<bool> {
             // The picture from the call before goes back to the card as the new
             // one is made: the caller has had it.
@@ -926,6 +948,8 @@ pub(crate) mod vaapi {
         const R8: u32 = 0x2020_3852;
         const GR88: u32 = 0x3838_5247;
         const P010: u32 = 0x3031_3050;
+        const R16: u32 = 0x2036_3152;
+        const GR32: u32 = 0x3233_5247;
         /// The modifier a buffer a driver exports without one has: linear.
         const LINEAR: u64 = 0;
         /// The one buffer of a 1080p NV12 picture, its size and its descriptor
@@ -934,6 +958,10 @@ pub(crate) mod vaapi {
         const SIZE: u64 = 1_382_400;
         const LUMA_STRIDE: isize = 1920;
         const CHROMA_OFFSET: isize = 2_073_600;
+        /// The same picture in 10 bits: 16 bits a sample, so its rows are twice
+        /// as long and its chroma starts where two 16-bit luma planes end.
+        const P010_STRIDE: isize = 3840;
+        const P010_CHROMA_OFFSET: isize = 4_147_200;
 
         fn place(object_index: c_int, offset: isize, pitch: isize) -> PlaneDescriptor {
             PlaneDescriptor {
@@ -1070,26 +1098,60 @@ pub(crate) mod vaapi {
             assert_eq!(picture.fds[..2], [FD, FD]);
         }
 
-        /// A picture the tile pass can't show is refused with the reason,
-        /// before anything is imported: a 10-bit stream's P010 surface, a 4:4:4
-        /// one's three layers, and a picture in two buffers, which the frames
-        /// channel has one modifier's room for.
+        /// A 10-bit picture is the buffer the tile pass imports as well: libva
+        /// exports it as one P010 layer of two planes, or, as a driver with
+        /// one plane a layer does, as an R16 layer and a GR32 one. Both are the
+        /// same 10-bit 4:2:0, 16 bits a sample, and both are read as P010.
         #[test]
-        fn a_picture_the_tile_pass_can_t_show_is_refused() {
+        fn a_ten_bit_picture_is_the_buffer_the_tile_pass_imports() {
             let mut ten_bit = nv12_layer();
             ten_bit.layers[0].format = P010;
-            let reason = describe(&ten_bit).expect_err("P010 isn't NV12");
-            assert!(
-                reason.contains("P010"),
-                "the reason names the format: {reason}"
+            ten_bit.layers[0].planes[0].pitch = P010_STRIDE;
+            ten_bit.layers[0].planes[1] = place(0, P010_CHROMA_OFFSET, P010_STRIDE);
+            let picture = describe(&ten_bit).expect("one P010 layer of two planes");
+            assert_eq!(picture.fourcc, P010, "the format the tile pass reads");
+            assert_eq!(picture.nb_planes, 2, "luma and chroma");
+            assert_eq!(
+                (picture.planes[0].offset, picture.planes[0].stride),
+                (0, P010_STRIDE as u32),
+                "16 bits a sample, so twice an 8-bit row"
             );
+            assert_eq!(
+                (picture.planes[1].offset, picture.planes[1].stride),
+                (P010_CHROMA_OFFSET as u32, P010_STRIDE as u32)
+            );
+            assert_eq!(picture.fds[..2], [FD, FD]);
 
+            // The same picture, split into a layer a plane.
+            let mut split = nv12_layer();
+            split.nb_layers = 2;
+            split.layers[0] = layer(R16, 1, [place(0, 0, P010_STRIDE); MAX_PLANES]);
+            split.layers[1] = layer(
+                GR32,
+                1,
+                [place(0, P010_CHROMA_OFFSET, P010_STRIDE); MAX_PLANES],
+            );
+            let picture = describe(&split).expect("an R16 layer and a GR32 one");
+            assert_eq!(picture.fourcc, P010);
+            assert_eq!(picture.nb_planes, 2);
+            assert_eq!(
+                (picture.planes[0].offset, picture.planes[1].offset),
+                (0, P010_CHROMA_OFFSET as u32)
+            );
+        }
+
+        /// A picture the tile pass can't show is still refused with the reason,
+        /// before anything is imported: a 4:4:4 stream's three layers, and a
+        /// picture in two buffers, which the frames channel has one modifier's
+        /// room for.
+        #[test]
+        fn a_picture_the_tile_pass_can_t_show_is_refused() {
             let mut four_four_four = nv12_layer();
             four_four_four.nb_layers = 3;
             for index in 0..3 {
                 four_four_four.layers[index] = layer(R8, 1, [place(0, 0, LUMA_STRIDE); MAX_PLANES]);
             }
-            let reason = describe(&four_four_four).expect_err("three layers aren't NV12");
+            let reason = describe(&four_four_four).expect_err("three layers aren't 4:2:0");
             assert!(
                 reason.contains("3 layers"),
                 "the reason says what it was: {reason}"
@@ -1178,9 +1240,10 @@ mod cuda {
     use yapfast_discord::rtp::Codec;
 
     use super::message;
-    use crate::dmabuf::{Descriptor, MAX_PLANES, Plane};
+    use crate::dmabuf::{Colour, Descriptor, MAX_PLANES, Plane};
 
-    /// The planes the shim's picture names: NV12's luma and its chroma.
+    /// The planes the shim's picture names: luma and its interleaved chroma,
+    /// which is NV12 at 8 bits and P016 at 10.
     const YAPFAST_PLANES: usize = 2;
 
     /// One plane of a picture's buffer, laid out as `struct yapfast_cuplane`.
@@ -1203,12 +1266,25 @@ mod cuda {
         fourcc: u32,
         planes: u32,
         plane: [RawPlane; YAPFAST_PLANES],
+        colour: RawColour,
+    }
+
+    /// The colour signal a picture was coded with, laid out as `struct
+    /// yapfast_cucolour`: the range, matrix and curve its samples are in, in the
+    /// numbers native/hwdec_cuda.h lists.
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    struct RawColour {
+        range: c_int,
+        matrix: c_int,
+        transfer: c_int,
     }
 
     /// The C header's struct is this size: two planes of 32 bytes after four
-    /// 32-bit fields. A field added on either side without the other fails here
-    /// instead of reading a neighbour's memory.
-    const _: () = assert!(std::mem::size_of::<RawPicture>() == 80);
+    /// 32-bit fields, and the colour's three values, rounded up to the eight-byte
+    /// alignment the planes' 64-bit fields ask for. A field added on either side
+    /// without the other fails here instead of reading a neighbour's memory.
+    const _: () = assert!(std::mem::size_of::<RawPicture>() == 96);
 
     /// The decoder, which only the shim knows the inside of.
     #[repr(C)]
@@ -1245,6 +1321,7 @@ mod cuda {
         nb_planes: usize,
         planes: [Plane; MAX_PLANES],
         fds: [RawFd; MAX_PLANES],
+        colour: Colour,
     }
 
     impl Picture {
@@ -1270,6 +1347,7 @@ mod cuda {
                 nb_planes,
                 planes,
                 fds,
+                colour: Colour::of(raw.colour.range, raw.colour.matrix, raw.colour.transfer),
             }
         }
 
@@ -1280,6 +1358,7 @@ mod cuda {
                 fourcc: self.fourcc,
                 modifier: self.modifier,
                 planes: &self.planes[..self.nb_planes],
+                colour: self.colour,
                 fds: &self.fds[..self.nb_planes],
             }
         }
@@ -1390,6 +1469,151 @@ mod cuda {
             unsafe { yapfast_cuvadec_free(self.raw) };
         }
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// The fixture called `name`, as the repository keeps it.
+        fn fixture(name: &str) -> Vec<u8> {
+            std::fs::read(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../testing/fixtures")
+                    .join(name),
+            )
+            .unwrap_or_else(|error| panic!("the {name} fixture: {error}"))
+        }
+
+        /// The fixture called `name`, split into its access units at the
+        /// delimiters a viewer reassembles them at — H264's NAL 9 and HEVC's 35
+        /// — each NAL with a four-byte start code.
+        fn units_of(name: &str) -> Vec<Vec<u8>> {
+            let file = fixture(name);
+            let starts: Vec<usize> = (0..file.len() - 2)
+                .filter(|&at| file[at..at + 3] == [0, 0, 1])
+                .map(|at| at + 3)
+                .collect();
+            let mut units: Vec<Vec<u8>> = vec![];
+            for (index, &start) in starts.iter().enumerate() {
+                let mut end = starts.get(index + 1).map_or(file.len(), |next| next - 3);
+                if file[end - 1] == 0 {
+                    end -= 1;
+                }
+                let nal = &file[start..end];
+                let delimiter = nal[0] & 0x1f == 9 || nal[0] >> 1 == 35;
+                if delimiter || units.is_empty() {
+                    units.push(vec![]);
+                }
+                if !delimiter {
+                    let unit = units.last_mut().expect("a unit to append to");
+                    unit.extend_from_slice(&[0, 0, 0, 1]);
+                    unit.extend_from_slice(nal);
+                }
+            }
+            units.retain(|unit| !unit.is_empty());
+            units
+        }
+
+        /// A 10-bit stream decodes on NVIDIA's card as a P016 picture — 4:2:0 in
+        /// 16-bit samples with the 10 bits at their bottom, which is the layout
+        /// NVDEC decodes into — and carries out the matrix, range and curve its
+        /// VUI declared, which here is HDR10: BT.2020 in the PQ curve, limited
+        /// range. A machine whose driver can't decode 10 bits says so here, and
+        /// the stream stays with the software decoder.
+        #[test]
+        fn a_ten_bit_stream_decodes_on_the_card_as_a_p016_picture() {
+            const P016: u32 = 0x3631_3050;
+            let mut decoder = match Hardware::new(Codec::H265) {
+                Ok(decoder) => decoder,
+                Err(reason) => {
+                    eprintln!("this machine's card didn't decode H265: {reason:#}");
+                    return;
+                }
+            };
+            let mut pictures = 0;
+            // The access units, so that the parser sees each picture whole as a
+            // stream's viewer reassembles them.
+            for (index, unit) in units_of("stream-h265-10bit.h265").iter().enumerate() {
+                let ready = match decoder.decode(unit, index == 0) {
+                    Ok(ready) => ready,
+                    Err(reason) => {
+                        eprintln!("this machine's card didn't decode 10 bits: {reason:#}");
+                        return;
+                    }
+                };
+                if !ready {
+                    continue;
+                }
+                let picture = decoder.dmabuf().expect("a picture, as a descriptor");
+                assert_eq!(picture.fourcc, P016, "16-bit 4:2:0, as NVDEC decodes it");
+                assert_eq!(picture.planes.len(), 2, "luma and chroma");
+                assert_eq!(
+                    (picture.width, picture.height),
+                    (320, 180),
+                    "the stream's own size, without the padded surface"
+                );
+                assert!(
+                    picture.planes.iter().all(|plane| plane.stride >= 640),
+                    "16 bits a sample, so rows of twice the pixels in bytes"
+                );
+                assert_eq!(
+                    picture.colour,
+                    Colour::of(0, 1, 1),
+                    "limited range, BT.2020's matrix, the PQ curve, as the stream declares"
+                );
+                if pictures == 0 {
+                    eprintln!(
+                        "{}x{} as {:#010x}, modifier {:#018x}, {} planes, {:?}",
+                        picture.width,
+                        picture.height,
+                        picture.fourcc,
+                        picture.modifier,
+                        picture.planes.len(),
+                        picture.colour
+                    );
+                }
+                pictures += 1;
+                decoder.release();
+            }
+            assert!(
+                pictures > 0,
+                "the card decoded no picture of the 10-bit stream"
+            );
+        }
+
+        /// A profile the card has no decoder for is refused with the reason, so
+        /// that the stream falls back to the software decoder rather than
+        /// showing nothing: a GeForce's NVDEC takes H264 at 8 bits, and reads a
+        /// H264 High 10 stream without ever saying what its pictures are.
+        #[test]
+        fn a_picture_the_card_has_no_decoder_for_is_refused_by_name() {
+            let mut decoder = match Hardware::new(Codec::H264) {
+                Ok(decoder) => decoder,
+                Err(reason) => {
+                    eprintln!("this machine's card didn't decode H264: {reason:#}");
+                    return;
+                }
+            };
+            let units = units_of("stream-h264-10bit.h264");
+            let mut refusal = None;
+            for (index, unit) in units.iter().enumerate() {
+                if let Err(reason) = decoder.decode(unit, index == 0) {
+                    refusal = Some(format!("{reason:#}"));
+                    break;
+                }
+            }
+            let Some(reason) = refusal else {
+                // A driver that decodes 10-bit H264 says so by decoding it, and
+                // then there is nothing to refuse.
+                eprintln!("this machine's card decodes H264 High 10, so nothing is refused");
+                return;
+            };
+            assert!(
+                reason.contains("10-bit") || reason.contains("profile"),
+                "the reason says what the card couldn't read: {reason}"
+            );
+        }
+    }
 }
 
 /// Intel's card decoding a watched stream through oneVPL, which is what is left
@@ -1408,7 +1632,7 @@ mod mfx {
     use yapfast_discord::rtp::Codec;
 
     use super::message;
-    use crate::dmabuf::{Descriptor, MAX_PLANES, Plane};
+    use crate::dmabuf::{Colour, Descriptor, MAX_PLANES, Plane};
 
     /// The planes the shim's picture names: NV12's luma and its chroma.
     const YAPFAST_PLANES: usize = 2;
@@ -1510,6 +1734,7 @@ mod mfx {
                 fourcc: self.fourcc,
                 modifier: self.modifier,
                 planes: &self.planes[..self.nb_planes],
+                colour: Colour::SDR,
                 fds: &self.fds[..self.nb_planes],
             }
         }
@@ -1742,9 +1967,9 @@ impl Frame<'_> {
 
 /// A watched stream's decoder: the machine's own while it can take the stream,
 /// and the software decoder where it can't — VP8, a codec this machine has no
-/// decoder for, a 10-bit picture the card's pass has no curve for, or a
-/// session the card refused. Which one a stream gets is the machine's to say,
-/// and the stream is shown the same way either way.
+/// decoder for, a 10-bit picture whose colour signal the card's pass has no
+/// curve for, or a session the card refused. Which one a stream gets is the
+/// machine's to say, and the stream is shown the same way either way.
 pub struct Live {
     codec: Codec,
     #[cfg(any(d3d11dec, vaapidec, nvdec, mfxdec))]
@@ -2446,13 +2671,21 @@ pub(crate) mod vaapi_export {
     use yapfast_discord::rtp::Codec;
 
     /// The fixture's access units, split at its delimiters as a viewer
-    /// reassembles them, each NAL with a four-byte start code.
+    /// reassembles them, each NAL with a four-byte start code. An access unit
+    /// delimiter is H264's NAL 9 and HEVC's 35, whose two-byte header starts
+    /// with 35 << 1.
     pub(crate) fn units() -> Vec<Vec<u8>> {
+        units_of("stream-h264.h264")
+    }
+
+    /// The access units of the fixture called `name`, split as [`units`].
+    pub(crate) fn units_of(name: &str) -> Vec<Vec<u8>> {
         let file = std::fs::read(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../testing/fixtures/stream-h264.h264"),
+                .join("../../testing/fixtures")
+                .join(name),
         )
-        .expect("the H264 fixture");
+        .unwrap_or_else(|error| panic!("the {name} fixture: {error}"));
         let starts: Vec<usize> = (0..file.len() - 2)
             .filter(|&at| file[at..at + 3] == [0, 0, 1])
             .map(|at| at + 3)
@@ -2464,7 +2697,7 @@ pub(crate) mod vaapi_export {
                 end -= 1;
             }
             let nal = &file[start..end];
-            let delimiter = nal[0] & 0x1f == 9;
+            let delimiter = nal[0] & 0x1f == 9 || nal[0] >> 1 == 35;
             if delimiter || units.is_empty() {
                 units.push(vec![]);
             }
@@ -2518,5 +2751,132 @@ pub(crate) mod vaapi_export {
             }
         }
         assert!(pictures > 0, "the card decoded no picture of the stream");
+    }
+
+    /// The colour signal the shim reads out of a stream's VUI, which is what the
+    /// tile pass needs to show a 10-bit picture in the colour it was coded with.
+    /// A stream that declares nothing is BT.709 limited range, and one that
+    /// declares HDR10 is BT.2020's matrix in the PQ curve.
+    #[cfg(vaapidec)]
+    #[test]
+    fn a_stream_says_the_colour_its_pictures_are_in() {
+        // The node `YAPFAST_VAAPI_NODE` names, for a machine whose first card
+        // isn't the one with a VA-API driver; FFmpeg's own pick otherwise.
+        let node = std::env::var("YAPFAST_VAAPI_NODE").ok();
+        let mut seen = 0;
+        for (codec, name, wanted) in [
+            (Codec::H264, "stream-h264.h264", crate::dmabuf::Colour::SDR),
+            (
+                Codec::H265,
+                "stream-h265-10bit.h265",
+                crate::dmabuf::Colour::of(0, 1, 1),
+            ),
+        ] {
+            let opened = match &node {
+                Some(node) => Hardware::on(codec, &std::ffi::CString::new(node.as_str()).unwrap()),
+                None => Hardware::new(codec),
+            };
+            let mut decoder = match opened {
+                Ok(decoder) => decoder,
+                Err(error) => {
+                    eprintln!("no VA-API decoder for {codec:?} here: {error:#}");
+                    return;
+                }
+            };
+            let mut pictures = 0;
+            for (index, unit) in units_of(name).iter().enumerate() {
+                let ready = match decoder.decode(unit, index == 0) {
+                    Ok(ready) => ready,
+                    Err(error) => {
+                        eprintln!("this machine's card didn't decode {name}: {error:#}");
+                        return;
+                    }
+                };
+                if !ready {
+                    continue;
+                }
+                let picture = decoder.dmabuf().expect("a picture, as a descriptor");
+                assert_eq!(picture.colour, wanted, "{name}'s colour signal");
+                pictures += 1;
+                decoder.release();
+            }
+            assert!(pictures > 0, "the card decoded no picture of {name}");
+            seen += 1;
+        }
+        assert_eq!(seen, 2);
+    }
+
+    /// A 10-bit stream decodes on the card as a P010 picture — 4:2:0 in 16-bit
+    /// samples at the top — which is what the tile pass reads with the matrix,
+    /// range and PQ curve it carries. A machine whose driver can't decode 10 bits
+    /// says so here, and the stream stays with the software decoder.
+    ///
+    /// The stream is H265 Main 10 rather than H264 High 10, because a UHD 770's
+    /// VA-API driver has no H264 High 10 profile at all — the profiles a driver
+    /// answers are `vainfo`'s — and its HEVC one decodes 10 bits. H264 High 10
+    /// is what the other card's decoder is refused for, in `cuda`'s tests.
+    #[cfg(vaapidec)]
+    #[test]
+    fn a_ten_bit_stream_decodes_on_the_card_as_a_p010_picture() {
+        const P010: u32 = 0x3031_3050;
+        let node = std::env::var("YAPFAST_VAAPI_NODE").ok();
+        let opened = match node {
+            Some(node) => Hardware::on(Codec::H265, &std::ffi::CString::new(node).unwrap()),
+            None => Hardware::new(Codec::H265),
+        };
+        let mut decoder = match opened {
+            Ok(decoder) => decoder,
+            Err(error) => {
+                eprintln!("no VA-API decoder here: {error:#}");
+                return;
+            }
+        };
+        let mut pictures = 0;
+        for (index, unit) in units_of("stream-h265-10bit.h265").iter().enumerate() {
+            let ready = match decoder.decode(unit, index == 0) {
+                Ok(ready) => ready,
+                Err(error) => {
+                    eprintln!("this machine's card didn't decode 10 bits: {error:#}");
+                    return;
+                }
+            };
+            if !ready {
+                continue;
+            }
+            let picture = decoder.dmabuf().expect("a picture, as a descriptor");
+            assert_eq!(picture.fourcc, P010, "10-bit 4:2:0, as DRM names it");
+            assert_eq!(picture.planes.len(), 2, "luma and chroma");
+            assert_eq!(
+                (picture.width, picture.height),
+                (320, 180),
+                "the stream's own size, without the padded surface"
+            );
+            assert!(
+                picture.planes.iter().all(|plane| plane.stride >= 640),
+                "16 bits a sample, so rows of twice the pixels in bytes"
+            );
+            assert_eq!(
+                picture.colour,
+                crate::dmabuf::Colour::of(0, 1, 1),
+                "limited range, BT.2020's matrix, the PQ curve, as the stream declares"
+            );
+            if pictures == 0 {
+                eprintln!(
+                    "{}x{} as {:#010x}, modifier {:#018x}, {} planes, {:?}",
+                    picture.width,
+                    picture.height,
+                    picture.fourcc,
+                    picture.modifier,
+                    picture.planes.len(),
+                    picture.colour
+                );
+            }
+            pictures += 1;
+            decoder.release();
+        }
+        assert!(
+            pictures > 0,
+            "the card decoded no picture of the 10-bit stream"
+        );
     }
 }
