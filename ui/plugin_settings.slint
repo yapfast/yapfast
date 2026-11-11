@@ -14,7 +14,14 @@ import { ClientStyle } from "yapfast/style.slint";
 /// A line of what a plugin can do. `permission` is what Revoke takes
 /// away, as `capability:messages.read` or `host:api.example.com`; empty for
 /// a line that only explains.
-export struct PluginLine { text: string, tone: int, permission: string }
+export struct PluginLine {
+    text: string,
+    /// The words as drawn: bold throughout for a strong or dangerous line,
+    /// and otherwise bold only on the hosts it names.
+    styled: styled-text,
+    tone: int,
+    permission: string,
+}
 
 /// An installed plugin, as Installed lists it.
 export struct InstalledRow {
@@ -300,10 +307,10 @@ component PermissionLines inherits VerticalLayout {
                     text: "•"; vertical-alignment: top; font-size: 14px;
                     color: line.tone == 0 || line.tone == 1 ? Theme.muted : PluginPage.ink(line.tone);
                 }
-                Text {
-                    text: line.text; wrap: word-wrap; horizontal-stretch: 1; vertical-alignment: top;
-                    color: PluginPage.ink(line.tone); font-size: 14px;
-                    font-weight: line.tone == 1 || line.tone == 5 ? 700 : 400;
+                StyledText {
+                    text: line.styled; horizontal-stretch: 1;
+                    default-color: PluginPage.ink(line.tone); default-font-size: 14px;
+                    accessible-role: text; accessible-label: line.text;
                 }
             }
         }
