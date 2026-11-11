@@ -50,10 +50,6 @@ run() {
 }
 
 clippy=(cargo clippy --locked "${profile[@]}" --all-targets)
-# The dev shell's Skia archive is the one built with Vulkan, so the check names
-# the feature that links it: it is not a default, because rust-skia publishes no
-# archive with Vulkan in it and a build outside Nix keeps to OpenGL (Cargo.toml).
-skia=(--features skia-vulkan)
 # feature-union is for the Matrix steps below; with it, the default build would
 # resolve as the full one and compile Slint apart from `cargo build`.
 workspace=(--workspace --exclude feature-union)
@@ -65,9 +61,9 @@ run doc-links scripts/check-doc-links
 # only as a dependency, with plain rustc: it neither lints the generated
 # interface nor checks it a second time in test mode, as --all-targets would
 # a member despite its `test = false`.
-run clippy "${clippy[@]}" "${workspace[@]}" "${skia[@]}" -- -D warnings
-run test cargo test --locked "${profile[@]}" "${workspace[@]}" "${skia[@]}"
-run build cargo build --locked "${profile[@]}" "${workspace[@]}" "${skia[@]}"
+run clippy "${clippy[@]}" "${workspace[@]}" -- -D warnings
+run test cargo test --locked "${profile[@]}" "${workspace[@]}"
+run build cargo build --locked "${profile[@]}" "${workspace[@]}"
 # The binary the build step made: `cargo run` would resolve the dependencies'
 # features for yapfast alone, not the workspace, and compile it again.
 if [[ "$(cat "$logs/build.rc")" == 0 ]]; then

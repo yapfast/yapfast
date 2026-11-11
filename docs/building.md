@@ -55,12 +55,12 @@ by name. The Windows builds are what do, since the archive with Vulkan is
 Linux's; Windows turns wgpu back on through a dependency in Yapfast's own
 `Cargo.toml`, for Skia GPU on Direct3D 12 (see `src/graphics.rs`).
 
-The GPU setting asks for Skia on Vulkan on Linux, in the builds that carry it:
-`yapfast`'s `skia-vulkan` feature is `i-slint-renderer-skia/vulkan` beside
-`skia-safe/vulkan`, and the release, the dev shell and the scripts name it. It
-is not one of `Cargo.toml`'s defaults, since it links a Skia built with Vulkan
-which rust-skia does not publish: a plain `cargo build` fetches the prebuilt
-archive and draws on OpenGL. `src/ui/vulkan.rs`
+The GPU setting asks for Skia on Vulkan on Linux: `skia-vulkan` is one of
+`Cargo.toml`'s default features, and it is `i-slint-renderer-skia/vulkan` beside
+`skia-safe/vulkan` and a `wgpu` that carries `ShaderSource::Wgsl`. It links a
+Skia built with Vulkan, which rust-skia does not publish, so a build needs
+`SKIA_BINARIES_URL` to name one — the dev shell's archive, or a copy from
+[Skia with Vulkan](#skia-with-vulkan). `src/ui/vulkan.rs`
 then makes the device with wgpu 30 for Slint to take through
 `WGPUConfiguration::Manual`, as `src/ui/gpu.rs` does with Direct3D 12 on
 Windows. That device is what a stream's picture is wrapped from as a Skia
@@ -329,14 +329,14 @@ nix build path:./nix#skia-vulkan
 nix develop path:./nix --command cargo check --profile fast --features skia-vulkan
 ```
 
-`skia-vulkan` turns on `yapfast-ui/skia-vulkan`,
+`skia-vulkan` is a default feature, and it turns on `yapfast-ui/skia-vulkan`,
 `i-slint-renderer-skia/vulkan`, `skia-safe/vulkan` and the `wgpu` dependency
 that carries `ShaderSource::Wgsl`: Slint re-exports wgpu 30 for the window's
 device with that feature off, and the pass that turns a card's NV12 picture into
-what Skia samples is written in WGSL. It is not a default feature: rust-skia
-publishes no archive with Vulkan in it, so a build without Nix — where
-`SKIA_BINARIES_URL` is unset and `skia-safe` fetches its own — can't link one,
-and draws the window on OpenGL instead. A build that leaves the feature out
+what Skia samples is written in WGSL. Because rust-skia publishes no archive
+with Vulkan in it, a build outside Nix must point `SKIA_BINARIES_URL` at one —
+`nix build path:./nix#skia-vulkan` produces it, and copying the tarball anywhere
+`file://` can name works just as well. A build that leaves the feature out
 wants the archive without Vulkan, which the shell keeps as
 `SKIA_GL_BINARIES_URL` — `skia-safe` keys its archive by the features it is
 asked for, so linking the Vulkan one while asking for OpenGL fails at the key in

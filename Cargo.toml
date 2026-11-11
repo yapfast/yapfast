@@ -17,20 +17,11 @@ exclude = ["crates/yapfast-ui", "vendor/matrix-rtc-livekit", "vendor/webrtc-sys"
 resolver = "3"
 
 [features]
-# The release's features: Discord on the desktop. Matrix is optional, as is each
+# The release's features: Discord on the desktop, drawn through Vulkan where the
+# machine opens one (see `skia-vulkan` below). Matrix is optional, as is each
 # network, so a build can carry Matrix, Discord or both; scripts/check --matrix
 # checks the builds with Matrix.
-#
-# `skia-vulkan` is not here on purpose: it links a Skia built with Vulkan, which
-# rust-skia does not publish, so the build that carries it is the one the Nix
-# package and the dev shell make, and they name the feature (nix/package.nix's
-# `vulkan`, scripts/check, scripts/ui-session). A build with no Skia's Vulkan
-# draws the window on OpenGL and still shares, reads and plays a stream; see
-# docs/building.md#skia-with-vulkan.
-#
-# A Windows build passes --no-default-features and names what it wants, since
-# that archive is Linux's alone (scripts/build-windows).
-default = ["desktop", "discord"]
+default = ["desktop", "discord", "skia-vulkan"]
 matrix = ["yapfast-core/matrix"]
 discord = ["yapfast-core/discord", "dep:qrcode"]
 desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:ksni", "dep:windows-sys", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym", "dep:pollster", "dep:windows"]
@@ -38,11 +29,16 @@ desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memma
 # see docs/building.md.
 live-preview = ["desktop", "yapfast-ui/live-preview"]
 # Skia's Vulkan beside its OpenGL, so the interface is drawn through the device
-# a stream's texture is on and a shared picture is shown without copying it.
-# Linux's alone: it links an archive built with Vulkan
-# (nix/skia-linux-vulkan.nix), which SKIA_BINARIES_URL must point at. The window
-# draws on Vulkan where this build carries it and a device opens, on OpenGL
-# otherwise; see docs/building.md#skia-with-vulkan.
+# a stream's texture is on and a shared picture is shown without copying it. The
+# window draws on Vulkan where a device opens, and on OpenGL, which the same
+# archive carries, where none does.
+#
+# It is a default because the release is built with it, and it needs a Skia built
+# with Vulkan: rust-skia publishes none, so SKIA_BINARIES_URL must name one — the
+# dev shell's, a machine's own copy, or the archive `nix build
+# path:./nix#skia-vulkan` makes (nix/skia-linux-vulkan.nix). A build that leaves
+# the feature out links the prebuilt OpenGL archive instead: the Windows build
+# does, since that archive is Linux's. See docs/building.md#skia-with-vulkan.
 skia-vulkan = [
     "desktop",
     "yapfast-ui/skia-vulkan",
