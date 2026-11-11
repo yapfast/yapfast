@@ -127,6 +127,10 @@ const RESIZED: c_int = 2;
 /// How large a sentence the shim writes is; its own buffers are this size.
 const WHY: usize = 256;
 
+/// How long the line `describe` writes may be: the format, the counters and the
+/// stream's trace, which is up to 384 bytes of its own.
+const DESCRIBE: usize = 640;
+
 /// The pixel formats a desktop shares a screen in, as `spa/param/video/raw.h`
 /// numbers them.
 const SPA_VIDEO_FORMAT_RGBX: u32 = 7;
@@ -419,9 +423,9 @@ impl Capture {
     /// many frames it has carried.
     pub fn describe(&self) -> String {
         let mut text = String::new();
-        text.reserve(WHY);
-        let mut buffer = [0 as c_char; WHY];
-        // SAFETY: the capture is this one's, and the buffer is `WHY` bytes.
+        text.reserve(DESCRIBE);
+        let mut buffer = [0 as c_char; DESCRIBE];
+        // SAFETY: the capture is this one's, and the buffer is `DESCRIBE` bytes.
         unsafe { yapfast_pw_describe(self.raw, buffer.as_mut_ptr(), buffer.len()) };
         text.push_str(&word(&buffer));
         format!("{}, sharing {}", text, self.session.describe())
@@ -495,10 +499,10 @@ pub fn open_asking(ask: Ask) -> Result<Capture> {
     Capture::open_asking(ask)
 }
 
-/// A sentence the shim wrote into a `WHY`-byte buffer, as a `String`.
-fn word(buffer: &[c_char; WHY]) -> String {
+/// A sentence the shim wrote into a buffer, as a `String`.
+fn word(buffer: &[c_char]) -> String {
     // SAFETY: the shim null-terminates what it writes into the buffer it is given,
-    // and the buffer is `WHY` bytes either way.
+    // within the length it is told.
     unsafe { std::ffi::CStr::from_ptr(buffer.as_ptr()) }
         .to_string_lossy()
         .into_owned()

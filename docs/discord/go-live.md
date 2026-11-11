@@ -356,7 +356,11 @@ between them but what each one sees:
   each of them for builds without PipeWire, and a link that takes those calls
   them instead, which ends in a jump to 0. A machine with no PipeWire library
   says so in the capture's own words instead. The format it asks for carries a
-  linear modifier, because an importer here maps rows: a compositor on a card
+  linear modifier, because an importer here maps rows. The modifier is offered
+  as PipeWire's DMA-BUF negotiation asks a consumer to: mandatory and not to be
+  fixated, so the producer fixates it by allocating and only then names its
+  buffers. One the link fixated on its own left KWin re-offering its formats
+  without ever naming buffers, and the stream paused with no frame. A compositor on a card
   with a tiling of its own — KWin on an NVIDIA screen hands over
   `0x0300000000e08014`, block-linear — copies into a linear buffer instead of
   handing over a picture nothing can read;

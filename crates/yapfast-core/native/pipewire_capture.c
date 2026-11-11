@@ -214,7 +214,7 @@ struct yapfast_pw {
    * then negotiates nothing says so here rather than leaving `describe` to report
    * silence, since PipeWire reports a refused enumeration as a property with no
    * pod, which is neither an error nor a frame. */
-  char trace[192];
+  char trace[384];
 
   /* What `yapfast_pw_describe` says, and the counters behind it. `processes` is
    * how often the stream was told to read a buffer and `empty` how many of those
@@ -385,11 +385,18 @@ static void on_param_changed(void *data, uint32_t id, const struct spa_pod *para
     note(pw, "%s", param_name(id));
     return;
   }
-  struct spa_video_info info;
+  struct spa_video_info info = {0};
   if (spa_format_parse(param, &info.media_type, &info.media_subtype) < 0) return;
   if (info.media_type != SPA_MEDIA_TYPE_video || info.media_subtype != SPA_MEDIA_SUBTYPE_raw) return;
   if (spa_format_video_raw_parse(param, &info.info.raw) < 0) return;
   struct spa_video_info_raw raw = info.info.raw;
+  if (raw.flags & SPA_VIDEO_FLAG_MODIFIER_FIXATION_REQUIRED) {
+    /* The modifier is still a choice: the producer picks one by allocating and
+     * sends the Format again with it, and that one is what buffers come in. */
+    note(pw, "Format %dx%d %s, modifier to be fixated", (int)raw.size.width,
+         (int)raw.size.height, format_name((uint32_t)raw.format));
+    return;
+  }
   note(pw, "Format %dx%d %s modifier 0x%llx", (int)raw.size.width, (int)raw.size.height,
        format_name((uint32_t)raw.format), (unsigned long long)raw.modifier);
   if (pw->have_format && (raw.format != pw->raw.format || raw.size.width != pw->raw.size.width ||
@@ -477,10 +484,9 @@ void yapfast_pw_close(struct yapfast_pw *pw);
  * modifier in hand. Which of the two answered is in the Format the producer
  * sends, and the capture reports it.
  *
- * The last pod asks for the
- * planes of the one data type an encoder can import, so a producer that can't
- * give a DMA-BUF says so instead of quietly handing over memory the processor
- * would have to copy. */
+ * A producer that answers the second with memory rather than a DMA-BUF is
+ * refused when its first frame arrives, by `describe_buffer`, with the type it
+ * negotiated named. */
 static int build_params(struct spa_pod_builder *builder, struct spa_pod_frame *frames,
                         const struct spa_pod **params) {
   spa_pod_builder_push_object(builder, &frames[0], SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat);
@@ -488,15 +494,25 @@ static int build_params(struct spa_pod_builder *builder, struct spa_pod_frame *f
                       SPA_FORMAT_mediaSubtype, SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw),
                       SPA_FORMAT_VIDEO_format,
                       SPA_POD_CHOICE_ENUM_Id(2, SPA_VIDEO_FORMAT_BGRA, SPA_VIDEO_FORMAT_RGBA),
-                      SPA_FORMAT_VIDEO_modifier,
-                      /* Linear, and only linear — the modifier a reader here can map.
-                       * The same value is named twice because the header PipeWire 1.6
-                       * ships wants an alternative beside a choice's default, and a
-                       * list with one value has none to give; 1.4's header took it
-                       * either way, so this spelling is the one both compile. */
-                      SPA_POD_CHOICE_ENUM_Long(2, (int64_t)0 /* DRM_FORMAT_MOD_LINEAR */,
-                                               (int64_t)0 /* the same, again */),
                       0 /* the end of spa_pod_builder_add's arguments */);
+  /* Linear, and only linear — the modifier a reader here can map — written as
+   * PipeWire's DMA-BUF negotiation asks a consumer to write its modifiers:
+   * mandatory, so a producer without DMA-BUFs doesn't match this pod, and not to
+   * be fixated, so the choice reaches the producer as a choice. An intersection
+   * keeps only the flags both sides set, and a modifier left without
+   * DONT_FIXATE is fixated by the link before the producer sees it: KWin then
+   * allocates with an implicit modifier, finds that it isn't the one in the
+   * Format, offers its own again, and never gets as far as naming buffers — the
+   * stream sits in paused, its Format set twice, with no process call. The same
+   * value is named twice because a choice wants an alternative beside its
+   * default. */
+  struct spa_pod_frame modifier;
+  spa_pod_builder_prop(builder, SPA_FORMAT_VIDEO_modifier,
+                       SPA_POD_PROP_FLAG_MANDATORY | SPA_POD_PROP_FLAG_DONT_FIXATE);
+  spa_pod_builder_push_choice(builder, &modifier, SPA_CHOICE_Enum, 0);
+  spa_pod_builder_long(builder, 0 /* DRM_FORMAT_MOD_LINEAR */);
+  spa_pod_builder_long(builder, 0 /* the same, again */);
+  spa_pod_builder_pop(builder, &modifier);
   params[0] = spa_pod_builder_pop(builder, &frames[0]);
 
   /* The same picture again with no modifier named, for a producer that can't make
