@@ -41,7 +41,9 @@ fn main() {
     picture.compile("yapfast_picture");
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     // Linux captures through V4L2, and Windows through DirectShow, both in
-    // the same module of the libwebrtc archive.
+    // the same module of the libwebrtc archive. native/camera_mf.cc, a Media
+    // Foundation capturer for Windows, is built by nothing until its Rust side
+    // exists; its header says what that side has to be.
     if matches!(target_os.as_str(), "linux" | "windows") {
         let mut camera = cc::Build::new();
         camera
