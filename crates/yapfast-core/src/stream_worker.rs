@@ -4575,10 +4575,17 @@ fn capture_dmabufs(
     sink.footage = Footage::Dmabuf;
     sink.diagnosis.presentation = Some(Presentation::Shared);
     let started = Instant::now();
-    // Only the pace of the loop matters here: the capture is asked for the next
-    // picture once a slot, and its own wait is where a still desktop spends the
-    // time. Nothing here sleeps beside it and nothing spins.
+    // Only the pace of the loop matters here: the capture is asked for a picture
+    // until the next slot is due, and its own wait is where a still desktop spends
+    // the time. Nothing here sleeps beside it and nothing spins. A capture answers
+    // as soon as the desktop draws, which a busy screen does at its refresh rate,
+    // so a picture that comes before its slot is kept and the next one asked for:
+    // the newest is sent when the slot comes. Sending each as it came encoded a
+    // 30 fps stream at the compositor's rate, filled the send queue, and had the
+    // encoder overshoot a rate it shares out over the stream's frame rate.
     let mut slot = 0u64;
+    // Whether the picture in `last` arrived since one was last sent.
+    let mut fresh = false;
     // What the stream is sent at, and what the window has been told: both change
     // when the shared thing does.
     let mut size: Option<(u32, u32)> = None;
@@ -4612,8 +4619,14 @@ fn capture_dmabufs(
         // the desktop to change, so a still screen costs one wake-up a slot and
         // no spin at all.
         let (due, wait) = pace(started, slot, sink.fps, Instant::now());
+        let deadline = Instant::now() + wait.unwrap_or_default();
         let arrival = capture.frame(wait.unwrap_or_default())?;
-        slot = due.saturating_add(1);
+        // Answered before the slot is due: nothing is sent yet, and the slot
+        // stays the one being waited for.
+        let early = Instant::now() < deadline;
+        if !early {
+            slot = due.saturating_add(1);
+        }
         // Told to stop while the capture was waiting: the capture goes with this
         // frame, which closes the portal's session and lets go of the X server's
         // redirection.
@@ -4651,6 +4664,7 @@ fn capture_dmabufs(
                     size = None;
                     saw_picture = false;
                     last = None;
+                    fresh = false;
                     preview_pending = true;
                 }
                 Err(why) => {
@@ -4668,6 +4682,10 @@ fn capture_dmabufs(
                 sink.diagnosis.captured_at = Some(Instant::now());
                 saw_picture = true;
                 last = Some(shot);
+                fresh = true;
+                if early {
+                    continue;
+                }
             }
             Found::Resized => {
                 // What the capture held was drawn at the size before it, and the
@@ -4677,6 +4695,7 @@ fn capture_dmabufs(
                 tracing::info!("the shared picture changed size");
                 saw_picture = false;
                 last = None;
+                fresh = false;
                 size = None;
                 preview_pending = true;
                 continue;
@@ -4698,7 +4717,12 @@ fn capture_dmabufs(
                 // stream a viewer joining, a decoder that lost its place or a
                 // preview coming back can be shown — from the picture the capture
                 // last handed over, and only while one of those asks for it.
-                if !sending(false, saw_picture, sink.picture_needed()) {
+                // Woken before the slot, as for a format: the slot is still to
+                // come, and with it whatever arrives meanwhile.
+                if early {
+                    continue;
+                }
+                if !sending(fresh, saw_picture, sink.picture_needed()) {
                     continue;
                 }
             }
@@ -4714,6 +4738,7 @@ fn capture_dmabufs(
         let Some(shot) = last.as_ref() else {
             continue;
         };
+        fresh = false;
         let sent = fit(shot.width, shot.height, max_width, max_height);
         if size != Some(sent) {
             size = Some(sent);
@@ -8009,18 +8034,31 @@ root.mainloop()
         ending: String,
         dropped: Arc<AtomicBool>,
         stop: Arc<AtomicBool>,
+        /// Whether the script has run out once already.
+        done: bool,
     }
 
     #[cfg(target_os = "linux")]
     impl Pictures for Scripted {
-        fn frame(&mut self, _wait: Duration) -> Result<Found> {
+        /// A picture or an ending at once, as a desktop that drew answers; a
+        /// still desktop once the wait is over, as a capture says it.
+        fn frame(&mut self, wait: Duration) -> Result<Found> {
             match self.answers.next() {
+                Some(Ok(Found::Still)) => {
+                    std::thread::sleep(wait);
+                    Ok(Found::Still)
+                }
                 Some(answer) => answer,
                 // A capture that has said everything it was told to says nothing
-                // has changed, and asks the share to stop: a test of a share that
+                // has changed — once, so a picture still waiting for its slot is
+                // sent — and then asks the share to stop: a test of a share that
                 // runs until it is stopped has no other way to end.
                 None => {
-                    self.stop.store(true, Ordering::Relaxed);
+                    std::thread::sleep(wait);
+                    if self.done {
+                        self.stop.store(true, Ordering::Relaxed);
+                    }
+                    self.done = true;
                     Ok(Found::Still)
                 }
             }
@@ -8106,6 +8144,7 @@ root.mainloop()
                 ending: ending.to_owned(),
                 dropped,
                 stop: stop.clone(),
+                done: false,
             }),
             rung: capture::LinuxRung::X11,
             why: "a test said so".to_owned(),
@@ -8169,6 +8208,84 @@ root.mainloop()
         assert!(matches!(outcome, Ok(After::Ended)));
         assert!(stop.load(Ordering::Relaxed), "the script ran out");
         assert!(dropped.load(Ordering::SeqCst), "the capture is let go");
+    }
+
+    /// A desktop that draws faster than the stream's frame rate, as a busy screen
+    /// on a fast monitor does.
+    #[cfg(target_os = "linux")]
+    struct Eager {
+        until: Instant,
+        pictures: u32,
+        stop: Arc<AtomicBool>,
+    }
+
+    #[cfg(target_os = "linux")]
+    impl Pictures for Eager {
+        fn frame(&mut self, _wait: Duration) -> Result<Found> {
+            if Instant::now() >= self.until {
+                self.stop.store(true, Ordering::Relaxed);
+                return Ok(Found::Still);
+            }
+            // Every other picture at another size, so each one the share sends is
+            // a report of its own; and a moment apart, as frames are.
+            self.pictures += 1;
+            std::thread::sleep(Duration::from_millis(1));
+            Ok(Found::Picture(if self.pictures % 2 == 0 {
+                shot(64, 48)
+            } else {
+                shot(32, 24)
+            }))
+        }
+
+        fn describe(&self) -> String {
+            "a busy desktop".to_owned()
+        }
+
+        fn ending(&self) -> String {
+            String::new()
+        }
+    }
+
+    /// A desktop that draws more often than the stream sends is sent at the
+    /// stream's rate: the pictures that come before their slot are held, and only
+    /// the newest goes out when the slot comes. Sending each as it came encoded a
+    /// 30 fps share at a monitor's refresh rate, which the send queue then dropped.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_busy_desktop_is_sent_at_the_streams_rate() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let mut sent = 0;
+        let mut report = |report: Report| {
+            if let Report::Sharing { .. } = report {
+                sent += 1;
+            }
+        };
+        let opened = Opened {
+            capture: Box::new(Eager {
+                until: Instant::now() + Duration::from_millis(250),
+                pictures: 0,
+                stop: stop.clone(),
+            }),
+            rung: capture::LinuxRung::X11,
+            why: "a test said so".to_owned(),
+        };
+        let mut sink = sink_of(64, 48);
+        sink.fps = 20;
+        let outcome = capture_dmabufs(
+            opened,
+            Source::Screen,
+            sink,
+            (SHARE_WIDTH, SHARE_HEIGHT),
+            &stop,
+            &mut report,
+        );
+        assert!(matches!(outcome, Ok((_, After::Ended))));
+        // 250 ms at 20 frames a second is five slots, and the desktop drew about
+        // two hundred pictures in them.
+        assert!(
+            (3..=7).contains(&sent),
+            "{sent} pictures sent in five slots"
+        );
     }
 
     /// A capture whose share ends — the window was closed, or the person stopped

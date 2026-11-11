@@ -400,10 +400,14 @@ reason of its own to build the `screencast` feature, which the desktop app does.
 
 Each pass of the loop asks the capture for a picture and gives it the wait until
 the stream's next slot, so a desktop that isn't changing sleeps in the capture's
-own timeout instead of spinning beside it; an arrival of `Still` is a pass that
-sends the picture the capture last handed over, and only while the stream wants
-one — a viewer joining, a decoder that lost its place, a codec Discord chose. A
-picture that has just arrived is published for the window when a preview is
+own timeout instead of spinning beside it. A capture answers as soon as the
+desktop draws, which a busy screen does at its refresh rate, so a picture that
+arrives before its slot is kept and the capture asked again: the newest goes out
+when the slot comes, one picture a slot whatever the monitor's rate. An arrival
+of `Still` at the slot sends that picture, or — when none came since the last
+one sent — the picture the capture last handed over, and only while the stream
+wants one: a viewer joining, a decoder that lost its place, a codec Discord
+chose. A picture that has just arrived is published for the window when a preview is
 wanted, into a slot `frames::Writer::claim` answers, with
 `frames::Writer::publish_dmabuf`: the descriptor and its plane go over the
 stream's socket, and the window imports them. `frames::Writer::dmabuf_showable`
