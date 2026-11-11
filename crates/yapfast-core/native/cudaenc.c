@@ -5,9 +5,9 @@
  * Windows has the other door, native/d3d11enc.c: the capture fills a D3D11
  * texture and NVENC reads that texture where it lies. NVENC's Linux input is
  * CUDA memory instead, and this is the twin of that file for it: a session
- * opened on the CUDA context that holds the picture, the picture registered and
- * mapped as `NV_ENC_INPUT_RESOURCE_TYPE_CUDADEVICEPTR`, and one
- * `nvEncEncodePicture` per frame. Nothing here converts, scales or uploads: the
+ * opened on the CUDA context that holds the picture, the picture registered as
+ * `NV_ENC_INPUT_RESOURCE_TYPE_CUDADEVICEPTR`, and per frame one mapping of it
+ * around one `nvEncEncodePicture`. Nothing here converts, scales or uploads: the
  * converter wrote the stream's picture as NV12 into a `cuMemAlloc` buffer, and
  * the pitch it made is the pitch the driver is told.
  *
@@ -344,11 +344,13 @@ struct yapfast_cudaenc {
   CUcontext context;
   void *session;
   NV_ENC_OUTPUT_PTR bitstream;
-  /* The caller's picture, registered and mapped for as long as the session is
-   * open: the converter writes into that one buffer every frame, so a slot table
-   * like native/d3d11enc.c's would hold one entry. A capture that handed back
-   * several surfaces would want that table; this path hands back the same
-   * address until the stream's size changes. */
+  /* The caller's picture, registered for as long as the session is open: the
+   * converter writes into that one buffer every frame, so a slot table like
+   * native/d3d11enc.c's would hold one entry. A capture that handed back several
+   * surfaces would want that table; this path hands back the same address until
+   * the stream's size changes. It is mapped only while a frame is encoded:
+   * NVENC owns a mapped input until it is unmapped, and the converter writes the
+   * next picture into it between frames. */
   NV_ENC_REGISTERED_PTR registered;
   NV_ENC_INPUT_PTR mapped;
   void *nv12;
@@ -687,7 +689,6 @@ static int start_session(struct yapfast_cudaenc *e, char *why, size_t size) {
   const NV_ENCODE_API_FUNCTION_LIST *api = &library.functions;
   NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS open;
   NV_ENC_REGISTER_RESOURCE resource;
-  NV_ENC_MAP_INPUT_RESOURCE map;
   NV_ENC_CREATE_BITSTREAM_BUFFER bitstream;
   NV_ENC_PRESET_CONFIG preset;
   NVENCSTATUS status;
@@ -771,9 +772,9 @@ static int start_session(struct yapfast_cudaenc *e, char *why, size_t size) {
   }
   e->bitstream = bitstream.bitstreamBuffer;
 
-  /* The caller's picture, registered and mapped once: the converter fills that
-   * same buffer every frame, so this is the work native/d3d11enc.c does per
-   * surface of a capture's ring rather than per frame. */
+  /* The caller's picture, registered once: the converter fills that same buffer
+   * every frame, so this is the work native/d3d11enc.c does per surface of a
+   * capture's ring rather than per frame. Each encode maps it for its frame. */
   memset(&resource, 0, sizeof resource);
   resource.version = NV_ENC_REGISTER_RESOURCE_VER;
   resource.resourceType = NV_ENC_INPUT_RESOURCE_TYPE_CUDADEVICEPTR;
@@ -793,10 +794,20 @@ static int start_session(struct yapfast_cudaenc *e, char *why, size_t size) {
     return -1;
   }
   e->registered = resource.registeredResource;
+  return 0;
+}
+
+/* Hands the picture to NVENC for one frame. NVENC owns a mapped input until it
+ * is unmapped, so the picture is mapped only from here to the end of the encode:
+ * the converter writes the next frame into the same buffer, and kept mapped it
+ * would be writing into memory the encoder holds. */
+static int map_picture(struct yapfast_cudaenc *e, char *why, size_t size) {
+  NV_ENC_MAP_INPUT_RESOURCE map;
+  if (e->mapped) return 0;
   memset(&map, 0, sizeof map);
   map.version = NV_ENC_MAP_INPUT_RESOURCE_VER;
   map.registeredResource = e->registered;
-  status = api->nvEncMapInputResource(e->session, &map);
+  NVENCSTATUS status = library.functions.nvEncMapInputResource(e->session, &map);
   if (status != NV_ENC_SUCCESS) {
     fail(e, why, size, "nvEncMapInputResource on the caller's NV12 buffer failed: %s (%d)",
          nvenc_status(status), (int)status);
@@ -804,6 +815,14 @@ static int start_session(struct yapfast_cudaenc *e, char *why, size_t size) {
   }
   e->mapped = map.mappedResource;
   return 0;
+}
+
+/* Gives the picture back once NVENC has read it, which a synchronous encode has
+ * by the time its bitstream is locked. */
+static void unmap_picture(struct yapfast_cudaenc *e) {
+  if (!e->mapped) return;
+  library.functions.nvEncUnmapInputResource(e->session, e->mapped);
+  e->mapped = NULL;
 }
 
 /* Says what opened, in the words a log quotes: the card the picture is on, what
@@ -910,6 +929,11 @@ long yapfast_cudaenc_encode(struct yapfast_cudaenc *e, unsigned long long pts, i
   if (enter(e, why, sizeof why)) return fail(e, error, size, "%s", why);
   /* A unit nobody drained is let go of before the buffer is written again. */
   let_go_of_unit(e);
+  if (map_picture(e, why, sizeof why)) {
+    long answer = fail(e, error, size, "%s", why);
+    leave();
+    return answer;
+  }
 
   memset(&picture, 0, sizeof picture);
   picture.version = NV_ENC_PIC_PARAMS_VER;
@@ -933,12 +957,15 @@ long yapfast_cudaenc_encode(struct yapfast_cudaenc *e, unsigned long long pts, i
    * says the picture isn't out yet, which is the empty answer rather than a lost
    * frame. */
   if (status == NV_ENC_ERR_NEED_MORE_INPUT) {
+    /* The driver kept the picture to read later, so it stays mapped until a
+     * frame comes out. */
     leave();
     return 0;
   }
   if (status != NV_ENC_SUCCESS) {
     long answer = fail(e, error, size, "nvEncEncodePicture on frame %llu failed: %s (%d)",
                        e->frames, nvenc_status(status), (int)status);
+    unmap_picture(e);
     leave();
     return answer;
   }
@@ -951,6 +978,9 @@ long yapfast_cudaenc_encode(struct yapfast_cudaenc *e, unsigned long long pts, i
    * returns once and the packet is whole. */
   locked.doNotWait = 0;
   status = library.functions.nvEncLockBitstream(e->session, &locked);
+  /* Locked or failed, the encode is over and the picture read: the converter
+   * may write the next one. */
+  unmap_picture(e);
   if (status != NV_ENC_SUCCESS) {
     long answer = fail(e, error, size, "nvEncLockBitstream failed: %s (%d)", nvenc_status(status),
                        (int)status);
@@ -1010,11 +1040,18 @@ int yapfast_cudaenc_set_bitrate(struct yapfast_cudaenc *e, unsigned kbps, char *
     put(error, size, "no CUDA encoder");
     return -1;
   }
+  /* The rate the session runs at, put back when the driver refuses the new one:
+   * the settings are what the next change reconfigures from, and they have to
+   * say what the session is doing. */
+  NV_ENC_RC_PARAMS running = e->settings.rcParams;
   e->settings.rcParams.averageBitRate = kbps * 1000;
   e->settings.rcParams.maxBitRate = kbps * 1000;
   e->settings.rcParams.vbvBufferSize = kbps * 500;
   e->settings.rcParams.vbvInitialDelay = e->settings.rcParams.vbvBufferSize;
-  if (enter(e, why, sizeof why)) return (int)fail(e, error, size, "%s", why);
+  if (enter(e, why, sizeof why)) {
+    e->settings.rcParams = running;
+    return (int)fail(e, error, size, "%s", why);
+  }
   memset(&reconfigure, 0, sizeof reconfigure);
   reconfigure.version = NV_ENC_RECONFIGURE_PARAMS_VER;
   reconfigure.reInitEncodeParams = e->init;
@@ -1026,6 +1063,7 @@ int yapfast_cudaenc_set_bitrate(struct yapfast_cudaenc *e, unsigned kbps, char *
   if (status != NV_ENC_SUCCESS) {
     long answer = fail(e, error, size, "nvEncReconfigureEncoder to %u kbit/s failed: %s (%d)",
                        kbps, nvenc_status(status), (int)status);
+    e->settings.rcParams = running;
     leave();
     return (int)answer;
   }
@@ -1068,7 +1106,7 @@ void yapfast_cudaenc_free(struct yapfast_cudaenc *e) {
             cuda.api.cuCtxPushCurrent(e->context) == CUDA_SUCCESS;
   if (e->session) {
     let_go_of_unit(e);
-    if (e->mapped) library.functions.nvEncUnmapInputResource(e->session, e->mapped);
+    unmap_picture(e);
     if (e->registered) library.functions.nvEncUnregisterResource(e->session, e->registered);
     if (e->bitstream) library.functions.nvEncDestroyBitstreamBuffer(e->session, e->bitstream);
     library.functions.nvEncDestroyEncoder(e->session);

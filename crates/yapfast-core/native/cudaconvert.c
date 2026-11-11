@@ -788,9 +788,14 @@ struct yapfast_cudaconvert *yapfast_cudaconvert_new(int drm_fd, unsigned width,
     return NULL;
   }
   /* Nothing is current on the thread that opened this: the work enters the two
-   * contexts per call, and a share that never encodes leaves no binding behind. */
+   * contexts per call, and a share that never encodes leaves no binding behind.
+   * `cuCtxCreate` made the CUDA context current here as well as creating it, so
+   * it is popped too. Left on this thread's stack, it outlived the converter: a
+   * codec switch frees the converter and destroys the context, and this thread
+   * went on with a destroyed context current under every push and pop after. */
   if (c->display != EGL_NO_DISPLAY && c->context != EGL_NO_CONTEXT)
     c->egl.eglMakeCurrent(c->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+  c->cuda.cuCtxPopCurrent(NULL);
   /* The picture the kernels are given, until a frame says otherwise. */
   c->source_width = c->width;
   c->source_height = c->height;

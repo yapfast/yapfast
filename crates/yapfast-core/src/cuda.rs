@@ -763,6 +763,41 @@ mod displays {
             "the converter kept lost its display with the one let go of: {error}"
         );
     }
+
+    /// Opening a converter leaves no CUDA context current on the thread that
+    /// opened it. `cuCtxCreate` makes the context it creates current, and one left
+    /// there outlived its converter: a codec switch destroys the context, and the
+    /// thread went on with a destroyed context under every push and pop after.
+    #[test]
+    fn opening_a_converter_leaves_no_cuda_context_current() {
+        let convert = match Convert::open(64, 64) {
+            Ok(convert) => convert,
+            Err(error) => {
+                eprintln!("no NVIDIA card path here: {error:#}");
+                return;
+            }
+        };
+        // SAFETY: the converter has libcuda loaded, so RTLD_NOLOAD finds it, and
+        // cuCtxGetCurrent's signature is the driver API's own.
+        let current = unsafe {
+            let library =
+                libc::dlopen(c"libcuda.so.1".as_ptr(), libc::RTLD_NOW | libc::RTLD_NOLOAD);
+            assert!(!library.is_null(), "the converter loaded libcuda");
+            let symbol = libc::dlsym(library, c"cuCtxGetCurrent".as_ptr());
+            assert!(!symbol.is_null(), "libcuda has cuCtxGetCurrent");
+            let get: unsafe extern "C" fn(*mut *mut std::ffi::c_void) -> i32 =
+                std::mem::transmute(symbol);
+            let mut context = std::ptr::null_mut();
+            assert_eq!(get(&mut context), 0, "cuCtxGetCurrent answers");
+            libc::dlclose(library);
+            context
+        };
+        drop(convert);
+        assert!(
+            current.is_null(),
+            "the converter's context is still current on the thread that opened it"
+        );
+    }
 }
 
 /// The card's path end to end, on the picture a compositor on NVIDIA's driver
