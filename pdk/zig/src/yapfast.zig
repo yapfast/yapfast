@@ -288,6 +288,17 @@ fn yf_event() callconv(.c) void {
             parsed.deinit();
         }
     }
+    if (comptime hasIt("topic")) {
+        if (parse(std.json.Value, batch)) |parsed| {
+            if (field(parsed.value, "topics")) |topics| {
+                switch (topics) {
+                    .array => |items| for (items.items) |item| root.topic(item),
+                    else => {},
+                }
+            }
+            parsed.deinit();
+        }
+    }
 }
 
 fn field(value: std.json.Value, key: []const u8) ?std.json.Value {

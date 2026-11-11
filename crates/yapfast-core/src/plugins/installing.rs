@@ -171,6 +171,25 @@ fn dependencies(manifest: Option<&PluginManifest>) -> Vec<Dependency> {
 /// with no manifest anywhere is refused rather than installed as something
 /// nothing can call.
 pub fn from_wasm(path: &Path) -> Result<Fetched, String> {
+    read_plugin(path)
+}
+
+/// Reads a plugin out of a folder: its `yapfast-plugin.json`, and the module
+/// that manifest names.
+///
+/// A folder is what a plugin's author has open, so this is also what the
+/// development loop reads again when it reloads one. Its `source` is the folder,
+/// which is what keeps two folders that declare one id from replacing each
+/// other: the store refuses the second.
+pub fn from_folder(folder: &Path) -> Result<Fetched, String> {
+    let manifest = folder.join(crate::plugins::MANIFEST);
+    if !manifest.is_file() {
+        return Err(missing_manifest(folder));
+    }
+    read_plugin(&manifest)
+}
+
+fn read_plugin(path: &Path) -> Result<Fetched, String> {
     let manifest_path = manifest_for(path).ok_or_else(|| missing_manifest(path))?;
     let folder = manifest_path.parent().unwrap_or(Path::new("."));
     let text = std::fs::read_to_string(&manifest_path)

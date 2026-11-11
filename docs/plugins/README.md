@@ -91,9 +91,19 @@ plugin that has never been activated still appears:
 Once it is running it can subscribe to events and answer with data to draw: text
 and controls beside a message, or inside a slot the interface offers. The
 interface is compiled Slint, so a plugin adds no widget; it sends a tree and
-precompiled components draw it. Calling another plugin by name, and publishing to
-whoever subscribed, are named by the API from its first version and answer
-`unsupported` until the runtime has them.
+precompiled components draw it.
+
+A plugin can also talk to another: `plugin.call` runs one of the other's exports
+and answers with what it returned, and `plugin.publish` hands bytes to whoever
+subscribed to a topic with `plugin.subscribe`. A call follows the dependency
+edges its manifest declares and no others, so two plugins can't call each other
+in a loop and neither waits on something that waits on it; a call that would
+come back around is refused with the chain that made the loop. A call wakes a
+callee that was evicted, and an update of a plugin never leaves a plugin that
+needs it running against nothing: the dependents are stopped in reverse
+dependency order, the version is swapped with the plugin's handed-on state, and
+they are started again. A call made during that moment waits rather than being
+told the plugin isn't installed.
 
 What it can't do is become Yapfast. A guest gets no Discord or Matrix token, no
 raw authenticated request, no direct socket and no filesystem; network access is
@@ -115,6 +125,11 @@ Everything is in the data directory (the one `--data-dir` names), under
   data/<id>/              the plugin's own storage.json and settings.json
   cache/                  wasmtime's compile cache, safe to delete
 ```
+
+A plugin loaded from a folder is installed the same way: its manifest and module
+are read into `store/`, and it is filed under the folder that holds them, so it
+can't be confused with a plugin from a repository. Its saves reload it; see
+[the helper](host.md#development-reload).
 
 `store/` is content-addressed because a git object name is a SHA-1 of the commit,
 not of the bytes that run: the lock file records the commit it was installed
@@ -154,9 +169,9 @@ Two things are deliberately not there yet:
 
 Beyond those, the API is a first slice rather than the surface a plugin author
 would want: of the method groups a manifest can name, `storage`, `settings`,
-`timers` and `log` are answered, and `messages`, `people`, `rooms`, `account`,
-`composer`, `plugin`, `notify`, `clipboard`, `open` and `ui` answer
-`unsupported`. `message.pre_send` and `message.pre_edit` exist and fail open;
+`timers` and `log` are answered, and of `plugin`, the `call`, `publish` and
+`subscribe` calls are; `messages`, `people`, `rooms`, `account`, `composer`,
+`notify`, `clipboard`, `open` and `ui` answer `unsupported`. `message.pre_send` and `message.pre_edit` exist and fail open;
 `typing.pre_send`, `attachment.pre_upload` and `activity.pre_publish` don't. The
 OS sandbox under the helper, the marketplace, and update checks are not started.
 `docs/plugins/manifest.md` lists the fields; a manifest may declare `menus`,

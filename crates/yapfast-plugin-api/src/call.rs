@@ -13,6 +13,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::ids::PluginId;
+
 /// The method names a guest may call.
 pub mod method {
     // Those with typed payloads in this module.
@@ -196,6 +198,51 @@ pub struct TimerRequest {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimerCancel {
     pub tag: String,
+}
+
+/// `plugin.call`: a call into another plugin's export.
+///
+/// Only along a declared dependency edge. That is what makes a loop of calls
+/// impossible, and so what lets a call wait for its answer without any risk of
+/// two plugins each waiting on the other: the caller declares the callee, the
+/// callee can't declare the caller, and the parent refuses a call that comes
+/// back around with the chain that would have made the loop.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginCall {
+    /// The plugin called, which the caller's manifest must declare.
+    pub plugin: PluginId,
+    /// The export on the callee's module to call.
+    pub function: String,
+    /// What the export is given, base64, because a payload isn't always text.
+    #[serde(default)]
+    pub args_base64: String,
+}
+
+/// `plugin.call`'s answer: what the export returned, base64, or nothing when it
+/// returned nothing.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginAnswer {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer_base64: Option<String>,
+}
+
+/// `plugin.publish`: bytes for whoever subscribed to a topic, delivered as they
+/// are made and never waited on.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PluginPublish {
+    pub topic: String,
+    #[serde(default)]
+    pub payload: Value,
+}
+
+/// `plugin.subscribe`: start or stop hearing a topic, as a topic event in the
+/// next `yf_event` batch.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginSubscribe {
+    pub topic: String,
+    /// `true` leaves the topic instead of joining it.
+    #[serde(default)]
+    pub cancel: bool,
 }
 
 /// `settings.get`: one of the plugin's settings, as the person set it.

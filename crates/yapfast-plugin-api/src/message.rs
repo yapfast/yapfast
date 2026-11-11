@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::call::{CommandInvocation, CommandOutcome, HostCall, HostReturn};
-use crate::event::EventEnvelope;
+use crate::event::{EventEnvelope, TopicEvent};
 use crate::hook::{HookOutcome, HookRequest};
 use crate::ids::PluginId;
 
@@ -88,6 +88,11 @@ pub struct Activation {
     pub wasm: PathBuf,
     pub memory_pages: u32,
     pub wasi: bool,
+    /// What the plugin's last `yf_deactivate` handed on, when it is being
+    /// replaced rather than loaded for the first time: the state crosses the
+    /// swap, so an update doesn't cost the plugin's memory of where it was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
 }
 
 /// The parent's request to the helper.
@@ -127,6 +132,10 @@ pub enum ToHelper {
     Event {
         plugin: PluginId,
         events: Vec<EventEnvelope>,
+        /// What other plugins published to this one's topics, in the same call:
+        /// a subscriber handles both in one `yf_event`.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        topics: Vec<TopicEvent>,
     },
     /// One hook, for the whole chain at once: the helper runs it as a single
     /// exchange, in this order, rather than one round trip per plugin.
@@ -138,6 +147,20 @@ pub enum ToHelper {
     Command {
         plugin: PluginId,
         command: CommandInvocation,
+    },
+    /// One export of one plugin, called on behalf of another: `plugin.call`.
+    ///
+    /// It is a request of its own rather than a guest's call answered by the
+    /// parent, because running it is the helper's to do: the callee's instance
+    /// lives here, and the answer has to be its export's.
+    Invoke {
+        plugin: PluginId,
+        /// The export on the callee's module, which the helper calls with the
+        /// bytes and reads the answer from.
+        function: String,
+        /// What it is given, base64. A call carries bytes, not JSON, so a
+        /// plugin can pass whatever its own pair of plugins agreed on.
+        args_base64: String,
     },
     /// The answer to a guest's host call.
     Return {
@@ -188,6 +211,14 @@ pub enum FromHelper {
     CommandDone {
         plugin: PluginId,
         outcome: CommandOutcome,
+    },
+    /// An export's answer to [`ToHelper::Invoke`]: its bytes, base64, or the
+    /// fault that stopped it, which the parent reports to the caller.
+    Invoked {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        answer_base64: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fault: Option<Fault>,
     },
     /// An event batch finished; nothing to report.
     EventDone { plugin: PluginId },

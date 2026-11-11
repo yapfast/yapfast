@@ -14,14 +14,14 @@
 //! worked out when the enabled set changes rather than while a message waits to
 //! be sent.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use yapfast_plugin_api::capability::{Capability, Permissions};
 use yapfast_plugin_api::event::{EventEnvelope, EventKind, SubscriptionFilter};
 use yapfast_plugin_api::graph::{self, GraphNode};
 use yapfast_plugin_api::hook::HookKind;
 use yapfast_plugin_api::message::{LogRecord, PluginStatus};
-use yapfast_plugin_api::{PluginId, PluginManifest};
+use yapfast_plugin_api::{PluginId, PluginManifest, limits};
 
 use crate::plugins::store::{Module, Store};
 
@@ -97,6 +97,9 @@ pub struct Entry {
     /// check out. An entry without one contributes no events and no hooks: there
     /// is nothing to hand them to.
     pub module: Option<Module>,
+    /// The topics it subscribed to from its own code, by name. Empty for a
+    /// plugin that only listens to events, which is most of them.
+    pub topics: BTreeSet<String>,
     /// The recent lines it logged, oldest first.
     pub log: VecDeque<LogRecord>,
 }
@@ -194,6 +197,7 @@ impl Registry {
                     status,
                     module,
                     manifest,
+                    topics: BTreeSet::new(),
                     log: VecDeque::new(),
                 },
             );
@@ -207,25 +211,32 @@ impl Registry {
     /// Enabling brings in everything its manifest requires and refuses the whole
     /// thing when one of those is missing or the wrong version: half a plugin's
     /// world running is worse than a sentence saying what is missing.
+    ///
+    /// Disabling stops the plugins that need it as well, outermost first, and
+    /// answers with everything that changed: a plugin left enabled over a
+    /// dependency that is off would be one running against nothing the moment it
+    /// asked it anything.
     pub fn set_enabled(
         &mut self,
         plugin: &PluginId,
         on: bool,
         store: &Store,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Vec<PluginId>> {
         if !self.entries.contains_key(plugin) {
             anyhow::bail!("{plugin} isn't installed");
         }
-        let turning_on: Vec<PluginId> = if on {
+        let turning: Vec<PluginId> = if on {
             let nodes: Vec<GraphNode> = self.entries.values().map(node).collect();
             graph::closure(plugin, &nodes).map_err(|error| anyhow::anyhow!("{error}"))?
         } else {
-            vec![plugin.clone()]
+            let mut off = self.dependents(plugin);
+            off.push(plugin.clone());
+            off
         };
-        for id in &turning_on {
+        for id in &turning {
             store.set_enabled(id, on)?;
         }
-        for id in &turning_on {
+        for id in &turning {
             if let Some(entry) = self.entries.get_mut(id) {
                 entry.enabled = on;
                 entry.status = if !on {
@@ -240,7 +251,129 @@ impl Registry {
             }
         }
         self.recompute();
-        Ok(())
+        Ok(turning)
+    }
+
+    /// Records a plugin's subscription to a topic, or its leaving one.
+    ///
+    /// A topic is the publishing plugins' own name, so nothing checks it against
+    /// a list: what is checked is the shape `plugin.publish` and
+    /// `plugin.subscribe` both take, and how many topics one plugin may hold.
+    pub fn subscribe(
+        &mut self,
+        plugin: &PluginId,
+        topic: &str,
+        on: bool,
+    ) -> Result<bool, String> {
+        if topic.is_empty() || topic.len() > limits::MAX_TOPIC_NAME_BYTES {
+            return Err(format!(
+                "a topic's name is 1 to {} bytes",
+                limits::MAX_TOPIC_NAME_BYTES
+            ));
+        }
+        let Some(entry) = self.entries.get_mut(plugin) else {
+            return Err(format!("{plugin} isn't installed"));
+        };
+        if on {
+            if entry.topics.len() >= limits::MAX_TOPICS && !entry.topics.contains(topic) {
+                return Err(format!(
+                    "{plugin} already subscribes to {} topics",
+                    limits::MAX_TOPICS
+                ));
+            }
+            entry.topics.insert(topic.to_owned());
+        } else {
+            entry.topics.remove(topic);
+        }
+        Ok(entry.topics.contains(topic))
+    }
+
+    /// The plugins that want a topic, in activation order.
+    ///
+    /// The publisher is left out of its own topic: a plugin that publishes what
+    /// it also listens to would answer itself, and a loop of those has nothing
+    /// to stop it.
+    pub fn subscribers_to(&self, topic: &str, from: &PluginId) -> Vec<PluginId> {
+        self.order
+            .iter()
+            .filter(|id| **id != *from)
+            .filter(|id| {
+                self.entries
+                    .get(*id)
+                    .is_some_and(|entry| entry.runs() && entry.topics.contains(topic))
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Whether a plugin has a module and is on, which is what a call needs of
+    /// its target.
+    pub fn callable(&self, plugin: &PluginId) -> bool {
+        self.entries.get(plugin).is_some_and(Entry::runs)
+    }
+
+    /// Whether `caller` declares `callee`, which is the only edge a call may
+    /// follow.
+    ///
+    /// A required dependency and an optional one both count: the manifest says
+    /// the two plugins belong together in an order, which is what makes a call
+    /// between them able to wait without either deadlocking.
+    pub fn declares(&self, caller: &PluginId, callee: &PluginId) -> bool {
+        self.entries.get(caller).is_some_and(|entry| {
+            entry.manifest.dependencies.contains_key(callee)
+                || entry.manifest.optional_dependencies.contains_key(callee)
+        })
+    }
+
+    /// The plugins that need `plugin`, directly or through others, outermost
+    /// first.
+    ///
+    /// Only enabled plugins are in it, because only they would run: the answer
+    /// is the order to stop them in, and the reverse of it is the order to start
+    /// them again once what they need is back.
+    pub fn dependents(&self, plugin: &PluginId) -> Vec<PluginId> {
+        let nodes: Vec<GraphNode> = self
+            .entries
+            .values()
+            .filter(|entry| entry.enabled)
+            .map(node)
+            .collect();
+        let Ok(layers) = graph::layers(&nodes) else {
+            // A graph that can't be laid out is one `set_enabled` refuses; the
+            // safest answer for a swap is that nothing may be holding on.
+            return Vec::new();
+        };
+        // Each plugin's place in the order, so dependents can be ranked by how
+        // far from the one being swapped they are.
+        let mut rank: BTreeMap<&PluginId, usize> = BTreeMap::new();
+        for (index, layer) in layers.iter().enumerate() {
+            for id in layer {
+                rank.insert(id, index);
+            }
+        }
+        let mut needed_by: BTreeMap<&PluginId, Vec<&PluginId>> = BTreeMap::new();
+        for node in &nodes {
+            let edges = node.dependencies.keys().chain(
+                node.optional_dependencies
+                    .keys()
+                    .filter(|id| nodes.iter().any(|other| other.id == **id)),
+            );
+            for needs in edges {
+                needed_by.entry(needs).or_default().push(&node.id);
+            }
+        }
+        let mut found: BTreeSet<&PluginId> = BTreeSet::new();
+        let mut queue = VecDeque::from([plugin]);
+        while let Some(id) = queue.pop_front() {
+            for dependent in needed_by.get(id).into_iter().flatten() {
+                if found.insert(dependent) {
+                    queue.push_back(dependent);
+                }
+            }
+        }
+        let mut dependents: Vec<PluginId> = found.into_iter().cloned().collect();
+        dependents.sort_by_key(|id| (std::cmp::Reverse(rank.get(id).copied().unwrap_or(0)), id.clone()));
+        dependents
     }
 
     /// What the hot paths need to know about every plugin at once.
@@ -441,6 +574,7 @@ mod tests {
             status: PluginStatus::Enabled,
             module: Some(Module::stub()),
             manifest,
+            topics: BTreeSet::new(),
             log: VecDeque::new(),
         }
     }
@@ -609,6 +743,81 @@ mod tests {
         assert_eq!(
             entry.log.front().map(|line| line.message.as_str()),
             Some("5")
+        );
+    }
+
+    /// A registry whose plugins are ordered by their dependencies, as a real
+    /// one is after `load`.
+    fn ordered(manifests: &[&str]) -> Registry {
+        registry(manifests)
+    }
+
+    #[test]
+    fn dependents_come_outermost_first_and_the_reverse_starts_them() {
+        let registry = ordered(&[
+            r#"{"api":1,"id":"b.base","name":"B","version":"1.0.0","wasm":"plugin.wasm"}"#,
+            r#"{"api":1,"id":"c.mid","name":"C","version":"1.0.0","wasm":"plugin.wasm",
+                "dependencies":{"b.base":"^1"}}"#,
+            r#"{"api":1,"id":"z.top","name":"Z","version":"1.0.0","wasm":"plugin.wasm",
+                "dependencies":{"c.mid":"^1"}}"#,
+            r#"{"api":1,"id":"d.other","name":"D","version":"1.0.0","wasm":"plugin.wasm"}"#,
+        ]);
+        assert_eq!(
+            registry.dependents(&id("b.base")),
+            vec![id("z.top"), id("c.mid")],
+            "the one furthest from it is stopped first, and started last"
+        );
+        assert!(registry.dependents(&id("d.other")).is_empty());
+    }
+
+    #[test]
+    fn a_plugin_declares_its_dependencies_and_only_those() {
+        let registry = ordered(&[
+            r#"{"api":1,"id":"b.base","name":"B","version":"1.0.0","wasm":"plugin.wasm"}"#,
+            r#"{"api":1,"id":"c.mid","name":"C","version":"1.0.0","wasm":"plugin.wasm",
+                "optional_dependencies":{"b.base":"^1"}}"#,
+        ]);
+        assert!(registry.declares(&id("c.mid"), &id("b.base")));
+        assert!(registry.callable(&id("b.base")));
+        assert!(
+            !registry.declares(&id("b.base"), &id("c.mid")),
+            "an edge is declared by the plugin that calls along it"
+        );
+    }
+
+    #[test]
+    fn a_topic_reaches_whoever_asked_for_it_and_not_the_publisher() {
+        let mut registry = ordered(&[
+            r#"{"api":1,"id":"b.base","name":"B","version":"1.0.0","wasm":"plugin.wasm"}"#,
+            r#"{"api":1,"id":"c.mid","name":"C","version":"1.0.0","wasm":"plugin.wasm"}"#,
+        ]);
+        registry
+            .subscribe(&id("b.base"), "notes", true)
+            .expect("a topic");
+        assert_eq!(
+            registry.subscribers_to("notes", &id("c.mid")),
+            vec![id("b.base")]
+        );
+        assert!(
+            registry.subscribers_to("notes", &id("b.base")).is_empty(),
+            "a plugin doesn't hear its own topic"
+        );
+        registry
+            .subscribe(&id("b.base"), "notes", false)
+            .expect("a topic");
+        assert!(registry.subscribers_to("notes", &id("c.mid")).is_empty());
+    }
+
+    #[test]
+    fn a_topic_costs_a_name_of_its_own_shape() {
+        let mut registry = ordered(&[
+            r#"{"api":1,"id":"b.base","name":"B","version":"1.0.0","wasm":"plugin.wasm"}"#,
+        ]);
+        assert!(registry.subscribe(&id("b.base"), "", true).is_err());
+        assert!(
+            registry
+                .subscribe(&id("b.base"), &"x".repeat(limits::MAX_TOPIC_NAME_BYTES + 1), true)
+                .is_err()
         );
     }
 }

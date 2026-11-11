@@ -96,6 +96,8 @@ impl Application {
             // Taking something back from a plugin's page takes effect on its
             // next request, not on the next start: the gate asks every time.
             Request::Revoke { plugin, permission } => self.plugins_revoke(&plugin, &permission),
+            // The development loop: a folder that reloads as its files change.
+            Request::LoadFolder(path) => self.plugins_load_folder(&path),
             // The marketplace, a plugin's own settings form and the memory
             // budgets are the milestones after this one: the page asks, and
             // nothing answers yet.
@@ -244,6 +246,32 @@ impl Application {
             }
             Err(error) => {
                 self.state.notice = Some(format!("Couldn't install {name}: {error:#}"));
+                Vec::new()
+            }
+        }
+    }
+
+    /// Installs a plugin from a folder and watches it, so a save in that folder
+    /// reloads it: the development loop.
+    fn plugins_load_folder(&mut self, folder: &std::path::Path) -> Vec<AppEffect> {
+        let Some(plugins) = self.state.plugins.as_mut() else {
+            self.state.notice =
+                Some("The plugin system isn't running, so no folder can be loaded.".to_owned());
+            return Vec::new();
+        };
+        match plugins.load_folder(folder) {
+            Ok(plugin) => {
+                self.state.notice = Some(format!(
+                    "{plugin} is loaded from {} and reloads when it changes.",
+                    folder.display()
+                ));
+                vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)]
+            }
+            Err(error) => {
+                self.state.notice = Some(format!(
+                    "Couldn't load {}: {error:#}",
+                    folder.display()
+                ));
                 Vec::new()
             }
         }

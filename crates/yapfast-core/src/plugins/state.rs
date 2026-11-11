@@ -235,6 +235,12 @@ impl PluginState {
         self.bridge.listed()
     }
 
+    /// Installs a plugin from a folder and watches it, which is the development
+    /// loop: a save in that folder reloads it.
+    pub fn load_folder(&mut self, folder: &Path) -> anyhow::Result<PluginId> {
+        self.bridge.load_folder(folder)
+    }
+
     /// Reads a plugin out of its repository, for the page: the answer comes back
     /// as [`Notice::Fetched`], so the window never waits.
     pub fn fetch(&mut self, url: String) {

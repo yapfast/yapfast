@@ -25,8 +25,8 @@ use std::time::{Duration, Instant};
 use tracing::{debug, warn};
 
 use yapfast_plugin_api::PluginId;
-use yapfast_plugin_api::call::{CommandInvocation, CommandOutcome, HostReturn};
-use yapfast_plugin_api::event::EventEnvelope;
+use yapfast_plugin_api::call::{CommandInvocation, CommandOutcome, HostReturn, base64};
+use yapfast_plugin_api::event::{EventEnvelope, TopicEvent};
 use yapfast_plugin_api::hook::{HookOutcome, HookRequest, Lane};
 use yapfast_plugin_api::limits;
 use yapfast_plugin_api::message::{Fault, FaultKind, FromHelper, PluginStatus};
@@ -42,6 +42,12 @@ const EVENT_BUDGET: Duration = Duration::from_millis(250);
 /// How long a command may run. A command was typed by a person who is waiting
 /// for it, and the parent waits the same two seconds for the answer.
 const COMMAND_BUDGET: Duration = Duration::from_secs(2);
+
+/// How long one plugin's call into another may run. The caller is waiting for
+/// the answer as certainly as a command's typist is, so it gets the same
+/// budget; the parent holds the same one and answers the caller rather than
+/// leaving it waiting for an instance that was discarded.
+const INVOKE_BUDGET: Duration = Duration::from_secs(2);
 
 /// How long `yf_deactivate` may take. Its answer is a convenience handed to the
 /// next activation, so it gets long enough to write that and no longer: an
@@ -132,6 +138,9 @@ pub enum Message {
         id: u64,
         plugin: PluginId,
         events: Vec<EventEnvelope>,
+        /// What other plugins published to this one's topics. It travels with
+        /// the events because a subscriber handles both in one call.
+        topics: Vec<TopicEvent>,
     },
     /// One hook, for the whole chain at once; answered with
     /// [`FromHelper::HookDone`].
@@ -145,6 +154,14 @@ pub enum Message {
         id: u64,
         plugin: PluginId,
         command: CommandInvocation,
+    },
+    /// One export of one plugin, called for another: `plugin.call`, answered
+    /// with [`FromHelper::Invoked`].
+    Invoke {
+        id: u64,
+        plugin: PluginId,
+        function: String,
+        args_base64: String,
     },
     /// The parent's answer to a guest's host call.
     Return {
@@ -398,9 +415,14 @@ impl<B: Backend + 'static> Shared<B> {
                 let slot = state.slot_for(&plugin);
                 state.push(slot, Lane::Background, 0, Job::Kick);
             }
-            Message::Event { id, plugin, events } => {
+            Message::Event {
+                id,
+                plugin,
+                events,
+                topics,
+            } => {
                 let slot = state.slot_for(&plugin);
-                state.push(slot, Lane::Background, id, Job::Event(events));
+                state.push(slot, Lane::Background, id, Job::Event(events, topics));
             }
             Message::Hook { id, chain, request } => {
                 // The parent orders a chain by dependencies and then by id; the
@@ -429,6 +451,23 @@ impl<B: Backend + 'static> Shared<B> {
             } => {
                 let slot = state.slot_for(&plugin);
                 state.push(slot, Lane::Interactive, id, Job::Command(command));
+            }
+            Message::Invoke {
+                id,
+                plugin,
+                function,
+                args_base64,
+            } => {
+                let slot = state.slot_for(&plugin);
+                state.push(
+                    slot,
+                    Lane::Interactive,
+                    id,
+                    Job::Invoke {
+                        function,
+                        args_base64,
+                    },
+                );
             }
             Message::Return {
                 plugin,
@@ -475,9 +514,13 @@ impl<B: Backend + 'static> Shared<B> {
             Job::Activate => self.activate(task.owner(), task.id),
             Job::Deactivate => self.deactivate(task.owner(), task.id),
             Job::Kick => self.kick(task.owner()),
-            Job::Event(events) => self.event(task, events),
+            Job::Event(events, topics) => self.event(task, events, topics),
             Job::Hook(request) => self.hook(task, request),
             Job::Command(command) => self.command(task, command),
+            Job::Invoke {
+                function,
+                args_base64,
+            } => self.invoke(task, function, args_base64),
             Job::Return { call, answer } => self.answer(task.owner(), *call, answer),
         }
     }
@@ -590,7 +633,9 @@ impl<B: Backend + 'static> Shared<B> {
         }
         let plugin = self.id(slot);
         let (result, late) =
-            self.call(&[slot], EVENT_BUDGET, |backend| backend.event(&plugin, &[]));
+            self.call(&[slot], EVENT_BUDGET, |backend| {
+                backend.event(&plugin, &[], &[])
+            });
         if late {
             self.discard(slot, deadline_fault("a timer tick"), None);
             return;
@@ -601,7 +646,7 @@ impl<B: Backend + 'static> Shared<B> {
     }
 
     /// Hands one batch of events to a guest.
-    fn event(&self, task: &Task, events: &[EventEnvelope]) {
+    fn event(&self, task: &Task, events: &[EventEnvelope], topics: &[TopicEvent]) {
         let slot = task.owner();
         if self.ensure_active(slot).is_none() {
             let _ = self.reply(
@@ -614,7 +659,7 @@ impl<B: Backend + 'static> Shared<B> {
         }
         let plugin = self.id(slot);
         let (result, late) = self.call(&[slot], EVENT_BUDGET, |backend| {
-            backend.event(&plugin, events)
+            backend.event(&plugin, events, topics)
         });
         let _ = self.reply(
             task.id,
@@ -719,6 +764,53 @@ impl<B: Backend + 'static> Shared<B> {
             Ok(_) if late => self.discard(slot, deadline_fault("a command"), None),
             Ok(_) => {}
             Err(fault) => self.discard(slot, fault, None),
+        }
+    }
+
+    /// Calls one export of one plugin for another: what `plugin.call` asked the
+    /// parent for, run where the callee's instance is.
+    fn invoke(&self, task: &Task, function: &str, args_base64: &str) {
+        let slot = task.owner();
+        if self.ensure_active(slot).is_none() {
+            let _ = self.reply(
+                task.id,
+                &FromHelper::Invoked {
+                    answer_base64: None,
+                    fault: Some(self.refusal(slot)),
+                },
+            );
+            return;
+        }
+        let Some(args) = base64::decode(args_base64) else {
+            let _ = self.reply(
+                task.id,
+                &FromHelper::Invoked {
+                    answer_base64: None,
+                    fault: Some(Fault {
+                        kind: FaultKind::BadAnswer,
+                        reason: format!("the arguments of `{function}` weren't base64"),
+                    }),
+                },
+            );
+            return;
+        };
+        let plugin = self.id(slot);
+        let (result, late) = self.call(&[slot], INVOKE_BUDGET, |backend| {
+            backend.invoke(&plugin, function, &args)
+        });
+        let answer = match result {
+            Ok(bytes) => (bytes.map(|bytes| base64::encode(&bytes)), None),
+            Err(fault) => (None, Some(fault)),
+        };
+        let _ = self.reply(
+            task.id,
+            &FromHelper::Invoked {
+                answer_base64: answer.0,
+                fault: answer.1,
+            },
+        );
+        if late {
+            self.discard(slot, deadline_fault("a call from another plugin"), None);
         }
     }
 
@@ -947,8 +1039,20 @@ impl<B: Backend + 'static> Shared<B> {
                     },
                 );
             }
-            Job::Event(_) => {
+            Job::Event(..) => {
                 let _ = self.reply(task.id, &FromHelper::EventDone { plugin });
+            }
+            Job::Invoke { function, .. } => {
+                let _ = self.reply(
+                    task.id,
+                    &FromHelper::Invoked {
+                        answer_base64: None,
+                        fault: Some(Fault {
+                            kind: FaultKind::Trap,
+                            reason: format!("`{function}` wasn't called: {suspended}"),
+                        }),
+                    },
+                );
             }
             Job::Command(_) => {
                 let _ = self.reply(
@@ -1206,9 +1310,13 @@ enum Job {
     Activate,
     Deactivate,
     Kick,
-    Event(Vec<EventEnvelope>),
+    Event(Vec<EventEnvelope>, Vec<TopicEvent>),
     Hook(HookRequest),
     Command(CommandInvocation),
+    Invoke {
+        function: String,
+        args_base64: String,
+    },
     Return { call: u64, answer: HostReturn },
 }
 

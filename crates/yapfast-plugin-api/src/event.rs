@@ -138,6 +138,44 @@ impl EventEnvelope {
     }
 }
 
+/// One `plugin.publish`, as a plugin that subscribed to its topic receives it.
+///
+/// A topic event travels in the same `yf_event` batch as events, under
+/// `topics`, but it is not one of [`EventKind`]: a plugin subscribes to a
+/// topic by name from its own code, so the set of topics is the plugins' own
+/// and not the ABI's.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TopicEvent {
+    /// The topic the publisher named.
+    pub topic: String,
+    /// The plugin that published it.
+    pub from: crate::ids::PluginId,
+    /// Milliseconds since the Unix epoch.
+    pub at: u64,
+    /// The publisher's own JSON, cut and flagged as an event's payload is.
+    pub payload: serde_json::Value,
+}
+
+impl TopicEvent {
+    /// The topic event with a payload over [`limits::MAX_PAYLOAD_BYTES`] cut and
+    /// flagged, so a subscriber still sees that the message was long.
+    pub fn truncated(mut self) -> Self {
+        let text = self.payload.to_string();
+        if text.len() > limits::MAX_PAYLOAD_BYTES {
+            let mut cut = limits::MAX_PAYLOAD_BYTES;
+            while cut > 0 && !text.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            self.payload = serde_json::json!({
+                "truncated": true,
+                "bytes": text.len(),
+                "text": &text[..cut],
+            });
+        }
+        self
+    }
+}
+
 /// What a subscription lets through, applied in the parent before the helper
 /// is woken.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

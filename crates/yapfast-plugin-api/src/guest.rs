@@ -12,7 +12,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::call::HostReturn;
-use crate::event::EventEnvelope;
+use crate::event::{EventEnvelope, TopicEvent};
 use crate::ids::PluginId;
 
 /// What `yf_activate` is given.
@@ -41,13 +41,18 @@ pub struct DeactivatePayload {
 ///
 /// Events are batched, so a burst of typing is one call. Results of host calls
 /// the guest made that were answered later travel in the same call, keyed by
-/// the id `yf_call` answered with `pending`.
+/// the id `yf_call` answered with `pending`. Topics the plugin subscribed to
+/// arrive here too, under `topics`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EventBatch {
     #[serde(default)]
     pub events: Vec<EventEnvelope>,
     #[serde(default)]
     pub results: Vec<CallResult>,
+    /// What other plugins published to topics this one subscribed to, in the
+    /// order they were published.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub topics: Vec<TopicEvent>,
 }
 
 /// The answer to one host call the guest left pending.
@@ -64,12 +69,13 @@ impl EventBatch {
         EventBatch {
             events: vec![event],
             results: Vec::new(),
+            topics: Vec::new(),
         }
     }
 
     /// Whether there is anything to call the guest for.
     pub fn is_empty(&self) -> bool {
-        self.events.is_empty() && self.results.is_empty()
+        self.events.is_empty() && self.results.is_empty() && self.topics.is_empty()
     }
 }
 
@@ -109,6 +115,7 @@ mod tests {
                 call: 7,
                 answer: HostReturn::Unsupported,
             }],
+            topics: Vec::new(),
         };
         let text = serde_json::to_string(&batch).unwrap();
         assert_eq!(serde_json::from_str::<EventBatch>(&text).unwrap(), batch);

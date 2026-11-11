@@ -33,6 +33,18 @@ pub const MAX_STORAGE_BYTES: u64 = 16 << 20;
 pub const MAX_TIMERS: usize = 16;
 pub const MIN_TIMER_INTERVAL_MS: u64 = 1_000;
 
+/// Topics one plugin may subscribe to, and how long a topic's name may be.
+///
+/// A topic is the publishing plugins' own namespace, so the cap is what keeps
+/// a plugin from filling the parent's registry with names nobody publishes to.
+pub const MAX_TOPICS: usize = 32;
+pub const MAX_TOPIC_NAME_BYTES: usize = 128;
+
+/// The most one `plugin.call` carries in either direction, base64 aside: a call
+/// is a message between two plugins, and a megabyte of it is a payload that
+/// belongs in storage, not in one frame each way.
+pub const MAX_CALL_BYTES: usize = 256 << 10;
+
 /// State handed from `yf_deactivate` to the next `yf_activate`.
 pub const MAX_HANDOFF_BYTES: usize = 256 << 10;
 

@@ -225,3 +225,51 @@ icon, all from [`limits`](../../crates/yapfast-plugin-api/src/limits.rs). A
 symbolic link, a submodule, a path that climbs out of the plugin's folder and a
 blob that is a Git LFS pointer are refused by name: LFS keeps the bytes on
 another server, so the message says to check the file in instead.
+
+## Updating a plugin another one needs
+
+An update, a roll back and a development reload all happen with the helper
+running, and none of them leaves a plugin that depends on the one being replaced
+running against nothing. `Bridge::refresh` works out the dependents from the
+registry that is running now, reads the store again, and sends one `Swap`:
+
+1. every dependent is stopped, outermost first;
+2. the plugin's own `yf_deactivate` says what it hands on, and its module is
+   forgotten;
+3. the new module is loaded and activated with that hand-off, so a plugin's
+   state crosses the version change as it crosses an eviction;
+4. the dependents are started again, innermost first.
+
+Each step is a request whose answer moves the sequence on, so the helper has
+confirmed a dependent is gone before the swap begins and confirmed the swap is
+done before a dependent comes back. Until the sequence ends, the parent holds
+the work addressed to those plugins — events, hooks, commands — rather than
+sending it to instances that are mid-swap, and a `plugin.call` into or out of a
+plugin in the sequence waits for it: a dependent that calls its dependency
+during an update is answered by it afterwards, never with "not installed".
+
+A plugin whose module is gone from the store, as after an uninstall, is the one
+case with nothing to swap in: the plugins that needed it are turned off first,
+and the helper stops and starts again from what the store holds.
+
+## Development reload
+
+A plugin can be loaded from a folder on this computer instead of a repository:
+`Request::LoadFolder` reads the folder's `yapfast-plugin.json` and the module it
+names into the store, turns the plugin on, and remembers the folder. The folder
+is what the lock file records as its `source`, so a folder plugin and a
+repository plugin can't take each other's place. Its storage and settings live
+under `data/<id>/` and survive every reload.
+
+A save in that folder reloads it, through the swap above, so its state crosses
+too. There is **no watcher crate and no thread for it**: the session looks at the
+folder's manifest and module once a second — two `stat` calls — on the clock it
+already runs timers and coalescing windows on, and only while a folder plugin is
+loaded. A crate like `notify` would be a thread and an inotify watch per editor,
+which is more than one person's development loop needs; a second is also the
+debounce, since a manifest caught half-written is read again a moment later
+rather than unloading a plugin that runs.
+
+The helper still takes `--dev DIR`, which resolves a relative module path inside
+that folder rather than in the directory Yapfast was started in; the swap above
+doesn't need it, since the store's own paths are what an activation carries.

@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use yapfast_plugin_api::PluginId;
 use yapfast_plugin_api::call::{CommandInvocation, CommandOutcome};
-use yapfast_plugin_api::event::{EventEnvelope, EventKind, Network};
+use yapfast_plugin_api::event::{EventEnvelope, EventKind, Network, TopicEvent};
 use yapfast_plugin_api::frame::{Frame, FrameKind, read_frame};
 use yapfast_plugin_api::hook::{Draft, HookKind, HookRequest, HookSubject};
 use yapfast_plugin_api::message::{Fault, FaultKind, FromHelper, PluginStatus};
@@ -49,11 +49,13 @@ fn interactive_work_goes_before_background_work() {
         id: 2,
         plugin: b.clone(),
         events: vec![event("e1")],
+        topics: Vec::new(),
     });
     harness.send(Message::Event {
         id: 3,
         plugin: b.clone(),
         events: vec![event("e2")],
+        topics: Vec::new(),
     });
     harness.send(Message::Command {
         id: 4,
@@ -92,6 +94,7 @@ fn one_plugins_work_keeps_its_order() {
             id,
             plugin: a.clone(),
             events: vec![event(label)],
+            topics: Vec::new(),
         });
     }
     harness.hold(false);
@@ -115,6 +118,21 @@ fn two_plugins_interleave_on_both_workers() {
     harness.live(&a, 101);
     harness.live(&b, 102);
 
+    // One blocker per plugin first, so each queue is already held by a worker
+    // before the commands arrive. Without them the first worker can drain both
+    // queues before the second one wakes, and whether it does is the machine's
+    // load rather than the scheduler's behaviour.
+    harness.hold(true);
+    for (id, plugin) in [(9, &a), (19, &b)] {
+        harness.send(Message::Command {
+            id,
+            plugin: plugin.clone(),
+            command: command("blocker"),
+        });
+    }
+    harness.wait_log("command:com.example.a:blocker");
+    harness.wait_log("command:com.example.b:blocker");
+
     for round in 0..5 {
         harness.send(Message::Command {
             id: 10 + round,
@@ -127,12 +145,13 @@ fn two_plugins_interleave_on_both_workers() {
             command: command(&format!("b{round}")),
         });
     }
-    harness.wait_replies(12);
+    harness.hold(false);
+    harness.wait_replies(14);
 
     let log = harness.log();
     let calls: Vec<&String> = log
         .iter()
-        .filter(|call| call.starts_with("command:"))
+        .filter(|call| call.starts_with("command:") && !call.ends_with(":blocker"))
         .collect();
     assert_eq!(calls.len(), 10, "every command should run: {calls:?}");
 
@@ -144,23 +163,25 @@ fn two_plugins_interleave_on_both_workers() {
         .collect();
     assert_eq!(for_a, ["a0", "a1", "a2", "a3", "a4"]);
 
-    // And the two queues make progress together rather than one draining
-    // first, which is what the second worker is for.
+    // Two queues were in flight at once, which is what the second worker is
+    // for: both blockers had entered and were still held when the commands
+    // arrived, and they ran on different workers. Their commands need not
+    // interleave on a busy machine, since one worker can drain a queue of
+    // calls that each take microseconds before the other picks its queue up.
+    let blocker_of_a = harness.threads_for("command:com.example.a:blocker");
+    let blocker_of_b = harness.threads_for("command:com.example.b:blocker");
+    assert_eq!(blocker_of_a.len(), 1, "one worker ran a's blocker");
+    assert_eq!(blocker_of_b.len(), 1, "one worker ran b's blocker");
+    assert_ne!(
+        blocker_of_a[0], blocker_of_b[0],
+        "both blockers were in flight at once: {blocker_of_a:?}"
+    );
     let threads = harness.threads_for("command:");
     assert_eq!(
         threads.len(),
         2,
         "both workers should have run: {threads:?}"
     );
-    let first_b = calls
-        .iter()
-        .position(|call| call.starts_with("command:com.example.b"))
-        .expect("b ran");
-    let last_a = calls
-        .iter()
-        .rposition(|call| call.starts_with("command:com.example.a"))
-        .expect("a ran");
-    assert!(first_b < last_a, "the queues interleave: {calls:?}");
     harness.finish();
 }
 
@@ -431,6 +452,7 @@ impl Harness {
                 wasm: PathBuf::from("/dev/null"),
                 memory_pages,
                 wasi: false,
+                state: None,
             },
         });
         self.wait_log(&format!("load:{plugin}"));
@@ -666,12 +688,29 @@ impl Backend for Fake {
         Ok(None)
     }
 
-    fn event(&self, plugin: &PluginId, events: &[EventEnvelope]) -> Result<(), Fault> {
+    fn event(
+        &self,
+        plugin: &PluginId,
+        events: &[EventEnvelope],
+        topics: &[TopicEvent],
+    ) -> Result<(), Fault> {
+        let _ = topics;
         let label = events
             .first()
             .map(|event| event.payload["label"].as_str().unwrap_or("?").to_owned())
             .unwrap_or_else(|| "none".to_owned());
         self.calls.enter(format!("event:{plugin}:{label}"))
+    }
+
+    fn invoke(
+        &self,
+        plugin: &PluginId,
+        function: &str,
+        args: &[u8],
+    ) -> Result<Option<Vec<u8>>, Fault> {
+        self.calls
+            .enter(format!("invoke:{plugin}:{function}"))?;
+        Ok(Some(args.to_vec()))
     }
 
     fn hook(&self, chain: &[PluginId], request: &HookRequest) -> HookRun {
@@ -758,6 +797,7 @@ fn the_helper_finishes_once_the_last_instance_is_gone() {
             wasm: PathBuf::from("/dev/null"),
             memory_pages: 256,
             wasi: false,
+            state: None,
         },
     });
     scheduler.send(Message::Activate {
@@ -812,6 +852,7 @@ fn a_background_call_does_not_hold_an_interactive_send() {
         id: 1,
         plugin: a.clone(),
         events: vec![event("e1")],
+        topics: Vec::new(),
     });
     harness.send(Message::Command {
         id: 2,

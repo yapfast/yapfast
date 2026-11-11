@@ -381,6 +381,7 @@ impl Helper {
                     wasm: fixtures().join(fixture).with_extension("wasm"),
                     memory_pages,
                     wasi: false,
+                    state: None,
                 }),
             },
         );
@@ -408,6 +409,7 @@ impl Helper {
             &ToHelper::Event {
                 plugin: plugin.clone(),
                 events: vec![event],
+                topics: Vec::new(),
             },
         );
     }
