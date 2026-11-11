@@ -401,16 +401,11 @@ async fn streams_gpu_codec_until_a_viewer_cant_decode_it(
     };
     chosen(gpu).await.expect("Discord chose the GPU's codec");
     assert!(sender.take_keyframe_request());
-    let send = |codec, from: usize| {
-        for (index, data) in recording(codec).into_iter().take(3).enumerate() {
-            sender.send(Frame {
-                data: data.into(),
-                codec,
-                timestamp: (from + index) as u32 * 3000,
-                keyframe: index == 0,
-            });
-        }
-    };
+    // Paced as an encoder makes them, as `send_recording` paces its own: six
+    // frames queued at once overflow the sender's four-frame queue whenever its
+    // task is slower to drain than this is to fill, which drops frames the
+    // count below is waiting for.
+    let send = |codec, from: usize| send_recording(&sender, codec, from, 3);
     let received = |frames| async move {
         timeout(WAIT, async {
             loop {
@@ -434,7 +429,7 @@ async fn streams_gpu_codec_until_a_viewer_cant_decode_it(
         .await
         .unwrap_or_else(|_| panic!("the fake didn't get {frames} frames"))
     };
-    send(gpu, 0);
+    send(gpu, 0).await;
     let video = received(3).await;
     assert_eq!(
         (
@@ -460,8 +455,8 @@ async fn streams_gpu_codec_until_a_viewer_cant_decode_it(
     chosen(Codec::H264).await.expect("Discord switched to H264");
     assert!(sender.take_keyframe_request(), "the new codec starts whole");
     // Frames still in the GPU's codec are dropped rather than sent as H264.
-    send(gpu, 3);
-    send(Codec::H264, 6);
+    send(gpu, 3).await;
+    send(Codec::H264, 6).await;
     let video = received(6).await;
     assert_eq!(
         (
