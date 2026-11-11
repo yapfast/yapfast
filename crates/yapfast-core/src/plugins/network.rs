@@ -684,8 +684,20 @@ impl NetworkGate {
             if next.host() != target.host() || next.port() != target.port() {
                 // A credential is for the server the plugin named, and not for
                 // whatever that server points at next: forwarding one on a
-                // cross-host redirect would hand it to a stranger.
-                headers.retain(|(name, _)| name != "authorization");
+                // cross-host redirect would hand it to a stranger. Which header
+                // is a credential is the plugin's business — `x-api-key` is as
+                // good as `authorization` — so everything beyond describing the
+                // response the plugin wants goes.
+                headers.retain(|(name, _)| {
+                    matches!(
+                        name.to_ascii_lowercase().as_str(),
+                        "accept"
+                            | "accept-encoding"
+                            | "accept-language"
+                            | "content-type"
+                            | "user-agent"
+                    )
+                });
             }
             target = next;
             drop(served);

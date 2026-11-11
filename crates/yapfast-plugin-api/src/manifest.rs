@@ -613,7 +613,7 @@ impl fmt::Display for ManifestError {
             ),
             ManifestError::Quota => f.write_str("a limit asks for more than consent may allow"),
             ManifestError::PortWithoutCapability => {
-                f.write_str("`local_port` needs the `network.local` capability")
+                f.write_str("`local-port` needs the `network.local` capability")
             }
             ManifestError::Command => f.write_str("a command needs a name and a description"),
             ManifestError::DuplicateSetting => f.write_str("two settings share a key"),

@@ -1520,7 +1520,15 @@ impl Session {
                 return;
             }
         };
-        if let Err(denial) = crate::plugins::permissions::check(&permissions, Capability::Network) {
+        // `network` reaches anywhere the gate allows and `network.local` only
+        // loopback: a plugin that asks for the second alone is asking for less,
+        // and the gate below is what decides which hosts are reachable.
+        let may_fetch =
+            permissions.allows(Capability::Network) || permissions.allows(Capability::NetworkLocal);
+        if !may_fetch
+            && let Err(denial) =
+                crate::plugins::permissions::check(&permissions, Capability::Network)
+        {
             self.reply(
                 &plugin,
                 id,

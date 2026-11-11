@@ -216,7 +216,7 @@ capability, because each one is a behaviour Yapfast already has.
 | Nothing to do | No `wasm`, and no command, menu, setting or tweak |
 | Memory outside the range | `memory_pages` is below 32 or above 1024 |
 | A quota too high | `http_response_bytes` or `storage_bytes` is above the most consent may allow |
-| A port without its capability | `local_port` is set and `network.local` isn't declared |
+| A port without its capability | `local-port` is set and `network.local` isn't declared |
 | A command with nothing to say | Its name is empty, or its description is an empty string |
 | Two settings with one key | Duplicate `settings[].key` |
 | Depending on itself | `dependencies` names the plugin's own id |

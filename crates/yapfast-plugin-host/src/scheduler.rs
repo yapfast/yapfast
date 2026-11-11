@@ -39,9 +39,14 @@ use crate::pipe::{Outbox, Waker};
 /// its mailbox and its instance's memory.
 const EVENT_BUDGET: Duration = Duration::from_millis(250);
 
-/// How long a command may run. A command was typed by a person, so it gets the
-/// same patience as an event and is reported late rather than silently lost.
-const COMMAND_BUDGET: Duration = EVENT_BUDGET;
+/// How long a command may run. A command was typed by a person who is waiting
+/// for it, and the parent waits the same two seconds for the answer.
+const COMMAND_BUDGET: Duration = Duration::from_secs(2);
+
+/// How long `yf_deactivate` may take. Its answer is a convenience handed to the
+/// next activation, so it gets long enough to write that and no longer: an
+/// instance going away must not hold the helper.
+const DEACTIVATE_BUDGET: Duration = Duration::from_millis(100);
 
 /// How long instantiating a module and its `yf_activate` may take, and how long
 /// compiling one may take: both are slow on a cold cache and neither is a
@@ -523,8 +528,9 @@ impl<B: Backend + 'static> Shared<B> {
         let mut handoff = None;
         let mut fault = None;
         if live {
-            let (result, late) =
-                self.call(&[slot], START_BUDGET, |backend| backend.deactivate(&plugin));
+            let (result, late) = self.call(&[slot], DEACTIVATE_BUDGET, |backend| {
+                backend.deactivate(&plugin)
+            });
             match result {
                 Ok(state) => handoff = state,
                 Err(error) => fault = Some(error),

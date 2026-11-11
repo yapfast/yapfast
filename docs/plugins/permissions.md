@@ -139,7 +139,7 @@ because `CONNECT` would ask a server for a tunnel and `TRACE` would echo the
 request back.
 
 Loopback is the one deliberate exception, and it is its own capability: a plugin
-that declared `network.local` and named one port in `local_port` may reach that
+that declared `network.local` and named one port in `local-port` may reach that
 port on this computer and nothing else, which is how a plugin talks to a program
 someone runs beside Yapfast. Every address the name resolves to must be
 loopback, and the port must be the one named.
