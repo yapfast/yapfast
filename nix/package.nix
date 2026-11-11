@@ -32,6 +32,9 @@ rustPlatform.buildRustPackage {
     root = ../.;
     fileset = lib.fileset.unions [
       ../Cargo.toml ../Cargo.lock ../build.rs ../src ../crates ../ui ../vendor ../packaging
+      # The plugins page's fixture, which `--preview` shows, embeds this
+      # sample's manifest; the lib is built with it, not only the tests.
+      ../testing/plugins/word-filter/yapfast-plugin.json
     ];
   };
   cargoLock = {
