@@ -533,10 +533,17 @@ Yapfast is back, rather than showing an error.
   (`PreloadedUserSettings`, field 11), which arrive in READY as
   `user_settings_proto` and change in USER_SETTINGS_PROTO_UPDATE. Yapfast reads
   only the status and custom status from it, and changes either with `PATCH
-  /users/@me/settings-proto/1`, whose body sets nothing else. Each session
-  shows the status to others itself, so Yapfast sends it with opcode 3 once
-  connected, whenever the settings change, and clears it when it ends. A
-  custom emoji in a status needs Nitro.
+  /users/@me/settings-proto/1`, whose body sets nothing else. Discord resets
+  what such a body leaves out of a top-level field, so each change of the
+  status, the custom status or [game sharing](people.md#game-detection)
+  first reads the settings with `GET /users/@me/settings-proto/1` and sends
+  their whole `StatusSettings` with the one field changed: a new custom
+  status keeps Do Not Disturb. A new status drops the old one's
+  `status_expires_at_ms` and `status_created_at_ms`, so it stays until
+  changed. These changes wait for each other, so two quick ones both stay.
+  Each session shows the status to others itself, so Yapfast sends it with
+  opcode 3 once connected, whenever the settings change, and clears it when
+  it ends. A custom emoji in a status needs Nitro.
 
 ## Bots' buttons, menus and forms
 

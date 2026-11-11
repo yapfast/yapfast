@@ -767,6 +767,9 @@ pub struct Discord {
     commands: commands::Kept,
     /// The newest autocomplete, the only one whose answer is wanted.
     autocompletes: interactions::Autocompletes,
+    /// Held through each change to the status settings; see
+    /// [`Self::write_status_settings`].
+    status_writes: Arc<tokio::sync::Mutex<()>>,
 }
 
 /// Discord allows starting 10 new DMs with people in 10 minutes, and treats
@@ -888,6 +891,7 @@ impl Discord {
             default_sounds: Arc::default(),
             commands: kept_commands,
             autocompletes: interactions::Autocompletes::default(),
+            status_writes: Arc::default(),
         })
     }
 
@@ -2299,7 +2303,8 @@ impl Discord {
     /// Sets or clears the custom status, everywhere this account is signed
     /// in, and shows it from this session.
     pub async fn set_custom_status(&self, custom: Option<CustomStatus>) -> Result<()> {
-        self.api.set_custom_status(custom.as_ref()).await?;
+        self.write_status_settings(|current| settings::write_custom(current, custom.as_ref()))
+            .await?;
         let _ = self.requests.send(Request::CustomStatus(custom));
         Ok(())
     }
@@ -2307,7 +2312,8 @@ impl Discord {
     /// Sets the status, `online`, `idle`, `dnd` or `invisible`, everywhere
     /// this account is signed in, and shows it from this session.
     pub async fn set_status(&self, status: &str) -> Result<()> {
-        self.api.set_status(status).await?;
+        self.write_status_settings(|current| settings::write_status(current, status))
+            .await?;
         let _ = self.requests.send(Request::Status(status.to_owned()));
         Ok(())
     }
@@ -2315,9 +2321,20 @@ impl Discord {
     /// Shares the game this account plays, everywhere it's signed in, or
     /// stops sharing it. Stopping ends game detection and Rich Presence.
     pub async fn set_show_game(&self, shown: bool) -> Result<()> {
-        self.api.set_show_game(shown).await?;
+        self.write_status_settings(|current| settings::write_show_game(current, shown))
+            .await?;
         let _ = self.requests.send(Request::ShowGame(shown));
         Ok(())
+    }
+
+    /// Changes one field of the settings' `status`. Discord resets the
+    /// fields a write of it leaves out, so each write carries the rest as
+    /// Discord has them now, and waits for the one before: two quick saves
+    /// would each put back what the other changed.
+    async fn write_status_settings(&self, write: impl FnOnce(&str) -> String) -> Result<()> {
+        let _turn = self.status_writes.lock().await;
+        let current = self.api.user_settings().await?;
+        self.api.set_user_settings(&write(&current)).await
     }
 
     /// Tells the session nobody has used Yapfast since `since`, in Unix

@@ -2487,7 +2487,7 @@ mod tests {
         // Changing only the status leaves the order alone.
         tracker.apply(
             &Event::UserSettingsProtoUpdate,
-            &json!({"settings": {"type": 1, "proto": settings::write_custom(None)}, "partial": true}),
+            &json!({"settings": {"type": 1, "proto": settings::write_custom("", None)}, "partial": true}),
         );
         assert_eq!(
             order(&tracker),
@@ -2526,7 +2526,7 @@ mod tests {
         };
         let ready = json!({
             "user": {"id": "1", "username": "me"},
-            "user_settings_proto": settings::write_custom(Some(&away)),
+            "user_settings_proto": settings::write_custom("", Some(&away)),
         });
         let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
         assert_eq!(tracker.snapshot().custom_status, Some(away));
@@ -2537,7 +2537,7 @@ mod tests {
         );
 
         // Settings of another type say nothing of it; clearing it does.
-        let cleared = settings::write_custom(None);
+        let cleared = settings::write_custom("", None);
         assert!(!tracker.apply(
             &Event::UserSettingsProtoUpdate,
             &json!({"settings": {"type": 2, "proto": cleared}, "partial": true}),

@@ -198,7 +198,8 @@
 // file into an image embed.
 // Alice's custom status, "Testing Yapfast", is in her settings; PATCH
 // /users/@me/settings-proto/1 replaces each top-level field it sends, and GET
-// /_control/presence shows the presence her session last sent with op 3. POST /users/@me/relationships sends
+// /_control/presence shows the presence her session last sent with op 3, GET
+// /_control/settings her settings as GET /users/@me/settings-proto/1 gives them. POST /users/@me/relationships sends
 // a friend request by username: Frank takes none, and unknown names fail.
 // Erin's request is a stranger's (`stranger_request`), which PUT accepts only
 // with `confirm_stranger_request`, as Discord's client confirms one; without it
@@ -8807,6 +8808,7 @@ const server = Bun.serve<SocketData>({
     }
     if (path === "/_control/health") return new Response("ok\n");
     if (path === "/_control/presence") return Response.json(alicePresence);
+    if (path === "/_control/settings") return Response.json({ settings });
     if (req.method === "POST" && path === "/_control/bob-away") {
       // Bob goes idle with a custom status, as his friends hear it.
       presences[users.bob.id] = {
