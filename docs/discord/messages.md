@@ -269,7 +269,9 @@ Yapfast is back, rather than showing an error.
   offers Copy Image, Save Image, Copy Link and Open Link, as the message's
   menu does. A linked image or GIF
   shows with the message's images, without its address when that's all the
-  message says. Pictures come through Discord's
+  message says. A link straight to a video file, which Discord embeds as the
+  video alone, plays under the message as an attached video does, its first
+  frame from the media proxy as its poster. Pictures come through Discord's
   media proxy (`images-ext-*.discordapp.net`), so Yapfast never contacts the
   linked site, and embeds of a message marked to hide them don't show.
 - Discord's own links to a server, channel, message or person open that
