@@ -432,7 +432,12 @@ pub enum Request {
         id: String,
         value: String,
     },
-    /// Load a plugin from a folder, and reload it when its files change.
+    /// Install a `.wasm` file the person picked, with the manifest beside it
+    /// when there is one and a manifest made from its name when there isn't. It
+    /// shows up installed and off: enabling it is the person's next choice.
+    InstallWasm(PathBuf),
+    /// Load a plugin from a folder, and reload it when its files change. The
+    /// development loop, for writing one; the page offers `InstallWasm` instead.
     LoadFolder(PathBuf),
     SetMemoryBudget(u32),
     SetIdleMinutes(u32),
@@ -1137,6 +1142,9 @@ impl Source for Fixture {
                 }
             }
             Request::SettingWidget { .. } => {}
+            // The fixture has no store to install into: what a picked file
+            // becomes is the runtime's to say.
+            Request::InstallWasm(_) => {}
             Request::LoadFolder(folder) => {
                 let name = folder
                     .file_name()

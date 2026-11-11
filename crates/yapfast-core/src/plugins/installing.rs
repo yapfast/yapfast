@@ -160,6 +160,111 @@ fn dependencies(manifest: Option<&PluginManifest>) -> Vec<Dependency> {
         .unwrap_or_default()
 }
 
+/// Reads a plugin from a `.wasm` file on this computer, for trying one without
+/// a repository.
+///
+/// A manifest beside the file is what the plugin is: it names the module, the
+/// id, what the plugin may do, and when it runs. Without one, a manifest is made
+/// from the file's own name — id `local.<name>`, version `0.1.0`, a 64-page
+/// memory cap, and `message_create` as the one event it runs on, which needs
+/// `messages.read`. That is the least a bare module can be given that does
+/// something once the person enables it: the capability it declares is listed on
+/// its row, and installing never enables it.
+pub fn from_wasm(path: &Path) -> Result<Fetched, String> {
+    let folder = path.parent().unwrap_or(Path::new("."));
+    let beside = folder.join(crate::plugins::MANIFEST);
+    let text = match beside.is_file() {
+        true => std::fs::read_to_string(&beside)
+            .map_err(|error| format!("could not read {}: {error}", beside.display()))?,
+        false => made_from(path)?,
+    };
+    let manifest = PluginManifest::parse(&text)
+        .map_err(|error| format!("{} can't be used: {error}", beside.display()))?;
+    // The manifest is what runs, so it decides which module to read: the file
+    // the person picked only stands in for a plugin that brought no manifest.
+    let module_path = manifest
+        .wasm
+        .as_ref()
+        .map(|wasm| folder.join(wasm))
+        .unwrap_or_else(|| path.to_path_buf());
+    let module = std::fs::read(&module_path)
+        .map_err(|error| format!("could not read {}: {error}", module_path.display()))?;
+    if !module.starts_with(b"\0asm") {
+        return Err(format!(
+            "{} isn't a WebAssembly module: it doesn't start with the `\\0asm` magic",
+            module_path.display()
+        ));
+    }
+    Ok(Fetched {
+        id: manifest.id,
+        // The folder's own path, so a later read of the same file finds it.
+        source: format!("file://{}", folder.display()),
+        path: String::new(),
+        reference: String::new(),
+        rev: String::new(),
+        manifest: text,
+        module: Some(module),
+        icon: None,
+    })
+}
+
+/// A manifest for a module that brought none: its own name, and the least it
+/// can be given that runs once it is enabled.
+fn made_from(path: &Path) -> Result<String, String> {
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("plugin");
+    let name: String = stem
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let name = name.trim_matches('-');
+    let module = path
+        .file_name()
+        .and_then(|file| file.to_str())
+        .ok_or_else(|| format!("{} isn't a name this can read", path.display()))?;
+    let id = format!("local.{}", if name.is_empty() { "plugin" } else { name });
+    // The manifest is written by hand rather than through a struct so it reads
+    // as what a person would write, settings and all, in the store.
+    Ok(format!(
+        r#"{{
+  "api": {api},
+  "id": "{id}",
+  "name": "{title}",
+  "version": "0.1.0",
+  "description": "A plugin from this computer.",
+  "wasm": "{module}",
+  "limits": {{ "memory_pages": 64 }},
+  "activation": {{ "on": ["event:message_create"] }},
+  "permissions": {{ "capabilities": ["messages.read"], "network": [] }}
+}}
+"#,
+        api = crate::plugins::API,
+        title = title(stem),
+    ))
+}
+
+/// A file's stem as a name a person reads: `word-filter` is "Word Filter".
+fn title(stem: &str) -> String {
+    stem.split(['-', '_', ' '])
+        .filter(|word| !word.is_empty())
+        .map(|word| {
+            let mut letters = word.chars();
+            letters.next().map_or_else(String::new, |first| {
+                first.to_uppercase().chain(letters).collect()
+            })
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Reads one plugin out of its repository with the helper.
 pub fn fetch(url: &str) -> Result<Outcome, String> {
     let program = spawn::program().map_err(|error| format!("{error:#}"))?;

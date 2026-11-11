@@ -124,10 +124,14 @@ fn a_plugin_that_refuses_to_activate_is_a_fault() {
 fn a_guest_call_reaches_the_parent_and_is_answered() {
     let mut helper = Helper::start("call");
     let slow = plugin("slow-host");
-    let echo = plugin("echo");
+    // A plugin whose `yf_event` answers nothing, which is what the ABI says an
+    // event call answers: `echo.wat` copies its batch back, and the runtime
+    // refuses that as an answer an event doesn't take, so it would fault while
+    // this test waited for its `EventDone`.
+    let other = plugin("other");
     helper.load(&slow, "slow_host.wat", PAGES);
-    helper.load(&echo, "echo.wat", PAGES);
-    for plugin in [&slow, &echo] {
+    helper.load(&other, "bad_answer.wat", PAGES);
+    for plugin in [&slow, &other] {
         helper.activate(plugin);
         helper.wait_for(BUDGET, "Activated", |message| {
             matches!(message, FromHelper::Activated { .. })
@@ -160,7 +164,7 @@ fn a_guest_call_reaches_the_parent_and_is_answered() {
 
     // While that answer is missing, another plugin still runs, because nothing
     // is waiting on the parent.
-    helper.event(&echo, an_event());
+    helper.event(&other, an_event());
     helper.wait_for(BUDGET, "EventDone", |message| {
         matches!(message, FromHelper::EventDone { .. })
     });

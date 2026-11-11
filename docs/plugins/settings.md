@@ -31,8 +31,14 @@ or Cancel. Reading messages with any host to connect to gets a sentence of its
 own, saying the plugin could send your messages there, and
 `messages.send.background` shows its warning in the danger tone.
 
-Advanced, at the page's foot, opens a dialog with Load folder, the memory budget
-and how long an idle plugin is kept.
+Advanced, at the page's foot, opens a dialog with **Install a .wasm file**, the
+memory budget and how long an idle plugin is kept. Installing one asks for the
+file in the system's dialog; a `yapfast-plugin.json` beside it is what the
+plugin is, and without one a manifest is made from the file's name — id
+`local.<name>`, a 64-page cap, and `message_create` as its one event, which
+needs `messages.read`, so that a bare module does something once it runs. What it
+becomes is installed and **off**: the row then offers the switch, and the store's
+`lock.json` is what remembers that the person turned it on.
 
 ## A plugin's own settings
 

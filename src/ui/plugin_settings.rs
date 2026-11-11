@@ -153,17 +153,19 @@ impl Page {
 pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     bind_page(window);
     attach(window, adapter);
-    // Load folder asks for a folder in the system's dialog, which the
-    // adapter runs.
+    // Installing a `.wasm` file asks for it in the system's dialog, which the
+    // adapter runs: the file is what a person downloads, and the manifest beside
+    // it, when there is one, comes along.
     let state = adapter.clone();
-    window.global::<PluginPage>().on_load_folder(move || {
+    window.global::<PluginPage>().on_install_wasm(move || {
         let weak = Rc::downgrade(&state);
         state.borrow_mut().dialog(async move {
-            let folder = rfd::AsyncFileDialog::new()
-                .set_title("Load a plugin from a folder")
-                .pick_folder()
+            let picked = rfd::AsyncFileDialog::new()
+                .set_title("Install a plugin from a .wasm file")
+                .add_filter("WebAssembly", &["wasm"])
+                .pick_file()
                 .await;
-            let (Some(folder), Some(adapter)) = (folder, weak.upgrade()) else {
+            let (Some(picked), Some(adapter)) = (picked, weak.upgrade()) else {
                 return;
             };
             let Some(window) = adapter.borrow().window.upgrade() else {
@@ -172,7 +174,9 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
             PAGE.with_borrow_mut(|page| {
                 if let Some(page) = page.as_mut() {
                     page.source
-                        .request(Request::LoadFolder(folder.path().to_owned()));
+                        .request(Request::InstallWasm(picked.path().to_owned()));
+                    // The file becomes an installed plugin, so the list that
+                    // holds it is the one to show.
                     page.tab = 1;
                     if page.open {
                         show(&window, page);

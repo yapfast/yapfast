@@ -202,7 +202,7 @@ export global PluginPage {
     /// A widget a setting draws was used: the setting's key, the widget's
     /// id and its value.
     callback setting-widget(string, string, string);
-    callback load-folder();
+    callback install-wasm();
     callback budget-chosen(int);
     callback idle-chosen(int);
 
@@ -702,8 +702,8 @@ component ListingFace inherits Rectangle {
     Rectangle { y: parent.height - 1px; width: parent.width - 16px; x: 0px; height: 1px; background: Theme.line; }
 }
 
-// Advanced, which the page's foot opens: loading a plugin from a folder,
-// the memory budget, and how long an idle plugin is kept.
+// Advanced, which the page's foot opens: installing a plugin from a `.wasm`
+// file, the memory budget, and how long an idle plugin is kept.
 component AdvancedDialog inherits PageDialog {
     callback done;
     label: "Advanced plugin settings";
@@ -713,13 +713,13 @@ component AdvancedDialog inherits PageDialog {
         spacing: 12px;
         VerticalLayout {
             alignment: center; horizontal-stretch: 1;
-            Text { text: "Load folder"; color: Theme.text; font-size: 15px; }
-            Label { text: "Runs a plugin from a folder on this computer, and reloads it each time you save, for writing one."; }
+            Text { text: "Install a .wasm file"; color: Theme.text; font-size: 15px; }
+            Label { text: "Adds a plugin from a WebAssembly file on this computer, with the manifest beside it when there is one. It shows up installed and off, so turning it on is the next choice."; }
         }
         Middle {
             ActionButton {
-                text: "Load folder"; icon: @image-url("icons/folder.svg");
-                clicked => { PluginPage.load-folder(); root.done(); }
+                text: "Choose a file"; icon: @image-url("icons/folder.svg");
+                clicked => { PluginPage.install-wasm(); root.done(); }
             }
         }
     }

@@ -91,6 +91,7 @@ impl Application {
                 delete_data,
             } => self.plugins_remove(&plugin, delete_data),
             Request::RollBack { plugin } => self.plugins_roll_back(&plugin),
+            Request::InstallWasm(path) => self.plugins_install_wasm(&path),
             // The marketplace, a plugin's own settings form and the memory
             // budgets are the milestones after this one: the page asks, and
             // nothing answers yet.
@@ -175,6 +176,36 @@ impl Application {
         }
     }
 
+    /// Writes a `.wasm` file the person picked into the store.
+    ///
+    /// The plugin it becomes is installed and off: nothing runs until they
+    /// enable it, which is the choice the row offers next.
+    fn plugins_install_wasm(&mut self, path: &std::path::Path) -> Vec<AppEffect> {
+        let fetched = match installing::from_wasm(path) {
+            Ok(fetched) => fetched,
+            Err(error) => {
+                self.state.notice = Some(error);
+                return Vec::new();
+            }
+        };
+        let name = fetched.review().name;
+        let Some(plugins) = self.state.plugins.as_mut() else {
+            self.state.notice =
+                Some("The plugin system isn't running, so nothing can be installed.".to_owned());
+            return Vec::new();
+        };
+        match plugins.install(&fetched.package()) {
+            Ok(()) => {
+                self.state.notice = Some(format!("{name} is installed. Enable it to run it."));
+                vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)]
+            }
+            Err(error) => {
+                self.state.notice = Some(format!("Couldn't install {name}: {error:#}"));
+                Vec::new()
+            }
+        }
+    }
+
     /// Removes a plugin from the store, and its data when asked.
     fn plugins_remove(&mut self, plugin: &str, delete_data: bool) -> Vec<AppEffect> {
         let parsed = match PluginId::parse(plugin) {
@@ -232,6 +263,34 @@ mod tests {
         // Whether the helper sits beside this test binary is the machine's
         // business; either answer is the truth while no runtime is open.
         assert!(matches!(view.helper, Helper::Stopped | Helper::Missing));
+    }
+
+    /// A picked `.wasm` becomes a row: installed, not enabled, and drawn again
+    /// at once.
+    #[test]
+    fn a_picked_file_shows_up_installed_and_off() {
+        let directory = tempfile::tempdir().expect("a data directory");
+        let source = tempfile::tempdir().expect("a folder to pick from");
+        let module = source.path().join("echo.wasm");
+        std::fs::copy(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../testing/plugins/bad_answer.wasm"),
+            &module,
+        )
+        .expect("a module");
+
+        let mut app = Application::default();
+        let (events, _received) = tokio::sync::mpsc::unbounded_channel();
+        app.open_plugins(directory.path(), events);
+
+        let effects = app.plugins_page_request(Request::InstallWasm(module));
+        assert_eq!(effects.len(), 1, "the page draws itself again");
+
+        let view = app.plugins_page();
+        assert_eq!(view.installed.len(), 1, "it is listed");
+        assert_eq!(view.installed[0].id, "local.echo");
+        assert!(!view.installed[0].enabled, "and off until the person says");
+        assert_eq!(view.installed[0].status, crate::plugins::page::Status::Off);
     }
 
     /// The page's requests that the runtime can't do yet answer nothing rather
