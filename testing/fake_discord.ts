@@ -146,14 +146,6 @@
 // buttons and a menu under its text, and one of components outside a
 // container, with a gallery of its attachments and a file. It answers with
 // the notice's id.
-// POST /interactions takes Alice's use of Status Bot's controls, as
-// Discord's client sends it (its user's id is its app's), and answers 204;
-// the session named answers over the gateway with INTERACTION_CREATE, then:
-// "approve" succeeds and Status Bot says so, "rollback" opens a form with a
-// text display and a reason (INTERACTION_MODAL_CREATE), whose submission
-// succeeds with a reply, and choosing "production" in its menu fails
-// (INTERACTION_FAILURE); "staging" succeeds. GET /_control/interactions
-// lists what was sent, oldest first.
 // POST /_control/unlooked-reply?channel=ID&to=ID makes Bob reply to a message
 // in a channel, live and in its history without `referenced_message`, as when
 // Discord didn't look the original up, and answers with the reply's id.
@@ -162,6 +154,12 @@
 // GIF link, and a bot post a card with fields; their pictures come from
 // /external/, standing in for Discord's media proxy. They go to #general, or
 // with ?channel=ID to that channel or thread.
+// A server voice channel's session starts as its first person joins and ends
+// as its last leaves, which VOICE_CHANNEL_START_TIME_UPDATE says; the Lounge's
+// started 47 minutes before the fake did. Op 43 answers CHANNEL_INFO with the
+// server's voice channels and the fields asked for, `voice_start_time` and a
+// `status` that's always null, and GET
+// /_control/channel-info lists the servers it was asked about.
 // The soundboard: GET /soundboard-default-sounds gives six of Discord's own,
 // and op 31 "Server"'s two, Bob's laugh with :talk: and Carol's applause.
 // POST /channels/{id}/send-soundboard-sound plays one in the call Alice is in,
@@ -245,6 +243,51 @@
 // way: GET /oauth2/authorize shows it, POST /oauth2/authorize makes it and
 // answers the `location` to go to next, and GET
 // /_control/oauth-authorizations lists each one with the query it came with.
+// Status Bot's buttons and menu under its deploy message (POST
+// /_control/components) answer POST /interactions as an app does through
+// Discord: Alice's click (type 3) or form (type 5) is taken with 204 once its
+// session_id is her gateway session's and its application_id Status Bot's,
+// then INTERACTION_CREATE with her nonce, and by the control's custom_id:
+// "ok" (Approve) and the "environment" menu INTERACTION_SUCCESS and a
+// MESSAGE_UPDATE of the message (callback 7), "form" (Write notes)
+// INTERACTION_MODAL_CREATE with a text display, a text input and a select
+// menu, "survey" (Take survey) one with Markdown text, a radio group, a
+// checkbox group, a file upload and a checkbox, each label described, and
+// "checks", a menu of up to three options with emoji, as "environment"
+// does, "fail" (Roll back) INTERACTION_FAILURE with reason 1, and "slow"
+// (Check later) nothing, as an app that never answers. Submitting the form
+// gives INTERACTION_SUCCESS and an ephemeral MESSAGE_CREATE (flag 64, no
+// guild_id) of what was entered, a file upload's files by name, which
+// history leaves out. Alice's commands to Status Bot
+// (type 2, by data.name; files uploaded first and named in
+// data.attachments by uploaded_filename, each option's or file upload's
+// value its index as a number) answer as an app does, each answer
+// a type 20 message with interaction_metadata (its name with subcommands, as
+// "config set") and the deprecated interaction: "ping" "Pong!", "echo" an "is
+// thinking…" message (flag LOADING, 128, no content) that a MESSAGE_UPDATE
+// fills in a second later with text repeated times, "upload" the name and
+// size of the file its option names (INTERACTION_FAILURE without it),
+// "secret" an ephemeral answer, and any other "Ran /name.". Her message
+// command Quote (data.type 3) answers with a type 23 message replying to its
+// target_id, quoting it, and her user command Wave (data.type 2) with a type
+// 23 message waving at its target_id; either without a target_id, or with a
+// message that isn't in the channel, gets INTERACTION_FAILURE. Her
+// autocompletes (type 4) get APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE with
+// the choices that start with the focused value, a second late for "sl".
+// GET /_control/interactions lists each body Alice sent, oldest first, with
+// the files a command carried as `files`.
+// Apps' commands are in three indexes (see "Commands"): "Server"'s, GET
+// /guilds/{id}/application-command-index, lists Status Bot's /ping, /echo
+// (text, times 1-5), /pick (colour, from choices), /find (query, which
+// autocompletes), /upload (a file), /admin (for administrators, which Alice
+// isn't) and /config set|get, with its message command Quote and user
+// command Wave, all off in #ideas; GET /users/@me/application-command-index
+// lists Notes' /note, an app Alice installed for herself; a DM's or group
+// DM's, GET /channels/{id}/application-command-index, lists none. GET
+// /_control/command-index-fetches lists each index fetched, as
+// `guilds/{id}`, `channels/{id}` or `users/@me`, oldest first, and POST
+// /_control/commands-changed sends GUILD_APPLICATION_COMMAND_INDEX_UPDATE
+// for "Server", with the index's version moved on.
 // A gift of Nitro from Bob resolves and redeems the same way: GET
 // /entitlements/gift-codes/{code} shows it, POST .../redeem redeems it
 // once and sends ENTITLEMENT_CREATE and GIFT_CODE_UPDATE, and GET
@@ -637,9 +680,9 @@ const bit = (n: number) => 2 ** n;
 // Invite, view, send, embed, attach, read history, react, connect, speak,
 // voice activity, change one's own nickname, make public and private threads
 // and write in them, and post polls: Discord's defaults for @everyone.
-// Discord's defaults for @everyone, among them using the soundboard (42) and
-// other servers' sounds (45).
-const EVERYONE = [0, 10, 11, 14, 15, 16, 6, 20, 21, 25, 26, 35, 36, 38, 42, 45, 49].reduce((sum, n) => sum + bit(n), 0);
+// Discord's defaults for @everyone, among them using apps' commands (31), the
+// soundboard (42) and other servers' sounds (45).
+const EVERYONE = [0, 10, 11, 14, 15, 16, 6, 20, 21, 25, 26, 31, 35, 36, 38, 42, 45, 49].reduce((sum, n) => sum + bit(n), 0);
 // Kick, ban, view the audit log, manage nicknames, manage roles, moderate
 // members, and mute, deafen and move members in voice.
 const MODERATION = [1, 2, 7, 27, 28, 40, 22, 23, 24].reduce((sum, n) => sum + bit(n), 0);
@@ -1312,6 +1355,10 @@ type Message = {
   pollResult?: string;
   /** A pin's notice (type 6): the message pinned. */
   pinned?: string;
+  /** An app's answer to a command (type 20, or 23 for a context-menu one):
+   *  the interaction, the command's name, type and application, and what a
+   *  context-menu command ran on, sent as `interaction_metadata`. */
+  interaction?: { id: string; name: string; application: string; type?: number; targetUser?: string; targetMessage?: string };
 };
 const messages = new Map<string, Message[]>([
   [GENERAL, []],
@@ -1388,6 +1435,24 @@ function wireMessage(message: Message, origin: string, nested = false): Record<s
     components: message.components?.(origin) ?? [],
   };
   if (message.nonce) wire.nonce = message.nonce;
+  if (message.interaction) {
+    wire.application_id = message.interaction.application;
+    wire.webhook_id = message.interaction.application;
+    wire.interaction_metadata = {
+      id: message.interaction.id,
+      type: 2,
+      name: message.interaction.name,
+      command_type: message.interaction.type ?? 1,
+      user: wireUser(users.alice),
+      // A server install's owner is its server; "0" outside one.
+      authorizing_integration_owners: { "0": guildOf(message.channel).guild_id ?? "0" },
+    };
+    const target = Object.values(users).find((user) => user.id === message.interaction?.targetUser);
+    if (target) (wire.interaction_metadata as Record<string, unknown>).target_user = wireUser(target);
+    if (message.interaction.targetMessage) (wire.interaction_metadata as Record<string, unknown>).target_message_id = message.interaction.targetMessage;
+    // The deprecated object Discord still sends beside it.
+    wire.interaction = { id: message.interaction.id, type: 2, name: message.interaction.name, user: wireUser(users.alice) };
+  }
   if (message.stickers) wire.sticker_items = message.stickers;
   if (message.call) {
     wire.call = {
@@ -2022,6 +2087,31 @@ const startingVoice = (): [string, VoiceState][] => [
 ];
 const voice = new Map<string, VoiceState>(startingVoice());
 
+/** When each busy server voice channel's session started, in Unix seconds,
+ *  with its server; the Lounge's 47 minutes before the fake started. */
+const voiceStarted = new Map<string, { guild: string; at: number }>();
+/** The servers op 43 asked about, for /_control/channel-info. */
+const channelInfoRequests: string[] = [];
+
+/** Starts the sessions of server voice channels someone is in now and ends
+ *  those of channels nobody is, telling everyone with
+ *  VOICE_CHANNEL_START_TIME_UPDATE; `at` is when a new one starts. */
+function syncVoiceStarted(at = Math.floor(Date.now() / 1000), announce = true) {
+  const busy = new Map<string, string>();
+  for (const state of voice.values()) if (state.guild) busy.set(state.channel, state.guild);
+  for (const [channel, started] of voiceStarted) {
+    if (busy.has(channel)) continue;
+    voiceStarted.delete(channel);
+    if (announce) dispatch("VOICE_CHANNEL_START_TIME_UPDATE", { id: channel, guild_id: started.guild, voice_start_time: null });
+  }
+  for (const [channel, guild] of busy) {
+    if (voiceStarted.has(channel)) continue;
+    voiceStarted.set(channel, { guild, at });
+    if (announce) dispatch("VOICE_CHANNEL_START_TIME_UPDATE", { id: channel, guild_id: guild, voice_start_time: at });
+  }
+}
+syncVoiceStarted(Math.floor(Date.now() / 1000) - 47 * 60, false);
+
 // Go Live streams by stream key; Bob's is running from the start. A DM
 // call's streams are keyed `call:{channel}:{user}`.
 /** `decodes`: the video codecs each viewer's client decodes, for those that
@@ -2147,6 +2237,8 @@ function sendGateway(ws: Socket, payload: string) {
 function dispatch(name: string, data: unknown) {
   for (const ws of sockets) if (ws.data.identified) send(ws, 0, data, name);
   for (const session of parked.values()) session.missed.push({ name, data });
+  // Each move in voice may start or end a channel's session.
+  if (name === "VOICE_STATE_UPDATE") syncVoiceStarted();
 }
 
 /** A role of "Server" as Discord sends it. */
@@ -3322,6 +3414,33 @@ function gatewayMessage(ws: Socket, text: string) {
         send(ws, 0, { guild_id: id, soundboard_sounds: id === GUILD ? serverSounds : [] }, "SOUNDBOARD_SOUNDS");
       }
       break;
+    case 43: {
+      // Request channel info: each of the server's voice channels, with when
+      // its session started while someone is in it. Only the web client's own
+      // request is answered, so a test notices one that differs from it.
+      if (JSON.stringify(d.fields) !== JSON.stringify(["status", "voice_start_time"])) {
+        console.warn(`op 43 asked for ${JSON.stringify(d.fields)}, not the web client's fields`);
+        break;
+      }
+      channelInfoRequests.push(d.guild_id);
+      const ids = new Set<string>(
+        (d.guild_id === GUILD ? guild().channels : [])
+          .filter((channel) => channel.type === 2 || channel.type === 13)
+          .map((channel) => channel.id),
+      );
+      for (const [channel, started] of voiceStarted) if (started.guild === d.guild_id) ids.add(channel);
+      const wanted = (d.fields ?? []).includes("voice_start_time");
+      const statuses = (d.fields ?? []).includes("status");
+      send(ws, 0, {
+        guild_id: d.guild_id,
+        channels: [...ids].map((id) => ({
+          id,
+          ...(statuses ? { status: null } : {}),
+          ...(wanted ? { voice_start_time: voiceStarted.get(id)?.at ?? null } : {}),
+        })),
+      }, "CHANNEL_INFO");
+      break;
+    }
     case 37: {
       // Guild subscriptions: messages are sent anyway; a channel's member
       // list is sent when asked for. The list subscribed to before stops,
@@ -4841,6 +4960,349 @@ const PAID_GIFT_CODE = "AbCdEfGhIjKlMnOp";
 const empty = () => new Response(null, { status: 204 });
 const notFound = (message = "404: Not Found", code = 0) => json({ message, code }, 404);
 
+// --- Interactions ---
+/** Each body Alice sent to POST /interactions, oldest first, for
+ *  GET /_control/interactions. */
+const interactionsSent: Record<string, unknown>[] = [];
+/** The ids of the forms Status Bot opened, which a submit names. */
+const formsOpened = new Set<string>();
+const EPHEMERAL = 1 << 6;
+/** An answer still being made: the app's "is thinking…". */
+const LOADING = 1 << 7;
+
+/** Status Bot's answer to Alice's interaction `id`, through the gateway, as
+ *  Discord passes on an app's: see the header. `files` are the files sent
+ *  with a command, by their index. */
+function answerInteraction(body: any, id: string, origin: string, files: Map<string, Blob>) {
+  const nonce = body.nonce;
+  if (body.type === 4) {
+    answerAutocomplete(body);
+    return;
+  }
+  dispatch("INTERACTION_CREATE", { id, nonce });
+  if (body.type === 2) {
+    answerCommand(body, id, origin, files);
+    return;
+  }
+  if (body.type === 5) {
+    dispatch("INTERACTION_SUCCESS", { id, nonce });
+    // A file upload's values name the attachments sent with it, by index.
+    const named = new Map<string, string>((body.data?.attachments ?? []).map((file: any) => [file.id, file.filename]));
+    const entered = (body.data?.components ?? [])
+      .map((row: any) => row.component ?? row.components?.[0])
+      .filter((field: any) => field && field.type !== 10)
+      .map((field: any) => field.type === 19
+        ? (field.values ?? []).map((index: number) => named.get(String(index)) ?? "?").join(", ")
+        : String(field.value ?? (field.values ?? []).join(", ")));
+    // Only Alice sees it: sent to her session alone, without the server, and
+    // never in the channel's history.
+    const reply: Message = {
+      id: nextId(Date.now()), channel: body.channel_id, author: statusBot,
+      content: `Noted: ${entered.join("; ")}`, type: 0, files: [], reactions: [], flags: EPHEMERAL,
+    };
+    dispatch("MESSAGE_CREATE", wireMessage(reply, origin));
+    return;
+  }
+  switch (body.data?.custom_id) {
+    case "fail":
+      dispatch("INTERACTION_FAILURE", { id, nonce, reason_code: 1 });
+      return;
+    case "slow":
+      return;
+    case "survey": {
+      const form = nextId(Date.now());
+      formsOpened.add(form);
+      dispatch("INTERACTION_MODAL_CREATE", {
+        id: form, nonce, channel_id: body.channel_id, custom_id: "deploy-survey", title: "How did the deploy go?",
+        application: { id: statusBot.id, name: "Status Bot", icon: null },
+        components: [
+          { type: 10, id: 1, content: "## Deploy **v2.4**\nTell us how it went. Answers go to the *release team* only." },
+          {
+            type: 18, id: 2, label: "Rating", description: "How smooth was it?",
+            component: { type: 21, id: 3, custom_id: "rating", options: [
+              { label: "Smooth", value: "smooth", description: "Nothing to report" },
+              { label: "Bumpy", value: "bumpy", default: true },
+              { label: "Broken", value: "broken" },
+            ] },
+          },
+          {
+            type: 18, id: 4, label: "What broke", description: "Pick any that apply",
+            component: { type: 22, id: 5, custom_id: "areas", required: false, min_values: 0, max_values: 2, options: [
+              { label: "Chat", value: "chat" }, { label: "Calls", value: "calls" }, { label: "Bots", value: "bots" },
+            ] },
+          },
+          { type: 18, id: 6, label: "Screenshots", description: "Up to two", component: { type: 19, id: 7, custom_id: "shots", max_values: 2 } },
+          { type: 18, id: 8, label: "Follow up with me", component: { type: 23, id: 9, custom_id: "follow", default: true } },
+        ],
+      });
+      return;
+    }
+    case "form": {
+      const form = nextId(Date.now());
+      formsOpened.add(form);
+      dispatch("INTERACTION_MODAL_CREATE", {
+        id: form, nonce, channel_id: body.channel_id, custom_id: "deploy-notes", title: "Deploy notes",
+        application: { id: statusBot.id, name: "Status Bot", icon: null },
+        components: [
+          { type: 10, id: 1, content: "Tell the team what changed." },
+          { type: 18, id: 2, label: "Summary", component: { type: 4, id: 3, custom_id: "summary", style: 1, required: true } },
+          {
+            type: 18, id: 4, label: "Environment",
+            component: { type: 3, id: 5, custom_id: "environment", options: [{ label: "Staging", value: "staging" }, { label: "Production", value: "production", default: true }] },
+          },
+        ],
+      });
+      return;
+    }
+    default: {
+      dispatch("INTERACTION_SUCCESS", { id, nonce });
+      const message = byId.get(body.message_id);
+      if (!message) return;
+      const picked = body.data?.values?.length ? ` for ${body.data.values.join(", ")}` : "";
+      message.content = `${message.content.split("\n")[0]}\n-# Approved by Alice${picked}`;
+      message.edited = Date.now();
+      dispatch("MESSAGE_UPDATE", dispatched(message, origin));
+    }
+  }
+}
+
+// --- Commands ---
+/** Each command index Alice fetched, by its resource (`guilds/{id}`,
+ *  `channels/{id}` or `users/@me`), oldest first, for
+ *  GET /_control/command-index-fetches. */
+const commandIndexFetches: string[] = [];
+/** The ids of Status Bot's commands, by name, for the interactions they
+ *  start. */
+const STATUS_COMMANDS = {
+  ping: "1400000000000000700", echo: "1400000000000000701", pick: "1400000000000000702",
+  find: "1400000000000000703", upload: "1400000000000000704", admin: "1400000000000000705",
+  config: "1400000000000000706", quote: "1400000000000000707", wave: "1400000000000000708",
+} as const;
+/** Notes, an app Alice installed for herself, and its one command. */
+const NOTES_APP = "1400000000000000710";
+const NOTE_COMMAND = "1400000000000000711";
+// The server's index's version, which /_control/commands-changed moves on.
+let serverCommandsVersion = 1400000000000000720n;
+const COMMANDS_VERSION = "1400000000000000720";
+
+/** A command as an index lists it, the server's or Alice's own. */
+function indexCommand(id: string, application: string, type: number, name: string, description: string, extra: Record<string, unknown> = {}) {
+  return {
+    id, type, application_id: application, version: COMMANDS_VERSION, name, name_default: name,
+    description, description_default: description, default_member_permissions: null, nsfw: false,
+    integration_types: [0], contexts: null, ...extra,
+  };
+}
+
+/** "Server"'s command index: Status Bot's, as GET /guilds/{id}/application-command-index
+ *  gives it. Its commands are off in #ideas. */
+function serverCommandIndex() {
+  const app = statusBot.id;
+  const option = (type: number, name: string, description: string, extra: Record<string, unknown> = {}) => ({ type, name, description, ...extra });
+  return {
+    applications: [{
+      id: app, name: "Status Bot", description: "Posts deploys.", icon: null, bot_id: app, flags: "0",
+      bot: { id: app, username: statusBot.username, global_name: statusBot.global_name, avatar: null, discriminator: "0", bot: true },
+      permissions: { channels: { [FORUM]: false } },
+    }],
+    application_commands: [
+      indexCommand(STATUS_COMMANDS.ping, app, 1, "ping", "Checks that Status Bot is up."),
+      indexCommand(STATUS_COMMANDS.echo, app, 1, "echo", "Says it back.", { options: [
+        option(3, "text", "What to say", { required: true }),
+        option(4, "times", "How many times", { min_value: 1, max_value: 5 }),
+      ] }),
+      indexCommand(STATUS_COMMANDS.pick, app, 1, "pick", "Picks a colour.", { options: [
+        option(3, "colour", "Which colour", { required: true, choices: [
+          { name: "Red", value: "red" }, { name: "Green", value: "green" }, { name: "Blue", value: "blue" },
+        ] }),
+      ] }),
+      indexCommand(STATUS_COMMANDS.find, app, 1, "find", "Finds a deploy.", { options: [
+        option(3, "query", "What to look for", { required: true, autocomplete: true }),
+      ] }),
+      indexCommand(STATUS_COMMANDS.upload, app, 1, "upload", "Attaches a build log.", { options: [
+        option(11, "file", "The log", { required: true }),
+      ] }),
+      // Administrators only, which Alice isn't.
+      indexCommand(STATUS_COMMANDS.admin, app, 1, "admin", "Changes Status Bot's setup.", { default_member_permissions: "8" }),
+      indexCommand(STATUS_COMMANDS.config, app, 1, "config", "Status Bot's settings.", { options: [
+        option(1, "set", "Changes a setting", { options: [
+          option(3, "key", "Which setting", { required: true }), option(3, "value", "Its new value", { required: true }),
+        ] }),
+        option(1, "get", "Shows a setting", { options: [option(3, "key", "Which setting", { required: true })] }),
+      ] }),
+      indexCommand(STATUS_COMMANDS.quote, app, 3, "Quote", ""),
+      indexCommand(STATUS_COMMANDS.wave, app, 2, "Wave", ""),
+    ],
+    version: String(serverCommandsVersion),
+  };
+}
+
+/** Alice's own command index, GET /users/@me/application-command-index:
+ *  Notes, installed for her, whose /note works anywhere. */
+function ownCommandIndex() {
+  return {
+    applications: [{ id: NOTES_APP, name: "Notes", description: "Keeps notes.", icon: null, bot_id: NOTES_APP, flags: "0" }],
+    application_commands: [
+      indexCommand(NOTE_COMMAND, NOTES_APP, 1, "note", "Keeps a note.", {
+        integration_types: [1], contexts: [0, 1, 2],
+        options: [{ type: 3, name: "text", description: "The note", required: true }],
+      }),
+    ],
+    version: COMMANDS_VERSION,
+  };
+}
+
+/** A command index Alice asked for, or null for a path that isn't one: a
+ *  server's (Status Bot's in "Server", none elsewhere), a DM's or group
+ *  DM's (none: no bot is in one), or her own. */
+function commandIndexRoute(method: string, path: string): Response | null {
+  const m = path.match(/^\/(guilds\/\d+|channels\/\d+|users\/@me)\/application-command-index$/);
+  if (method !== "GET" || !m) return null;
+  const resource = m[1]!;
+  commandIndexFetches.push(resource);
+  const none = { applications: [], application_commands: [], version: "0" };
+  if (resource === "users/@me") return json(ownCommandIndex());
+  const [kind, id] = resource.split("/") as [string, string];
+  if (kind === "guilds") return json(id === GUILD ? serverCommandIndex() : none);
+  // Only a DM or group DM has one; Discord refuses a server's channel.
+  if (!privates.has(id)) return json({ message: "Invalid Form Body", code: 50035 }, 400);
+  return json(none);
+}
+
+/** The file indexes an interaction's data names: its attachment options'
+ *  values and its file uploads' values. */
+function fileIndexes(data: any): unknown[] {
+  const options = (list: any[] | undefined): unknown[] =>
+    (list ?? []).flatMap((option) => option.type === 11 ? [option.value] : options(option.options));
+  const uploads = (data?.components ?? [])
+    .map((row: any) => row.component ?? row.components?.[0])
+    .filter((field: any) => field?.type === 19)
+    .flatMap((field: any) => field.values ?? []);
+  return [...options(data?.options), ...uploads];
+}
+
+/** The value of option `name` among `options`, looking into a subcommand. */
+function optionValue(options: any[] | undefined, name: string): unknown {
+  for (const option of options ?? []) {
+    if (option.name === name && option.value !== undefined) return option.value;
+    const nested = optionValue(option.options, name);
+    if (nested !== undefined) return nested;
+  }
+  return undefined;
+}
+
+/** Status Bot's answer to Alice's command, by its name: see the header. */
+function answerCommand(body: any, id: string, origin: string, files: Map<string, Blob>) {
+  const nonce = body.nonce;
+  const name: string = body.data?.name ?? "";
+  const options = body.data?.options ?? [];
+  // The answer names the command with its subcommand group and subcommand
+  // (option types 2 and 1), as Discord's does.
+  let used = name;
+  for (let level = options; level?.[0]?.type === 1 || level?.[0]?.type === 2; level = level[0].options) {
+    used += ` ${level[0].name}`;
+  }
+  const reply = (content: string, flags = 0): Message => {
+    const message: Message = {
+      id: nextId(Date.now()), channel: body.channel_id, author: statusBot, content, type: 20,
+      files: [], reactions: [], flags, interaction: { id, name: used, application: statusBot.id },
+    };
+    // An ephemeral answer goes to Alice's session alone, never in history.
+    if (!(flags & EPHEMERAL)) {
+      messages.get(message.channel)?.push(message);
+      byId.set(message.id, message);
+    }
+    return message;
+  };
+  const kind: number = body.data?.type ?? 1;
+  if (kind !== 1) {
+    answerMenuCommand(body, id, origin, reply);
+    return;
+  }
+  switch (name) {
+    case "echo": {
+      // Deferred: "is thinking…" first, then the answer.
+      dispatch("INTERACTION_SUCCESS", { id, nonce });
+      const message = reply("", LOADING);
+      dispatch("MESSAGE_CREATE", dispatched(message, origin));
+      setTimeout(() => {
+        const text = String(optionValue(options, "text") ?? "");
+        const times = Number(optionValue(options, "times") ?? 1);
+        message.content = Array(times).fill(text).join(" ");
+        message.flags = 0;
+        message.edited = Date.now();
+        dispatch("MESSAGE_UPDATE", dispatched(message, origin));
+      }, 1000);
+      return;
+    }
+    case "upload": {
+      const index = String(optionValue(options, "file") ?? "");
+      const attachment = (body.data?.attachments ?? []).find((file: any) => file.id === index);
+      const file = files.get(index);
+      if (!attachment || !file) {
+        dispatch("INTERACTION_FAILURE", { id, nonce, reason_code: 1 });
+        return;
+      }
+      dispatch("INTERACTION_SUCCESS", { id, nonce });
+      dispatch("MESSAGE_CREATE", dispatched(reply(`Got ${attachment.filename} (${file.size} bytes)`), origin));
+      return;
+    }
+    case "secret": {
+      dispatch("INTERACTION_SUCCESS", { id, nonce });
+      dispatch("MESSAGE_CREATE", wireMessage(reply("Only you can see this one.", EPHEMERAL), origin));
+      return;
+    }
+    case "ping":
+      dispatch("INTERACTION_SUCCESS", { id, nonce });
+      dispatch("MESSAGE_CREATE", dispatched(reply("Pong!"), origin));
+      return;
+    default:
+      dispatch("INTERACTION_SUCCESS", { id, nonce });
+      dispatch("MESSAGE_CREATE", dispatched(reply(`Ran /${name}.`), origin));
+  }
+}
+
+/** Status Bot's answer to Alice's message command Quote or user command
+ *  Wave, a type 23 message: see the header. `reply` makes its message. */
+function answerMenuCommand(body: any, id: string, origin: string, reply: (content: string) => Message) {
+  const nonce = body.nonce;
+  const kind: number = body.data.type;
+  const target: string | undefined = body.data.target_id;
+  // A context-menu command has its target and no options: an empty list,
+  // as Discord's client sends it.
+  const quoted = kind === 3 && target ? byId.get(target) : undefined;
+  const person = kind === 2 && target ? Object.values(users).find((user) => user.id === target) : undefined;
+  if (!Array.isArray(body.data.options) || body.data.options.length > 0 || (kind === 3 && quoted?.channel !== body.channel_id) || (kind === 2 && !person)) {
+    dispatch("INTERACTION_FAILURE", { id, nonce, reason_code: 1 });
+    return;
+  }
+  dispatch("INTERACTION_SUCCESS", { id, nonce });
+  const message = quoted
+    ? reply(`> ${quoted.content}\n— <@${quoted.author.id}>`)
+    : reply(`👋 <@${target}>`);
+  message.type = 23;
+  message.interaction = { ...message.interaction!, type: kind, ...(quoted ? { targetMessage: quoted.id } : { targetUser: target }) };
+  if (quoted) message.reply = quoted.id;
+  dispatch("MESSAGE_CREATE", dispatched(message, origin));
+}
+
+/** Status Bot's choices for the option Alice is typing, which start with
+ *  what she typed; "sl" answers a second late. */
+function answerAutocomplete(body: any) {
+  const focused = (function find(options: any[] | undefined): any {
+    for (const option of options ?? []) {
+      if (option.focused) return option;
+      const nested = find(option.options);
+      if (nested) return nested;
+    }
+  })(body.data?.options);
+  const typed = String(focused?.value ?? "").toLowerCase();
+  const choices = ["staging", "production", "status", "slack"]
+    .filter((choice) => choice.startsWith(typed))
+    .map((choice) => ({ name: choice, value: choice }));
+  setTimeout(() => dispatch("APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE", { nonce: body.nonce, choices }), typed === "sl" ? 1000 : 0);
+}
+
 /** The invites Alice made, oldest first, for GET /_control/invites. */
 const invites: Record<string, unknown>[] = [];
 /** Each join by an invite, oldest first, for GET /_control/invite-joins. */
@@ -5098,7 +5560,6 @@ const DETECTABLE_GAMES = [{ id: "123456789012345680", name: "Detected Fixture",
   ], third_party_skus: [] }];
 
 async function api(req: Request, path: string, origin: string): Promise<Response> {
-  if (req.method === "POST" && path === "/interactions") return interact(await req.json(), origin);
   // A Rich Presence application and its images. Games leave out their name
   // and name images by key, which the client turns into the application's
   // name and image ids before the presence goes to the gateway.
@@ -7257,6 +7718,44 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     return unknown(req, path);
   }
 
+  // Apps' commands, once Alice types "/"; see "Commands" in the header.
+  const commandIndex = commandIndexRoute(method, path);
+  if (commandIndex) return commandIndex;
+
+  // Alice uses Status Bot's controls; see "Interactions" in the header.
+  if (method === "POST" && path === "/interactions") {
+    // JSON only: Discord's client uploads files first (POST
+    // /channels/{id}/attachments), then names them in data.attachments by
+    // uploaded_filename, as a message does.
+    if (!(req.headers.get("content-type") ?? "").startsWith("application/json")) {
+      return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    }
+    const body: any = await req.json().catch(() => ({}));
+    const files = new Map<string, Blob>();
+    for (const file of body.data?.attachments ?? []) {
+      const upload = uploads.get(file.uploaded_filename);
+      if (typeof file.id === "string" && upload?.data && upload.filename === file.filename) {
+        files.set(file.id, new File([upload.data], upload.filename));
+        uploads.delete(file.uploaded_filename);
+      }
+    }
+    const live = [...sockets].some((ws) => ws.data.identified && ws.data.session === body.session_id);
+    const form = body.type !== 5 || formsOpened.has(body.data?.id);
+    // Each attachment named was uploaded, an option or file upload names
+    // one by its index, a number, and a command is named whole.
+    const named = (body.data?.attachments ?? []).every((file: any) => files.has(file.id))
+      && fileIndexes(body.data).every((index) => typeof index === "number" && files.has(String(index)));
+    const command = ![2, 4].includes(body.type) || (typeof body.data?.id === "string" && typeof body.data?.name === "string");
+    if (!live || typeof body.nonce !== "string" || ![2, 3, 4, 5].includes(body.type) || !form || !named || !command) {
+      return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    }
+    if (body.application_id !== statusBot.id) return notFound("Unknown Application", 10002);
+    interactionsSent.push({ ...body, ...(files.size ? { files: [...files].map(([index, file]) => ({ index, name: (file as globalThis.File).name, size: file.size })) } : {}) });
+    const id = nextId(Date.now());
+    setTimeout(() => answerInteraction(body, id, origin, files), 0);
+    return empty();
+  }
+
   // Authorizing Alien App from its link: the preview its dialog shows,
   // and making it, in the server picked.
   if (path === "/oauth2/authorize" && (method === "GET" || method === "POST")) {
@@ -7635,8 +8134,8 @@ function postComponents(origin: string): string {
       {
         type: 1, id: 1,
         components: [
-          { type: 2, id: 2, style: 3, label: "Approve", custom_id: "approve" },
-          { type: 2, id: 3, style: 4, label: "Roll back", custom_id: "rollback" },
+          { type: 2, id: 2, style: 3, label: "Approve", custom_id: "ok" },
+          { type: 2, id: 3, style: 4, label: "Roll back", custom_id: "fail" },
           { type: 2, id: 4, style: 2, label: "Retry", custom_id: "retry", disabled: true },
           { type: 2, id: 5, style: 5, label: "Logs", url: "https://example.com/logs" },
         ],
@@ -7645,7 +8144,29 @@ function postComponents(origin: string): string {
         type: 1, id: 6,
         components: [{
           type: 3, id: 7, custom_id: "environment", placeholder: "Pick an environment",
-          options: [{ label: "Staging", value: "staging" }, { label: "Production", value: "production" }],
+          options: [
+            { label: "Staging", value: "staging", description: "staging.example.com", emoji: { name: "🧪" } },
+            { label: "Production", value: "production", description: "example.com", emoji: { name: "🚀" } },
+          ],
+        }],
+      },
+      {
+        type: 1, id: 8,
+        components: [
+          { type: 2, id: 9, style: 1, label: "Write notes", custom_id: "form" },
+          { type: 2, id: 10, style: 2, label: "Check later", custom_id: "slow" },
+          { type: 2, id: 11, style: 2, label: "Take survey", custom_id: "survey" },
+        ],
+      },
+      {
+        type: 1, id: 12,
+        components: [{
+          type: 3, id: 13, custom_id: "checks", placeholder: "Checks to run", min_values: 1, max_values: 3,
+          options: [
+            { label: "Unit tests", value: "unit", emoji: { name: "🧩" }, default: true },
+            { label: "Screenshots", value: "screenshots", emoji: { name: "📸" } },
+            { label: "Load test", value: "load", description: "Takes ten minutes", emoji: { name: "🏋️" } },
+          ],
         }],
       },
     ],
@@ -7671,55 +8192,6 @@ function postComponents(origin: string): string {
   });
   dispatch("MESSAGE_CREATE", dispatched(report, origin));
   return notice.id;
-}
-
-/** What Alice's client sent to POST /interactions, oldest first. */
-const interactions: unknown[] = [];
-
-/** Status Bot answers its controls and forms, to the session that used them. */
-function interact(body: any, origin: string): Response {
-  interactions.push(body);
-  const session = [...sockets].find((ws) => ws.data.identified && ws.data.session === body.session_id);
-  if (!session) return json({ message: "Invalid Form Body", code: 50035 }, 400);
-  const message = (messages.get(body.channel_id) ?? []).find((each) => each.id === body.message_id);
-  const known = body.application_id === statusBot.id
-    && (body.type === 5 || (body.type === 3 && message?.author.id === statusBot.id));
-  if (!known) return json({ message: "Unknown Application", code: 10002 }, 404);
-  const now = Date.now();
-  const id = snowflake(now, interactions.length);
-  const nonce = body.nonce;
-  const reply = (content: string) => {
-    const said = post(body.channel_id, statusBot, content, now + 1);
-    dispatch("MESSAGE_CREATE", dispatched(said, origin));
-  };
-  queueMicrotask(() => {
-    send(session, 0, { id, nonce }, "INTERACTION_CREATE");
-    const data = body.data ?? {};
-    if (body.type === 5 && data.custom_id === "rollback") {
-      const why = data.components?.find((row: any) => row.type === 18)?.component?.value;
-      send(session, 0, { id, nonce }, "INTERACTION_SUCCESS");
-      reply(`Rolled back to **v2.3**: ${why}`);
-    } else if (data.custom_id === "approve") {
-      send(session, 0, { id, nonce }, "INTERACTION_SUCCESS");
-      reply("Approved by Alice.");
-    } else if (data.custom_id === "rollback") {
-      send(session, 0, {
-        id, nonce, channel_id: body.channel_id, custom_id: "rollback", title: "Roll back v2.4",
-        application: { id: statusBot.id, name: "Status Bot", icon: null, description: "", bot_public: true },
-        components: [
-          { type: 10, id: 1, content: "**This redeploys v2.3** to everyone." },
-          { type: 18, id: 2, label: "Why", component: { type: 4, id: 3, custom_id: "why", style: 2, required: true } },
-        ],
-      }, "INTERACTION_MODAL_CREATE");
-      send(session, 0, { id, nonce }, "INTERACTION_SUCCESS");
-    } else if (data.custom_id === "environment" && data.values?.[0] === "staging") {
-      send(session, 0, { id, nonce }, "INTERACTION_SUCCESS");
-      reply("Deploying to staging.");
-    } else {
-      send(session, 0, { id, nonce, reason_code: 1 }, "INTERACTION_FAILURE");
-    }
-  });
-  return new Response(null, { status: 204 });
 }
 
 // --- Environments -------------------------------------------------------------
@@ -8154,6 +8626,10 @@ function envProfile(world: World, user: User, guild: string | null) {
 
 if (env) {
   world = applyEnv(env);
+  // The env's people in voice, seated without a word, started their calls
+  // as the fixture's did.
+  voiceStarted.clear();
+  syncVoiceStarted(Math.floor(Date.now() / 1000) - 47 * 60, false);
   // The env's servers, in its order: without a list, clients sort them
   // their own way, as Yapfast does by name.
   const list = world.guilds.map((server) => [...folderEntry([server.id])]).flat();
@@ -8370,6 +8846,7 @@ const server = Bun.serve<SocketData>({
     if (path === "/_control/logouts") return Response.json(logouts);
     if (path === "/_control/voice-identifies") return Response.json(voiceIdentifies);
     if (path === "/_control/voice-changes") return Response.json(voiceChanges);
+    if (path === "/_control/channel-info") return Response.json(channelInfoRequests);
     if (req.method === "POST" && path === "/_control/voice-reset") {
       // Bob, Carol and Dave back in the Lounge as they started, after a
       // test moved or disconnected them.
@@ -8406,7 +8883,6 @@ const server = Bun.serve<SocketData>({
       return new Response(`${name}'s camera is ${state.self_video ? "on" : "off"} in ${calls.length} call(s)\n`);
     }
     if (path === "/_control/soundboard-sends") return Response.json(soundboardSends);
-    if (path === "/_control/interactions") return Response.json(interactions);
     if (path === "/_control/custom-call-sounds") return Response.json(customCallSounds);
     if (req.method === "POST" && path === "/_control/soundboard-play") {
       const who = url.searchParams.get("user") ?? "bob";
@@ -9001,6 +9477,17 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/gift-redeems") {
       return Response.json(giftRedeems);
+    }
+    if (req.method === "GET" && path === "/_control/interactions") {
+      return Response.json(interactionsSent);
+    }
+    if (req.method === "GET" && path === "/_control/command-index-fetches") {
+      return Response.json(commandIndexFetches);
+    }
+    if (req.method === "POST" && path === "/_control/commands-changed") {
+      serverCommandsVersion += 1n;
+      dispatch("GUILD_APPLICATION_COMMAND_INDEX_UPDATE", { guild_id: GUILD, version: String(serverCommandsVersion) });
+      return new Response("Server's commands changed\n");
     }
     if (req.method === "GET" && path === "/_control/oauth-authorizations") {
       return Response.json(oauthAuthorizations);

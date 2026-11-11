@@ -497,7 +497,7 @@ msgstr "Notiz hinzufügen"
 msgid "Add pronouns"
 msgstr "Pronomen hinzufügen"
 
-#: ui/messages.slint ui/thread.slint ui/yapfast.slint
+#: ui/thread.slint ui/yapfast.slint
 msgid "Add reaction"
 msgstr "Reaktion hinzufügen"
 
@@ -692,6 +692,10 @@ msgstr "Erscheinungsbild"
 #: ui/server.slint
 msgid "Apply"
 msgstr "Anwenden"
+
+#: src/ui/menus.rs
+msgid "Apps"
+msgstr "Apps"
 
 #: ui/roles.slint
 msgid "Are you sure you want to delete the {} role? This action cannot be undone."
@@ -1045,10 +1049,6 @@ msgstr "Wähle eine DM oder einen Serverkanal, um eine Nachricht zu schreiben."
 msgid "Choose an entrance sound"
 msgstr "Wähle einen Beitrittssound"
 
-#: ui/interactions.slint
-msgid "Choose an option"
-msgstr "Wähle eine Option"
-
 #: ui/mfa.slint
 msgid "Choose how to confirm it's you."
 msgstr "Wähle, wie du bestätigen möchtest, dass du es bist."
@@ -1061,25 +1061,13 @@ msgstr "Lege fest, ob Servermitglieder bildbasierte Medien teilen dürfen, die v
 msgid "Choose Image"
 msgstr "Bild auswählen"
 
-#: ui/interactions.slint
-msgid "Choose one option"
-msgstr "Wähle eine Option"
-
 #: src/ui/server_settings.rs
 msgid "Choose Role Icon"
 msgstr "Rollensymbol wählen"
 
-#: ui/interactions.slint
-msgid "Choose up to one option"
-msgstr "Wähle höchstens eine Option"
-
 #: src/ui/refresh.rs
 msgid "Choose what to share"
 msgstr "Wähle, was du teilen möchtest"
-
-#: ui/interactions.slint
-msgid "Choose {0} to {1}"
-msgstr "Wähle {0} bis {1}"
 
 #: src/ui.rs
 msgid "Chosen device"
@@ -1269,14 +1257,6 @@ msgstr "Link kopieren"
 msgid "Copy link"
 msgstr "Link kopieren"
 
-#: ui/messages.slint
-msgid "Copy selection"
-msgstr "Auswahl kopieren"
-
-#: ui/messages.slint
-msgid "Copy text"
-msgstr "Text kopieren"
-
 #: ui/yapfast/build-info.slint
 msgid "Copy the version: {}"
 msgstr "Version kopieren: {}"
@@ -1341,7 +1321,7 @@ msgstr "Rolle erstellen"
 msgid "Create text channel"
 msgstr "Textkanal erstellen"
 
-#: ui/header.slint ui/messages.slint ui/thread.slint ui/yapfast.slint
+#: ui/header.slint ui/thread.slint ui/yapfast.slint
 msgid "Create Thread"
 msgstr "Thread erstellen"
 
@@ -1476,10 +1456,6 @@ msgstr "Für alle löschen?"
 #: ui/settings.slint
 msgid "Delete it for good"
 msgstr "Endgültig löschen"
-
-#: ui/messages.slint
-msgid "Delete message"
-msgstr "Nachricht löschen"
 
 #: ui/channel_settings.slint
 msgid "Delete Permission Settings"
@@ -1728,10 +1704,6 @@ msgstr "Anzeigenamen bearbeiten"
 #: ui/settings.slint
 msgid "Edit keybind"
 msgstr "Tastenkombination bearbeiten"
-
-#: ui/messages.slint
-msgid "Edit message"
-msgstr "Nachricht bearbeiten"
 
 #: ui/dialogs.slint ui/people.slint ui/yapfast/account-popover.slint ui/yapfast/settings-nav.slint
 msgid "Edit Profile"
@@ -2033,10 +2005,6 @@ msgstr "Freund suchen oder eine Matrix-ID eingeben"
 msgid "Find an emoji"
 msgstr "Emoji suchen"
 
-#: ui/interactions.slint
-msgid "Find an option"
-msgstr "Option finden"
-
 #: src/ui/refresh.rs
 msgid "Find Invite"
 msgstr "Einladung finden"
@@ -2125,7 +2093,7 @@ msgstr "für {} Min."
 msgid "For {} minutes"
 msgstr "Für {} Minuten"
 
-#: ui/messages.slint ui/thread.slint ui/yapfast/window-bar.slint ui/yapfast.slint
+#: ui/thread.slint ui/yapfast/window-bar.slint ui/yapfast.slint
 msgid "Forward"
 msgstr "Weiterleiten"
 
@@ -3337,10 +3305,6 @@ msgstr "Keine Freunde passen."
 msgid "No friends yet"
 msgstr "Noch keine Freunde"
 
-#: ui/people.slint
-msgid "No friends."
-msgstr "Keine Freunde."
-
 #: src/ui/gifs.rs
 msgid "No GIFs match your search."
 msgstr "Keine GIFs passen zu deiner Suche."
@@ -3441,10 +3405,6 @@ msgstr "Kein Server-Tag"
 msgid "No servers in common."
 msgstr "Keine gemeinsamen Server."
 
-#: ui/people.slint
-msgid "No servers."
-msgstr "Keine Server."
-
 #: src/ui/server_settings.rs
 msgid "no slots available"
 msgstr "keine Plätze frei"
@@ -3520,6 +3480,10 @@ msgstr "Wird nicht gesendet"
 #: src/ui/messages.rs
 msgid "Not sent yet. Yapfast sends it when the connection returns."
 msgstr "Noch nicht gesendet. Yapfast sendet sie, sobald die Verbindung zurück ist."
+
+#: src/ui/messages.rs
+msgid "Not sent."
+msgstr "Nicht gesendet."
 
 #: src/ui/messages.rs
 msgid "Not sent. The server refused this message."
@@ -3876,10 +3840,6 @@ msgstr "Anheften"
 #: src/ui/menus.rs
 msgid "Pin channel to top"
 msgstr "Kanal oben anheften"
-
-#: ui/messages.slint
-msgid "Pin message"
-msgstr "Nachricht anpinnen"
 
 #: ui/voice.slint
 msgid "Ping over the last five minutes, up to {} ms"
@@ -4273,7 +4233,7 @@ msgstr "{} als Freund entfernen?"
 msgid "Render with the GPU"
 msgstr "Mit der GPU rendern"
 
-#: ui/messages.slint ui/thread.slint ui/yapfast.slint
+#: ui/thread.slint ui/yapfast.slint
 msgid "Reply"
 msgstr "Antworten"
 
@@ -4465,7 +4425,7 @@ msgstr "Die Bildschirmfreigabe nutzt den Video-Encoder der Grafikkarte, der kaum
 msgid "SCREENS"
 msgstr "BILDSCHIRME"
 
-#: ui/dialogs.slint ui/friends.slint ui/moderation.slint ui/server.slint
+#: ui/dialogs.slint ui/friends.slint ui/interactions.slint ui/moderation.slint ui/server.slint
 msgid "Search"
 msgstr "Suchen"
 
@@ -4788,10 +4748,6 @@ msgstr "Kanäle anzeigen, auf die du keinen Zugriff hast"
 #: ui/settings.slint
 msgid "Show desktop notifications"
 msgstr "Desktop-Benachrichtigungen anzeigen"
-
-#: ui/people.slint
-msgid "Show friends and servers in the full profile"
-msgstr "Freunde und Server im vollständigen Profil anzeigen"
 
 #: ui/messages.slint
 msgid "Show less"
@@ -5454,8 +5410,8 @@ msgid "This event is going on now."
 msgstr "Dieses Event läuft gerade."
 
 #: ui/interactions.slint
-msgid "This form has a field Yapfast cannot submit yet. Open it in Discord to continue."
-msgstr "Dieses Formular hat ein Feld, das Yapfast noch nicht absenden kann. Öffne es in Discord, um fortzufahren."
+msgid "This form has a part Yapfast can't fill yet. Use it in Discord."
+msgstr "Dieses Formular hat einen Teil, den Yapfast noch nicht ausfüllen kann. Nutze es in Discord."
 
 #: src/ui/refresh.rs
 msgid "This gift has already been redeemed."
@@ -5753,10 +5709,6 @@ msgstr "Nicht mehr anheften"
 msgid "Unpin channel"
 msgstr "Kanal nicht mehr anheften"
 
-#: ui/messages.slint
-msgid "Unpin message"
-msgstr "Nachricht lösen"
-
 #: src/tray.rs
 msgid "Unread messages"
 msgstr "Ungelesene Nachrichten"
@@ -5977,21 +5929,9 @@ msgstr "Vollständiges Profil anzeigen"
 msgid "View full profile"
 msgstr "Vollständiges Profil anzeigen"
 
-#: ui/messages.slint
-msgid "View offer"
-msgstr "Angebot ansehen"
-
 #: src/ui/polls.rs
 msgid "View original message to interact"
 msgstr "Ursprüngliche Nachricht ansehen, um zu interagieren"
-
-#: ui/messages.slint
-msgid "View Reactions"
-msgstr "Reaktionen ansehen"
-
-#: ui/messages.slint
-msgid "View Thread"
-msgstr "Thread ansehen"
 
 #: ui/dialogs.slint
 msgid "Visit site"
@@ -6497,12 +6437,6 @@ msgstr "{0}{1}{2}, {3} Antworten, {4}"
 msgid "{day} at {time}"
 msgstr "{day} um {time} Uhr"
 
-#: src/ui/profile.rs
-msgid "{n} friend"
-msgid_plural "{n} friends"
-msgstr[0] "{n} Freund"
-msgstr[1] "{n} Freunde"
-
 #: src/ui/refresh.rs
 msgid "{n} joined thread"
 msgid_plural "{n} joined threads"
@@ -6532,12 +6466,6 @@ msgid "{n} other active thread"
 msgid_plural "{n} other active threads"
 msgstr[0] "{n} weiterer aktiver Thread"
 msgstr[1] "{n} weitere aktive Threads"
-
-#: src/ui/profile.rs
-msgid "{n} server"
-msgid_plural "{n} servers"
-msgstr[0] "{n} Server"
-msgstr[1] "{n} Server"
 
 #: src/ui/server_settings.rs
 msgid "{n} slot available"
@@ -6612,10 +6540,6 @@ msgstr "{} Events"
 #: ui/yapfast.slint
 msgid "{} events"
 msgstr "{} Events"
-
-#: ui/voice.slint
-msgid "{} fps"
-msgstr "{} fps"
 
 #: src/ui/games.rs
 msgid "{} hr"

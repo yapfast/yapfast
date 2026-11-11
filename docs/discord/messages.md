@@ -334,23 +334,36 @@ Yapfast is back, rather than showing an error.
   or pauses it, its waveform as 32 round bars, and how long it plays. The
   bars come from the attachment's `waveform`, base64 of up to 256 loudness
   bytes, each bar the loudest of its stretch; the length from its
-  `duration_secs`. Playing, the bars fill up to where it has played and the
-  time shows as "0:02 / 0:05", in the recording's time at any speed. While
-  the pointer or the keyboard is on the pill, or its volume is open, a speed
+  `duration_secs`, in whole seconds rounded up, as Discord's client has it.
+  Playing, the bars fill up to where it has played and the time counts down
+  what's left of the recording, at any speed. The time keeps the width of
+  its widest, so the pill doesn't change width as it counts. While the
+  pointer or the keyboard is on the pill, or its volume is open, a speed
   button and a volume button slide out after the time; with animations off
   in the settings they always show. The speed button goes from 1x to 1.5x to
-  2x and back; the volume button opens an upright slider in a popup over it,
-  as Discord's desktop player has, or under it without room above, from 0 to
-  100%, squared as a video's is. Up and Down move it 5%, Page Up and Page
-  Down 20%; a click elsewhere or Escape closes it. Both apply to the one playing at once and
-  to the next, until Yapfast closes. The recording downloads whole, up to 16
+  2x and back. The volume button mutes and unmutes, keeping the volume to
+  unmute to, as Discord's does; the pointer on it opens an upright slider in
+  a popup over it, as Discord's desktop player has, or under it without room
+  above, from 0 to 100%, squared as a video's is. While a popup is open
+  Slint gives the window no pointer events, so the popup covers the button
+  too, with its own mute button in the same place, and closes as the pointer
+  leaves it, or with Escape. Up and Down move the slider 5%, Page Up and Page
+  Down 20%, and the wheel over the popup 5%. Moving it unmutes, and 0 mutes.
+  All of them apply to the one playing at once and to the next, until
+  Yapfast closes. The recording downloads whole, up to 16
   MiB, and is kept in memory while it's the last one played; it decodes a
   packet at a time on a thread of its own (`voice_message.rs`), is sped up
   at the same pitch by WSOLA, as FFmpeg's `atempo` does (Yapfast's FFmpeg
   has no filters), and plays on the call's speakers through `audio_io.rs`,
   on Linux and Windows. One plays at a time: playing another stops it, as
   does closing its channel, or its thread beside the channel. Paused, it
-  plays on from there; at its end it goes back to its start.
+  plays on from there; at its end it goes back to its start. Pressing the
+  waveform moves it there, and it follows the pointer while held, as in
+  Discord: playing, it pauses while held and plays on once let go; paused,
+  it stays paused; another voice message waits there paused in place of the
+  one playing. Moved, its thread seeks the
+  recording 80 ms early, Opus's pre-roll, and leaves out what's before the
+  time.
 - Markdown shows as Discord's client shows it. Bold, italics, strikethrough,
   inline code, lists and links are Slint's Markdown. Headings (`#` to `###`),
   subtext (`-# `), quotes (`> ` lines, or `>>> ` and the rest) and code fenced
@@ -527,41 +540,286 @@ Yapfast is back, rather than showing an error.
 
 ## Bots' buttons, menus and forms
 
-An app's buttons and select menus work in channels, DMs and the thread
-beside a channel, as Discord's client uses them (`interactions.rs` in the
-core and in `discord_text`):
+A bot's buttons and select menus under its message work in the timeline and
+in a thread, and the form (modal) a bot opens shows as a dialog. Each sends
+`POST /interactions` from the linked account's gateway session, as Discord's
+client does (docs.discord.food, "Receiving and Responding"): type 3 for a
+button or a pick in a menu, with the message, its flags and the control's
+`custom_id`, and type 5 for a form submitted, with the form's id and what was
+entered. Discord answers 204, then tells over the gateway, by the nonce the
+request carried, that the app answered (INTERACTION_SUCCESS), failed
+(INTERACTION_FAILURE) or opened a form (INTERACTION_MODAL_CREATE). Only a
+click or a submit sends one, and none is sent again on its own.
 
-- A click sends `POST /interactions` with the message's id and flags, the
-  gateway session and a snowflake nonce. The app is the message's
-  `application_id`, or else its author's id, which a bot's user shares with
-  its app; Discord's client asks nothing more. A menu's choices go as
-  `values`, with its kind as `type`.
 - A message's controls wait while one of them waits for its bot, and only
-  that message's, as Discord's client queues one interaction a message. The
-  gateway's `INTERACTION_SUCCESS` or `INTERACTION_FAILURE`, by nonce, ends
-  the wait; a failure says "This interaction failed" under the message's
-  controls, or "Slow down! You're clicking too fast." when Discord refused
-  for that, until the channel changes or the control is used again. With no
-  answer in 15 s, through a gateway that reconnected meanwhile, the bot
-  "did not respond", in Discord's words; Discord itself fails a bot after
-  3 s.
-- A select menu opens its options in a dialog, with a search; Discord's
-  drops down under the menu. User, role, mentionable and channel menus offer
-  the people, roles and channels Yapfast knows, and a search of two letters
-  or more asks Discord for the server's members; a channel menu offers only
-  the channel kinds the app allows.
-- `INTERACTION_MODAL_CREATE` opens the app's form, wherever Yapfast is, since
-  Discord sends it only to the session that asked. A form shows text inputs,
-  its text (Markdown, as a component's) and select menus, and goes back in
-  the shape it came, a text display as `{"type": 10}`. A form with a kind of
-  field Yapfast lacks, such as a file upload, says so and isn't sent. One
-  that fails stays open with what was typed and why.
-- A premium button opens its offer in Discord's App Directory in the
-  browser, where the purchase happens. Link buttons open their link.
+  that message's, as Discord's client queues one interaction a message;
+  another bot's message can still be used. The gateway's word, by nonce,
+  ends the wait. Once Discord took the request, Yapfast waits 15 seconds
+  for it, which a reconnect can lose; with none, the bot "did not respond",
+  in Discord's words. Discord itself fails a bot after 3 s.
+- A failure says why under the message's controls, as Discord's client
+  does: "This interaction failed", "The application did not respond" for a
+  bot that didn't answer in time, or "Slow down! You're clicking too fast."
+  when Discord refused the request for that (429). The line stays until the
+  channel changes or a control of that message is used again. Another
+  refusal says "This interaction failed"; a request that couldn't be sent
+  gives Yapfast's reason.
+- The app a control names is the message's `application_id`, or else its
+  author's id, which a bot's user shares with its app, as Discord's client
+  sends it; Yapfast asks nothing more just to send a click. A menu's picks
+  go as `values`, with the menu's kind as `type` beside them.
+- A select menu opens as a dropdown under itself, above when there's no room
+  below, with each option's emoji and description. A menu of one option
+  sends the option clicked at once, and closes; clicking the one it already
+  has only closes it. A menu of several sends when it closes, by a click
+  outside or Escape, and only if what's picked changed and is as many as it
+  takes. Menus of people, roles and channels have a search field.
+- `INTERACTION_MODAL_CREATE` opens the app's form wherever Yapfast is, since
+  Discord sends it only to the session that asked, even after its control
+  stopped waiting; when it leaves out the server, the control's room, or
+  else the form's channel, gives it. A form shows its text (TEXT_DISPLAY, as
+  Markdown, as a message's, sent back as `{"type": 10}` alone, as Discord's
+  client does), text inputs, select menus (the same dropdown,
+  taking what's picked rather than sending it), radio groups (RADIO_GROUP,
+  sent as `value`), checkbox groups (CHECKBOX_GROUP, as `values`), checkboxes
+  (CHECKBOX, a `value` of true or false) and file uploads (FILE_UPLOAD), each
+  with its label's description. A file upload's files are uploaded first, as
+  a command's are (see "Sending apps' commands"), `data.attachments` naming
+  each by its place, and the upload's `values` holding those places as
+  numbers. A radio group left alone goes as `"value": null`, as Discord's
+  client sends it. A part Yapfast can't fill shows as such,
+  and the form can't be sent from Yapfast; a form Yapfast can't read at all
+  says so. A form that fails, or isn't complete, stays open with what was
+  entered and why, in the form, until something is changed.
+- The people, role, mentionable and channel menus offer the people, roles and
+  channels Yapfast knows, and searching people asks Discord for the server's
+  members who match. Channel menus keep to the bot's channel types, visible
+  categories included, and a default pick shows its name, or its id when the
+  name isn't known. An optional single pick can be cleared.
+- Link buttons open their address. A premium button says "Open in Discord"
+  and opens the SKU's store page in the browser,
+  `discord.com/application-directory/{app}/store/{sku}` (Discord's own docs,
+  "Managing SKUs"); nothing is bought through Yapfast, and the SKU's name and
+  price aren't asked for.
+- Pictures in a gallery or beside a section are read by a screen reader by
+  their alt text (`description`), as an attached picture's is.
+- An app that answers with a web page in a window
+  (INTERACTION_IFRAME_MODAL_CREATE) says to use Discord for it.
+- Yapfast doesn't unarchive a thread before a control in it is used, as
+  Discord's client does, and doesn't count a bot's reply carrying the nonce
+  as its answer; Discord sends `INTERACTION_SUCCESS` as well.
+- An app's answer only this account sees (message flag EPHEMERAL, `1 << 6`)
+  shows "Only you can see this · Dismiss message" under it, and can't be
+  replied to, reacted to, pinned, deleted or forwarded. Discord sends it to
+  this account's session alone, perhaps without `guild_id`, so it's placed in
+  the server of its channel rather than taken for a DM's message, and it
+  counts as neither unread nor read up to. Its channel's history never lists
+  it: it stays until it's dismissed or Yapfast closes, and it's never kept on
+  disk. Dismiss message hides it for good without asking Discord, which has
+  no endpoint for it.
+- An answer still to come (flag LOADING, `1 << 7`) shows "{app} is
+  thinking…" until Discord updates the message with the answer. Once the
+  message is 15 minutes old it says "The application did not respond"
+  instead, as Discord's client gives up then; a row already drawn changes
+  when it's drawn again.
 
-Yapfast doesn't unarchive a thread before a control in it is used, as
-Discord's client does, and doesn't count a bot's reply carrying the nonce as
-its answer; Discord sends `INTERACTION_SUCCESS` as well.
+## Apps' commands
+
+The commands apps offer come from Discord's application command indexes
+(docs.discord.food, "Application Commands"): `GET
+/guilds/{id}/application-command-index` in a server,
+`/channels/{id}/application-command-index` in a one-to-one DM with a bot,
+and `/users/@me/application-command-index` for the apps the account
+installed for itself. As in Discord's client, no other DM's or group DM's
+is asked for. They're merged in the place's order, then the account's; a
+command in both is the account's copy, with its app as the place's index
+has it. Each is fetched only once the person types `/` in the composer or
+opens a message's or a person's menu there, never ahead, and kept until
+Discord's client would count it out of date:
+
+- every one in a new gateway session (READY), or after a gateway backlog
+  that may have missed a change;
+- a server's on GUILD_APPLICATION_COMMAND_INDEX_UPDATE naming a version
+  other than the one kept, and with it the DMs with that server's apps'
+  bots;
+- the account's own on USER_APPLICATION_UPDATE or USER_APPLICATION_REMOVE.
+
+APPLICATION_COMMAND_PERMISSIONS_UPDATE changes nothing, as in Discord's
+client. Typing `/` again in the same server asks nothing. An index out of
+date is fetched again on its next use, and the one kept is used if that
+fails. One that couldn't be had isn't asked for again for 5 seconds, as
+Discord's client waits; while Discord is still building one (202), it's
+asked again 5 seconds later, up to three times. Up to 16 indexes are kept,
+the one used longest ago going first. A DM's that Discord refuses leaves
+the account's own. An index changing while the open picker waits for it is
+asked for again.
+
+A command is offered where the person may use it, step by step as Discord's
+client decides:
+
+- Its `contexts` take the place: a server's channel, the DM with its own
+  app's bot (`bot_id`), or any other DM or group DM. A command without
+  `contexts` goes in servers and in its bot's DM, unless its
+  `dm_permission` is false.
+- An age-restricted (`nsfw`) command shows only to an account Discord lets
+  see age-restricted content (`nsfw_allowed`), and there only in an
+  age-restricted channel (a thread takes its channel's), in a server marked
+  explicit or age-restricted (`nsfw_level` 1 or 3), or in DMs when the
+  account's settings offer such commands there (`view_nsfw_commands`).
+- In a server, an owner or administrator may use every command, and so may
+  the account on a command installed for it (from its own index, with
+  `USER_INSTALL` among its `integration_types`). Otherwise a command of an
+  app installed in the server needs View Channel, Use Application Commands
+  and Send Messages in the channel (Send Messages in Threads in a thread).
+  Then the channel's override, first the command's, then its app's: the
+  channel's own (a thread takes its channel's), else all channels' (the
+  server's id less one). Then the command's own override for this account,
+  its roles (any allowed, else any denied) and @everyone, which decides;
+  without one, the app's, which can only refuse. Last, the command's
+  `default_member_permissions` must all be held; `"0"` leaves it to
+  administrators. A timed-out member's permissions are those a timeout
+  leaves, View Channel and Read Message History, so a server's commands go.
+
+Message and user commands are for those menus (see "Apps" below); the
+composer offers the slash commands:
+
+- Typing `/` at the start of a channel's composer opens the picker over it,
+  as Discord's does. It lists the slash commands the person may use there, a
+  subcommand as its own row, as `config set`, in the index's order, each with
+  its app's icon and name, and narrows them as a word of the name is typed,
+  or as a name with a subcommand's is, as `config s`. Up and Down choose,
+  Tab, Enter or a click picks, and Escape closes it until the `/` goes, also
+  while it says the commands are coming or that none match. A
+  command's whole name and a space picks it, as in Discord's client, what
+  follows going to its first option; text that names no command goes as a
+  message. Enter sends nothing while the room's commands are still coming,
+  and Up doesn't edit the last message while the picker or a command is
+  open.
+- A picked command shows as pills over the composer, one for each option,
+  each as wide as its name, value and error up to the composer's width,
+  wrapping onto more rows as needed, and the composer's text writes the
+  focused one. Tab and Shift+Tab move
+  between them, as does a click on a pill. Escape stops writing the command,
+  and Backspace in an empty first option puts its name back to pick again.
+  The `/word` typed to find it isn't kept as a draft, and neither is what an
+  option holds.
+- An option with `choices` lists them, a boolean lists True and False, and
+  user, role, mentionable and channel options list the people, roles and
+  channels mentions would offer. A user or mentionable option asks Discord
+  for the server's members named as typed, as a mention does, unless it
+  already offers enough; a mention or id pasted in names one not listed. A
+  channel option keeps to its `channel_types`, by each channel's own type,
+  as the command was picked. An option with `autocomplete` lists the app's
+  answer to what was typed (see below). A file option opens the file picker
+  on Enter or a click.
+- Discord leaves the checks to the client ("This validation is client-side
+  only"), so Enter runs the command only when each option passes them:
+  required options filled, whole numbers and numbers within `min_value` and
+  `max_value`, text within `min_length` and `max_length`, a choice's name or
+  a known person, role or channel. Until then each wrong pill says why in red,
+  and the first takes the composer. The wording is Yapfast's; Discord's isn't
+  documented.
+
+### Apps
+
+A message's menu and a person's offer the open channel's message commands
+(type 3, `MESSAGE`) and user commands (type 2, `USER`) under "Apps", a
+submenu of them by name with their app's name under each, as Discord's
+does.
+The same rules decide which the person may use there as for slash commands.
+
+- A message's menu has Apps on a Discord message that was sent, not on one
+  still sending or failed, an answer only the account sees, or Yapfast's
+  "Sending command…" row. It opens beside the menu on hover or a click, on
+  the left near the window's right edge. A message in the thread beside the
+  channel has none: Apps offers the open channel's commands.
+- A person's menu has it before Invite to server and friendship, in the open
+  server channel or DM; a DM's own menu in the list has it while that DM is
+  open. Matrix people have none.
+- Opening either menu asks for the channel's index if it isn't kept, and
+  Apps shows once it comes: a person's menu open meanwhile is built again.
+- A choice runs the command at once on that message or person, with no
+  options; it is sent and shows as sending as a slash command does (below).
+
+## Sending apps' commands
+
+An app's command is sent as Discord's client sends one (docs.discord.food,
+"Create Interaction"): `POST /interactions` of type 2 from the gateway
+session, with the command's `id`, `name`, `type` and `version` and the whole
+entry of the command index as `application_command`. A chat command carries
+its `options`, a subcommand or group nesting its own; a context-menu
+command carries its `target_id` instead: the message's id or the user's.
+An app answers one with a type 23 message, which shows as a reply when it
+names the message it ran on (docs.discord.food gives `referenced_message`
+for type 23 as for replies). Like Discord's client, every command says
+`analytics_location: "slash_ui"`, which docs.discord.food gives as
+"executed from the chat bar", a context menu's too, and its `data` always
+has `options`, empty for a context menu, and the `guild_id` of a command
+made for one server. `application_command` is the index's entry exactly as
+Discord sent it. Only sending the command sends one. A 429 sends it once
+more after Discord's wait, as Discord's client sends a command or a form
+again; a click on a bot's control or an autocomplete isn't.
+
+- Files are uploaded first, as a message's are (`POST
+  /channels/{id}/attachments`, then the file to the address it gives), and
+  the JSON names them in `data.attachments` as `{id: "0", filename,
+  uploaded_filename}`, as Discord's client does; a file option's value is
+  that place, as a number. Up to 25 files. Uploads a refused command didn't
+  use are deleted.
+- As with a bot's buttons, Discord answers 204 and tells the rest over the
+  gateway by the nonce: INTERACTION_CREATE gives the interaction's id, which
+  the answer's message names in `interaction_metadata`, then
+  INTERACTION_SUCCESS or INTERACTION_FAILURE, or a form. A deferred answer
+  is a message with the LOADING flag and no content, which a MESSAGE_UPDATE
+  fills in.
+- Until the answer comes, the channel shows a row from the app saying
+  "Sending command…", Discord's client's own words for a command in flight,
+  by the command's nonce. The answer's message names the
+  interaction INTERACTION_CREATE gave (`interaction_metadata.id`) and takes
+  its place; INTERACTION_SUCCESS, or a form, ends it too. A command Discord
+  or the app refused, or that Discord never confirmed, says why there
+  instead, with Retry, which sends it again with a new nonce, and Cancel.
+  The row is Yapfast's own and lives only while Yapfast runs.
+- An option whose app completes it (`autocomplete`) asks the app for its
+  choices with a type 4 interaction, debounced as Discord's client does it:
+  the first keystroke asks at once, and the others once typing pauses for
+  500 ms. It carries the same data, without files, the option typed in
+  marked `focused` with its value as text. Only the newest answer
+  (APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE) is shown; a keystroke within
+  the pause, or one after an older autocomplete was sent, drops the older
+  one. Text the app already answered for that option shows its answer
+  again without asking, as Discord's client keeps them. A failed or
+  unanswered autocomplete keeps the choices shown.
+
+## Who used an app's command
+
+An app's answer names the interaction it answers in `interaction_metadata`
+(docs.discord.food, "Message Interaction Metadata Object"), or, on older
+messages, only in the deprecated `interaction`, which Yapfast reads
+without the other. Over the answer, where a reply would quote, a line says
+who used which command, as Discord's client heads one:
+
+- A slash command (`command_type` 1, or the deprecated object): "Ann used
+  **/config set**", the name with its subcommand group and subcommand as
+  Discord sends it, with Ann's avatar and role colour. A form's answer
+  (type 5) names the command that opened the form, from
+  `triggering_interaction_metadata`; the person is the one who sent it.
+- A user command (2): "Ann used **High five** on @Bob", from `target_user`.
+- A message command's answer (type 23, `command_type` 3) quotes the message
+  it was used on instead, as a reply: `referenced_message`, which Discord
+  sends with it, else the message `message_reference` or
+  `target_message_id` names, looked up as a reply's original is.
+- A button's or menu's answer quotes the message with the button, by
+  `interacted_message_id`, when Discord didn't make it a reply itself; the
+  message the button updated, which names itself there, quotes nothing.
+
+Clicking the name opens the person's card. Clicking a slash command in a
+channel's timeline writes `/` and its name in the composer, as typing it
+would, so the picker offers it again; subcommands are left for the picker.
+The names are the server's, as the timeline's are. Discord's exact
+wording for a user command's target, and whether its client writes a
+clicked command in the composer, aren't documented; Yapfast's follow the
+docs' fields and Discord's client as remembered.
 
 ## GIFs
 

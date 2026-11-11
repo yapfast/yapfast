@@ -170,15 +170,12 @@ pub(super) fn activity_panel(
     Vec::new()
 }
 
-/// "1 mutual friend" or "5 mutual servers"; this account's own profile shares
-/// its friends and servers with nobody, so there it says "1 friend" or
-/// "5 servers".
-fn mutual_count(count: usize, friends: bool, shared: bool) -> String {
-    match (friends, shared) {
-        (true, true) => trn("{n} mutual friend", "{n} mutual friends", count),
-        (true, false) => trn("{n} friend", "{n} friends", count),
-        (false, true) => trn("{n} mutual server", "{n} mutual servers", count),
-        (false, false) => trn("{n} server", "{n} servers", count),
+/// "1 mutual friend" or "5 mutual servers".
+fn mutual_count(count: usize, friends: bool) -> String {
+    if friends {
+        trn("{n} mutual friend", "{n} mutual friends", count)
+    } else {
+        trn("{n} mutual server", "{n} mutual servers", count)
     }
 }
 
@@ -223,11 +220,49 @@ const ACTIVITY_EPOCH: u64 = 1_577_836_800;
 
 /// Now on ActivityClock.
 fn activity_now() -> i32 {
-    let now = std::time::SystemTime::now()
+    activity_seconds(unix_now())
+}
+
+/// How often ActivityClock ticks: each second for a profile's timed
+/// activity, every 15 seconds for busy voice channels' rows alone, which
+/// show the minute, and never for neither.
+pub(super) fn clock_interval(profile: bool, voice: bool) -> Option<std::time::Duration> {
+    match (profile, voice) {
+        (true, _) => Some(std::time::Duration::from_secs(1)),
+        (false, true) => Some(std::time::Duration::from_secs(15)),
+        (false, false) => None,
+    }
+}
+
+/// Sets ActivityClock to now. Its minute, which a voice channel's row
+/// reads, changes only as the minute turns, and only then redraws them.
+fn set_activity_clock(window: &YapfastWindow) {
+    let clock = window.global::<ActivityClock>();
+    let now = activity_now();
+    clock.set_now(now);
+    clock.set_minute(now / 60);
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs();
-    i32::try_from(now.saturating_sub(ACTIVITY_EPOCH)).unwrap_or(i32::MAX)
+        .as_secs()
+}
+
+/// A Unix time in ActivityClock's seconds, at least 1 so that it's never
+/// taken for none.
+pub(super) fn activity_seconds(unix: u64) -> i32 {
+    i32::try_from(unix.saturating_sub(ACTIVITY_EPOCH))
+        .unwrap_or(i32::MAX)
+        .max(1)
+}
+
+/// How long since `started` at `now`, both in ActivityClock's seconds, as
+/// [`yapfast_core::clock::lasted`] says it.
+pub(super) fn activity_lasted(started: i32, now: i32) -> SharedString {
+    let unix = |seconds: i32| u64::try_from(seconds).unwrap_or_default() + ACTIVITY_EPOCH;
+    yapfast_core::clock::lasted(unix(started), unix(now)).into()
 }
 
 /// Someone's activities as their profile's cards show them.
@@ -325,8 +360,11 @@ pub(super) fn names_an_activity(line: &str, activities: &yapfast_core::chat::Act
 }
 
 impl Adapter {
-    /// Keeps ActivityClock current, once a second, while a profile on
-    /// screen times an activity, and leaves it be otherwise.
+    /// Keeps ActivityClock current: once a second while a profile on
+    /// screen times an activity, else every 15 seconds while the channel
+    /// list counts a busy voice channel's time, which it shows to the
+    /// minute and redraws only as the minute turns, and not at all
+    /// otherwise. The one timer serves both.
     pub(super) fn tick_activities(&mut self, window: &YapfastWindow) {
         let timed = |data: ProfileData| {
             data.activities
@@ -335,24 +373,21 @@ impl Adapter {
         };
         let shown = (self.app.state.profile.is_some() && timed(window.get_profile()))
             || (self.app.state.panel_profile.is_some() && timed(window.get_panel_profile()));
-        if !shown {
+        let Some(every) = clock_interval(shown, self.voice_timed) else {
             self.activity_clock.stop();
             return;
-        }
-        if self.activity_clock.running() {
+        };
+        if self.activity_clock.running() && self.activity_clock.interval() == every {
             return;
         }
-        window.global::<ActivityClock>().set_now(activity_now());
+        set_activity_clock(window);
         let window = window.as_weak();
-        self.activity_clock.start(
-            slint::TimerMode::Repeated,
-            std::time::Duration::from_secs(1),
-            move || {
+        self.activity_clock
+            .start(slint::TimerMode::Repeated, every, move || {
                 if let Some(window) = window.upgrade() {
-                    window.global::<ActivityClock>().set_now(activity_now());
+                    set_activity_clock(&window);
                 }
-            },
-        );
+            });
     }
 }
 
@@ -540,8 +575,8 @@ pub(super) fn profile_data(
     let banner = cached_picture(pictures, state, profile.banner.as_deref());
     // Matrix IDs start with `@`; Discord user ids are numbers.
     let discord = !profile.id.is_empty() && !profile.id.starts_with('@');
-    // This account's own profile lists all its friends and servers, not the
-    // ones it shares with anyone, so its card names them without "mutual".
+    // This account's own profile shows no mutual friends or servers, as
+    // Discord's client doesn't: it shares them with nobody.
     let own = discord && state.relation(&profile.id) == Relation::Me;
     let (wishlist, wishlist_note) = wishlist_rows(profile);
     // With no banner, accent colour or theme, Discord tints the banner area
@@ -740,8 +775,8 @@ pub(super) fn profile_data(
                     && (state.relation(&profile.id) == Relation::Friend
                         || !profile.servers.is_empty()))),
         own,
-        mutual_friends_text: mutual_count(profile.friends.len(), true, !own).into(),
-        mutual_servers_text: mutual_count(profile.servers.len(), false, !own).into(),
+        mutual_friends_text: mutual_count(profile.friends.len(), true).into(),
+        mutual_servers_text: mutual_count(profile.servers.len(), false).into(),
         note_text: profile.note.as_str().into(),
         note_editable: !profile.id.starts_with('@') && !own,
         can_message: state

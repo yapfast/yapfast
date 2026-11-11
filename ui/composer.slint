@@ -1,6 +1,7 @@
 import { Theme, Middle } from "theme.slint";
 import { ActionButton, IconButton, Avatar, SpoilerCover, ContextMenu, MenuRow } from "controls.slint";
 import { EmojiCell, EmojiFace } from "messages.slint";
+import { CommandOptionPill, CommandPills } from "app_commands.slint";
 
 /// A file waiting to go with the next message. A spoiler's picture is blurred.
 export struct StagedFile { name: string, size: string, has-picture: bool, picture: image, spoiler: bool }
@@ -55,6 +56,11 @@ export component StagedTile inherits Rectangle {
 // scrolls to keep the cursor in view. Enter sends; Shift+Enter starts a new line.
 // A right click opens Discord's menu for the field, without its spelling
 // suggestions and with Select All, which Discord's lacks.
+// With an app's command being written, its options show as pills over the
+// text, which writes the focused one: Tab and Shift+Tab move between them,
+// Enter runs the command (or, on a file option without one, picks the file),
+// Escape stops writing it, and Backspace in the empty first option puts the
+// command's name back.
 export component Composer inherits Rectangle {
     in-out property <string> text;
     in property <string> placeholder;
@@ -64,6 +70,21 @@ export component Composer inherits Rectangle {
     // Mention or emoji suggestions show, so the arrow keys, Tab, Enter and Escape
     // go to them.
     in property <bool> suggesting;
+    // The `/` picker shows over it, perhaps only to say its commands are
+    // coming or that none match: Escape closes it.
+    in property <bool> picking;
+    /// The app command being written, without its `/`; empty when there's none.
+    in property <string> command-name;
+    in property <[CommandOptionPill]> command-options;
+    /// The option the text writes.
+    in property <int> command-focus;
+    /// A pill was clicked; Tab or Shift+Tab moved by this many; a file
+    /// option's file is wanted.
+    callback command-option-clicked(int);
+    callback command-tab(int);
+    callback command-file(int);
+    /// Escape, or with `true` Backspace in the empty first option.
+    callback command-closed(bool);
     /// The field has the keys, which the box around it shows.
     out property <bool> focused: input.has-focus;
     callback edited(string);
@@ -94,6 +115,10 @@ export component Composer inherits Rectangle {
     // emoji is taller than its line.
     property <length> overhang: 4px;
     property <length> line: root.text-size * 1.5;
+    property <bool> commanding: root.command-name != "";
+    // The command's pills, over the text, in as many rows as they take.
+    property <length> pills: root.commanding ? pill-rows.preferred-height + 6px : 0px;
+    property <CommandOptionPill> focused-pill: root.command-options[root.command-focus];
     // Where the menu opens: the pointer, from the composer's corner.
     property <length> menu-x;
     property <length> menu-y;
@@ -108,22 +133,49 @@ export component Composer inherits Rectangle {
         ]
         : [root.paste-row, root.select-all-row];
     horizontal-stretch: 1;
-    height: max(48px, min(input.preferred-height + 2 * root.pad, 10 * root.line + 2 * root.pad));
+    height: root.pills + max(48px, min(input.preferred-height + 2 * root.pad, 10 * root.line + 2 * root.pad));
+    pill-rows := CommandPills {
+        x: 6px; y: root.pad - 4px; width: root.width - 12px; height: self.preferred-height;
+        visible: root.commanding;
+        name: root.command-name; options: root.command-options; focused-index: root.command-focus;
+        clicked(index) => {
+            input.focus();
+            if root.command-options[index].file { root.command-file(index); } else { root.command-option-clicked(index); }
+        }
+    }
     Text {
-        x: 6px; y: root.pad; width: root.width - 12px; height: root.line;
+        x: 6px; y: root.pills + root.pad; width: root.width - 12px; height: root.line;
         visible: root.text == "";
-        text: root.placeholder; color: root.enabled ? Theme.placeholder : Theme.faint; font-size: root.text-size;
+        text: !root.commanding ? root.placeholder
+            : root.command-options.length == 0 ? "Press Enter to run /" + root.command-name
+            : root.focused-pill.file ? "Press Enter to choose a file for " + root.focused-pill.name
+            : root.focused-pill.description; color: root.enabled ? Theme.placeholder : Theme.faint; font-size: root.text-size;
         vertical-alignment: center; overflow: elide;
     }
     FocusScope {
-        x: 6px; y: root.pad - root.overhang; width: root.width - 12px;
-        height: root.height - 2 * root.pad + 2 * root.overhang;
+        x: 6px; y: root.pills + root.pad - root.overhang; width: root.width - 12px;
+        height: root.height - root.pills - 2 * root.pad + 2 * root.overhang;
         capture-key-pressed(event) => {
             if root.suggesting {
                 if event.text == Key.UpArrow { root.suggestion-moved(-1); return accept; }
                 if event.text == Key.DownArrow { root.suggestion-moved(1); return accept; }
                 if (event.text == Key.Return || event.text == Key.Tab) && !event.modifiers.shift { root.suggestion-chosen(); return accept; }
                 if event.text == Key.Escape { root.suggestion-dismissed(); return accept; }
+            }
+            if root.picking && !root.commanding && event.text == Key.Escape {
+                root.command-closed(false);
+                return accept;
+            }
+            if root.commanding {
+                if event.text == Key.Tab && root.command-options.length > 0 { root.command-tab(event.modifiers.shift ? -1 : 1); return accept; }
+                if event.text == Key.Backtab && root.command-options.length > 0 { root.command-tab(-1); return accept; }
+                if event.text == Key.Escape { root.command-closed(false); return accept; }
+                if event.text == Key.Backspace && root.text == "" && root.command-focus == 0 { root.command-closed(true); return accept; }
+                if event.text == Key.Return && !event.modifiers.shift && root.command-options.length > 0
+                    && root.focused-pill.file && root.focused-pill.value == "" {
+                    root.command-file(root.command-focus);
+                    return accept;
+                }
             }
             if event.text == Key.Escape && root.escaped() { return accept; }
             if event.text == Key.UpArrow && event.modifiers.alt { root.up-to-messages(); return accept; }

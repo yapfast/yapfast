@@ -1169,8 +1169,34 @@ pub struct InternalKeyEvent {
 }
 
 /// Yapfast: the Latin letter on the key that types `text` on the Russian or
-/// Ukrainian layout (ЙЦУКЕН), keeping its case; none for anything else.
+/// Ukrainian layout (ЙЦУКЕН), keeping its case, or the character a US keyboard
+/// has where the Thai layout (Kedmanee) types it; none for anything else.
 pub(crate) fn latin_on_same_key(text: &str) -> Option<&'static str> {
+    // Kedmanee has no case: Shift types another letter, so each maps to what
+    // a US keyboard types on its key with the same Shift. The few keys where
+    // it types ASCII punctuation come as that punctuation, and stay.
+    const THAI: [(char, &str); 83] = [
+        // The digits' row, then with Shift.
+        ('ๅ', "1"), ('ภ', "4"), ('ถ', "5"), ('\u{e38}', "6"), ('\u{e36}', "7"), ('ค', "8"),
+        ('ต', "9"), ('จ', "0"), ('ข', "-"), ('ช', "="),
+        ('๑', "@"), ('๒', "#"), ('๓', "$"), ('๔', "%"), ('\u{e39}', "^"), ('฿', "&"),
+        ('๕', "*"), ('๖', "("), ('๗', ")"), ('๘', "_"), ('๙', "+"),
+        // The three rows of letters.
+        ('ๆ', "q"), ('ไ', "w"), ('ำ', "e"), ('พ', "r"), ('ะ', "t"), ('\u{e31}', "y"),
+        ('\u{e35}', "u"), ('ร', "i"), ('น', "o"), ('ย', "p"), ('บ', "["), ('ล', "]"),
+        ('ฃ', "\\"),
+        ('ฟ', "a"), ('ห', "s"), ('ก', "d"), ('ด', "f"), ('เ', "g"), ('\u{e49}', "h"),
+        ('\u{e48}', "j"), ('า', "k"), ('ส', "l"), ('ว', ";"), ('ง', "'"),
+        ('ผ', "z"), ('ป', "x"), ('แ', "c"), ('อ', "v"), ('\u{e34}', "b"), ('\u{e37}', "n"),
+        ('ท', "m"), ('ม', ","), ('ใ', "."), ('ฝ', "/"),
+        // And with Shift.
+        ('๐', "Q"), ('ฎ', "E"), ('ฑ', "R"), ('ธ', "T"), ('\u{e4d}', "Y"), ('\u{e4a}', "U"),
+        ('ณ', "I"), ('ฯ', "O"), ('ญ', "P"), ('ฐ', "{"), ('ฅ', "|"),
+        ('ฤ', "A"), ('ฆ', "S"), ('ฏ', "D"), ('โ', "F"), ('ฌ', "G"), ('\u{e47}', "H"),
+        ('\u{e4b}', "J"), ('ษ', "K"), ('ศ', "L"), ('ซ', ":"),
+        ('ฉ', "C"), ('ฮ', "V"), ('\u{e3a}', "B"), ('\u{e4c}', "N"), ('ฒ', "<"), ('ฬ', ">"),
+        ('ฦ', "?"),
+    ];
     const KEYS: [(char, &str, &str); 37] = [
         ('й', "q", "Q"), ('ц', "w", "W"), ('у', "e", "E"), ('к', "r", "R"),
         ('е', "t", "T"), ('н', "y", "Y"), ('г', "u", "U"), ('ш', "i", "I"),
@@ -1185,6 +1211,9 @@ pub(crate) fn latin_on_same_key(text: &str) -> Option<&'static str> {
     ];
     let mut chars = text.chars();
     let (Some(typed), None) = (chars.next(), chars.next()) else { return None };
+    if let Some(&(_, latin)) = THAI.iter().find(|(key, _)| *key == typed) {
+        return Some(latin);
+    }
     let lower = typed.to_lowercase().next()?;
     let &(_, latin, upper) = KEYS.iter().find(|(key, _, _)| *key == lower)?;
     Some(if typed == lower { latin } else { upper })
@@ -3222,6 +3251,23 @@ mod tests {
         assert_eq!(latin_on_same_key("a"), None);
         assert_eq!(latin_on_same_key("фы"), None);
         assert_eq!(latin_on_same_key(""), None);
+    }
+
+    // Yapfast
+    #[test]
+    fn thai_letters_map_to_the_us_key() {
+        assert_eq!(latin_on_same_key("ฟ"), Some("a"));
+        assert_eq!(latin_on_same_key("แ"), Some("c"));
+        assert_eq!(latin_on_same_key("อ"), Some("v"));
+        assert_eq!(latin_on_same_key("ผ"), Some("z"));
+        // Shift types another letter, which is the key's capital.
+        assert_eq!(latin_on_same_key("ฤ"), Some("A"));
+        // A vowel that sits over the letter before it.
+        assert_eq!(latin_on_same_key("\u{e34}"), Some("b"));
+        // The digits' row types letters too.
+        assert_eq!(latin_on_same_key("จ"), Some("0"));
+        assert_eq!(latin_on_same_key("ช"), Some("="));
+        assert_eq!(latin_on_same_key("ฟห"), None);
     }
 
     #[test]

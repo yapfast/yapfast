@@ -187,6 +187,13 @@ impl Unreads {
         roles: &HashMap<String, Vec<String>>,
     ) -> bool {
         match event {
+            // An answer only this account sees isn't in the channel's
+            // history, so it's neither unread nor read up to.
+            Event::MessageCreate
+                if data["flags"].as_u64().unwrap_or_default() & crate::message::EPHEMERAL != 0 =>
+            {
+                false
+            }
             Event::MessageCreate => {
                 let (Some(channel), Some(id)) =
                     (data["channel_id"].as_str(), snowflake(&data["id"]))

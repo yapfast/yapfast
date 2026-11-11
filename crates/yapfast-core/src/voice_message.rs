@@ -1,9 +1,9 @@
 //! The voice message playing in the conversation view. Its recording, a
 //! small Ogg Opus file, downloads whole, then decodes a packet at a time on
 //! a thread of its own as it plays on the speakers chosen for calls, as
-//! fast and loud as the person chose. At its end it goes back to the start,
-//! kept to play again. One plays at a time; dropping it stops it and lets
-//! its recording go.
+//! fast and loud as the person chose, from wherever they move it to. At its
+//! end it goes back to the start, kept to play again. One plays at a time;
+//! dropping it stops it and lets its recording go.
 
 use std::{
     future::Future,
@@ -36,6 +36,18 @@ const HOP: usize = WINDOW / 2;
 /// How far, either way, a window may move to continue the last: 5 ms, the
 /// period of a voice's lowest pitch.
 const SEEK: usize = RATE as usize / 200;
+/// How much before a time a move starts decoding, for the decoder to settle
+/// there: Opus asks for 80 ms.
+const PREROLL_MS: u64 = 80;
+
+/// What the player tells its thread.
+#[derive(Debug)]
+enum Control {
+    /// Play on from where it is (true), or pause.
+    Play(bool),
+    /// Move to this many milliseconds into it, playing or paused as it was.
+    Move(u64),
+}
 
 /// What the player's download and thread tell it.
 #[derive(Debug, PartialEq)]
@@ -44,6 +56,9 @@ pub enum Report {
     Loaded,
     /// It has played this many milliseconds.
     Position(u64),
+    /// It moved to this many milliseconds, as the player asked: one for each
+    /// move, after which its positions count again.
+    Moved(u64),
     /// It played to its end, and waits at the start.
     Finished,
     /// It stopped, for this reason for the person.
@@ -51,7 +66,7 @@ pub enum Report {
 }
 
 /// How fast and loud it plays, which the person may change as it plays: an
-/// [`f32`] each, by its bits.
+/// [`f32`] each, by its bits; muted, it plays at no volume.
 struct Tuning {
     speed: AtomicU32,
     volume: AtomicU32,
@@ -61,13 +76,17 @@ impl Tuning {
     fn new(tuning: VoiceTuning) -> Self {
         Self {
             speed: AtomicU32::new(tuning.speed.to_bits()),
-            volume: AtomicU32::new(tuning.volume.to_bits()),
+            volume: AtomicU32::new(Self::volume(tuning).to_bits()),
         }
     }
 
     fn set(&self, tuning: VoiceTuning) {
         self.speed.store(tuning.speed.to_bits(), Relaxed);
-        self.volume.store(tuning.volume.to_bits(), Relaxed);
+        self.volume.store(Self::volume(tuning).to_bits(), Relaxed);
+    }
+
+    fn volume(tuning: VoiceTuning) -> f32 {
+        if tuning.muted { 0.0 } else { tuning.volume }
     }
 
     /// Its speed, kept between half and twice as fast.
@@ -86,10 +105,13 @@ impl Tuning {
 
 pub struct Player {
     pub playback: VoicePlayback,
-    /// Plays (true) or pauses it; dropping it stops it.
-    control: mpsc::Sender<bool>,
+    /// Plays, pauses or moves it; dropping it stops it.
+    control: mpsc::Sender<Control>,
     tuning: Arc<Tuning>,
     reports: UnboundedReceiver<Report>,
+    /// Moves its thread hasn't made yet, whose positions before them are
+    /// out of date.
+    moves: usize,
     download: tokio::task::JoinHandle<()>,
 }
 
@@ -101,11 +123,13 @@ impl Drop for Player {
 
 impl Player {
     /// Starts downloading `playback`'s recording with `download`, then plays
-    /// it from the start on `speakers`, tuned as `tuning` says.
+    /// it from the start on `speakers`, tuned as `tuning` says; or with
+    /// `paused_at`, waits there paused.
     pub fn start<F>(
         playback: VoicePlayback,
         speakers: Option<String>,
         tuning: VoiceTuning,
+        paused_at: Option<u64>,
         download: F,
     ) -> Self
     where
@@ -132,7 +156,8 @@ impl Player {
             let started = std::thread::Builder::new()
                 .name("yapfast-voice-message".into())
                 .spawn(move || {
-                    play_on(&data, speakers.as_deref(), &controls, &tuned, &reported);
+                    let speakers = speakers.as_deref();
+                    play_on(&data, speakers, &controls, &tuned, &reported, paused_at);
                 });
             if let Err(error) = started {
                 tracing::warn!(%error, "could not start a voice message");
@@ -141,14 +166,15 @@ impl Player {
         Self {
             playback: VoicePlayback {
                 loading: true,
-                playing: true,
-                position_ms: 0,
+                playing: paused_at.is_none(),
+                position_ms: paused_at.unwrap_or(0),
                 error: None,
                 ..playback
             },
             control,
             tuning,
             reports,
+            moves: 0,
             download,
         }
     }
@@ -161,7 +187,14 @@ impl Player {
     /// Plays it on from where it paused, or pauses it.
     pub fn set_playing(&mut self, playing: bool) {
         self.playback.playing = playing;
-        let _ = self.control.send(playing);
+        let _ = self.control.send(Control::Play(playing));
+    }
+
+    /// Moves it to `at_ms` into the recording, playing or paused as it was.
+    pub fn move_to(&mut self, at_ms: u64) {
+        self.playback.position_ms = at_ms;
+        self.moves += 1;
+        let _ = self.control.send(Control::Move(at_ms));
     }
 
     /// Waits for news of it. Cancel safe.
@@ -173,7 +206,16 @@ impl Player {
     pub fn handle(&mut self, report: Option<Report>) -> bool {
         match report {
             Some(Report::Loaded) => self.playback.loading = false,
-            Some(Report::Position(position_ms)) => self.playback.position_ms = position_ms,
+            Some(Report::Position(position_ms)) if self.moves == 0 => {
+                self.playback.position_ms = position_ms;
+            }
+            Some(Report::Position(_)) => {}
+            Some(Report::Moved(position_ms)) => {
+                self.moves = self.moves.saturating_sub(1);
+                if self.moves == 0 {
+                    self.playback.position_ms = position_ms;
+                }
+            }
             Some(Report::Finished) => {
                 self.playback.playing = false;
                 self.playback.position_ms = 0;
@@ -209,14 +251,15 @@ impl Speakers for Output<i16> {
 }
 
 /// The player's thread: plays the recording, from the start each time it's
-/// played after its end, until the player is dropped. The speakers are open
-/// only while it plays or pauses.
+/// played after its end, or paused where it's moved to then, until the
+/// player is dropped. The speakers are open only while it plays or pauses.
 fn play_on(
     data: &[u8],
     speakers: Option<&str>,
-    controls: &mpsc::Receiver<bool>,
+    controls: &mpsc::Receiver<Control>,
     tuning: &Tuning,
     reports: &UnboundedSender<Report>,
+    mut paused_at: Option<u64>,
 ) {
     loop {
         // Little queued, so pausing is heard at once.
@@ -229,7 +272,7 @@ fn play_on(
         )
         .context("could not open the speakers")
         .and_then(|mut output| {
-            let ended = play(data, &mut output, controls, tuning, reports)?;
+            let ended = play(data, &mut output, controls, tuning, reports, paused_at)?;
             if ended {
                 output.drain().context("could not finish playing")?;
             }
@@ -249,25 +292,31 @@ fn play_on(
                 return;
             }
         }
-        loop {
+        paused_at = loop {
             match controls.recv() {
-                Ok(true) => break,
-                Ok(false) => {}
+                Ok(Control::Play(true)) => break None,
+                Ok(Control::Play(false)) => {}
+                Ok(Control::Move(at)) => {
+                    let _ = reports.send(Report::Moved(at));
+                    break Some(at);
+                }
                 Err(_) => return,
             }
-        }
+        };
     }
 }
 
-/// Decodes `data` a packet at a time into `speakers`, pausing and playing
-/// as `controls` says, at the speed and volume `tuning` has at each packet.
-/// True once it played to its end; false when the player was dropped.
+/// Decodes `data` a packet at a time into `speakers`, pausing, playing and
+/// moving as `controls` says, at the speed and volume `tuning` has at each
+/// packet; with `paused_at`, it starts there paused. True once it played to
+/// its end; false when the player was dropped.
 fn play(
     data: &[u8],
     speakers: &mut impl Speakers,
-    controls: &mpsc::Receiver<bool>,
+    controls: &mpsc::Receiver<Control>,
     tuning: &Tuning,
     reports: &UnboundedSender<Report>,
+    paused_at: Option<u64>,
 ) -> Result<bool> {
     let mut file = Video::open_sound(Cursor::new(data)).context("not a sound Yapfast can play")?;
     let (rate, channels) = file.sound.context("the file has no sound")?;
@@ -281,29 +330,63 @@ fn play(
     let mut frames = Vec::new();
     let mut samples = Vec::new();
     let millis = |frames: f64| (frames.max(0.0) * 1000.0 / f64::from(RATE)) as u64;
-    while file.decode_sound()?.is_some() {
-        let mut playing = true;
-        loop {
-            match controls.try_recv() {
-                Ok(play) => playing = play,
-                Err(mpsc::TryRecvError::Empty) => break,
+    let mut playing = paused_at.is_none();
+    let mut moving = paused_at;
+    // Since a move, the time before which what's decoded is left out.
+    let mut from = None;
+    loop {
+        if let Some(at) = moving.take() {
+            file.seek(at.saturating_sub(PREROLL_MS))?;
+            resampler.reset();
+            tempo = Tempo::new();
+            through = at as f64 * f64::from(RATE) / 1000.0;
+            reported = at;
+            from = Some(at);
+        }
+        let Some(time) = file.decode_sound()? else {
+            break;
+        };
+        // Paused, it waits until told to play on: what's queued, 100 ms at
+        // most, plays out. A move goes there before anything more.
+        while moving.is_none() {
+            let control = match controls.try_recv() {
+                Ok(control) => control,
+                Err(mpsc::TryRecvError::Empty) if playing => break,
+                Err(mpsc::TryRecvError::Empty) => {
+                    let _ = reports.send(Report::Position(millis(through)));
+                    match controls.recv() {
+                        Ok(control) => control,
+                        Err(_) => return Ok(false),
+                    }
+                }
                 Err(mpsc::TryRecvError::Disconnected) => return Ok(false),
+            };
+            match control {
+                Control::Play(play) => playing = play,
+                Control::Move(at) => {
+                    let _ = reports.send(Report::Moved(at));
+                    moving = Some(at);
+                }
             }
         }
-        // Paused, it waits until told to play on: what's queued, 100 ms at
-        // most, plays out.
-        while !playing {
-            let _ = reports.send(Report::Position(millis(through)));
-            match controls.recv() {
-                Ok(play) => playing = play,
-                Err(_) => return Ok(false),
-            }
+        if moving.is_some() {
+            continue;
         }
         let sound = file.sound();
         resampler.follow(sound.rate, sound.channels);
+        let mut sound = resampler.run(sound.samples);
+        if let Some(at) = from {
+            let early = time.map_or(0, |time| at.saturating_sub(time) * u64::from(RATE) / 1000);
+            let early = (early as usize * 2).min(sound.len());
+            if early == sound.len() {
+                continue;
+            }
+            sound.drain(..early);
+            from = None;
+        }
         let speed = tuning.speed();
         frames.clear();
-        through += tempo.run(&resampler.run(sound.samples), speed, &mut frames);
+        through += tempo.run(&sound, speed, &mut frames);
         louder(&frames, tuning.gain(), &mut samples);
         // The time stretcher gives nothing while it fills its first window,
         // and PulseAudio refuses an empty write.
@@ -501,7 +584,17 @@ mod tests {
         let (_control, controls) = mpsc::channel();
         let (reported, mut reports) = tokio::sync::mpsc::unbounded_channel();
         let mut speakers = Kept::default();
-        assert!(play(&recording(), &mut speakers, &controls, &normal(), &reported).unwrap());
+        assert!(
+            play(
+                &recording(),
+                &mut speakers,
+                &controls,
+                &normal(),
+                &reported,
+                None
+            )
+            .unwrap()
+        );
         // Two seconds of 48 kHz stereo.
         let seconds = speakers.0.len() as f32 / 2.0 / RATE as f32;
         assert!((seconds - 2.0).abs() < 0.1, "played {seconds} s");
@@ -524,10 +617,20 @@ mod tests {
         let (control, controls) = mpsc::channel();
         let (reported, mut reports) = tokio::sync::mpsc::unbounded_channel();
         // Paused before it starts, then played, it plays everything.
-        control.send(false).unwrap();
-        control.send(true).unwrap();
+        control.send(Control::Play(false)).unwrap();
+        control.send(Control::Play(true)).unwrap();
         let mut speakers = Kept::default();
-        assert!(play(&recording(), &mut speakers, &controls, &normal(), &reported).unwrap());
+        assert!(
+            play(
+                &recording(),
+                &mut speakers,
+                &controls,
+                &normal(),
+                &reported,
+                None
+            )
+            .unwrap()
+        );
         assert!(speakers.0.len() > RATE as usize * 3);
         let not_sound = play(
             b"not a sound",
@@ -535,22 +638,100 @@ mod tests {
             &controls,
             &normal(),
             &reported,
+            None,
         );
         assert!(not_sound.is_err());
         while reports.try_recv().is_ok() {}
 
         // Paused at the start, it says where it waits; dropped, it plays
         // nothing more.
-        control.send(false).unwrap();
+        control.send(Control::Play(false)).unwrap();
         let playing = std::thread::spawn(move || {
             let mut speakers = Kept::default();
-            let ended = play(&recording(), &mut speakers, &controls, &normal(), &reported).unwrap();
+            let ended = play(
+                &recording(),
+                &mut speakers,
+                &controls,
+                &normal(),
+                &reported,
+                None,
+            )
+            .unwrap();
             (ended, speakers.0.len())
         });
         assert_eq!(reports.blocking_recv(), Some(Report::Loaded));
         assert_eq!(reports.blocking_recv(), Some(Report::Position(0)));
         drop(control);
         assert_eq!(playing.join().unwrap(), (false, 0));
+    }
+
+    #[test]
+    fn moves_through_it_playing_or_paused() {
+        let (control, controls) = mpsc::channel();
+        let (reported, mut reports) = tokio::sync::mpsc::unbounded_channel();
+        let mut whole = Kept::default();
+        play(
+            &recording(),
+            &mut whole,
+            &controls,
+            &normal(),
+            &reported,
+            None,
+        )
+        .unwrap();
+        while reports.try_recv().is_ok() {}
+        let whole = whole.0.len() as f32 / 2.0 / RATE as f32;
+        // Moved to 1.5 s as it starts, it plays what's after, and tells
+        // times from there.
+        control.send(Control::Move(1500)).unwrap();
+        let mut speakers = Kept::default();
+        assert!(
+            play(
+                &recording(),
+                &mut speakers,
+                &controls,
+                &normal(),
+                &reported,
+                None
+            )
+            .unwrap()
+        );
+        let seconds = speakers.0.len() as f32 / 2.0 / RATE as f32;
+        assert!(
+            (seconds - (whole - 1.5)).abs() < 0.01,
+            "played {seconds} of {whole} s"
+        );
+        let told: Vec<Report> = std::iter::from_fn(|| reports.try_recv().ok()).collect();
+        assert_eq!(told[..2], [Report::Loaded, Report::Moved(1500)]);
+        assert!(
+            told[2..]
+                .iter()
+                .all(|report| matches!(report, Report::Position(at) if *at >= 1500)),
+            "{told:?}"
+        );
+
+        // Started paused at 1 s, it waits there, then plays what's after.
+        let playing = std::thread::spawn(move || {
+            let mut speakers = Kept::default();
+            let ended = play(
+                &recording(),
+                &mut speakers,
+                &controls,
+                &normal(),
+                &reported,
+                Some(1000),
+            );
+            (ended.unwrap(), speakers.0.len())
+        });
+        assert_eq!(reports.blocking_recv(), Some(Report::Loaded));
+        assert_eq!(reports.blocking_recv(), Some(Report::Position(1000)));
+        control.send(Control::Play(true)).unwrap();
+        let (ended, samples) = playing.join().unwrap();
+        let seconds = samples as f32 / 2.0 / RATE as f32;
+        assert!(
+            ended && (seconds - (whole - 1.0)).abs() < 0.01,
+            "played {seconds} of {whole} s"
+        );
     }
 
     #[test]
@@ -574,7 +755,7 @@ mod tests {
     }
 
     #[test]
-    fn plays_twice_as_fast_at_the_same_pitch_and_silent_at_no_volume() {
+    fn plays_twice_as_fast_at_the_same_pitch_and_silent_muted() {
         let (_control, controls) = mpsc::channel();
         let (reported, mut reports) = tokio::sync::mpsc::unbounded_channel();
         let mut normal_speed = Kept::default();
@@ -584,15 +765,16 @@ mod tests {
             &controls,
             &normal(),
             &reported,
+            None,
         )
         .unwrap();
         while reports.try_recv().is_ok() {}
         let tuning = Tuning::new(VoiceTuning {
             speed: 2.0,
-            volume: 1.0,
+            ..VoiceTuning::default()
         });
         let mut fast = Kept::default();
-        assert!(play(&recording(), &mut fast, &controls, &tuning, &reported).unwrap());
+        assert!(play(&recording(), &mut fast, &controls, &tuning, &reported, None).unwrap());
         // Half the frames, at the same pitch.
         let seconds = fast.0.len() as f32 / 2.0 / RATE as f32;
         assert!((seconds - 1.0).abs() < 0.1, "played {seconds} s");
@@ -612,10 +794,21 @@ mod tests {
 
         tuning.set(VoiceTuning {
             speed: 1.5,
-            volume: 0.0,
+            volume: 0.5,
+            muted: true,
         });
         let mut silent = Kept::default();
-        assert!(play(&recording(), &mut silent, &controls, &tuning, &reported).unwrap());
+        assert!(
+            play(
+                &recording(),
+                &mut silent,
+                &controls,
+                &tuning,
+                &reported,
+                None
+            )
+            .unwrap()
+        );
         assert!(!silent.0.is_empty());
         assert!(silent.0.iter().all(|sample| *sample == 0));
     }

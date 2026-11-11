@@ -129,6 +129,10 @@ pub(super) struct Tracker {
     /// Where each user is in voice, by server and user id; DM and group DM
     /// calls go under [`PRIVATE`].
     voice: HashMap<(String, String), VoiceEntry>,
+    /// When each busy server voice channel's session started, in Unix
+    /// seconds, by channel id; shared with snapshots while it stays the
+    /// same.
+    voice_started: Arc<HashMap<String, u64>>,
     /// The calls in DMs and group DMs, by channel id, with whom each rings.
     calls: HashMap<String, Vec<String>>,
     /// This account's roles, by server id.
@@ -159,6 +163,10 @@ pub(super) struct Tracker {
     /// Whether the account shares the game it plays, from the settings, and
     /// the game it shows.
     pub(super) show_game: bool,
+    /// Whether Discord lets the account see age-restricted content, and
+    /// whether its settings offer age-restricted commands in DMs.
+    nsfw_allowed: bool,
+    nsfw_commands_in_dms: bool,
     pub(super) playing: Option<Arc<crate::own_activity::Playing>>,
     /// The soundboard's volume and join sounds, from the settings.
     soundboard_volume: Option<f32>,
@@ -178,6 +186,21 @@ pub(super) struct Tracker {
     beside: Option<String>,
 }
 
+/// When a voice channel's session started, in Unix seconds, as Discord
+/// writes it: VOICE_CHANNEL_START_TIME_UPDATE gives seconds, and CHANNEL_INFO
+/// is documented as an ISO 8601 time, so either is read; `null` is none.
+fn start_time(value: &Value) -> Option<u64> {
+    match value {
+        Value::Number(seconds) => seconds.as_u64(),
+        Value::String(text) => text
+            .parse()
+            .ok()
+            .or_else(|| crate::message::iso_ms(text).map(|ms| ms / 1000)),
+        _ => None,
+    }
+    .filter(|seconds| *seconds > 0)
+}
+
 /// A user's Nitro from their user object, as [`Account::premium_type`].
 fn premium_type(user: &Value) -> u8 {
     user["premium_type"]
@@ -194,12 +217,15 @@ impl Tracker {
             premium: premium_type(&ready["user"]),
             mfa: ready["user"]["mfa_enabled"].as_bool().unwrap_or_default(),
             email: ready["user"]["email"].is_string(),
+            nsfw_allowed: ready["user"]["nsfw_allowed"].as_bool().unwrap_or_default(),
+            nsfw_commands_in_dms: false,
             servers: ready::servers(ready).into_iter().map(Arc::new).collect(),
             published: HashMap::new(),
             emptied: HashMap::new(),
             kept: Kept::default(),
             names,
             voice: HashMap::new(),
+            voice_started: Arc::default(),
             calls: HashMap::new(),
             my_roles: HashMap::new(),
             unreads: Unreads::from_ready(ready),
@@ -522,6 +548,7 @@ impl Tracker {
                     known.owner_id = update.owner_id;
                 }
                 known.premium_tier = update.premium_tier;
+                known.age_restricted = update.age_restricted;
                 known.role_icons_allowed = update.role_icons_allowed;
                 known.mfa_level = update.mfa_level;
                 known.default_level = update.default_level;
@@ -558,13 +585,16 @@ impl Tracker {
                 // Only this account's own USER_UPDATE has `email`, null
                 // for none.
                 let email = data.get("email").map_or(self.email, Value::is_string);
+                let nsfw = data["nsfw_allowed"].as_bool().unwrap_or(self.nsfw_allowed);
                 let changed = premium != self.premium
                     || mfa != self.mfa
                     || email != self.email
+                    || nsfw != self.nsfw_allowed
                     || shown(self) != before;
                 self.premium = premium;
                 self.mfa = mfa;
                 self.email = email;
+                self.nsfw_allowed = nsfw;
                 changed
             }
             // An outage, with `unavailable`, keeps the server as last known
@@ -573,6 +603,19 @@ impl Tracker {
                 let Some(id) = data["id"].as_str() else {
                     return false;
                 };
+                // Its calls' start times go with its voice states, whether
+                // it left or is out: back, it's asked again.
+                if let Some(server) = self.servers.iter().find(|server| server.id == id)
+                    && server
+                        .voice_channels
+                        .iter()
+                        .any(|channel| self.voice_started.contains_key(&channel.id))
+                {
+                    let started = Arc::make_mut(&mut self.voice_started);
+                    for channel in &server.voice_channels {
+                        started.remove(&channel.id);
+                    }
+                }
                 if data["unavailable"].as_bool() == Some(true) {
                     if let Some(server) = self.server_mut(id) {
                         server.unavailable = true;
@@ -661,10 +704,53 @@ impl Tracker {
                 };
                 if *event == Event::ChannelDelete {
                     server.remove_channel(id);
+                    self.voice_start(id, None);
                 } else {
                     server.put_channel(data);
                 }
                 true
+            }
+            Event::VoiceChannelStartTimeUpdate => {
+                let Some(id) = data["id"].as_str() else {
+                    return false;
+                };
+                self.voice_start(id, start_time(&data["voice_start_time"]))
+            }
+            // The answer to op 43, which lists each of the server's voice
+            // channels, with a start time only while one is busy.
+            // The answer is whole: a voice channel of the server it gives no
+            // time has no call going on.
+            Event::ChannelInfo => {
+                let given: HashMap<&str, u64> = data["channels"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|channel| {
+                        Some((
+                            channel["id"].as_str()?,
+                            start_time(&channel["voice_start_time"])?,
+                        ))
+                    })
+                    .collect();
+                let quiet: Vec<String> = data["guild_id"]
+                    .as_str()
+                    .and_then(|guild| self.servers.iter().find(|server| server.id == guild))
+                    .into_iter()
+                    .flat_map(|server| &server.voice_channels)
+                    .filter(|channel| {
+                        !given.contains_key(channel.id.as_str())
+                            && self.voice_started.contains_key(&channel.id)
+                    })
+                    .map(|channel| channel.id.clone())
+                    .collect();
+                let mut changed = false;
+                for channel in quiet {
+                    changed |= self.voice_start(&channel, None);
+                }
+                for (channel, started) in given {
+                    changed |= self.voice_start(channel, Some(started));
+                }
+                changed
             }
             Event::ThreadCreate | Event::ThreadUpdate | Event::ThreadDelete => {
                 let (Some(guild), Some(id)) = (data["guild_id"].as_str(), data["id"].as_str())
@@ -962,6 +1048,20 @@ impl Tracker {
             .is_some_and(|entry| !self.elsewhere(entry))
     }
 
+    /// Notes when a voice channel's session started, or with none that it
+    /// ended; returns whether that changed.
+    fn voice_start(&mut self, channel: &str, started: Option<u64>) -> bool {
+        if self.voice_started.get(channel).copied() == started {
+            return false;
+        }
+        let map = Arc::make_mut(&mut self.voice_started);
+        match started {
+            Some(started) => map.insert(channel.to_owned(), started),
+            None => map.remove(channel),
+        };
+        true
+    }
+
     /// Whether a voice state of this account is another client's.
     fn elsewhere(&self, entry: &VoiceEntry) -> bool {
         self.session.is_some() && entry.session.is_some() && entry.session != self.session
@@ -1215,6 +1315,9 @@ impl Tracker {
         }
         if let Some(shown) = read.show_game {
             self.show_game = shown;
+        }
+        if let Some(offered) = read.nsfw_commands_in_dms {
+            self.nsfw_commands_in_dms = offered;
         }
         let soundboard = crate::soundboard::read_settings(encoded);
         if let Some(volume) = soundboard.volume {
@@ -1843,6 +1946,8 @@ impl Tracker {
                 premium_type: self.premium,
                 mfa_enabled: self.mfa,
                 has_email: self.email,
+                nsfw_allowed: self.nsfw_allowed,
+                nsfw_commands_in_dms: self.nsfw_commands_in_dms,
             }),
             servers,
             folders: self.folders.clone(),
@@ -1863,6 +1968,7 @@ impl Tracker {
             playing: self.playing.clone(),
             friend_requests: people.friend_requests,
             voice,
+            voice_started: self.voice_started.clone(),
             listed: None,
             viewing: self.viewing.iter().chain(&self.beside).cloned().collect(),
             names: super::SharedNames::new(self.names.clone()),
@@ -1932,6 +2038,100 @@ mod tests {
                 .is_some_and(|icon| icon.contains("/icons/10/ghi.png"))
         );
         assert_eq!(server.voice_channels.len(), 2, "the channels stay");
+    }
+
+    #[test]
+    fn keeps_when_voice_channels_sessions_started() {
+        let ready = json!({
+            "user": {"id": "1"},
+            "guilds": [{"id": "10", "properties": {"name": "Test"}, "channels": [
+                {"id": "11", "name": "Lounge", "type": 2, "position": 0},
+                {"id": "12", "name": "Games", "type": 2, "position": 1},
+                {"id": "13", "name": "general", "type": 0, "position": 2},
+            ]}],
+        });
+        let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
+        // CHANNEL_INFO lists every channel, with a start time on busy voice
+        // channels, written as seconds or as an ISO 8601 time.
+        assert!(tracker.apply(
+            &Event::ChannelInfo,
+            &json!({"guild_id": "10", "channels": [
+                {"id": "11", "voice_start_time": 1_767_225_600},
+                {"id": "12", "voice_start_time": "2026-01-01T00:10:00+00:00"},
+                {"id": "13"},
+            ]}),
+        ));
+        let snapshot = tracker.snapshot();
+        assert_eq!(snapshot.voice_started.get("11"), Some(&1_767_225_600));
+        assert_eq!(snapshot.voice_started.get("12"), Some(&1_767_226_200));
+        assert_eq!(snapshot.voice_started.get("13"), None);
+
+        let shared = tracker.snapshot().voice_started;
+        assert!(
+            Arc::ptr_eq(&shared, &snapshot.voice_started),
+            "unchanged, snapshots share the times"
+        );
+        assert!(
+            !tracker.apply(
+                &Event::VoiceChannelStartTimeUpdate,
+                &json!({"id": "11", "guild_id": "10", "voice_start_time": 1_767_225_600}),
+            ),
+            "the same time again changes nothing"
+        );
+
+        // The last person leaving ends the session; the first joining
+        // starts another.
+        assert!(tracker.apply(
+            &Event::VoiceChannelStartTimeUpdate,
+            &json!({"id": "11", "guild_id": "10", "voice_start_time": null}),
+        ));
+        assert_eq!(tracker.snapshot().voice_started.get("11"), None);
+        tracker.apply(
+            &Event::VoiceChannelStartTimeUpdate,
+            &json!({"id": "11", "guild_id": "10", "voice_start_time": 1_767_230_000}),
+        );
+        assert_eq!(
+            tracker.snapshot().voice_started.get("11"),
+            Some(&1_767_230_000)
+        );
+
+        // CHANNEL_INFO is whole: a voice channel it gives no time is quiet.
+        assert!(tracker.apply(
+            &Event::ChannelInfo,
+            &json!({"guild_id": "10", "channels": [
+                {"id": "12", "voice_start_time": 1_767_226_200},
+            ]}),
+        ));
+        let started = tracker.snapshot().voice_started;
+        assert_eq!(started.get("11"), None);
+        assert_eq!(started.get("12"), Some(&1_767_226_200));
+
+        // An outage takes the times along with the voice states; the
+        // server is asked again once it's back.
+        tracker.apply(
+            &Event::GuildDelete,
+            &json!({"id": "10", "unavailable": true}),
+        );
+        assert!(tracker.snapshot().voice_started.is_empty());
+        tracker.apply(
+            &Event::ChannelInfo,
+            &json!({"guild_id": "10", "channels": [
+                {"id": "12", "voice_start_time": 1_767_226_200},
+            ]}),
+        );
+
+        // A deleted channel, or a server left, takes its times along.
+        tracker.apply(
+            &Event::ChannelDelete,
+            &json!({"guild_id": "10", "id": "12", "type": 2}),
+        );
+        assert_eq!(tracker.snapshot().voice_started.get("12"), None);
+        tracker.apply(
+            &Event::VoiceChannelStartTimeUpdate,
+            &json!({"id": "11", "guild_id": "10", "voice_start_time": 1_767_230_000}),
+        );
+        tracker.apply(&Event::GuildDelete, &json!({"id": "10"}));
+        assert!(tracker.snapshot().voice_started.is_empty());
     }
 
     #[test]
