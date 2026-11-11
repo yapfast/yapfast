@@ -463,8 +463,44 @@ impl Bridge {
         }
     }
 
-    /// Writes a fetched plugin into the store, and puts the version it holds in
-    /// place of the one that was running.
+    /// Reads the marketplace's registry for the page, and announces it as
+    /// [`Notice::Catalog`].
+    ///
+    /// Like [`Bridge::fetch`], it runs on a runtime of its own: the fetch takes
+    /// seconds, and the window must not wait for it.
+    pub fn catalog(&mut self, url: String) {
+        let shared = Arc::clone(&self.shared);
+        let asked = url.clone();
+        let task = match self.background() {
+            Ok(runtime) => runtime.spawn(async move {
+                let read =
+                    tokio::task::spawn_blocking(move || crate::plugins::marketplace::load(&asked))
+                        .await;
+                let result = match read {
+                    Ok(Ok(catalog)) => Ok(Box::new(catalog)),
+                    Ok(Err(error)) => Err(error),
+                    Err(error) => Err(format!("the marketplace wasn't read: {error}")),
+                };
+                shared.announce(Notice::Catalog {
+                    source: url,
+                    result,
+                });
+            }),
+            Err(error) => {
+                shared.announce(Notice::Catalog {
+                    source: url,
+                    result: Err(format!("{error:#}")),
+                });
+                return;
+            }
+        };
+        self.fetches.push(task);
+        if self.fetches.len() > 4 {
+            self.fetches.remove(0);
+        }
+    }
+
+    /// Writes a fetched plugin into the store, and reads the store again.
     ///
     /// The helper stays up when it is up: its instances are swapped in order,
     /// with the plugins that need this one stopped first and started again after,

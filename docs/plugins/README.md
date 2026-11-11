@@ -23,6 +23,7 @@ binary, so a build without them links neither wasmtime nor `gix`.
 | [`abi.md`](abi.md) | The frames on the pipe, and the five exports a guest has |
 | [`host.md`](host.md) | The helper: its threads, lanes, deadlines, faults and cache |
 | [`permissions.md`](permissions.md) | Capabilities, consent, and the network gate |
+| [`marketplace.md`](marketplace.md) | The registry repository: entries, icons, review and CI, browsing and updates |
 | [`pdk.md`](pdk.md) | Writing a plugin, in Rust, C, Zig or AssemblyScript |
 | [`testing.md`](testing.md) | Fixtures, fake Discord, and the measurements |
 
@@ -173,6 +174,9 @@ would want: of the method groups a manifest can name, `storage`, `settings`,
 `subscribe` calls are; `messages`, `people`, `rooms`, `account`, `composer`,
 `notify`, `clipboard`, `open` and `ui` answer `unsupported`. `message.pre_send` and `message.pre_edit` exist and fail open;
 `typing.pre_send`, `attachment.pre_upload` and `activity.pre_publish` don't. The
-OS sandbox under the helper, the marketplace, and update checks are not started.
+OS sandbox under the helper is not started, and the marketplace is read while
+its page is open but not yet checked by a remote-refs query, so an update is
+fetched when asked for rather than offered
+([`marketplace.md`](marketplace.md)).
 `docs/plugins/manifest.md` lists the fields; a manifest may declare `menus`,
 `settings` and `tweaks` that nothing draws yet.

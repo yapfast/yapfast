@@ -801,6 +801,10 @@ impl Application {
     }
 
     pub(super) fn load_pictures(&mut self, urls: Vec<String>) -> Vec<Effect> {
+        // A marketplace row's icon is in the catalog's own bytes, not on a
+        // server: it is decoded here, and only the rows on screen ask for it.
+        #[cfg(feature = "plugins")]
+        let urls = self.plugin_icons(urls);
         let wanted: Vec<String> = urls
             .into_iter()
             .filter(|url| self.requested_pictures.insert(url.clone()))

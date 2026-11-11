@@ -469,6 +469,12 @@ impl Application {
                 self.plugins_fetched(url, result);
                 vec![AppEffect::Plugin(Effect::Page)]
             }
+            // The marketplace was read: its listings and their icons are held
+            // until the page closes, which drops them.
+            News::Notice(Notice::Catalog { source, result }) => {
+                self.plugins_catalog_read(source, result);
+                vec![AppEffect::Plugin(Effect::Page)]
+            }
             News::Notice(Notice::Command { text, .. }) => {
                 self.state.notice = Some(text);
                 vec![]

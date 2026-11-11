@@ -43,7 +43,10 @@ use yapfast_plugin_api::{API_VERSION, limits};
 
 mod git;
 mod imports;
+mod registry;
 mod url;
+
+pub use registry::{run_catalog, run_verify};
 
 use git::Cap;
 use url::Source;
@@ -73,7 +76,8 @@ const MODULE_CAP: Cap = Cap {
     label: "a module is at most 8 MiB",
 };
 
-/// An icon's cap: a picture the review dialog draws at 64×64 to 256×256.
+/// An icon's cap, the size a registry may hold one at: a picture the review
+/// dialog draws at 64×64 to 256×256, and the marketplace at 128×128.
 const ICON_CAP: Cap = Cap {
     bytes: limits::MAX_ICON_BYTES,
     label: "an icon is at most 64 KiB",
@@ -119,6 +123,54 @@ pub enum Report {
         /// The sentence itself.
         error: String,
     },
+    /// A registry, read for the marketplace tab: its index, its entries, and
+    /// where its icons were written.
+    Catalog {
+        /// The registry's address, as the page shows it.
+        source: String,
+        /// The commit it was read at.
+        rev: String,
+        /// `index.json`'s text, which the app reads the ids and the delistings
+        /// from.
+        index: String,
+        /// Each entry file, by its path in the registry.
+        entries: Vec<EntryFile>,
+        /// Each icon, by its path in the registry and where it was written.
+        icons: Vec<IconFile>,
+        /// The directory the icons were written to, which the parent deletes
+        /// once it has read them; `null` when there are none.
+        scratch: Option<String>,
+    },
+    /// One entry, checked against the plugin it pins. This is what a
+    /// registry's CI prints for an entry it accepts.
+    Verified {
+        /// The plugin's id, as the entry declares it.
+        id: String,
+        /// The commit that was read, which is the entry's pin.
+        rev: String,
+        /// The SHA-256 of the module at that commit, which is the entry's.
+        sha256: String,
+    },
+}
+
+/// One entry file of a registry, as text.
+#[derive(Debug, Serialize)]
+pub struct EntryFile {
+    /// Its path in the registry, as `plugins/<id>.json`.
+    pub path: String,
+    /// The file's text, exactly as the repository holds it.
+    pub text: String,
+}
+
+/// One icon of a registry, written where the parent copies it from.
+#[derive(Debug, Serialize)]
+pub struct IconFile {
+    /// Its path in the registry, as `icons/<id>.webp`.
+    pub path: String,
+    /// The file it was written to.
+    pub file: String,
+    /// Its size in bytes, which the parent caps.
+    pub bytes: u64,
 }
 
 /// What a fetch found, and the files it wrote, which go when this does.

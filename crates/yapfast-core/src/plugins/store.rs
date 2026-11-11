@@ -149,8 +149,8 @@ impl Store {
         let id = package.id.as_str();
         // Digests are read through a borrow: a module is up to 64 MiB, and this
         // is the one pass over it that isn't the write itself.
-        let wasm_sha256 = hex(&Sha256::digest(&package.module));
-        let manifest_sha256 = hex(&Sha256::digest(package.manifest.as_bytes()));
+        let wasm_sha256 = sha256(&package.module);
+        let manifest_sha256 = sha256(package.manifest.as_bytes());
         // The directory a version lives in is named after both, because both
         // decide what runs. Naming it after the module alone would let a
         // manifest-only update — the way a plugin asks for a new permission —
@@ -730,6 +730,12 @@ impl Stamp {
             modified: metadata.modified().ok(),
         })
     }
+}
+
+/// The SHA-256 of some bytes, in lowercase hex: what the lock file records as
+/// `wasm_sha256`, and what a registry's entry pins.
+pub fn sha256(bytes: &[u8]) -> String {
+    hex(Sha256::digest(bytes).as_slice())
 }
 
 /// The SHA-256 of a file, in lowercase hex, read in chunks.
