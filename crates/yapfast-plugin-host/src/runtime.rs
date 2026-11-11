@@ -75,7 +75,10 @@ pub struct ExtismBackend {
     /// The wasmtime cache config file, when a cache could be set up.
     cache: Option<PathBuf>,
     outbox: mpsc::Sender<FromHelper>,
-    loaded: HashMap<PluginId, Loaded>,
+    /// One entry per plugin, each behind its own lock: a call takes the lock
+    /// of the plugin it runs on and no other, so a background event handler
+    /// can't hold the path an interactive send needs.
+    loaded: std::sync::Mutex<HashMap<PluginId, std::sync::Arc<std::sync::Mutex<Loaded>>>>,
     /// The trigger of the call each live instance is running.
     ///
     /// A deadline is fired from the watchdog, which can't take the lock a
@@ -114,7 +117,7 @@ impl ExtismBackend {
         Ok(ExtismBackend {
             cache: cache_config(cache_dir),
             outbox,
-            loaded: HashMap::new(),
+            loaded: std::sync::Mutex::new(HashMap::new()),
             live: LiveMap::default(),
         })
     }
@@ -150,9 +153,13 @@ impl ExtismBackend {
 }
 
 impl Backend for ExtismBackend {
-    fn load(&mut self, spec: LoadSpec) -> Result<(), Fault> {
-        if let Some(loaded) = self.loaded.get(&spec.plugin)
-            && loaded.spec == spec
+    fn load(&self, spec: LoadSpec) -> Result<(), Fault> {
+        if let Some(slot) = self.slot(&spec.plugin)
+            && slot
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .spec
+                == spec
         {
             // The parent asks for the same module twice when it reshapes its
             // registry; recompiling it is the one thing loading a plugin must
@@ -162,39 +169,52 @@ impl Backend for ExtismBackend {
         let shape = module::check_file(&spec.wasm, spec.wasi)?;
         let channel = Arc::new(host::Channel::new(spec.plugin.clone(), self.outbox.clone()));
         let compiled = self.compile(&spec, channel.clone())?;
-        self.loaded.insert(
+        let mut loaded = self
+            .loaded
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        loaded.insert(
             spec.plugin.clone(),
-            Loaded {
+            std::sync::Arc::new(std::sync::Mutex::new(Loaded {
                 spec,
                 compiled,
                 shape,
                 instance: None,
                 state: None,
-            },
+            })),
         );
+        drop(loaded);
         Ok(())
     }
 
-    fn unload(&mut self, plugin: &PluginId) {
+    fn unload(&self, plugin: &PluginId) {
         // Dropping the entry drops the instance, its store and its linear
         // memory, and then the compiled module.
-        self.loaded.remove(plugin);
+        self.loaded
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(plugin);
     }
 
-    fn activate(&mut self, plugin: &PluginId) -> Result<Option<String>, Fault> {
+    fn activate(&self, plugin: &PluginId) -> Result<Option<String>, Fault> {
         let live = self.live.clone();
-        let loaded = self
-            .loaded
-            .get_mut(plugin)
-            .ok_or_else(|| not_loaded(plugin))?;
+        let slot = self.slot(plugin).ok_or_else(|| not_loaded(plugin))?;
+        let mut guard = slot
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let loaded = &mut *guard;
         loaded.ensure(&live)?;
         Ok(loaded.state.clone())
     }
 
-    fn deactivate(&mut self, plugin: &PluginId) -> Result<Option<String>, Fault> {
-        let Some(loaded) = self.loaded.get_mut(plugin) else {
+    fn deactivate(&self, plugin: &PluginId) -> Result<Option<String>, Fault> {
+        let Some(slot) = self.slot(plugin) else {
             return Ok(None);
         };
+        let mut guard = slot
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let loaded = &mut *guard;
         if loaded.instance.is_none() {
             return Ok(None);
         }
@@ -210,21 +230,22 @@ impl Backend for ExtismBackend {
         Ok(state)
     }
 
-    fn event(&mut self, plugin: &PluginId, events: &[EventEnvelope]) -> Result<(), Fault> {
+    fn event(&self, plugin: &PluginId, events: &[EventEnvelope]) -> Result<(), Fault> {
         let bytes = encode(&Batch {
             events,
             results: &[],
         })?;
         let live = self.live.clone();
-        let loaded = self
-            .loaded
-            .get_mut(plugin)
-            .ok_or_else(|| not_loaded(plugin))?;
+        let slot = self.slot(plugin).ok_or_else(|| not_loaded(plugin))?;
+        let mut guard = slot
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let loaded = &mut *guard;
         loaded.ensure(&live)?;
         loaded.call::<()>("yf_event", &bytes).map(|_| ())
     }
 
-    fn hook(&mut self, chain: &[PluginId], request: &HookRequest) -> HookRun {
+    fn hook(&self, chain: &[PluginId], request: &HookRequest) -> HookRun {
         let mut asked = request.clone();
         let mut outcome = None;
         let mut failures = Vec::new();
@@ -262,7 +283,7 @@ impl Backend for ExtismBackend {
     }
 
     fn command(
-        &mut self,
+        &self,
         plugin: &PluginId,
         command: &CommandInvocation,
     ) -> Result<CommandOutcome, Fault> {
@@ -276,7 +297,7 @@ impl Backend for ExtismBackend {
             })
     }
 
-    fn answer(&mut self, plugin: &PluginId, call: u64, answer: &HostReturn) -> Result<(), Fault> {
+    fn answer(&self, plugin: &PluginId, call: u64, answer: &HostReturn) -> Result<(), Fault> {
         // An answer can outlive the instance that asked for it: eviction, a
         // fault and a deadline all drop one while a request is in flight. The
         // answer still travels, and the guest that replaces it sees a result
@@ -292,15 +313,18 @@ impl Backend for ExtismBackend {
         self.ask::<()>(plugin, "yf_event", &bytes).map(|_| ())
     }
 
-    fn evict(&mut self, plugin: &PluginId) {
-        if let Some(loaded) = self.loaded.get_mut(plugin) {
-            loaded.instance = None;
+    fn evict(&self, plugin: &PluginId) {
+        if let Some(slot) = self.slot(plugin) {
+            slot.lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .instance = None;
         }
         self.forget(plugin);
     }
 
     fn memory_pages(&self, plugin: &PluginId) -> Option<u32> {
-        let loaded = self.loaded.get(plugin)?;
+        let slot = self.slot(plugin)?;
+        let loaded = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         loaded.instance.as_ref().map(|_| loaded.spec.memory_pages)
     }
 
@@ -308,7 +332,7 @@ impl Backend for ExtismBackend {
         // A plugin that isn't loaded has nothing that could run, and nothing to
         // cancel. One that is loaded gets a token even before its instance
         // exists, because `yf_activate` is where a plugin first hangs.
-        self.loaded.get(plugin)?;
+        self.slot(plugin)?;
         let live = self.live.clone();
         let id = plugin.clone();
         Some(std::sync::Arc::new(move || {
@@ -330,7 +354,7 @@ impl ExtismBackend {
     }
 
     /// One plugin's answer to one hook, with the subject the chain carries.
-    fn one_hook(&mut self, plugin: &PluginId, request: &HookRequest) -> Result<HookOutcome, Fault> {
+    fn one_hook(&self, plugin: &PluginId, request: &HookRequest) -> Result<HookOutcome, Fault> {
         let bytes = encode(request)?;
         // A guest that returns nothing handled nothing, which is the ABI's
         // `unchanged` and the common case for a plugin subscribed to one hook
@@ -344,18 +368,30 @@ impl ExtismBackend {
     /// Encodes a payload, instantiates the guest if it has to, and parses the
     /// answer.
     fn ask<T: DeserializeOwned>(
-        &mut self,
+        &self,
         plugin: &PluginId,
         export: &str,
         input: &[u8],
     ) -> Result<Option<T>, Fault> {
         let live = self.live.clone();
-        let loaded = self
-            .loaded
-            .get_mut(plugin)
-            .ok_or_else(|| not_loaded(plugin))?;
+        let slot = self.slot(plugin).ok_or_else(|| not_loaded(plugin))?;
+        let mut guard = slot
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let loaded = &mut *guard;
         loaded.ensure(&live)?;
         loaded.call(export, input)
+    }
+}
+
+impl ExtismBackend {
+    /// This plugin's entry, or nothing when it isn't loaded.
+    fn slot(&self, plugin: &PluginId) -> Option<std::sync::Arc<std::sync::Mutex<Loaded>>> {
+        let loaded = self
+            .loaded
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        loaded.get(plugin).cloned()
     }
 }
 

@@ -11,10 +11,10 @@
 //! Deadlines are the watchdog's: it holds each running call's deadline, fires
 //! the cancel, and discards an instance that stopped at an arbitrary point.
 //!
-//! The backend is one value behind one lock, because [`Backend`] hands out
-//! `&mut self`: calls for different plugins interleave on the workers but never
-//! overlap inside the runtime. The lanes still buy what they were for, since
-//! whichever worker frees up takes the person's work first.
+//! Calls for different plugins overlap inside the runtime: the backend keeps one
+//! lock per plugin, so a background event handler can't hold the path an
+//! interactive send needs. Whichever worker frees up still takes the person's
+//! work first, which is what the lanes buy on top of that.
 
 use std::collections::{HashMap, VecDeque};
 use std::io;
@@ -162,7 +162,7 @@ impl<B: Backend + 'static> Scheduler<B> {
             state: Mutex::new(State::new(config.idle_after)),
             work: Condvar::new(),
             watch: Condvar::new(),
-            backend: Mutex::new(backend),
+            backend,
             outbox,
             waker,
         });
@@ -235,7 +235,10 @@ struct Shared<B> {
     work: Condvar,
     /// Signalled when a deadline is added, removed, or has passed.
     watch: Condvar,
-    backend: Mutex<B>,
+    /// The runtime, shared without a lock of its own: every call takes the lock
+    /// of the plugin it runs on, so a background event and an interactive send
+    /// don't wait for each other.
+    backend: B,
     outbox: Outbox,
     waker: Waker,
 }
@@ -487,10 +490,7 @@ impl<B: Backend + 'static> Shared<B> {
     /// Drops a module and everything its instance held.
     fn unload(&self, slot: usize) {
         let plugin = self.id(slot);
-        {
-            let mut backend = lock(&self.backend);
-            backend.unload(&plugin);
-        }
+        self.backend.unload(&plugin);
         {
             let mut state = lock(&self.state);
             let entry = &mut state.slots[slot];
@@ -979,13 +979,13 @@ impl<B: Backend + 'static> Shared<B> {
     /// later: it stopped wherever the cancel found it.
     ///
     /// The cancel triggers are taken before the call starts, because the
-    /// watchdog can't touch the backend while the call holds it: that is the
-    /// whole reason they exist.
+    /// watchdog must reach a guest that is inside a call and holding its own
+    /// plugin's lock: that is the whole reason they exist.
     fn call<T>(
         &self,
         slots: &[usize],
         budget: Duration,
-        call: impl FnOnce(&mut B) -> T,
+        call: impl FnOnce(&B) -> T,
     ) -> (T, bool) {
         // The names first, so the state lock is released before the backend's.
         // The deadline is stamped once the call has the backend, not before:
@@ -1006,14 +1006,14 @@ impl<B: Backend + 'static> Shared<B> {
             });
             serial
         };
-        let mut backend = lock(&self.backend);
         let mut triggers = Triggers::none();
         for plugin in &plugins {
-            if let Some(token) = backend.cancel_handle(plugin) {
+            if let Some(token) = self.backend.cancel_handle(plugin) {
                 triggers.push(token);
             }
         }
-        // The clock starts here, with the backend in hand.
+        // The clock starts here, with nothing left to wait for but the plugin's
+        // own lock.
         {
             let mut state = lock(&self.state);
             if let Some(running) = state.running.iter_mut().find(|r| r.serial == serial) {
@@ -1022,8 +1022,7 @@ impl<B: Backend + 'static> Shared<B> {
             }
         }
         self.watch.notify_all();
-        let value = call(&mut backend);
-        drop(backend);
+        let value = call(&self.backend);
         let mut state = lock(&self.state);
         match state.running.iter().position(|r| r.serial == serial) {
             Some(index) => {
@@ -1090,8 +1089,7 @@ impl<B: Backend + 'static> Shared<B> {
     }
 
     fn memory_pages(&self, slot: usize) -> Option<u32> {
-        let backend = lock(&self.backend);
-        backend.memory_pages(&self.id(slot))
+        self.backend.memory_pages(&self.id(slot))
     }
 
     fn last_fault(&self, slot: usize) -> Option<Fault> {
@@ -1118,10 +1116,7 @@ impl<B: Backend + 'static> Shared<B> {
 
     fn drop_instance(&self, slot: usize) {
         let plugin = self.id(slot);
-        {
-            let mut backend = lock(&self.backend);
-            backend.evict(&plugin);
-        }
+        self.backend.evict(&plugin);
         lock(&self.state).slots[slot].live = false;
     }
 

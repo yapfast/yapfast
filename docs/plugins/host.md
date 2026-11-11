@@ -52,8 +52,10 @@ waiting for: a hook on an outgoing message, a command they typed, a menu row
 they clicked. The background lane is everything else: events, timers. Interactive
 work goes first, and one worker never takes background work at all, so a slow
 event handler can't delay a send no matter how many events arrive. Whichever
-worker frees up takes the person's work first, which is what the second lane buys
-even though the runtime itself is one value.
+worker frees up takes the person's work first, and the runtime behind them holds
+one lock per plugin rather than one for the whole thing, so a call on one plugin
+never waits for a call on another. That is what makes the lanes more than a queue
+order: two plugins run at once.
 
 Nothing blocks a worker either. An HTTP request, a storage write, a timer and a
 consent prompt are all requests the parent answers later, and a guest that wants

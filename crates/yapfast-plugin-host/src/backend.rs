@@ -35,42 +35,42 @@ pub struct LoadSpec {
 /// Every method is called from one worker at a time for a given plugin, so the
 /// implementation needs no locking for its own instances. A call that fails
 /// returns a [`Fault`], which the scheduler counts as a strike.
-pub trait Backend: Send {
+pub trait Backend: Send + Sync {
     /// Takes a module and its limits; an instance is made on activation, so
     /// loading many modules costs memory only for their compiled code.
-    fn load(&mut self, spec: LoadSpec) -> Result<(), Fault>;
+    fn load(&self, spec: LoadSpec) -> Result<(), Fault>;
 
     /// Drops a module, and any instance of it.
-    fn unload(&mut self, plugin: &PluginId);
+    fn unload(&self, plugin: &PluginId);
 
     /// Instantiates if needed and calls `yf_activate`. `Ok` is the state the
     /// last `yf_deactivate` handed on, if any.
-    fn activate(&mut self, plugin: &PluginId) -> Result<Option<String>, Fault>;
+    fn activate(&self, plugin: &PluginId) -> Result<Option<String>, Fault>;
 
     /// Calls `yf_deactivate`, and drops the instance. The answer is its
     /// hand-off for the next activation, cut to the limit.
-    fn deactivate(&mut self, plugin: &PluginId) -> Result<Option<String>, Fault>;
+    fn deactivate(&self, plugin: &PluginId) -> Result<Option<String>, Fault>;
 
     /// One batch of events, as `yf_event`.
-    fn event(&mut self, plugin: &PluginId, events: &[EventEnvelope]) -> Result<(), Fault>;
+    fn event(&self, plugin: &PluginId, events: &[EventEnvelope]) -> Result<(), Fault>;
 
     /// The whole hook chain, in the order given, as one exchange: each plugin
     /// sees the previous one's result.
-    fn hook(&mut self, chain: &[PluginId], request: &HookRequest) -> HookRun;
+    fn hook(&self, chain: &[PluginId], request: &HookRequest) -> HookRun;
 
     /// One command, as `yf_command`.
     fn command(
-        &mut self,
+        &self,
         plugin: &PluginId,
         command: &CommandInvocation,
     ) -> Result<CommandOutcome, Fault>;
 
     /// Answers a guest's host call that was left pending.
-    fn answer(&mut self, plugin: &PluginId, call: u64, answer: &HostReturn) -> Result<(), Fault>;
+    fn answer(&self, plugin: &PluginId, call: u64, answer: &HostReturn) -> Result<(), Fault>;
 
     /// Drops an instance, keeping nothing. Used for idle eviction, for the
     /// memory budget, and after a fault.
-    fn evict(&mut self, plugin: &PluginId);
+    fn evict(&self, plugin: &PluginId);
 
     /// The pages an instance holds now, for the page and the budget.
     fn memory_pages(&self, plugin: &PluginId) -> Option<u32>;

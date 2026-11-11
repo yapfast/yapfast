@@ -647,25 +647,25 @@ struct Fake {
 }
 
 impl Backend for Fake {
-    fn load(&mut self, spec: LoadSpec) -> Result<(), Fault> {
+    fn load(&self, spec: LoadSpec) -> Result<(), Fault> {
         self.calls.enter(format!("load:{}", spec.plugin))
     }
 
-    fn unload(&mut self, plugin: &PluginId) {
+    fn unload(&self, plugin: &PluginId) {
         self.calls.note(format!("unload:{plugin}"));
     }
 
-    fn activate(&mut self, plugin: &PluginId) -> Result<Option<String>, Fault> {
+    fn activate(&self, plugin: &PluginId) -> Result<Option<String>, Fault> {
         self.calls.enter(format!("activate:{plugin}"))?;
         Ok(None)
     }
 
-    fn deactivate(&mut self, plugin: &PluginId) -> Result<Option<String>, Fault> {
+    fn deactivate(&self, plugin: &PluginId) -> Result<Option<String>, Fault> {
         self.calls.enter(format!("deactivate:{plugin}"))?;
         Ok(None)
     }
 
-    fn event(&mut self, plugin: &PluginId, events: &[EventEnvelope]) -> Result<(), Fault> {
+    fn event(&self, plugin: &PluginId, events: &[EventEnvelope]) -> Result<(), Fault> {
         let label = events
             .first()
             .map(|event| event.payload["label"].as_str().unwrap_or("?").to_owned())
@@ -673,7 +673,7 @@ impl Backend for Fake {
         self.calls.enter(format!("event:{plugin}:{label}"))
     }
 
-    fn hook(&mut self, chain: &[PluginId], request: &HookRequest) -> HookRun {
+    fn hook(&self, chain: &[PluginId], request: &HookRequest) -> HookRun {
         let names: Vec<&str> = chain.iter().map(|plugin| plugin.as_str()).collect();
         let result = self.calls.enter(format!("hook:{}", names.join(",")));
         if let Err(fault) = result {
@@ -687,7 +687,7 @@ impl Backend for Fake {
     }
 
     fn command(
-        &mut self,
+        &self,
         plugin: &PluginId,
         command: &CommandInvocation,
     ) -> Result<CommandOutcome, Fault> {
@@ -697,7 +697,7 @@ impl Backend for Fake {
     }
 
     fn answer(
-        &mut self,
+        &self,
         plugin: &PluginId,
         call: u64,
         _answer: &yapfast_plugin_api::call::HostReturn,
@@ -705,7 +705,7 @@ impl Backend for Fake {
         self.calls.enter(format!("answer:{plugin}:{call}"))
     }
 
-    fn evict(&mut self, plugin: &PluginId) {
+    fn evict(&self, plugin: &PluginId) {
         self.calls.note(format!("evict:{plugin}"));
     }
 
@@ -785,4 +785,42 @@ fn the_helper_finishes_once_the_last_instance_is_gone() {
         Ok(_) => panic!("the helper kept a reason to live after its last instance"),
         Err(_) => panic!("the helper never said it was finished"),
     }
+}
+
+/// A background call must not hold the path an interactive send needs.
+///
+/// The two lanes are only real if the runtime lets two plugins run at once: a
+/// locked backend, one call at a time, turns them into one queue whatever the
+/// mailboxes say. Two calls of 200 ms each are 400 ms serialised and 200 ms
+/// overlapped; the margin is wide enough for a busy machine and narrow enough to
+/// fail if the lock comes back.
+#[test]
+fn a_background_call_does_not_hold_an_interactive_send() {
+    let harness = Harness::new(config(2));
+    let a = plugin("a");
+    let b = plugin("b");
+    harness.load(&a, 256);
+    harness.load(&b, 256);
+    harness.live(&a, 101);
+    harness.live(&b, 102);
+    harness.sleep(Duration::from_millis(200));
+
+    let started = Instant::now();
+    harness.send(Message::Event {
+        id: 1,
+        plugin: a.clone(),
+        events: vec![event("e1")],
+    });
+    harness.send(Message::Command {
+        id: 2,
+        plugin: b.clone(),
+        command: command("cmd"),
+    });
+    harness.wait_replies(2);
+    let took = started.elapsed();
+
+    assert!(
+        took < Duration::from_millis(350),
+        "the send waited for the event, which serialises the lanes: {took:?}"
+    );
 }
