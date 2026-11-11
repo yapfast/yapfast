@@ -222,11 +222,7 @@ impl Session {
         let connection =
             Connection::session().context("no session bus to ask the desktop for a screen over")?;
         let mut signals = responses(&connection)?;
-        let request = call(
-            &connection,
-            "CreateSession",
-            &HashMap::from([("handle_token", Value::from(token(STEP_SESSION)))]),
-        )?;
+        let request = call(&connection, "CreateSession", &session_options())?;
         let results = respond(&mut signals, &request)?;
         let path = session_handle(&results)?;
         // From here on there is a session to close, so every way out of this
@@ -245,8 +241,8 @@ impl Session {
         let request = session.call(
             "Start",
             &(
-                String::new(),
                 ObjectPath::from(session.path.clone()),
+                String::new(),
                 HashMap::<&str, Value>::new(),
             ),
         )?;
@@ -355,10 +351,28 @@ impl Drop for Session {
 
 /// What a request's `handle_token` is on the way to becoming: the portal puts it
 /// in the request object's path, so it has to be a legal object path element.
+const STEP_REQUEST: &str = "request";
+
+/// The same for the session's own token, which names the session object.
 const STEP_SESSION: &str = "session";
 
 fn token(step: &str) -> String {
     format!("yapfast_{}_{step}", std::process::id())
+}
+
+/// The options `CreateSession` takes, which are the two names the portal builds
+/// its object paths from: the request's, whose answer comes on it, and the
+/// session's, which is what a session is called.
+///
+/// The second is not optional, though nothing in the reply says so: a portal
+/// without it aborts — `xdp_session_initable_init` asserts the token is there —
+/// and the whole screen sharing service dies with the call, which a share reads
+/// as the desktop answering nothing.
+fn session_options() -> HashMap<&'static str, Value<'static>> {
+    HashMap::from([
+        ("handle_token", Value::from(token(STEP_REQUEST))),
+        ("session_handle_token", Value::from(token(STEP_SESSION))),
+    ])
 }
 
 /// Listens for the portal's answers before anything is asked, so that no
@@ -393,7 +407,7 @@ fn respond(
     signals: &mut MessageIterator,
     request: &ObjectPath<'_>,
 ) -> Result<HashMap<String, OwnedValue>> {
-    while let Some(message) = signals.next() {
+    for message in signals {
         let message = message.context("the session bus stopped carrying the portal's answers")?;
         let header = message.header();
         if header.message_type() != MessageType::Signal {
@@ -524,7 +538,7 @@ mod tests {
         let options = select_options(&Ask::new(Source::Windows));
         assert_eq!(u32::try_from(&options["types"]).unwrap(), 2);
         assert_eq!(u32::try_from(&options["cursor_mode"]).unwrap(), 2);
-        assert_eq!(bool::try_from(&options["multiple"]).unwrap(), false);
+        assert!(!bool::try_from(&options["multiple"]).unwrap());
         assert_eq!(u32::try_from(&options["persist_mode"]).unwrap(), 2);
         assert!(!options.contains_key("restore_token"));
         assert!(
@@ -550,12 +564,26 @@ mod tests {
 
     #[test]
     fn a_handle_token_is_legal_in_an_object_path() {
-        let token = token(STEP_SESSION);
-        assert!(
-            token.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'),
-            "{token} would not survive being an object path's last element"
-        );
-        assert!(token.ends_with("session"));
+        for token in [token(STEP_REQUEST), token(STEP_SESSION)] {
+            assert!(
+                token.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'),
+                "{token} would not survive being an object path's last element"
+            );
+        }
+        assert!(token(STEP_REQUEST).ends_with("request"));
+        assert!(token(STEP_SESSION).ends_with("session"));
+        assert_ne!(token(STEP_REQUEST), token(STEP_SESSION));
+    }
+
+    /// A session the portal can name: both tokens, and different ones, since
+    /// they name two objects. Without the session's the portal aborts.
+    #[test]
+    fn creating_a_session_names_the_request_and_the_session() {
+        let options = session_options();
+        let handle: &str = options["handle_token"].downcast_ref().unwrap();
+        let session: &str = options["session_handle_token"].downcast_ref().unwrap();
+        assert!(handle.ends_with("request") && session.ends_with("session"));
+        assert_ne!(handle, session);
     }
 
     #[test]
