@@ -251,6 +251,34 @@ component Badge inherits Rectangle {
     }
 }
 
+// A tab with nothing to list: an icon in a circle, what's missing, and what
+// to do about it, as buttons given as children.
+component EmptyState inherits VerticalLayout {
+    in property <image> icon;
+    in property <string> title;
+    in property <string> text;
+    alignment: start; spacing: 8px; padding-top: 48px; padding-bottom: 24px;
+    HorizontalLayout {
+        alignment: center;
+        Rectangle {
+            width: 64px; height: 64px; border-radius: 32px; background: Theme.raised;
+            Image { source: root.icon; width: 28px; height: 28px; colorize: Theme.muted; }
+        }
+    }
+    Text {
+        text: root.title; color: Theme.text; font-size: 16px; font-weight: 600;
+        horizontal-alignment: center; wrap: word-wrap;
+    }
+    if root.text != "": Text {
+        text: root.text; color: Theme.muted; font-size: 14px;
+        horizontal-alignment: center; wrap: word-wrap;
+    }
+    HorizontalLayout {
+        alignment: center; spacing: 8px; padding-top: 8px;
+        @children
+    }
+}
+
 // What a plugin can do, a line each, with Revoke beside those it can lose.
 component PermissionLines inherits VerticalLayout {
     in property <[PluginLine]> lines;
@@ -890,12 +918,18 @@ export component PluginSettings inherits Rectangle {
                     selected => { PluginPage.category-chosen(self.current-index); }
                 }
             }
-            if PluginPage.catalog-note != "": Label { text: PluginPage.catalog-note; font-size: 14px; }
             if PluginPage.listings.length > 0: ListView {
                 vertical-stretch: 1; min-height: 160px;
                 for listing in PluginPage.listings: ListingFace { listing: listing; }
             }
-            if PluginPage.listings.length == 0: Rectangle { vertical-stretch: 1; }
+            if PluginPage.listings.length == 0: VerticalLayout {
+                vertical-stretch: 1;
+                if PluginPage.catalog-note != "": EmptyState {
+                    // Loading or a failure isn't a search that found nothing.
+                    icon: PluginPage.catalog-note == "No plugins match." ? @image-url("icons/search.svg") : @image-url("icons/plugins.svg");
+                    title: PluginPage.catalog-note;
+                }
+            }
         }
 
         if PluginPage.tab == 1 && !PluginPage.detail-open: installed-scroll := ScrollView {
@@ -904,9 +938,12 @@ export component PluginSettings inherits Rectangle {
             installed := VerticalLayout {
                 width: installed-scroll.visible-width;
                 spacing: 8px; alignment: start; padding-right: 12px;
-                if PluginPage.installed.length == 0: Label {
-                    text: "No plugins yet. Find one in the Marketplace, or add one from its git repository.";
-                    font-size: 14px;
+                if PluginPage.installed.length == 0: EmptyState {
+                    icon: @image-url("icons/plugins.svg");
+                    title: "No plugins yet";
+                    text: "Find one in the Marketplace, or add one from its git repository.";
+                    ActionButton { text: "Browse the Marketplace"; primary: true; clicked => { PluginPage.tab-chosen(0); } }
+                    ActionButton { text: "Add from URL"; clicked => { PluginPage.tab-chosen(2); } }
                 }
                 if PluginPage.installed.length > 0: HorizontalLayout {
                     vertical-stretch: 0; alignment: end;
@@ -930,7 +967,7 @@ export component PluginSettings inherits Rectangle {
                         for plugin in pair: InstalledCard { plugin: plugin; horizontal-stretch: 1; }
                     }
                 }
-                if PluginPage.memory != "": Label { text: PluginPage.memory; }
+                if PluginPage.memory != "" && PluginPage.installed.length > 0: Label { text: PluginPage.memory; }
             }
         }
         if PluginPage.tab == 1 && PluginPage.detail-open: detail-scroll := ScrollView {
