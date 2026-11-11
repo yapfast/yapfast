@@ -1,6 +1,6 @@
 //! Plugins in the window: the changes their manifests make to Yapfast's own
 //! interface, applied where Yapfast builds each part. With no plugin, the
-//! adapter holds `None` and none of this runs. See `docs/plugins.md`.
+//! adapter holds `None` and none of this runs. See `docs/plugins/interface.md`.
 
 use std::{collections::BTreeMap, sync::Arc};
 

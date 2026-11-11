@@ -7,7 +7,7 @@
 //! doesn't know, a default its own rules refuse or a cap passed refuses the
 //! whole manifest, so a mistake fails loudly where the plugin's author sees
 //! it. Values are forgiving: a stored value the schema refuses is dropped and
-//! logged, and its default takes its place. See `docs/plugin-settings.md`.
+//! logged, and its default takes its place. See `docs/plugins/settings.md`.
 
 use std::{
     collections::BTreeMap,

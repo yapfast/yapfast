@@ -7,7 +7,7 @@
 //! button or a call's mute, has no name to address. The enabled plugins'
 //! changes come together in one [`UiOverrides`], which is `None` while no
 //! plugin changes anything, so the interface tests one `Option` where a
-//! change could apply. See `docs/plugins.md`.
+//! change could apply. See `docs/plugins/interface.md`.
 
 use std::{collections::BTreeMap, sync::Arc};
 

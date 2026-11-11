@@ -38,7 +38,7 @@ and how long an idle plugin is kept.
 
 A manifest's `settings` array declares a plugin's settings, which its page
 draws as a form.
-[`plugins/settings.rs`](../crates/yapfast-core/src/plugins/settings.rs)
+[`plugins/settings.rs`](../../crates/yapfast-core/src/plugins/settings.rs)
 checks it as the manifest is read, into a `Schema`: a setting that can't be
 used refuses the whole manifest, with the reason, as
 `setting "mode": option "x" is there twice`.
@@ -139,7 +139,7 @@ do (*Move row 2 up*). Reset to defaults asks first, as a list's rows go with
 it. The form's rows exist only while the plugin's page is open.
 
 `--preview`'s Word Filter has a setting of every type, from
-[`testing/plugins/word-filter`](../testing/plugins/word-filter), and starts
+[`testing/plugins/word-filter`](../../testing/plugins/word-filter), and starts
 with a refused value to show one; its form keeps its values in memory.
 
 ## Where it lives

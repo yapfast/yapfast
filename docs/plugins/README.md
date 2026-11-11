@@ -12,6 +12,20 @@ may do is written in its manifest and agreed to at install, line by line:
 Plugins are behind a Cargo feature, `plugins`, and the helper is a separate
 binary, so a build without them links neither wasmtime nor `gix`.
 
+## The documents here
+
+| Reads like | Is |
+| --- | --- |
+| This one | What the plugin system is, what exists, and what doesn't yet |
+| [`interface.md`](interface.md) | What a plugin changes in the interface: slots, widgets, named parts |
+| [`settings.md`](settings.md) | A plugin's own settings: declaring them, the page that draws them |
+| [`manifest.md`](manifest.md) | Every field of `yapfast-plugin.json` |
+| [`abi.md`](abi.md) | The frames on the pipe, and the five exports a guest has |
+| [`host.md`](host.md) | The helper: its threads, lanes, deadlines, faults and cache |
+| [`permissions.md`](permissions.md) | Capabilities, consent, and the network gate |
+| [`pdk.md`](pdk.md) | Writing a plugin, in Rust, C, Zig or AssemblyScript |
+| [`testing.md`](testing.md) | Fixtures, fake Discord, and the measurements |
+
 ## The lifecycle
 
 | State | What exists |

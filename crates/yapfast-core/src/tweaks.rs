@@ -7,7 +7,7 @@
 //! It gives `None` while no enabled plugin sets a point, so Yapfast tests one
 //! `Option` where a point could apply and holds nothing otherwise. Two
 //! plugins setting one point differently are a [`Conflict`], which names
-//! both. See `docs/plugins.md`.
+//! both. See `docs/plugins/interface.md`.
 //!
 //! Points are added one at a time, as a behaviour is worth exposing; none is
 //! listed yet, so every manifest's `tweaks` is refused point by point as

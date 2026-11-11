@@ -5,7 +5,7 @@
 //!
 //! The runtime plugs in with [`attach`], and calls [`changed`] whenever its
 //! view moves. Until it exists, the page shows [`Fixture`] in `--preview`,
-//! and says plugins can't run anywhere else. See `docs/plugin-settings.md`.
+//! and says plugins can't run anywhere else. See `docs/plugins/settings.md`.
 
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
 

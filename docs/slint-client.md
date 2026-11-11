@@ -25,7 +25,7 @@ application model are in `yapfast-core`.
   sections: account, appearance (the [themes](themes.md)), voice and video,
   messages (text size, clock, link previews, folding long messages and boost gems), notifications, sounds, Discord
   and advanced (the renderer, closing to the tray), with
-  [plugins](plugin-settings.md) in a build that has them, closed by its close button
+  [plugins](plugins/settings.md) in a build that has them, closed by its close button
   or Escape. Desktop notifications for DMs and mentions show while Yapfast
   isn't in front; clicking one opens the conversation. Closing the window
   leaves Yapfast in the [tray](tray.md).

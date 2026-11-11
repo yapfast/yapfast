@@ -4,7 +4,7 @@
 //! settings shows ([`page`]). The points a manifest's `tweaks` set are in
 //! `crate::tweaks`. None of those start a process or load WebAssembly; a
 //! plugin that only changes the interface needs neither. See
-//! `docs/plugins.md` and `docs/plugin-settings.md`.
+//! `docs/plugins/interface.md` and `docs/plugins/settings.md`.
 //!
 //! The runtime side: a bridge to the helper process, the registry of what is
 //! enabled, permissions, and the network gate. Nothing there runs while no

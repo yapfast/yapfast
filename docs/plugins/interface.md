@@ -1,11 +1,11 @@
 # Plugins
 
 Plugins are behind the `plugins` Cargo feature, off by default:
-`cargo build --profile fast --features plugins`. The plan for the whole
-system is [`PLAN.md`](../PLAN.md). What exists so far is the interface's
-side of it: reading and checking what a plugin's manifest changes in
+`cargo build --profile fast --features plugins`. This document is the
+interface's side of the system: reading and checking what a plugin's manifest
+changes in
 Yapfast's own interface, and the Plugins page in settings
-([`plugin-settings.md`](plugin-settings.md)). Nothing runs a plugin's
+([`settings.md`](settings.md)). Nothing runs a plugin's
 WebAssembly yet.
 
 ## Trying a plugin
@@ -15,7 +15,7 @@ plugin in the folder `YAPFAST_PLUGINS_DIR` names, one subfolder each with
 its `yapfast-plugin.json`, in the order of the subfolders' names, which is
 the order their changes win in. A manifest that can't be used is skipped and
 logged, and so is each change refused; run with `YAPFAST_LOG=info` to see
-them. [`testing/plugins`](../testing/plugins) has an example:
+them. [`testing/plugins`](../../testing/plugins) has an example:
 
 ```sh
 YAPFAST_PLUGINS_DIR=testing/plugins cargo run --profile fast --features plugins -- --preview
@@ -28,7 +28,7 @@ keeps it.
 
 ## The manifest's interface changes
 
-[`crates/yapfast-core/src/plugins.rs`](../crates/yapfast-core/src/plugins.rs)
+[`crates/yapfast-core/src/plugins.rs`](../../crates/yapfast-core/src/plugins.rs)
 reads a manifest, `yapfast-plugin.json`. It's strict JSON, and must name
 `"api": 1`, a reverse-DNS `id` and a `name` of up to 64 characters. The
 interface reads only `id`, `name`, `wasm`, `permissions`, `menus`, `ui`,
@@ -36,7 +36,7 @@ interface reads only `id`, `name`, `wasm`, `permissions`, `menus`, `ui`,
 Inside `menus`, `ui` and each setting a field Yapfast doesn't know is an
 error, so a misspelt change fails loudly. `wasm` is optional: a plugin
 without it only changes what its manifest names. Its own settings, the
-`settings` array, are in [`plugin-settings.md`](plugin-settings.md#a-plugins-own-settings).
+`settings` array, are in [`settings.md`](settings.md#a-plugins-own-settings).
 
 ```json
 {
@@ -59,7 +59,7 @@ without it only changes what its manifest names. Its own settings, the
 }
 ```
 
-[`plugins/ui.rs`](../crates/yapfast-core/src/plugins/ui.rs) checks each
+[`plugins/ui.rs`](../../crates/yapfast-core/src/plugins/ui.rs) checks each
 change with `check`, which keeps what applies and says why it refused the
 rest, in words a plugin's page can show:
 
@@ -108,7 +108,7 @@ other changes. Nothing stores those choices yet; `grants.json` will.
 
 A setting point is a behaviour of Yapfast a manifest switches by name, in
 `tweaks`, with no code: `{ "tweaks": { "messages.attachments.mosaic": false } }`.
-[`tweaks.rs`](../crates/yapfast-core/src/tweaks.rs) is their registry: the
+[`tweaks.rs`](../../crates/yapfast-core/src/tweaks.rs) is their registry: the
 `points!` list in it declares each point once, as a field of `Tweaks` with
 its type (`bool`, or a whole number in a range), its default and a doc
 line, and the point's name. Code reads the field where the behaviour
@@ -130,12 +130,12 @@ unknown.
 
 ## In the window
 
-[`src/ui/plugins.rs`](../src/ui/plugins.rs) loads the plugins as the window
+[`src/ui/plugins.rs`](../../src/ui/plugins.rs) loads the plugins as the window
 is made, before the theme applies, and keeps them in the adapter as
 `Option<Box<Plugins>>`: `None` without any, so no model, timer or thread
 exists for them. Each change applies where Yapfast already builds that part:
 
-- **Menus.** `menu` in [`src/ui/menus.rs`](../src/ui/menus.rs) builds its
+- **Menus.** `menu` in [`src/ui/menus.rs`](../../src/ui/menus.rs) builds its
   rows, then `edit_menu` hides, relabels and moves rows, skipping any drawn
   in the danger tone, and a row moves only within its group. Plugins' own
   rows follow, under a line, after the built-in rows and before a last
@@ -151,13 +151,13 @@ exists for them. Each change applies where Yapfast already builds that part:
   application returns as `Effect::PluginInput`. The adapter hands it to the
   `Runtime` it holds, which is `None` until the runtime exists.
 - **Parts.** The `UiParts` global in
-  [`ui/yapfast/parts.slint`](../ui/yapfast/parts.slint) holds one switch per
+  [`ui/yapfast/parts.slint`](../../ui/yapfast/parts.slint) holds one switch per
   part that can be hidden, and each part sits behind an `if` on it: the
   server banner over the channel list, who's typing, and the hover bar's
   Reply, reactions and More, in the channel and the thread beside it.
   Shift's Delete takes More's place whether or not More is hidden.
 - **Sizes.** `ClientStyle` in
-  [`ui/yapfast/style.slint`](../ui/yapfast/style.slint) takes one input per
+  [`ui/yapfast/style.slint`](../../ui/yapfast/style.slint) takes one input per
   size, `text-size-plugin` and the rest, used in place of Yapfast's own
   value when it isn't negative. `sidebar-width` is the sidebar's width
   before the person drags it, and what a double click returns it to.
@@ -200,7 +200,7 @@ together, or an interactive cell without a plain `id`, and cuts text to
 
 ## Slots
 
-[`plugins/slots.rs`](../crates/yapfast-core/src/plugins/slots.rs) keeps what
+[`plugins/slots.rs`](../../crates/yapfast-core/src/plugins/slots.rs) keeps what
 plugins draw, in `AppState::plugins`, which is `None` with no plugin enabled.
 The plugin runtime changes it by sending `Event::PluginSlot` with an `Output`:
 `SetSlot` and `ClearSlot` for a slot, and `Decorate` for what a plugin draws
@@ -223,7 +223,7 @@ carries one empty model per row. `Slots` keeps the decorations of the last
 message again when it's edited, or when it comes back on screen after being
 dropped. Rows of the thread beside a channel aren't decorated yet.
 
-[`ui/plugins.slint`](../ui/plugins.slint) draws a tree with precompiled
+[`ui/plugins.slint`](../../ui/plugins.slint) draws a tree with precompiled
 components. `PluginWidgets` puts *From* and the plugin's name above every
 tree, and a plugin's buttons on the hover bar and beside the composer say
 whose they are to a screen reader. Each interactive cell has a role, a label
@@ -241,5 +241,5 @@ conversation for a composer button. Closing a notice or toast sends
 
 `slots.json` beside a manifest in `YAPFAST_PLUGINS_DIR` stands in for the
 runtime: an object from a slot's id, or `message:` and a message's id, to a
-tree, shown as the plugins load. [`testing/plugins/widgets`](../testing/plugins/widgets)
+tree, shown as the plugins load. [`testing/plugins/widgets`](../../testing/plugins/widgets)
 shows each widget that way.
