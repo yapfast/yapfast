@@ -3,28 +3,21 @@
   "id": "com.example.ping",
   "name": "Ping",
   "version": "1.0.0",
-  "description": "Adds /ping, which answers pong",
-  "authors": ["Yapfast"],
+  "description": "Adds /ping, which answers pong to the person who typed it.",
   "license": "GPL-3.0-or-later",
   "wasm": "plugin.wasm",
-  "activation": {
-    "on": ["command", "menu"]
-  },
-  "permissions": {
-    "capabilities": []
-  },
+  "limits": { "memory_pages": 128 },
+  "activation": { "on": ["command", "menu"] },
+  "permissions": { "capabilities": [], "network": [] },
   "commands": [
-    {
-      "name": "ping",
-      "description": "Answer pong",
-      "options": []
-    }
+    { "name": "ping", "description": "Answers pong, in the room you typed it in" }
   ],
   "menus": [
     {
       "target": "message",
       "label": "Ping this message",
-      "action": "ping-message"
+      "action": "ping_message",
+      "when": { "network": "discord", "own": false }
     }
   ]
 }

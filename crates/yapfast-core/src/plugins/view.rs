@@ -99,9 +99,11 @@ fn status(status: &PluginStatus) -> Status {
         PluginStatus::Installed => Status::Off,
         PluginStatus::Enabled => Status::Idle,
         PluginStatus::Active => Status::Running,
-        PluginStatus::Faulted { reason, .. } | PluginStatus::Suspended { reason } => {
-            Status::Suspended(suspension(reason))
-        }
+        // A fault is retried on the plugin's next trigger; a suspension is the
+        // three-strike stop. Saying "suspended" for the first was wrong, and told
+        // a person their plugin was off when it was still on.
+        PluginStatus::Faulted { reason, .. } => Status::Faulted(reason.clone()),
+        PluginStatus::Suspended { reason } => Status::Suspended(suspension(reason)),
     }
 }
 

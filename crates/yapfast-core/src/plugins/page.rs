@@ -105,6 +105,10 @@ pub enum Status {
     Running,
     /// Being replaced by a new version, or reloaded from its folder.
     Updating,
+    /// It failed once, and stays on: the runtime tries it again on its next
+    /// trigger. A load that timed out on a busy machine lands here, which is not
+    /// the same as being suspended and is what a person retries by using it.
+    Faulted(String),
     /// Stopped for this session, after three failures in a minute.
     Suspended(Suspension),
 }
@@ -134,6 +138,7 @@ impl Status {
             Status::Idle => "Idle".into(),
             Status::Running => "Running".into(),
             Status::Updating => "Updating".into(),
+            Status::Faulted(why) => format!("Faulted: {why}"),
             Status::Suspended(Suspension::OutOfMemory) => "Suspended: ran out of memory".into(),
             Status::Suspended(Suspension::Crashed) => "Suspended: kept crashing".into(),
             Status::Suspended(Suspension::TooSlow) => "Suspended: too slow to answer".into(),
@@ -145,7 +150,7 @@ impl Status {
     pub fn tone(&self) -> Tone {
         match self {
             Status::Running => Tone::Success,
-            Status::Suspended(_) => Tone::Danger,
+            Status::Faulted(_) | Status::Suspended(_) => Tone::Danger,
             Status::Off | Status::Idle | Status::Updating => Tone::Muted,
         }
     }

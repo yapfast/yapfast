@@ -20,6 +20,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use yapfast_core::plugins::bridge::HelperState;
+use yapfast_core::plugins::installing;
 use yapfast_core::plugins::page;
 use yapfast_core::plugins::store::{Package, Store};
 use yapfast_core::plugins::{self, PluginState};
@@ -106,13 +107,13 @@ fn a_message_reaches_an_installed_plugin_and_disabling_it_ends_the_helper() {
     state.shutdown();
 }
 
-/// A plugin that traps in `yf_activate` is suspended after three strikes, and
-/// both halves of the page say why: the row's status carries the runtime's own
-/// sentence, and the line it logged is the same sentence. Without this the
-/// status said only "kept crashing", which is what a person asking why has
-/// already been told by the switch coming back off.
+/// A plugin that traps in `yf_activate` is **faulted**, not suspended: it stays
+/// on and the runtime tries it again on its next trigger, and both halves of the
+/// page say why — the row carries the runtime's own sentence and the line it
+/// logged is the same sentence. Calling this "suspended" was wrong and told a
+/// person their plugin was off when it was still on.
 #[test]
-fn a_plugin_that_keeps_crashing_says_why_in_its_status_and_its_log() {
+fn a_plugin_that_traps_says_why_in_its_status_and_its_log() {
     let Some(helper) = helper() else {
         eprintln!("no yapfast-plugins beside the build and no YAPFAST_PLUGINS; skipped");
         return;
@@ -146,11 +147,11 @@ fn a_plugin_that_keeps_crashing_says_why_in_its_status_and_its_log() {
     let plugin = view.installed.first().expect("it is listed");
     let status = plugin.status.text();
     assert!(
-        matches!(plugin.status, page::Status::Suspended(_)),
-        "it settles suspended, not running: {status}"
+        matches!(plugin.status, page::Status::Faulted(_)),
+        "it faults, and stays on to try again: {status}"
     );
     assert!(
-        status.len() > "Suspended: ".len(),
+        status.starts_with("Faulted: ") && status.len() > "Faulted: ".len(),
         "the status says what happened: {status}"
     );
     let logged = plugin.log.last().expect("the reason is in its log");
@@ -192,6 +193,78 @@ fn install_named(store: &mut Store, id: &str, fixture: &str) {
             icon: None,
         })
         .expect("it installs");
+}
+
+/// The repository's own sample plugin, installed the way the file picker
+/// installs one and run through the real helper: it declares `/ping`, the
+/// helper loads it, and the composer would offer the command.
+///
+/// It is the smallest plugin that does something, so a break here is a break in
+/// the path every plugin follows: manifest beside the module, store, helper,
+/// guest, back to a command the person can type.
+#[test]
+fn the_sample_ping_plugin_loads_and_declares_its_command() {
+    let Some(helper) = helper() else {
+        eprintln!("no yapfast-plugins beside the build and no YAPFAST_PLUGINS; skipped");
+        return;
+    };
+    unsafe { std::env::set_var("YAPFAST_PLUGINS", &helper) };
+
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let sample = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/ping/plugin.wasm");
+    let fetched = installing::from_wasm(&sample).expect("the sample reads");
+    assert_eq!(fetched.id.to_string(), "com.example.ping");
+    assert_eq!(
+        fetched.review().capabilities,
+        Vec::<String>::new(),
+        "it asks for nothing: a command's answer is a line, not a message"
+    );
+
+    let mut store = Store::open(directory.path()).expect("a store");
+    store.install(&fetched.package()).expect("it installs");
+    let id = fetched.id.clone();
+    store.set_enabled(&id, true).expect("it is on");
+
+    let wake: Arc<dyn Fn(plugins::state::Notice) + Send + Sync> = Arc::new(|_| {});
+    let mut state = PluginState::open(directory.path(), wake).expect("the plugin system");
+    let started = Instant::now();
+    state.set_enabled(&id, true).expect("it wakes");
+    let running = || {
+        state
+            .statuses()
+            .into_iter()
+            .any(|(plugin, status)| plugin == id && is_active(&status))
+    };
+    while started.elapsed() < START && !running() {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        running(),
+        "loaded and active in {:?}: {:?} {:?}",
+        started.elapsed(),
+        state.statuses(),
+        state.off()
+    );
+    eprintln!(
+        "ping loaded in {:?} (helper {:?})",
+        started.elapsed(),
+        state.helper()
+    );
+
+    // What the composer's `/` parser reads: the command its manifest declares.
+    let commands = state.commands();
+    assert!(
+        commands.iter().any(|(_, command)| command.name == "ping"),
+        "{commands:?}"
+    );
+
+    state.set_enabled(&id, false).expect("it is off");
+    let off = Instant::now();
+    while off.elapsed() < END && !matches!(state.helper(), HelperState::Stopped) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(matches!(state.helper(), HelperState::Stopped));
+    state.shutdown();
 }
 
 fn is_active(status: &yapfast_plugin_api::message::PluginStatus) -> bool {
