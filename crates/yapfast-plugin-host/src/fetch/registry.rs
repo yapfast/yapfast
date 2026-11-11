@@ -143,9 +143,9 @@ impl Entry {
     fn check(&self, file: &str) -> anyhow::Result<()> {
         match self.api {
             Some(api) if api == u64::from(API_VERSION) => {}
-            Some(api) => bail!(
-                "`{file}` is for plugin API {api}, and this Yapfast speaks API {API_VERSION}"
-            ),
+            Some(api) => {
+                bail!("`{file}` is for plugin API {api}, and this Yapfast speaks API {API_VERSION}")
+            }
             None => bail!("`{file}` doesn't name its plugin API"),
         }
         if PluginId::parse(&self.id).is_err() {
@@ -251,8 +251,8 @@ pub fn catalog(snapshot: &Snapshot, out: &Scratch) -> anyhow::Result<Catalog> {
     let index = snapshot
         .file(Path::new(INDEX_FILE), INDEX_CAP)?
         .with_context(|| format!("this repository has no `{INDEX_FILE}` at its root"))?;
-    let index = String::from_utf8(index)
-        .map_err(|_| anyhow::anyhow!("`{INDEX_FILE}` isn't UTF-8 text"))?;
+    let index =
+        String::from_utf8(index).map_err(|_| anyhow::anyhow!("`{INDEX_FILE}` isn't UTF-8 text"))?;
     let listed: Index = serde_json::from_str(&index)
         .with_context(|| format!("`{INDEX_FILE}` isn't an index Yapfast reads"))?;
     if listed.api != API_VERSION {
@@ -269,7 +269,10 @@ pub fn catalog(snapshot: &Snapshot, out: &Scratch) -> anyhow::Result<Catalog> {
     // reason, is a registry bug found before anyone is told.
     for entry in &listed.delisted {
         if PluginId::parse(&entry.id).is_err() {
-            bail!("`{INDEX_FILE}` delists `{}`, which isn't a plugin id", entry.id);
+            bail!(
+                "`{INDEX_FILE}` delists `{}`, which isn't a plugin id",
+                entry.id
+            );
         }
         if listed.plugins.contains(&entry.id) {
             bail!("`{INDEX_FILE}` both lists and delists `{}`", entry.id);
@@ -313,7 +316,9 @@ pub fn catalog(snapshot: &Snapshot, out: &Scratch) -> anyhow::Result<Catalog> {
             std::fs::write(&target, &bytes)?;
             let file = target
                 .to_str()
-                .with_context(|| format!("`{}` isn't a path the parent can read", target.display()))?
+                .with_context(|| {
+                    format!("`{}` isn't a path the parent can read", target.display())
+                })?
                 .to_owned();
             icons.push((named, file, size));
         }
@@ -366,12 +371,7 @@ pub fn verify_entry(file: &Path) -> anyhow::Result<Verified> {
     }
     let manifest_text = snapshot
         .file(Path::new(MANIFEST_FILE), MANIFEST_CAP)?
-        .with_context(|| {
-            format!(
-                "`{}` holds no `{MANIFEST_FILE}` at this commit",
-                entry.repo
-            )
-        })?;
+        .with_context(|| format!("`{}` holds no `{MANIFEST_FILE}` at this commit", entry.repo))?;
     let manifest_text = String::from_utf8(manifest_text)
         .map_err(|_| anyhow::anyhow!("`{MANIFEST_FILE}` isn't UTF-8 text"))?;
     // Parsing the manifest is what checks its schema, its limits and its
@@ -434,12 +434,20 @@ pub fn verify_entry(file: &Path) -> anyhow::Result<Verified> {
     let Some(named) = &manifest.wasm else {
         bail!("a listed plugin has a module, and this manifest names none");
     };
-    let relative = manifest
-        .resolve(named)
-        .with_context(|| format!("the manifest names `{}`, which isn't in the plugin", named.display()))?;
+    let relative = manifest.resolve(named).with_context(|| {
+        format!(
+            "the manifest names `{}`, which isn't in the plugin",
+            named.display()
+        )
+    })?;
     let module = snapshot
         .file(&relative, super::MODULE_CAP)?
-        .with_context(|| format!("the manifest names `{}`, which isn't in the plugin", named.display()))?;
+        .with_context(|| {
+            format!(
+                "the manifest names `{}`, which isn't in the plugin",
+                named.display()
+            )
+        })?;
     let sha256 = hex(Sha256::digest(&module).as_slice());
     if !sha256.eq_ignore_ascii_case(&entry.sha256) {
         bail!(
@@ -520,7 +528,10 @@ pub fn run_verify(arguments: Vec<String>) -> i32 {
             0
         }
         Err(error) => {
-            println!("{}", json!({"kind": "error", "error": format!("{error:#}")}));
+            println!(
+                "{}",
+                json!({"kind": "error", "error": format!("{error:#}")})
+            );
             1
         }
     }

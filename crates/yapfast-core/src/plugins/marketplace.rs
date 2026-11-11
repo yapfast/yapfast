@@ -222,9 +222,9 @@ impl Refusal {
     pub fn text(&self) -> String {
         match self {
             Refusal::NotJson(why) => format!("it isn't JSON Yapfast reads: {why}"),
-            Refusal::Api(Some(api)) => format!(
-                "it is for plugin API {api}, and this Yapfast speaks API {API_VERSION}"
-            ),
+            Refusal::Api(Some(api)) => {
+                format!("it is for plugin API {api}, and this Yapfast speaks API {API_VERSION}")
+            }
             Refusal::Api(None) => "it doesn't name its plugin API".into(),
             Refusal::Id(written) => {
                 format!("`{written}` isn't the id its file names, or isn't a plugin id")
@@ -240,9 +240,9 @@ impl Refusal {
             Refusal::License(written) if written.is_empty() => {
                 "it has no license, and a listed plugin needs an OSI-approved one".into()
             }
-            Refusal::License(written) => format!(
-                "`{written}` isn't an OSI-approved license, and a listed plugin needs one"
-            ),
+            Refusal::License(written) => {
+                format!("`{written}` isn't an OSI-approved license, and a listed plugin needs one")
+            }
             Refusal::Source(written) if written.is_empty() => {
                 "it has no `source` link, and review reads the source at that link".into()
             }
@@ -258,9 +258,9 @@ impl Refusal {
                 "`{written}` isn't a folder inside the repository: it can't be absolute or climb \
                  out with `..`"
             ),
-            Refusal::Host(written) => format!(
-                "`{written}` isn't a host a plugin may reach; a bare `*` is refused"
-            ),
+            Refusal::Host(written) => {
+                format!("`{written}` isn't a host a plugin may reach; a bare `*` is refused")
+            }
             Refusal::Icon(written) => format!(
                 "its icon `{written}` isn't `icons/<id>.webp`, a 128 by 128 WebP of at most 24 \
                  KiB, in the registry itself"
@@ -320,8 +320,8 @@ impl Entry {
     /// Reads one entry file, `plugins/<id>.json`, and checks everything a
     /// listing promises.
     pub fn parse(text: &str, file: &str) -> Result<Entry, Refusal> {
-        let written: Written = serde_json::from_str(text)
-            .map_err(|error| Refusal::NotJson(error.to_string()))?;
+        let written: Written =
+            serde_json::from_str(text).map_err(|error| Refusal::NotJson(error.to_string()))?;
         match written.api {
             Some(api) if api == u64::from(API_VERSION) => {}
             other => return Err(Refusal::Api(other)),
@@ -422,8 +422,7 @@ fn names(source: &str, repo: &str) -> bool {
         return false;
     }
     let rest = source.strip_prefix(repo).unwrap_or_default();
-    source.starts_with(repo)
-        && (rest.is_empty() || rest.starts_with('#') || rest.starts_with('@'))
+    source.starts_with(repo) && (rest.is_empty() || rest.starts_with('#') || rest.starts_with('@'))
 }
 
 /// A folder inside a repository: relative, `/`-separated, never climbing out.
@@ -527,8 +526,8 @@ struct WrittenDelisted {
 impl Index {
     /// Reads `index.json`.
     pub fn parse(text: &str) -> Result<Index, Refusal> {
-        let written: WrittenIndex = serde_json::from_str(text)
-            .map_err(|error| Refusal::NotJson(error.to_string()))?;
+        let written: WrittenIndex =
+            serde_json::from_str(text).map_err(|error| Refusal::NotJson(error.to_string()))?;
         match written.api {
             Some(api) if api == u64::from(API_VERSION) => {}
             other => return Err(Refusal::Api(other)),
@@ -979,7 +978,10 @@ mod tests {
                 entry_text("com.example.broken").replace("\"MIT\"", "\"WTFPL\""),
             ),
         ];
-        let icons = vec![(format!("{ICONS}/com.example.word-filter.webp"), icon_bytes(ICON_SIDE))];
+        let icons = vec![(
+            format!("{ICONS}/com.example.word-filter.webp"),
+            icon_bytes(ICON_SIDE),
+        )];
         let catalog = Catalog::read(
             "https://codeberg.org/yapfast/plugin-registry",
             &"a".repeat(40),
@@ -990,7 +992,11 @@ mod tests {
         .expect("a registry");
         assert_eq!(catalog.listings.len(), 1);
         assert_eq!(catalog.refused.len(), 1);
-        assert!(catalog.refused[0].contains("OSI-approved"), "{:?}", catalog.refused);
+        assert!(
+            catalog.refused[0].contains("OSI-approved"),
+            "{:?}",
+            catalog.refused
+        );
     }
 
     /// A listing needs a license and a source link, and the source must be the
@@ -1005,12 +1011,13 @@ mod tests {
             Entry::parse(&unlicensed, &file),
             Err(Refusal::License(String::new()))
         );
-        assert!(Refusal::License(String::new()).text().contains("OSI-approved"));
-
-        let unlinked = text.replace(
-            "\"source\": \"https://codeberg.org/ada/word-filter\",",
-            "",
+        assert!(
+            Refusal::License(String::new())
+                .text()
+                .contains("OSI-approved")
         );
+
+        let unlinked = text.replace("\"source\": \"https://codeberg.org/ada/word-filter\",", "");
         assert_eq!(
             Entry::parse(&unlinked, &file),
             Err(Refusal::Source(String::new()))
@@ -1036,14 +1043,9 @@ mod tests {
     #[test]
     fn a_bare_star_host_is_refused() {
         let file = format!("{ENTRIES}/com.example.word-filter.json");
-        let text = entry_text("com.example.word-filter").replace(
-            "\"network\": [\"api.example.com\"]",
-            "\"network\": [\"*\"]",
-        );
-        assert_eq!(
-            Entry::parse(&text, &file),
-            Err(Refusal::Host("*".into()))
-        );
+        let text = entry_text("com.example.word-filter")
+            .replace("\"network\": [\"api.example.com\"]", "\"network\": [\"*\"]");
+        assert_eq!(Entry::parse(&text, &file), Err(Refusal::Host("*".into())));
         assert!(Refusal::Host("*".into()).text().contains("bare `*`"));
         // A wildcard below a domain is a host pattern, and is allowed.
         let allowed = entry_text("com.example.word-filter").replace(
@@ -1059,15 +1061,9 @@ mod tests {
     fn an_entry_pins_a_commit_and_a_hash() {
         let file = format!("{ENTRIES}/com.example.word-filter.json");
         let text = entry_text("com.example.word-filter");
-        let branch = text.replace(
-            "051b765bb6abe4fe95d5e4f489f03ad7b137edbc",
-            "main",
-        );
+        let branch = text.replace("051b765bb6abe4fe95d5e4f489f03ad7b137edbc", "main");
         assert!(matches!(Entry::parse(&branch, &file), Err(Refusal::Rev(_))));
-        let short = text.replace(
-            "051b765bb6abe4fe95d5e4f489f03ad7b137edbc",
-            "051b765b",
-        );
+        let short = text.replace("051b765bb6abe4fe95d5e4f489f03ad7b137edbc", "051b765b");
         assert!(matches!(Entry::parse(&short, &file), Err(Refusal::Rev(_))));
         let hash = text.replace(&"0".repeat(64), "not a hash");
         assert!(matches!(
@@ -1090,13 +1086,18 @@ mod tests {
             path: entry.path.clone(),
             reference: entry.rev.clone(),
             rev: entry.rev.clone(),
-            manifest: r#"{"api":1,"id":"com.example.word-filter","name":"Word Filter","version":"1.4.0"}"#.into(),
+            manifest:
+                r#"{"api":1,"id":"com.example.word-filter","name":"Word Filter","version":"1.4.0"}"#
+                    .into(),
             module: Some(module.clone()),
             icon: None,
         };
         // The registry's hash is of another module.
         let error = catalog.verify(entry, &honest).expect_err("not that module");
-        assert!(error.contains("isn't the one its repository holds"), "{error}");
+        assert!(
+            error.contains("isn't the one its repository holds"),
+            "{error}"
+        );
         assert!(error.contains("nothing was installed"), "{error}");
 
         // A repository that moved under its pin.
@@ -1134,7 +1135,11 @@ mod tests {
             ..Installed::default()
         };
         catalog.describe(std::slice::from_mut(&mut installed));
-        assert_eq!(installed.origin, Origin::Marketplace, "the registry lists it");
+        assert_eq!(
+            installed.origin,
+            Origin::Marketplace,
+            "the registry lists it"
+        );
         let update = installed.update.clone().expect("an update");
         assert_eq!(update.version, "1.4.0");
         assert_eq!(update.adds, ["messages.read"], "it asks for more now");
@@ -1188,7 +1193,10 @@ mod tests {
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("Leaky"), "{warnings:?}");
         assert!(warnings[0].contains("sent your token"), "{warnings:?}");
-        assert!(warnings[0].contains("Remove it"), "it offers removal: {warnings:?}");
+        assert!(
+            warnings[0].contains("Remove it"),
+            "it offers removal: {warnings:?}"
+        );
         // Nobody has the abandoned one, and the abandoned one isn't security.
         assert!(catalog.warnings(&[]).is_empty());
         assert!(

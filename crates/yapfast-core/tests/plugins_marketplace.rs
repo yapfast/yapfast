@@ -21,8 +21,8 @@ use std::process::Command;
 
 use yapfast_core::plugins::installing;
 use yapfast_core::plugins::marketplace;
-use yapfast_core::plugins::store::{self, Store};
 use yapfast_core::plugins::registry::Registry;
+use yapfast_core::plugins::store::{self, Store};
 
 const ID: &str = "dev.local.echo";
 
@@ -135,7 +135,11 @@ fn a_registry_is_browsed_installed_and_checked_against_its_entry() {
         Some(marketplace::icon_url(ID).as_str())
     );
     assert_eq!(catalog.icon_count(), 1, "the icon's bytes are held");
-    assert_eq!(catalog.warnings(&[]).len(), 0, "nobody has the delisted one");
+    assert_eq!(
+        catalog.warnings(&[]).len(),
+        0,
+        "nobody has the delisted one"
+    );
     let listed = catalog.entry(ID).expect("its entry").clone();
     assert_eq!(listed.rev, rev);
 
@@ -143,8 +147,7 @@ fn a_registry_is_browsed_installed_and_checked_against_its_entry() {
     // compared with what the entry pinned. A `file://` source takes no
     // `@ref`, so the fixture is read at its only commit, which is the pin.
     let installing::Outcome::Plugin(fetched) =
-        installing::fetch(&format!("{repository}#path=plugins/echo"))
-            .expect("the plugin reads")
+        installing::fetch(&format!("{repository}#path=plugins/echo")).expect("the plugin reads")
     else {
         panic!("one plugin, not an index");
     };
@@ -156,9 +159,7 @@ fn a_registry_is_browsed_installed_and_checked_against_its_entry() {
     let mut store = Store::open(installed.path()).expect("a store");
     store.install(&fetched.package()).expect("it installs");
     assert!(
-        Registry::load(&store)
-            .entry(&fetched.id)
-            .is_some(),
+        Registry::load(&store).entry(&fetched.id).is_some(),
         "the store has it"
     );
 

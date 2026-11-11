@@ -425,7 +425,10 @@ impl Bridge {
                     Ok(Err(error)) => Err(error),
                     Err(error) => Err(format!("the marketplace wasn't read: {error}")),
                 };
-                shared.announce(Notice::Catalog { source: url, result });
+                shared.announce(Notice::Catalog {
+                    source: url,
+                    result,
+                });
             }),
             Err(error) => {
                 shared.announce(Notice::Catalog {

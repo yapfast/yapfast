@@ -362,9 +362,12 @@ impl Application {
             ));
             return Vec::new();
         };
-        self.plugins_find(entry.url(), Some(Ask::Install {
-            id: entry.id.clone(),
-        }));
+        self.plugins_find(
+            entry.url(),
+            Some(Ask::Install {
+                id: entry.id.clone(),
+            }),
+        );
         vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)]
     }
 
@@ -435,11 +438,9 @@ impl Application {
             let Some(bytes) = registry.icon(&url) else {
                 continue;
             };
-            let Some(picture) = crate::chat::decode_picture(
-                &bytes,
-                marketplace::ICON_SIDE,
-                marketplace::ICON_SIDE,
-            ) else {
+            let Some(picture) =
+                crate::chat::decode_picture(&bytes, marketplace::ICON_SIDE, marketplace::ICON_SIDE)
+            else {
                 tracing::warn!(%url, "a marketplace icon isn't a picture this build can read");
                 continue;
             };
@@ -646,7 +647,11 @@ mod tests {
     #[test]
     fn the_marketplace_without_a_runtime_says_why_it_is_empty() {
         let mut app = Application::default();
-        assert_eq!(app.plugins_page_request(Request::Open).len(), 1, "one redraw");
+        assert_eq!(
+            app.plugins_page_request(Request::Open).len(),
+            1,
+            "one redraw"
+        );
         assert!(matches!(app.plugin_page.catalog, Catalog::Failed(_)));
         // Nothing to browse, so the tab's state goes back to Unloaded, which
         // is one redraw and nothing held.
@@ -659,7 +664,10 @@ mod tests {
             })
             .is_empty()
         );
-        assert!(app.state.notice.is_some(), "it says the marketplace doesn't list it");
+        assert!(
+            app.state.notice.is_some(),
+            "it says the marketplace doesn't list it"
+        );
     }
 
     /// The marketplace's catalog, and the icons it holds, exist only while the
