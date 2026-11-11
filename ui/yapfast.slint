@@ -49,6 +49,7 @@ import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList, Voic
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, EmojiCardView, MessageStickerCard, MessageStickerCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, VoicePlayer, Polls } from "messages.slint";
 import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
+import { BadgesWindow, BadgeRow, BadgeLevelRow } from "badges.slint";
 import { MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
@@ -72,6 +73,8 @@ export { BuildInfo } from "yapfast/build-info.slint";
 export { InboxRow } from "yapfast/inbox.slint";
 export { Theme, Badges, Popup, Twemoji, Looks } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
+export { BadgeWindows } from "badges.slint";
+export { ProfileCalls } from "people.slint";
 export { PersonRow, CallLink, ShareScreen, VoiceCard } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
 export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer, NameStyles, ActivityClock } from "controls.slint";
@@ -845,6 +848,20 @@ export component YapfastWindow inherits Window {
     }
     callback enlarge-profile();
     callback close-profile();
+    /// The badge window open over the profile: someone's, named, or the
+    /// account's own, without a name; see BadgesWindow.
+    in property <bool> badges-open;
+    in property <string> badges-person;
+    in property <string> badges-avatar;
+    in property <[BadgeRow]> badges-owned;
+    in property <[BadgeRow]> badges-available;
+    in property <int> badges-first;
+    in property <string> badges-note;
+    in property <bool> badges-failed;
+    callback close-badges();
+    callback retry-badges();
+    /// To the account's own badge window, on this badge if any.
+    callback view-own-badges(int);
     /// The emoji a click in a message's text opened, and its card, which sits
     /// beside it until a click outside or Escape closes it.
     in-out property <bool> emoji-card-open;
@@ -4522,6 +4539,10 @@ export component YapfastWindow inherits Window {
         TouchArea { clicked => { root.close-profile(); } }
         FocusScope {
             init => { self.focus(); }
+            // A badge window took the keyboard; closing it gives it back, so
+            // Escape closes the profile again.
+            property <bool> badges: root.badges-open;
+            changed badges => { if !self.badges { self.focus(); } }
             key-pressed(event) => {
                 if event.text == Key.Escape { root.close-profile(); return accept; }
                 return reject;
@@ -4554,6 +4575,10 @@ export component YapfastWindow inherits Window {
         TouchArea { clicked => { root.close-profile(); } }
         FocusScope {
             init => { self.focus(); }
+            // A badge window took the keyboard; closing it gives it back, so
+            // Escape closes the profile again.
+            property <bool> badges: root.badges-open;
+            changed badges => { if !self.badges { self.focus(); } }
             key-pressed(event) => {
                 if event.text == Key.Escape { root.close-profile(); return accept; }
                 return reject;
@@ -4575,6 +4600,31 @@ export component YapfastWindow inherits Window {
             open-friend(id, x, y, width, height) => { root.show-friend-profile(id, true); }
             tab-opened(page) => { root.profile-tab-opened(page); }
             edit-profile => { root.close-profile(); root.edit-profile(); }
+        }
+    }
+    // A badge window, over the profile it was opened from.
+    badges-motion := PopupMotion { open: root.badges-open; }
+    if badges-motion.shown: Rectangle {
+        background: rgba(0, 0, 0, 0.7 * badges-motion.amount);
+        TouchArea { clicked => { root.close-badges(); } }
+        FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if event.text == Key.Escape { root.close-badges(); return accept; }
+                return reject;
+            }
+        }
+        BadgesWindow {
+            opacity: Popup.opacity(badges-motion.amount); transform-scale: Popup.scale(badges-motion.amount);
+            x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+            person: root.badges-person; person-avatar: root.badges-avatar;
+            owned: root.badges-owned; available: root.badges-available; first: root.badges-first;
+            note: root.badges-note; failed: root.badges-failed;
+            close => { root.close-badges(); }
+            retry => { root.retry-badges(); }
+            view-own(badge) => { root.view-own-badges(badge); }
+            // Discord's page opens, and the windows make way, as Discord's do.
+            open-link(link) => { root.close-badges(); root.close-profile(); root.open-link(link); }
         }
     }
     // A mutual server's card, over the profile that lists it. Clicking

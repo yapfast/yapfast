@@ -13,6 +13,9 @@ export component ActionButton inherits Rectangle {
     in property <bool> danger;
     /// Green, as a Discord app's button for a positive action.
     in property <bool> success;
+    /// A themed profile's colour in place of the accent, with white on it.
+    in property <color> tint;
+    in property <bool> tinted;
     in property <bool> small;
     callback clicked;
     min-width: max(root.small ? 28px : 36px, content.preferred-width);
@@ -20,7 +23,7 @@ export component ActionButton inherits Rectangle {
     max-height: self.min-height;
     vertical-stretch: 0;
     border-radius: 6px;
-    background: !root.enabled ? (root.primary ? Theme.accent.with-alpha(0.3) : root.success ? Theme.live.with-alpha(0.3) : root.ghost ? transparent : Theme.raised)
+    background: root.tinted ? (pointer.has-hover ? root.tint.darker(0.1) : root.tint) : !root.enabled ? (root.primary ? Theme.accent.with-alpha(0.3) : root.success ? Theme.live.with-alpha(0.3) : root.ghost ? transparent : Theme.raised)
         : root.primary ? (pointer.has-hover ? Theme.accent-hover : Theme.accent)
         : root.success ? (pointer.has-hover ? Theme.live.brighter(0.1) : Theme.live)
         : root.danger ? (pointer.has-hover ? Theme.danger-hover : Theme.danger)
@@ -34,7 +37,7 @@ export component ActionButton inherits Rectangle {
     accessible-enabled: root.enabled;
     accessible-action-default => { if root.enabled { root.clicked(); } }
     forward-focus: focus;
-    property <color> ink: !root.enabled ? (root.primary || root.success ? Theme.on-accent.with-alpha(0.6) : Theme.faint)
+    property <color> ink: root.tinted ? #ffffff : !root.enabled ? (root.primary || root.success ? Theme.on-accent.with-alpha(0.6) : Theme.faint)
         : root.primary || root.success ? Theme.on-accent : root.danger ? Theme.on-danger
         : root.ghost && !pointer.has-hover ? Theme.secondary : Theme.text;
     content := HorizontalLayout {

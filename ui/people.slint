@@ -2,6 +2,7 @@ import { ClientStyle } from "yapfast/style.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, BadgeTip } from "theme.slint";
 import { ActionButton, IconButton, Avatar, Nameplate, StatusText, StyledName, NameStyleRow, EffectLayer, ProfileEffect, PictureStore, TextField, ServerTagChip, TipIcon, ActivityClock } from "controls.slint";
+import { BadgeWindows } from "badges.slint";
 import { StatusDot } from "rail.slint";
 import { BotTag } from "messages.slint";
 
@@ -388,7 +389,13 @@ export global ProfileTheme {
 /// hover, and where a click goes, empty when nowhere. A badge that levels up
 /// has a `title` too: its tooltip shows `kind` above it, `progress` below it
 /// and the large `picture` of the level above them.
-export struct ProfileBadgeRow { icon: string, description: string, link: string, kind: string, title: string, progress: string, picture: string }
+/// The full profile's Join, on the call its person is in.
+export global ProfileCalls {
+    callback join(string);
+}
+
+/// `directory` is the number the badge window knows it by, 0 when it doesn't.
+export struct ProfileBadgeRow { directory: int, icon: string, description: string, link: string, kind: string, title: string, progress: string, picture: string }
 
 /// An account on another service on a profile, such as Steam: the service,
 /// its name for the account, where it opens ("" when it doesn't), when the
@@ -470,6 +477,14 @@ export struct ProfileData {
     /// It's this account's own profile, which shows no mutual friends or
     /// servers, as Discord's doesn't.
     own: bool,
+    /// A bot, whose badges keep their links rather than open a badge window.
+    bot: bool,
+    /// The call they're in, from the voice states this account sees: its
+    /// room, name, heading, and whether this account may join it.
+    call-room: string, call-name: string, call-heading: string, call-can-join: bool,
+    /// A themed profile's main buttons, by the client's rule
+    /// (src/ui/profile.rs).
+    theme-button: color,
 }
 
 // A picture on the Board or Wishlist tab, asked for as it shows. What has none,
@@ -561,6 +576,11 @@ export component ProfileHeading inherits Text {
 // page when Discord gives it one.
 export component ProfileBadge inherits Rectangle {
     in property <ProfileBadgeRow> badge;
+    /// Whose badge it is: a click opens their badge window on it, when the
+    /// window knows it and they're not a bot.
+    in property <string> person;
+    in property <bool> bot;
+    property <bool> opens-window: root.person != "" && !root.bot && root.badge.directory > 0;
     callback open-link(string);
     property <image> picture: root.badge.icon != "" ? PictureStore.picture(root.badge.icon, PictureStore.revision(root.badge.icon)) : @image-url("");
     property <image> level-picture: root.badge.picture != "" ? PictureStore.picture(root.badge.picture, PictureStore.revision(root.badge.picture)) : @image-url("");
@@ -581,8 +601,14 @@ export component ProfileBadge inherits Rectangle {
     accessible-label: root.badge.description;
     Image { source: root.picture; width: parent.width; height: parent.height; image-fit: contain; }
     badge-pointer := TouchArea {
-        mouse-cursor: root.badge.link != "" ? MouseCursor.pointer : MouseCursor.default;
-        clicked => { if root.badge.link != "" { root.open-link(root.badge.link); } }
+        mouse-cursor: root.badge.link != "" || root.opens-window ? MouseCursor.pointer : MouseCursor.default;
+        clicked => {
+            if root.opens-window {
+                BadgeWindows.open(root.person, root.badge.directory);
+            } else if root.badge.link != "" {
+                root.open-link(root.badge.link);
+            }
+        }
         changed has-hover => {
             if self.has-hover {
                 tip-delay.running = true;
@@ -961,6 +987,8 @@ export component ProfileCard inherits Rectangle {
     property <color> ink3: root.themed ? ProfileTheme.ink3(root.light) : Theme.muted;
     /// A row under the pointer, Discord's 8% black on a light theme, 4% white on a dark one.
     property <color> hover: !root.themed ? Theme.hover : root.light ? #00000014 : #ffffff0a;
+    /// The full card's round buttons.
+    property <color> chip: !root.themed ? Theme.raised : root.light ? #ffffff66 : #ffffff1f;
     /// What lies behind the avatar's ring, where the banner ends.
     property <color> ground: root.themed ? root.theme-start : root.plain-ground;
     /// Their custom status or what they're doing, which Discord puts in a
@@ -1108,53 +1136,40 @@ export component ProfileCard inherits Rectangle {
                                 if root.data.tag != "": Middle { ServerTagChip { text: root.data.tag; badge: root.data.tag-badge; font-weight: 400; chip-height: 24px; pad: 8px; radius: 8px; fill: root.light ? #ffffff3d : #97979f1f; outline: #97979f0a; outline-width: 1px; text-color: root.themed ? root.ink : Theme.text; } }
                             }
                         }
-                        // The full profile's actions: the friend button, the message
-                        // button and the menu, as Discord sets them under the name.
-                        // One's own, as Discord's, has Edit Profile in their place.
+                        // The full profile's actions, as Discord's client sets them under
+                        // the name: Message in the theme's button colour, the friend
+                        // button for a friend, whose choices are the menu's, Add Friend
+                        // (or the request's state) for anyone else, and the menu. One's
+                        // own, as Discord's, has Edit Profile in their place.
                         if root.large && !root.preview && root.data.own: HorizontalLayout {
                             alignment: start; height: 32px;
-                            ActionButton { text: "Edit Profile"; icon: @image-url("icons/pencil.svg"); primary: true; small: true; clicked => { root.edit-profile(); } }
+                            ActionButton {
+                                text: "Edit Profile"; icon: @image-url("icons/pencil.svg"); primary: true; small: true;
+                                tint: root.data.theme-button; tinted: root.data.has-theme;
+                                clicked => { root.edit-profile(); }
+                            }
                         }
                         if root.large && !root.preview && !root.data.own && (root.data.friend > 0 || root.data.can-message || root.data.id != ""): HorizontalLayout {
                             spacing: 8px; alignment: start; height: 32px;
-                            if root.data.friend > 0: Rectangle {
-                                height: 32px; width: friend-row.preferred-width + 24px; border-radius: 4px;
-                                background: root.data.friend == 3 ? Theme.accent : action-friend.has-hover && root.data.friend != 2 ? root.ink.transparentize(0.8) : root.ink.transparentize(0.88);
-                                opacity: root.data.friend == 2 ? 0.5 : 1;
-                                accessible-role: button;
-                                accessible-enabled: root.data.friend != 2;
-                                accessible-label: root.data.friend == 1 ? "Add Friend" : root.data.friend == 2 ? "Friend Request Sent" : root.data.friend == 4 ? "Friends" : "Accept Friend Request";
-                                accessible-action-default => { if root.data.friend == 4 { root.more(self.absolute-position.x, self.absolute-position.y + self.height); } else { root.befriend(); } }
-                                friend-row := HorizontalLayout {
-                                    x: 12px; spacing: 6px; alignment: center;
-                                    Middle { Image { source: root.data.friend == 4 ? @image-url("icons/check.svg") : @image-url("icons/user-plus.svg"); width: 16px; height: 16px; colorize: root.data.friend == 3 ? #ffffff : root.ink; } }
-                                    Text {
-                                        text: root.data.friend == 1 ? "Add Friend" : root.data.friend == 2 ? "Friend Request Sent" : root.data.friend == 4 ? "Friends" : "Accept Friend Request";
-                                        color: root.data.friend == 3 ? #ffffff : root.ink; font-size: 14px; font-weight: 500; vertical-alignment: center;
-                                    }
-                                }
-                                action-friend := TouchArea {
-                                    enabled: root.data.friend != 2; mouse-cursor: MouseCursor.pointer;
-                                    clicked => { if root.data.friend == 4 { root.more(self.absolute-position.x, self.absolute-position.y + self.height); } else { root.befriend(); } }
-                                }
+                            if root.data.can-message: ActionButton {
+                                text: "Message"; icon: @image-url("icons/message-circle.svg"); primary: true; small: true;
+                                tint: root.data.theme-button; tinted: root.data.has-theme;
+                                clicked => { root.message-person(root.data.id); }
                             }
-                            if root.data.can-message: Rectangle {
-                                width: 32px; height: 32px; border-radius: 16px;
-                                background: action-message.has-hover ? root.ink.transparentize(0.8) : root.ink.transparentize(0.88);
-                                accessible-role: button;
-                                accessible-label: "Message " + root.data.name;
-                                accessible-action-default => { root.message-person(root.data.id); }
-                                Image { source: @image-url("icons/message-circle.svg"); width: 18px; height: 18px; x: 7px; y: 7px; colorize: root.ink; }
-                                action-message := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.message-person(root.data.id); } }
+                            if root.data.friend == 4: IconButton {
+                                icon: @image-url("icons/user.svg"); label: "Friend"; tint: root.ink; fill: root.chip; radius: 8px; glyph: 18px;
+                                clicked => { root.more(self.absolute-position.x, self.absolute-position.y + self.height); }
                             }
-                            if root.data.id != "": Rectangle {
-                                width: 32px; height: 32px; border-radius: 16px;
-                                background: action-more.has-hover ? root.ink.transparentize(0.8) : root.ink.transparentize(0.88);
-                                accessible-role: button;
-                                accessible-label: "More actions";
-                                accessible-action-default => { root.more(self.absolute-position.x, self.absolute-position.y + self.height); }
-                                Image { source: @image-url("icons/ellipsis.svg"); width: 18px; height: 18px; x: 7px; y: 7px; colorize: root.ink; }
-                                action-more := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.more(self.absolute-position.x, self.absolute-position.y + self.height); } }
+                            if root.data.friend > 0 && root.data.friend < 4: IconButton {
+                                icon: @image-url("icons/user-plus.svg"); tint: root.data.friend == 3 ? #ffffff : root.ink;
+                                fill: root.data.friend == 3 ? Theme.accent : root.chip; radius: 8px; glyph: 18px;
+                                enabled: root.data.friend != 2;
+                                label: root.data.friend == 1 ? "Add Friend" : root.data.friend == 2 ? "Friend Request Sent" : "Accept Friend Request";
+                                clicked => { root.befriend(); }
+                            }
+                            if root.data.id != "": IconButton {
+                                icon: @image-url("icons/ellipsis.svg"); label: "More"; tint: root.ink; fill: root.chip; radius: 8px; glyph: 18px;
+                                clicked => { root.more(self.absolute-position.x, self.absolute-position.y + self.height); }
                             }
                         }
                         // Discord sets the badges in a pill of their own: 20px icons 2px
@@ -1171,7 +1186,7 @@ export component ProfileCard inherits Rectangle {
                                     x: 3px; y: 1px; width: parent.width - 6px; height: 20px;
                                     for badge[index] in root.data.badges: ProfileBadge {
                                         x: index * 22px; width: 20px; height: 20px; visible: index < 6;
-                                        badge: badge;
+                                        badge: badge; person: root.preview || root.docked ? "" : root.data.id; bot: root.data.bot;
                                         open-link(url) => { root.open-link(url); }
                                     }
                                     if root.data.badges.length > 6: Text {
@@ -1362,6 +1377,7 @@ export component ProfileCard inherits Rectangle {
                         if root.data.note != "": Text { text: root.data.note; color: root.ink3; font-size: 13px; wrap: word-wrap; }
                         if !root.large && !root.preview && root.data.own: ActionButton {
                             text: "Edit Profile"; icon: @image-url("icons/pencil.svg"); primary: true;
+                            tint: root.data.theme-button; tinted: root.data.has-theme;
                             clicked => { root.edit-profile(); }
                         }
                         // Escape in the box closes the card, as it does elsewhere.
@@ -1543,12 +1559,34 @@ export component ProfileModal inherits Rectangle {
                     alignment: start; spacing: 8px;
                     if root.page == 0: VerticalLayout {
                         spacing: 8px;
+                        // The call they're in, first, with Join when this
+                        // account may.
+                        if root.data.call-room != "": Rectangle {
+                            border-radius: 10px; background: root.tile;
+                            height: call-card.preferred-height;
+                            call-card := VerticalLayout {
+                                padding: 12px; spacing: 8px;
+                                ProfileHeading { text: root.data.call-heading; color: root.ink2; }
+                                HorizontalLayout {
+                                    spacing: 12px;
+                                    Avatar { size: 64px; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; }
+                                    VerticalLayout {
+                                        alignment: center; spacing: 8px; horizontal-stretch: 1;
+                                        Text { text: root.data.call-name; color: root.ink; font-size: 14px; font-weight: 600; overflow: elide; }
+                                        if root.data.call-can-join: HorizontalLayout {
+                                            alignment: start;
+                                            ActionButton { text: "Join"; small: true; clicked => { ProfileCalls.join(root.data.call-room); } }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         for activity in root.data.activities: ActivityCard {
                             activity: activity; ink: root.ink; ink2: root.ink2; ink3: root.ink3;
                             ground: root.themed ? root.theme-start : Theme.sidebar; track: root.themed ? root.ink.transparentize(0.8) : Theme.raised;
                             open-link(url) => { root.open-link(url); }
                         }
-                        if root.data.activities.length == 0 && root.data.recent.length == 0: Text {
+                        if root.data.activities.length == 0 && root.data.recent.length == 0 && root.data.call-room == "": Text {
                             text: "Nothing to show here right now."; color: root.ink3; font-size: 14px; wrap: word-wrap;
                         }
                         // What they did lately, from Discord's outbox.

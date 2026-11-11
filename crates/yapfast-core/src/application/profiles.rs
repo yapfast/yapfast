@@ -277,6 +277,89 @@ impl Application {
         }
     }
 
+    /// Opens someone's badge window on the badge clicked, from the profile on
+    /// screen; this account's goes to its own window, as the client's does.
+    /// It asks for this account's badges too, which say what the window
+    /// offers it.
+    pub(super) fn show_badges(&mut self, user: String, badge: Option<u64>) -> Vec<Effect> {
+        if self.state.discord_user.as_deref() == Some(user.as_str()) {
+            return self.show_own_badges(badge);
+        }
+        let Some(profile) = [&self.state.profile, &self.state.panel_profile]
+            .into_iter()
+            .flatten()
+            .map(|view| &view.profile)
+            .find(|profile| profile.id == user)
+        else {
+            return vec![];
+        };
+        let preview = self.state.preview;
+        self.state.badge_window = Some(BadgeWindow {
+            name: profile.name.clone(),
+            avatar: profile.avatar.clone(),
+            badge,
+            badges: None,
+            error: preview.then(|| "Nothing to show in the preview.".to_owned()),
+            user: user.clone(),
+        });
+        if preview {
+            return vec![];
+        }
+        let mut effects = vec![Effect::Backend(Command::Discord(DiscordCommand::Badges {
+            user,
+        }))];
+        if self.state.own_badges.is_none() {
+            effects.push(own_badges());
+        }
+        effects
+    }
+
+    /// Opens this account's own badge window, which asks Discord each time.
+    pub(super) fn show_own_badges(&mut self, badge: Option<u64>) -> Vec<Effect> {
+        let preview = self.state.preview;
+        self.state.own_badges_error = preview.then(|| "Nothing to show in the preview.".to_owned());
+        self.state.badge_window = Some(BadgeWindow {
+            badge,
+            ..BadgeWindow::default()
+        });
+        if preview {
+            return vec![];
+        }
+        vec![own_badges()]
+    }
+
+    /// Badges a window asked for came, or didn't.
+    pub(super) fn badges_came(
+        &mut self,
+        user: &str,
+        result: Result<Vec<crate::chat::DirectoryBadge>, String>,
+    ) {
+        if user == OWN_BADGES {
+            match result {
+                Ok(badges) => {
+                    self.state.own_badges = Some(badges);
+                    self.state.own_badges_error = None;
+                }
+                Err(error) => self.state.own_badges_error = Some(error),
+            }
+            return;
+        }
+        if let Some(window) = self
+            .state
+            .badge_window
+            .as_mut()
+            .filter(|window| window.user == user)
+        {
+            match result {
+                Ok(badges) => {
+                    window.badges = Some(badges);
+                    window.error = None;
+                }
+                Err(error) => window.error = Some(error),
+            }
+        }
+    }
+
     /// A tab of the full profile opened: it asks Discord once for what it
     /// shows, and only for the full profile, never for a card.
     pub(super) fn open_profile_tab(&mut self, tab: ProfileTab) -> Vec<Effect> {
@@ -498,4 +581,13 @@ pub(super) fn dm_profile(room: &ChatRoom, person: String) -> Profile {
         id: person,
         ..Default::default()
     }
+}
+
+/// Who [`DiscordCommand::Badges`] names for this account's own.
+const OWN_BADGES: &str = "@me";
+
+fn own_badges() -> Effect {
+    Effect::Backend(Command::Discord(DiscordCommand::Badges {
+        user: OWN_BADGES.into(),
+    }))
 }

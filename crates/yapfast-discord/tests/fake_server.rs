@@ -2670,6 +2670,22 @@ async fn shows_profiles() {
     let own = discord.profile(PRIVATE, &bob, |_| {}).await.unwrap();
     assert!(own.bio.is_some_and(|bio| bio.starts_with("Plays bass")));
     assert!(own.roles.is_empty() && own.joined.is_none());
+    // Bob's badge window: what he owns, at the level he's reached.
+    let window = discord.badge_directory(&bob).await.unwrap();
+    let names: Vec<_> = window.iter().map(|badge| badge.name.as_str()).collect();
+    assert_eq!(names, ["Spielzeit", "HypeSquad Bravery"]);
+    assert_eq!(window[0].level.as_deref(), Some("Eisern"));
+    assert_eq!(window[0].level_rarity, 3);
+    assert!(window[0].unlocked.is_some());
+    assert!(!window[1].earnable);
+    // Alice's own lists every badge, owned or not.
+    let mine = discord.badge_directory("@me").await.unwrap();
+    assert_eq!(
+        mine.iter()
+            .map(|badge| (badge.id, badge.owned))
+            .collect::<Vec<_>>(),
+        [(14, true), (20, false)]
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

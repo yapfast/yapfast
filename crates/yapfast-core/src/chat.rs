@@ -907,6 +907,84 @@ pub struct Profile {
     /// What they did lately, once asked for.
     pub recent: Vec<RecentActivity>,
     pub recent_asked: bool,
+    /// They're a Discord bot, whose badges keep their links rather than
+    /// open a badge window.
+    pub bot: bool,
+}
+
+/// A level of a badge that levels up; see [`DirectoryBadge`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DirectoryLevel {
+    pub name: String,
+    pub icon: String,
+    pub owned: bool,
+    pub milestone: String,
+}
+
+/// A badge in a badge window, the account's own or someone's; see
+/// `yapfast_discord::profile::DirectoryBadge` for its fields.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DirectoryBadge {
+    pub id: u64,
+    pub name: String,
+    pub owned: bool,
+    pub earnable: bool,
+    pub description: String,
+    pub info: String,
+    /// 1 common, 2 rare, 3 epic, 5 mythic.
+    pub rarity: u8,
+    pub icon: String,
+    pub art: Option<String>,
+    pub unlocked: Option<String>,
+    pub next_name: Option<String>,
+    pub next_icon: Option<String>,
+    pub done: u64,
+    pub span: u64,
+    pub helper: String,
+    pub levels: Vec<DirectoryLevel>,
+    /// The level the client shows it at, and whether it's the first.
+    pub level: Option<String>,
+    pub first_level: bool,
+    /// That level's rarity and picture.
+    pub level_rarity: u8,
+    pub level_art: String,
+}
+
+#[cfg(feature = "discord")]
+impl From<yapfast_discord::profile::DirectoryBadge> for DirectoryBadge {
+    fn from(badge: yapfast_discord::profile::DirectoryBadge) -> Self {
+        Self {
+            id: badge.id,
+            name: badge.name,
+            owned: badge.owned,
+            earnable: badge.earnable,
+            description: badge.description,
+            info: badge.info,
+            rarity: badge.rarity,
+            icon: badge.icon,
+            art: badge.art,
+            unlocked: badge.unlocked,
+            next_name: badge.next_name,
+            next_icon: badge.next_icon,
+            done: badge.done,
+            span: badge.span,
+            helper: badge.helper,
+            level: badge.level,
+            first_level: badge.first_level,
+            level_rarity: badge.level_rarity,
+            level_art: badge.level_art,
+            levels: badge
+                .levels
+                .into_iter()
+                .map(|level| DirectoryLevel {
+                    name: level.name,
+                    icon: level.icon,
+                    owned: level.owned,
+                    milestone: level.milestone,
+                })
+                .collect(),
+        }
+    }
 }
 
 /// A past thing on someone's Activity tab.
@@ -997,6 +1075,8 @@ pub struct ProfileBadge {
     pub link: Option<String>,
     /// What its tooltip shows when it levels up.
     pub level: Option<ProfileBadgeLevel>,
+    /// The number Discord's badge window knows it by, when it knows it.
+    pub directory: Option<u64>,
 }
 
 /// The level a badge has reached, as its tooltip shows it.
@@ -3160,6 +3240,11 @@ pub enum DiscordCommand {
     ProfileRecent {
         user: String,
     },
+    /// The badges for a badge window: `@me` for this account's, every badge
+    /// there is, or someone's id for what they own; [`Event::Badges`] follows.
+    Badges {
+        user: String,
+    },
     /// This account's profile for its editor: in a Discord server, by its
     /// server id, or its main profile; [`Event::OwnProfile`] follows.
     OwnProfile {
@@ -4100,6 +4185,11 @@ pub enum Event {
     ProfileRecent {
         user: String,
         recent: Vec<RecentActivity>,
+    },
+    /// What [`DiscordCommand::Badges`] asked for, or why Discord didn't say.
+    Badges {
+        user: String,
+        result: Result<Vec<DirectoryBadge>, String>,
     },
     /// The profile Yapfast kept of someone [`DiscordCommand::Profile`] asked
     /// for, to show until [`Event::Profile`] comes.
