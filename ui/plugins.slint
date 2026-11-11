@@ -321,3 +321,34 @@ export component PluginButtons inherits HorizontalLayout {
         }
     }
 }
+
+// A plugin's question, over the window: the same widget renderer as a slot,
+// under the plugin's name, with a way to close it. It holds no answer of its
+// own: what the person chooses goes back as a widget's input, and the plugin
+// closes it with `ui.clear_slot` or replaces its tree.
+export component PluginDialog inherits Rectangle {
+    in property <PluginPart> part;
+    callback acted(string, string, string, string, string);
+    callback dismissed(string, string);
+    width: 420px; min-height: content.preferred-height;
+    background: Theme.panel; border-radius: 12px; border-width: 1px; border-color: Theme.edge;
+    drop-shadow-blur: 32px; drop-shadow-color: #00000080; drop-shadow-offset-y: 12px;
+    accessible-role: groupbox;
+    accessible-label: "From " + root.part.name;
+    // A click on the dialog stays on it instead of reaching the scrim.
+    TouchArea { }
+    content := VerticalLayout {
+        padding: 16px; spacing: 12px;
+        PluginWidgets {
+            part: root.part;
+            acted(plugin, slot, id, value, subject) => { root.acted(plugin, slot, id, value, subject); }
+        }
+        HorizontalLayout {
+            alignment: end;
+            ActionButton {
+                text: "Dismiss"; label: "Dismiss " + root.part.name + "'s dialog"; ghost: true; small: true;
+                clicked => { root.dismissed(root.part.plugin, root.part.slot); }
+            }
+        }
+    }
+}

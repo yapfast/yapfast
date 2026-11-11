@@ -3,9 +3,8 @@
 Plugins are behind the `plugins` Cargo feature, which is on by default, so a
 plain build carries them. This document is the interface's side of the system:
 reading and checking what a plugin's manifest changes in Yapfast's own
-interface, and the Plugins page in settings
-([`settings.md`](settings.md)). Nothing runs a plugin's
-WebAssembly yet.
+interface, and what a running plugin draws in it
+([`settings.md`](settings.md) is the Plugins page).
 
 ## Trying a plugin
 
@@ -214,13 +213,52 @@ count of changes moved, and only the message rows whose decorations changed.
 | Composer | `composer` | Beside the composer's GIF, sticker and emoji buttons | Buttons only |
 | Hover bar | `message.actions` | On a message's hover bar, before More, in the open channel | Buttons only |
 | Message | `message` | Under a message's text, attachments and cards, before its reactions | Any widget |
+| Dialog | `dialog` | Over the window, modal, with Dismiss; one per plugin, so another replaces it | Any widget |
+
+### How a plugin draws
+
+A guest asks with `ui.set_slot` and `ui.clear_slot`; `ui.notice` and
+`ui.toast` are the same thing in one line, and `ui.open_dialog` is
+`ui.set_slot` on the `dialog` slot. None of them needs a capability: §9.1 of
+the plan gives every plugin its own slots, and only changes to Yapfast's own
+interface need `ui.modify`.
+
+The bridge in [`plugins/bridge.rs`](../../crates/yapfast-core/src/plugins/bridge.rs)
+answers the call, not the interface, so a guest never waits on a frame:
+
+- **The tree is checked first.** `Tree::parse` refuses one over the cap or an
+  interactive cell without an id, and the answer says why in words a plugin's
+  author can act on: *"the tree can't be drawn: it has 80 rows and cells, over
+  64"*.
+- **A slot this build has no place for is refused, not dropped.** `panel`,
+  the side panel §11.2 leaves for later, answers *"Yapfast has no slot called
+  `panel`; the slots are banner, toast, composer, message.actions, dialog"*, and
+  the `message` slot answers that what a plugin draws under a message is a
+  `message.decorate` answer, not a slot.
+- **Drawings are coalesced to a frame and capped at ten a second per plugin.**
+  A plugin that draws on every event costs one update per frame: the last tree
+  for a slot (or for one decorated message) replaces the one before it, and a
+  plugin that keeps drawing waits out a 100 ms window between frames. Nothing
+  reaches the interface while nothing is queued, so an idle plugin wakes no
+  timer.
+- **The interface touches only what changed.** The application keeps the trees
+  in `Slots`, which counts changes per slot, and `show_plugin_slots` builds
+  again only the slots whose count moved; the same tree again changes nothing
+  and draws nothing.
+- **What a plugin drew goes when it stops running.** Turning it off, suspending
+  it after three faults, and installing or uninstalling anything take its trees
+  away, because a plugin that isn't running shows nothing. An instance evicted
+  for being idle keeps them: it is still enabled, and draws them again — or
+  doesn't — the next time it runs.
 
 A message's decorations are in `MessageRow::plugin`, one field: an empty
 model unless a plugin decorated that row, so a timeline without plugins
 carries one empty model per row. `Slots` keeps the decorations of the last
 512 messages decorated and drops the least recent; the runtime decorates a
 message again when it's edited, or when it comes back on screen after being
-dropped. Rows of the thread beside a channel aren't decorated yet.
+dropped. Rows of the thread beside a channel aren't decorated yet, and no
+plugin decorates a message yet either: `message.decorate` is named here and in
+the manifest, and nothing calls it.
 
 [`ui/plugins.slint`](../../ui/plugins.slint) draws a tree with precompiled
 components. `PluginWidgets` puts *From* and the plugin's name above every
@@ -234,11 +272,12 @@ What the person does goes back through the window's `plugin-acted` callback
 as `Input::Widget`: the plugin, the slot, the cell's id, its value (`true`
 or `false` for a toggle, the option, the text, the number; nothing for a
 button) and its subject, the message a widget is drawn on, or the open
-conversation for a composer button. Closing a notice or toast sends
+conversation for a composer button. Closing a notice, a toast or a dialog sends
 `Input::Dismissed` and takes it away at once. Both reach the `Runtime` as
 `Effect::PluginInput`.
 
 `slots.json` beside a manifest in `YAPFAST_PLUGINS_DIR` stands in for the
-runtime: an object from a slot's id, or `message:` and a message's id, to a
-tree, shown as the plugins load. [`testing/plugins/widgets`](../../testing/plugins/widgets)
+runtime, for trying widgets without writing a `.wasm`: an object from a slot's
+id, or `message:` and a message's id, to a tree, shown as the plugins load.
+Its trees go through the same checks. [`testing/plugins/widgets`](../../testing/plugins/widgets)
 shows each widget that way.

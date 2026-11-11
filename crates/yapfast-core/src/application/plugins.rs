@@ -68,6 +68,9 @@ pub enum Effect {
     /// its answer. It is the application's own state, so the question outlives
     /// Settings, and it is asked wherever the person is.
     Consent(Option<ConsentAsk>),
+    /// A plugin drew something in a slot or under a message, or what it drew
+    /// was taken away: the interface shows the slots that moved, and no others.
+    Slots,
 }
 
 /// A plugin waiting for the person to say whether it may reach a site.
@@ -473,6 +476,38 @@ impl Application {
                 self.state.notice = Some(text);
                 vec![]
             }
+            // What a plugin drew: the interface keeps it and shows the slots
+            // that moved. Only a real change redraws anything: the same tree
+            // again costs nothing.
+            News::Notice(Notice::Slot(output)) => {
+                let changed = self
+                    .state
+                    .plugin_slots
+                    .as_mut()
+                    .is_some_and(|slots| slots.apply(output));
+                redraw_if(changed)
+            }
+            // A plugin that was turned off or suspended draws nothing, so
+            // every tree it left goes with it. An instance evicted for being
+            // idle keeps its trees: it is still enabled.
+            News::Notice(Notice::SlotsGone(plugin)) => {
+                let gone = self
+                    .state
+                    .plugin_slots
+                    .as_mut()
+                    .is_some_and(|slots| slots.forget(&plugin.to_string()));
+                redraw_if(gone)
+            }
+            // The store changed under the instances that drew what's on
+            // screen, so all of it goes.
+            News::Notice(Notice::SlotsReset) => {
+                let gone = self
+                    .state
+                    .plugin_slots
+                    .as_mut()
+                    .is_some_and(|slots| slots.clear_all());
+                redraw_if(gone)
+            }
             News::Observed(envelope) => {
                 self.plugins_observe(envelope);
                 vec![]
@@ -636,6 +671,18 @@ fn plugin_network(network: Network) -> PluginNetwork {
     match network {
         Network::Discord => PluginNetwork::Discord,
         Network::Matrix => PluginNetwork::Matrix,
+    }
+}
+
+/// The interface redraws the slots plugins draw in, or nothing does.
+///
+/// A tree that came again unchanged, or a slot emptied twice, draws nothing: the
+/// interface is left alone until something it shows has changed.
+fn redraw_if(changed: bool) -> Vec<AppEffect> {
+    if changed {
+        vec![AppEffect::Plugin(Effect::Slots)]
+    } else {
+        Vec::new()
     }
 }
 

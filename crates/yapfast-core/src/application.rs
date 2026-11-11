@@ -44,7 +44,7 @@ mod places;
 #[cfg(feature = "plugins")]
 mod plugin_page;
 #[cfg(feature = "plugins")]
-pub(crate) mod plugins;
+pub mod plugins;
 mod polls;
 mod preview;
 mod profile_editor;

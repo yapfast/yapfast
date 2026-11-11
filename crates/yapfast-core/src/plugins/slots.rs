@@ -21,15 +21,19 @@ pub enum Slot {
     HoverBar,
     /// Under a message, one tree for each message a plugin decorates.
     Message,
+    /// A question a plugin asks, over the window until it's answered or
+    /// dismissed. One per plugin: opening another replaces it.
+    Dialog,
 }
 
 impl Slot {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Banner,
         Self::Toast,
         Self::Composer,
         Self::HoverBar,
         Self::Message,
+        Self::Dialog,
     ];
 
     /// Its name, as a plugin and its input name it.
@@ -40,6 +44,7 @@ impl Slot {
             Self::Composer => "composer",
             Self::HoverBar => "message.actions",
             Self::Message => "message",
+            Self::Dialog => "dialog",
         }
     }
 
@@ -172,6 +177,68 @@ impl Slots {
     /// What plugins draw in a slot, in the order they first drew there.
     pub fn drawn(&self, slot: Slot) -> impl Iterator<Item = &Drawn> {
         self.drawn.iter().filter(move |drawn| drawn.slot == slot)
+    }
+
+    /// Takes away everything one plugin drew: its trees in every slot, and
+    /// what it drew under messages, which is what disabling, suspending or
+    /// uninstalling it does. False when it drew nothing.
+    ///
+    /// An instance evicted for being idle keeps its trees: it is still enabled,
+    /// and the next time it runs it draws them again or doesn't.
+    pub fn forget(&mut self, plugin: &str) -> bool {
+        let Some(plugin) = self.index(plugin) else {
+            return false;
+        };
+        let mut changed = false;
+        for slot in Slot::ALL {
+            let before = self.drawn.len();
+            self.drawn
+                .retain(|drawn| !(drawn.plugin == plugin && drawn.slot == slot));
+            if self.drawn.len() != before {
+                self.changes[slot as usize] += 1;
+                changed = true;
+            }
+        }
+        let kept: VecDeque<Decoration> = self
+            .decorations
+            .iter()
+            .filter(|kept| kept.plugin != plugin)
+            .cloned()
+            .collect();
+        if kept.len() != self.decorations.len() {
+            let gone: Vec<String> = self
+                .decorations
+                .iter()
+                .filter(|kept| kept.plugin == plugin)
+                .map(|kept| kept.message.clone())
+                .collect();
+            self.decorations = kept;
+            self.decorated.extend(gone);
+            self.changes[Slot::Message as usize] += 1;
+            changed = true;
+        }
+        changed
+    }
+
+    /// Takes everything away, which is what an install, an uninstall or a roll
+    /// back does: the instances that drew it are gone, and what is drawn next
+    /// comes from the code the store holds now.
+    pub fn clear_all(&mut self) -> bool {
+        let drawn = !self.drawn.is_empty();
+        let decorated = !self.decorations.is_empty();
+        if !drawn && !decorated {
+            return false;
+        }
+        self.drawn.clear();
+        self.decorated.extend(
+            self.decorations
+                .drain(..)
+                .map(|gone| gone.message),
+        );
+        for slot in Slot::ALL {
+            self.changes[slot as usize] += 1;
+        }
+        true
     }
 
     /// How many times a slot changed, for the UI to tell whether to show it

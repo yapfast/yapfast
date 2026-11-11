@@ -60,6 +60,16 @@ pub enum Notice {
     /// again once the answer is in; without this the ask had nowhere to go and
     /// the plugin waited on a dialog that was never shown.
     Consent { plugin: PluginId, host: String },
+    /// What a plugin drew in a slot, or under a message, for the interface to
+    /// keep and show. The runtime coalesces these, so a plugin that draws once
+    /// per event costs one update per frame at most.
+    Slot(crate::plugins::slots::Output),
+    /// Take away everything one plugin drew, because it was turned off or
+    /// suspended: a plugin that isn't running shows nothing.
+    SlotsGone(PluginId),
+    /// Take away everything every plugin drew, because the store changed under
+    /// them: an install, an uninstall or a roll back.
+    SlotsReset,
 }
 
 /// What `pre_send` decided about an outgoing message.
