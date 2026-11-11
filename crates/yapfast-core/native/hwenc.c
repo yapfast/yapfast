@@ -142,10 +142,13 @@ struct yapfast_hwenc {
    * compared by, which Rust chooses none of. */
   char tuning[96];
   /* The access unit the last frame produced, kept until Rust copies it into
-   * the buffer it holds: FFmpeg's packets are unreferenced as soon as they
-   * are read, and encoding the picture again to get it into a larger buffer
-   * would send a frame referencing one the receiver never got. Reused from
-   * frame to frame, so it holds one frame's worth rather than a stream's. */
+   * the buffer it holds: encoding the picture again to get it into a larger
+   * buffer would send a frame referencing one the receiver never got. A frame
+   * is one packet, which is held by its own reference, so the unit is copied
+   * once, straight into what is sent; only a frame that came out as several
+   * packets is gathered into `staged`, which then holds one frame's worth. */
+  AVPacket *held;
+  int holding;
   unsigned char *staged;
   size_t staged_capacity;
   size_t staged_size;
@@ -357,6 +360,8 @@ static void close_encoder(struct yapfast_hwenc *h) {
   av_frame_free(&h->surface);
   av_frame_free(&h->frame);
   av_packet_free(&h->packet);
+  av_packet_free(&h->held);
+  h->holding = 0;
   av_buffer_unref(&h->device);
   /* The surfaces the capture's textures were read through, each holding its
    * texture until the last frame reading it is done: giving up the reference
@@ -861,7 +866,8 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
   }
   h->frame = av_frame_alloc();
   h->packet = av_packet_alloc();
-  if (!h->frame || !h->packet) return AVERROR(ENOMEM);
+  h->held = av_packet_alloc();
+  if (!h->frame || !h->packet || !h->held) return AVERROR(ENOMEM);
   /* A session reading the capture's own surfaces is handed one of them in
    * `yapfast_hwenc_encode_texture`, which puts the surface in the frame itself:
    * there is no picture in memory here to give a buffer to, and the one
@@ -1224,6 +1230,8 @@ static long encode_frame(struct yapfast_hwenc *h, AVFrame *frame, int64_t at, in
   /* Whatever the last call left is this frame's to replace, copied out or
    * not: one frame is held at a time. */
   h->staged_size = 0;
+  if (h->holding) av_packet_unref(h->held);
+  h->holding = 0;
   *is_key = 0;
   /* AMF waits a millisecond at most for each receive: polled for the
    * frame's packet for up to 100 ms, after which it comes with the next. */
@@ -1246,16 +1254,32 @@ static long encode_frame(struct yapfast_hwenc *h, AVFrame *frame, int64_t at, in
       av_packet_unref(h->packet);
       continue;
     }
-    if (!stage(h, size, h->packet->data, (size_t)h->packet->size)) {
-      av_packet_unref(h->packet);
-      return -1;
-    }
-    size += (size_t)h->packet->size;
+    const size_t length = (size_t)h->packet->size;
     *is_key |= (h->packet->flags & AV_PKT_FLAG_KEY) != 0;
-    av_packet_unref(h->packet);
+    if (!size) {
+      /* The frame's packet, held where FFmpeg made it. */
+      av_packet_move_ref(h->held, h->packet);
+      h->holding = 1;
+    } else {
+      /* A second packet for one frame: the first joins it in `staged`. */
+      if (h->holding) {
+        if (!stage(h, 0, h->held->data, (size_t)h->held->size)) {
+          av_packet_unref(h->packet);
+          return -1;
+        }
+        av_packet_unref(h->held);
+        h->holding = 0;
+      }
+      if (!stage(h, size, h->packet->data, length)) {
+        av_packet_unref(h->packet);
+        return -1;
+      }
+      av_packet_unref(h->packet);
+    }
+    size += length;
   }
   if (ret != AVERROR(EAGAIN)) return -1;
-  h->staged_size = size;
+  h->staged_size = h->holding ? 0 : size;
   return (long)size;
 }
 
@@ -1345,6 +1369,14 @@ long yapfast_hwenc_encode_texture(struct yapfast_hwenc *h, void *texture, unsign
  * is never encoded twice to fit one. Returns the size copied, or -1 when there
  * is nothing to copy or `out` is too small. */
 long yapfast_hwenc_drain(struct yapfast_hwenc *h, unsigned char *out, size_t capacity) {
+  if (h->holding) {
+    const size_t size = (size_t)h->held->size;
+    if (!size || size > capacity) return -1;
+    memcpy(out, h->held->data, size);
+    av_packet_unref(h->held);
+    h->holding = 0;
+    return (long)size;
+  }
   size_t size = h->staged_size;
   if (!size || size > capacity) return -1;
   memcpy(out, h->staged, size);
@@ -1352,9 +1384,10 @@ long yapfast_hwenc_drain(struct yapfast_hwenc *h, unsigned char *out, size_t cap
   return (long)size;
 }
 
-/* The memory this encoder keeps for the access unit it produces, reused for
- * the next one: one frame's worth, however many frames go through it, which is
- * what a measurement of a stream's memory holds it to. */
+/* The memory this encoder keeps for gathering a frame that came out as several
+ * packets, reused for the next one: one frame's worth at most, and none while
+ * every frame is one packet, which is what a measurement of a stream's memory
+ * holds it to. */
 size_t yapfast_hwenc_staging(struct yapfast_hwenc *h) {
   return h->staged_capacity;
 }

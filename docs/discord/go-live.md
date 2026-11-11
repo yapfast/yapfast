@@ -113,9 +113,12 @@ encoder](#choosing-the-h264-encoder) says how it's set up and why. Yapfast also
 has VP8 (`native/vp8.c`, still built and tested); every Go Live sender known to
 work sends H264. Each encoded frame owns the buffer it was encoded into: the
 encoder takes one of three and the frame gives it back when its packets are
-planned, so its bytes reach DAVE without a copy; a picture the encoder produced
-past the buffer it was given is copied out of the encoder's own staging buffer
-once, and never encoded a second time. The buffers start at 512 KiB, or at a
+planned, so its bytes reach DAVE without a copy. The encoder says how big the
+unit it produced is before it is copied, and the buffer grows to hold it, so a
+picture is never encoded a second time and its unit is copied once, straight out
+of the encoder's own memory: x264's output, FFmpeg's packet, or NVENC's locked
+bitstream. Only a frame that came out of FFmpeg as several packets is gathered
+first, into a buffer one frame big, and libvpx's frame always is. The buffers start at 512 KiB, or at a
 frame's own cap where that is smaller, and double as a frame needs, up to 2
 bytes a pixel and 4 KiB more; three of those are 1.5 MiB at rest, and 12 MiB
 at 1080p only if every buffer grew to the cap. A frame beyond the three

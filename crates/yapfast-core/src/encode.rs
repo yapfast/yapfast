@@ -2557,13 +2557,15 @@ mod tests {
                 shown as u64, FRAMES,
                 "{codec:?}: {shown} pictures from {FRAMES} frames"
             );
-            // The copy's buffer is one frame's worth: as big as the largest frame
-            // produced, not the sum of them, and no larger than the most a frame
-            // of this size can need.
+            // What the encoder keeps for a frame to be copied out of is one
+            // frame's worth at most, not the sum of them: libvpx's frame is
+            // gathered into a buffer as big as the largest, and x264's is
+            // copied straight out of its own memory, so nothing is kept.
             let largest = frames.iter().map(|frame| frame.data.len()).max().unwrap();
+            let kept = if codec == Codec::H264 { 0 } else { largest };
             assert_eq!(
                 encoder.staging(),
-                largest,
+                kept,
                 "{codec:?} keeps {} bytes for its frame to be copied out of",
                 encoder.staging()
             );

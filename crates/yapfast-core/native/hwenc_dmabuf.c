@@ -155,7 +155,12 @@ struct yapfast_hwenc_dmabuf {
   /* The access unit the last picture produced, kept until Rust copies it into
    * the buffer it holds: FFmpeg's packets are unreferenced as soon as they are
    * read, and encoding the picture again to get it into a larger buffer would
-   * send a frame referencing one the receiver never got. */
+   * send a frame referencing one the receiver never got. A picture is one
+   * packet, held by its own reference, so the unit is copied once, straight
+   * into what is sent; only one that came out as several is gathered into
+   * `staged`. */
+  AVPacket *held;
+  int holding;
   unsigned char *staged;
   size_t staged_capacity;
   size_t staged_size;
@@ -279,6 +284,8 @@ static void close_encoder(struct yapfast_hwenc_dmabuf *h) {
   av_frame_free(&h->surface);
   av_frame_free(&h->drm);
   av_packet_free(&h->packet);
+  av_packet_free(&h->held);
+  h->holding = 0;
   av_buffer_unref(&h->device);
   free(h->staged);
   h->staged = NULL;
@@ -418,7 +425,8 @@ struct yapfast_hwenc_dmabuf *yapfast_hwenc_dmabuf_new(unsigned codec_id, unsigne
   h->drm = av_frame_alloc();
   h->surface = av_frame_alloc();
   h->packet = av_packet_alloc();
-  if (!h->drm || !h->surface || !h->packet) {
+  h->held = av_packet_alloc();
+  if (!h->drm || !h->surface || !h->packet || !h->held) {
     fail_text(h, "the encoder's memory wasn't there");
     goto failed;
   }
@@ -667,6 +675,8 @@ static long send_and_collect(struct yapfast_hwenc_dmabuf *h, AVFrame *frame, int
   /* Whatever the last call left is this picture's to replace, copied out or
    * not: one picture is held at a time. */
   h->staged_size = 0;
+  if (h->holding) av_packet_unref(h->held);
+  h->holding = 0;
   *is_key = 0;
   for (;;) {
     ret = avcodec_receive_packet(h->codec, h->packet);
@@ -681,20 +691,34 @@ static long send_and_collect(struct yapfast_hwenc_dmabuf *h, AVFrame *frame, int
       av_packet_unref(h->packet);
       continue;
     }
-    if (!stage(h, size, h->packet->data, (size_t)h->packet->size)) {
-      av_packet_unref(h->packet);
-      fail_text(h, "the picture's bitstream didn't fit");
-      return -1;
-    }
-    size += (size_t)h->packet->size;
+    const size_t length = (size_t)h->packet->size;
     *is_key |= (h->packet->flags & AV_PKT_FLAG_KEY) != 0;
-    av_packet_unref(h->packet);
+    if (!size) {
+      /* The picture's packet, held where FFmpeg made it. */
+      av_packet_move_ref(h->held, h->packet);
+      h->holding = 1;
+    } else {
+      /* A second packet for one picture: the first joins it in `staged`. */
+      int kept = 1;
+      if (h->holding) {
+        kept = stage(h, 0, h->held->data, (size_t)h->held->size);
+        av_packet_unref(h->held);
+        h->holding = 0;
+      }
+      kept = kept && stage(h, size, h->packet->data, length);
+      av_packet_unref(h->packet);
+      if (!kept) {
+        fail_text(h, "the picture's bitstream didn't fit");
+        return -1;
+      }
+    }
+    size += length;
   }
   if (ret != AVERROR(EAGAIN)) {
     fail_code(h, "the card's encoder gave no picture back", ret);
     return -1;
   }
-  h->staged_size = size;
+  h->staged_size = h->holding ? 0 : size;
   return (long)size;
 }
 
@@ -805,6 +829,14 @@ long yapfast_hwenc_dmabuf_convert(struct yapfast_hwenc_dmabuf *h,
  * is nothing to copy or `out` is too small. */
 long yapfast_hwenc_dmabuf_drain(struct yapfast_hwenc_dmabuf *h, unsigned char *out,
                                 size_t capacity) {
+  if (h->holding) {
+    const size_t size = (size_t)h->held->size;
+    if (!size || size > capacity) return -1;
+    memcpy(out, h->held->data, size);
+    av_packet_unref(h->held);
+    h->holding = 0;
+    return (long)size;
+  }
   size_t size = h->staged_size;
   if (!size || size > capacity) return -1;
   memcpy(out, h->staged, size);

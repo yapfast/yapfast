@@ -12,30 +12,15 @@ struct yapfast_h264 {
   x264_t *encoder;
   /* What it was opened with, changed for each new bitrate. */
   x264_param_t param;
-  /* The access unit the last call produced, kept until Rust copies it into
-   * the buffer it holds: x264's NAL units live only until the next encode,
-   * and encoding the picture again to get it into a larger buffer would send
-   * a frame referencing one the receiver never got. Reused from frame to
-   * frame, so it holds one frame's worth rather than a stream's. */
-  unsigned char *staged;
-  size_t staged_capacity;
-  size_t staged_size;
+  /* The access unit the last call produced, where x264 wrote it: its NAL
+   * units are one run of bytes that lives until the next encode, and Rust
+   * drains it before then, into a buffer it has grown to the size the encode
+   * reported. So the unit is copied once, into what is sent, and nothing here
+   * keeps a copy of it; encoding the picture again to fit a larger buffer
+   * would send a frame referencing one the receiver never got. */
+  const unsigned char *unit;
+  size_t unit_size;
 };
-
-/* Keeps `size` bytes of `bytes`, at `at` into the staged access unit, for Rust
- * to copy out. The buffer grows to the largest frame seen and no further, so a
- * stream asks for memory only until its frames settle. Returns 0 when memory
- * ran out. */
-static int stage(struct yapfast_h264 *h264, size_t at, const unsigned char *bytes, size_t size) {
-  if (at + size > h264->staged_capacity) {
-    unsigned char *larger = realloc(h264->staged, at + size);
-    if (!larger) return 0;
-    h264->staged = larger;
-    h264->staged_capacity = at + size;
-  }
-  memcpy(h264->staged + at, bytes, size);
-  return 1;
-}
 
 /* Aims for `kbps`, never above it over half a second's buffer. */
 static void set_rate(x264_param_t *param, unsigned kbps) {
@@ -121,34 +106,36 @@ long yapfast_h264_encode(struct yapfast_h264 *h264, const unsigned char *y,
   int size = x264_encoder_encode(h264->encoder, &nals, &count, &picture, &encoded);
   if (size < 0) return -1;
   /* Whatever the last call left is this frame's to replace, copied out or
-   * not: one frame is held at a time. */
-  h264->staged_size = 0;
+   * not: x264 has already reused its memory. */
+  h264->unit = NULL;
+  h264->unit_size = 0;
   if (size == 0 || count == 0) return 0;
   /* x264 lays a frame's NAL units out one after another. */
-  if (!stage(h264, 0, nals[0].p_payload, (size_t)size)) return -1;
-  h264->staged_size = (size_t)size;
+  h264->unit = nals[0].p_payload;
+  h264->unit_size = (size_t)size;
   *is_key = encoded.b_keyframe;
   return size;
 }
 
 /* Copies the access unit the last encode produced into `out`, which holds it,
- * and gives up the copy: the buffer stays for the next frame. Rust grows its
+ * straight out of x264's memory. Rust grows its
  * buffer to the size the encode reported before calling this once, so a frame
  * is never encoded twice to fit one. Returns the size copied, or -1 when
  * there is nothing to copy or `out` is too small. */
 long yapfast_h264_drain(struct yapfast_h264 *h264, unsigned char *out, size_t capacity) {
-  size_t size = h264->staged_size;
+  size_t size = h264->unit_size;
   if (!size || size > capacity) return -1;
-  memcpy(out, h264->staged, size);
-  h264->staged_size = 0;
+  memcpy(out, h264->unit, size);
+  h264->unit = NULL;
+  h264->unit_size = 0;
   return (long)size;
 }
 
-/* The memory this encoder keeps for the access unit it produces, reused for
- * the next one: one frame's worth, however many frames go through it, which is
- * what a measurement of a stream's memory holds it to. */
+/* The memory this encoder keeps for the access unit it produces: none, since
+ * the unit is drained from x264's own. */
 size_t yapfast_h264_staging(struct yapfast_h264 *h264) {
-  return h264->staged_capacity;
+  (void)h264;
+  return 0;
 }
 
 /* Changes the bitrate the encoder aims for, as the network allows. Returns
@@ -160,6 +147,5 @@ int yapfast_h264_set_bitrate(struct yapfast_h264 *h264, unsigned kbps) {
 
 void yapfast_h264_free(struct yapfast_h264 *h264) {
   x264_encoder_close(h264->encoder);
-  free(h264->staged);
   free(h264);
 }
