@@ -126,6 +126,11 @@ Everything is in the data directory (the one `--data-dir` names), under
   cache/                  wasmtime's compile cache, safe to delete
 ```
 
+A plugin loaded from a folder is installed the same way: its manifest and module
+are read into `store/`, and it is filed under the folder that holds them, so it
+can't be confused with a plugin from a repository. Its saves reload it; see
+[the helper](host.md#development-reload).
+
 `store/` is content-addressed because a git object name is a SHA-1 of the commit,
 not of the bytes that run: the lock file records the commit it was installed
 from, the SHA-256 of the `.wasm` and the SHA-256 of the manifest it was reviewed
@@ -152,7 +157,7 @@ with its registry and store, the content-addressed store and the `fetch`
 subcommand, permissions, grants and the network gate, the application's actions
 and taps, the Rust PDK, and the fixtures and tests for all of it.
 
-Five things are deliberately not there yet:
+Four things are deliberately not there yet:
 
 - **A consent dialog and a grants page.** `plugins/grants.rs` records an
   approval and `plugins/network.rs` waits for one, but nothing asks: the first
@@ -167,10 +172,6 @@ Five things are deliberately not there yet:
   tapped where both networks pass; a Matrix message isn't tapped yet, so only
   Discord's gateway feeds `message_create`, `message_update` and
   `message_delete`.
-- **Loading a plugin from a folder.** The helper takes `--dev DIR` and resolves a
-  relative module path inside it, but nothing starts a helper for a folder and
-  nothing watches one: the page's Load folder request is answered by nothing, and
-  the development loop is still an install from a repository.
 
 Beyond those, the API is a first slice rather than the surface a plugin author
 would want: of the method groups a manifest can name, `storage`, `settings`,

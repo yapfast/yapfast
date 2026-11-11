@@ -441,6 +441,32 @@ impl Bridge {
         Ok(())
     }
 
+    /// Installs a plugin from a folder on this computer and watches the folder.
+    ///
+    /// This is the development loop: the folder's manifest and module are read
+    /// into the store, the plugin is turned on, and every later save in that
+    /// folder is one `stat` a second until the plugin is removed. Its storage and
+    /// settings live under `data/<id>/` and are kept across reloads, as they are
+    /// across an update.
+    pub fn load_folder(&mut self, folder: &Path) -> anyhow::Result<PluginId> {
+        let fetched = crate::plugins::installing::from_folder(folder)
+            .map_err(|reason| anyhow::anyhow!(reason))?;
+        let plugin = fetched.id.clone();
+        {
+            let mut store = self.shared.store();
+            store.install(&fetched.package())?;
+            store.set_enabled(&plugin, true)?;
+        }
+        self.shared.clear_off();
+        self.refresh(&plugin);
+        self.send(Request::Watch {
+            plugin: plugin.clone(),
+            folder: folder.to_owned(),
+        });
+        self.announce(&plugin);
+        Ok(plugin)
+    }
+
     /// Removes a plugin, and its data when `delete_data`, then reads the store
     /// again.
     ///
@@ -1038,6 +1064,8 @@ enum Request {
         /// The same plugins the other way round: the order to start them in.
         start: Vec<PluginId>,
     },
+    /// Watch a plugin's folder and reload it when its files change.
+    Watch { plugin: PluginId, folder: PathBuf },
     /// Drop these instances now, for a reason the helper can't know.
     Evict { plugins: Vec<PluginId> },
     /// The application is going away.
@@ -1186,6 +1214,10 @@ struct Session {
     /// `plugin.call`s waiting for a swap to finish, so a caller is never told its
     /// callee isn't installed when it is only being replaced.
     held_calls: Vec<(PluginId, u64, HostCall)>,
+    /// The plugins loaded from a folder, and what their files looked like when
+    /// they were read: the development loop, which polls them on this session's
+    /// own clock rather than starting a thread for one person's editor.
+    dev: BTreeMap<PluginId, DevWatch>,
     /// Whether the parent asked the helper to stop, which makes its exit planned.
     asked: bool,
     /// What the helper said as it left, if it said anything.
@@ -1301,6 +1333,42 @@ struct Timer {
     due: Instant,
 }
 
+/// A plugin loaded from a folder, and when its files are looked at again.
+struct DevWatch {
+    folder: PathBuf,
+    /// What the manifest and its module looked like when they were read.
+    stamp: String,
+    /// When to look again.
+    due: Instant,
+}
+
+/// How often a folder plugin's files are looked at. A save is one `stat` of two
+/// files a second, which is nothing beside a build that takes longer than that.
+const DEV_POLL: Duration = Duration::from_secs(1);
+
+/// What a folder's plugin files look like now: their modification times and
+/// lengths, which a save changes and a build changes again.
+fn dev_stamp(folder: &Path) -> String {
+    let mut stamp = String::new();
+    for name in [crate::plugins::MANIFEST, "plugin.wasm"] {
+        let path = folder.join(name);
+        let (length, at) = match std::fs::metadata(&path) {
+            Ok(metadata) => {
+                let at = metadata
+                    .modified()
+                    .ok()
+                    .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|since| since.as_nanos())
+                    .unwrap_or(0);
+                (metadata.len(), at)
+            }
+            Err(_) => (0, 0),
+        };
+        stamp.push_str(&format!("{name}:{length}:{at};"));
+    }
+    stamp
+}
+
 /// What came of asking for a plugin to be up.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Started {
@@ -1380,6 +1448,7 @@ impl Session {
             held: Vec::new(),
             calls: Vec::new(),
             held_calls: Vec::new(),
+            dev: BTreeMap::new(),
             asked: false,
             bye: None,
         })
@@ -1514,7 +1583,11 @@ impl Session {
         let batch = self.batches.values().map(|batch| batch.due).min();
         let timer = self.timers.values().map(|timer| timer.due).min();
         let save = shared.store().pending_save();
-        [pending, batch, timer, save].into_iter().flatten().min()
+        let dev = self.dev.values().map(|watch| watch.due).min();
+        [pending, batch, timer, save, dev]
+            .into_iter()
+            .flatten()
+            .min()
     }
 
     /// Handles one command from the application.
@@ -1556,6 +1629,10 @@ impl Session {
                 start,
             } => {
                 self.begin_swap(shared, plugin, stop, start);
+                None
+            }
+            Request::Watch { plugin, folder } => {
+                self.watch(plugin, folder);
                 None
             }
             Request::Evict { plugins } => {
@@ -2024,7 +2101,7 @@ impl Session {
             // that raced a swap would be undoing it; it waits the 100 ms. A
             // second swap waits for the one running for the same reason: the
             // steps of one replace the other's.
-            Request::Evict { .. } => true,
+            Request::Evict { .. } | Request::Watch { .. } => true,
             Request::Swap { .. } => self.swapping(),
             Request::Shutdown => false,
         }
@@ -2721,7 +2798,94 @@ impl Session {
         for key in fired {
             self.fire(shared, key);
         }
+        let stale: Vec<(PluginId, PathBuf)> = self
+            .dev
+            .iter()
+            .filter(|(_, watch)| watch.due <= now)
+            .map(|(plugin, watch)| (plugin.clone(), watch.folder.clone()))
+            .collect();
+        for (plugin, folder) in stale {
+            self.poll_dev(shared, &plugin, &folder, now);
+        }
         shared.store().flush_due(now);
+    }
+
+    /// Remembers a plugin's folder, so a save in it is noticed.
+    fn watch(&mut self, plugin: PluginId, folder: PathBuf) {
+        let stamp = dev_stamp(&folder);
+        self.dev.insert(
+            plugin,
+            DevWatch {
+                folder,
+                stamp,
+                due: Instant::now() + DEV_POLL,
+            },
+        );
+    }
+
+    /// Looks at one folder plugin's files, and reloads it when they changed.
+    fn poll_dev(&mut self, shared: &Shared, plugin: &PluginId, folder: &Path, now: Instant) {
+        let stamp = dev_stamp(folder);
+        let unchanged = self
+            .dev
+            .get(plugin)
+            .is_some_and(|watch| watch.stamp == stamp);
+        if unchanged {
+            if let Some(watch) = self.dev.get_mut(plugin) {
+                watch.due = now + DEV_POLL;
+            }
+            return;
+        }
+        match crate::plugins::installing::from_folder(folder) {
+            Ok(fetched) => {
+                let id = fetched.id.clone();
+                if id != *plugin {
+                    tracing::warn!(
+                        %plugin,
+                        %id,
+                        "a folder's manifest names another plugin; not reloading it"
+                    );
+                    if let Some(watch) = self.dev.get_mut(plugin) {
+                        watch.stamp = stamp;
+                        watch.due = now + DEV_POLL;
+                    }
+                    return;
+                }
+                if let Err(error) = shared.store().install(&fetched.package()) {
+                    tracing::warn!(%plugin, %error, "a folder plugin couldn't be reloaded");
+                    if let Some(watch) = self.dev.get_mut(plugin) {
+                        watch.stamp = stamp;
+                        watch.due = now + DEV_POLL;
+                    }
+                    return;
+                }
+            }
+            Err(reason) => {
+                // A folder caught mid-save has a manifest that doesn't parse yet:
+                // the next look reads it again rather than unloading the plugin.
+                tracing::warn!(%plugin, %reason, "a folder plugin isn't readable; keeping the running one");
+                if let Some(watch) = self.dev.get_mut(plugin) {
+                    watch.stamp = stamp;
+                    watch.due = now + DEV_POLL;
+                }
+                return;
+            }
+        }
+        if let Some(watch) = self.dev.get_mut(plugin) {
+            watch.stamp = stamp;
+            watch.due = now + DEV_POLL;
+        }
+        self.reload_dev(shared, plugin);
+    }
+
+    /// Reads the store again and swaps a folder plugin's new version in, with the
+    /// plugins that need it stopped first.
+    fn reload_dev(&mut self, shared: &Shared, plugin: &PluginId) {
+        let dependents = shared.registry().dependents(plugin);
+        *shared.registry_mut() = Registry::load(&shared.store());
+        shared.publish();
+        let start: Vec<PluginId> = dependents.iter().rev().cloned().collect();
+        self.begin_swap(shared, plugin.clone(), dependents, start);
     }
 
     /// Gives up on a request that ran out of time.
@@ -3074,6 +3238,7 @@ mod tests {
                 held: Vec::new(),
                 calls: Vec::new(),
                 held_calls: Vec::new(),
+                dev: BTreeMap::new(),
                 asked: false,
                 bye: None,
             },
@@ -4043,5 +4208,111 @@ mod tests {
                 "{plugin} is off, and so is what needed it"
             );
         }
+    }
+
+    /// A folder a plugin's author has open: its manifest, and a module the
+    /// manifest names. `module` is the file's bytes, so a test can change it.
+    fn plugin_folder(manifest: &str, module: &[u8]) -> tempfile::TempDir {
+        let folder = tempfile::tempdir().expect("a folder");
+        std::fs::write(folder.path().join("yapfast-plugin.json"), manifest).expect("a manifest");
+        std::fs::write(folder.path().join("plugin.wasm"), module).expect("a module");
+        folder
+    }
+
+    #[test]
+    fn a_plugin_loaded_from_a_folder_is_installed_and_on() {
+        let directory = tempfile::tempdir().expect("a data directory");
+        let folder = plugin_folder(
+            r#"{"api":1,"id":"dev.local.base","name":"Base","version":"0.1.0","wasm":"plugin.wasm"}"#,
+            b"\0asm and then some",
+        );
+        let (wake, _notices) = notice_channel();
+        let mut bridge = Bridge::open(directory.path(), wake).expect("a bridge");
+
+        let plugin = bridge
+            .load_folder(folder.path())
+            .expect("a folder becomes a plugin");
+        assert_eq!(plugin.as_str(), "dev.local.base");
+        let statuses = bridge.statuses();
+        assert_eq!(
+            statuses
+                .iter()
+                .find(|(id, _)| *id == plugin)
+                .map(|(_, status)| status.clone()),
+            Some(PluginStatus::Enabled),
+            "the person asked for it to run"
+        );
+        // Reading the same folder again is an update of that plugin, not a
+        // second one.
+        bridge.load_folder(folder.path()).expect("a reload");
+        assert_eq!(bridge.listed().len(), 1);
+    }
+
+    #[test]
+    fn a_folder_plugin_is_reloaded_when_its_module_changes() {
+        let directory = tempfile::tempdir().expect("a data directory");
+        let folder = plugin_folder(
+            r#"{"api":1,"id":"dev.local.base","name":"Base","version":"0.1.0","wasm":"plugin.wasm"}"#,
+            b"\0asm first",
+        );
+        let (wake, _notices) = notice_channel();
+        let mut bridge = Bridge::open(directory.path(), wake).expect("a bridge");
+        let plugin = bridge.load_folder(folder.path()).expect("a plugin");
+        drop(bridge);
+
+        // The session the developer's run would have: the plugin is up, and its
+        // folder is watched.
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+        session.active.insert(plugin.clone());
+        session.watch(plugin.clone(), folder.path().to_owned());
+        assert!(
+            written.recv_timeout(Duration::from_millis(50)).is_err(),
+            "watching a folder writes nothing"
+        );
+
+        // A save: a new module, and the poll that comes a second later.
+        std::fs::write(folder.path().join("plugin.wasm"), b"\0asm second, longer").expect("a save");
+        if let Some(watch) = session.dev.get_mut(&plugin) {
+            watch.due = Instant::now() - Duration::from_millis(1);
+        }
+        session.on_tick(&shared);
+
+        // The running instance says goodbye, and the replacement carries the new
+        // module.
+        let stop = next_frame(&written);
+        assert_eq!(message(&stop), ToHelper::Deactivate { plugin: plugin.clone() });
+        session.on_frame(
+            &shared,
+            Frame::new(
+                FrameKind::Report,
+                stop.id,
+                serde_json::to_vec(&FromHelper::Deactivated {
+                    plugin: plugin.clone(),
+                    state: Some(r#"{"seen":1}"#.to_owned()),
+                })
+                .expect("it serializes"),
+            ),
+        );
+        let start = next_frame(&written);
+        let ToHelper::Activate {
+            plugin: started,
+            load: Some(load),
+        } = message(&start)
+        else {
+            panic!("the reloaded plugin is activated with its module");
+        };
+        assert_eq!(started, plugin);
+        assert_eq!(load.state.as_deref(), Some(r#"{"seen":1}"#));
+        let installed = shared
+            .registry()
+            .entry(&plugin)
+            .and_then(|entry| entry.module.clone())
+            .expect("a module");
+        assert_eq!(
+            load.wasm, installed.path,
+            "what runs is the file the folder holds now"
+        );
     }
 }

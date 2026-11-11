@@ -254,12 +254,22 @@ and the helper stops and starts again from what the store holds.
 
 ## Development reload
 
-The helper takes `--dev DIR`: with it, a module path that is relative resolves
-inside that folder rather than in the directory Yapfast was started in, which is
-what lets a plugin be replaced while its author works on it.
+A plugin can be loaded from a folder on this computer instead of a repository:
+`Request::LoadFolder` reads the folder's `yapfast-plugin.json` and the module it
+names into the store, turns the plugin on, and remembers the folder. The folder
+is what the lock file records as its `source`, so a folder plugin and a
+repository plugin can't take each other's place. Its storage and settings live
+under `data/<id>/` and survive every reload.
 
-Nothing starts a helper for a folder yet, and nothing watches one. `Request::LoadFolder`
-in `plugins/page.rs` is answered by nothing in `application/plugin_page.rs`, and
-there is no watcher: no polling on a sampling tick, and no `notify` dependency.
-The development loop today is an install from a repository, and a reload of an
-updated plugin uses the swap above.
+A save in that folder reloads it, through the swap above, so its state crosses
+too. There is **no watcher crate and no thread for it**: the session looks at the
+folder's manifest and module once a second — two `stat` calls — on the clock it
+already runs timers and coalescing windows on, and only while a folder plugin is
+loaded. A crate like `notify` would be a thread and an inotify watch per editor,
+which is more than one person's development loop needs; a second is also the
+debounce, since a manifest caught half-written is read again a moment later
+rather than unloading a plugin that runs.
+
+The helper still takes `--dev DIR`, which resolves a relative module path inside
+that folder rather than in the directory Yapfast was started in; the swap above
+doesn't need it, since the store's own paths are what an activation carries.
