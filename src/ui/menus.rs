@@ -1,7 +1,9 @@
 //! The menus a right click opens: what they offer, and the choices made.
 
 use yapfast_core::{
-    application::{ChannelAsk, MUTE_TIMES, MenuChoice, OwnershipInput, network_id, network_link},
+    application::{
+        ChannelAsk, CommandTarget, MUTE_TIMES, MenuChoice, OwnershipInput, network_id, network_link,
+    },
     chat::{
         ChannelKind, MemberChange, Muting, NotificationChange, Notifications, NotifyLevel,
         RelationshipChange,
@@ -220,6 +222,7 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 | MenuChoice::RemoveFromChannelList
                 | MenuChoice::UnfollowCategory => 3,
                 MenuChoice::ServerNickname | MenuChoice::Roles | MenuChoice::MoveTo => 4,
+                MenuChoice::Apps => 10,
                 MenuChoice::LocalMute
                 | MenuChoice::SoundboardMute
                 | MenuChoice::SelfMute
@@ -366,6 +369,14 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 notification_rows(app, id)
             } else if row.id == choice_id(MenuChoice::Roles) {
                 role_rows(adapter, id)
+            } else if row.id == choice_id(MenuChoice::Apps) {
+                // A person's run in the open room; a DM's in the DM.
+                let place = if person {
+                    state.selected.as_deref()
+                } else {
+                    Some(id)
+                };
+                app_rows(app, place)
             } else if row.id == choice_id(MenuChoice::InviteToServer) {
                 invite_rows(app, user.as_deref())
             } else if let (true, Some((room, user))) =
@@ -423,6 +434,7 @@ fn label(icons: &Icons, choice: MenuChoice, in_call: bool) -> (&'static str, &sl
         MenuChoice::CloseDm => ("Close DM", &icons.cancel),
         MenuChoice::LeaveGroup => ("Leave group", &icons.leave),
         MenuChoice::InviteToServer => ("Invite to server", &icons.befriend),
+        MenuChoice::Apps => ("Apps", &icons.settings),
         MenuChoice::Unfriend => ("Remove friend", &icons.unfriend),
         MenuChoice::Ignore => ("Ignore", &icons.ignore),
         MenuChoice::Unignore => ("Stop ignoring", &icons.ignore),
@@ -492,6 +504,7 @@ fn discord_rank(choice: MenuChoice) -> u8 {
         MenuChoice::AddNote => 5,
         MenuChoice::AddNickname | MenuChoice::EditNickname => 6,
         MenuChoice::EditServerProfile => 7,
+        MenuChoice::Apps => 10,
         MenuChoice::InviteToServer => 11,
         MenuChoice::AddFriend
         | MenuChoice::AcceptFriend
@@ -555,6 +568,27 @@ fn invite_rows(app: &Application, user: Option<&str>) -> Vec<MenuRow> {
         })
         .collect()
 }
+
+/// Someone's Apps submenu, built as it opens: the user commands `place`'s
+/// command index offers, each with its app's name under it.
+fn app_rows(app: &Application, place: Option<&str>) -> Vec<MenuRow> {
+    let Some(place) = place else {
+        return vec![];
+    };
+    app.commands_for_target(place, CommandTarget::User)
+        .into_iter()
+        .map(|command| MenuRow {
+            id: format!("{APP}{}", command.command).into(),
+            text: command.name.into(),
+            subtitle: command.app_name.into(),
+            plain: true,
+            ..Default::default()
+        })
+        .collect()
+}
+
+/// What a command's row in the Apps submenu reports, before the command's id.
+const APP: &str = "app:";
 
 /// What a server's row in the Invite to server submenu reports, before the
 /// server's id.
@@ -970,6 +1004,17 @@ pub(super) fn choose(
         adapter.action(window, Action::InviteToServer { user, server });
         return;
     }
+    if let (Some(command), Some(user)) = (id.strip_prefix(APP), user.clone()) {
+        let command = command.to_owned();
+        adapter.action(
+            window,
+            Action::RunAppCommand {
+                command,
+                target: Some(user),
+            },
+        );
+        return;
+    }
     if let Some(muting) = MUTE_TIMES.into_iter().find(|&muting| mute_id(muting) == id) {
         if let Some(room) = room {
             adapter.action(window, Action::MuteDm { room, muting });
@@ -1066,7 +1111,9 @@ pub(super) fn choose(
         }),
         // Its roles are its submenu's, as are the servers to invite to and
         // the channels to move to.
-        MenuChoice::Roles | MenuChoice::InviteToServer | MenuChoice::MoveTo => None,
+        MenuChoice::Roles | MenuChoice::InviteToServer | MenuChoice::MoveTo | MenuChoice::Apps => {
+            None
+        }
         MenuChoice::LocalMute => {
             if let Some(muted) = ticked {
                 yapfast_core::volume::mute(&target, muted);
@@ -1200,7 +1247,7 @@ pub(super) fn server_change(
     }
 }
 
-const CHOICES: [MenuChoice; 65] = [
+const CHOICES: [MenuChoice; 66] = [
     MenuChoice::MarkRead,
     MenuChoice::JoinVoice,
     MenuChoice::OpenChat,
@@ -1218,6 +1265,7 @@ const CHOICES: [MenuChoice; 65] = [
     MenuChoice::CloseDm,
     MenuChoice::LeaveGroup,
     MenuChoice::InviteToServer,
+    MenuChoice::Apps,
     MenuChoice::Unfriend,
     MenuChoice::Ignore,
     MenuChoice::Unignore,
@@ -1287,6 +1335,7 @@ fn choice_id(choice: MenuChoice) -> &'static str {
         MenuChoice::CloseDm => "close-dm",
         MenuChoice::LeaveGroup => "leave-group",
         MenuChoice::InviteToServer => "invite-to-server",
+        MenuChoice::Apps => "apps",
         MenuChoice::Unfriend => "unfriend",
         MenuChoice::Ignore => "ignore",
         MenuChoice::Unignore => "unignore",
@@ -1383,6 +1432,7 @@ mod order_tests {
             MenuChoice::Mention,
             MenuChoice::Ignore,
             MenuChoice::InviteToServer,
+            MenuChoice::Apps,
         ];
         discord_order(&mut choices);
         assert_eq!(
@@ -1392,6 +1442,7 @@ mod order_tests {
                 MenuChoice::Mention,
                 MenuChoice::Message,
                 MenuChoice::AddNote,
+                MenuChoice::Apps,
                 MenuChoice::InviteToServer,
                 MenuChoice::AddFriend,
                 MenuChoice::Ignore,

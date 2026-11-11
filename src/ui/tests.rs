@@ -38,6 +38,7 @@ fn a_message_still_sending_is_only_faint() {
             spoiler: false,
             video: true,
             url: None,
+            description: None,
         }],
         ..Default::default()
     });
@@ -92,6 +93,47 @@ fn a_notice_is_a_group_of_its_own_with_an_icon() {
     assert!(!messages::continues(&pinned, &again));
     assert_eq!(message_row_plain(&pinned).notice, "pin");
     assert_eq!(message_row_plain(&said).notice, "");
+}
+
+#[test]
+fn an_apps_answer_starts_a_group_under_who_used_which_command() {
+    use yapfast_core::chat::UsedCommand;
+    let thought = ChatMessage {
+        item: "d:4".into(),
+        author: "Status Bot".into(),
+        sender: "discord:9".into(),
+        body: "Pong!".into(),
+        timestamp: 100,
+        ..Default::default()
+    };
+    let answer = ChatMessage {
+        item: "d:5".into(),
+        timestamp: 110,
+        used: Some(UsedCommand {
+            user: "Alice".into(),
+            sender: "discord:1".into(),
+            avatar: None,
+            color: Some(0x3498db),
+            name: "/echo".into(),
+            slash: Some("echo".into()),
+            target: None,
+        }),
+        ..thought.clone()
+    };
+    assert!(!messages::continues(&thought, &answer));
+    let row = message_row_plain(&answer);
+    assert!(row.has_command && !row.has_reply);
+    assert_eq!(
+        (
+            row.command_user.as_str(),
+            row.command_sender.as_str(),
+            row.command_name.as_str(),
+            row.command_slash.as_str()
+        ),
+        ("Alice", "1", "/echo", "echo")
+    );
+    assert!(row.command_has_color);
+    assert!(!message_row_plain(&thought).has_command);
 }
 
 #[cfg(feature = "discord")]
@@ -1570,6 +1612,7 @@ fn pictures_on_their_way_hold_their_place_as_skeletons() {
         spoiler: false,
         video: false,
         url: None,
+        description: None,
     };
     let row = message_row_plain(&ChatMessage {
         attachments: vec![attachment("wide.png", false)],
@@ -1619,6 +1662,7 @@ fn a_voice_message_shows_its_player_which_plays_and_pauses() {
             gif: None,
             spoiler: false,
             video: false,
+            description: None,
             url: Some("https://cdn.example/voice-message.ogg".into()),
         }],
         voice: Some(yapfast_core::chat::VoiceMessage {
@@ -1724,6 +1768,7 @@ fn a_voice_messages_speed_and_volume_slide_out_while_pointed_at() {
             gif: None,
             spoiler: false,
             video: false,
+            description: None,
             url: None,
         }],
         voice: Some(yapfast_core::chat::VoiceMessage {
@@ -1814,6 +1859,7 @@ fn a_voice_messages_waveform_moves_it_where_pressed_and_dragged() {
             spoiler: false,
             video: false,
             url: None,
+            description: None,
         }],
         voice: Some(yapfast_core::chat::VoiceMessage {
             duration_ms: 5_000,
@@ -2150,6 +2196,7 @@ fn a_messages_sticker_is_160px_square() {
             spoiler: false,
             video: false,
             url: None,
+            description: None,
         }],
         ..Default::default()
     });
@@ -2182,6 +2229,7 @@ fn a_selection_copies_the_pictures_it_runs_through() {
                 spoiler: false,
                 video: false,
                 url: None,
+                description: None,
             }],
             ..Default::default()
         },
@@ -5951,6 +5999,7 @@ fn closing_the_viewer_lets_go_of_its_picture() {
             spoiler: false,
             video: false,
             url: None,
+            description: None,
         }],
         ..Default::default()
     })]);
@@ -5991,6 +6040,7 @@ fn a_pictures_menu_links_to_it_when_it_has_an_address() {
         spoiler: false,
         video: false,
         url: url.map(Into::into),
+        description: None,
     };
     adapter.borrow_mut().app.state.messages = Arc::new(vec![Arc::new(ChatMessage {
         item: "i0".into(),
@@ -8819,6 +8869,7 @@ fn a_card_of_components_shows_headings_files_and_only_link_buttons_working() {
             video: false,
             gif: None,
             url: None,
+            description: None,
         }],
         cards: vec![Card {
             framed: true,
@@ -10363,6 +10414,7 @@ fn bot_modal_summaries_show_default_entity_names_and_unknown_ids() {
         author: "Alex".into(),
         ..Default::default()
     })]);
+    adapter.app.state.interactions.pretend_sent("click", None);
     adapter.apply(Event::InteractionModal(serde_json::json!({
         "id": "42", "channel_id": "7", "guild_id": "10", "custom_id": "assign",
         "application": {"id": "3"}, "title": "Assign", "nonce": "click",
@@ -10403,6 +10455,7 @@ fn bot_modal_keeps_input_model_while_typing() {
     bind_callbacks(&window, &adapter);
     {
         let mut adapter = adapter.borrow_mut();
+        adapter.app.state.interactions.pretend_sent("click", None);
         adapter.apply(Event::InteractionModal(serde_json::json!({
             "id": "42", "channel_id": "7", "custom_id": "ticket",
             "application": {"id": "3"}, "title": "Open ticket", "nonce": "click",
@@ -10435,6 +10488,7 @@ fn bot_select_keeps_its_model_and_filters_original_choice_indices() {
     bind_callbacks(&window, &adapter);
     {
         let mut adapter = adapter.borrow_mut();
+        adapter.app.state.interactions.pretend_sent("click", None);
         adapter.apply(Event::InteractionModal(serde_json::json!({
             "id": "42", "channel_id": "7", "custom_id": "ticket",
             "application": {"id": "3"}, "title": "Choose", "nonce": "click",
@@ -10461,9 +10515,8 @@ fn bot_select_keeps_its_model_and_filters_original_choice_indices() {
     assert!(std::ptr::eq(original.as_any(), filtered.as_any()));
     assert_eq!(filtered.row_count(), 1);
     assert_eq!(filtered.row_data(0).unwrap().index, 1);
+    // A menu of one option takes the one clicked, and closes.
     window.invoke_bot_select_toggle(1);
-    assert!(filtered.row_data(0).unwrap().selected);
-    window.invoke_bot_select_submit();
     assert_eq!(
         adapter
             .borrow()
@@ -10478,6 +10531,74 @@ fn bot_select_keeps_its_model_and_filters_original_choice_indices() {
     );
     assert!(!window.get_bot_select_open());
     assert_eq!(window.get_bot_select_choices().row_count(), 0);
+}
+
+#[test]
+fn a_bot_forms_text_choices_and_files_show_as_they_are_filled() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    {
+        let mut adapter = adapter.borrow_mut();
+        adapter.app.state.interactions.pretend_sent("click", None);
+        adapter.apply(Event::InteractionModal(serde_json::json!({
+            "id": "42", "channel_id": "7", "custom_id": "survey",
+            "application": {"id": "3"}, "title": "Survey", "nonce": "click",
+            "components": [
+                {"type": 10, "content": "## Heads up\nThis is **bold**."},
+                {"type": 18, "label": "Rating", "description": "How was it?", "component": {
+                    "type": 21, "custom_id": "rating",
+                    "options": [{"label": "Good", "value": "good"}, {"label": "Bad", "value": "bad"}]}},
+                {"type": 18, "label": "Agree", "component": {"type": 23, "custom_id": "agree"}},
+                {"type": 18, "label": "Proof", "component": {"type": 19, "custom_id": "proof", "max_values": 3}},
+            ]
+        })));
+        adapter.refresh(&window);
+    }
+    let fields = window.get_bot_modal_fields();
+    let text = fields.row_data(0).unwrap();
+    assert_eq!(text.kind, 10);
+    assert_eq!(text.blocks.row_count(), 2, "a heading and its text");
+    let rating = fields.row_data(1).unwrap();
+    assert_eq!(rating.description, "How was it?");
+    assert_eq!(rating.choices.row_count(), 2);
+    assert_eq!(fields.row_data(3).unwrap().max_files, 3);
+    window.invoke_bot_modal_field_edited(1, "bad".into());
+    window.invoke_bot_modal_field_edited(2, "".into());
+    adapter.borrow_mut().action(
+        &window,
+        Action::AddModalFiles {
+            index: 3,
+            files: vec!["/tmp/shot one.png".into()],
+        },
+    );
+    let current = window.get_bot_modal_fields();
+    assert!(std::ptr::eq(fields.as_any(), current.as_any()));
+    // The text laid out stays the same as the rest change.
+    assert!(current.row_data(0).unwrap().blocks == text.blocks);
+    let rating = current.row_data(1).unwrap();
+    assert!(!rating.choices.row_data(0).unwrap().selected);
+    assert!(rating.choices.row_data(1).unwrap().selected);
+    assert!(current.row_data(2).unwrap().checked);
+    let proof = current.row_data(3).unwrap();
+    assert_eq!(proof.files.row_data(0).unwrap(), "shot one.png");
+    window.invoke_bot_modal_remove_file(3, 0);
+    assert_eq!(
+        window
+            .get_bot_modal_fields()
+            .row_data(3)
+            .unwrap()
+            .files
+            .row_count(),
+        0
+    );
 }
 
 #[test]

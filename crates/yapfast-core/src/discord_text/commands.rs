@@ -32,6 +32,14 @@ pub fn command(
         send_poll(discord, room, poll, events);
         return;
     }
+    if let Command::Discord(DiscordCommand::DismissEphemeral { room, item }) = &command {
+        if let (Ok(discord), Some(channel)) = (discord, channels.shown_mut(room))
+            && channel.dismiss(item)
+        {
+            publish(channel, discord, done, events);
+        }
+        return;
+    }
     if let Command::MarkRead { room, sync } = &command {
         if let (Ok(discord), Some((guild, channel))) = (discord, discord::parse_room(room)) {
             discord.mark_read(guild, channel, *sync);
@@ -101,6 +109,12 @@ pub fn command(
         return;
     };
     let Some(command) = super::ownership::command(command, discord, events) else {
+        return;
+    };
+    let Some(command) = super::interactions::command(command, discord, events) else {
+        return;
+    };
+    let Some(command) = super::app_commands::command(command, discord, events) else {
         return;
     };
     let room = match &command {
@@ -643,21 +657,13 @@ pub fn live(
     // messages become this conversation's: one relaxed load while none did.
     #[cfg(feature = "plugins")]
     super::plugins_observed(&event, discord, channels, events);
-    if let Ok(Live::InteractionModal(modal)) = &event {
-        let _ = events.send(Event::InteractionModal(modal.clone()));
-        return;
-    }
-    if let Ok(Live::InteractionFailure { nonce, .. }) = &event {
-        let _ = events.send(Event::InteractionFailed {
-            nonce: nonce.clone(),
-            reason: super::interactions::FAILED.into(),
-        });
-        return;
-    }
-    if let Ok(Live::InteractionSuccess { nonce }) = &event {
-        let _ = events.send(Event::InteractionSucceeded(nonce.clone()));
-        return;
-    }
+    // An app's answer to a command is its own event, and the interaction layer
+    // takes it before the rest of the gateway's do.
+    let event = match event.map(|live| super::interactions::live(live, events)) {
+        Ok(Some(live)) => Ok(live),
+        Ok(None) => return,
+        Err(missed) => Err(missed),
+    };
     if let Ok(Live::ActivityFeedStale { refresh_after_ms }) = &event {
         let wait = discord.activity_feed_stale_wait(*refresh_after_ms);
         let events = events.clone();

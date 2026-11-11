@@ -23,9 +23,11 @@ mod aside;
 mod browse;
 mod calls;
 mod channel_settings;
+mod commands;
 mod compose;
 mod cosmetics;
 mod discord_account;
+mod ephemeral;
 mod forum;
 mod gifs;
 mod gift;
@@ -51,6 +53,7 @@ mod scheduled_event;
 mod server;
 mod server_settings;
 mod session;
+mod slash;
 mod stickers;
 mod threads;
 
@@ -60,13 +63,12 @@ pub use channel_settings::{
     ChannelInput, ChannelSection, ChannelSettingsScreen, OverwriteConfirm, OverwriteRules,
     OverwriteState, Overwrites, channel_groups, channel_permission,
 };
+pub use commands::{AppCommands, CommandTarget, SlashCommand};
 pub use cosmetics::Cosmetics;
 pub use forum::{ForumInfo, ForumPost, ForumPosts, ForumView};
 pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
 pub use gift::GiftDialog;
-pub use interactions::{
-    InteractionModal, ModalField, PendingInteraction, SelectChoice, SelectMenu,
-};
+pub use interactions::{InteractionModal, Interactions, ModalField, SelectChoice, SelectMenu};
 pub use join::JoinDialog;
 pub use members::{BAN_HISTORY, RoleChoice, TIMEOUT_TIMES};
 #[cfg(all(feature = "discord", any(test, feature = "test-fixtures")))]
@@ -102,6 +104,7 @@ pub use server_settings::{
     SettingsText, SettingsToggle, StickerCard, StickerDraft, StickerInput, StickersPage,
     TransferAsk, WELCOME, WELCOME_STICKER, emoji_name,
 };
+pub use slash::{CommandDraft, CommandRow, OptionDraft};
 pub use stickers::{FREQUENT_STICKERS, ServerStickers, StickerPicker, StickerPicture, StickerUse};
 pub use threads::{
     NewThread, THREAD_NAME_LIMIT, ThreadFrom, ThreadList, ThreadSearch, ThreadSections,
@@ -441,13 +444,16 @@ pub enum Compose {
 
 #[derive(Default)]
 pub struct AppState {
-    /// Bots' controls used and not yet answered, at most one a message, as
-    /// Discord's client allows.
-    pub pending_interactions: Vec<PendingInteraction>,
-    /// The message whose control last failed, and what its components say.
-    pub interaction_failed: Option<(String, String)>,
+    /// Bots' controls and forms used, waiting for Discord's word.
+    pub interactions: Interactions,
+    /// The open room's apps' commands, once the person typed `/`.
+    pub app_commands: AppCommands,
     /// A bot's form, open.
     pub interaction_modal: Option<InteractionModal>,
+    /// The `/` picker and the app command being written in the composer.
+    slash: slash::Slash,
+    /// The message whose control last failed, and what its components say.
+    pub interaction_failed: Option<(String, String)>,
     /// The choices of a bot's select menu, in a message or a form, open.
     pub select_menu: Option<SelectMenu>,
     pub voice: voice::State,
@@ -1514,13 +1520,58 @@ pub enum Action {
     ToggleSelect(usize),
     SearchSelect(String),
     SubmitSelect,
+    /// Closes the open menu: a menu of several options sends what changed,
+    /// as Discord's does when its dropdown closes.
     CloseSelect,
+    /// The form's field at `index` takes `value`: a text input's text, the
+    /// option a radio group picks, the option a checkbox group checks or
+    /// unchecks; a checkbox is checked or unchecked whatever it is.
     SetModalField {
         index: usize,
         value: String,
     },
+    /// Files for the form's file upload at `index`, after those it has.
+    AddModalFiles {
+        index: usize,
+        files: Vec<PathBuf>,
+    },
+    /// The form's file upload at `index` leaves out its `file`th file.
+    RemoveModalFile {
+        index: usize,
+        file: usize,
+    },
     SubmitModal,
     CloseModal,
+    /// The draft is `/` and what follows it, to find an app command by.
+    /// See application/slash.rs.
+    SlashQuery(String),
+    /// One of the commands the picker offers, by its place.
+    PickCommand(usize),
+    /// What the person entered for an option of the command being written.
+    SetCommandOption {
+        index: usize,
+        value: String,
+    },
+    /// Runs the command `command` (its id in the index), on `target`, the
+    /// message item or user a context-menu command acts on, or as written
+    /// in the composer with none.
+    RunAppCommand {
+        command: String,
+        target: Option<String>,
+    },
+    /// A message's or a person's menu opened: asks for the open room's
+    /// command index, unless it's kept, for the menu's "Apps".
+    AskAppCommands,
+    /// The composer writes this option of the command, as Tab or a click on
+    /// its pill moves to it.
+    FocusCommandOption(usize),
+    /// Escape closes the list over the composer, then the command being
+    /// written; with `true`, Backspace in an empty first option puts the
+    /// command's name back to pick another.
+    CloseCommand(bool),
+    /// Hides an ephemeral message, the item, as Discord's "Dismiss message"
+    /// does: only here, with no request. Phase 1d; application/ephemeral.rs.
+    DismissEphemeral(String),
     Navigate(Navigation),
     SelectRoom(String),
     /// Mark a listed conversation read, or every conversation of a listed
@@ -2742,12 +2793,17 @@ fn pictures_on_screen<'a>(
                         .reply
                         .as_ref()
                         .and_then(|reply| reply.avatar.as_deref());
+                    let used = message
+                        .used
+                        .as_ref()
+                        .and_then(|used| used.avatar.as_deref());
                     message
                         .avatar
                         .as_deref()
                         .into_iter()
                         .chain(cosmetics.decoration(message.decoration.as_deref()))
                         .chain(reply)
+                        .chain(used)
                         .chain(tag_badge(cosmetics, &message.tag))
                 })
                 .chain(
@@ -3164,12 +3220,19 @@ impl Application {
             Action::ToggleSelect(index) => self.toggle_select(index),
             Action::SearchSelect(query) => self.search_select(query),
             Action::SubmitSelect => self.submit_select(),
-            Action::CloseSelect => {
-                self.state.select_menu = None;
-                vec![]
-            }
+            Action::CloseSelect => self.close_select(),
             Action::SetModalField { index, value } => self.set_modal_field(index, value),
+            Action::AddModalFiles { index, files } => self.add_modal_files(index, files),
+            Action::RemoveModalFile { index, file } => self.remove_modal_file(index, file),
             Action::SubmitModal => self.submit_modal(),
+            Action::SlashQuery(_)
+            | Action::PickCommand(_)
+            | Action::SetCommandOption { .. }
+            | Action::RunAppCommand { .. }
+            | Action::AskAppCommands
+            | Action::FocusCommandOption(_)
+            | Action::CloseCommand(_) => self.command_action(action),
+            Action::DismissEphemeral(item) => self.dismiss_ephemeral(item),
             Action::CloseModal => {
                 // A form being sent stays until Discord answers.
                 if self
@@ -3339,8 +3402,13 @@ impl Application {
                 vec![]
             }
             Action::ConfirmDelete => self.confirm_delete(),
+            Action::Retry(item) if item.starts_with("c:") => self.retry_command(&item),
             Action::Retry(item) => {
                 self.queue_action(item, |room, item| Command::Retry { room, item })
+            }
+            Action::CancelSend(item) if item.starts_with("c:") => {
+                self.cancel_command(&item);
+                vec![]
             }
             Action::CancelSend(item) => {
                 self.queue_action(item, |room, item| Command::Cancel { room, item })
@@ -4073,10 +4141,8 @@ impl Application {
     fn apply_event(&mut self, event: Event) -> Vec<Effect> {
         match event {
             Event::InteractionModal(modal) => self.open_interaction_modal(modal),
-            Event::InteractionFailed { nonce, reason } => self.interaction_failed(&nonce, reason),
-            Event::InteractionSucceeded(nonce) => self.interaction_succeeded(&nonce),
-            Event::InteractionSettled(nonce) => {
-                self.interaction_failed(&nonce, "The application did not respond".into());
+            Event::InteractionFailed { nonce, reason } => {
+                self.interaction_answered(&nonce, Some(reason), false)
             }
             #[cfg(feature = "plugins")]
             Event::PluginSlot(output) => {
@@ -4084,6 +4150,13 @@ impl Application {
                     slots.apply(output);
                 }
             }
+            Event::InteractionSucceeded(nonce) => self.interaction_answered(&nonce, None, false),
+            Event::InteractionSettled(nonce) => self.interaction_answered(&nonce, None, true),
+            // Phase 1 of the bot commands: application/commands.rs.
+            Event::InteractionCreated { .. }
+            | Event::CommandIndex { .. }
+            | Event::CommandIndexChanged { .. }
+            | Event::AutocompleteChoices { .. } => return self.command_event(event),
             Event::Voice(state) => {
                 let sounds = call_sounds(&self.state.voice, &state);
                 // Someone moved the call to another channel, as a bot does
@@ -4196,6 +4269,7 @@ impl Application {
                     }
                     self.state.room_ready = true;
                     self.state.messages = self.without_blocked(Arc::new(messages));
+                    self.show_sent_commands();
                     let mut effects = self.place_unread();
                     effects.extend(self.seek());
                     effects.extend(self.read_latest());

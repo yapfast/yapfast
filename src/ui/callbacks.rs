@@ -548,6 +548,7 @@ fn show_emoji(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow, query: &st
 }
 
 pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
+    super::app_commands::bind(window, adapter);
     super::games::bind(window, adapter);
     super::gifs::bind(window, adapter);
     super::stickers::bind(window, adapter);
@@ -804,7 +805,6 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             }
         });
     }
-    bind!(on_bot_select_submit, Action::SubmitSelect);
     bind!(on_bot_select_close, Action::CloseSelect);
     {
         let state = adapter.clone();
@@ -818,6 +818,45 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         });
     }
     bind!(on_bot_modal_submit, Action::SubmitModal);
+    // A form's file upload takes files from the same dialog as the
+    // composer's.
+    {
+        let state = adapter.clone();
+        window.on_bot_modal_choose_files(move |index| {
+            let index = index.max(0) as usize;
+            let weak = Rc::downgrade(&state);
+            state.borrow_mut().dialog(async move {
+                let files = rfd::AsyncFileDialog::new()
+                    .set_title("Choose files")
+                    .pick_files()
+                    .await;
+                if let (Some(files), Some(adapter)) = (files, weak.upgrade()) {
+                    let window = adapter.borrow().window.upgrade();
+                    if let Some(window) = window {
+                        let files = files.iter().map(|file| file.path().to_owned()).collect();
+                        adapter
+                            .borrow_mut()
+                            .action(&window, Action::AddModalFiles { index, files });
+                    }
+                }
+            });
+        });
+    }
+    {
+        let state = adapter.clone();
+        let weak = window.as_weak();
+        window.on_bot_modal_remove_file(move |index, file| {
+            if let Some(window) = weak.upgrade() {
+                state.borrow_mut().action(
+                    &window,
+                    Action::RemoveModalFile {
+                        index: index.max(0) as usize,
+                        file: file.max(0) as usize,
+                    },
+                );
+            }
+        });
+    }
     bind!(on_bot_modal_close, Action::CloseModal);
     {
         let state = adapter.clone();
@@ -3798,7 +3837,11 @@ fn composer_caret(
             adapter.action(window, Action::LoadPictures(wanted));
         }
     }
-    let found = offset.and_then(|offset| mention::query(text, offset));
+    // An app command's option offers its own people, roles and channels.
+    let commanding = !aside && adapter.app.state.command_draft().is_some();
+    let found = offset
+        .filter(|_| !commanding)
+        .and_then(|offset| mention::query(text, offset));
     if found.is_none() {
         adapter.mention_dismissed = None;
     }

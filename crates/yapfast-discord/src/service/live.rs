@@ -47,7 +47,13 @@ pub(super) fn live_events(
         })
     };
     match event {
+        // This account's interactions, by the nonce it sent them with.
+        Event::InteractionCreate => vec![Live::InteractionCreated {
+            nonce: data["nonce"].as_str().unwrap_or_default().to_owned(),
+            id: data["id"].as_str().unwrap_or_default().to_owned(),
+        }],
         Event::InteractionModalCreate => vec![Live::InteractionModal(data.clone())],
+        Event::InteractionIframeModalCreate => vec![Live::InteractionPage(data.clone())],
         Event::InteractionFailure => vec![Live::InteractionFailure {
             nonce: data["nonce"].as_str().unwrap_or_default().to_owned(),
             reason: data["reason_code"].as_u64().unwrap_or_default(),
@@ -55,6 +61,26 @@ pub(super) fn live_events(
         Event::InteractionSuccess => vec![Live::InteractionSuccess {
             nonce: data["nonce"].as_str().unwrap_or_default().to_owned(),
         }],
+        Event::ApplicationCommandAutocompleteResponse => vec![Live::AutocompleteChoices {
+            nonce: data["nonce"].as_str().unwrap_or_default().to_owned(),
+            choices: data["choices"].clone(),
+        }],
+        // Discord's client leaves its indexes be on
+        // APPLICATION_COMMAND_PERMISSIONS_UPDATE, until the next of these or
+        // the next session.
+        Event::GuildApplicationCommandIndexUpdate => data["guild_id"]
+            .as_str()
+            .map(|guild| {
+                Live::CommandIndexStale(crate::commands::Stale::Guild {
+                    guild: guild.to_owned(),
+                    version: data["version"].as_str().map(str::to_owned),
+                })
+            })
+            .into_iter()
+            .collect(),
+        Event::UserApplicationUpdate | Event::UserApplicationRemove => {
+            vec![Live::CommandIndexStale(crate::commands::Stale::User)]
+        }
         // Few and small: an open page of the server's settings follows it.
         Event::GuildUpdate => data["id"]
             .as_str()

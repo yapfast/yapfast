@@ -525,12 +525,18 @@ impl Api {
         }
     }
 
-    /// The signed-in account uses a bot's message component or submits its
-    /// modal. Discord acknowledges this request before the app responds over
-    /// the gateway; a successful HTTP response alone is not the app's result.
-    pub async fn interact(&self, body: &Value) -> Result<()> {
-        self.empty(with_json(self.request(Method::POST, "/interactions"), body))
-            .await
+    /// The signed-in account uses a bot's message component, submits its
+    /// modal, runs an app's command or asks for an autocomplete's choices.
+    /// Discord acknowledges this request before the app responds over the
+    /// gateway; a successful HTTP response alone is not the app's result.
+    /// Files go uploaded first, named in the body's `data.attachments`.
+    ///
+    /// After a 429 it goes again once, as Discord's client sends commands
+    /// and forms again, only with `again`: the client drops a click or an
+    /// autocomplete that was limited.
+    pub async fn interact(&self, body: &Value, again: bool) -> Result<()> {
+        let request = with_json(self.request(Method::POST, "/interactions"), body);
+        self.send_request(request, again).await.map(drop)
     }
 
     /// Sends a message, as a reply when `options` names one in the same
@@ -710,6 +716,25 @@ impl Api {
             .collect();
         let path = format!("/applications/public?{}", query.join("&"));
         self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// The apps' commands under `resource`, `guilds/{id}`, `channels/{id}`
+    /// or `users/@me`: `{applications, application_commands, version}`, or
+    /// None while Discord is still building it and answers 202, as its
+    /// client then asks again a while later. See [`crate::commands`].
+    pub async fn command_index(&self, resource: &str) -> Result<Option<Value>> {
+        let path = format!("/{resource}/application-command-index");
+        let response = self.execute(self.request(Method::GET, &path)).await?;
+        if response.status() == StatusCode::ACCEPTED {
+            return Ok(None);
+        }
+        let body = response
+            .bytes()
+            .await
+            .context("could not read Discord's answer")?;
+        Ok(Some(
+            serde_json::from_slice(&body).context("could not understand Discord's answer")?,
+        ))
     }
 
     /// The message that each of up to 25 message requests is waiting with,
@@ -2226,10 +2251,15 @@ impl Api {
     /// A 429 means Discord didn't act on it, so it goes once more after the
     /// wait Discord asks for.
     async fn execute(&self, request: RequestBuilder) -> Result<Response> {
+        self.send_request(request, true).await
+    }
+
+    /// [`Self::execute`], sent again after a 429 only with `again`.
+    async fn send_request(&self, request: RequestBuilder, again: bool) -> Result<Response> {
         let (client, request) = request.build_split();
         let mut request = request.context("could not build the request")?;
         let route = limits::route(request.method(), request.url().path());
-        let mut retried = false;
+        let mut retried = !again;
         loop {
             match self.refusals.check() {
                 Ok(()) => {}
