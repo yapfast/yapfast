@@ -86,14 +86,14 @@ rustPlatform.buildRustPackage {
     install -Dm644 packaging/linux/${id}.metainfo.xml -t "$out/share/metainfo"
     # The GPU, audio and screen capture libraries are loaded at runtime, and
     # NixOS keeps the GPU driver's in /run/opengl-driver.
-    # The helper the plugin system starts. It is a binary of its own, so a
-    # package that ships only `yapfast` has the feature and nothing to run it
-    # with; the same library path goes on it, since it links libc and libgcc
-    # through the same toolchain as the app.
-    install -Dm755 target/release/yapfast-plugins "$out/bin/yapfast-plugins"
     wrapProgram "$out/bin/yapfast" \
       --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath native.runtimeLibraries} \
       --suffix LD_LIBRARY_PATH : /run/opengl-driver/lib
+    # The helper the plugin system starts. It is a binary of its own, so a
+    # package that ships only `yapfast` has the feature and nothing to run it
+    # with. cargoInstallHook installs it beside the app, from the target
+    # directory the build hook names; here it gets the same library path, since
+    # it links libc and libgcc through the same toolchain as the app.
     wrapProgram "$out/bin/yapfast-plugins" \
       --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath native.runtimeLibraries}
   '';
