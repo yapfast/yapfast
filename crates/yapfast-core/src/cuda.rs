@@ -7,8 +7,8 @@
 //! Nothing of the picture crosses to the processor: the descriptor is imported,
 //! the driver's own scale and convert run on the card, and an encoder handed
 //! [`Convert::nv12`] reads it where it lies. A tiled picture — a compositor on
-//! NVIDIA's driver shares one — is copied on the card into rows first, since the
-//! driver holds it as an array the kernels can't read. What this can't take — a
+//! NVIDIA's driver shares one — is an array the driver holds, which the kernels
+//! read where it lies through a texture object. What this can't take — a
 //! format that isn't 32-bit BGRA, a picture the driver holds in neither rows nor
 //! an array, a device that isn't the one the picture came from — it says in a
 //! sentence, which is what the share's ladder falls through on to the processor's

@@ -23,9 +23,11 @@
  * BGRA/BGRX, a picture the driver holds in a shape that is neither rows nor an
  * array, and a device that isn't the one the descriptor came from. A tiled
  * picture, which is what a compositor on NVIDIA's driver shares, is one the
- * driver holds as an array: its rows are copied on the card first, so the
- * kernels read them and no pixel of it crosses the processor either way. A refusal is a sentence the share's ladder falls through
- * on, to the same processor copy every other path keeps.
+ * driver holds as an array, which the kernels read where it lies through a
+ * texture object (or, on a driver without them, from a copy of its rows made on
+ * the card), and no pixel of it crosses the processor either way. A refusal is
+ * a sentence the share's ladder falls through on, to the same processor copy
+ * every other path keeps.
  *
  * Nothing here needs a CUDA toolkit at build time or on the machine: the PTX is
  * clang's output (see `build.rs`), the driver loads it, and libcuda is dlopened
@@ -59,6 +61,7 @@ typedef void *CUfunction;
 typedef unsigned long long CUdeviceptr;
 typedef void *CUgraphicsResource;
 typedef void *CUstream;
+typedef unsigned long long CUtexObject;
 
 #define CUDA_SUCCESS 0
 
@@ -83,6 +86,36 @@ typedef struct CUeglFrame_st {
 #define CU_EGL_FRAME_TYPE_ARRAY 0
 #define CU_EGL_FRAME_TYPE_PITCH 1
 #define CU_GRAPHICS_REGISTER_FLAGS_READ_ONLY 0x1
+
+/* A texture object over an array, as cuda.h lays out the two descriptions it
+ * is made from: what it reads, and how. The kernels read a tiled picture's
+ * array through one, texel by texel, rather than a copy of its rows. */
+typedef struct cuda_resource_desc_st {
+  int resType;
+  union {
+    void *hArray;
+    int reserved[32];
+  } res;
+  unsigned flags;
+} cuda_resource_desc;
+
+typedef struct cuda_texture_desc_st {
+  int addressMode[3];
+  int filterMode;
+  unsigned flags;
+  unsigned maxAnisotropy;
+  int mipmapFilterMode;
+  float mipmapLevelBias;
+  float minMipmapLevelClamp;
+  float maxMipmapLevelClamp;
+  float borderColor[4];
+  int reserved[12];
+} cuda_texture_desc;
+
+#define CU_RESOURCE_TYPE_ARRAY 0
+#define CU_TR_ADDRESS_MODE_CLAMP 1
+#define CU_TR_FILTER_MODE_POINT 0
+#define CU_TRSF_READ_AS_INTEGER 0x01
 
 #define CU_MEMORYTYPE_HOST 1
 #define CU_MEMORYTYPE_DEVICE 2
@@ -138,6 +171,11 @@ struct cuda_api {
   CUresult (*cuMemAlloc)(CUdeviceptr *, size_t);
   CUresult (*cuMemAllocPitch)(CUdeviceptr *, size_t *, size_t, size_t, unsigned);
   CUresult (*cuMemcpy3D)(const cuda_memcpy3d *);
+  /* A texture over the array GL's picture lies in, which the kernels read where
+   * it is: optional, and a driver without it copies the rows first. */
+  CUresult (*cuTexObjectCreate)(CUtexObject *, const cuda_resource_desc *,
+                                const cuda_texture_desc *, const void *);
+  CUresult (*cuTexObjectDestroy)(CUtexObject);
   CUresult (*cuMemFree)(CUdeviceptr);
   CUresult (*cuLaunchKernel)(CUfunction, unsigned, unsigned, unsigned, unsigned,
                              unsigned, unsigned, unsigned, CUstream, void **,
@@ -217,7 +255,9 @@ struct yapfast_cudaconvert {
   size_t nv12_size;
   /* The same rows for a picture the driver holds as an array — a tiled buffer,
    * which is what a compositor on NVIDIA's driver shares — copied on the card
-   * before the kernels read them. Grown as the pictures are. */
+   * before the kernels read them, where the driver has no texture objects to
+   * read the array through. Grown as the pictures are, and never made where it
+   * has. */
   CUdeviceptr rows;
   size_t rows_pitch;
   unsigned rows_height;
@@ -406,6 +446,8 @@ static int open_cuda(struct yapfast_cudaconvert *c) {
   /* Optional, for the GL door a tiled picture takes: a driver without them still
    * converts every picture whose rows it can read, and the GL route says so. */
   *(void **)(&c->cuda.cuMemcpy3D) = symbol(l, "cuMemcpy3D_v2");
+  *(void **)(&c->cuda.cuTexObjectCreate) = symbol(l, "cuTexObjectCreate");
+  *(void **)(&c->cuda.cuTexObjectDestroy) = symbol(l, "cuTexObjectDestroy");
   *(void **)(&c->cuda.cuGraphicsGLRegisterImage) = symbol(l, "cuGraphicsGLRegisterImage");
   *(void **)(&c->cuda.cuGraphicsSubResourceGetMappedArray) =
       symbol(l, "cuGraphicsSubResourceGetMappedArray");
@@ -732,16 +774,19 @@ const char *yapfast_cudaconvert_error(struct yapfast_cudaconvert *c) {
 }
 
 /* Runs both kernels: the stream's picture comes out as NV12 in `c->nv12`, and
- * the caller hands that buffer to its encoder. */
+ * the caller hands that buffer to its encoder. The picture is `pitch`-byte rows
+ * at `pixels`, or, where `texture` isn't zero, the array that texture reads. */
 static int launch(struct yapfast_cudaconvert *c, const void *pixels, unsigned pitch,
-                  int width, int height, int red_first) {
+                  int width, int height, int red_first, CUtexObject texture) {
   unsigned char *frames = (unsigned char *)(uintptr_t)c->nv12;
+  /* Laid out as `native/cuda_convert.cu`'s `bgra_frame`. */
   struct {
     const unsigned char *pixels;
     unsigned pitch;
     int width, height;
     int red_first;
-  } source = {pixels, pitch, width, height, red_first};
+    unsigned long long texture;
+  } source = {pixels, pitch, width, height, red_first, texture};
   struct {
     unsigned char *pixels;
     unsigned pitch;
@@ -789,8 +834,9 @@ static int rows_for(struct yapfast_cudaconvert *c, unsigned width, unsigned heig
 
 /* The picture as a GL texture, which is the door a tiled one takes: the driver
  * maps a texture where it answers an error for the resource an EGLImage
- * registered, and the array behind the texture copies into rows with
- * `cuMemcpy3D`, where `cuMemcpy2D` refuses a block-linear array.
+ * registered, and the kernels read the array behind the texture through a
+ * texture object, or, without those, from rows `cuMemcpy3D` copies it into,
+ * where `cuMemcpy2D` refuses a block-linear array.
  *
  * GL and gbm are dlopened as libEGL and libcuda are, and nothing is opened until
  * a picture needs them: every picture the first door takes costs nothing here. */
@@ -798,8 +844,10 @@ static int gl_ready(struct yapfast_cudaconvert *c) {
   if (c->gl_open > 0) return 1;
   if (c->gl_open < 0) return 0;
   c->gl_open = -1;
+  const int reads_arrays = c->cuda.cuMemcpy3D != NULL ||
+                           (c->cuda.cuTexObjectCreate != NULL && c->cuda.cuTexObjectDestroy != NULL);
   if (c->cuda.cuGraphicsGLRegisterImage == NULL ||
-      c->cuda.cuGraphicsSubResourceGetMappedArray == NULL || c->cuda.cuMemcpy3D == NULL) {
+      c->cuda.cuGraphicsSubResourceGetMappedArray == NULL || !reads_arrays) {
     put(c->gl_why, sizeof(c->gl_why), "the CUDA driver has no GL interop");
     return 0;
   }
@@ -915,8 +963,39 @@ static int copy_rows(struct yapfast_cudaconvert *c, void *array, unsigned width,
   return 1;
 }
 
-/* The picture through GL's texture, copied on the card into `c->rows`: 1 when
- * the rows hold it. GL's context takes the thread for the length of the call and
+/* The array behind GL's texture, read by the kernels: through a texture object
+ * where the driver has them, so nothing of the picture is copied, and copied on
+ * the card into `c->rows` first where it hasn't. The array holds the picture as
+ * GL does, red first, where the descriptor's own memory is blue first. */
+static int convert_array(struct yapfast_cudaconvert *c, void *array, unsigned width,
+                         unsigned height) {
+  if (c->cuda.cuTexObjectCreate != NULL && c->cuda.cuTexObjectDestroy != NULL) {
+    cuda_resource_desc resource;
+    memset(&resource, 0, sizeof(resource));
+    resource.resType = CU_RESOURCE_TYPE_ARRAY;
+    resource.res.hArray = array;
+    cuda_texture_desc texture;
+    memset(&texture, 0, sizeof(texture));
+    texture.addressMode[0] = texture.addressMode[1] = texture.addressMode[2] =
+        CU_TR_ADDRESS_MODE_CLAMP;
+    texture.filterMode = CU_TR_FILTER_MODE_POINT;
+    /* Each channel as the byte it is, at whole texel coordinates: the kernels
+     * filter on their own, as they do rows. */
+    texture.flags = CU_TRSF_READ_AS_INTEGER;
+    CUtexObject object = 0;
+    if (c->cuda.cuTexObjectCreate(&object, &resource, &texture, NULL) == CUDA_SUCCESS) {
+      int ok = launch(c, NULL, 0, (int)width, (int)height, 1, object);
+      c->cuda.cuTexObjectDestroy(object);
+      return ok;
+    }
+  }
+  if (!copy_rows(c, array, width, height)) return 0;
+  return launch(c, (const void *)(uintptr_t)c->rows, (unsigned)c->rows_pitch, (int)width,
+                (int)height, 1, 0);
+}
+
+/* The picture through GL's texture, scaled and converted into `c->nv12`: 1 when
+ * it is there. GL's context takes the thread for the length of the call and
  * leaves it to the import's own. */
 static int take_through_gl(struct yapfast_cudaconvert *c, int fd, unsigned offset,
                            unsigned stride, unsigned fourcc, unsigned long long modifier,
@@ -979,8 +1058,15 @@ static int take_through_gl(struct yapfast_cudaconvert *c, int fd, unsigned offse
         cuda_name(c, r));
     goto done;
   }
-  ok = copy_rows(c, array, width, height);
-  if (!ok) put(c->gl_why, sizeof(c->gl_why), "%s", c->error);
+  /* The kernels run while the array is mapped: it is the picture only until
+   * the mapping is unmade. */
+  ok = convert_array(c, array, width, height);
+  if (ok) {
+    c->source_width = width;
+    c->source_height = height;
+  } else {
+    put(c->gl_why, sizeof(c->gl_why), "%s", c->error);
+  }
 done:
   if (mapped) c->cuda.cuGraphicsUnmapResources(1, &resource, NULL);
   if (registered) c->cuda.cuGraphicsUnregisterResource(resource);
@@ -1015,16 +1101,8 @@ int yapfast_cudaconvert_convert(struct yapfast_cudaconvert *c, int fd, unsigned 
     return 0;
   }
   if (c->gl_only && c->gl_only_modifier == modifier) {
-    int ok = 0;
-    if (take_through_gl(c, fd, offset, stride, fourcc, modifier, width, height)) {
-      c->source_width = width;
-      c->source_height = height;
-      /* Red first, as below. */
-      ok = launch(c, (const void *)(uintptr_t)c->rows, (unsigned)c->rows_pitch, (int)width,
-                  (int)height, 1);
-    } else {
-      put(c->error, sizeof(c->error), "through GL's texture: %s", c->gl_why);
-    }
+    int ok = take_through_gl(c, fd, offset, stride, fourcc, modifier, width, height);
+    if (!ok) put(c->error, sizeof(c->error), "through GL's texture: %s", c->gl_why);
     leave(c);
     if (!ok) put(error, size, "%s", c->error);
     return ok;
@@ -1080,7 +1158,7 @@ int yapfast_cudaconvert_convert(struct yapfast_cudaconvert *c, int fd, unsigned 
       c->source_width = width;
       c->source_height = height;
       ok = launch(c, (const void *)(uintptr_t)frame.frame.pDevPtr[0], frame.pitch, (int)width,
-                  (int)height, 0);
+                  (int)height, 0, 0);
     }
   } else if (frame.frameType == CU_EGL_FRAME_TYPE_ARRAY && frame.frame.pArray[0] != NULL) {
     /* A picture the driver holds as an array rather than rows: its rows are
@@ -1093,7 +1171,7 @@ int yapfast_cudaconvert_convert(struct yapfast_cudaconvert *c, int fd, unsigned 
       c->source_width = width;
       c->source_height = height;
       ok = launch(c, (const void *)(uintptr_t)c->rows, (unsigned)c->rows_pitch, (int)width,
-                  (int)height, 0);
+                  (int)height, 0, 0);
     }
   } else {
     put(c->error, sizeof(c->error),
@@ -1111,17 +1189,10 @@ done:
      * second door says is added to what the first said. */
     char first[sizeof(c->error)];
     put(first, sizeof(first), "%s", c->error);
-    if (take_through_gl(c, fd, offset, stride, fourcc, modifier, width, height)) {
-      c->source_width = width;
-      c->source_height = height;
-      /* The array behind GL's texture holds the picture as GL does, red first,
-       * where the descriptor's own memory is blue first. */
-      ok = launch(c, (const void *)(uintptr_t)c->rows, (unsigned)c->rows_pitch, (int)width,
-                  (int)height, 1);
-      if (ok) {
-        c->gl_only = 1;
-        c->gl_only_modifier = modifier;
-      }
+    ok = take_through_gl(c, fd, offset, stride, fourcc, modifier, width, height);
+    if (ok) {
+      c->gl_only = 1;
+      c->gl_only_modifier = modifier;
     } else if (c->gl_why[0] != '\0') {
       put(c->error, sizeof(c->error), "%s; and through GL's texture: %s", first, c->gl_why);
     }

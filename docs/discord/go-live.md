@@ -694,13 +694,16 @@ second door: the driver answers an error from the mapping for every resource an
 EGLImage registers and then hands back an array nothing can read, but a GL
 texture over the same picture maps, so the picture is wrapped as a texture
 (`glEGLImageTargetTexture2DOES`, on a display made from a gbm device, which is
-the one whose GL CUDA binds to) and the array behind it is copied on the card
-with `cuMemcpy3D` — the copy a block-linear array takes, where `cuMemcpy2D`
-answers `CUDA_ERROR_INVALID_VALUE` — into linear rows the kernels read. The
-texture is made as ARGB8888 whatever the descriptor says, since a screencast's
-XRGB8888 becomes a three-channel texture CUDA refuses to register and the bytes
-are the same either way, and the rows it gives back are red first, as GL holds
-them, which the kernels are told. A layout the first door refused once goes to
+the one whose GL CUDA binds to), and the kernels read the array behind it where
+it lies, through a texture object, while it is mapped: an integer read at whole
+texel coordinates, each channel the byte it is, filtered by the kernels as rows
+are. A driver without texture objects copies the array on the card into linear
+rows first, with `cuMemcpy3D` — the copy a block-linear array takes, where
+`cuMemcpy2D` answers `CUDA_ERROR_INVALID_VALUE`. The texture is made as ARGB8888
+whatever the descriptor says, since a screencast's XRGB8888 becomes a
+three-channel texture CUDA refuses to register and the bytes are the same either
+way, and the array holds the picture red first, as GL does, which the kernels
+are told. A layout the first door refused once goes to
 GL's from the next picture on, rather than being refused again every frame. Both
 doors leave every pixel on the card, and GL is opened only when a picture takes
 it. The session hands its access unit back in two steps: the encode leaves it
@@ -944,8 +947,9 @@ described above; what has been run on hardware is this:
   exception: on an RTX 4090 with driver 620.70.06 it opened, imported a linear
   DMA-BUF, converted it with its kernels and encoded the result with NVENC,
   moving no byte through the processor — and a tiled picture, the shape this
-  compositor shares, took the GL-texture door, was copied on the card into rows
-  and encoded the same way, also with nothing through the processor. What has
+  compositor shares, took the GL-texture door, was read where it lay through a
+  texture object and encoded the same way, also with nothing through the
+  processor. What has
   not been seen is a share's own session end to end: the portal's handshake, the
   picture arriving on a PipeWire node and the worker's ladder run on it are the
   code's to answer, since this machine's session is not the one the tests drive.

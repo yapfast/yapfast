@@ -31,9 +31,13 @@ struct bgra_frame {
   const uchar *pixels;
   uint pitch;
   int width, height;
-  /* Red in the first byte rather than blue: the rows copied out of the array
-   * behind a GL texture, which holds the picture as GL does. */
+  /* Red in the first byte rather than blue: the array behind a GL texture,
+   * which holds the picture as GL does. */
   int red_first;
+  /* A texture object over that array, read texel by texel where it isn't
+   * zero: the picture where the driver tiled it, rather than a copy of its
+   * rows. `pixels` and `pitch` are unused then. */
+  unsigned long long texture;
 };
 
 struct nv12_frame {
@@ -51,6 +55,29 @@ __device__ static uchar byte_of(float value) {
   return (uchar)clamp(value + 0.5f, 0.0f, 255.0f);
 }
 
+/* The first three channels of the pixel at `x`, `y`, in the order they lie. */
+__device__ static struct vec4 texel(struct bgra_frame frame, int x, int y) {
+  struct vec4 out;
+  if (frame.texture != 0) {
+    /* An integer read of the array at whole texel coordinates: each channel as
+     * the byte it is, with no filtering, as the rows below are read. */
+    uint r, g, b, a;
+    asm volatile("tex.2d.v4.u32.s32 {%0, %1, %2, %3}, [%4, {%5, %6}];"
+                 : "=r"(r), "=r"(g), "=r"(b), "=r"(a)
+                 : "l"(frame.texture), "r"(x), "r"(y));
+    out.x = (float)r;
+    out.y = (float)g;
+    out.z = (float)b;
+  } else {
+    const uchar *p = frame.pixels + (unsigned long)y * frame.pitch + (unsigned long)x * 4;
+    out.x = p[0];
+    out.y = p[1];
+    out.z = p[2];
+  }
+  out.w = 1.0f;
+  return out;
+}
+
 /* The four channels at one point of the source, bilinearly interpolated. */
 __device__ static struct vec4 source_at(struct bgra_frame frame, float x, float y) {
   x = clamp(x, 0.0f, (float)(frame.width - 1));
@@ -61,16 +88,16 @@ __device__ static struct vec4 source_at(struct bgra_frame frame, float x, float 
   int bottom = top + 1 < frame.height ? top + 1 : top;
   float fx = x - (float)left;
   float fy = y - (float)top;
-  const uchar *a = frame.pixels + (unsigned long)top * frame.pitch + (unsigned long)left * 4;
-  const uchar *b = frame.pixels + (unsigned long)top * frame.pitch + (unsigned long)right * 4;
-  const uchar *c = frame.pixels + (unsigned long)bottom * frame.pitch + (unsigned long)left * 4;
-  const uchar *d = frame.pixels + (unsigned long)bottom * frame.pitch + (unsigned long)right * 4;
+  struct vec4 a = texel(frame, left, top);
+  struct vec4 b = texel(frame, right, top);
+  struct vec4 c = texel(frame, left, bottom);
+  struct vec4 d = texel(frame, right, bottom);
   struct vec4 out;
   /* DRM's BGRA8888 is blue first in memory; the stream's matrix wants red,
    * green and blue. */
-  out.x = (a[0] * (1 - fx) + b[0] * fx) * (1 - fy) + (c[0] * (1 - fx) + d[0] * fx) * fy;
-  out.y = (a[1] * (1 - fx) + b[1] * fx) * (1 - fy) + (c[1] * (1 - fx) + d[1] * fx) * fy;
-  out.z = (a[2] * (1 - fx) + b[2] * fx) * (1 - fy) + (c[2] * (1 - fx) + d[2] * fx) * fy;
+  out.x = (a.x * (1 - fx) + b.x * fx) * (1 - fy) + (c.x * (1 - fx) + d.x * fx) * fy;
+  out.y = (a.y * (1 - fx) + b.y * fx) * (1 - fy) + (c.y * (1 - fx) + d.y * fx) * fy;
+  out.z = (a.z * (1 - fx) + b.z * fx) * (1 - fy) + (c.z * (1 - fx) + d.z * fx) * fy;
   out.w = 1.0f;
   if (frame.red_first) {
     float red = out.x;
