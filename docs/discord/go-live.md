@@ -694,12 +694,21 @@ second door: the driver answers an error from the mapping for every resource an
 EGLImage registers and then hands back an array nothing can read, but a GL
 texture over the same picture maps, so the picture is wrapped as a texture
 (`glEGLImageTargetTexture2DOES`, on a display made from a gbm device, which is
-the one whose GL CUDA binds to), and the kernels read the array behind it where
-it lies, through a texture object, while it is mapped: an integer read at whole
-texel coordinates, each channel the byte it is, filtered by the kernels as rows
-are. A driver without texture objects copies the array on the card into linear
-rows first, with `cuMemcpy3D` — the copy a block-linear array takes, where
-`cuMemcpy2D` answers `CUDA_ERROR_INVALID_VALUE`. The texture is made as ARGB8888
+the one whose GL CUDA binds to). Mapping that texture for CUDA would copy the
+whole picture every time, decompressing it — 7 ms a frame at 3440x1440 on an
+RTX 4090, since KWin's buffers are compressed — so GL copies it instead
+(`glCopyImageSubData`) into a plain texture of its own, made and registered with
+CUDA once at the pictures' size, whose mapping is a wait for that copy. The
+kernels read that texture's array through a texture object while it is mapped:
+an integer read at whole texel coordinates, each channel the byte it is,
+filtered by the kernels as rows are. A driver without texture objects copies
+the array into linear rows first, with `cuMemcpy3D` — the copy a block-linear
+array takes, where `cuMemcpy2D` answers `CUDA_ERROR_INVALID_VALUE`. A capture
+cycles through a few buffers, so each is imported and made a texture once and
+kept, known by its DMA-BUF's inode and layout, up to four of them; one not seen
+for 30 frames is let go of, with the buffer its import holds. A frame costs
+0.34 ms at 3440x1440 this way, where importing, registering and mapping every
+picture cost 7.95 ms. The imported texture is made as ARGB8888
 whatever the descriptor says, since a screencast's XRGB8888 becomes a
 three-channel texture CUDA refuses to register and the bytes are the same either
 way, and the array holds the picture red first, as GL does, which the kernels
@@ -947,8 +956,8 @@ described above; what has been run on hardware is this:
   exception: on an RTX 4090 with driver 620.70.06 it opened, imported a linear
   DMA-BUF, converted it with its kernels and encoded the result with NVENC,
   moving no byte through the processor — and a tiled picture, the shape this
-  compositor shares, took the GL-texture door, was read where it lay through a
-  texture object and encoded the same way, also with nothing through the
+  compositor shares, took the GL-texture door, was copied by GL on the card into
+  a texture CUDA reads and encoded the same way, also with nothing through the
   processor. What has
   not been seen is a share's own session end to end: the portal's handshake, the
   picture arriving on a PipeWire node and the worker's ladder run on it are the

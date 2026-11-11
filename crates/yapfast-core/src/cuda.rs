@@ -7,8 +7,9 @@
 //! Nothing of the picture crosses to the processor: the descriptor is imported,
 //! the driver's own scale and convert run on the card, and an encoder handed
 //! [`Convert::nv12`] reads it where it lies. A tiled picture — a compositor on
-//! NVIDIA's driver shares one — is an array the driver holds, which the kernels
-//! read where it lies through a texture object. What this can't take — a
+//! NVIDIA's driver shares one — is an array CUDA can't map, so GL copies it on
+//! the card into a texture CUDA can, and the kernels read that through a texture
+//! object. What this can't take — a
 //! format that isn't 32-bit BGRA, a picture the driver holds in neither rows nor
 //! an array, a device that isn't the one the picture came from — it says in a
 //! sentence, which is what the share's ladder falls through on to the processor's
@@ -674,6 +675,9 @@ mod card_path {
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
     use yapfast_discord::rtp::Codec;
 
+    const RED: [f32; 3] = [1.0, 0.0, 0.0];
+    const GREEN: [f32; 3] = [0.0, 1.0, 0.0];
+
     /// The modifier KWin's screencast hands over on NVIDIA's driver.
     const KWIN_TILED: u64 = 0x0300_0000_00e0_8014;
     const XRGB8888: u32 = 0x3432_5258;
@@ -776,7 +780,7 @@ mod card_path {
             }
             // SAFETY: a descriptor gbm made for this caller.
             let fd = unsafe { OwnedFd::from_raw_fd(raw) };
-            self.draw(&fd, stride, offset, modifier, width, height)?;
+            self.draw(&fd, (stride, offset, modifier), (width, height), RED, GREEN)?;
             Ok((fd, stride, offset, modifier))
         }
 
@@ -786,11 +790,10 @@ mod card_path {
         fn draw(
             &self,
             fd: &OwnedFd,
-            stride: u32,
-            offset: u32,
-            modifier: u64,
-            width: u32,
-            height: u32,
+            (stride, offset, modifier): (u32, u32, u64),
+            (width, height): (u32, u32),
+            left: [f32; 3],
+            right: [f32; 3],
         ) -> Result<(), String> {
             // SAFETY: a library name; null is an answer.
             let egl = unsafe { libc::dlopen(c"libEGL.so.1".as_ptr(), libc::RTLD_NOW) };
@@ -913,10 +916,10 @@ mod card_path {
                     enable(0x0C11);
                     let half = (width / 2) as i32;
                     scissor(0, 0, half, height as i32);
-                    clear_color(1.0, 0.0, 0.0, 1.0);
+                    clear_color(left[0], left[1], left[2], 1.0);
                     clear(0x4000);
                     scissor(half, 0, width as i32 - half, height as i32);
-                    clear_color(0.0, 1.0, 0.0, 1.0);
+                    clear_color(right[0], right[1], right[2], 1.0);
                     clear(0x4000);
                     finish();
                 }
@@ -1001,6 +1004,91 @@ mod card_path {
                 Some((codec, convert, encoder))
             })
             .collect()
+    }
+
+    /// The pictures a capture cycles through are imported once each and kept,
+    /// so a buffer drawn again since its last frame has to come out as it is
+    /// now: the compositor redraws the same few buffers, and a kept import that
+    /// showed the old picture would freeze the stream.
+    #[test]
+    fn a_kept_picture_shows_what_was_drawn_into_it_since() {
+        let Ok(gbm) = Gbm::open() else {
+            eprintln!("no NVIDIA gbm here");
+            return;
+        };
+        let (width, height) = (640, 360);
+        let (fd, stride, offset, modifier) = gbm.tiled(width, height).expect("a tiled buffer");
+        let planes = [Plane { offset, stride }];
+        let fds = [fd.as_raw_fd()];
+        let picture = Descriptor {
+            width,
+            height,
+            fourcc: XRGB8888,
+            modifier,
+            planes: &planes,
+            fds: &fds,
+        };
+        let Ok(mut convert) = Convert::open(width, height) else {
+            eprintln!("no NVIDIA card path here");
+            return;
+        };
+        let Ok(mut encoder) = Encoder::open(Codec::H264, width, height, 60, 8_000, &convert) else {
+            eprintln!("no H264 session here");
+            return;
+        };
+        let mut shown = |frame: u64| {
+            convert.convert(&picture).expect("a convert");
+            let unit = encoder
+                .encode(frame, true)
+                .expect("an encode")
+                .expect("a keyframe at once");
+            sampled(Codec::H264, &[unit.data.to_vec()]).expect("a picture")
+        };
+        // Twice, so the second frame is the kept import's.
+        shown(0);
+        let (y, ..) = shown(1);
+        assert!(near(y[0], 82) && near(y[1], 145), "red then green: {y:?}");
+        gbm.draw(&fd, (stride, offset, modifier), (width, height), GREEN, RED)
+            .expect("drawn again");
+        let (y, ..) = shown(2);
+        assert!(
+            near(y[0], 145) && near(y[1], 82),
+            "the buffer was drawn green then red, and the stream shows {y:?}"
+        );
+    }
+
+    /// Measures a tiled 3440x1440 screen's convert on the card, as a share pays
+    /// it every frame: the import, the kernels and the wait for them.
+    #[test]
+    #[ignore = "measures; run with --ignored --nocapture"]
+    fn measures_a_tiled_convert() {
+        let Ok(gbm) = Gbm::open() else {
+            eprintln!("no NVIDIA gbm here");
+            return;
+        };
+        let (width, height) = (3440, 1440);
+        let (fd, stride, offset, modifier) = gbm.tiled(width, height).expect("a tiled buffer");
+        let planes = [Plane { offset, stride }];
+        let fds = [fd.as_raw_fd()];
+        let picture = Descriptor {
+            width,
+            height,
+            fourcc: XRGB8888,
+            modifier,
+            planes: &planes,
+            fds: &fds,
+        };
+        let mut convert = Convert::open(width, height).expect("a converter");
+        // The first picture finds the door; the rest are what a stream pays.
+        convert.convert(&picture).expect("a convert");
+        let started = std::time::Instant::now();
+        for _ in 0..200 {
+            convert.convert(&picture).expect("a convert");
+        }
+        eprintln!(
+            "a tiled 3440x1440 convert: {:?} on average",
+            started.elapsed() / 200
+        );
     }
 
     #[test]

@@ -23,9 +23,10 @@
  * BGRA/BGRX, a picture the driver holds in a shape that is neither rows nor an
  * array, and a device that isn't the one the descriptor came from. A tiled
  * picture, which is what a compositor on NVIDIA's driver shares, is one the
- * driver holds as an array, which the kernels read where it lies through a
- * texture object (or, on a driver without them, from a copy of its rows made on
- * the card), and no pixel of it crosses the processor either way. A refusal is
+ * driver holds as an array CUDA can't map: GL copies it on the card into a
+ * texture of its own, which CUDA can, and the kernels read that through a
+ * texture object (or, on a driver without them, from a copy of its rows), so no
+ * pixel of it crosses the processor either way. A refusal is
  * a sentence the share's ladder falls through on, to the same processor copy
  * every other path keeps.
  *
@@ -228,9 +229,15 @@ struct egl_api {
 struct gl_api {
   void *library;
   void (*glGenTextures)(int, unsigned *);
+  void (*glDeleteTextures)(int, const unsigned *);
   void (*glBindTexture)(unsigned, unsigned);
   void (*glTexParameteri)(unsigned, unsigned, int);
   void (*glEGLImageTargetTexture2DOES)(unsigned, void *);
+  void (*glTexImage2D)(unsigned, int, int, int, int, int, unsigned, unsigned, const void *);
+  /* A copy of one texture into another on the card, which is what takes the
+   * imported picture into the one CUDA reads. */
+  void (*glCopyImageSubData)(unsigned, unsigned, int, int, int, int, unsigned, unsigned, int,
+                             int, int, int, int, int, int);
 };
 
 /* `EGL_PLATFORM_GBM_KHR` and GL's names come from eglext.h and glext.h; the few
@@ -239,6 +246,31 @@ struct gl_api {
 #define GL_TEXTURE_MIN_FILTER 0x2801u
 #define GL_TEXTURE_MAG_FILTER 0x2800u
 #define GL_LINEAR 0x2601u
+#define GL_RGBA8 0x8058u
+#define GL_RGBA 0x1908u
+#define GL_UNSIGNED_BYTE 0x1401u
+
+/* One of the pictures a capture cycles through, as GL and CUDA hold it: a
+ * screencast hands over the same few buffers frame after frame, so each is
+ * imported, made a texture and registered with CUDA once, and a frame costs a
+ * map and an unmap. Known by the buffer itself — the DMA-BUF's inode, which the
+ * import's own reference keeps from being reused — and how the picture lies in
+ * it. */
+#define GL_KEPT 4
+/* A kept picture not seen for this many frames is let go of: its capture moved
+ * to other buffers, after a resize, and the import holds the old ones. */
+#define GL_KEPT_FRAMES 30
+
+struct gl_kept {
+  int held;
+  dev_t device;
+  ino_t inode;
+  unsigned offset, stride, width, height;
+  unsigned long long modifier;
+  EGLImageKHR image;
+  unsigned texture;
+  unsigned long long seen;
+};
 
 struct yapfast_cudaconvert {
   struct cuda_api cuda;
@@ -270,7 +302,16 @@ struct yapfast_cudaconvert {
   void *gbm_device;
   EGLDisplay gl_display;
   EGLContext gl_context;
-  unsigned gl_texture;
+  struct gl_kept kept[GL_KEPT];
+  /* The texture GL copies each picture into on the card, the one CUDA has
+   * registered and reads: made once at the picture's size, and again only when
+   * that changes. */
+  unsigned copy_texture;
+  CUgraphicsResource copy_resource;
+  unsigned copy_width, copy_height;
+  /* Frames through GL's door, which is what a kept picture's age is counted
+   * in. */
+  unsigned long long gl_frames;
   int gl_open;
   char gl_why[160];
   /* The layout the EGLImage's own resource refused and GL's texture took: a
@@ -833,10 +874,10 @@ static int rows_for(struct yapfast_cudaconvert *c, unsigned width, unsigned heig
 }
 
 /* The picture as a GL texture, which is the door a tiled one takes: the driver
- * maps a texture where it answers an error for the resource an EGLImage
- * registered, and the kernels read the array behind the texture through a
- * texture object, or, without those, from rows `cuMemcpy3D` copies it into,
- * where `cuMemcpy2D` refuses a block-linear array.
+ * answers an error for the resource an EGLImage registered, and GL copies the
+ * picture into a texture of its own that CUDA maps, whose array the kernels read
+ * through a texture object, or, without those, from rows `cuMemcpy3D` copies it
+ * into, where `cuMemcpy2D` refuses a block-linear array.
  *
  * GL and gbm are dlopened as libEGL and libcuda are, and nothing is opened until
  * a picture needs them: every picture the first door takes costs nothing here. */
@@ -868,12 +909,19 @@ static int gl_ready(struct yapfast_cudaconvert *c) {
     }                                                                        \
   } while (0)
   GL_LOAD(glGenTextures, "glGenTextures");
+  GL_LOAD(glDeleteTextures, "glDeleteTextures");
+  GL_LOAD(glTexImage2D, "glTexImage2D");
   GL_LOAD(glBindTexture, "glBindTexture");
   GL_LOAD(glTexParameteri, "glTexParameteri");
   /* The one entry point that makes a texture of an imported picture, which only
    * eglGetProcAddress finds. */
   *(void **)(&c->gl.glEGLImageTargetTexture2DOES) =
       (void *)c->egl.eglGetProcAddress("glEGLImageTargetTexture2DOES");
+  *(void **)(&c->gl.glCopyImageSubData) = (void *)c->egl.eglGetProcAddress("glCopyImageSubData");
+  if (c->gl.glCopyImageSubData == NULL) {
+    put(c->gl_why, sizeof(c->gl_why), "GL has no glCopyImageSubData");
+    return 0;
+  }
   if (c->gl.glEGLImageTargetTexture2DOES == NULL) {
     put(c->gl_why, sizeof(c->gl_why), "GL has no glEGLImageTargetTexture2DOES");
     return 0;
@@ -925,11 +973,6 @@ static int gl_ready(struct yapfast_cudaconvert *c) {
         c->egl.eglGetError());
     return 0;
   }
-  /* One texture, re-pointed at each picture: the storage is the image's. */
-  c->gl.glGenTextures(1, &c->gl_texture);
-  c->gl.glBindTexture(GL_TEXTURE_2D, c->gl_texture);
-  c->gl.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (int)GL_LINEAR);
-  c->gl.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (int)GL_LINEAR);
   c->egl.eglMakeCurrent(c->gl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
   c->gl_open = 1;
   return 1;
@@ -963,10 +1006,10 @@ static int copy_rows(struct yapfast_cudaconvert *c, void *array, unsigned width,
   return 1;
 }
 
-/* The array behind GL's texture, read by the kernels: through a texture object
- * where the driver has them, so nothing of the picture is copied, and copied on
- * the card into `c->rows` first where it hasn't. The array holds the picture as
- * GL does, red first, where the descriptor's own memory is blue first. */
+/* The array behind the texture GL copied the picture into, read by the kernels:
+ * through a texture object where the driver has them, and copied on the card
+ * into `c->rows` first where it hasn't. The array holds the picture as GL does,
+ * red first, where the descriptor's own memory is blue first. */
 static int convert_array(struct yapfast_cudaconvert *c, void *array, unsigned width,
                          unsigned height) {
   if (c->cuda.cuTexObjectCreate != NULL && c->cuda.cuTexObjectDestroy != NULL) {
@@ -994,19 +1037,24 @@ static int convert_array(struct yapfast_cudaconvert *c, void *array, unsigned wi
                 (int)height, 1, 0);
 }
 
-/* The picture through GL's texture, scaled and converted into `c->nv12`: 1 when
- * it is there. GL's context takes the thread for the length of the call and
- * leaves it to the import's own. */
-static int take_through_gl(struct yapfast_cudaconvert *c, int fd, unsigned offset,
-                           unsigned stride, unsigned fourcc, unsigned long long modifier,
-                           unsigned width, unsigned height) {
-  c->gl_why[0] = '\0';
-  if (!gl_ready(c)) return 0;
+/* Lets go of a kept picture: GL's texture and the import, in that order. GL's
+ * context is current. */
+static void let_go_of_kept(struct yapfast_cudaconvert *c, struct gl_kept *kept) {
+  if (!kept->held) return;
+  if (kept->texture != 0) c->gl.glDeleteTextures(1, &kept->texture);
+  if (kept->image != EGL_NO_IMAGE_KHR) c->egl.eglDestroyImage(c->gl_display, kept->image);
+  memset(kept, 0, sizeof(*kept));
+}
+
+/* Imports the picture into `kept`: the EGLImage and a texture over it. 1 when
+ * both are made; GL's context is current. */
+static int keep_picture(struct yapfast_cudaconvert *c, struct gl_kept *kept, int fd,
+                        unsigned offset, unsigned stride, unsigned long long modifier,
+                        unsigned width, unsigned height) {
   /* A picture without alpha is imported as one with it: the memory is laid out
    * the same, the kernels never read the fourth byte, and a texture of three
    * channels — what the driver makes of XRGB8888 — is one CUDA refuses to
    * register (CUDA_ERROR_INVALID_VALUE). */
-  (void)fourcc;
   const EGLint attribs[] = {
       EGL_WIDTH,                          (EGLint)width,
       EGL_HEIGHT,                         (EGLint)height,
@@ -1018,59 +1066,156 @@ static int take_through_gl(struct yapfast_cudaconvert *c, int fd, unsigned offse
       EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, (EGLint)(modifier >> 32),
       EGL_NONE,
   };
-  EGLImageKHR image = c->egl.eglCreateImage(c->gl_display, EGL_NO_CONTEXT,
-                                            EGL_LINUX_DMA_BUF_EXT, NULL, attribs);
-  if (image == EGL_NO_IMAGE_KHR) {
+  kept->held = 1;
+  kept->image = c->egl.eglCreateImage(c->gl_display, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT,
+                                      NULL, attribs);
+  if (kept->image == EGL_NO_IMAGE_KHR) {
     put(c->gl_why, sizeof(c->gl_why), "GL's display wouldn't import the picture (0x%x)",
         c->egl.eglGetError());
+    let_go_of_kept(c, kept);
+    return 0;
+  }
+  c->gl.glGenTextures(1, &kept->texture);
+  c->gl.glBindTexture(GL_TEXTURE_2D, kept->texture);
+  c->gl.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (int)GL_LINEAR);
+  c->gl.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (int)GL_LINEAR);
+  c->gl.glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, kept->image);
+  return 1;
+}
+
+/* Lets go of the texture CUDA reads, and its registration. Both contexts are
+ * current. */
+static void let_go_of_copy(struct yapfast_cudaconvert *c) {
+  if (c->copy_resource != NULL) c->cuda.cuGraphicsUnregisterResource(c->copy_resource);
+  if (c->copy_texture != 0) c->gl.glDeleteTextures(1, &c->copy_texture);
+  c->copy_resource = NULL;
+  c->copy_texture = 0;
+  c->copy_width = c->copy_height = 0;
+}
+
+/* The texture CUDA reads, at `width` by `height`: made and registered once, and
+ * again when the pictures change size. Mapping a texture over an imported
+ * picture copies the whole of it every time, decompressing it, where mapping
+ * one of GL's own is a wait for GL's work: so the picture is copied into this
+ * one by GL, on the card, and CUDA reads that. */
+static int copy_ready(struct yapfast_cudaconvert *c, unsigned width, unsigned height) {
+  if (c->copy_resource != NULL && c->copy_width == width && c->copy_height == height) return 1;
+  let_go_of_copy(c);
+  c->gl.glGenTextures(1, &c->copy_texture);
+  c->gl.glBindTexture(GL_TEXTURE_2D, c->copy_texture);
+  c->gl.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (int)GL_LINEAR);
+  c->gl.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (int)GL_LINEAR);
+  c->gl.glTexImage2D(GL_TEXTURE_2D, 0, (int)GL_RGBA8, (int)width, (int)height, 0, GL_RGBA,
+                     GL_UNSIGNED_BYTE, NULL);
+  CUresult r = c->cuda.cuGraphicsGLRegisterImage(&c->copy_resource, c->copy_texture,
+                                                GL_TEXTURE_2D,
+                                                CU_GRAPHICS_REGISTER_FLAGS_READ_ONLY);
+  if (r != CUDA_SUCCESS) {
+    c->copy_resource = NULL;
+    put(c->gl_why, sizeof(c->gl_why), "CUDA wouldn't take GL's texture for the picture: %s",
+        cuda_name(c, r));
+    let_go_of_copy(c);
+    return 0;
+  }
+  c->copy_width = width;
+  c->copy_height = height;
+  return 1;
+}
+
+/* Copies a kept picture into the texture CUDA reads, and runs the kernels over
+ * that while it is mapped. */
+static int convert_kept(struct yapfast_cudaconvert *c, struct gl_kept *kept) {
+  if (!copy_ready(c, kept->width, kept->height)) return 0;
+  c->gl.glCopyImageSubData(kept->texture, GL_TEXTURE_2D, 0, 0, 0, 0, c->copy_texture,
+                           GL_TEXTURE_2D, 0, 0, 0, 0, (int)kept->width, (int)kept->height, 1);
+  CUresult r = c->cuda.cuGraphicsMapResources(1, &c->copy_resource, NULL);
+  if (r != CUDA_SUCCESS) {
+    put(c->gl_why, sizeof(c->gl_why), "CUDA wouldn't map GL's texture over the picture: %s",
+        cuda_name(c, r));
+    return 0;
+  }
+  int ok = 0;
+  void *array = NULL;
+  r = c->cuda.cuGraphicsSubResourceGetMappedArray(&array, c->copy_resource, 0, 0);
+  if (r != CUDA_SUCCESS || array == NULL) {
+    put(c->gl_why, sizeof(c->gl_why), "CUDA wouldn't say where GL's picture lies: %s",
+        cuda_name(c, r));
+  } else {
+    ok = convert_array(c, array, kept->width, kept->height);
+    if (!ok) put(c->gl_why, sizeof(c->gl_why), "%s", c->error);
+  }
+  c->cuda.cuGraphicsUnmapResources(1, &c->copy_resource, NULL);
+  return ok;
+}
+
+/* The picture through GL's texture, scaled and converted into `c->nv12`: 1 when
+ * it is there. GL's context takes the thread for the length of the call and
+ * leaves it to the import's own. */
+static int take_through_gl(struct yapfast_cudaconvert *c, int fd, unsigned offset,
+                           unsigned stride, unsigned fourcc, unsigned long long modifier,
+                           unsigned width, unsigned height) {
+  (void)fourcc;
+  c->gl_why[0] = '\0';
+  if (!gl_ready(c)) return 0;
+  struct stat buffer;
+  if (fstat(fd, &buffer) != 0) {
+    put(c->gl_why, sizeof(c->gl_why), "the picture's memory can't be told apart from another's");
     return 0;
   }
   c->egl.eglMakeCurrent(c->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
   if (!c->egl.eglMakeCurrent(c->gl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, c->gl_context)) {
     put(c->gl_why, sizeof(c->gl_why), "EGL wouldn't make GL's context current (0x%x)",
         c->egl.eglGetError());
-    c->egl.eglDestroyImage(c->gl_display, image);
+    c->egl.eglMakeCurrent(c->display, EGL_NO_SURFACE, EGL_NO_SURFACE, c->context);
     return 0;
   }
-  int ok = 0, registered = 0, mapped = 0;
-  CUgraphicsResource resource = NULL;
-  c->gl.glBindTexture(GL_TEXTURE_2D, c->gl_texture);
-  c->gl.glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, image);
-  CUresult r = c->cuda.cuGraphicsGLRegisterImage(&resource, c->gl_texture, GL_TEXTURE_2D,
-                                                CU_GRAPHICS_REGISTER_FLAGS_READ_ONLY);
-  if (r != CUDA_SUCCESS) {
-    put(c->gl_why, sizeof(c->gl_why), "CUDA wouldn't take GL's texture over the picture: %s",
-        cuda_name(c, r));
-    goto done;
+  c->gl_frames++;
+  struct gl_kept *found = NULL, *spare = NULL;
+  for (int i = 0; i < GL_KEPT; i++) {
+    struct gl_kept *kept = &c->kept[i];
+    if (kept->held && kept->device == buffer.st_dev && kept->inode == buffer.st_ino &&
+        kept->offset == offset && kept->stride == stride && kept->modifier == modifier &&
+        kept->width == width && kept->height == height) {
+      found = kept;
+      continue;
+    }
+    /* Buffers the capture no longer hands over are let go of here, with their
+     * imports and the memory those keep. */
+    if (kept->held && c->gl_frames - kept->seen > GL_KEPT_FRAMES) let_go_of_kept(c, kept);
+    if (!kept->held) {
+      if (spare == NULL) spare = kept;
+    } else if (spare == NULL || (spare->held && kept->seen < spare->seen)) {
+      spare = kept;
+    }
   }
-  registered = 1;
-  r = c->cuda.cuGraphicsMapResources(1, &resource, NULL);
-  mapped = r == CUDA_SUCCESS;
-  if (!mapped) {
-    put(c->gl_why, sizeof(c->gl_why), "CUDA wouldn't map GL's texture over the picture: %s",
-        cuda_name(c, r));
-    goto done;
+  int ok = 0;
+  if (found != NULL) {
+    found->seen = c->gl_frames;
+    ok = convert_kept(c, found);
+    /* A registration that stopped mapping is made again, once, from the
+     * picture as it is now. */
+    if (!ok) let_go_of_kept(c, found);
   }
-  void *array = NULL;
-  r = c->cuda.cuGraphicsSubResourceGetMappedArray(&array, resource, 0, 0);
-  if (r != CUDA_SUCCESS || array == NULL) {
-    put(c->gl_why, sizeof(c->gl_why), "CUDA wouldn't say where GL's picture lies: %s",
-        cuda_name(c, r));
-    goto done;
+  if (!ok) {
+    struct gl_kept *kept = found != NULL ? found : spare;
+    let_go_of_kept(c, kept);
+    if (keep_picture(c, kept, fd, offset, stride, modifier, width, height)) {
+      kept->device = buffer.st_dev;
+      kept->inode = buffer.st_ino;
+      kept->offset = offset;
+      kept->stride = stride;
+      kept->modifier = modifier;
+      kept->width = width;
+      kept->height = height;
+      kept->seen = c->gl_frames;
+      ok = convert_kept(c, kept);
+      if (!ok) let_go_of_kept(c, kept);
+    }
   }
-  /* The kernels run while the array is mapped: it is the picture only until
-   * the mapping is unmade. */
-  ok = convert_array(c, array, width, height);
   if (ok) {
     c->source_width = width;
     c->source_height = height;
-  } else {
-    put(c->gl_why, sizeof(c->gl_why), "%s", c->error);
   }
-done:
-  if (mapped) c->cuda.cuGraphicsUnmapResources(1, &resource, NULL);
-  if (registered) c->cuda.cuGraphicsUnregisterResource(resource);
-  c->egl.eglDestroyImage(c->gl_display, image);
   /* Back to the import's own display, which `leave` lets go of. */
   c->egl.eglMakeCurrent(c->gl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
   c->egl.eglMakeCurrent(c->display, EGL_NO_SURFACE, EGL_NO_SURFACE, c->context);
@@ -1185,7 +1330,7 @@ done:
     /* The import's own resource didn't give the picture, which is what NVIDIA's
      * driver does with a tiled one: it answers an error for the mapping and then
      * hands back an array nothing can read. GL's texture over the same picture is
-     * the door that maps, and the array behind it copies into rows. Whatever the
+     * the door that takes it: GL copies it into a texture CUDA maps. Whatever the
      * second door says is added to what the first said. */
     char first[sizeof(c->error)];
     put(first, sizeof(first), "%s", c->error);
@@ -1204,6 +1349,18 @@ done:
 
 void yapfast_cudaconvert_free(struct yapfast_cudaconvert *c) {
   if (c == NULL) return;
+  /* The kept pictures first, while both contexts they were made in still are:
+   * GL's textures and the imports that hold the capture's buffers, and the
+   * texture CUDA reads with its registration. */
+  if (c->gl_open > 0 && c->cuda_context != NULL &&
+      c->cuda.cuCtxPushCurrent(c->cuda_context) == CUDA_SUCCESS) {
+    if (c->egl.eglMakeCurrent(c->gl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, c->gl_context)) {
+      for (int i = 0; i < GL_KEPT; i++) let_go_of_kept(c, &c->kept[i]);
+      let_go_of_copy(c);
+      c->egl.eglMakeCurrent(c->gl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    }
+    c->cuda.cuCtxPopCurrent(NULL);
+  }
   if (c->cuda_context != NULL && c->cuda.cuCtxDestroy != NULL) {
     /* The block belongs to the context that made it, so it is let go of inside
      * that context whether or not this thread had it current. */
