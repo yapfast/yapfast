@@ -278,6 +278,17 @@ mod tests {
             &module,
         )
         .expect("a module");
+        // A plugin is its manifest: the module alone declares no command and
+        // nothing to reach.
+        std::fs::write(
+            source.path().join("yapfast-plugin.json"),
+            r#"{
+                "api": 1, "id": "local.echo", "name": "Echo", "version": "0.1.0",
+                "wasm": "echo.wasm", "limits": { "memory_pages": 64 },
+                "permissions": { "capabilities": [], "network": [] }
+            }"#,
+        )
+        .expect("its manifest");
 
         let mut app = Application::default();
         let (events, _received) = tokio::sync::mpsc::unbounded_channel();

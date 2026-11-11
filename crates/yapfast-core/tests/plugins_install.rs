@@ -131,21 +131,22 @@ fn a_plugin_is_fetched_reviewed_installed_rolled_back_and_removed() {
     );
 }
 
-/// What the Advanced dialog's file picker does: a `.wasm` on its own becomes an
+/// What the Advanced dialog's file picker does: a plugin's file becomes an
 /// installed plugin, off until the person turns it on, and the store is the one
 /// place that remembers they did.
 #[test]
 fn a_picked_wasm_file_installs_and_waits_to_be_enabled() {
     let data = tempfile::tempdir().expect("a data directory");
     let source = tempfile::tempdir().expect("a folder to pick from");
-    let module = source.path().join("word-filter.wasm");
+    let module = source.path().join("plugin.wasm");
     std::fs::copy(fixture("bad_answer.wasm"), &module).expect("the module");
+    std::fs::write(source.path().join("yapfast-plugin.json"), manifest()).expect("its manifest");
 
-    let fetched = installing::from_wasm(&module).expect("a module is enough");
+    let fetched = installing::from_wasm(&module).expect("the module and its manifest read");
     assert_eq!(
         fetched.id.to_string(),
-        "local.word-filter",
-        "named after the file"
+        "dev.local.echo",
+        "the manifest's id"
     );
     // The capability its made manifest declares is what the row shows, and
     // nothing has run.
@@ -168,6 +169,53 @@ fn a_picked_wasm_file_installs_and_waits_to_be_enabled() {
     );
 }
 
+/// The user's own path: a built module sits in `target/…/release`, two folders
+/// under the manifest that describes it, and the manifest is what gets installed.
+#[test]
+fn a_module_in_a_build_folder_finds_the_manifest_above_it() {
+    let plugin = tempfile::tempdir().expect("the plugin's folder");
+    std::fs::write(plugin.path().join("yapfast-plugin.json"), manifest()).expect("its manifest");
+    std::fs::copy(
+        fixture("bad_answer.wasm"),
+        plugin.path().join("plugin.wasm"),
+    )
+    .expect("its module");
+    let built = plugin.path().join("target/wasm32-unknown-unknown/release");
+    std::fs::create_dir_all(&built).expect("a build folder");
+    let picked = built.join("ping.wasm");
+    std::fs::copy(fixture("bad_answer.wasm"), &picked).expect("the built module");
+
+    let fetched = installing::from_wasm(&picked).expect("the manifest two folders up");
+    assert_eq!(
+        fetched.id.to_string(),
+        "dev.local.echo",
+        "not one made from the file"
+    );
+    // And it installs as the plugin its manifest describes, module and all.
+    let data = tempfile::tempdir().expect("a data directory");
+    let mut store = Store::open(data.path()).expect("a store");
+    store.install(&fetched.package()).expect("it installs");
+    assert!(
+        Registry::load(&store).entry(&fetched.id).is_some(),
+        "the store has it"
+    );
+}
+
+/// A module with no manifest anywhere is refused, with a sentence saying what
+/// the manifest is for — installed, it would be a plugin nothing could call.
+#[test]
+fn a_wasm_with_no_manifest_is_refused_with_a_sentence() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let module = folder.path().join("ping.wasm");
+    std::fs::copy(fixture("bad_answer.wasm"), &module).expect("a module");
+    let error = installing::from_wasm(&module).expect_err("there is no manifest");
+    assert!(error.contains("yapfast-plugin.json"), "{error}");
+    assert!(
+        error.contains("what a plugin is called"),
+        "it says what the manifest is for: {error}"
+    );
+}
+
 /// A manifest beside the file is what the plugin is, whatever the file is
 /// called.
 #[test]
@@ -187,7 +235,8 @@ fn a_manifest_beside_the_file_is_what_the_plugin_is() {
 #[test]
 fn a_file_that_is_not_a_module_is_refused_by_name() {
     let folder = tempfile::tempdir().expect("a folder");
-    let file = folder.path().join("notes.wasm");
+    std::fs::write(folder.path().join("yapfast-plugin.json"), manifest()).expect("its manifest");
+    let file = folder.path().join("plugin.wasm");
     std::fs::write(&file, b"#!/bin/sh\necho hi\n").expect("something else");
     let error = installing::from_wasm(&file).expect_err("that isn't a module");
     assert!(error.contains("isn't a WebAssembly module"), "{error}");

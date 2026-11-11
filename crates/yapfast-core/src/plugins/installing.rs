@@ -160,33 +160,30 @@ fn dependencies(manifest: Option<&PluginManifest>) -> Vec<Dependency> {
         .unwrap_or_default()
 }
 
-/// Reads a plugin from a `.wasm` file on this computer, for trying one without
-/// a repository.
+/// Reads a plugin from a file on this computer: a `.wasm`, or the
+/// `yapfast-plugin.json` beside it, for trying one without a repository.
 ///
-/// A manifest beside the file is what the plugin is: it names the module, the
-/// id, what the plugin may do, and when it runs. Without one, a manifest is made
-/// from the file's own name — id `local.<name>`, version `0.1.0`, a 64-page
-/// memory cap, and `message_create` as the one event it runs on, which needs
-/// `messages.read`. That is the least a bare module can be given that does
-/// something once the person enables it: the capability it declares is listed on
-/// its row, and installing never enables it.
+/// The manifest is what the plugin is — its id, its commands, its settings,
+/// what it may reach, and when it runs — so it is what decides what gets
+/// installed. It may be beside the file, which is how a plugin's folder is laid
+/// out, or in a folder above it: a built module usually sits in
+/// `target/wasm32-unknown-unknown/release`, two folders under its own. A module
+/// with no manifest anywhere is refused rather than installed as something
+/// nothing can call.
 pub fn from_wasm(path: &Path) -> Result<Fetched, String> {
-    let folder = path.parent().unwrap_or(Path::new("."));
-    let beside = folder.join(crate::plugins::MANIFEST);
-    let text = match beside.is_file() {
-        true => std::fs::read_to_string(&beside)
-            .map_err(|error| format!("could not read {}: {error}", beside.display()))?,
-        false => made_from(path)?,
-    };
+    let manifest_path = manifest_for(path).ok_or_else(|| missing_manifest(path))?;
+    let folder = manifest_path.parent().unwrap_or(Path::new("."));
+    let text = std::fs::read_to_string(&manifest_path)
+        .map_err(|error| format!("could not read {}: {error}", manifest_path.display()))?;
     let manifest = PluginManifest::parse(&text)
-        .map_err(|error| format!("{} can't be used: {error}", beside.display()))?;
-    // The manifest is what runs, so it decides which module to read: the file
-    // the person picked only stands in for a plugin that brought no manifest.
-    let module_path = manifest
-        .wasm
-        .as_ref()
-        .map(|wasm| folder.join(wasm))
-        .unwrap_or_else(|| path.to_path_buf());
+        .map_err(|error| format!("{} can't be used: {error}", manifest_path.display()))?;
+    // The manifest decides which module runs. A plugin that names none is one
+    // that only changes settings or the interface, and then the file the person
+    // picked is the module they meant.
+    let module_path = match &manifest.wasm {
+        Some(wasm) => folder.join(wasm),
+        None => path.to_path_buf(),
+    };
     let module = std::fs::read(&module_path)
         .map_err(|error| format!("could not read {}: {error}", module_path.display()))?;
     if !module.starts_with(b"\0asm") {
@@ -197,7 +194,8 @@ pub fn from_wasm(path: &Path) -> Result<Fetched, String> {
     }
     Ok(Fetched {
         id: manifest.id,
-        // The folder's own path, so a later read of the same file finds it.
+        // The folder the manifest is in, so reading the plugin again finds the
+        // same files.
         source: format!("file://{}", folder.display()),
         path: String::new(),
         reference: String::new(),
@@ -208,61 +206,38 @@ pub fn from_wasm(path: &Path) -> Result<Fetched, String> {
     })
 }
 
-/// A manifest for a module that brought none: its own name, and the least it
-/// can be given that runs once it is enabled.
-fn made_from(path: &Path) -> Result<String, String> {
-    let stem = path
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or("plugin");
-    let name: String = stem
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() {
-                character.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    let name = name.trim_matches('-');
-    let module = path
-        .file_name()
-        .and_then(|file| file.to_str())
-        .ok_or_else(|| format!("{} isn't a name this can read", path.display()))?;
-    let id = format!("local.{}", if name.is_empty() { "plugin" } else { name });
-    // The manifest is written by hand rather than through a struct so it reads
-    // as what a person would write, settings and all, in the store.
-    Ok(format!(
-        r#"{{
-  "api": {api},
-  "id": "{id}",
-  "name": "{title}",
-  "version": "0.1.0",
-  "description": "A plugin from this computer.",
-  "wasm": "{module}",
-  "limits": {{ "memory_pages": 64 }},
-  "activation": {{ "on": ["event:message_create"] }},
-  "permissions": {{ "capabilities": ["messages.read"], "network": [] }}
-}}
-"#,
-        api = crate::plugins::API,
-        title = title(stem),
-    ))
+/// How far above a picked module its manifest is looked for: a plugin's folder,
+/// then the build tree it was built in.
+const MANIFEST_SEARCH: usize = 6;
+
+/// The manifest that describes `picked`: itself when it is one, then the one in
+/// its folder, then the ones above.
+fn manifest_for(picked: &Path) -> Option<std::path::PathBuf> {
+    if picked
+        .extension()
+        .is_some_and(|extension| extension == "json")
+        && picked.is_file()
+    {
+        return Some(picked.to_path_buf());
+    }
+    picked
+        .parent()?
+        .ancestors()
+        .take(MANIFEST_SEARCH)
+        .map(|folder| folder.join(crate::plugins::MANIFEST))
+        .find(|candidate| candidate.is_file())
 }
 
-/// A file's stem as a name a person reads: `word-filter` is "Word Filter".
-fn title(stem: &str) -> String {
-    stem.split(['-', '_', ' '])
-        .filter(|word| !word.is_empty())
-        .map(|word| {
-            let mut letters = word.chars();
-            letters.next().map_or_else(String::new, |first| {
-                first.to_uppercase().chain(letters).collect()
-            })
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+/// Why a file on its own can't be installed, in the words of someone reading it
+/// for the first time.
+fn missing_manifest(picked: &Path) -> String {
+    format!(
+        "There's no yapfast-plugin.json for {} — not in its folder, and not in the folders above it. \
+         The manifest is what says what a plugin is called, which commands it answers and what it may \
+         reach, so a module on its own can't be one. Build the plugin the way its README says, or \
+         choose the plugin.wasm in the folder that holds its yapfast-plugin.json.",
+        picked.display()
+    )
 }
 
 /// Reads one plugin out of its repository with the helper.

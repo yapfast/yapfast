@@ -32,13 +32,21 @@ own, saying the plugin could send your messages there, and
 `messages.send.background` shows its warning in the danger tone.
 
 Advanced, at the page's foot, opens a dialog with **Install a .wasm file**, the
-memory budget and how long an idle plugin is kept. Installing one asks for the
-file in the system's dialog; a `yapfast-plugin.json` beside it is what the
-plugin is, and without one a manifest is made from the file's name — id
-`local.<name>`, a 64-page cap, and `message_create` as its one event, which
-needs `messages.read`, so that a bare module does something once it runs. What it
-becomes is installed and **off**: the row then offers the switch, and the store's
-`lock.json` is what remembers that the person turned it on.
+memory budget and how long an idle plugin is kept. It asks for the plugin's file
+in the system's dialog: its `.wasm`, or the `yapfast-plugin.json` itself.
+
+**The manifest is what a plugin is** — its name and id, the commands it answers,
+its settings, what it may reach and when it runs — so it is what an install
+reads, and it is looked for beside the picked file and then in the folders above
+it: a built module usually sits in `target/wasm32-unknown-unknown/release`, two
+folders under its own manifest. A module with no manifest anywhere is refused
+rather than installed, with a sentence saying what the manifest is for and to
+choose the `plugin.wasm` beside one — a module on its own would be a plugin
+nothing could call, which is exactly what a person installing one would then
+spend an hour puzzling over.
+
+What it becomes is installed and **off**: the row then offers the switch, and the
+store's `lock.json` is what remembers that the person turned it on.
 
 ## A plugin's own settings
 

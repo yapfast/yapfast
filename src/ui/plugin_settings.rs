@@ -161,8 +161,11 @@ pub(super) fn bind(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
         let weak = Rc::downgrade(&state);
         state.borrow_mut().dialog(async move {
             let picked = rfd::AsyncFileDialog::new()
-                .set_title("Install a plugin from a .wasm file")
-                .add_filter("WebAssembly", &["wasm"])
+                .set_title("Install a plugin")
+                .add_filter(
+                    "A plugin's module or its yapfast-plugin.json",
+                    &["wasm", "json"],
+                )
                 .pick_file()
                 .await;
             let (Some(picked), Some(adapter)) = (picked, weak.upgrade()) else {
