@@ -94,6 +94,7 @@ export component ThreadPanel inherits Rectangle {
     callback open-thread(string);
     callback retry(string);
     callback cancel-send(string);
+    callback dismiss-ephemeral(string);
     callback reveal-attachment(string, int);
     /// Long messages fold, and Show more or Show less was clicked on one:
     /// its item, and whether it shows whole now.
@@ -261,6 +262,7 @@ export component ThreadPanel inherits Rectangle {
                                 react(item, key) => { root.react(item, key); }
                                 retry(item) => { root.retry(item); }
                                 cancel-send(item) => { root.cancel-send(item); }
+                                dismiss-ephemeral(item) => { root.dismiss-ephemeral(item); }
                                 reveal-attachment(id, index) => { root.reveal-attachment(id, index); }
                                 view-image(id, index) => { root.view-image(id, index); }
                                 save-attachment(id, index) => { root.save-attachment(id, index); }

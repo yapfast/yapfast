@@ -1,7 +1,7 @@
 import { ClientStyle } from "yapfast/style.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, BadgeTip } from "theme.slint";
-import { ActionButton, IconButton, Avatar, Nameplate, StatusText, StyledName, NameStyleRow, EffectLayer, ProfileEffect, PictureStore, TextField, ServerTagChip, TipIcon } from "controls.slint";
+import { ActionButton, IconButton, Avatar, Nameplate, StatusText, StyledName, NameStyleRow, EffectLayer, ProfileEffect, PictureStore, TextField, ServerTagChip, TipIcon, ActivityClock } from "controls.slint";
 import { StatusDot } from "rail.slint";
 import { BotTag } from "messages.slint";
 
@@ -363,12 +363,6 @@ export struct ActivityRow {
     url: string, link: string,
 }
 
-/// Now, for activities' timers: seconds since 2020 began, kept current
-/// once a second while a profile with a timed activity shows.
-export global ActivityClock {
-    in property <int> now;
-}
-
 /// How a profile's theme colours what shows it, as Discord's client works it
 /// out. The theme is light when its first colour is: its brightness, with red,
 /// green and blue weighed 0.299, 0.587 and 0.114, at least half of full.
@@ -462,8 +456,7 @@ export struct ProfileData {
     note-editable: bool,
     /// Whether messaging them is offered.
     can-message: bool,
-    /// "5 mutual friends" and "2 mutual servers"; on this account's own
-    /// profile, which shares them with nobody, "5 friends" and "2 servers".
+    /// "5 mutual friends" and "2 mutual servers".
     mutual-friends-text: string, mutual-servers-text: string,
     /// Their Discord board and wishlist, each with a line about it: why it
     /// doesn't show, or that it's private.
@@ -474,7 +467,8 @@ export struct ProfileData {
     /// Whether the full profile has a Board and a Wishlist tab, as Discord's
     /// client decides.
     board-tab: bool, wishlist-tab: bool,
-    /// It's this account's own profile.
+    /// It's this account's own profile, which shows no mutual friends or
+    /// servers, as Discord's doesn't.
     own: bool,
 }
 
@@ -1196,10 +1190,11 @@ export component ProfileCard inherits Rectangle {
                         // The card names what is shared, with a few of the faces; the
                         // full profile lists it in its tabs. "5 mutual friends", a bullet,
                         // "2 mutual servers", in small grey text with no server icon.
-                        if !root.large && (root.data.friends.length > 0 || root.data.servers.length > 0): Rectangle {
+                        // One's own shows no mutuals here or below, as Discord's doesn't.
+                        if !root.large && !root.data.own && (root.data.friends.length > 0 || root.data.servers.length > 0): Rectangle {
                             height: 20px;
                             accessible-role: button;
-                            accessible-label: root.data.own ? "Show friends and servers in the full profile" : "Show mutual friends and servers in the full profile";
+                            accessible-label: "Show mutual friends and servers in the full profile";
                             accessible-action-default => { root.enlarge(); }
                             HorizontalLayout {
                                 spacing: 4px; alignment: start;
@@ -1336,7 +1331,7 @@ export component ProfileCard inherits Rectangle {
                                 }
                             }
                         }
-                        if root.large && !root.side && root.data.servers.length > 0: VerticalLayout {
+                        if root.large && !root.side && !root.data.own && root.data.servers.length > 0: VerticalLayout {
                             spacing: 6px;
                             ProfileHeading { text: "MUTUAL SERVERS — " + root.data.servers.length; color: root.ink3; }
                             VerticalLayout {
@@ -1350,7 +1345,7 @@ export component ProfileCard inherits Rectangle {
                                 }
                             }
                         }
-                        if root.large && !root.side && root.data.friends.length > 0: VerticalLayout {
+                        if root.large && !root.side && !root.data.own && root.data.friends.length > 0: VerticalLayout {
                             spacing: 6px;
                             ProfileHeading { text: "MUTUAL FRIENDS — " + root.data.friends.length; color: root.ink3; }
                             VerticalLayout {
@@ -1507,13 +1502,14 @@ export component ProfileModal inherits Rectangle {
             // The tabs, with the close button at the end.
             HorizontalLayout {
                 height: 40px; spacing: 20px;
-                // Discord's order: Board, Activity, Wishlist, then what's mutual.
+                // Discord's order: Board, Activity, Wishlist, then what's mutual,
+                // which one's own doesn't have.
                 for entry in [
                     { label: "Board", page: 3, shows: root.data.board-tab },
                     { label: "Activity", page: 0, shows: true },
                     { label: "Wishlist", page: 4, shows: root.data.wishlist-tab },
-                    { label: root.data.mutual-friends-text, page: 1, shows: true },
-                    { label: root.data.mutual-servers-text, page: 2, shows: true },
+                    { label: root.data.mutual-friends-text, page: 1, shows: !root.data.own },
+                    { label: root.data.mutual-servers-text, page: 2, shows: !root.data.own },
                 ]: Rectangle {
                     width: entry.shows ? tab-text.preferred-width : 0px; height: 40px; visible: entry.shows;
                     accessible-role: tab;
@@ -1613,7 +1609,7 @@ export component ProfileModal inherits Rectangle {
                             clicked => { root.open-friend(friend.id, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                         }
                         if root.data.friends.length == 0: Text {
-                            text: root.data.own ? "No friends." : "No friends in common."; color: root.ink3; font-size: 14px; wrap: word-wrap;
+                            text: "No friends in common."; color: root.ink3; font-size: 14px; wrap: word-wrap;
                         }
                     }
                     if root.page == 2: VerticalLayout {
@@ -1626,7 +1622,7 @@ export component ProfileModal inherits Rectangle {
                             clicked => { root.open-server(server, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                         }
                         if root.data.servers.length == 0: Text {
-                            text: root.data.own ? "No servers." : "No servers in common."; color: root.ink3; font-size: 14px; wrap: word-wrap;
+                            text: "No servers in common."; color: root.ink3; font-size: 14px; wrap: word-wrap;
                         }
                     }
                 }

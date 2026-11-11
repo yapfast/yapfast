@@ -236,6 +236,11 @@ async fn connected_session(
     }
     tracker.beside(shared.beside.as_ref().map(|(_, thread)| thread.as_str()));
     shared.snapshots.send_replace(Arc::new(tracker.snapshot()));
+    // Discord's client counts every command index out of date in a new
+    // session.
+    let _ = shared
+        .live
+        .send(Live::CommandIndexStale(crate::commands::Stale::All));
     let quiet = tracker.next_quiet(now_ms());
     let mut session = Session {
         gateway,
@@ -550,8 +555,31 @@ impl Session<'_> {
         }
     }
 
+    /// Gives an answer only this account sees the server of its channel,
+    /// which Discord may leave off it, so it isn't taken for a DM's.
+    fn place_ephemeral(&self, dispatch: &mut Dispatch) {
+        let data = &mut dispatch.data;
+        if !matches!(dispatch.event, Event::MessageCreate | Event::MessageUpdate)
+            || !data["guild_id"].is_null()
+            || data["flags"].as_u64().unwrap_or_default() & message::EPHEMERAL == 0
+        {
+            return;
+        }
+        let channel = data["channel_id"].as_str().unwrap_or_default();
+        let guild = self
+            .tracker
+            .servers
+            .iter()
+            .find(|server| server.channel(channel).is_some())
+            .map(|server| Value::from(server.id.as_str()));
+        if let (Some(guild), Some(data)) = (guild, data.as_object_mut()) {
+            data.insert("guild_id".into(), guild);
+        }
+    }
+
     /// Takes in a dispatched event; an error ends the session.
-    async fn event(&mut self, dispatch: Dispatch) -> Result<()> {
+    async fn event(&mut self, mut dispatch: Dispatch) -> Result<()> {
+        self.place_ephemeral(&mut dispatch);
         let (event, data) = (&dispatch.event, &dispatch.data);
         // A server update that no join or stream waits for moves one
         // under way.
@@ -628,6 +656,17 @@ impl Session<'_> {
         if applied.unwrap_or_else(|| self.tracker.apply(event, data)) {
             self.publisher.changed();
             self.ask_previews();
+        }
+        // A server on screen, back from an outage or joined again, says
+        // afresh when its busy voice channels' calls started.
+        if *event == Event::GuildCreate
+            && data["unavailable"].as_bool() != Some(true)
+            && let Some(guild) = data["id"].as_str()
+        {
+            self.shared
+                .lists
+                .server_back(&mut self.gateway, guild)
+                .await?;
         }
         // Names took the change in, so what shows the member follows; and
         // this account's messages its new display name and avatar.
