@@ -20,9 +20,9 @@
  *     next call `dup`s the fd itself and closes that copy when it's done with it.
  *     Exactly one buffer is held at a time, so a stopped stream stops pinning a
  *     compositor allocation.
- *   - only DMA-BUFs are asked for and only theirs are accepted: the format pod
- *     carries `SPA_DATA_DmaBuf` and a modifier, and a producer that hands back
- *     memory mapped through the processor instead is refused by name rather than
+ *   - only DMA-BUFs are accepted: the formats asked for first carry a mandatory
+ *     modifier, linear and then any, and a producer that hands back memory
+ *     mapped through the processor instead is refused by name rather than
  *     silently giving a caller pixels it will read wrongly.
  *   - the fd comes from the portal, not from the default PipeWire socket.
  *     `yapfast_pw_open` takes it already connected to the portal's session and
@@ -466,65 +466,85 @@ static const struct pw_core_events core_events = {
  * capture's drop needs. */
 void yapfast_pw_close(struct yapfast_pw *pw);
 
-/* Asks the connection for the one format this file can hand over: video, raw,
- * BGRA or RGBA as the producer likes, in a buffer with a modifier — which is
- * what says the frames are DMA-BUFs — and nothing else. The pod is the id
- * `pw_stream_connect` enumerates with, `SPA_PARAM_EnumFormat`, and not
- * `SPA_PARAM_Format`, which is the id a negotiated format comes back under in
- * `param_changed`: a pod built with the second is one the producer matches
- * against nothing and answers with silence.
- *
- * Two enumerations are offered, in this order. The first asks for a linear
- * modifier, the one an importer here maps most cheaply. The second names no
- * modifier at all, for a producer that can't make a linear buffer: a compositor
- * on a card with a tiling of its own answers "linear only" with nothing at all
- * — KWin on an NVIDIA screen hands over 0x0300000000e08014, block-linear — and a
- * share that negotiates nothing is a share that shows nothing, while a share on a
- * tiled picture is one the importer and the encoder are asked about with the
- * modifier in hand. Which of the two answered is in the Format the producer
- * sends, and the capture reports it.
- *
- * A producer that answers the second with memory rather than a DMA-BUF is
- * refused when its first frame arrives, by `describe_buffer`, with the type it
- * negotiated named. */
-static int build_params(struct spa_pod_builder *builder, struct spa_pod_frame *frames,
-                        const struct spa_pod **params) {
-  spa_pod_builder_push_object(builder, &frames[0], SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat);
+/* Starts one enumeration of the picture this file can hand over: video, raw,
+ * BGRA or RGBA as the producer likes. The pod is the id `pw_stream_connect`
+ * enumerates with, `SPA_PARAM_EnumFormat`, and not `SPA_PARAM_Format`, which is
+ * the id a negotiated format comes back under in `param_changed`: a pod built
+ * with the second is one the producer matches against nothing and answers with
+ * silence. The caller adds a modifier, or doesn't, and pops the frame. */
+static void push_picture(struct spa_pod_builder *builder, struct spa_pod_frame *frame) {
+  spa_pod_builder_push_object(builder, frame, SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat);
   spa_pod_builder_add(builder, SPA_FORMAT_mediaType, SPA_POD_Id(SPA_MEDIA_TYPE_video),
                       SPA_FORMAT_mediaSubtype, SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw),
+                      /* An enumeration's first value is its default and only the
+                       * ones after it are matched, so BGRA is named twice: once
+                       * as what to prefer and once as something on offer. */
                       SPA_FORMAT_VIDEO_format,
-                      SPA_POD_CHOICE_ENUM_Id(2, SPA_VIDEO_FORMAT_BGRA, SPA_VIDEO_FORMAT_RGBA),
+                      SPA_POD_CHOICE_ENUM_Id(3, SPA_VIDEO_FORMAT_BGRA, SPA_VIDEO_FORMAT_BGRA,
+                                             SPA_VIDEO_FORMAT_RGBA),
                       0 /* the end of spa_pod_builder_add's arguments */);
-  /* Linear, and only linear — the modifier a reader here can map — written as
-   * PipeWire's DMA-BUF negotiation asks a consumer to write its modifiers:
-   * mandatory, so a producer without DMA-BUFs doesn't match this pod, and not to
-   * be fixated, so the choice reaches the producer as a choice. An intersection
-   * keeps only the flags both sides set, and a modifier left without
-   * DONT_FIXATE is fixated by the link before the producer sees it: KWin then
-   * allocates with an implicit modifier, finds that it isn't the one in the
-   * Format, offers its own again, and never gets as far as naming buffers — the
-   * stream sits in paused, its Format set twice, with no process call. The same
-   * value is named twice because a choice wants an alternative beside its
-   * default. */
-  struct spa_pod_frame modifier;
+}
+
+/* Starts the modifier property as PipeWire's DMA-BUF negotiation asks a consumer
+ * to write one: mandatory, so a producer without DMA-BUFs doesn't match the pod,
+ * and not to be fixated, so the choice reaches the producer as a choice. An
+ * intersection keeps only the flags both sides set, and a modifier left without
+ * DONT_FIXATE is fixated by the link before the producer sees it: KWin then
+ * allocates with an implicit modifier, finds it isn't the one in the Format,
+ * offers its own again, and never gets as far as naming buffers — the stream
+ * sits in paused, its Format set twice, with no process call. */
+static void push_modifier(struct spa_pod_builder *builder, struct spa_pod_frame *frame,
+                          enum spa_choice_type choice) {
   spa_pod_builder_prop(builder, SPA_FORMAT_VIDEO_modifier,
                        SPA_POD_PROP_FLAG_MANDATORY | SPA_POD_PROP_FLAG_DONT_FIXATE);
-  spa_pod_builder_push_choice(builder, &modifier, SPA_CHOICE_Enum, 0);
+  spa_pod_builder_push_choice(builder, frame, choice, 0);
+}
+
+/* Three enumerations are offered, and PipeWire tries them in this order, each
+ * against every format the producer offers before the next:
+ *
+ *   1. a DMA-BUF with the linear modifier, the one an importer here maps most
+ *      cheaply;
+ *   2. a DMA-BUF in any modifier, for a producer that can't make a linear one:
+ *      a range from 0 to the largest modifier, which an intersection with the
+ *      producer's own list turns back into that list. A modifier's top byte is
+ *      its vendor, below 0x80 for every vendor there is, so every modifier —
+ *      DRM_FORMAT_MOD_INVALID too — falls inside it. The producer fixates one by
+ *      allocating: KWin on an NVIDIA screen hands over 0x0300000000e08014,
+ *      block-linear, which the CUDA path imports and a VA-API processor is
+ *      asked about with the modifier in hand. An enumeration that named no
+ *      modifier at all matched the producer's shared-memory format instead,
+ *      since its DMA-BUF one carries a mandatory modifier;
+ *   3. the picture with no modifier, which a producer answers with memory. It is
+ *      refused when its first frame arrives, by `describe_buffer`, with the type
+ *      it negotiated named, rather than leaving the share at "no format
+ *      negotiated yet" with nothing said.
+ *
+ * Which answered is in the Format the producer sends, and the capture reports
+ * it. */
+#define YAPFAST_PW_PARAMS 3
+static int build_params(struct spa_pod_builder *builder, struct spa_pod_frame *frames,
+                        const struct spa_pod **params) {
+  struct spa_pod_frame modifier;
+
+  push_picture(builder, &frames[0]);
+  push_modifier(builder, &modifier, SPA_CHOICE_Enum);
+  /* Named twice, as the format is: the default, and the value matched. */
   spa_pod_builder_long(builder, 0 /* DRM_FORMAT_MOD_LINEAR */);
   spa_pod_builder_long(builder, 0 /* the same, again */);
   spa_pod_builder_pop(builder, &modifier);
   params[0] = spa_pod_builder_pop(builder, &frames[0]);
 
-  /* The same picture again with no modifier named, for a producer that can't make
-   * a linear buffer: it hands over its own tiling, which the Format it answers
-   * with names, and the importer is asked about that. */
-  spa_pod_builder_push_object(builder, &frames[1], SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat);
-  spa_pod_builder_add(builder, SPA_FORMAT_mediaType, SPA_POD_Id(SPA_MEDIA_TYPE_video),
-                      SPA_FORMAT_mediaSubtype, SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw),
-                      SPA_FORMAT_VIDEO_format,
-                      SPA_POD_CHOICE_ENUM_Id(2, SPA_VIDEO_FORMAT_BGRA, SPA_VIDEO_FORMAT_RGBA),
-                      0 /* the end of spa_pod_builder_add's arguments */);
+  push_picture(builder, &frames[1]);
+  push_modifier(builder, &modifier, SPA_CHOICE_Range);
+  spa_pod_builder_long(builder, 0 /* the default, linear */);
+  spa_pod_builder_long(builder, 0 /* the smallest */);
+  spa_pod_builder_long(builder, INT64_MAX /* the largest */);
+  spa_pod_builder_pop(builder, &modifier);
   params[1] = spa_pod_builder_pop(builder, &frames[1]);
+
+  push_picture(builder, &frames[2]);
+  params[2] = spa_pod_builder_pop(builder, &frames[2]);
   return 0;
 }
 
@@ -579,12 +599,12 @@ void *yapfast_pw_open(uint32_t node_id, int fd, char *why, size_t why_size) {
 
   uint8_t pod_buffer[2048];
   struct spa_pod_builder builder = SPA_POD_BUILDER_INIT(pod_buffer, sizeof(pod_buffer));
-  struct spa_pod_frame frames[2];
-  const struct spa_pod *params[2];
+  struct spa_pod_frame frames[YAPFAST_PW_PARAMS];
+  const struct spa_pod *params[YAPFAST_PW_PARAMS];
   build_params(&builder, frames, params);
   int res = pw_stream_connect(pw->stream, PW_DIRECTION_INPUT, node_id,
                               PW_STREAM_FLAG_AUTOCONNECT | PW_STREAM_FLAG_DONT_RECONNECT, params,
-                              2);
+                              YAPFAST_PW_PARAMS);
   if (res < 0) {
     pw_thread_loop_unlock(pw->loop);
     snprintf(why, why_size, "the screen's stream couldn't be connected: %s", strerror(-res));
