@@ -313,9 +313,19 @@ impl Store {
         fs::create_dir_all(&store)
             .with_context(|| format!("could not create {}", store.display()))?;
         let directory = store.join(address);
-        if directory.join("manifest.json").is_file() {
-            // Content-addressed: this address is these bytes, so the version is
-            // already here. Keep it, and leave whichever entry names it alone.
+        // At the names its manifest gives them, not names of this side's
+        // choosing: `module` reads `manifest.wasm` beside `manifest.json`, so a
+        // plugin whose module is `ping.wasm` has to find a `ping.wasm` there.
+        let (module_name, icon_name) = names(package);
+        if directory.join("manifest.json").is_file()
+            && directory.join(&module_name).is_file()
+            && (package.icon.is_none() || directory.join(&icon_name).is_file())
+        {
+            // Content-addressed: this address is these bytes and every file they
+            // name is here, so the version is complete. Keep it, and leave
+            // whichever entry names it alone. One missing a file was written by
+            // a build that named them differently, and is rewritten rather than
+            // left to fail the way it did.
             return Ok(());
         }
         // Named after what is being written, so an install that failed partway
@@ -328,13 +338,6 @@ impl Store {
             &temporary.join("manifest.json"),
             package.manifest.as_bytes(),
         )?;
-        // At the names its manifest gives them, not names of this side's
-        // choosing: `module` reads `manifest.wasm` beside `manifest.json`, so a
-        // plugin whose module is `ping.wasm` has to find a `ping.wasm` there.
-        // Writing `plugin.wasm` regardless left every such plugin installed and
-        // unable to run — "kept crashing", with the log saying the module wasn't
-        // there.
-        let (module_name, icon_name) = names(package);
         if let Some(parent) = temporary.join(&module_name).parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("could not create {}", parent.display()))?;
@@ -973,6 +976,31 @@ mod tests {
         // And what the registry reads is there, which is what enabling needs.
         let module = store.module(&entry, &store.manifest(&entry).expect("its manifest"));
         assert!(module.is_ok(), "{module:?}");
+    }
+
+    /// A version a build wrote with the wrong file names is rewritten rather
+    /// than kept: installing the same `.wasm` again is how a person fixes the
+    /// plugin that kept crashing, and the bytes are the same either way.
+    #[test]
+    fn installing_again_repairs_a_version_missing_its_named_module() {
+        let (_directory, mut store) = store();
+        let mut package = package("local.ping", "0.1.0", b"module one");
+        package.manifest = package.manifest.replace("\"plugin.wasm\"", "\"ping.wasm\"");
+        store.install(&package).expect("it installs");
+        let entry = entry(&store, &package.id);
+        let directory = store.root().join(STORE).join(&entry.store);
+        // What the build that named every module `plugin.wasm` left behind.
+        fs::remove_file(directory.join("ping.wasm")).expect("its module");
+        fs::write(directory.join("plugin.wasm"), b"module one").expect("the old name");
+
+        store.install(&package).expect("it installs again");
+        assert!(directory.join("ping.wasm").is_file(), "named again");
+        assert!(
+            store
+                .module(&entry, &store.manifest(&entry).expect("its manifest"))
+                .is_ok(),
+            "and the registry can read it"
+        );
     }
 
     #[test]
