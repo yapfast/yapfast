@@ -39,6 +39,11 @@ use serde::{Deserialize, Serialize};
 #[cfg(target_os = "linux")]
 pub mod x11;
 
+/// A camera on Linux as a DMA-BUF, for a device that films NV12 and exports what
+/// it captures: the picture reaches the encoder where the driver left it.
+#[cfg(target_os = "linux")]
+pub mod v4l2;
+
 /// The desktop's screen sharing portal, as far as a capture asks it for a screen:
 /// a session, what to share, and the PipeWire node the desktop exported.
 #[cfg(screencast)]

@@ -171,4 +171,21 @@ void yapfast_camera_close(struct yapfast_camera *camera) {
   delete camera;
 }
 
+/* The NV12 picture a device filmed into its own buffer, as the I420 planes the
+ * rest of Yapfast reads a camera's pictures as: `data` holds `length` bytes of
+ * the picture, `stride` bytes to a row, with the chroma plane after `height`
+ * rows of luma. The planes are written at `width` bytes a row for luma and half
+ * that for each chroma plane. Answers 0 when `data` held the whole picture, and
+ * -1 when it does not. */
+int yapfast_camera_nv12_to_i420(const unsigned char *data, size_t length, int width, int height,
+                                int stride, unsigned char *y, unsigned char *u,
+                                unsigned char *v) {
+  if (!data || !y || !u || !v) return -1;
+  if (width <= 0 || height <= 0 || stride < width) return -1;
+  if (length < (size_t)stride * ((size_t)height + (size_t)((height + 1) / 2))) return -1;
+  const uint8_t *chroma = data + (size_t)stride * height;
+  return libyuv::NV12ToI420(data, stride, chroma, stride, y, width, u, (width + 1) / 2, v,
+                            (width + 1) / 2, width, height);
+}
+
 }  // extern "C"
