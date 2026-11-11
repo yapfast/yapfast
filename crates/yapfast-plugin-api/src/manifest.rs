@@ -385,6 +385,36 @@ pub struct SettingDecl {
     pub when: Option<WhenClause>,
 }
 
+/// What a plugin's hook does when the plugin fails or runs late.
+///
+/// The default is fail open: the message goes as the person wrote it. A plugin
+/// that must stop the send instead — one that encrypts what leaves — says
+/// `"on_failure": "block"`, which needs `messages.intercept`, the capability
+/// the review dialog already shows in its danger tone. Anything else is refused
+/// with the manifest, so a plugin can't become one that stops messages by
+/// accident or by an update nobody looked at.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OnFailure {
+    /// The message goes unchanged, which is what a hook does by default.
+    #[default]
+    FailOpen,
+    /// The chain may stop the send, with a reason the person is shown.
+    Block,
+}
+
+impl OnFailure {
+    /// Whether this is the default, which a manifest may leave out.
+    pub fn is_fail_open(&self) -> bool {
+        matches!(self, OnFailure::FailOpen)
+    }
+
+    /// Whether a hook's `block` outcome is honoured from this plugin.
+    pub fn blocks(&self) -> bool {
+        matches!(self, OnFailure::Block)
+    }
+}
+
 /// A plugin, as its `yapfast-plugin.json` declares it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -430,6 +460,10 @@ pub struct PluginManifest {
     pub menus: Vec<MenuDecl>,
     #[serde(default)]
     pub settings: Vec<SettingDecl>,
+
+    /// What happens when this plugin fails or runs late in a hook.
+    #[serde(default, skip_serializing_if = "OnFailure::is_fail_open")]
+    pub on_failure: OnFailure,
 
     /// Plugins this one needs; it activates after them.
     #[serde(default)]
@@ -499,6 +533,13 @@ impl PluginManifest {
             && !self.permissions.allows(Capability::NetworkLocal)
         {
             return Err(ManifestError::PortWithoutCapability);
+        }
+        // Stopping a send by failing is a use of the capability that stops one
+        // on purpose: a manifest may not claim it with nothing to ask the
+        // person for.
+        if self.on_failure.blocks() && !self.permissions.allows(Capability::MessagesIntercept)
+        {
+            return Err(ManifestError::BlockWithoutCapability);
         }
         if self
             .commands
@@ -584,6 +625,8 @@ pub enum ManifestError {
     /// An HTTP or storage request above what consent may raise the cap to.
     Quota,
     PortWithoutCapability,
+    /// `on_failure: "block"` without the capability that may stop a message.
+    BlockWithoutCapability,
     /// A command with no name or an empty description.
     Command,
     /// Two settings with one key.
@@ -614,6 +657,9 @@ impl fmt::Display for ManifestError {
             ManifestError::Quota => f.write_str("a limit asks for more than consent may allow"),
             ManifestError::PortWithoutCapability => {
                 f.write_str("`local-port` needs the `network.local` capability")
+            }
+            ManifestError::BlockWithoutCapability => {
+                f.write_str("`on_failure: \"block\"` needs the `messages.intercept` capability")
             }
             ManifestError::Command => f.write_str("a command needs a name and a description"),
             ManifestError::DuplicateSetting => f.write_str("two settings share a key"),
@@ -726,6 +772,36 @@ mod tests {
         let manifest = PluginManifest::parse(WORD_FILTER).unwrap();
         assert!(manifest.permissions.reaches_network());
         assert!(!manifest.permissions.allows(Capability::Network));
+    }
+
+    /// A hook fails open unless the manifest says otherwise, and saying it needs
+    /// the capability that may stop a message: a plugin can't start stopping
+    /// sends through an update nobody would look twice at.
+    #[test]
+    fn blocking_on_failure_needs_the_intercept_capability() {
+        let refusing = WORD_FILTER.replace(
+            "\"permissions\": {",
+            "\"on_failure\": \"block\",\n        \"permissions\": {",
+        );
+        assert!(matches!(
+            PluginManifest::parse(&refusing),
+            Err(ManifestError::BlockWithoutCapability)
+        ));
+
+        // The same manifest with the capability reads, and starts with the app
+        // because intercepting is what it asked for.
+        let allowed = refusing.replace("\"storage\"", "\"storage\", \"messages.intercept\"");
+        let manifest = PluginManifest::parse(&allowed).unwrap();
+        assert!(manifest.on_failure.blocks());
+        assert!(manifest.activates_at_startup(), "a hook is ready before the first send");
+
+        // Left out, it is fail open: the message goes as the person wrote it.
+        let manifest = PluginManifest::parse(WORD_FILTER).unwrap();
+        assert!(manifest.on_failure.is_fail_open());
+        assert_eq!(manifest.on_failure, OnFailure::FailOpen);
+        // …and a fail-open manifest writes no field at all.
+        let text = serde_json::to_string(&manifest).unwrap();
+        assert!(!text.contains("on_failure"), "{text}");
     }
 
     #[test]

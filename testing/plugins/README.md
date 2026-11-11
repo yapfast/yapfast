@@ -1,6 +1,6 @@
 # Plugin fixtures
 
-Seven behaviours the plugin system has to get right, each a WebAssembly module
+Nine behaviours the plugin system has to get right, each a WebAssembly module
 written as text (`.wat`), with the compiled module beside it. The helper loads
 the `.wasm`, not the text: a loader that accepted `(module …)` would also accept
 anything else wasmtime can parse, and the magic check that refuses a text module
@@ -22,6 +22,8 @@ measure what the memory budgets buy.
 | `bad_activate.wat` | Returns status 1 from `yf_activate` | `Fault` of kind `ActivateFailed` |
 | `bad_answer.wat` | Answers a hook with its own question, which is not a `HookOutcome` | `Fault` of kind `BadAnswer`, and the hook fails open |
 | `slow_host.wat` | Calls `yf_call` with an `http.fetch` the parent answers later | a `Call` frame to the parent, then a `Return` that leaves the worker free |
+| `filter.wat` | Answers `yf_hook` with a draft of its own | `HookDone` carrying that draft, which the send then goes out with |
+| `spin_hook.wat` | Never leaves `yf_hook` | `Fault` of kind `Deadline`, the chain answering without it |
 
 Every fixture exports all six of the ABI's functions (`yf_activate`,
 `yf_deactivate`, `yf_event`, `yf_hook`, `yf_command`, `yf_decorate`), so one can
@@ -48,6 +50,9 @@ The block an `alloc` returns is the only kind the host can read, so a fixture
 that answers with a literal writes it into an allocation. A module may keep
 literal bytes in its own memory, as `slow_host.wat` does, and copy them across;
 the kernel's memory, where `alloc` lives, is not a place to put a data segment.
+`filter.wat` writes its answer one byte at a time with `store_u8`: the same 81
+bytes built from `store_u64` chunks came back through `output_set` as something
+the parent couldn't parse, and one byte at a time is what works.
 
 ## Checking one without the helper
 

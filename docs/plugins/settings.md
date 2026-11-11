@@ -141,6 +141,19 @@ plugin's `pattern_message`, with what was typed, until that field changes.
 A hidden or disabled setting takes no edit. Using a widget a widget
 setting draws sends `Request::SettingWidget`.
 
+What the form refused is kept by the runtime, not by the page: a refused value
+is never stored, so a page that read its form back from the store would forget
+why it refused. `PluginState::page` hands each plugin's refusals to the form it
+builds, and a valid value for that field takes them away.
+
+`settings.on_change` is how a running plugin hears of a change. It asks with
+that call, is answered `pending`, and gets the keys and their new values as the
+answer to that call in its next event batch — the same way a pending
+`http.fetch` finishes ([the ABI](abi.md#how-a-pending-call-finishes)). Nothing
+restarts, and nothing is kept for an instance that isn't running: the next one
+reads the values with `settings.get`, which answers what the person set.
+Uninstalling with *delete its data* removes the file with the plugin's storage.
+
 On the page, the form is the `PluginPage.form` model: one row per setting
 that shows, and for a list its heading, a row per record and a foot with
 Add. `src/ui/plugin_settings.rs` keeps that model, and each list row's
@@ -151,6 +164,13 @@ that was refused. Each control has its label as its accessible name, a list
 row's fields name their row (*Word, row 2*), and its buttons say what they
 do (*Move row 2 up*). Reset to defaults asks first, as a list's rows go with
 it. The form's rows exist only while the plugin's page is open.
+
+A `bool`, `string`, `select`, `slider`, `number`, `integer` and `list` setting is
+drawn, and its change takes effect at once. A `widget` setting is not drawn yet:
+the form says *The plugin draws this while it runs.* until the UI half of the
+API lands, which is the milestone that gives a plugin a widget tree to draw and
+changes to answer, so `Request::SettingWidget` has an input to carry. Nothing
+else the plan lists as a settings type is missing from `settings.rs`.
 
 `--preview`'s Word Filter has a setting of every type, from
 [`testing/plugins/word-filter`](../../testing/plugins/word-filter), and starts
@@ -163,7 +183,6 @@ what it asks for, `Request`, and the plain words for capabilities, statuses
 and fetch errors. `ui/plugin_settings.slint` draws the page from the
 `PluginPage` global, and `src/ui/plugin_settings.rs` fills that global from a
 `View` and turns the page's callbacks into requests.
-
 The plugin runtime is the page's `Source`, and `src/ui/plugin_settings.rs`
 implements it over the application: `plugin_settings::attach` gives it to the
 page while the window is built, and `plugin_settings::set_view` hands it a fresh
@@ -172,10 +191,11 @@ page while the window is built, and `plugin_settings::set_view` hands it a fresh
 The `View` itself is built in `crates/yapfast-core/src/plugins/view.rs` from the
 registry, the store's lock file and the grant file: a copy, taken when the page
 draws, so a page that is closed holds nothing and holds no lock while it is
-open. `src/application/plugin_page.rs` answers the page's requests, one
-`application::Action` each, and `Effect::Plugin` carries a status back to it. A
-request for something no milestone has built yet — the marketplace, the install
-review, rollback, a plugin's own form — is logged and does nothing.
+open. `src/application/plugin_page.rs` answers the page's requests: each request
+is an `application::Action`, `Effect::Plugin` carries a status back to it, and
+`Effect::Plugin(Effect::Page)` redraws it once the runtime has applied a change.
+A request for something no milestone has built yet — the marketplace, the
+memory budgets — is logged and does nothing.
 
 `--preview` keeps the sample plugins instead: the page shows `page::Fixture`,
 which answers at once, and `page::Unavailable` says plugins can't run only in a

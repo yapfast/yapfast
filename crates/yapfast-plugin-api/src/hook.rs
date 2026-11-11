@@ -3,7 +3,7 @@
 //! A hook is on the path the person is waiting on, so it has a deadline, and it
 //! fails open: a plugin that traps, runs late or answers nonsense leaves the
 //! message as it was. Only a plugin that says
-//! `on_failure = "block"` may stop one, which needs `messages.intercept` and
+//! `"on_failure": "block"` may stop one, which needs `messages.intercept` and
 //! shows in the consent dialog.
 
 use serde::{Deserialize, Serialize};
@@ -154,8 +154,9 @@ pub enum HookOutcome {
     Unchanged,
     /// The new subject; the next plugin in the chain sees this one.
     Changed(HookSubject),
-    /// Stop the send. Only respected for a plugin whose manifest sets
-    /// `on_failure` or which holds `messages.intercept`.
+    /// Stop the send. Honoured only from a plugin whose manifest says
+    /// `"on_failure": "block"`, which needs `messages.intercept`; from any
+    /// other it is the fail-open answer and the message goes as it was.
     Block { reason: String },
 }
 

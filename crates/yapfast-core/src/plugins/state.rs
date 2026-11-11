@@ -10,17 +10,20 @@
 //! answering a guest's host call, evicting an idle instance — happens behind
 //! them, in `bridge`, `spawn`, `registry` and `store`.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
+use serde_json::Value;
 use yapfast_plugin_api::PluginId;
-use yapfast_plugin_api::call::CommandInvocation;
+use yapfast_plugin_api::call::{CommandInvocation, SettingsNews, WidgetInput};
 use yapfast_plugin_api::event::{EventEnvelope, EventKind};
 use yapfast_plugin_api::hook::Draft;
 use yapfast_plugin_api::manifest::CommandDecl;
 use yapfast_plugin_api::message::PluginStatus;
 
 use crate::plugins::bridge;
+use crate::plugins::settings;
 
 /// Everything the application knows about plugins.
 pub struct PluginState {
@@ -28,6 +31,15 @@ pub struct PluginState {
     bridge: bridge::Bridge,
     /// What the person has allowed, which the gate asks and a page answers.
     grants: Arc<crate::plugins::grants::Grants>,
+    /// The plugins' settings, written on a thread of its own so the interface
+    /// never waits on the disk. A change is also handed to the instance that
+    /// asked to hear of one, which is how a setting takes effect with no
+    /// restart.
+    settings: settings::Store,
+    /// What a plugin's form refused, by plugin and by field, until that field
+    /// changes. A refused value is never stored, so the page's own copy of the
+    /// form — read back from the store — would otherwise forget why it refused.
+    refused: BTreeMap<PluginId, BTreeMap<String, settings::Refused>>,
 }
 
 /// Something the plugin system did, for the application to act on.
@@ -103,7 +115,12 @@ impl PluginState {
             .with_resolver(Arc::new(crate::plugins::network::SystemResolver)),
         );
         bridge.install_network(gate);
-        Ok(PluginState { bridge, grants })
+        Ok(PluginState {
+            bridge,
+            grants,
+            settings: settings::Store::new(data_dir.join("plugins")),
+            refused: BTreeMap::new(),
+        })
     }
 
     /// What the person has allowed, for the page that asks and revokes.
@@ -180,6 +197,65 @@ impl PluginState {
     /// back as [`Notice::Command`].
     pub fn run_command(&mut self, plugin: &PluginId, invocation: CommandInvocation) {
         self.bridge.run_command(plugin, invocation);
+    }
+
+    /// Applies one change to a plugin's settings, stores what changed, and
+    /// tells a running instance through `settings.on_change`.
+    ///
+    /// Answers the keys whose values changed: none for an edit the form refused,
+    /// or one that changed nothing, which is what a hidden or disabled setting
+    /// gets. Nothing restarts.
+    pub fn set_setting(&mut self, plugin: &PluginId, edit: settings::Edit) -> Vec<String> {
+        let Some(mut form) = self.bridge.form(plugin) else {
+            return Vec::new();
+        };
+        // A refusal from the last edit of this plugin's form comes with it, so
+        // the page keeps saying why until that field changes.
+        form.refused = self.refused.get(plugin).cloned().unwrap_or_default();
+        let changed = form.edit(edit);
+        if form.refused.is_empty() {
+            self.refused.remove(plugin);
+        } else {
+            self.refused.insert(plugin.clone(), form.refused.clone());
+        }
+        if changed.is_empty() {
+            return changed;
+        }
+        // The disk is the store's thread's business; the running instance hears
+        // now, so a setting takes effect at once rather than at the next start.
+        self.settings.save(plugin.as_str(), &form.values);
+        let held = form.values.to_json();
+        let values: BTreeMap<String, Value> = changed
+            .iter()
+            .filter_map(|key| Some((key.clone(), held.get(key)?.clone())))
+            .collect();
+        self.bridge.settings_news(
+            plugin,
+            SettingsNews {
+                changed: values,
+                widget: None,
+            },
+        );
+        changed
+    }
+
+    /// Hands the input of a widget one of its settings draws to a running
+    /// instance, the way a changed value is handed to it.
+    ///
+    /// A widget setting holds no value of its own, so nothing is stored: what
+    /// the plugin does with the input is its own business.
+    pub fn setting_widget(&mut self, plugin: &PluginId, key: &str, id: &str, value: &str) {
+        self.bridge.settings_news(
+            plugin,
+            SettingsNews {
+                changed: BTreeMap::new(),
+                widget: Some(WidgetInput {
+                    setting: key.to_owned(),
+                    id: id.to_owned(),
+                    value: value.to_owned(),
+                }),
+            },
+        );
     }
 
     /// Drops every instance now, keeping the helper: for a moment the parent
@@ -276,9 +352,20 @@ impl PluginState {
     }
 
     /// What Settings → Plugins shows: a copy of what the runtime knows, so
-    /// the page reads it without touching a lock.
+    /// the page reads it without touching a lock. What a form refused comes
+    /// with it, because a refused value is never stored and the page's copy of
+    /// the form is read back from the store.
     pub fn page(&self) -> crate::plugins::page::View {
-        self.bridge.page(&self.grants)
+        let mut view = self.bridge.page(&self.grants);
+        for installed in &mut view.installed {
+            let Ok(id) = PluginId::parse(&installed.id) else {
+                continue;
+            };
+            if let Some(refused) = self.refused.get(&id) {
+                installed.settings.refused = refused.clone();
+            }
+        }
+        view
     }
 
     /// What the helper process is doing, for the page that says so.

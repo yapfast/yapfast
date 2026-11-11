@@ -148,9 +148,28 @@ impl Application {
             Request::Revoke { plugin, permission } => self.plugins_revoke(&plugin, &permission),
             // The development loop: a folder that reloads as its files change.
             Request::LoadFolder(path) => self.plugins_load_folder(&path),
-            // The marketplace, a plugin's own settings form and the memory
-            // budgets are the milestones after this one: the page asks, and
-            // nothing answers yet.
+            // A setting changed: the runtime applies it, writes it down and tells
+            // a running instance, so it takes effect with no restart. The page
+            // draws itself again either way, because a value the form refused
+            // says why under its field.
+            Request::Setting { plugin, edit } => {
+                self.plugins_set_setting(&plugin, edit);
+                vec![AppEffect::Plugin(crate::application::plugins::Effect::Page)]
+            }
+            // The person used a widget a widget setting draws. It holds no value
+            // to store; the plugin hears about it the way it hears about a
+            // change, and draws its answer itself.
+            Request::SettingWidget {
+                plugin,
+                key,
+                id,
+                value,
+            } => {
+                self.plugins_setting_widget(&plugin, &key, &id, &value);
+                Vec::new()
+            }
+            // The memory budgets are the milestone after this one: the page
+            // asks, and nothing answers yet.
             other => {
                 tracing::info!(
                     ?other,
@@ -160,7 +179,6 @@ impl Application {
             }
         }
     }
-
     /// Takes back one of a plugin's permissions, from its page.
     ///
     /// A host is the one the gate holds: taking it back refuses the plugin's
@@ -198,6 +216,30 @@ impl Application {
         };
         effects.push(AppEffect::Plugin(crate::application::plugins::Effect::Page));
         effects
+    }
+
+    /// Applies one setting's change, which the runtime makes true at once: the
+    /// value is checked as the form declares it, stored, and handed to the
+    /// running instance.
+    fn plugins_set_setting(&mut self, plugin: &str, edit: crate::plugins::settings::Edit) {
+        let Ok(plugin) = PluginId::parse(plugin) else {
+            tracing::warn!(%plugin, "a setting changed for a name that isn't a plugin id");
+            return;
+        };
+        if let Some(plugins) = self.state.plugins.as_mut() {
+            plugins.set_setting(&plugin, edit);
+        }
+    }
+
+    /// Hands a widget's input to the plugin that drew it.
+    fn plugins_setting_widget(&mut self, plugin: &str, key: &str, id: &str, value: &str) {
+        let Ok(plugin) = PluginId::parse(plugin) else {
+            tracing::warn!(%plugin, "a widget answered for a name that isn't a plugin id");
+            return;
+        };
+        if let Some(plugins) = self.state.plugins.as_mut() {
+            plugins.setting_widget(&plugin, key, id, value);
+        }
     }
 
     /// Asks the runtime to read a plugin out of its repository. The answer
@@ -693,6 +735,128 @@ mod tests {
         });
         assert_eq!(effects.len(), 1, "one redraw");
         assert!(matches!(app.plugin_page.find, Find::Failed { .. }));
+    }
+
+    /// A setting changed on the page is checked, kept and shown: the runtime
+    /// reads the schema its manifest declares, refuses what it can't take in
+    /// plain words, and writes down what it can, with nothing running and no
+    /// restart.
+    #[test]
+    fn a_setting_changed_on_the_page_is_checked_and_stored() {
+        use crate::plugins::settings::{Edit, Input, Value as SettingValue};
+
+        let directory = tempfile::tempdir().expect("a data directory");
+        install_with_settings(directory.path());
+        let mut app = Application::default();
+        let (events, _received) = tokio::sync::mpsc::unbounded_channel();
+        app.open_plugins(directory.path(), events);
+
+        let effects = app.plugins_page_request(Request::Setting {
+            plugin: "local.settings".into(),
+            edit: Edit::Set {
+                key: "mode".into(),
+                value: Input::Text("hide".into()),
+            },
+        });
+        assert_eq!(effects.len(), 1, "the page draws itself again");
+
+        // A value the form can't take changes nothing, and says why under its
+        // field: the refusal is the runtime's, because the page's own copy of
+        // the form is read back from the store.
+        app.plugins_page_request(Request::Setting {
+            plugin: "local.settings".into(),
+            edit: Edit::Set {
+                key: "shortest".into(),
+                value: Input::Text("banana".into()),
+            },
+        });
+        let view = app.plugins_page();
+        let form = &view.installed[0].settings;
+        assert!(
+            form.refused.contains_key("shortest"),
+            "a refused value keeps its reason: {:?}",
+            form.refused
+        );
+        assert_eq!(
+            form.values.get("shortest"),
+            Some(&SettingValue::Integer(3)),
+            "and the value it had"
+        );
+
+        // What was taken is written down. The store writes on a thread of its
+        // own, once 500 ms pass without another change.
+        std::thread::sleep(std::time::Duration::from_millis(700));
+        let view = app.plugins_page();
+        assert_eq!(
+            view.installed[0].settings.values.get("mode"),
+            Some(&SettingValue::Text("hide".into())),
+            "the page reads back what it stored"
+        );
+        assert!(
+            view.installed[0].settings.refused.contains_key("shortest"),
+            "a refusal stays until that field changes, not until any does"
+        );
+
+        // A value the field does take clears it.
+        app.plugins_page_request(Request::Setting {
+            plugin: "local.settings".into(),
+            edit: Edit::Set {
+                key: "shortest".into(),
+                value: Input::Text("5".into()),
+            },
+        });
+        let view = app.plugins_page();
+        assert!(
+            view.installed[0].settings.refused.is_empty(),
+            "a field that changed forgets its refusal: {:?}",
+            view.installed[0].settings.refused
+        );
+        std::thread::sleep(std::time::Duration::from_millis(700));
+        assert_eq!(
+            app.plugins_page().installed[0]
+                .settings
+                .values
+                .get("shortest"),
+            Some(&SettingValue::Integer(5)),
+            "and the value it took is written down"
+        );
+    }
+
+    /// A plugin whose manifest declares two settings, installed but off: the
+    /// form is the manifest's, so it exists without anything running.
+    fn install_with_settings(directory: &std::path::Path) {
+        use crate::plugins::store::{Package, Store};
+        use yapfast_plugin_api::PluginId;
+
+        let manifest = r#"{
+            "api": 1, "id": "local.settings", "name": "Settings", "version": "0.1.0",
+            "wasm": "plugin.wasm", "limits": { "memory_pages": 64 },
+            "permissions": { "capabilities": [], "network": [] },
+            "settings": [
+                { "key": "mode", "type": "select", "label": "When a word matches",
+                  "default": "replace", "options": ["hide", "replace"] },
+                { "key": "shortest", "type": "integer", "label": "Shortest word",
+                  "min": 1, "max": 20, "default": 3 }
+            ]
+        }"#;
+        let module = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../testing/plugins/bad_answer.wasm"),
+        )
+        .expect("a module");
+        let mut store = Store::open(directory).expect("a store");
+        store
+            .install(&Package {
+                id: PluginId::parse("local.settings").expect("a plugin id"),
+                source: String::new(),
+                path: String::new(),
+                reference: String::new(),
+                rev: "0".repeat(40),
+                manifest: manifest.to_owned(),
+                module,
+                icon: None,
+            })
+            .expect("it installs");
     }
 
     #[test]

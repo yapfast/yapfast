@@ -664,7 +664,7 @@ mod tests {
 
     #[test]
     fn a_chain_runs_dependencies_first_and_only_interceptors() {
-        let registry = registry(&[
+        let plugged = registry(&[
             r#"{"api":1,"id":"com.example.top","name":"T","version":"1.0.0","wasm":"plugin.wasm",
                 "permissions":{"capabilities":["messages.intercept"]},
                 "dependencies":{"com.example.base":"^1"}}"#,
@@ -674,10 +674,32 @@ mod tests {
                 "activation":{"on":["event:message_create"]}}"#,
         ]);
         assert_eq!(
-            registry.chain(HookKind::MessagePreSend),
+            plugged.chain(HookKind::MessagePreSend),
             vec![id("com.example.base"), id("com.example.top")]
         );
-        assert!(registry.summary().intercepts);
+        assert!(plugged.summary().intercepts);
+
+        // Dependency order comes before id order: `aardvark` sorts first and
+        // still runs after `zed`, which it depends on. Within a layer the chain
+        // is by id, so `mid` sits between them.
+        let ordered = registry(&[
+            r#"{"api":1,"id":"com.example.aardvark","name":"A","version":"1.0.0","wasm":"plugin.wasm",
+                "permissions":{"capabilities":["messages.intercept"]},
+                "dependencies":{"com.example.zed":"^1"}}"#,
+            r#"{"api":1,"id":"com.example.zed","name":"Z","version":"1.2.0","wasm":"plugin.wasm",
+                "permissions":{"capabilities":["messages.intercept"]}}"#,
+            r#"{"api":1,"id":"com.example.mid","name":"M","version":"1.0.0","wasm":"plugin.wasm",
+                "permissions":{"capabilities":["messages.intercept"]}}"#,
+        ]);
+        assert_eq!(
+            ordered.chain(HookKind::MessagePreSend),
+            vec![
+                id("com.example.mid"),
+                id("com.example.zed"),
+                id("com.example.aardvark")
+            ],
+            "dependencies first, then by id"
+        );
     }
 
     #[test]

@@ -31,7 +31,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use yapfast_plugin_api::call::{
     self, CommandInvocation, CommandOutcome, HostCall, HostReturn, HttpRequest, PluginCall,
-    PluginSubscribe, StorageGet, StorageList, StorageSet, TimerCancel, TimerRequest,
+    PluginSubscribe, SettingsNews, StorageGet, StorageList, StorageSet, TimerCancel, TimerRequest,
 };
 use yapfast_plugin_api::capability::{Capability, HostPattern};
 use yapfast_plugin_api::event::{EventEnvelope, EventKind, TopicEvent};
@@ -45,6 +45,7 @@ use yapfast_plugin_api::message::{
 use yapfast_plugin_api::{API_VERSION, PluginId};
 
 use crate::plugins::registry::{Registry, Subscriptions};
+use crate::plugins::settings;
 use crate::plugins::spawn::{self, Helper, Restarts};
 use crate::plugins::state::{Notice, PreSend};
 use crate::plugins::store::{Module, Store};
@@ -259,11 +260,20 @@ impl Bridge {
         }
         self.next_send += 1;
         let id = self.next_send;
+        // The deadline is the person's, not the helper's: it starts the moment
+        // they pressed send, so a helper that is starting, a module that is
+        // compiling and every plugin in the chain all spend the same budget.
+        // A chain that has none of it left when it reaches the helper doesn't
+        // get a fresh one there.
+        let budget = hook.budget();
+        let deadline = Instant::now()
+            + Duration::from_millis(budget.chain_ms.unwrap_or(budget.per_plugin_ms));
         let held = HeldSend {
             id,
             draft: draft.clone(),
             hook,
             chain: chain.clone(),
+            deadline,
         };
         let request = HookRequest {
             hook,
@@ -361,6 +371,39 @@ impl Bridge {
         self.send(Request::Command {
             plugin: plugin.clone(),
             invocation,
+        });
+    }
+
+    /// One plugin's settings form: the schema its manifest declares, and the
+    /// values it holds now.
+    ///
+    /// Read fresh for each edit, from the manifest and the store, so the person
+    /// edits what is written down and nothing is held between edits.
+    pub fn form(&self, plugin: &PluginId) -> Option<settings::Form> {
+        let shared = self.shared();
+        let manifest = shared.registry().entry(plugin)?.manifest.clone();
+        let entry = shared.store().lock().ok()?.plugins.get(plugin).cloned()?;
+        let mut store = shared.store();
+        Some(crate::plugins::view::form(
+            &mut store,
+            plugin,
+            &manifest,
+            &entry,
+        ))
+    }
+
+    /// Hands a settings change to the instance that asked to hear about them.
+    ///
+    /// A change only reaches an instance that is running: starting a helper to
+    /// tell a plugin something it reads when it starts would cost a process for
+    /// nothing.
+    pub fn settings_news(&mut self, plugin: &PluginId, news: SettingsNews) {
+        if !matches!(self.helper(), HelperState::Running { .. }) {
+            return;
+        }
+        self.send(Request::SettingsNews {
+            plugin: plugin.clone(),
+            news,
         });
     }
 
@@ -1239,6 +1282,12 @@ enum Request {
     Watch { plugin: PluginId, folder: PathBuf },
     /// Drop these instances now, for a reason the helper can't know.
     Evict { plugins: Vec<PluginId> },
+    /// A plugin's settings changed, or a widget of one was used: the answer to
+    /// the `settings.on_change` call it asked with.
+    SettingsNews {
+        plugin: PluginId,
+        news: SettingsNews,
+    },
     /// The application is going away.
     Shutdown,
 }
@@ -1252,6 +1301,9 @@ struct HeldSend {
     hook: HookKind,
     /// The plugins the chain runs through, dependencies first.
     chain: Vec<PluginId>,
+    /// When the person stops waiting: the moment they sent it plus the hook's
+    /// whole-chain budget.
+    deadline: Instant,
 }
 
 /// How a session ended.
@@ -1367,6 +1419,10 @@ struct Session {
     /// The timers guests asked for, which live here so a guest can't hold
     /// memory in the helper with them.
     timers: BTreeMap<TimerKey, Timer>,
+    /// The `settings.on_change` calls of each plugin that asked to be told of a
+    /// change, by the guest's own call id. They belong to the instance that
+    /// asked, so a discarded one takes them with it.
+    watchers: BTreeMap<PluginId, Vec<u64>>,
     /// Commands that arrived before the hello was answered.
     queued: VecDeque<Request>,
     /// What a plugin's last `yf_deactivate` handed on, waiting for the swap that
@@ -1616,6 +1672,7 @@ impl Session {
             active: BTreeSet::new(),
             batches: BTreeMap::new(),
             timers: BTreeMap::new(),
+            watchers: BTreeMap::new(),
             queued: VecDeque::new(),
             handoff: BTreeMap::new(),
             swap: None,
@@ -1791,6 +1848,10 @@ impl Session {
             }
             Request::Hook { held, request } => {
                 self.hold(shared, held, request);
+                None
+            }
+            Request::SettingsNews { plugin, news } => {
+                self.news(&plugin, news);
                 None
             }
             Request::Command { plugin, invocation } => {
@@ -2002,7 +2063,21 @@ impl Session {
     }
 
     /// Runs a hook chain, or holds the send until it answers.
-    fn hold(&mut self, shared: &Shared, mut held: HeldSend, request: HookRequest) {
+    fn hold(&mut self, shared: &Arc<Shared>, mut held: HeldSend, request: HookRequest) {
+        // Whatever is left of the person's patience: the helper's start, the
+        // hello and a module's first compile all came out of the same budget.
+        let remaining = held.deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            tracing::debug!(
+                hook = %held.hook,
+                "a hook chain was already out of time when the helper had it; the message goes unchanged"
+            );
+            shared.announce(Notice::SendReady {
+                id: held.id,
+                draft: held.draft,
+            });
+            return;
+        }
         // Frames are handled in order, so loading each plugin in the chain first
         // means the chain arrives at instances that are already up. A plugin
         // that can't be loaded leaves the chain rather than holding the send.
@@ -2014,13 +2089,11 @@ impl Session {
             });
             return;
         }
-        let budget = request.hook.budget();
-        let budget = Duration::from_millis(budget.chain_ms.unwrap_or(budget.per_plugin_ms));
         let message = ToHelper::Hook {
             chain: held.chain.clone(),
             request,
         };
-        self.request(&message, budget, Purpose::Hook(Box::new(held)));
+        self.request(&message, remaining, Purpose::Hook(Box::new(held)));
     }
 
     /// Runs a command a person typed.
@@ -2269,6 +2342,10 @@ impl Session {
             Request::Activate { plugins } => plugins.iter().any(|plugin| self.in_swap(plugin)),
             Request::Deactivate { plugin } => self.in_swap(plugin),
             Request::Event { plugin, .. } => self.in_swap(plugin),
+            // A setting the person changed reaches the running instance; one
+            // that is between versions gets it on the other side of the swap,
+            // where the instance that starts reads the new value anyway.
+            Request::SettingsNews { plugin, .. } => self.in_swap(plugin),
             Request::Hook { held, .. } => held.chain.iter().any(|plugin| self.in_swap(plugin)),
             Request::Command { plugin, .. } => self.in_swap(plugin),
             // An eviction is the application asking for memory back, and one
@@ -2498,8 +2575,12 @@ impl Session {
                 self.reply(&caller, call, answer);
                 None
             }
-            FromHelper::HookDone { outcome, failures } => {
-                self.on_hook_done(shared, frame.id, outcome, failures);
+            FromHelper::HookDone {
+                outcome,
+                failures,
+                by,
+            } => {
+                self.on_hook_done(shared, frame.id, outcome, failures, by);
                 None
             }
             FromHelper::CommandDone { plugin, outcome } => {
@@ -2510,12 +2591,18 @@ impl Session {
             FromHelper::Status { plugin, status } => {
                 if !matches!(status, PluginStatus::Active) {
                     self.active.remove(&plugin);
+                    // An instance that isn't running can't be told of a change:
+                    // the next one asks again when it starts.
+                    if !self.active.contains(&plugin) {
+                        self.watchers.remove(&plugin);
+                    }
                 }
                 shared.registry_mut().set_status(&plugin, status.clone());
                 shared.announce(Notice::Status { plugin, status });
                 None
             }
             FromHelper::Fault { plugin, fault } => {
+                self.watchers.remove(&plugin);
                 self.on_fault(shared, plugin, fault);
                 // A fault is this step's answer too: the plugin it was about is
                 // gone, and the swap carries on rather than waiting for an
@@ -2552,8 +2639,71 @@ impl Session {
             self.fetch(shared, call, plugin, request);
             return;
         }
+        // Being told of a change is the one call whose answer only exists
+        // later: the guest is answered `pending` now, and every change after it
+        // travels under this id.
+        if request.method == call::method::SETTINGS_ON_CHANGE {
+            self.watch_settings(&plugin, call);
+            return;
+        }
         let answer = self.answer(shared, &plugin, request);
         self.reply(&plugin, call, answer);
+    }
+
+    /// Records that a plugin wants to hear about its settings, and answers the
+    /// call `pending` so the guest isn't held while a person thinks.
+    ///
+    /// One instance asks once; a second ask is answered with the same, and the
+    /// first stays, because a guest may retry a call it thinks it lost.
+    fn watch_settings(&mut self, plugin: &PluginId, call: u64) {
+        let calls = self.watchers.entry(plugin.clone()).or_default();
+        if !calls.contains(&call) {
+            if calls.len() >= settings::MAX_WATCHERS {
+                self.reply(
+                    plugin,
+                    call,
+                    HostReturn::Denied {
+                        reason: format!(
+                            "{plugin} already asked {} times to hear of its settings",
+                            settings::MAX_WATCHERS
+                        ),
+                    },
+                );
+                return;
+            }
+            calls.push(call);
+        }
+        self.reply(
+            plugin,
+            call,
+            HostReturn::Pending {
+                tag: call.to_string(),
+            },
+        );
+    }
+
+    /// Tells a running instance what happened to its settings.
+    ///
+    /// Nothing is sent to a plugin that never asked: a change is read with
+    /// `settings.get` when it next starts, and waking an instance to say that
+    /// something it reads at its start has changed is work for nothing.
+    fn news(&mut self, plugin: &PluginId, news: SettingsNews) {
+        let Some(calls) = self.watchers.get(plugin) else {
+            return;
+        };
+        if calls.is_empty() {
+            return;
+        }
+        let answer = match serde_json::to_value(&news) {
+            Ok(value) => HostReturn::Ok(value),
+            Err(error) => {
+                tracing::warn!(%error, "could not write a settings change for a plugin");
+                return;
+            }
+        };
+        for call in calls.clone() {
+            self.reply(plugin, call, answer.clone());
+        }
     }
 
     /// Answers a host call that needs no waiting.
@@ -2893,6 +3043,7 @@ impl Session {
         id: u64,
         outcome: HookOutcome,
         failures: Vec<(PluginId, Fault)>,
+        by: Option<PluginId>,
     ) {
         for (plugin, fault) in failures {
             tracing::warn!(%plugin, reason = %fault.reason, kind = ?fault.kind, "a plugin failed in a hook chain");
@@ -2906,11 +3057,33 @@ impl Session {
         let Purpose::Hook(held) = pending.purpose else {
             return;
         };
+        // A block stops the person's message, so it is honoured only from a
+        // plugin whose manifest asked for that: `on_failure: "block"`, which
+        // needs `messages.intercept` and shows in the review dialog. Anyone
+        // else's is the fail-open answer, whatever it meant by it.
+        let may_block = by.as_ref().is_some_and(|plugin| {
+            shared
+                .registry()
+                .entry(plugin)
+                .is_some_and(|entry| entry.manifest.on_failure.blocks())
+        });
         match outcome {
-            HookOutcome::Block { reason } => shared.announce(Notice::SendBlocked {
-                id: held.id,
-                reason,
-            }),
+            HookOutcome::Block { reason } if may_block => {
+                shared.announce(Notice::SendBlocked {
+                    id: held.id,
+                    reason,
+                });
+            }
+            HookOutcome::Block { .. } => {
+                tracing::warn!(
+                    plugin = %by.as_ref().map_or_else(String::new, PluginId::to_string),
+                    "a plugin stopped a send without `on_failure` saying it may; the message goes unchanged"
+                );
+                shared.announce(Notice::SendReady {
+                    id: held.id,
+                    draft: held.draft,
+                });
+            }
             HookOutcome::Changed(HookSubject::Draft(draft)) => {
                 shared.announce(Notice::SendReady { id: held.id, draft });
             }
@@ -3465,6 +3638,7 @@ mod tests {
                 active: BTreeSet::new(),
                 batches: BTreeMap::new(),
                 timers: BTreeMap::new(),
+                watchers: BTreeMap::new(),
                 queued: VecDeque::new(),
                 handoff: BTreeMap::new(),
                 swap: None,
@@ -3609,6 +3783,14 @@ mod tests {
         "permissions":{"capabilities":["messages.intercept","storage","messages.read"]},
         "activation":{"on":["event:typing"]}}"#;
 
+    /// The same, for a plugin whose `block` outcome may stop a send: that is
+    /// what `on_failure` says, and it needs the capability the one above has.
+    const BLOCKING_HOOK_MANIFEST: &str = r#"{"api":1,"id":"com.example.block","name":"Block","version":"1.0.0",
+        "wasm":"plugin.wasm",
+        "on_failure":"block",
+        "permissions":{"capabilities":["messages.intercept"]},
+        "activation":{"on":["event:typing"]}}"#;
+
     fn draft(body: &str) -> Draft {
         Draft {
             room: "room-1".to_owned(),
@@ -3631,6 +3813,7 @@ mod tests {
             draft: draft("hi"),
             hook: HookKind::MessagePreSend,
             chain: vec![plugin.clone()],
+            deadline: Instant::now() + Duration::from_millis(100),
         };
         let request = HookRequest {
             hook: HookKind::MessagePreSend,
@@ -3650,7 +3833,7 @@ mod tests {
         let ToHelper::Hook { chain, .. } = message(&hook) else {
             panic!("the third frame should be the chain");
         };
-        assert_eq!(chain, vec![plugin]);
+        assert_eq!(chain, vec![plugin.clone()]);
 
         let changed = HookSubject::Draft(draft("HELLO"));
         let answer = Frame::new(
@@ -3659,6 +3842,7 @@ mod tests {
             serde_json::to_vec(&FromHelper::HookDone {
                 outcome: HookOutcome::Changed(changed),
                 failures: Vec::new(),
+                by: Some(plugin.clone()),
             })
             .expect("it serializes"),
         );
@@ -3677,7 +3861,7 @@ mod tests {
     #[test]
     fn a_blocked_send_says_why_and_a_failed_chain_lets_it_through() {
         let directory = tempfile::tempdir().expect("a temporary directory");
-        let plugin = installed(directory.path(), HOOK_MANIFEST, b"not a real module");
+        let plugin = installed(directory.path(), BLOCKING_HOOK_MANIFEST, b"not a real module");
         let (wake, notices) = notice_channel();
         let shared = shared(directory.path(), wake);
         let (_session_directory, mut session, written, _inbound) = session_stub();
@@ -3687,6 +3871,7 @@ mod tests {
             draft: draft("hi"),
             hook: HookKind::MessagePreSend,
             chain: vec![plugin.clone()],
+            deadline: Instant::now() + Duration::from_millis(100),
         };
         let request = HookRequest {
             hook: HookKind::MessagePreSend,
@@ -3707,6 +3892,7 @@ mod tests {
                     reason: "that word isn't allowed here".to_owned(),
                 },
                 failures: Vec::new(),
+                by: Some(plugin.clone()),
             })
             .expect("it serializes"),
         );
@@ -3719,6 +3905,133 @@ mod tests {
                 id: 9,
                 reason: "that word isn't allowed here".to_owned(),
             }
+        );
+    }
+
+    /// A plugin that answers `block` without `on_failure: "block"` in its
+    /// manifest can't stop the send: the message goes as the person wrote it.
+    /// The capability puts a plugin in the chain; only the manifest says its
+    /// failure may hold a message back.
+    #[test]
+    fn a_block_from_a_plugin_that_did_not_ask_to_block_fails_open() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), HOOK_MANIFEST, b"not a real module");
+        let (wake, notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        let held = HeldSend {
+            id: 21,
+            draft: draft("hi"),
+            hook: HookKind::MessagePreSend,
+            chain: vec![plugin.clone()],
+            deadline: Instant::now() + Duration::from_millis(100),
+        };
+        let request = HookRequest {
+            hook: HookKind::MessagePreSend,
+            subject: HookSubject::Draft(draft("hi")),
+        };
+        runtime().block_on(session.on_command(&shared, Request::Hook { held, request }));
+        let _activate = next_frame(&written);
+        let hook = next_frame(&written);
+
+        let block = Frame::new(
+            FrameKind::Report,
+            hook.id,
+            serde_json::to_vec(&FromHelper::HookDone {
+                outcome: HookOutcome::Block {
+                    reason: "no".to_owned(),
+                },
+                failures: Vec::new(),
+                by: Some(plugin.clone()),
+            })
+            .expect("it serializes"),
+        );
+        assert!(session.on_frame(&shared, block).is_none());
+        assert_eq!(
+            notices
+                .recv_timeout(Duration::from_secs(2))
+                .expect("a notice"),
+            Notice::SendReady {
+                id: 21,
+                draft: draft("hi"),
+            },
+            "a block nobody declared is the fail-open answer"
+        );
+    }
+
+    /// A plugin that asks to hear about its settings is answered `pending` now,
+    /// and a change arrives later under the same call id, as the answer to that
+    /// call. Nothing restarts, and a plugin that never asked hears nothing.
+    #[test]
+    fn a_settings_change_reaches_an_instance_that_asked_for_it() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), HOOK_MANIFEST, b"not a real module");
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        let ask = Frame::new(
+            FrameKind::Request,
+            0,
+            serde_json::to_vec(&FromHelper::Call {
+                plugin: plugin.clone(),
+                call: 5,
+                request: call::HostCall::new(call::method::SETTINGS_ON_CHANGE, &serde_json::json!({}))
+                    .expect("a call"),
+            })
+            .expect("it serializes"),
+        );
+        assert!(session.on_frame(&shared, ask).is_none());
+        let reply = next_frame(&written);
+        let ToHelper::Return { call: answered, answer, .. } = message(&reply) else {
+            panic!("a host call is answered with a return");
+        };
+        assert_eq!(answered, 5);
+        assert_eq!(
+            answer,
+            HostReturn::Pending {
+                tag: "5".to_owned()
+            },
+            "the guest isn't held while a person decides"
+        );
+
+        // Nothing is said to a plugin that didn't ask.
+        let other = id("com.example.other");
+        runtime().block_on(session.on_command(
+            &shared,
+            Request::SettingsNews {
+                plugin: other,
+                news: SettingsNews {
+                    changed: BTreeMap::from([("mode".to_owned(), serde_json::json!("hide"))]),
+                    widget: None,
+                },
+            },
+        ));
+        assert!(
+            written.recv_timeout(Duration::from_millis(50)).is_err(),
+            "a plugin that never asked is told nothing"
+        );
+
+        // The change comes as the answer to the call that asked for it.
+        runtime().block_on(session.on_command(
+            &shared,
+            Request::SettingsNews {
+                plugin: plugin.clone(),
+                news: SettingsNews {
+                    changed: BTreeMap::from([("mode".to_owned(), serde_json::json!("hide"))]),
+                    widget: None,
+                },
+            },
+        ));
+        let news = next_frame(&written);
+        let ToHelper::Return { call: answered, answer, .. } = message(&news) else {
+            panic!("a settings change is the answer to the call that asked");
+        };
+        assert_eq!(answered, 5);
+        assert_eq!(
+            answer,
+            HostReturn::Ok(serde_json::json!({ "changed": { "mode": "hide" } }))
         );
     }
 
@@ -3735,6 +4048,7 @@ mod tests {
             draft: draft("hi"),
             hook: HookKind::MessagePreSend,
             chain: vec![plugin.clone()],
+            deadline: Instant::now() + Duration::from_millis(100),
         };
         let request = HookRequest {
             hook: HookKind::MessagePreSend,

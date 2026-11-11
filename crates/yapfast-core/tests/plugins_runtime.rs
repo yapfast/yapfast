@@ -444,6 +444,186 @@ fn is_active(status: &yapfast_plugin_api::message::PluginStatus) -> bool {
     matches!(status, yapfast_plugin_api::message::PluginStatus::Active)
 }
 
+/// Installs one fixture as a plugin that intercepts outgoing messages, which is
+/// what puts it in a `message.pre_send` chain, and turns it on.
+fn install_interceptor(store: &mut Store, id: &str, fixture: &str) -> PluginId {
+    let path = fixture_path(fixture);
+    let module = std::fs::read(&path).unwrap_or_else(|error| panic!("{path:?}: {error}"));
+    let id = PluginId::parse(id).expect("a plugin id");
+    let manifest = format!(
+        r#"{{
+  "api": 1,
+  "id": "{id}",
+  "name": "Interceptor",
+  "version": "0.1.0",
+  "wasm": "plugin.wasm",
+  "limits": {{ "memory_pages": 64 }},
+  "permissions": {{ "capabilities": ["messages.intercept"], "network": [] }}
+}}
+"#
+    );
+    store
+        .install(&Package {
+            id: id.clone(),
+            source: "https://example.org/ada/interceptor".to_owned(),
+            path: String::new(),
+            reference: "main".to_owned(),
+            rev: "0".repeat(40),
+            manifest,
+            module,
+            icon: None,
+        })
+        .expect("it installs");
+    store.set_enabled(&id, true).expect("it is on");
+    id
+}
+
+/// The notices a plugin system reports, kept for the test to read: a hook's
+/// answer arrives as one rather than as a return value.
+type Notices = Arc<std::sync::Mutex<Vec<plugins::state::Notice>>>;
+
+/// Opens the plugin system on a directory and starts it the way a session
+/// does, with every notice it reports kept.
+fn open_started(directory: &Path) -> (PluginState, Notices) {
+    let notices: Notices = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&notices);
+    let wake: Arc<dyn Fn(plugins::state::Notice) + Send + Sync> = Arc::new(move |notice| {
+        recorded.lock().expect("the notices lock").push(notice);
+    });
+    let mut state = PluginState::open(directory, wake).expect("the plugin system");
+    state.start();
+    (state, notices)
+}
+
+/// Waits until every one of `plugins` is running, which is what a send may
+/// expect before its chain is asked: a plugin that intercepts starts with the
+/// app for exactly that reason.
+fn wait_active(state: &PluginState, plugins: &[PluginId]) {
+    let started = Instant::now();
+    while started.elapsed() < START {
+        let running = plugins.iter().all(|wanted| {
+            state
+                .statuses()
+                .into_iter()
+                .any(|(plugin, status)| plugin == *wanted && is_active(&status))
+        });
+        if running {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    panic!(
+        "the chain never ran: {:?} {:?}",
+        state.statuses(),
+        state.off()
+    );
+}
+
+/// Waits for the draft a held send is answered with, and answers how long it
+/// took from the moment the send was asked about.
+fn wait_send_ready(notices: &Notices, within: Duration) -> (Duration, yapfast_plugin_api::hook::Draft) {
+    let started = Instant::now();
+    while started.elapsed() < within + START {
+        if let Some(notice) = notices
+            .lock()
+            .expect("the notices lock")
+            .iter()
+            .find_map(|notice| match notice {
+                plugins::state::Notice::SendReady { draft, .. } => Some(draft.clone()),
+                _ => None,
+            })
+        {
+            return (started.elapsed(), notice);
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    panic!("the send was never answered: {:?}", notices.lock().map(|notices| notices.len()));
+}
+
+fn a_draft(body: &str) -> yapfast_plugin_api::hook::Draft {
+    yapfast_plugin_api::hook::Draft {
+        room: "room-1".to_owned(),
+        body: body.to_owned(),
+        reply_to: None,
+        attachments: Vec::new(),
+    }
+}
+
+/// M4's first exit criterion: a filter plugin rewrites the outgoing text within
+/// its budget, and the rewritten text is what the send goes out with.
+#[test]
+fn a_filter_rewrites_the_text_a_send_goes_out_with() {
+    let Some(helper) = helper() else {
+        eprintln!("no yapfast-plugins beside the build and no YAPFAST_PLUGINS; skipped");
+        return;
+    };
+    unsafe { std::env::set_var("YAPFAST_PLUGINS", &helper) };
+
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let mut store = Store::open(directory.path()).expect("a store");
+    let plugin = install_interceptor(&mut store, "dev.local.filter", "filter.wasm");
+    drop(store);
+
+    let (mut state, notices) = open_started(directory.path());
+    wait_active(&state, std::slice::from_ref(&plugin));
+
+    // The send is answered by the chain rather than going out as it was typed,
+    // and what the chain answered is what the send carries: the room and the
+    // body are both the fixture's, not the composer's.
+    let decided = state.pre_send(a_draft("hi"));
+    let plugins::state::PreSend::Held { id } = decided else {
+        panic!("a chain with an interceptor in it holds the send");
+    };
+    let (took, answered) = wait_send_ready(&notices, Duration::from_secs(5));
+    assert_eq!(answered.body, "filtered", "the chain's text is the send's");
+    assert_eq!(answered.room, "filtered-room");
+    assert!(
+        took < Duration::from_millis(100),
+        "a filter answers within the chain's budget, and this took {took:?} ({id})"
+    );
+    state.shutdown();
+}
+
+/// M4's other exit criterion: a plugin that never returns from `yf_hook` can't
+/// delay a send by more than the chain's 100 ms, and the message goes out as it
+/// was written.
+///
+/// The slack past 100 ms is the machine's — two threads, a pipe and a cancel
+/// being noticed — not the promise's: a helper that waited for the plugin's
+/// own twenty-five milliseconds per plugin, or for its activation budget of
+/// thirty seconds, would be nowhere near this number.
+#[test]
+fn a_plugin_that_hangs_in_a_hook_costs_the_chain_s_budget_and_not_the_send() {
+    let Some(helper) = helper() else {
+        eprintln!("no yapfast-plugins beside the build and no YAPFAST_PLUGINS; skipped");
+        return;
+    };
+    unsafe { std::env::set_var("YAPFAST_PLUGINS", &helper) };
+
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let mut store = Store::open(directory.path()).expect("a store");
+    let plugin = install_interceptor(&mut store, "dev.local.spin", "spin_hook.wasm");
+    drop(store);
+
+    let (mut state, notices) = open_started(directory.path());
+    wait_active(&state, std::slice::from_ref(&plugin));
+
+    let plugins::state::PreSend::Held { id } = state.pre_send(a_draft("hi")) else {
+        panic!("a chain with an interceptor in it holds the send");
+    };
+    let (took, answered) = wait_send_ready(&notices, Duration::from_secs(5));
+    assert_eq!(
+        answered,
+        a_draft("hi"),
+        "a chain that ran out of time leaves the message as the person wrote it"
+    );
+    assert!(
+        took < Duration::from_millis(250),
+        "a hung plugin must not hold the send past its budget: {took:?} ({id})"
+    );
+    state.shutdown();
+}
+
 /// A plugin that only subscribes to messages, and hand it one.
 ///
 /// `bad_answer.wasm` is the fixture whose `yf_event` returns 0 and answers

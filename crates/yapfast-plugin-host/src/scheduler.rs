@@ -31,7 +31,7 @@ use yapfast_plugin_api::hook::{HookOutcome, HookRequest, Lane};
 use yapfast_plugin_api::limits;
 use yapfast_plugin_api::message::{Fault, FaultKind, FromHelper, PluginStatus};
 
-use crate::backend::{Backend, CancelToken, LoadSpec};
+use crate::backend::{Backend, CancelToken, HookRun, LoadSpec};
 use crate::pipe::{Outbox, Waker};
 
 /// How long one batch of events may run. Events aren't on a person's path, so
@@ -674,7 +674,13 @@ impl<B: Backend + 'static> Shared<B> {
         }
     }
 
-    /// Runs a whole hook chain as one exchange.
+    /// Runs a whole hook chain, one plugin at a time.
+    ///
+    /// Each plugin gets its own deadline and the chain has a whole-chain one:
+    /// a plugin that hangs costs its own budget and the chain moves on with the
+    /// subject as it was, and a chain whose time is spent stops where it is.
+    /// That is what makes a plugin unable to hold the person waiting, and what
+    /// makes the two budgets in the contract more than a sentence.
     fn hook(&self, task: &Task, request: &HookRequest) {
         let mut chain = Vec::with_capacity(task.slots.len());
         for &slot in task.slots.as_slice() {
@@ -688,42 +694,67 @@ impl<B: Backend + 'static> Shared<B> {
                 &FromHelper::HookDone {
                     outcome: HookOutcome::Unchanged,
                     failures: Vec::new(),
+                    by: None,
                 },
             );
             return;
         }
-        let plugins: Vec<PluginId> = chain.iter().map(|(_, plugin)| (**plugin).clone()).collect();
-        let slots: Vec<usize> = chain.iter().map(|(slot, _)| *slot).collect();
-        let budget = chain_budget(request, plugins.len());
-        let (run, late) = self.call(&slots, budget, |backend| backend.hook(&plugins, request));
-        if late {
-            let fault = deadline_fault("a hook chain");
-            let mut failures = Vec::with_capacity(slots.len());
-            for (slot, plugin) in &chain {
-                failures.push(((**plugin).clone(), fault.clone()));
-                self.discard(*slot, fault.clone(), Some(task.id));
+        let budget = request.hook.budget();
+        let per_plugin = Duration::from_millis(budget.per_plugin_ms);
+        let whole = budget
+            .chain_ms
+            .map(|ms| Instant::now() + Duration::from_millis(ms));
+        let mut asked = request.clone();
+        let mut run = HookRun::unchanged();
+        for (slot, plugin) in &chain {
+            // This plugin's own budget, and no more than what is left of the
+            // chain's: the last plugin of a chain that has nearly spent it gets
+            // the rest, and one that is out of time doesn't run at all.
+            let step = whole.map_or(per_plugin, |end| {
+                per_plugin.min(end.saturating_duration_since(Instant::now()))
+            });
+            if step.is_zero() {
+                debug!(%plugin, "a hook chain ran out of time before this plugin's turn");
+                break;
             }
-            let _ = self.reply(
-                task.id,
-                &FromHelper::HookDone {
-                    outcome: HookOutcome::Unchanged,
-                    failures,
-                },
-            );
-            return;
-        }
-        let mut failures = Vec::with_capacity(run.failures.len());
-        for (plugin, fault) in &run.failures {
-            if let Some(slot) = self.slot_of(plugin) {
-                self.discard(slot, fault.clone(), Some(task.id));
+            let (answer, late) = self.call(&[*slot], step, |backend| backend.hook(plugin, &asked));
+            if late {
+                // The instance stopped wherever the cancel found it, so it is
+                // thrown away; the chain goes on as if it had said nothing.
+                let fault = deadline_fault("a hook");
+                self.discard(*slot, fault.clone(), None);
+                run.failures.push(((**plugin).clone(), fault));
+                continue;
             }
-            failures.push((plugin.clone(), fault.clone()));
+            match answer {
+                // The next plugin sees what this one produced, and the chain
+                // answers with the last subject anyone produced: a later
+                // plugin that leaves it alone doesn't take that back.
+                Ok(HookOutcome::Changed(subject)) => {
+                    asked.subject = subject.clone();
+                    run.outcome = Some(HookOutcome::Changed(subject));
+                    run.by = Some((**plugin).clone());
+                }
+                Ok(block @ HookOutcome::Block { .. }) => {
+                    run.outcome = Some(block);
+                    run.by = Some((**plugin).clone());
+                    break;
+                }
+                Ok(HookOutcome::Unchanged) => {}
+                // A hook fails open: the next plugin sees the subject as it
+                // was, because a plugin that trapped has no opinion on it.
+                Err(fault) => {
+                    self.discard(*slot, fault.clone(), None);
+                    run.failures.push(((**plugin).clone(), fault));
+                }
+            }
         }
         let _ = self.reply(
             task.id,
             &FromHelper::HookDone {
                 outcome: run.outcome.unwrap_or(HookOutcome::Unchanged),
-                failures,
+                failures: run.failures,
+                by: run.by,
             },
         );
     }
@@ -1069,6 +1100,7 @@ impl<B: Backend + 'static> Shared<B> {
                     &FromHelper::HookDone {
                         outcome: HookOutcome::Unchanged,
                         failures: Vec::new(),
+                        by: None,
                     },
                 );
             }
@@ -1181,10 +1213,6 @@ impl<B: Backend + 'static> Shared<B> {
         state.slot_for(plugin)
     }
 
-    fn slot_of(&self, plugin: &PluginId) -> Option<usize> {
-        lock(&self.state).index.get(plugin).copied()
-    }
-
     fn id(&self, slot: usize) -> Arc<PluginId> {
         lock(&self.state).slots[slot].id.clone()
     }
@@ -1276,16 +1304,6 @@ fn deadline_fault(what: &str) -> Fault {
     Fault {
         kind: FaultKind::Deadline,
         reason: format!("{what} ran past its deadline"),
-    }
-}
-
-/// The whole chain's budget: what the hook allows for the exchange, or, when
-/// nobody waits for the answer, one plugin's budget each.
-fn chain_budget(request: &HookRequest, chain: usize) -> Duration {
-    let budget = request.hook.budget();
-    match budget.chain_ms {
-        Some(chain_ms) => Duration::from_millis(chain_ms),
-        None => Duration::from_millis(budget.per_plugin_ms * chain.max(1) as u64),
     }
 }
 

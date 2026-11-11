@@ -10,6 +10,8 @@
 //! rest are named here so plugins can feature-detect them from the beginning;
 //! a call to one before it exists gets `Unsupported`.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -33,6 +35,7 @@ pub mod method {
     pub const STORAGE_DELETE: &str = "storage.delete";
     pub const STORAGE_LIST: &str = "storage.list";
     pub const SETTINGS_GET: &str = "settings.get";
+    pub const SETTINGS_ON_CHANGE: &str = "settings.on_change";
     pub const HTTP_FETCH: &str = "http.fetch";
     pub const TIMERS_AFTER: &str = "timers.after";
     pub const TIMERS_EVERY: &str = "timers.every";
@@ -249,6 +252,35 @@ pub struct PluginSubscribe {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SettingGet {
     pub key: String,
+}
+
+/// What `settings.on_change` answers when the person changes a setting, or uses
+/// a widget one of them draws.
+///
+/// A plugin asks once — `settings.on_change` is answered `pending`, so that no
+/// instance waits on a person — and every change afterwards arrives as the
+/// answer to that call, in the guest's next event batch. A running instance
+/// hears of a change without a restart; one that isn't running reads the values
+/// with `settings.get` when it next starts, so nothing is kept for it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SettingsNews {
+    /// The settings whose values changed, with the values they hold now.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub changed: BTreeMap<String, Value>,
+    /// The widget input that arrived, when one did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub widget: Option<WidgetInput>,
+}
+
+/// One widget's input, for a widget setting the plugin draws.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WidgetInput {
+    /// The setting whose widget it was.
+    pub setting: String,
+    /// The widget the plugin named in the tree it drew.
+    pub id: String,
+    /// What the person did with it, as the widget's own value.
+    pub value: String,
 }
 
 /// `app.version` and `app.locale`'s answer.

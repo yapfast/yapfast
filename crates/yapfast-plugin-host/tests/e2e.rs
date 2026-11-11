@@ -207,11 +207,19 @@ fn a_hook_that_answers_nonsense_fails_open() {
     match helper.wait_for(BUDGET, "HookDone", |message| {
         matches!(message, FromHelper::HookDone { .. })
     }) {
-        FromHelper::HookDone { outcome, failures } => {
+        FromHelper::HookDone {
+            outcome,
+            failures,
+            by,
+        } => {
             assert_eq!(
                 outcome,
                 HookOutcome::Unchanged,
                 "a hook that fails leaves the draft as it was"
+            );
+            assert!(
+                by.is_none(),
+                "a chain nobody answered into has no answerer"
             );
             assert_eq!(failures.len(), 1, "the failure is reported, not hidden");
             assert_eq!(failures[0].0, bad);
@@ -219,6 +227,145 @@ fn a_hook_that_answers_nonsense_fails_open() {
         }
         other => panic!("expected HookDone, got {other:?}"),
     }
+}
+
+/// A hook whose plugin never returns is cancelled at that plugin's own budget,
+/// not at the chain's and not at an activation's: it is what a person typing
+/// waits for, so it is the one deadline worth measuring.
+///
+/// The chain answers as if the plugin had said nothing, which is the fail-open
+/// the contract promises, and the helper is still serving afterwards: a helper
+/// that a hang took with it would be no better than a delay.
+#[test]
+fn a_hung_hook_is_cancelled_and_the_chain_answers_without_it() {
+    let mut helper = Helper::start("hung-hook");
+    let hung = plugin("hung-hook");
+    helper.activate(&hung, "spin_hook.wat", PAGES);
+    helper.wait_for(BUDGET, "Activated", |message| {
+        matches!(message, FromHelper::Activated { .. })
+    });
+
+    let started = Instant::now();
+    let id = helper.next_id();
+    helper.send(
+        FrameKind::Request,
+        id,
+        &ToHelper::Hook {
+            chain: vec![hung.clone()],
+            request: a_hook(),
+        },
+    );
+    // The instance is thrown away first, because it stopped wherever the cancel
+    // found it, and then the chain answers without it.
+    let fault = helper.wait_for(BUDGET, "the deadline fault", |message| {
+        matches!(message, FromHelper::Fault { .. })
+    });
+    let FromHelper::Fault { fault, .. } = fault else {
+        unreachable!("the predicate matched a fault")
+    };
+    assert_eq!(fault.kind, FaultKind::Deadline);
+    match helper.wait_for(BUDGET, "HookDone", |message| {
+        matches!(message, FromHelper::HookDone { .. })
+    }) {
+        FromHelper::HookDone {
+            outcome, failures, ..
+        } => {
+            assert_eq!(
+                outcome,
+                HookOutcome::Unchanged,
+                "a plugin that ran late has no opinion on the draft"
+            );
+            assert_eq!(failures.len(), 1, "and the failure is reported");
+            assert_eq!(failures[0].0, hung);
+            assert_eq!(failures[0].1.kind, FaultKind::Deadline);
+        }
+        other => panic!("expected HookDone, got {other:?}"),
+    }
+    let took = started.elapsed();
+    assert!(
+        took < Duration::from_millis(100),
+        "a hung plugin costs its own 25 ms, not the chain's 100 and not an \
+         activation's: this took {took:?}"
+    );
+    // Still serving: the process outlives the plugin that hung in it.
+    helper.event(&hung, an_event());
+    helper.wait_for(BUDGET, "EventDone", |message| {
+        matches!(message, FromHelper::EventDone { .. })
+    });
+}
+
+/// What JSON costs a hook round trip, for plan §10.2: the exchange through the
+/// pipe, the scheduler and Extism, against encoding and decoding the same two
+/// messages. MessagePack is only worth adding if JSON is over a fifth of it.
+///
+/// It is a test rather than a benchmark so that it runs where the rest do: the
+/// numbers are printed for `--nocapture`, and the assertion is the plan's own
+/// threshold, loose enough that a busy machine can't fail it.
+#[test]
+fn the_json_in_a_hook_is_a_small_part_of_the_round_trip() {
+    const SAMPLES: u32 = 200;
+
+    let mut helper = Helper::start("json-cost");
+    let echo = plugin("json-cost");
+    helper.activate(&echo, "echo.wat", PAGES);
+    helper.wait_for(BUDGET, "Activated", |message| {
+        matches!(message, FromHelper::Activated { .. })
+    });
+
+    // The JSON a hook costs both sides: the parent writes the request and reads
+    // the answer, and the helper reads the request and writes the answer.
+    let request = ToHelper::Hook {
+        chain: vec![echo.clone()],
+        request: a_hook(),
+    };
+    let answer = FromHelper::HookDone {
+        outcome: HookOutcome::Unchanged,
+        failures: Vec::new(),
+        by: None,
+    };
+    let json = {
+        let started = Instant::now();
+        for _ in 0..SAMPLES {
+            let payload = serde_json::to_vec(&request).expect("a request is JSON");
+            let read: ToHelper = serde_json::from_slice(&payload).expect("it reads back");
+            let payload = serde_json::to_vec(&answer).expect("an answer is JSON");
+            let read_answer: FromHelper = serde_json::from_slice(&payload).expect("it reads back");
+            std::hint::black_box((read, read_answer));
+        }
+        started.elapsed() / SAMPLES
+    };
+
+    // The exchange itself, one hook at a time, each answered before the next.
+    let round_trip = {
+        let started = Instant::now();
+        for _ in 0..SAMPLES {
+            let id = helper.next_id();
+            helper.send(
+                FrameKind::Request,
+                id,
+                &ToHelper::Hook {
+                    chain: vec![echo.clone()],
+                    request: a_hook(),
+                },
+            );
+            helper.wait_for(BUDGET, "HookDone", |message| {
+                matches!(message, FromHelper::HookDone { .. })
+            });
+        }
+        started.elapsed() / SAMPLES
+    };
+
+    let share = json.as_secs_f64() / round_trip.as_secs_f64();
+    println!(
+        "a hook's round trip: {round_trip:?} per exchange, JSON {json:?} of it, {:.1}%",
+        share * 100.0
+    );
+    assert!(
+        share < 0.2,
+        "MessagePack is worth it only past 20% of a hook (plan §10.2), and JSON is \
+         {:.1}% of {round_trip:?}",
+        share * 100.0
+    );
 }
 
 #[test]

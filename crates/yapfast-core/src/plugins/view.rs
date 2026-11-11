@@ -75,7 +75,7 @@ impl Bridge {
                     grants: granted(grants, &listed),
                     memory_pages: listed.manifest.limits.memory_pages,
                     quiet_denials: grants.quiet_denials(&listed.manifest.id),
-                    settings: settings(&mut store, &listed, &entry),
+                    settings: form(&mut store, id, &listed.manifest, &entry),
                     log: listed.log.iter().map(log_line).collect(),
                 }
             })
@@ -161,9 +161,10 @@ fn granted(grants: &Grants, listed: &Listed) -> Vec<Grant> {
 /// The interface reads the manifest itself, for the `settings` section the
 /// runtime's copy leaves out: a form with no schema rather than none at all is
 /// what a manifest that can't be read leaves.
-fn settings(
+pub(crate) fn form(
     store: &mut crate::plugins::store::Store,
-    listed: &Listed,
+    plugin: &yapfast_plugin_api::PluginId,
+    manifest: &yapfast_plugin_api::PluginManifest,
     entry: &crate::plugins::store::LockEntry,
 ) -> Form {
     let schema = store
@@ -172,7 +173,7 @@ fn settings(
         .and_then(|text| crate::plugins::Manifest::parse(&text).ok())
         .map(|manifest| Arc::clone(&manifest.settings))
         .unwrap_or_default();
-    let stored = store.settings(&listed.manifest.id, &listed.manifest);
+    let stored = store.settings(plugin, manifest);
     let (values, _refused) = schema.read(&stored);
     Form::new(schema, values)
 }

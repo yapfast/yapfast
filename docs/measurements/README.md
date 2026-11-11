@@ -131,3 +131,30 @@ owns. `RssAnon` counts resident pages only, while Windows' private usage also
 counts private pages the system has paged out, so a Windows record reads a
 little above the private working set Task Manager shows. Compare plugin records
 only with records from the same OS.
+
+### A hook's JSON
+
+The plugin ABI is JSON (plan §10.2), and MessagePack is worth adding only if
+JSON is over a fifth of a hook's time. It isn't:
+
+| | Per hook | JSON's share |
+| --- | --- | --- |
+| `message.pre_send` round trip | 68–131 µs | 1.6–3.9% |
+| The JSON in it | 2.0–2.8 µs | |
+
+Measured on 11 November 2026 on the same PC, with a `fast` build of the helper
+and `testing/plugins/echo.wasm`, whose `yf_hook` answers `"unchanged"`: 200
+sequential hook exchanges, each waited for, from the frame leaving the parent to
+`HookDone` arriving; and 200 encode-and-decode pairs of the same two messages,
+a `ToHelper::Hook` and a `FromHelper::HookDone`, in the helper's own test
+process. The round trip includes the pipe, the scheduler, Extism and the guest's
+call, so the JSON figure — both sides' serialization added together — is what
+the wire format costs of it. The spread is the machine's, not the measurement's:
+the three runs gave 131 µs, 73 µs and 68 µs per exchange with the JSON steady at
+2–3 µs, and not one of them came near the fifth that would justify a second
+encoding.
+
+```sh
+cargo test --profile fast -p yapfast-plugin-host --test e2e the_json_in_a_hook \
+  -- --nocapture
+```
