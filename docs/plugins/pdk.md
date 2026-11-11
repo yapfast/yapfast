@@ -1,6 +1,17 @@
 # Writing a plugin
 
-Plugins are written in Rust with `yapfast-pdk`, in
+A plugin is a WebAssembly module speaking the guest ABI, so it can be written in
+any language with a PDK that speaks it. This repository has four:
+
+| PDK | Where | Builds with |
+| --- | --- | --- |
+| Rust | [`pdk/rust`](../../pdk/rust) | `cargo build --target wasm32-unknown-unknown`, `crate-type = ["cdylib"]` |
+| C | [`pdk/c`](../../pdk/c) | plain `clang --target=wasm32-unknown-unknown -nostdlib`; no SDK, no WASI |
+| Zig | [`pdk/zig`](../../pdk/zig) | `zig build-exe --target=wasm32-freestanding --export=…` per export |
+| AssemblyScript | [`pdk/assemblyscript`](../../pdk/assemblyscript) | `asc`, with the plugin's own file as the entry |
+
+Rust is the one with a published crate. Plugins are written in Rust with
+`yapfast-pdk`, in
 [`pdk/rust`](../../pdk/rust). The crate is published on its own and built outside
 Yapfast's workspace, so a plugin author depends on `yapfast-pdk` alone and never
 on the app. Its only runtime dependency is `extism-pdk`, with Extism's own HTTP
@@ -211,11 +222,66 @@ That makes two habits worth having:
   the instance is evicted. Go and JavaScript builds also need `wasi: true` in the
   manifest, since their runtimes ask the host for clocks and randomness.
 
-Extism's other PDKs can talk to the same JSON API without support from this
-project, and [the ABI](abi.md) is what they follow. A plugin in one of them
-should ask for the default page limit before it asks for more, and check what it
-actually costs: a module with a runtime in it starts larger, compiles slower and
-holds more for longer.
+A plugin in any of them should ask for the default page limit before it asks for
+more, and check what it actually costs: a module with a runtime in it starts
+larger, compiles slower and holds more for longer. The examples measure it — the
+C `shout` is 11.9 KiB, AssemblyScript's 17.7 KiB, Zig's 57 KiB.
+
+## The other three PDKs
+
+Each of them is the same shape as the Rust one: five handlers a plugin writes,
+the ones it leaves out do nothing, and the JSON is never written by hand.
+
+```c
+// pdk/c/examples/shout/shout.c
+void yapfast_command(yf_str invocation, yf_buf *answer) {
+    yf_str text;
+    if (!yf_path(invocation, YF_STR("options.text"), &text)) {
+        yf_failed(answer, YF_STR("say what to shout"));
+        return;
+    }
+    yf_notice(answer, text);
+}
+```
+
+```zig
+// pdk/zig/examples/shout/shout.zig
+pub fn command(invocation: []const u8) ?[]const u8 {
+    return "\"none\"";
+}
+```
+
+```ts
+// pdk/assemblyscript/examples/shout/shout.ts
+class Shout extends Plugin {
+  command(invocation: string): string {
+    return '"none"';
+  }
+}
+register(new Shout());
+```
+
+### Two facts that cost each of us a module with no exports
+
+**Extism's handles are opaque.** A handle names memory Extism keeps for the
+guest, and only the kernel's `store` and `load` may read or write through one.
+Casting a handle to a pointer or an `ArrayBuffer` offset compiles, writes bytes
+that the host never reads, and breaks every host call silently — measured both
+ways in one module: a kernel store read back through a pointer is `\0`, and a
+pointer write read back through the kernel is `\0`. All three PDKs marshal
+through the kernel for that reason.
+
+**A WebAssembly export section is written by the linker.** Zig needs both
+`@export(&f, .{ .name = "yf_activate" })` and `--export=yf_activate` on the
+command line before the function appears there; `export fn` and `@export` alone
+produce a module with one export, `memory`. AssemblyScript exports the functions
+of the file `asc` is pointed at and not those of a library it imports, so a
+plugin names the five itself and each is a line.
+
+### Where to look
+
+Each folder's README says what its PDK gives a plugin, its `examples/shout` is a
+whole plugin, and `template` is the same with nothing in it yet.
 
 A module is at most 8 MiB, and each plugin with a compiled module in the helper
 costs about 0.56 MiB before it has done anything, which is why size is worth
