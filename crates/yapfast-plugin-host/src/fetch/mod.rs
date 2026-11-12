@@ -16,6 +16,9 @@
 //!  "rev":"051b765b…","manifest":"{…}","wasm":"/tmp/.yapfast-plugin-1-0/plugin.wasm",
 //!  "icon":null}
 //! {"kind":"index","source":"…","paths":["plugins/foo","plugins/quiet-hours"]}
+//! {"kind":"theme","source":"…","path":"","reference":"main","rev":"051b765b…",
+//!  "manifest":"{…}","folder":"/tmp/.yapfast-theme-1-0","files":["fonts/Body.ttf"],
+//!  "licence":"LICENSE"}
 //! {"kind":"error","error":"That repository has no yapfast-plugin.json at its root."}
 //! ```
 //!
@@ -57,6 +60,39 @@ pub const MANIFEST_FILE: &str = "yapfast-plugin.json";
 /// The index a repository's root may hold, so a URL that names no folder can
 /// still offer what the repository carries.
 pub const INDEX_FILE: &str = "yapfast-plugins.json";
+
+/// A theme's description, read where a folder has no plugin manifest.
+pub const THEME_FILE: &str = "theme.json";
+
+/// The largest `theme.json`, the cap the parent checks it against.
+const THEME_CAP: Cap = Cap {
+    bytes: 256 << 10,
+    label: "a theme.json is at most 256 KiB",
+};
+
+/// The largest file a theme holds: a font.
+const THEME_ASSET_CAP: Cap = Cap {
+    bytes: 4 << 20,
+    label: "a theme's file is at most 4 MiB",
+};
+
+/// The most a theme holds altogether, and the most files.
+const THEME_TOTAL: u64 = 24 << 20;
+const THEME_FILES: usize = 64;
+
+/// The kinds of file a theme may name; anything else in `theme.json` is text,
+/// not a file to fetch. The parent checks each file by its kind.
+const THEME_EXTENSIONS: [&str; 7] = ["ttf", "otf", "png", "jpg", "jpeg", "webp", "svg"];
+
+/// Licence files a theme's folder may hold.
+const LICENCE_FILES: [&str; 6] = [
+    "LICENSE",
+    "LICENSE.txt",
+    "LICENSE.md",
+    "LICENCE",
+    "LICENCE.txt",
+    "OFL.txt",
+];
 
 /// The largest manifest read: a manifest is metadata, which runs to kilobytes.
 const MANIFEST_CAP: Cap = Cap {
@@ -117,6 +153,23 @@ pub enum Report {
         source: String,
         /// The folders the index lists, each holding a `yapfast-plugin.json`.
         paths: Vec<String>,
+    },
+    /// A theme: no code, only `theme.json` and the files it names, written
+    /// under `folder` at their paths inside the theme. The parent checks every
+    /// one before anything is installed or drawn.
+    Theme {
+        source: String,
+        path: String,
+        reference: String,
+        rev: String,
+        /// `theme.json`'s text, exactly as the repository holds it.
+        manifest: String,
+        /// The directory the files were written to.
+        folder: String,
+        /// Each file's path inside the theme.
+        files: Vec<String>,
+        /// The licence file, when the folder holds one.
+        licence: Option<String>,
     },
     /// Why there is nothing to install, as one sentence a person reads.
     Error {
@@ -231,6 +284,9 @@ pub fn fetch(url: &str) -> anyhow::Result<Fetched> {
     let snapshot = git::Snapshot::open(&source, work.path())?;
 
     let Some(text) = snapshot.file(Path::new(MANIFEST_FILE), MANIFEST_CAP)? else {
+        if let Some(text) = snapshot.file(Path::new(THEME_FILE), THEME_CAP)? {
+            return theme(&source, &snapshot, text);
+        }
         return index_or_nothing(&source, &snapshot);
     };
     let text = String::from_utf8(text)
@@ -253,6 +309,86 @@ pub fn fetch(url: &str) -> anyhow::Result<Fetched> {
         },
         handoff: Some(handoff),
     })
+}
+
+/// A theme's folder: `theme.json` and every file it names, written for the
+/// parent to check. Nothing is parsed here beyond finding those names, so the
+/// rules a theme has to follow live in one place, the parent's.
+fn theme(source: &Source, snapshot: &git::Snapshot, text: Vec<u8>) -> anyhow::Result<Fetched> {
+    let manifest =
+        String::from_utf8(text).map_err(|_| anyhow::anyhow!("`{THEME_FILE}` isn't UTF-8 text"))?;
+    let value: serde_json::Value = serde_json::from_str(&manifest)
+        .map_err(|error| anyhow::anyhow!("Its `{THEME_FILE}` isn't JSON: {error}."))?;
+    let mut named = Vec::new();
+    theme_files(&value, &mut named);
+    if named.len() > THEME_FILES {
+        bail!("a theme names at most {THEME_FILES} files");
+    }
+    let handoff = Scratch::new(".yapfast-theme")?;
+    let mut total = manifest.len() as u64;
+    let mut files = Vec::with_capacity(named.len());
+    for relative in named {
+        let path = url::clean_path(&relative)?;
+        let Some(bytes) = snapshot.file(Path::new(&path), THEME_ASSET_CAP)? else {
+            // A file the theme names and doesn't hold is the parent's to
+            // refuse, with the sentence its check gives.
+            continue;
+        };
+        total += bytes.len() as u64;
+        if total > THEME_TOTAL {
+            bail!("a theme holds at most 24 MiB");
+        }
+        write(handoff.path(), Path::new(&path), &bytes)?;
+        files.push(path);
+    }
+    let mut licence = None;
+    for name in LICENCE_FILES {
+        if let Ok(Some(bytes)) = snapshot.file(Path::new(name), THEME_ASSET_CAP) {
+            write(handoff.path(), Path::new(name), &bytes)?;
+            licence = Some(name.to_owned());
+            break;
+        }
+    }
+    let folder = handoff
+        .path()
+        .to_str()
+        .context("the temporary directory isn't a path the parent can read as text")?
+        .to_owned();
+    Ok(Fetched {
+        report: Report::Theme {
+            source: source.repo.clone(),
+            path: source.path.clone().unwrap_or_default(),
+            reference: source.reference_name().to_owned(),
+            rev: snapshot.commit.clone(),
+            manifest,
+            folder,
+            files,
+            licence,
+        },
+        handoff: Some(handoff),
+    })
+}
+
+/// Every text in `theme.json` that names a file of a kind a theme holds, once
+/// each, in the order they appear.
+fn theme_files(value: &serde_json::Value, found: &mut Vec<String>) {
+    match value {
+        serde_json::Value::String(text) => {
+            let extension = Path::new(text)
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .map(str::to_ascii_lowercase);
+            let fits = extension
+                .as_deref()
+                .is_some_and(|extension| THEME_EXTENSIONS.contains(&extension));
+            if fits && !text.contains("://") && !found.contains(text) {
+                found.push(text.clone());
+            }
+        }
+        serde_json::Value::Array(items) => items.iter().for_each(|item| theme_files(item, found)),
+        serde_json::Value::Object(fields) => fields.values().for_each(|item| theme_files(item, found)),
+        _ => {}
+    }
 }
 
 /// A repository's root index, or the sentence that says why there is neither a
@@ -523,6 +659,19 @@ mod tests {
             serde_json::from_str(&serde_json::to_string(&report).expect("a report")).expect("JSON");
         assert_eq!(json["kind"], "index");
         assert_eq!(json["paths"][1], "plugins/quiet-hours");
+    }
+
+    #[test]
+    fn a_theme_names_its_files_and_nothing_else() {
+        let value: serde_json::Value = serde_json::from_str(
+            r#"{ "name": "fonts/not-a-file", "preview": ["previews/chat.png", "previews/chat.png"],
+                 "variants": { "dark": { "type": { "body": { "font": "fonts/Body.ttf" } } } },
+                 "source": "https://github.com/ada/theme.png" }"#,
+        )
+        .expect("JSON");
+        let mut found = Vec::new();
+        theme_files(&value, &mut found);
+        assert_eq!(found, ["previews/chat.png", "fonts/Body.ttf"]);
     }
 
     #[test]

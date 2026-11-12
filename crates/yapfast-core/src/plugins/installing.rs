@@ -29,6 +29,8 @@ pub enum Outcome {
         source: String,
         paths: Vec<String>,
     },
+    /// A theme: read and checked, not installed. See [`crate::themes`].
+    Theme(Box<crate::themes::install::Fetched>),
 }
 
 /// One plugin, read out of its repository.
@@ -65,6 +67,16 @@ enum Report {
     Index {
         source: String,
         paths: Vec<String>,
+    },
+    Theme {
+        source: String,
+        path: String,
+        reference: String,
+        rev: String,
+        manifest: String,
+        folder: String,
+        files: Vec<String>,
+        licence: Option<String>,
     },
     Error {
         error: String,
@@ -280,6 +292,22 @@ pub fn fetch(url: &str) -> Result<Outcome, String> {
     match report {
         Report::Error { error } => Err(error),
         Report::Index { source, paths } => Ok(Outcome::Index { source, paths }),
+        Report::Theme {
+            source,
+            path,
+            reference,
+            rev,
+            manifest,
+            folder,
+            files,
+            licence,
+        } => {
+            let read = theme_files(&folder, manifest, &files, licence.as_deref());
+            remove_theme_scratch(&folder);
+            let fetched =
+                crate::themes::install::Fetched::new(source, path, reference, rev, read?)?;
+            Ok(Outcome::Theme(Box::new(fetched)))
+        }
         Report::Plugin {
             source,
             path,
@@ -317,6 +345,48 @@ pub fn fetch(url: &str) -> Result<Outcome, String> {
                 icon,
             }))
         }
+    }
+}
+
+/// A theme's files, as the helper wrote them under `folder`.
+fn theme_files(
+    folder: &str,
+    manifest: String,
+    files: &[String],
+    licence: Option<&str>,
+) -> Result<crate::themes::check::Files, String> {
+    let folder = Path::new(folder);
+    let mut read = std::collections::BTreeMap::new();
+    for file in files {
+        // The helper names paths inside the theme; one that isn't would read
+        // something else on this computer.
+        let relative = crate::themes::package::relative(file, "files").map_err(|error| error.0)?;
+        let bytes = std::fs::read(folder.join(&relative))
+            .map_err(|error| format!("could not read {file}: {error}"))?;
+        read.insert(relative, bytes);
+    }
+    let licence = match licence {
+        Some(name) if crate::themes::check::LICENCE_FILES.contains(&name) => {
+            Some((name.into(), read_and_remove(&folder.join(name).to_string_lossy())?))
+        }
+        _ => None,
+    };
+    Ok(crate::themes::check::Files {
+        manifest,
+        files: read,
+        licence,
+    })
+}
+
+/// Removes the directory the helper wrote a theme into, which it named.
+fn remove_theme_scratch(folder: &str) {
+    let path = Path::new(folder);
+    if path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with(".yapfast-theme-"))
+    {
+        let _ = std::fs::remove_dir_all(path);
     }
 }
 

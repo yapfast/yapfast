@@ -30,7 +30,7 @@ Usage:
 `run` speaks the framed protocol on stdin and stdout and exits when the
 parent closes it or when no plugin instance is left.
 
-`fetch` fetches a git URL, reads the plugin it holds, and prints what it found
+`fetch` fetches a git URL, reads the plugin or theme it holds, and prints what it found
 as one JSON object; the files it read wait in a temporary directory for the
 parent to copy into the store and delete.
 

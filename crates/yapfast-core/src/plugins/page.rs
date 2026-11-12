@@ -212,9 +212,21 @@ pub enum Catalog {
     Ready(Arc<[Listing]>),
 }
 
-/// A plugin in the marketplace.
+/// What a marketplace entry is: the catalog lists plugins and themes
+/// together, as `kind` in its entries says.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Kind {
+    #[default]
+    Plugin,
+    /// A `theme.json` package: no code and no permissions. See
+    /// `crate::themes`.
+    Theme,
+}
+
+/// A plugin or a theme in the marketplace.
 #[derive(Clone, Debug, Default)]
 pub struct Listing {
+    pub kind: Kind,
     pub id: String,
     pub name: String,
     pub description: String,
@@ -228,6 +240,10 @@ pub struct Listing {
     pub reviewed: bool,
     pub capabilities: Vec<String>,
     pub network: Vec<String>,
+    /// A theme's variants, as "Dark", "Light" or "Dark and light".
+    pub modes: String,
+    /// A theme's measured cost, shown before it's installed.
+    pub cost: String,
 }
 
 impl Listing {
@@ -940,6 +956,7 @@ impl Fixture {
             reviewed: true,
             capabilities: strings(capabilities),
             network: strings(network),
+            ..Listing::default()
         };
         let mut listings = vec![
             Listing {
@@ -991,6 +1008,33 @@ impl Fixture {
                 &[],
             ),
         ];
+        // Themes share the catalog, as `kind: "theme"` entries.
+        for (id, name, description, author, modes, cost) in [
+            (
+                "org.example.night-shift",
+                "Night Shift",
+                "Warm amber ink on near-black, square corners and a slow cursor blink.",
+                "Hal",
+                "Dark",
+                "no extra memory · 1 animation",
+            ),
+            (
+                "org.example.paper",
+                "Paper",
+                "Off-white paper, black ink and a serif for headings.",
+                "Ida",
+                "Light",
+                "~0.2 MB memory · 1 font · still",
+            ),
+        ] {
+            listings.push(Listing {
+                kind: Kind::Theme,
+                modes: modes.into(),
+                cost: cost.into(),
+                category: "Themes".into(),
+                ..listing(id, name, description, author, "Themes", &[], &[])
+            });
+        }
         // Enough rows to scroll the list, as a real catalog would.
         for index in 1..=40 {
             listings.push(Listing {

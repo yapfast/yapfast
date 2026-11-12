@@ -59,6 +59,9 @@ impl Bridge {
                     Ok(Ok(crate::plugins::installing::Outcome::Plugin(fetched))) => Ok(fetched),
                     // A repository that holds several plugins: each is installed
                     // by its own address, so say how rather than picking one.
+                    Ok(Ok(crate::plugins::installing::Outcome::Theme(_))) => {
+                        Err("That repository holds a theme; add it from the Themes tab.".to_owned())
+                    }
                     Ok(Ok(crate::plugins::installing::Outcome::Index { paths, .. })) => {
                         Err(format!(
                             "That repository holds several plugins; install one by its \

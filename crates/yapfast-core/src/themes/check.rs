@@ -1,0 +1,794 @@
+//! Whether a theme may be applied, installed or listed, and what it costs.
+//!
+//! The same checks run everywhere a theme comes in: `yapfast theme check
+//! <folder>`, `--theme-dev`, an install from a repository and the
+//! marketplace's CI, so an author sees at home what review would refuse.
+//! Nothing here decodes more than it has to to know a file is what it says:
+//! a font's tables are parsed, a picture's header is read and its pixels
+//! decoded under limits, an SVG is read as XML and refused if it could run or
+//! reach anything.
+
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+use super::MANIFEST;
+use super::package::{Mode, Package, Paint, READABLE, Resolved, TEXT_ON, follows};
+
+/// The largest font file.
+pub const MAX_FONT_BYTES: u64 = 4 << 20;
+/// The largest picture: previews and icons.
+pub const MAX_IMAGE_BYTES: u64 = 2 << 20;
+/// The largest picture, in pixels on either side.
+pub const MAX_IMAGE_SIDE: u32 = 3840;
+/// The most a whole theme may hold, `theme.json` and licence included.
+pub const MAX_THEME_BYTES: u64 = 24 << 20;
+/// The largest `theme.json`.
+pub const MAX_MANIFEST_BYTES: u64 = 256 << 10;
+
+/// Licence files a theme's folder may hold, one of which a listed theme
+/// needs.
+pub const LICENCE_FILES: [&str; 6] = [
+    "LICENSE",
+    "LICENSE.txt",
+    "LICENSE.md",
+    "LICENCE",
+    "LICENCE.txt",
+    "OFL.txt",
+];
+
+/// The colours of the built-in themes, which a theme's own colours are
+/// checked over: `(base id, token) -> ARGB`. The interface owns the palettes
+/// (`src/ui/theme.rs`) and registers this once at startup; until it does,
+/// only the colours a theme sets itself are checked.
+pub type BaseColours = fn(&str, &str) -> Option<u32>;
+
+static BASES: OnceLock<BaseColours> = OnceLock::new();
+
+/// Registers where the built-in themes' colours come from.
+pub fn set_base_colours(colours: BaseColours) {
+    let _ = BASES.set(colours);
+}
+
+/// A built-in theme's colour, if the interface registered them.
+pub fn base_colour(base: &str, token: &str) -> Option<u32> {
+    BASES.get().and_then(|colours| colours(base, token))
+}
+
+/// Whether a base is one Yapfast has, when the interface registered them.
+fn known_base(base: &str) -> bool {
+    BASES.get().is_none_or(|colours| colours(base, "text").is_some())
+}
+
+/// How strict to be.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Strictness {
+    /// Applying or installing: what would break the window or reach outside
+    /// the theme.
+    Install,
+    /// Listing in the marketplace: also a licence, a GitHub source, a
+    /// description and a preview, which review reads.
+    Marketplace,
+}
+
+/// A theme's files, read: `theme.json` and every file it names, by their
+/// path inside the folder.
+#[derive(Clone, Debug, Default)]
+pub struct Files {
+    pub manifest: String,
+    pub files: BTreeMap<PathBuf, Vec<u8>>,
+    /// The licence file the folder holds, if any, and its text.
+    pub licence: Option<(PathBuf, Vec<u8>)>,
+}
+
+impl Files {
+    /// Reads a theme's folder: `theme.json`, the files it names and a licence
+    /// file, refusing anything too large before reading it.
+    pub fn read(folder: &Path) -> Result<Self, String> {
+        let manifest_path = folder.join(MANIFEST);
+        let size = std::fs::metadata(&manifest_path)
+            .map_err(|_| format!("{} has no {MANIFEST}", folder.display()))?
+            .len();
+        if size > MAX_MANIFEST_BYTES {
+            return Err(format!("{MANIFEST} is at most 256 KiB"));
+        }
+        let manifest = std::fs::read_to_string(&manifest_path)
+            .map_err(|error| format!("{MANIFEST} couldn't be read: {error}"))?;
+        let mut files = BTreeMap::new();
+        if let Ok(package) = Package::parse(&manifest) {
+            let mut total = size;
+            for relative in package.files() {
+                let path = folder.join(&relative);
+                // A link could name a file outside the folder; a theme's files
+                // are its own.
+                let metadata = match std::fs::symlink_metadata(&path) {
+                    Ok(metadata) => metadata,
+                    Err(_) => continue,
+                };
+                if !metadata.is_file() {
+                    continue;
+                }
+                total += metadata.len();
+                if metadata.len() > MAX_FONT_BYTES.max(MAX_IMAGE_BYTES) || total > MAX_THEME_BYTES {
+                    return Err(format!(
+                        "{} is too large: a theme holds at most 24 MiB, a font 4 MiB and a picture 2 MiB",
+                        relative.display()
+                    ));
+                }
+                let bytes = std::fs::read(&path)
+                    .map_err(|error| format!("{} couldn't be read: {error}", relative.display()))?;
+                files.insert(relative, bytes);
+            }
+        }
+        let licence = LICENCE_FILES
+            .iter()
+            .map(PathBuf::from)
+            .find(|name| {
+                std::fs::symlink_metadata(folder.join(name))
+                    .is_ok_and(|metadata| metadata.is_file() && metadata.len() <= 1 << 20)
+            })
+            .and_then(|name| Some((name.clone(), std::fs::read(folder.join(&name)).ok()?)));
+        Ok(Files {
+            manifest,
+            files,
+            licence,
+        })
+    }
+
+    /// Bytes on disk the theme takes.
+    pub fn bytes(&self) -> u64 {
+        self.manifest.len() as u64 + self.files.values().map(|bytes| bytes.len() as u64).sum::<u64>()
+    }
+}
+
+/// What a check found.
+#[derive(Clone, Debug, Default)]
+pub struct Report {
+    /// Why the theme can't be used; empty when it can.
+    pub errors: Vec<String>,
+    /// What review would ask about, or what a person should know.
+    pub warnings: Vec<String>,
+    /// What this Yapfast ignored.
+    pub notes: Vec<String>,
+    pub package: Option<Package>,
+    pub cost: Cost,
+}
+
+impl Report {
+    pub fn passed(&self) -> bool {
+        self.errors.is_empty()
+    }
+
+    /// The first reason it can't be used, as one sentence.
+    pub fn reason(&self) -> Option<&str> {
+        self.errors.first().map(String::as_str)
+    }
+
+    /// What `yapfast theme check` prints.
+    pub fn text(&self) -> String {
+        let mut out = String::new();
+        if let Some(package) = &self.package {
+            out.push_str(&format!(
+                "{} {} ({}), {}\n",
+                package.name,
+                package.version,
+                package.id,
+                package
+                    .modes()
+                    .iter()
+                    .map(|mode| mode.name())
+                    .collect::<Vec<_>>()
+                    .join(" and ")
+            ));
+        }
+        for error in &self.errors {
+            out.push_str(&format!("error: {error}\n"));
+        }
+        for warning in &self.warnings {
+            out.push_str(&format!("warning: {warning}\n"));
+        }
+        for note in &self.notes {
+            out.push_str(&format!("note: {note}\n"));
+        }
+        out.push_str(&format!("cost: {}\n", self.cost.text()));
+        out.push_str(if self.passed() { "passed\n" } else { "failed\n" });
+        out
+    }
+}
+
+/// What a theme costs to run, measured from what it holds: shown before it's
+/// installed, and against the Performance setting.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Cost {
+    /// Bytes its fonts keep in memory once applied.
+    pub memory: u64,
+    /// Declared animations, and how many of them stay still in Balanced.
+    pub animations: usize,
+    pub heavy: usize,
+    /// The most redraws a second its animations ask for in Full.
+    pub redraws: u32,
+    pub effects: usize,
+    pub fonts: usize,
+}
+
+impl Cost {
+    /// As the marketplace and the review show it: `~1.2 MB memory · 2
+    /// animations (1 heavy) · up to 60 redraws a second`.
+    pub fn text(&self) -> String {
+        let mut parts = vec![if self.memory == 0 {
+            "no extra memory".to_owned()
+        } else {
+            format!("~{:.1} MB memory", self.memory as f64 / 1_000_000.0)
+        }];
+        if self.fonts > 0 {
+            parts.push(format!(
+                "{} font{}",
+                self.fonts,
+                if self.fonts == 1 { "" } else { "s" }
+            ));
+        }
+        match (self.animations, self.heavy) {
+            (0, _) => parts.push("still".to_owned()),
+            (count, 0) => parts.push(format!(
+                "{count} animation{}",
+                if count == 1 { "" } else { "s" }
+            )),
+            (count, heavy) => parts.push(format!(
+                "{count} animation{} ({heavy} heavy)",
+                if count == 1 { "" } else { "s" }
+            )),
+        }
+        if self.redraws > 0 {
+            parts.push(format!("up to {} redraws a second", self.redraws));
+        }
+        if self.effects > 0 {
+            parts.push(format!(
+                "{} text effect{}",
+                self.effects,
+                if self.effects == 1 { "" } else { "s" }
+            ));
+        }
+        parts.join(" · ")
+    }
+
+    fn of(resolved: &[Resolved], files: &Files) -> Cost {
+        let mut fonts: Vec<&Path> = Vec::new();
+        let mut cost = Cost::default();
+        for variant in resolved {
+            for font in variant.fonts() {
+                if !fonts.contains(&font) {
+                    fonts.push(font);
+                    // A font is held whole once registered, as its file.
+                    cost.memory += files.files.get(font).map_or(0, |bytes| bytes.len() as u64);
+                }
+            }
+            cost.animations = cost.animations.max(variant.animations.len());
+            cost.heavy = cost
+                .heavy
+                .max(variant.animations.iter().filter(|animation| animation.heavy).count());
+            cost.effects = cost.effects.max(variant.effects.len());
+            for animation in &variant.animations {
+                let rate = super::motion::frame_rate(animation, super::Performance::Full);
+                cost.redraws = cost.redraws.max(rate);
+            }
+        }
+        cost.fonts = fonts.len();
+        cost
+    }
+}
+
+/// Checks a theme's files.
+pub fn check(files: &Files, strictness: Strictness) -> Report {
+    let mut report = Report::default();
+    let package = match Package::parse(&files.manifest) {
+        Ok(package) => package,
+        Err(error) => {
+            report.errors.push(error.0);
+            return report;
+        }
+    };
+    report.notes = package.notes.clone();
+    let mut resolved = Vec::new();
+    for mode in package.modes() {
+        match package.resolve(mode) {
+            Ok(variant) => {
+                if !known_base(&variant.base) {
+                    report.errors.push(format!(
+                        "the {} variant's base \"{}\" isn't a theme Yapfast comes with",
+                        mode.name(),
+                        variant.base
+                    ));
+                } else if let Some(text) = base_colour(&variant.base, "text") {
+                    // A dark variant's base is dark: its text is light.
+                    let light_text = luminance(text) > 0.4;
+                    if light_text != (mode == Mode::Dark) {
+                        report.errors.push(format!(
+                            "the {} variant's base \"{}\" is a {} theme",
+                            mode.name(),
+                            variant.base,
+                            if light_text { "dark" } else { "light" }
+                        ));
+                    }
+                }
+                report.errors.extend(unreadable(&variant));
+                resolved.push(variant);
+            }
+            Err(error) => report.errors.push(error.0),
+        }
+    }
+    for relative in package.files() {
+        let Some(bytes) = files.files.get(&relative) else {
+            report.errors.push(format!(
+                "{MANIFEST} names {}, which isn't in the theme",
+                relative.display()
+            ));
+            continue;
+        };
+        if let Err(error) = check_file(&relative, bytes) {
+            report.errors.push(format!("{}: {error}", relative.display()));
+        }
+    }
+    if files.bytes() > MAX_THEME_BYTES {
+        report.errors.push("a theme holds at most 24 MiB".into());
+    }
+    if strictness == Strictness::Marketplace {
+        if package.license.as_deref().is_none_or(|license| license.trim().is_empty()) {
+            report
+                .errors
+                .push("a listed theme names its licence in \"license\", such as OFL-1.1".into());
+        }
+        if files.licence.is_none() {
+            report.errors.push(format!(
+                "a listed theme ships its licence as {}",
+                LICENCE_FILES.join(", ")
+            ));
+        }
+        match package.source.as_deref() {
+            Some(source) if github(source) => {}
+            _ => report.errors.push(
+                "a listed theme names its public GitHub repository in \"source\"".into(),
+            ),
+        }
+        if package.description.trim().is_empty() {
+            report
+                .errors
+                .push("a listed theme says what it looks like in \"description\"".into());
+        }
+        if package.preview.is_empty() {
+            report
+                .errors
+                .push("a listed theme shows at least one picture in \"preview\"".into());
+        }
+    } else if package.preview.is_empty() {
+        report
+            .warnings
+            .push("no \"preview\": the marketplace needs at least one".into());
+    }
+    if let Some(based_on) = &package.based_on
+        && !github(based_on)
+    {
+        report
+            .warnings
+            .push("\"based_on\" names a repository that isn't on GitHub".into());
+    }
+    report.cost = Cost::of(&resolved, files);
+    report.package = Some(package);
+    report
+}
+
+/// Whether a repository address is a public GitHub repository's, which is
+/// where themes come from for now.
+pub fn github(source: &str) -> bool {
+    let Some(rest) = source.trim().strip_prefix("https://github.com/") else {
+        return false;
+    };
+    let rest = rest.trim_end_matches('/').trim_end_matches(".git");
+    let mut parts = rest.split('/');
+    let fine = |part: Option<&str>| {
+        part.is_some_and(|part| {
+            !part.is_empty()
+                && part != "."
+                && part != ".."
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))
+        })
+    };
+    fine(parts.next()) && fine(parts.next())
+}
+
+/// Every pair of a text colour and a surface it's drawn on that would read
+/// under 4.5:1, each as a sentence naming the token. A pair the base already
+/// draws lower keeps the base's own contrast as its bar.
+pub fn unreadable(variant: &Resolved) -> Vec<String> {
+    // A colour the theme leaves, as it shows: the base's, or for a colour
+    // only themes set, what it follows.
+    fn shown_in(variant: &Resolved, token: &str) -> Option<Vec<u32>> {
+        variant
+            .paint(token)
+            .map(Paint::colours)
+            .or_else(|| base_colour(&variant.base, token).map(|colour| vec![colour]))
+            .or_else(|| follows(token).and_then(|follow| shown_in(variant, follow)))
+    }
+    let own_colour = |token: &str| {
+        base_colour(&variant.base, token)
+            .or_else(|| follows(token).and_then(|follow| base_colour(&variant.base, follow)))
+    };
+    let shown = |token: &str| shown_in(variant, token);
+    // Whether the theme changes what a token shows, itself or through what it
+    // follows.
+    fn changed(variant: &Resolved, token: &str) -> bool {
+        variant.paint(token).is_some()
+            || follows(token).is_some_and(|follow| changed(variant, follow))
+    }
+    let mut refused = Vec::new();
+    for (text, surfaces) in TEXT_ON {
+        for surface in surfaces.iter().copied() {
+            if !changed(variant, text) && !changed(variant, surface) {
+                continue;
+            }
+            let (Some(fronts), Some(backs)) = (shown(text), shown(surface)) else {
+                continue;
+            };
+            let own = own_colour(text)
+                .zip(own_colour(surface))
+                .map_or(READABLE, |(front, back)| contrast(front, back));
+            let needed = READABLE.min(own) - 0.005;
+            let worst = fronts
+                .iter()
+                .flat_map(|front| backs.iter().map(move |back| contrast(*front, *back)))
+                .fold(f64::INFINITY, f64::min);
+            if worst < needed {
+                let sentence = format!(
+                    "{text} on {surface} contrasts {worst:.1}:1, under {:.1}:1; text has to stay readable",
+                    needed + 0.005
+                );
+                if !refused.contains(&sentence) {
+                    refused.push(sentence);
+                }
+            }
+        }
+    }
+    refused
+}
+
+/// How much two colours contrast, from 1 to 21, as WCAG measures it; a
+/// translucent foreground is laid over the background first.
+pub fn contrast(foreground: u32, background: u32) -> f64 {
+    let channel = |colour: u32, shift: u32| f64::from((colour >> shift) & 0xff) / 255.0;
+    let alpha = f64::from(foreground >> 24) / 255.0;
+    let back = [16, 8, 0].map(|shift| channel(background, shift));
+    let front = [16, 8, 0].map(|shift| channel(foreground, shift));
+    let mixed = [0, 1, 2].map(|index| front[index] * alpha + back[index] * (1.0 - alpha));
+    let (one, two) = (relative_luminance(mixed), relative_luminance(back));
+    (one.max(two) + 0.05) / (one.min(two) + 0.05)
+}
+
+fn relative_luminance(rgb: [f64; 3]) -> f64 {
+    let linear = |value: f64| {
+        if value <= 0.039_28 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * linear(rgb[0]) + 0.7152 * linear(rgb[1]) + 0.0722 * linear(rgb[2])
+}
+
+fn luminance(colour: u32) -> f64 {
+    let channel = |shift: u32| f64::from((colour >> shift) & 0xff) / 255.0;
+    relative_luminance([channel(16), channel(8), channel(0)])
+}
+
+/// Checks one file by what its name says it is.
+pub fn check_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    match extension.as_str() {
+        "ttf" | "otf" => check_font(bytes),
+        "png" | "jpg" | "jpeg" | "webp" => check_image(bytes),
+        "svg" => check_svg(bytes),
+        _ => Err("isn't a kind of file a theme holds: fonts are .ttf or .otf, pictures .png, .jpg, .webp or .svg".into()),
+    }
+}
+
+/// A font is parsed in full before anything draws with it: its tables, its
+/// name, and a glyph for a letter. A parser that panics on a hostile file is
+/// caught, and the file refused.
+pub fn check_font(bytes: &[u8]) -> Result<(), String> {
+    if bytes.len() as u64 > MAX_FONT_BYTES {
+        return Err("a font is at most 4 MiB".into());
+    }
+    let parsed = std::panic::catch_unwind(|| {
+        let face = ttf_parser::Face::parse(bytes, 0).map_err(|error| format!("isn't a font Yapfast reads ({error})"))?;
+        if face.number_of_glyphs() == 0 {
+            return Err("holds no glyphs".to_owned());
+        }
+        let named = face
+            .names()
+            .into_iter()
+            .any(|name| name.name_id == ttf_parser::name_id::FAMILY && name.to_string().is_some());
+        if !named {
+            return Err("has no family name".to_owned());
+        }
+        if face.glyph_index('a').is_none() && face.glyph_index('A').is_none() {
+            return Err("has no Latin letters to draw text with".to_owned());
+        }
+        Ok(face.names().into_iter().count())
+    });
+    match parsed {
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(error)) => Err(error),
+        Err(_) => Err("isn't a font Yapfast reads".into()),
+    }
+}
+
+/// A picture is PNG, JPEG or WebP, no larger than [`MAX_IMAGE_SIDE`] on a
+/// side, and decodes whole.
+pub fn check_image(bytes: &[u8]) -> Result<(), String> {
+    if bytes.len() as u64 > MAX_IMAGE_BYTES {
+        return Err("a picture is at most 2 MiB".into());
+    }
+    let format = image::guess_format(bytes).map_err(|_| "isn't a picture Yapfast reads".to_owned())?;
+    if !matches!(
+        format,
+        image::ImageFormat::Png | image::ImageFormat::Jpeg | image::ImageFormat::WebP
+    ) {
+        return Err("is a picture Yapfast doesn't take: use PNG, JPEG or WebP".into());
+    }
+    let mut reader = image::ImageReader::with_format(std::io::Cursor::new(bytes), format);
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_IMAGE_SIDE);
+    limits.max_image_height = Some(MAX_IMAGE_SIDE);
+    limits.max_alloc = Some(64 << 20);
+    reader.limits(limits);
+    reader
+        .decode()
+        .map(|_| ())
+        .map_err(|_| format!("doesn't decode, or is larger than {MAX_IMAGE_SIDE} pixels on a side"))
+}
+
+/// Elements an SVG may not hold: anything that runs, embeds another document
+/// or animates.
+const SVG_REFUSED: [&str; 9] = [
+    "script",
+    "foreignObject",
+    "iframe",
+    "embed",
+    "object",
+    "animate",
+    "set",
+    "animateTransform",
+    "animateMotion",
+];
+
+/// An SVG is read as XML and refused if it holds a script, an event handler,
+/// another document, or a reference to anything outside itself; then it has
+/// to render.
+pub fn check_svg(bytes: &[u8]) -> Result<(), String> {
+    if bytes.len() as u64 > MAX_IMAGE_BYTES {
+        return Err("a picture is at most 2 MiB".into());
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| "isn't UTF-8 text".to_owned())?;
+    if text.contains("<!ENTITY") || text.contains("<!DOCTYPE") {
+        return Err("declares entities or a doctype, which an SVG in a theme can't".into());
+    }
+    let options = resvg::usvg::roxmltree::ParsingOptions {
+        allow_dtd: false,
+        ..Default::default()
+    };
+    let document = resvg::usvg::roxmltree::Document::parse_with_options(text, options)
+        .map_err(|error| format!("isn't an SVG Yapfast reads ({error})"))?;
+    for node in document.descendants().filter(|node| node.is_element()) {
+        let name = node.tag_name().name();
+        if SVG_REFUSED.contains(&name) {
+            return Err(format!("holds <{name}>, which an SVG in a theme can't"));
+        }
+        for attribute in node.attributes() {
+            let key = attribute.name();
+            let value = attribute.value().trim();
+            if key.to_ascii_lowercase().starts_with("on") {
+                return Err(format!("has an event handler ({key}), which an SVG in a theme can't"));
+            }
+            if key == "href" && !value.starts_with('#') {
+                return Err(format!(
+                    "links to \"{}\": an SVG in a theme only refers to itself",
+                    value.chars().take(40).collect::<String>()
+                ));
+            }
+            if (key == "style" || name == "style") && outside_reference(value) {
+                return Err("its style reaches outside the file".into());
+            }
+            if outside_reference(value) && value.contains("url(") {
+                return Err(format!("{key} reaches outside the file"));
+            }
+        }
+        if name == "style"
+            && let Some(css) = node.text()
+            && outside_reference(css)
+        {
+            return Err("its style reaches outside the file".into());
+        }
+    }
+    resvg::usvg::Tree::from_data(bytes, &resvg::usvg::Options::default())
+        .map(|_| ())
+        .map_err(|error| format!("doesn't render ({error})"))
+}
+
+/// Whether CSS or an attribute refers to something that isn't in the file:
+/// an import, or a `url()` that isn't a `#fragment`.
+fn outside_reference(text: &str) -> bool {
+    if text.contains("@import") {
+        return true;
+    }
+    let mut rest = text;
+    while let Some(start) = rest.find("url(") {
+        let after = rest[start + 4..].trim_start().trim_start_matches(['"', '\'']);
+        if !after.starts_with('#') {
+            return true;
+        }
+        rest = &rest[start + 4..];
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bases(base: &str, token: &str) -> Option<u32> {
+        if base != "yap" && base != "sakura" {
+            return None;
+        }
+        let light = base == "sakura";
+        Some(match (token, light) {
+            ("text", false) => 0xffee_f0f4,
+            ("secondary", false) => 0xffb5_b8c1,
+            ("muted", false) => 0xff8d_919c,
+            ("link", false) => 0xff64_adf6,
+            ("on-accent", false) => 0xff1d_1607,
+            ("accent", false) => 0xffff_bf47,
+            ("sidebar", false) => 0xff17_181c,
+            ("panel", false) => 0xff12_1316,
+            ("chat", false) => 0xff1e_1f24,
+            ("field", false) => 0xff2a_2b32,
+            ("raised", false) => 0xff26_272e,
+            ("text", true) => 0xff2b_2230,
+            (_, true) => 0xfffa_f5f7,
+            _ => return None,
+        })
+    }
+
+    fn files(manifest: &str) -> Files {
+        set_base_colours(bases);
+        Files {
+            manifest: manifest.to_owned(),
+            ..Files::default()
+        }
+    }
+
+    const PLUM: &str = r##"{ "theme_api": 1, "id": "com.example.plum", "name": "Plum", "version": "1.0.0",
+        "variants": { "dark": { "base": "yap", "colours": { "chat": "#2a1a3a" } } } }"##;
+
+    #[test]
+    fn a_readable_theme_passes() {
+        let report = check(&files(PLUM), Strictness::Install);
+        assert!(report.passed(), "{:?}", report.errors);
+        assert!(report.warnings.iter().any(|warning| warning.contains("preview")));
+    }
+
+    #[test]
+    fn unreadable_text_is_refused_with_the_token() {
+        let report = check(
+            &files(&PLUM.replace("#2a1a3a", "#d8d8d8")),
+            Strictness::Install,
+        );
+        assert!(!report.passed());
+        let reason = report.reason().unwrap();
+        assert!(reason.starts_with("text on chat"), "{reason}");
+        assert!(reason.contains("4.5:1"), "{reason}");
+    }
+
+    #[test]
+    fn every_stop_of_a_gradient_must_read() {
+        let report = check(
+            &files(&PLUM.replace("\"#2a1a3a\"", "\"linear(#1a1a1a, #f0f0f0)\"")),
+            Strictness::Install,
+        );
+        assert!(!report.passed());
+    }
+
+    #[test]
+    fn a_dark_variant_needs_a_dark_base() {
+        let report = check(&files(&PLUM.replace("\"yap\"", "\"sakura\"")), Strictness::Install);
+        assert!(
+            report.errors.iter().any(|error| error.contains("is a light theme")),
+            "{:?}",
+            report.errors
+        );
+        let report = check(&files(&PLUM.replace("\"yap\"", "\"neon\"")), Strictness::Install);
+        assert!(report.errors.iter().any(|error| error.contains("isn't a theme Yapfast comes with")));
+    }
+
+    #[test]
+    fn a_named_file_has_to_be_there() {
+        let manifest = PLUM.replace(
+            r##""colours": { "chat": "#2a1a3a" }"##,
+            r#""type": { "body": { "font": "fonts/Body.ttf" } }"#,
+        );
+        let report = check(&files(&manifest), Strictness::Install);
+        assert!(report.errors.iter().any(|error| error.contains("isn't in the theme")));
+        let mut with = files(&manifest);
+        with.files.insert("fonts/Body.ttf".into(), b"not a font".to_vec());
+        let report = check(&with, Strictness::Install);
+        assert!(report.errors.iter().any(|error| error.contains("isn't a font")), "{:?}", report.errors);
+    }
+
+    #[test]
+    fn the_marketplace_asks_for_more() {
+        let report = check(&files(PLUM), Strictness::Marketplace);
+        let errors = report.errors.join("\n");
+        for expected in ["licence", "GitHub", "description", "preview"] {
+            assert!(errors.contains(expected), "{expected} in {errors}");
+        }
+    }
+
+    #[test]
+    fn only_github_repositories() {
+        assert!(github("https://github.com/ada/vaporwave"));
+        assert!(github("https://github.com/ada/vaporwave.git"));
+        assert!(github("https://github.com/ada/vaporwave/"));
+        assert!(!github("https://gitlab.com/ada/vaporwave"));
+        assert!(!github("https://github.com.evil.example/ada/vaporwave"));
+        assert!(!github("http://github.com/ada/vaporwave"));
+        assert!(!github("https://github.com/ada"));
+        assert!(!github("https://github.com/../x"));
+    }
+
+    #[test]
+    fn svgs_that_could_run_or_reach_out_are_refused() {
+        let fine = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><linearGradient id="g"><stop offset="0" stop-color="red"/></linearGradient></defs><rect width="10" height="10" fill="url(#g)"/></svg>"##;
+        assert_eq!(check_svg(fine), Ok(()));
+        for (svg, says) in [
+            (r#"<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>"#, "<script>"),
+            (r#"<svg xmlns="http://www.w3.org/2000/svg" onload="x()"><rect width="1" height="1"/></svg>"#, "event handler"),
+            (r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="https://example.com/a.png"/></svg>"#, "links to"),
+            (r#"<svg xmlns="http://www.w3.org/2000/svg"><rect fill="url(https://example.com/x#g)" width="1" height="1"/></svg>"#, "outside"),
+            (r#"<svg xmlns="http://www.w3.org/2000/svg"><style>@import url(x.css);</style></svg>"#, "outside"),
+            (r#"<!DOCTYPE svg [<!ENTITY x "y">]><svg xmlns="http://www.w3.org/2000/svg"/>"#, "entities"),
+            (r#"<svg xmlns="http://www.w3.org/2000/svg"><foreignObject/></svg>"#, "foreignObject"),
+        ] {
+            let error = check_svg(svg.as_bytes()).unwrap_err();
+            assert!(error.contains(says), "{svg}: {error}");
+        }
+    }
+
+    #[test]
+    fn pictures_are_checked_by_decoding() {
+        let mut png = Vec::new();
+        image::RgbaImage::new(4, 4)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        assert_eq!(check_image(&png), Ok(()));
+        assert!(check_image(b"GIF89a....").is_err());
+        assert!(check_image(&png[..20]).is_err());
+    }
+
+    #[test]
+    fn the_cost_counts_fonts_and_animations() {
+        let manifest = PLUM.replace(
+            r##""colours": { "chat": "#2a1a3a" }"##,
+            r#""animations": [
+                { "slot": "window", "property": "opacity", "values": [0, 0.04], "period": 100, "steps": 2 },
+                { "slot": "unread", "property": "scale", "values": [1, 1.1], "period": 1000 }
+            ]"#,
+        );
+        let report = check(&files(&manifest), Strictness::Install);
+        assert_eq!(report.cost.animations, 2);
+        assert_eq!(report.cost.heavy, 1);
+        assert!(report.cost.text().contains("2 animations (1 heavy)"), "{}", report.cost.text());
+    }
+}

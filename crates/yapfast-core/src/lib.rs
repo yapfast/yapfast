@@ -82,6 +82,7 @@ pub mod spoiler;
 pub mod stream_audio;
 #[cfg(feature = "discord")]
 pub mod stream_worker;
+pub mod themes;
 #[cfg(feature = "plugins")]
 pub mod tweaks;
 #[cfg(feature = "discord")]

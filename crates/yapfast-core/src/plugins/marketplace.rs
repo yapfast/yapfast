@@ -150,6 +150,11 @@ impl Entry {
             reviewed,
             capabilities: self.capabilities.clone(),
             network: self.network.clone(),
+            // The registry lists plugins; a theme's modes and cost are for
+            // theme entries.
+            kind: super::page::Kind::Plugin,
+            modes: String::new(),
+            cost: String::new(),
         }
     }
 

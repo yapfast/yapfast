@@ -100,6 +100,9 @@ x264-src = { path = "../../vendor/x264-src", optional = true }
 # Go Live's hardware encoders, FFmpeg's, built from source; see native/hwenc.c.
 ffmpeg-src = { path = "../../vendor/ffmpeg-src", optional = true }
 tempfile.workspace = true
+# A theme's fonts are parsed whole before anything draws with them; the
+# version Yapfast's dependencies already build.
+ttf-parser = "0.25"
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

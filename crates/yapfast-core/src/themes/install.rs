@@ -1,0 +1,482 @@
+//! Installed themes, in the plugin directory beside plugins.
+//!
+//! A theme installs like a plugin and is pinned the same way (`PLAN.md` §8):
+//! the helper fetches its repository with gix at one commit, the files are
+//! checked here, and they're written content-addressed into
+//! `<data>/plugins/store/<sha256>/`, which `lock.json` names under `themes`:
+//!
+//! ```json
+//! { "version": 1, "plugins": { … },
+//!   "themes": { "com.example.vaporwave": {
+//!       "source": "https://github.com/ada/vaporwave", "path": "", "ref": "main",
+//!       "rev": "051b765b…", "store": "9f1c…", "manifest_sha256": "…",
+//!       "origin": "url", "previous": { … } } } }
+//! ```
+//!
+//! The lock file is edited as JSON, as the plugin store edits it, so neither
+//! drops the other's entries; the plugin store never reads `themes`, and its
+//! clean-up only removes directories its own entries named. A theme never
+//! runs anything, so it has no grants, no data directory and no enabled
+//! switch: whether it shows is Appearance's choice.
+//!
+//! Only public GitHub repositories are accepted for themes, for now, so every
+//! file has a public history and an accountable account.
+
+use std::collections::BTreeMap;
+use std::fs;
+use std::io::Write as _;
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result};
+use serde::Deserialize;
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+
+use super::check::{self, Files, Report, Strictness};
+use super::{MANIFEST, Package};
+
+const LOCK: &str = "lock.json";
+const STORE: &str = "store";
+/// The lock file version this reads and writes, the plugin store's.
+const LOCK_VERSION: u64 = 1;
+
+/// A theme fetched from its repository and checked, waiting for the person to
+/// install it. Nothing in it runs.
+#[derive(Clone, Debug)]
+pub struct Fetched {
+    pub source: String,
+    /// The folder in the repository, empty when `theme.json` is at its root.
+    pub path: String,
+    pub reference: String,
+    /// The commit read, which is the pin.
+    pub rev: String,
+    pub files: Files,
+    pub report: Report,
+}
+
+impl Fetched {
+    /// Checks what the helper read, refusing a source that isn't a public
+    /// GitHub repository.
+    pub fn new(source: String, path: String, reference: String, rev: String, files: Files) -> Result<Self, String> {
+        if !check::github(&source) {
+            return Err(
+                "Themes come from public GitHub repositories for now; that address isn't one".into(),
+            );
+        }
+        let report = check::check(&files, Strictness::Install);
+        if let Some(reason) = report.reason() {
+            return Err(format!("This theme can't be installed: {reason}"));
+        }
+        Ok(Fetched {
+            source,
+            path,
+            reference,
+            rev,
+            files,
+            report,
+        })
+    }
+
+    pub fn package(&self) -> &Package {
+        self.report.package.as_ref().expect("a passed check has its package")
+    }
+}
+
+/// One installed theme, as the lock file names it.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+pub struct Entry {
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub path: String,
+    #[serde(default, rename = "ref")]
+    pub reference: String,
+    #[serde(default)]
+    pub rev: String,
+    #[serde(default)]
+    pub store: String,
+    #[serde(default)]
+    pub manifest_sha256: String,
+    #[serde(default)]
+    pub origin: String,
+    #[serde(default)]
+    pub previous: Option<Box<Entry>>,
+}
+
+/// An installed theme, read back from the store and checked again.
+#[derive(Clone, Debug)]
+pub struct Installed {
+    pub id: String,
+    pub entry: Entry,
+    pub folder: PathBuf,
+    pub package: Package,
+}
+
+/// The themes half of the plugin directory.
+pub struct Themes {
+    root: PathBuf,
+}
+
+impl Themes {
+    /// Points at `<data>/plugins`, creating nothing.
+    pub fn open(data_dir: &Path) -> Self {
+        Themes {
+            root: data_dir.join("plugins"),
+        }
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Every theme the lock file names, by id.
+    pub fn entries(&self) -> Result<BTreeMap<String, Entry>> {
+        let lock = self.lock_json()?;
+        let Some(themes) = lock.get("themes") else {
+            return Ok(BTreeMap::new());
+        };
+        serde_json::from_value(themes.clone()).context("the lock file's themes aren't readable")
+    }
+
+    /// Every installed theme whose files are where the lock file says and
+    /// whose `theme.json` is the one installed. One that isn't is left out,
+    /// with a warning; the rest still show.
+    pub fn installed(&self) -> Vec<Installed> {
+        let entries = match self.entries() {
+            Ok(entries) => entries,
+            Err(error) => {
+                tracing::warn!(%error, "could not read the installed themes");
+                return Vec::new();
+            }
+        };
+        entries
+            .into_iter()
+            .filter_map(|(id, entry)| match self.load(&id, &entry) {
+                Ok(installed) => Some(installed),
+                Err(error) => {
+                    tracing::warn!(%id, %error, "an installed theme was left out");
+                    None
+                }
+            })
+            .collect()
+    }
+
+    fn load(&self, id: &str, entry: &Entry) -> Result<Installed> {
+        if !is_address(&entry.store) {
+            anyhow::bail!("its store directory isn't one Yapfast names");
+        }
+        let folder = self.root.join(STORE).join(&entry.store);
+        let text = fs::read_to_string(folder.join(MANIFEST))
+            .with_context(|| format!("{} is missing", folder.display()))?;
+        if hex(&Sha256::digest(text.as_bytes())) != entry.manifest_sha256 {
+            anyhow::bail!("its theme.json changed since it was installed");
+        }
+        let package = Package::parse(&text).map_err(|error| anyhow::anyhow!(error.0))?;
+        if package.id != id {
+            anyhow::bail!("its theme.json is for {}", package.id);
+        }
+        Ok(Installed {
+            id: id.to_owned(),
+            entry: entry.clone(),
+            folder,
+            package,
+        })
+    }
+
+    /// Writes a fetched theme into `store/` and `lock.json`: the version it
+    /// replaces is kept to roll back to, the one before is removed.
+    pub fn install(&self, fetched: &Fetched) -> Result<()> {
+        let package = fetched.package();
+        let id = package.id.as_str();
+        let manifest_sha256 = hex(&Sha256::digest(fetched.files.manifest.as_bytes()));
+        // Named after every file it holds, by path and digest, so two
+        // versions that differ in one font land in two directories.
+        let address = {
+            let mut digest = Sha256::new();
+            digest.update(b"theme.json:");
+            digest.update(manifest_sha256.as_bytes());
+            for (path, bytes) in &fetched.files.files {
+                digest.update(b"\n");
+                digest.update(path.to_string_lossy().as_bytes());
+                digest.update(b":");
+                digest.update(hex(&Sha256::digest(bytes)).as_bytes());
+            }
+            hex(&digest.finalize())
+        };
+        let mut lock = self.lock_json()?;
+        let installed = lock
+            .get("themes")
+            .and_then(|themes| themes.get(id))
+            .cloned();
+        if let Some(entry) = &installed {
+            let source = entry.get("source").and_then(Value::as_str).unwrap_or("");
+            let path = entry.get("path").and_then(Value::as_str).unwrap_or("");
+            if source != fetched.source || path != fetched.path {
+                anyhow::bail!("another theme already uses {id}");
+            }
+        }
+        let mut entry = serde_json::json!({
+            "source": fetched.source,
+            "path": fetched.path,
+            "ref": if fetched.reference.is_empty() { "HEAD" } else { fetched.reference.as_str() },
+            "rev": fetched.rev,
+            "origin": "url",
+            "store": address,
+            "manifest_sha256": manifest_sha256,
+        });
+        if let Some(mut previous) = installed {
+            if previous.get("store").and_then(Value::as_str) != Some(address.as_str()) {
+                if let Some(object) = previous.as_object_mut() {
+                    object.remove("previous");
+                }
+                entry
+                    .as_object_mut()
+                    .expect("built as an object")
+                    .insert("previous".into(), previous);
+            }
+        }
+        let before = self.store_dirs(&lock);
+        self.write_folder(&fetched.files, &address)?;
+        let object = lock.as_object_mut().context("the lock file isn't an object")?;
+        object
+            .entry("themes")
+            .or_insert_with(|| Value::Object(Default::default()))
+            .as_object_mut()
+            .context("the lock file's themes aren't an object")?
+            .insert(id.to_owned(), entry);
+        self.write_lock(&lock)?;
+        self.prune(&before, &lock);
+        Ok(())
+    }
+
+    /// Goes back to the version the last install replaced.
+    pub fn roll_back(&self, id: &str) -> Result<()> {
+        let mut lock = self.lock_json()?;
+        let before = self.store_dirs(&lock);
+        let themes = lock
+            .get_mut("themes")
+            .and_then(Value::as_object_mut)
+            .context("no theme is installed")?;
+        let entry = themes.get_mut(id).context("that theme isn't installed")?;
+        let previous = entry
+            .get("previous")
+            .cloned()
+            .context("there's no earlier version to go back to")?;
+        *entry = previous;
+        self.write_lock(&lock)?;
+        self.prune(&before, &lock);
+        Ok(())
+    }
+
+    /// Removes a theme and its files.
+    pub fn uninstall(&self, id: &str) -> Result<()> {
+        let mut lock = self.lock_json()?;
+        let before = self.store_dirs(&lock);
+        if let Some(themes) = lock.get_mut("themes").and_then(Value::as_object_mut) {
+            themes.remove(id);
+        }
+        self.write_lock(&lock)?;
+        self.prune(&before, &lock);
+        Ok(())
+    }
+
+    fn lock_json(&self) -> Result<Value> {
+        let path = self.root.join(LOCK);
+        let text = match fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(serde_json::json!({ "version": LOCK_VERSION, "plugins": {} }));
+            }
+            Err(error) => return Err(error).with_context(|| format!("could not read {}", path.display())),
+        };
+        let lock: Value =
+            serde_json::from_str(&text).with_context(|| format!("{} isn't a lock file", path.display()))?;
+        let version = lock.get("version").and_then(Value::as_u64).unwrap_or(0);
+        if version > LOCK_VERSION {
+            anyhow::bail!(
+                "{} is a version {version} lock file and this build reads version {LOCK_VERSION}",
+                path.display()
+            );
+        }
+        Ok(lock)
+    }
+
+    fn write_lock(&self, lock: &Value) -> Result<()> {
+        let text = serde_json::to_vec_pretty(lock).context("could not write the lock file")?;
+        write_atomically(&self.root.join(LOCK), &text)
+    }
+
+    /// Every store directory the lock file's themes name.
+    fn store_dirs(&self, lock: &Value) -> Vec<PathBuf> {
+        let mut dirs = Vec::new();
+        let entries = lock
+            .get("themes")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|themes| themes.values());
+        for entry in entries {
+            for named in [Some(entry), entry.get("previous")].into_iter().flatten() {
+                if let Some(store) = named.get("store").and_then(Value::as_str)
+                    && is_address(store)
+                {
+                    let directory = self.root.join(STORE).join(store);
+                    if !dirs.contains(&directory) {
+                        dirs.push(directory);
+                    }
+                }
+            }
+        }
+        dirs
+    }
+
+    fn prune(&self, before: &[PathBuf], lock: &Value) {
+        let after = self.store_dirs(lock);
+        for directory in before.iter().filter(|directory| !after.contains(directory)) {
+            if let Err(error) = fs::remove_dir_all(directory)
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
+                tracing::warn!(%error, "could not remove a theme version from the store");
+            }
+        }
+    }
+
+    /// Writes the files into `store/<address>/` through a temporary
+    /// directory renamed into place, so a half-written theme is never named.
+    fn write_folder(&self, files: &Files, address: &str) -> Result<()> {
+        let target = self.root.join(STORE).join(address);
+        if target.join(MANIFEST).is_file() {
+            return Ok(());
+        }
+        let temporary = self.root.join(STORE).join(format!(".{address}.tmp"));
+        let _ = fs::remove_dir_all(&temporary);
+        fs::create_dir_all(&temporary)
+            .with_context(|| format!("could not create {}", temporary.display()))?;
+        write_file(&temporary.join(MANIFEST), files.manifest.as_bytes())?;
+        for (relative, bytes) in &files.files {
+            let path = temporary.join(relative);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("could not create {}", parent.display()))?;
+            }
+            write_file(&path, bytes)?;
+        }
+        if let Some((licence, bytes)) = &files.licence {
+            write_file(&temporary.join(licence), bytes)?;
+        }
+        let _ = fs::remove_dir_all(&target);
+        fs::rename(&temporary, &target)
+            .with_context(|| format!("could not move the theme into {}", target.display()))
+    }
+}
+
+/// A store directory's name: 64 lowercase hex digits, so a lock file can't
+/// name a directory outside `store/`.
+fn is_address(text: &str) -> bool {
+    text.len() == 64 && text.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn write_file(path: &Path, bytes: &[u8]) -> Result<()> {
+    let mut file = fs::File::create(path).with_context(|| format!("could not write {}", path.display()))?;
+    file.write_all(bytes)
+        .with_context(|| format!("could not write {}", path.display()))?;
+    file.sync_all()
+        .with_context(|| format!("could not flush {}", path.display()))
+}
+
+fn write_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("could not create {}", parent.display()))?;
+    }
+    let temporary = path.with_extension("tmp");
+    fs::write(&temporary, bytes).with_context(|| format!("could not write {}", temporary.display()))?;
+    fs::rename(&temporary, path).with_context(|| format!("could not replace {}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn files(version: &str, chat: &str) -> Files {
+        Files {
+            manifest: format!(
+                r##"{{ "theme_api": 1, "id": "com.example.plum", "name": "Plum", "version": "{version}",
+                "variants": {{ "dark": {{ "base": "yap", "colours": {{ "chat": "{chat}" }} }} }} }}"##
+            ),
+            ..Files::default()
+        }
+    }
+
+    fn fetched(version: &str, chat: &str) -> Fetched {
+        Fetched::new(
+            "https://github.com/ada/plum".into(),
+            String::new(),
+            "main".into(),
+            format!("{version}-commit"),
+            files(version, chat),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn only_github_sources_install() {
+        let error = Fetched::new(
+            "https://codeberg.org/ada/plum".into(),
+            String::new(),
+            "main".into(),
+            "abc".into(),
+            files("1.0.0", "#2a1a3a"),
+        )
+        .unwrap_err();
+        assert!(error.contains("GitHub"), "{error}");
+    }
+
+    #[test]
+    fn installs_pins_rolls_back_and_uninstalls_beside_plugins() {
+        let directory = tempfile::tempdir().unwrap();
+        let themes = Themes::open(directory.path());
+        // A plugin is already installed; its entry has to survive.
+        fs::create_dir_all(themes.root()).unwrap();
+        fs::write(
+            themes.root().join(LOCK),
+            r#"{ "version": 1, "plugins": { "com.example.filter": { "source": "s", "store": "x" } } }"#,
+        )
+        .unwrap();
+        themes.install(&fetched("1.0.0", "#2a1a3a")).unwrap();
+        themes.install(&fetched("1.1.0", "#2b1b3b")).unwrap();
+        let installed = themes.installed();
+        assert_eq!(installed.len(), 1);
+        assert_eq!(installed[0].package.version, "1.1.0");
+        assert_eq!(installed[0].entry.rev, "1.1.0-commit");
+        assert_eq!(installed[0].entry.previous.as_ref().unwrap().rev, "1.0.0-commit");
+        let lock: Value =
+            serde_json::from_str(&fs::read_to_string(themes.root().join(LOCK)).unwrap()).unwrap();
+        assert!(lock["plugins"]["com.example.filter"].is_object(), "the plugin stays");
+
+        themes.roll_back("com.example.plum").unwrap();
+        assert_eq!(themes.installed()[0].package.version, "1.0.0");
+        themes.uninstall("com.example.plum").unwrap();
+        assert!(themes.installed().is_empty());
+        let left: Vec<_> = fs::read_dir(themes.root().join(STORE)).unwrap().collect();
+        assert!(left.is_empty(), "no theme's files stay behind");
+    }
+
+    #[test]
+    fn a_changed_theme_json_in_the_store_is_left_out() {
+        let directory = tempfile::tempdir().unwrap();
+        let themes = Themes::open(directory.path());
+        themes.install(&fetched("1.0.0", "#2a1a3a")).unwrap();
+        let folder = themes.installed()[0].folder.clone();
+        fs::write(folder.join(MANIFEST), files("1.0.0", "#000000").manifest).unwrap();
+        assert!(themes.installed().is_empty());
+    }
+
+    #[test]
+    fn a_lock_file_cannot_point_outside_the_store() {
+        assert!(!is_address("../../etc"));
+        assert!(is_address(&"a".repeat(64)));
+    }
+}

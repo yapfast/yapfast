@@ -13659,6 +13659,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "ttf-parser",
  "url",
  "uuid",
  "webrtc-sys",
