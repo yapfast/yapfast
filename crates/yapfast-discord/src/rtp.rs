@@ -963,6 +963,8 @@ pub struct Assembler {
     /// or the frame ends, and whether it carries on in the next packet.
     obu: Vec<u8>,
     obu_open: bool,
+    /// A fragmented H264/H265 NAL must end before another unit starts.
+    nal_open: Option<u8>,
 }
 
 /// What a packet completed.
@@ -986,6 +988,7 @@ impl Assembler {
             waiting: true,
             obu: vec![],
             obu_open: false,
+            nal_open: None,
         }
     }
 
@@ -1000,6 +1003,17 @@ impl Assembler {
     }
 
     pub fn push(&mut self, packet: &Packet) -> Pushed {
+        self.push_with_codec(packet, self.codec)
+    }
+
+    /// Uses the negotiated codec only for an unrecognized payload type.
+    pub fn push_with_codec(&mut self, packet: &Packet, negotiated: Codec) -> Pushed {
+        // Select from packets in sequence, after reordering. Arrival order can
+        // interleave an old codec's retransmissions with the new codec.
+        let codec = Codec::from_payload_type(packet.payload_type).unwrap_or(negotiated);
+        if codec != self.codec {
+            *self = Self::new(codec);
+        }
         let gap = self
             .expected
             .is_some_and(|expected| expected != packet.sequence);
@@ -1015,22 +1029,28 @@ impl Assembler {
         let mut lost = false;
         if self.timestamp != Some(packet.timestamp) {
             // The last frame never saw its marker.
-            lost = !self.frame.is_empty() || !self.obu.is_empty();
+            lost = self.timestamp.is_some();
+            self.waiting |= lost;
             self.frame.clear();
             self.obu.clear();
             self.obu_open = false;
+            self.nal_open = None;
             self.timestamp = Some(packet.timestamp);
             self.damaged = gap;
             self.keyframe = false;
         } else {
             self.damaged |= gap;
         }
+        // Once damaged, no byte of this timestamp can be decoded. Keep the
+        // storage for reuse, but stop parsing/copying every remaining packet.
         let first = self.frame.is_empty();
-        match self.codec {
-            Codec::Vp8 => self.vp8(packet.payload, first),
-            Codec::H264 => self.h264(packet.payload),
-            Codec::H265 => self.h265(packet.payload),
-            Codec::Av1 => self.av1(packet.payload),
+        if !self.damaged {
+            match self.codec {
+                Codec::Vp8 => self.vp8(packet.payload, first),
+                Codec::H264 => self.h264(packet.payload),
+                Codec::H265 => self.h265(packet.payload),
+                Codec::Av1 => self.av1(packet.payload),
+            }
         }
         // Packets that never end their frame would grow it without end, as
         // would AV1 packets whose element always carries on.
@@ -1047,9 +1067,9 @@ impl Assembler {
             self.damaged |= std::mem::take(&mut self.obu_open);
             self.write_obu(false);
         }
-        let data = std::mem::take(&mut self.frame);
+        self.damaged |= self.nal_open.is_some();
         self.timestamp = None;
-        if self.damaged || data.is_empty() {
+        if self.damaged || self.frame.is_empty() {
             self.waiting = true;
             return Pushed {
                 frame: None,
@@ -1062,6 +1082,7 @@ impl Assembler {
                 lost: true,
             };
         }
+        let data = std::mem::take(&mut self.frame);
         self.waiting = false;
         Pushed {
             frame: Some(Assembled {
@@ -1126,6 +1147,10 @@ impl Assembler {
         let (continues, carries_on) = (header & 0x80 != 0, header & 0x40 != 0);
         let count = usize::from((header >> 4) & 0x03);
         self.keyframe |= header & 0x08 != 0;
+        if continues && header & 0x08 != 0 {
+            self.damaged = true;
+            return;
+        }
         if continues != self.obu_open {
             // A continuation without its start, or a start while the last
             // element waits for its end.
@@ -1148,6 +1173,10 @@ impl Assembler {
                 rest = &rest[used..];
                 size
             };
+            if size == 0 {
+                self.damaged = true;
+                return;
+            }
             let Some(element) = rest.get(..size) else {
                 self.damaged = true;
                 return;
@@ -1158,6 +1187,7 @@ impl Assembler {
             }
             self.obu.extend_from_slice(element);
         }
+        self.damaged |= index == 0 || (count != 0 && index != count);
         self.obu_open = carries_on;
     }
 
@@ -1205,8 +1235,12 @@ impl Assembler {
             frame.extend_from_slice(nal);
         };
         match (first >> 1) & 0x3f {
-            0..=47 => unit(&mut self.frame, &mut self.keyframe, payload),
+            0..=47 => {
+                self.damaged |= self.nal_open.is_some();
+                unit(&mut self.frame, &mut self.keyframe, payload);
+            }
             48 => {
+                self.damaged |= self.nal_open.is_some();
                 let mut rest = &payload[2..];
                 while rest.len() >= 2 {
                     let size = usize::from(u16::from_be_bytes([rest[0], rest[1]]));
@@ -1214,17 +1248,23 @@ impl Assembler {
                         self.damaged = true;
                         return;
                     };
+                    if size < 2 {
+                        self.damaged = true;
+                        return;
+                    }
                     unit(&mut self.frame, &mut self.keyframe, nal);
                     rest = &rest[2 + size..];
                 }
+                self.damaged |= !rest.is_empty();
             }
             49 => {
                 let Some(&fragment) = payload.get(2) else {
                     self.damaged = true;
                     return;
                 };
+                let kind = fragment & 0x3f;
+                self.fragment(kind, fragment, payload.len() > 3);
                 if fragment & 0x80 != 0 {
-                    let kind = fragment & 0x3f;
                     self.keyframe |= random_access(kind);
                     let header = (first & 0x81) | (kind << 1);
                     self.frame.extend_from_slice(&[0, 0, 0, 1, header, second]);
@@ -1234,6 +1274,26 @@ impl Assembler {
                 self.frame.extend_from_slice(&payload[3..]);
             }
             _ => {}
+        }
+    }
+
+    fn fragment(&mut self, kind: u8, flags: u8, has_data: bool) {
+        let start = flags & 0x80 != 0;
+        let end = flags & 0x40 != 0;
+        let valid_kind = match self.codec {
+            Codec::H264 => (1..=23).contains(&kind),
+            Codec::H265 => kind <= 47,
+            _ => false,
+        };
+        self.damaged |= (self.codec == Codec::H265 && !has_data) || !valid_kind || (start && end);
+        if start {
+            self.damaged |= self.nal_open.is_some();
+            self.nal_open = Some(kind);
+        } else {
+            self.damaged |= self.nal_open != Some(kind);
+        }
+        if end {
+            self.nal_open = None;
         }
     }
 
@@ -1248,9 +1308,13 @@ impl Assembler {
             frame.extend_from_slice(nal);
         };
         match indicator & 0x1f {
-            1..=23 => unit(&mut self.frame, &mut self.keyframe, payload),
+            1..=23 => {
+                self.damaged |= self.nal_open.is_some();
+                unit(&mut self.frame, &mut self.keyframe, payload);
+            }
             // STAP-A: sizes and units after the indicator.
             24 => {
+                self.damaged |= self.nal_open.is_some();
                 let mut rest = &payload[1..];
                 while rest.len() >= 2 {
                     let size = usize::from(u16::from_be_bytes([rest[0], rest[1]]));
@@ -1258,9 +1322,14 @@ impl Assembler {
                         self.damaged = true;
                         return;
                     };
+                    if size == 0 {
+                        self.damaged = true;
+                        return;
+                    }
                     unit(&mut self.frame, &mut self.keyframe, nal);
                     rest = &rest[2 + size..];
                 }
+                self.damaged |= !rest.is_empty();
             }
             // FU-A: one unit across packets, its header rebuilt from the
             // indicator and the fragment header.
@@ -1270,6 +1339,7 @@ impl Assembler {
                     return;
                 };
                 let data = &payload[2..];
+                self.fragment(header & 0x1f, header, !data.is_empty());
                 if header & 0x80 != 0 {
                     let nal_header = (indicator & 0xe0) | (header & 0x1f);
                     self.keyframe |= header & 0x1f == 5;
@@ -1513,13 +1583,17 @@ fn remb(packet: &[u8]) -> Option<(u64, Vec<u32>)> {
     let count = usize::from(*packet.get(16)?);
     let exponent = packet.get(17)? >> 2;
     let mantissa = u32::from_be_bytes(packet.get(16..20)?.try_into().ok()?) & 0x3_ffff;
+    packet.get(..20 + count * 4)?;
     let ssrcs = (0..count)
         .filter_map(|index| {
             let at = 20 + index * 4;
             Some(u32::from_be_bytes(packet.get(at..at + 4)?.try_into().ok()?))
         })
         .collect();
-    Some((u64::from(mantissa) << exponent, ssrcs))
+    let bitrate = u64::from(mantissa)
+        .checked_mul(1u64 << exponent)
+        .unwrap_or(u64::MAX);
+    Some((bitrate, ssrcs))
 }
 
 /// The lowest bitrate a decrypted compound RTCP packet estimates for `ssrc`.
@@ -3327,5 +3401,179 @@ mod tests {
         assert!(!wants_keyframe(&report));
         assert!(wants_keyframe(&[&report[..], &pli[..]].concat()));
         assert!(is_rtcp(&pli) && !is_rtcp(&[0x90, VP8]));
+    }
+
+    fn video_packet(
+        codec: Codec,
+        sequence: u16,
+        timestamp: u32,
+        marker: bool,
+        payload: &[u8],
+    ) -> Packet<'_> {
+        Packet {
+            payload_type: codec.payload_types().0,
+            marker,
+            sequence,
+            timestamp,
+            ssrc: 5,
+            payload,
+            orientation: None,
+        }
+    }
+
+    #[test]
+    fn an_unfinished_timestamp_requires_a_new_keyframe() {
+        let mut assembler = Assembler::new(Codec::H264);
+        assert!(
+            assembler
+                .push(&video_packet(Codec::H264, 1, 0, true, &[0x65, 9]))
+                .frame
+                .is_some()
+        );
+        assembler.push(&video_packet(Codec::H264, 2, 3000, false, &[0x61, 9]));
+        let delta = assembler.push(&video_packet(Codec::H264, 3, 6000, true, &[0x61, 9]));
+        assert!(delta.lost && delta.frame.is_none());
+        assert!(
+            assembler
+                .push(&video_packet(Codec::H264, 4, 9000, true, &[0x65, 9]))
+                .frame
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn a_marker_cannot_finish_an_unfinished_nal() {
+        for (codec, start) in [
+            (Codec::H264, vec![0x7c, 0x85, 9]),
+            (Codec::H265, vec![98, 1, 0x93, 9]),
+        ] {
+            let mut assembler = Assembler::new(codec);
+            let pushed = assembler.push(&video_packet(codec, 1, 0, true, &start));
+            assert!(pushed.lost && pushed.frame.is_none(), "{codec:?}");
+        }
+    }
+
+    #[test]
+    fn a_continuation_after_a_whole_nal_is_not_a_fragment() {
+        for (codec, whole, end) in [
+            (Codec::H264, vec![0x65, 9], vec![0x7c, 0x45, 9]),
+            (Codec::H265, vec![38, 1, 9], vec![98, 1, 0x53, 9]),
+        ] {
+            let mut assembler = Assembler::new(codec);
+            assembler.push(&video_packet(codec, 1, 0, false, &whole));
+            let pushed = assembler.push(&video_packet(codec, 2, 0, true, &end));
+            assert!(pushed.lost && pushed.frame.is_none(), "{codec:?}");
+        }
+    }
+
+    #[test]
+    fn aggregation_rejects_a_trailing_length_byte_or_empty_nal() {
+        for (codec, payload) in [
+            (Codec::H264, vec![24, 0, 2, 0x65, 9, 0]),
+            (Codec::H264, vec![24, 0, 2, 0x65, 9, 0, 0]),
+            (Codec::H265, vec![96, 1, 0, 3, 38, 1, 9, 0]),
+            (Codec::H265, vec![96, 1, 0, 3, 38, 1, 9, 0, 1, 38]),
+        ] {
+            let mut assembler = Assembler::new(codec);
+            let pushed = assembler.push(&video_packet(codec, 1, 0, true, &payload));
+            assert!(
+                pushed.lost && pushed.frame.is_none(),
+                "{codec:?}: {payload:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn empty_h264_fragments_are_legal_but_empty_hevc_fragments_are_not() {
+        let mut assembler = Assembler::new(Codec::H264);
+        assembler.push(&video_packet(Codec::H264, 1, 0, false, &[0x7c, 0x85]));
+        let frame = assembler.push(&video_packet(Codec::H264, 2, 0, true, &[0x7c, 0x45, 9]));
+        assert_eq!(frame.frame.unwrap().data, [0, 0, 0, 1, 0x65, 9]);
+        let mut assembler = Assembler::new(Codec::H265);
+        assembler.push(&video_packet(Codec::H265, 1, 0, false, &[98, 1, 0x93]));
+        let frame = assembler.push(&video_packet(Codec::H265, 2, 0, true, &[98, 1, 0x53, 9]));
+        assert!(frame.lost && frame.frame.is_none());
+    }
+
+    #[test]
+    fn a_damaged_frame_stops_growing_and_reuses_its_storage() {
+        let mut assembler = Assembler::new(Codec::H264);
+        assembler.push(&video_packet(Codec::H264, 1, 0, false, &[0x7c, 0x85, 9]));
+        let storage = (assembler.frame.as_ptr(), assembler.frame.capacity());
+        let length = assembler.frame.len();
+        let payload = vec![9; 1400];
+        for sequence in 3..100 {
+            assembler.push(&video_packet(Codec::H264, sequence, 0, false, &payload));
+        }
+        assert_eq!(assembler.frame.len(), length);
+        let result = assembler.push(&video_packet(Codec::H264, 100, 0, true, &[0x7c, 0x45, 9]));
+        assert!(result.frame.is_none());
+        assert_eq!(
+            (assembler.frame.as_ptr(), assembler.frame.capacity()),
+            storage
+        );
+    }
+
+    #[test]
+    fn codec_switches_follow_sequence_not_arrival_order() {
+        let now = Instant::now();
+        let old = |sequence| Held::new(&video_packet(Codec::H264, sequence, 0, true, &[0x65, 9]));
+        let new = Held::new(&video_packet(Codec::Vp8, 3, 3000, true, &[0x10, 0, 9]));
+        let mut reorder = Reorder::default();
+        let mut assembler = Assembler::new(Codec::H264);
+        reorder.insert(old(1), now);
+        for held in reorder.ready(now).0 {
+            assembler.push(&held.packet());
+        }
+        reorder.insert(new, now);
+        assert!(reorder.ready(now).0.is_empty());
+        reorder.insert(old(2), now);
+        let mut codecs = vec![];
+        for held in reorder.ready(now).0 {
+            assert!(assembler.push(&held.packet()).frame.is_some());
+            codecs.push(assembler.codec());
+        }
+        assert_eq!(codecs, [Codec::H264, Codec::Vp8]);
+        assert_eq!(reorder.insert(old(2), now), Arrival::Late);
+        assert_eq!(assembler.codec(), Codec::Vp8);
+    }
+
+    #[test]
+    fn negotiated_codec_handles_dynamic_payload_types() {
+        let mut assembler = Assembler::new(Codec::H264);
+        let mut packet = video_packet(Codec::Vp8, 1, 0, true, &[0x10, 0, 9]);
+        packet.payload_type = 96;
+        assert!(
+            assembler
+                .push_with_codec(&packet, Codec::Vp8)
+                .frame
+                .is_some()
+        );
+        assert_eq!(assembler.codec(), Codec::Vp8);
+    }
+
+    #[test]
+    fn remb_saturates_large_rates_and_rejects_missing_ssrcs() {
+        let mut packet = vec![0x8f, 206, 0, 5, 0, 0, 0, 1, 0, 0, 0, 0];
+        packet.extend_from_slice(b"REMB");
+        // Mantissa 2, exponent 63 used to wrap to zero.
+        packet.extend_from_slice(&[1, 63 << 2, 0, 2]);
+        packet.extend_from_slice(&5u32.to_be_bytes());
+        assert_eq!(bandwidth_estimate(&packet, 5), Some(u64::MAX));
+        packet[16] = 2;
+        assert_eq!(bandwidth_estimate(&packet, 5), None);
+    }
+    #[test]
+    fn av1_rejects_wrong_element_counts_and_empty_elements() {
+        for payload in [
+            vec![0x28, 1, 0x32],    // W=2 but only one element.
+            vec![0x08, 0, 1, 0x32], // W=0, empty element before an OBU.
+            vec![0x18],             // No OBU.
+            vec![0x98, 0x32],       // A sequence cannot start with a continuation.
+        ] {
+            let mut assembler = Assembler::new(Codec::Av1);
+            let pushed = assembler.push(&video_packet(Codec::Av1, 1, 0, true, &payload));
+            assert!(pushed.lost && pushed.frame.is_none(), "{payload:?}");
+        }
     }
 }

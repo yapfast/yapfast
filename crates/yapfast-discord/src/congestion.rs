@@ -73,6 +73,15 @@ pub fn start(cap: u64) -> u64 {
     cap.clamp(FLOOR, START)
 }
 
+/// Packets per one-millisecond pacing turn after a frame's initial burst.
+/// Allow two milliseconds of timer/scheduler granularity, using a conservative
+/// 1000-byte payload. Four preserves the existing low-rate pacing; 32 bounds
+/// each turn so feedback and audio remain responsive even with an override.
+/// This is pacing headroom, not permission to encode above the controller.
+pub fn packet_batch(target: u64) -> usize {
+    target.saturating_mul(2).div_ceil(8_000_000).clamp(4, 32) as usize
+}
+
 /// Why the target changed, for the log.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reason {
@@ -740,5 +749,16 @@ mod tests {
             Some(ms(150)),
             "the path changed"
         );
+    }
+    #[test]
+    fn pacing_has_headroom_for_high_bitrates_without_unbounded_bursts() {
+        assert_eq!(packet_batch(500_000), 4);
+        assert_eq!(packet_batch(9_000_000), 4);
+        assert_eq!(packet_batch(35_000_000), 9);
+        assert_eq!(packet_batch(120_000_000), 30);
+        assert_eq!(packet_batch(u64::MAX), 32);
+        for rate in [20_000_000, 35_000_000, 120_000_000] {
+            assert!(packet_batch(rate) as u64 * 1000 * 8 * 500 >= rate);
+        }
     }
 }

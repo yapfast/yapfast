@@ -1085,3 +1085,32 @@ byte budget for the reorder queues and resend history, memory tests beyond
 Rust's allocator, presentation demand from the tile rather than the window,
 fence waits off the UI thread, and per-source audio queue capacity — are
 still open, and none of them is a known defect.
+
+## Packet recovery and high-bitrate pacing
+
+Video packets are reordered before choosing their codec. A delayed packet from
+before a codec switch cannot reset the assembler for a newer frame. An unfinished
+frame, an incomplete H264/H265 fragment, malformed aggregation or a frame that
+could not be decrypted makes the receiver wait for a keyframe and ask for one.
+Once a frame is damaged, its remaining packets are not copied into the assembly
+buffer; discarded frames reuse that buffer on the next timestamp.
+
+After the initial eight packets, the sender paces each frame in batches of four
+to 32 packets. The batch follows the congestion controller's current target,
+with room for a two-millisecond timer wake-up: at 35 Mbit/s it is nine packets.
+The one-millisecond requested pause remains, and audio and feedback are polled
+between batches. The controller still limits the encoded bitrate; a larger
+batch does not raise the encoder's target or promise that an uplink can carry it.
+
+For high-resolution testing, enable **Raise the stream's bitrate cap
+(experimental)** in Settings. This retains the resolution-based ceiling up to
+35 Mbit/s. The `YAPFAST_STREAM_MAX_BITRATE` override is in kbit/s and overrides
+that formula; for example, `35000` declares a 35 Mbit/s ceiling at any resolution.
+Overrides below 500 kbit/s or too large for the 32-bit declaration are ignored
+with a warning. The declared ceiling is not a constant rate: still screens
+should use fewer bits and congestion can reduce the target.
+
+The worker's incoming control queue holds at most 64 messages. If capture stalls,
+backpressure preserves their order instead of retaining an unlimited sequence of
+resize or source-switch requests. The existing two-second forced worker shutdown
+remains the fallback for a capture that cannot stop.

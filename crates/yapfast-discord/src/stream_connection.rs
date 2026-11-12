@@ -49,11 +49,10 @@ const MAX_SSRCS: usize = 4;
 /// than one report can wait unanswered, and fewer than a report a second over
 /// a few seconds.
 const ECHOED: usize = 4;
-/// A frame's packets past the first `BURST` go out `PACE` every `STEP`,
-/// about 37 Mbit/s: a 1080p keyframe sent at once can overflow buffers on
-/// the way.
+/// A frame starts with `BURST` packets, then bitrate-aware batches every
+/// `STEP`: large keyframes must not overflow the path's buffers, but a fixed
+/// four-packet batch also throttles high-bitrate streams on coarse timers.
 const BURST: usize = 8;
-const PACE: usize = 4;
 /// How long a batch past the first waits after the one before it. A batch is
 /// a turn of the send loop, so sound, the gateway and viewers' feedback are
 /// polled between them rather than after the whole frame.
@@ -164,14 +163,26 @@ fn declared() -> Option<u32> {
     static ONCE: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
     *ONCE.get_or_init(|| {
         let asked = std::env::var("YAPFAST_STREAM_MAX_BITRATE").ok()?;
-        match asked.trim().parse::<u32>() {
-            Ok(kbps) => Some(kbps.saturating_mul(1000)),
-            Err(error) => {
-                tracing::warn!(asked, %error, "YAPFAST_STREAM_MAX_BITRATE is not kbit/s");
-                None
-            }
+        let bits = parse_bitrate_override(&asked);
+        if bits.is_none() {
+            tracing::warn!(
+                asked,
+                "YAPFAST_STREAM_MAX_BITRATE must be 500..=4294967 kbit/s"
+            );
         }
+        bits
     })
+}
+
+/// Reject a cap below the controller's floor or one that overflows the wire
+/// declaration, rather than declaring zero while encoding at 500 kbit/s.
+fn parse_bitrate_override(asked: &str) -> Option<u32> {
+    asked
+        .trim()
+        .parse::<u32>()
+        .ok()?
+        .checked_mul(1000)
+        .filter(|&bits| u64::from(bits) >= congestion::FLOOR)
 }
 
 /// Op 5's speaking flags for a stream's sound: shared sound, not a
@@ -1106,6 +1117,7 @@ async fn send(
             // frame's packets is sound nobody hears.
             Some(sound) = sounds.recv() => {
                 let Some(payload) = connection.dave.encrypt_opus(&sound.opus) else {
+                    buffers.give(sound.opus);
                     continue;
                 };
                 // The frame is written into the buffer the video packets go
@@ -1219,7 +1231,7 @@ async fn send(
                 // when its packets went out; a packet's age is a coarse thing
                 // beside the window it is kept for.
                 let now = std::time::Instant::now();
-                for _ in 0..frame.batch() {
+                for _ in 0..frame.batch(pacing.target()) {
                     let Some(last) = packetizer.write(&mut plan, &frame.payload, &mut out) else {
                         done = true;
                         break;
@@ -1422,10 +1434,9 @@ fn retarget(
 /// A keyframe is hundreds of packets. Written in one turn it holds the loop for
 /// tens of milliseconds, and the sound queued meanwhile is dropped when its
 /// bounded channel fills. So a frame goes out a batch a turn: `BURST` in the
-/// turn it starts, then `PACE` a turn with `STEP` between batches. The wire
-/// sees what it saw when the loop slept inside the frame — the same burst, the
-/// same pace past it — but the loop is back between batches to poll sound, the
-/// gateway and feedback.
+/// turn it starts, then a bitrate-aware batch with `STEP` between batches.
+/// The batch stays bounded so the sender polls sound, the gateway and feedback
+/// between turns.
 ///
 /// Nothing is kept between turns that the frame didn't already have: the plan
 /// it was planned into, which the next frame reuses, and the encrypted bytes
@@ -1458,12 +1469,12 @@ impl Sending {
     }
 
     /// How many of the frame's packets this turn writes: what's left of its
-    /// first `BURST`, then `PACE` a turn.
-    fn batch(&self) -> usize {
+    /// first `BURST`, then a bounded batch sized for the current target.
+    fn batch(&self, target: u64) -> usize {
         if self.sent < BURST {
             BURST - self.sent
         } else {
-            PACE
+            congestion::packet_batch(target)
         }
     }
 
@@ -1792,9 +1803,6 @@ async fn receive_stream(
                     assembler: Assembler::new(codec),
                     reported: (0, 0),
                 });
-                if video.assembler.codec() != codec {
-                    video.assembler = Assembler::new(codec);
-                }
                 let resent = Some(packet.ssrc) == streamer.rtx;
                 match video.reorder.insert(held, std::time::Instant::now()) {
                     rtp::Arrival::New if !resent => clock.heard_picture(picture),
@@ -1806,16 +1814,21 @@ async fn receive_stream(
         }
         let now = std::time::Instant::now();
         for (&ssrc, video) in &mut incoming {
-            let codec = video.assembler.codec();
             let (ready, skipped) = video.reorder.ready(now);
             received.given_up += skipped;
             for held in ready {
-                let pushed = video.assembler.push(&held.packet());
+                let codec = streamer
+                    .codec(&held.packet())
+                    .unwrap_or(video.assembler.codec());
+                let pushed = video.assembler.push_with_codec(&held.packet(), codec);
+                let codec = video.assembler.codec();
                 lost |= pushed.lost;
                 let Some(frame) = pushed.frame else { continue };
                 received.frames += 1;
                 let Some(data) = connection.dave.decrypt(streamer_id, frame.data) else {
                     received.unreadable += 1;
+                    video.assembler.wait_for_keyframe();
+                    lost = true;
                     continue;
                 };
                 received.decoded += 1;
@@ -1909,7 +1922,7 @@ mod tests {
             // Sound is polled before video, so every turn starts by hearing
             // whatever sound is waiting, then writes a batch.
             heard += 1;
-            let batch = frame.batch().min(left);
+            let batch = frame.batch(9_000_000).min(left);
             assert!(batch > 0, "a turn always writes a packet, or spins");
             for _ in 0..batch {
                 frame.sent_one();
@@ -1920,11 +1933,11 @@ mod tests {
         assert_eq!(sizes[0], BURST, "a frame starts at once");
         let (last, paced) = sizes.split_last().expect("250 packets, in batches");
         assert!(
-            paced[1..].iter().all(|&batch| batch == PACE),
+            paced[1..].iter().all(|&batch| batch == 4),
             "and goes on a paced batch a turn: {sizes:?}"
         );
         assert!(
-            *last > 0 && *last <= PACE,
+            *last > 0 && *last <= 4,
             "until what's left of it ends the frame: {sizes:?}"
         );
         assert_eq!(
@@ -2102,5 +2115,14 @@ mod tests {
         // growth, and the one the frames after it go through.
         assert_eq!(pool.created(), BUFFERS + 1);
         assert!(live > OLD, "the pool grew rather than kept the old size");
+    }
+    #[test]
+    fn bitrate_overrides_cannot_disagree_with_the_controller_floor() {
+        for invalid in ["0", "499", "4294968", "4294967295", "-1", "bad"] {
+            assert_eq!(parse_bitrate_override(invalid), None);
+        }
+        assert_eq!(parse_bitrate_override("500"), Some(500_000));
+        assert_eq!(parse_bitrate_override(" 35000 "), Some(35_000_000));
+        assert_eq!(parse_bitrate_override("120000"), Some(120_000_000));
     }
 }

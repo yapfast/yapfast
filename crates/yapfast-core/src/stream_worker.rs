@@ -523,7 +523,9 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
     };
     let stop = Arc::new(AtomicBool::new(false));
     let stopper = stop.clone();
-    let (controls, received) = channel::channel();
+    // A stalled capture must not accumulate an unbounded backlog of resize,
+    // preview and source-switch controls. Backpressure preserves their order.
+    let (controls, received) = channel::sync_channel(64);
     // Reading stdin blocks, so a thread waits for controls, the stop line or the end.
     std::thread::spawn(move || {
         for line in input.lines() {

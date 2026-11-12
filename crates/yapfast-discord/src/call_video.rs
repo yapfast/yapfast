@@ -338,11 +338,7 @@ impl Receiving {
         else {
             return Ok(true);
         };
-        if incoming
-            .assembler
-            .as_ref()
-            .is_none_or(|assembler| assembler.codec() != codec)
-        {
+        if incoming.assembler.is_none() {
             incoming.assembler = Some(Assembler::new(codec));
         }
         incoming.reorder.insert(held, std::time::Instant::now());
@@ -357,7 +353,6 @@ impl Receiving {
             let Some(assembler) = incoming.assembler.as_mut() else {
                 continue;
             };
-            let codec = assembler.codec();
             let mut lost = false;
             let (ready, _) = incoming.reorder.ready(now);
             for held in ready {
@@ -366,10 +361,14 @@ impl Receiving {
                 if let Some(orientation) = held.orientation {
                     incoming.orientation = orientation;
                 }
-                let pushed = assembler.push(&held.packet());
+                let codec = connection.codec.unwrap_or(assembler.codec());
+                let pushed = assembler.push_with_codec(&held.packet(), codec);
+                let codec = assembler.codec();
                 lost |= pushed.lost;
                 let Some(frame) = pushed.frame else { continue };
                 let Some(data) = connection.dave.decrypt(incoming.user, frame.data) else {
+                    assembler.wait_for_keyframe();
+                    lost = true;
                     continue;
                 };
                 let frame = VideoFrame {
