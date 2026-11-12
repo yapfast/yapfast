@@ -1093,6 +1093,7 @@ fn an_empty_edit_of_a_message_with_files_is_saved_not_deleted() {
     let mut with_file = message("e:$file", true);
     with_file.attachments.push(chat::Attachment {
         name: "a.png".into(),
+        description: None,
         size: None,
         image: true,
         dimensions: None,
@@ -2341,6 +2342,7 @@ fn someones_menu_blocks_and_unblocks_them_but_never_this_account() {
             name: "Annie".into(),
             avatar: String::new(),
             nickname: None,
+            since: None,
             presence: None,
             activity: None,
             activities: Default::default(),
@@ -2432,6 +2434,34 @@ fn someones_menu_blocks_and_unblocks_them_but_never_this_account() {
 
 #[test]
 #[cfg(feature = "discord")]
+fn a_group_dms_creator_is_its_owner_and_a_dm_has_none() {
+    use yapfast_discord::service::{Conversation, Snapshot, Status};
+    let mut app = connected();
+    app.apply(discord_event(Snapshot {
+        status: Status::Online,
+        conversations: vec![
+            Arc::new(Conversation {
+                id: "30".into(),
+                person: Some("2".into()),
+                people: 2,
+                ..Default::default()
+            }),
+            Arc::new(Conversation {
+                id: "31".into(),
+                group: true,
+                people: 3,
+                owner: Some("2".into()),
+                ..Default::default()
+            }),
+        ],
+        ..Default::default()
+    }));
+    assert_eq!(app.server_owner("discord:@me:31").as_deref(), Some("2"));
+    assert_eq!(app.server_owner("discord:@me:30"), None);
+}
+
+#[test]
+#[cfg(feature = "discord")]
 fn a_discord_dms_menu_manages_its_person_and_notifications() {
     use MenuChoice::*;
     use chat::{Muting, RelationshipChange};
@@ -2450,6 +2480,7 @@ fn a_discord_dms_menu_manages_its_person_and_notifications() {
                 name: "Annie".into(),
                 avatar: String::new(),
                 nickname: Some("Annie".into()),
+                since: None,
                 presence: None,
                 activity: None,
                 activities: Default::default(),
@@ -4680,9 +4711,9 @@ fn profile_switches_that_are_off_ask_for_nothing() {
         }));
         let effects = app.dispatch(Action::ShowDmProfile("discord:@me:30".into()));
         let effect = effects.iter().find_map(|effect| match effect {
-            Effect::Backend(Command::Discord(DiscordCommand::Profile { effect, .. })) => {
-                Some(*effect)
-            }
+            Effect::Backend(Command::Discord(DiscordCommand::Profile {
+                effect, frame, ..
+            })) => Some((*effect, *frame)),
             _ => None,
         });
         (app, effect)
@@ -4693,15 +4724,24 @@ fn profile_switches_that_are_off_ask_for_nothing() {
         moving: false,
         name_styles: false,
         server_tags: false,
+        frames: false,
     };
     let (app, effect) = open(off);
-    assert_eq!(effect, Some(false), "the effect isn't asked about");
+    assert_eq!(
+        effect,
+        Some((false, false)),
+        "neither the effect nor the frame is asked about"
+    );
     for url in ["ring.png", "mine.png", "plate.png"] {
         assert!(!app.requested_pictures.contains(url), "{url} isn't fetched");
     }
     // By default everything shows, as the stack draws it.
     let (app, effect) = open(Cosmetics::default());
-    assert_eq!(effect, Some(true), "the effect is asked about");
+    assert_eq!(
+        effect,
+        Some((true, true)),
+        "the effect and frame are asked about"
+    );
     assert!(app.requested_pictures.contains("ring.png"));
     if cfg!(not(feature = "matrix")) {
         assert!(app.requested_pictures.contains("mine.png"));
@@ -4714,7 +4754,7 @@ fn profile_switches_that_are_off_ask_for_nothing() {
     });
     assert_eq!(
         effect,
-        Some(false),
+        Some((false, true)),
         "an effect that may not play isn't asked about"
     );
     assert!(app.requested_pictures.contains("ring.png"));
@@ -4857,6 +4897,7 @@ fn discord_friends_are_listed_and_messaged() {
         name: name.into(),
         avatar: format!("{id}.png"),
         nickname: None,
+        since: None,
         presence,
         activity: None,
         activities: Default::default(),
@@ -4869,6 +4910,8 @@ fn discord_friends_are_listed_and_messaged() {
             Friend {
                 activity: Some("making tea".into()),
                 activities: Default::default(),
+                // Friends since 2026-09-01, in milliseconds.
+                since: Some(1_788_253_200_000),
                 ..friend("2", "Ann", Some(Discord::Idle))
             },
             friend("3", "Bob", None),
@@ -4899,6 +4942,7 @@ fn discord_friends_are_listed_and_messaged() {
             presence: Some(chat::Presence::Idle),
             activity: Some("making tea".into()),
             activities: Default::default(),
+            since: Some(1_788_253_200_000),
         }
     );
     let effects = app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
@@ -6085,6 +6129,47 @@ fn profile_effects_are_kept_a_few_at_a_time_and_their_pictures_go_with_the_card(
 }
 
 #[test]
+fn a_cards_frame_and_moving_banner_go_with_it() {
+    let mut app = connected();
+    let layer = "https://cdn.discordapp.com/media/v1/collectibles-shop/9/a/static";
+    let banner = "https://cdn.discordapp.com/banners/1/a_77.png?size=600";
+    let moving = "https://cdn.discordapp.com/banners/1/a_77.gif?size=600";
+    app.state.profile = Some(ProfileView {
+        profile: Profile {
+            id: "1".into(),
+            banner: Some(banner.into()),
+            frame: Arc::from([crate::chat::ProfileFrameLayer {
+                src: layer.into(),
+                kind: "staple".into(),
+                anchor: "top".into(),
+                front: true,
+            }]),
+            theme: None,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    for url in [layer, moving].into_iter().map(String::from) {
+        app.requested_pictures.insert(url.clone());
+        app.apply(Event::Picture {
+            url,
+            picture: Arc::new(Picture::default()),
+        });
+    }
+    // They stay while the card shows, and go as it closes, though the trim
+    // is far off: each is about the card's size.
+    app.dispatch(Action::CloseAside);
+    for shown in [layer, moving] {
+        assert!(app.state.pictures.contains_key(shown), "{shown} stays");
+    }
+    app.dispatch(Action::CloseProfile);
+    for gone in [layer, moving] {
+        assert!(!app.state.pictures.contains_key(gone), "{gone} goes");
+        assert!(!app.requested_pictures.contains(gone), "{gone} goes");
+    }
+}
+
+#[test]
 fn the_selected_dms_nameplate_stays_and_the_others_go() {
     let mut app = connected();
     let selected = app.state.selected.clone().unwrap();
@@ -6927,6 +7012,7 @@ fn discord_dms(extra: Vec<yapfast_discord::service::Conversation>) -> Applicatio
         name: name.into(),
         avatar: String::new(),
         nickname: None,
+        since: None,
         presence: None,
         activity: None,
         activities: Default::default(),
@@ -9191,7 +9277,7 @@ fn a_chosen_server_tag_saves_and_the_account_profile_is_fetched_again() {
                 DiscordCommand::OwnProfile { server: None }
             ))]
         ),
-        "the profile is read back once"
+        "the profile is read back once, and its answer fills the card too"
     );
     assert!(
         app.dispatch(Action::LoadOwnProfile).iter().any(|effect| matches!(

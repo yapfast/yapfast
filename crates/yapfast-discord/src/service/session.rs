@@ -740,6 +740,9 @@ impl Session<'_> {
         let activity = activity.filter(|_| self.tracker.show_game);
         self.show_playing(activity.as_deref());
         crate::own_activity::merge(&mut presence, activity.as_deref());
+        if self.tracker.shows_here(&presence["activities"]) {
+            self.publisher.changed();
+        }
         if presence != self.shared.presence {
             self.gateway.update_presence(presence.clone()).await?;
             self.shared

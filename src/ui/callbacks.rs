@@ -3910,7 +3910,7 @@ fn composer_caret(
         }
     }
     // An app command's option offers its own people, roles and channels.
-    let commanding = !aside && adapter.app.state.command_draft().is_some();
+    let commanding = field == Field::Channel && adapter.app.state.command_draft().is_some();
     let found = offset
         .filter(|_| !commanding)
         .and_then(|offset| mention::query(text, offset));

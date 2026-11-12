@@ -20,7 +20,8 @@ grey offline ring. These follow PRESENCE_UPDATE live. The header of an open
 one-to-one DM shows the same dot on their avatar, and their custom status or
 what they're doing in a bubble beside the name. A group DM
 shows how many are in it. A group DM lists its members by name, with their
-presence. Yapfast downloads the pictures of the first
+presence, and a crown on whoever made it (the channel's `owner_id`), named
+"Group Owner", as a server's member list crowns its owner. Yapfast downloads the pictures of the first
 150 DMs listed; the rest keep their initials.
 
 Friend requests, message requests and spam have their own screen. A
@@ -254,21 +255,49 @@ profile once each time the open DM changes to someone else. Yapfast fetches it
 from `GET /users/{id}/profile` with the open server's id, so the server's
 nickname, avatar, banner, bio and pronouns win over the person's own, and the
 profile lists their roles in role order, when they joined Discord and the server,
-and the servers and friends the account shares with them. Profiles are kept for
+and the servers and friends the account shares with them. The full profile,
+the DM's panel and the profile editor's preview show the dates under "Member
+Since" in one row, as the client does: the Discord logo and the account's
+date, then a bullet, the server's icon (its initial without one) and the date
+of joining it; a profile not asked for a server has only the first. A
+friend's full profile, not the DM's panel, also shows "Friends Since", from
+`since` on their relationship in READY, RELATIONSHIP_ADD and
+RELATIONSHIP_UPDATE, kept for friends alone. These dates read as
+the client writes them, "Nov 5, 2026", whatever date format is chosen. Profiles are kept for
 five minutes, at most 32 of them. This account's own profile shares its
 friends and servers with nobody, so, as in Discord's client, its card shows
-no mutual line and its full profile no mutual tabs. Presence and activity
-come from the member list, since the profile doesn't carry them. Their
+no mutual line, its full profile no mutual tabs, and it has no Friends
+Since. Presence and activity come from the member list, since the profile
+doesn't carry them; one's own says the custom status the account has set,
+or none, whatever its presence, as Discord's client does, since the list's
+can be from before it changed. Their
 custom status, or what
 they're doing, sits in a thought bubble beside the picture, as in
 Discord's: two lines at most, and all of it while pointed at. One's
 own card, small or full, has Edit Profile in place of the friend and
 message buttons, which opens the [editor](#editing-ones-main-profile).
+The small card and the DM's panel list what they're doing in full; the full
+profile leaves that to its Activity tab. No presence comes for this account
+itself, so, as Discord's client does, its own profile shows what this session
+sends and what the first other active session of the account's shows, from
+READY's `sessions` and `SESSIONS_REPLACE`: custom statuses left out, each
+`type:application_id:name` once, sorted as anyone's are (this session's first
+among equals), with one game at most (`activity::own`,
+`Snapshot::own_activities`). On a small card each activity but a bot's has
+a "..." menu, as Discord's: View All Activity opens the full profile on its
+Activity tab, and on one's own game Manage Privacy opens Settings' game
+activity section. Discord's client sends a Spotify or console activity's
+Manage Privacy to its Connections settings, which Yapfast doesn't have, so
+those have none, as other kinds have none in the client. A song's times read
+as the client's, `03:05` and `01:02:03`.
 The More button of a card, a full profile and a DM's profile panel opens
 the person's menu, as a right click on them does: a member's in a server, a
 DM's in their DM, and elsewhere Message, the friend request, Block, or
 Unblock for someone blocked, and Copy ID. One's own profile has no Block, as
-in Discord. Block asks first, as from a DM's menu, and unfriending, blocking
+in Discord. What opens over a card or full profile, such as the note's
+dialog, a mutual server's card or a masked link's question, gives the
+keyboard back as it closes, so Escape closes the profile again. Block asks
+first, as from a DM's menu, and unfriending, blocking
 and unblocking from there send `{"location":"user profile overflow menu"}`,
 as Discord's client does from its profile's menu, in place of
 `{"location":"ContextMenu"}`. Blocking ends a friendship or a friend request,
@@ -295,8 +324,10 @@ their Hang status, headed by what it is ("LISTENING TO SPOTIFY"), with its
 large picture and the small one on its corner, its details and state, and their
 party's size as "(2 of 4)". A game with a start shows how long it has run,
 "42:10 elapsed"; one with only an end, how long is left; a song with both, a
-bar with how far it's got and how long it is. A Spotify song is titled by the
-song, then "by" the artist and "on" the album, and its title opens the song's
+bar under its words, as Discord's, with how far it's got on its left and how
+long it is on its right. A Spotify song is titled by the
+song, then "by" the artist and "on" the album; a podcast's episode, which
+has no artist, by the episode, then "on" the show. Its title opens the song's
 page, `https://open.spotify.com/track/{sync_id}` (or `/episode/` when the
 activity's metadata says so); a stream has "Watch stream". The line under the
 name goes when it only names one of these. The activities come with the
@@ -422,9 +453,24 @@ rules:
 | Board | It's one's own, or they have widgets |
 | Activity | Always |
 | Wishlist | It's one's own, or it's public and they're a friend or share a server |
-| Mutual friends, mutual servers | It isn't one's own |
+| Mutual friends | It's someone else's on Discord, and not a bot's |
+| Mutual servers | It's someone else's on Discord |
 
-It opens on Activity. Activity lists their activities, then, under "Recent
+A bot's keeps Mutual Servers, as the client's bot profile has, and words an
+empty one "No servers in common".
+
+The tab is settled as it opens, as in the client: the one a card's mutual
+line asks for, else the first, the Board when there is one, else Activity.
+A Board that comes with Discord's answer afterwards doesn't take over, and a
+chosen tab that goes falls back to the first for good. The mutual tabs read
+"Mutual Friends" and "Mutual Servers" while the profile loads, and after a
+failed one, then "No Mutual Friends" or "3 Mutual Friends"; the card's line
+reads "1 Mutual Friend • 2 Mutual Servers", each part opening its own tab.
+An empty tab shows rows the shape of what's coming till Discord has said,
+then the client's words in its middle: on Activity, "You don't have any
+activity here" on one's own, and on someone else's "Name doesn't have any
+activity to share here" with a Message button; on a mutual tab, "You don't
+have any friends in common" or "servers in common". Activity lists their activities, then, under "Recent
 activity", from `GET /content-inventory/users/{id}/outbox` when the tab first
 opens, what they listened to (`extra.entries[0].media`: its `title`, first
 artist and `image_url`), watched (`extra.media_title`) and played
@@ -585,6 +631,38 @@ each card's profile points to one by SKU. A layer plays as many times as its
 APNG's `acTL` says, then holds its last frame, as a browser does, and stops
 asking for frames; a file that says 0 plays for as long as its layer shows.
 
+## Profile frames
+
+A profile names the frame its person equips in its `collectibles`, the item
+of type 3 (`profile_frame` in some answers), in `guild_member_profile` before
+`user_profile`. The frame itself is the shop's: Yapfast asks for it with
+`GET /collectibles-products/{sku}`, as for an effect, and takes the item with
+`layers`, each `{id, type, order, anchor}` and a still at
+`/media/v1/collectibles-shop/{sku}/{id}/static`; the client has no moving
+version of these. `Discord::profile_frame` keeps each SKU's layers, a few
+addresses, for as long as the session runs, so a frame seen once comes with
+its card; the first time, `Event::ProfileFrame` brings it after the card.
+
+The card draws the layers as Discord's stylesheet does, from 12px past each
+side of a small card and 16px past a full one's: a `staple` once past the
+end it's anchored to; a `rail` the card's height with its picture at its
+anchor; a `border` repeated down the card. Frames are drawn 1312 wide, and a
+staple keeps the same part over the card whatever its height, 412 at the top
+and 212 at the foot, as Discord's frame maker lays them out, so a short one
+hangs out less. The `back` layers go behind the card's contents and the
+others over them. The full profile leaves out the staple at the foot, and
+shows none in a window under 785 pixels tall, which leaves no room above
+the card. The DM's panel and the editor's preview show none, and the panel
+asks for none. Each layer decodes at up to 460 by 1600 (`FRAME_SIZE`), as wide
+as a card draws it.
+
+A banner whose hash starts with `a_` moves: the card shows its still PNG and
+plays the GIF at the same address once it has come, while animations play
+(`Motion.playing`), as a moving decoration does. With animations off in
+Settings the GIF isn't asked for. A frame's layers and a moving banner go
+when their card closes, as an effect's pictures do, rather than with the
+next trim.
+
 ## Display name styles
 
 A name can carry a style, `display_name_styles: {font_id, effect_id, colors}`,
@@ -648,6 +726,7 @@ window draws carry no address for it, so Slint asks for nothing either.
 | Animate decorations and nameplates (`moving_cosmetics`) | Their `/animated` APNG is never asked for (`animated_url` gives none), so only the still is fetched and decoded | On |
 | Show name styles (`name_styles`) | Names in the UI's typeface and the theme's colour | On |
 | Show server tags (`server_tags`) | No tag chip, and no badge picture | On |
+| Show profile frames (`profile_frames`) | No `/collectibles-products/` request for a profile's frame (`DiscordCommand::Profile`'s `frame`), and none of its layers | On |
 
 Every switch starts on, so profiles look as in Discord's client. The
 switches are there for the cheaper side: an effect's layers are APNGs up
@@ -748,9 +827,10 @@ to remove it. The client never sends the bio, pronouns or banner to
 
 Saving keeps the editor open, as Discord's does. Afterwards Yapfast asks for
 the profile again, once, for the editor, and drops the profiles it kept of
-this account, so the account's card, which draws the tag, name style and
-theme from it, asks again as it next opens. What was written or chosen while the save and that answer were on
-their way stays, as a change still to save; the rest takes what Discord now
+this account. The main profile's answer also fills the account's card,
+which draws the tag, name style and theme from it, so it shows what was
+saved without a second request. What was written or chosen while the save
+and that answer were on their way stays, as a change still to save; the rest takes what Discord now
 has. A save that fails part way, its first request through and a later one
 refused, shows Discord's refusal, asks for the profile in the same way and
 keeps all that's written, so what Discord took is no longer a change and
@@ -888,7 +968,8 @@ presence change does.
 Settings → Game activity → Share the game you play is the account's own
 `show_current_game` setting, which Discord's apps change too. Yapfast reads
 it from READY and settings updates and writes it with
-`PATCH /users/@me/settings-proto/1`; it's on unless the account turned it
+`PATCH /users/@me/settings-proto/1`, keeping the status and custom status
+[as their changes do](messages.md); it's on unless the account turned it
 off, and a newly linked account shares nothing until READY says. While it's
 off, nothing scans processes, downloads the game list or serves the RPC
 socket.

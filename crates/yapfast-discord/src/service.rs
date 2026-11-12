@@ -143,6 +143,9 @@ pub struct Conversation {
     pub empty: bool,
     /// Everyone in it, this account included.
     pub people: usize,
+    /// Who made a group DM; its member list crowns them.
+    #[serde(default)]
+    pub owner: Option<String>,
     /// A message request, waiting to be accepted or ignored. Requests count
     /// no mentions, and spam isn't unread either.
     pub request: bool,
@@ -221,6 +224,10 @@ pub struct Friend {
     /// The nickname this account gave them.
     #[serde(default)]
     pub nickname: Option<String>,
+    /// When they became friends, in Unix milliseconds, from the
+    /// relationship's `since`.
+    #[serde(default)]
+    pub since: Option<u64>,
     /// Whether they're around and their custom status or what they're doing,
     /// when Discord says. Not saved, since it's stale by the next start.
     #[serde(skip)]
@@ -338,9 +345,18 @@ pub struct Snapshot {
     /// not before Discord has said.
     #[serde(default)]
     pub show_game: bool,
+    /// The settings' `status` as Discord last sent it, its protobuf bytes:
+    /// what this account's next change to it starts from. Not kept, as
+    /// READY sends it again.
+    #[serde(skip)]
+    pub status_settings: Option<Arc<[u8]>>,
     /// The game this account shows it plays now.
     #[serde(skip)]
     pub playing: Option<Arc<crate::own_activity::Playing>>,
+    /// What this account shows it's doing, here and on its other devices, as
+    /// its own profile shows it.
+    #[serde(skip)]
+    pub own_activities: crate::activity::Activities,
     /// The soundboard's volume, from 0 to 100 on the power curve of the
     /// other volumes, and the sounds that play as this account joins
     /// voice, as its settings keep them; the volume is none until they say,
@@ -748,6 +764,9 @@ pub struct Discord {
     notes: Notes,
     /// Profile effects fetched lately, oldest first.
     effects: Arc<Mutex<Vec<Arc<profile_effect::Effect>>>>,
+    /// The layers of the profile frames asked for, by SKU; none for one the
+    /// shop has no frame for. They're a few addresses each.
+    frames: Frames,
     /// The threads a list of a channel's threads found, by id, while it's
     /// open: one opens from what Discord gave rather than asking again.
     listed_threads: Arc<Mutex<HashMap<String, Value>>>,
@@ -767,6 +786,37 @@ pub struct Discord {
     commands: commands::Kept,
     /// The newest autocomplete, the only one whose answer is wanted.
     autocompletes: interactions::Autocompletes,
+    /// Changes to the status settings on their way; see
+    /// [`Self::change_status_settings`].
+    status_writes: Arc<StatusWrites>,
+}
+
+/// This account's changes to the settings' `status` on their way.
+#[derive(Default)]
+struct StatusWrites {
+    pending: std::sync::Mutex<PendingStatus>,
+    /// Held through each PATCH, so they go one at a time.
+    sending: tokio::sync::Mutex<()>,
+}
+
+#[derive(Default)]
+struct PendingStatus {
+    /// `status` with this session's changes, and the snapshot's it started
+    /// from: once Discord sends other settings, changes start from those.
+    status: Option<Vec<u8>>,
+    seen: Option<Arc<[u8]>>,
+    /// What the last PATCH that went through carried.
+    sent: Option<Vec<u8>>,
+    /// Changes made and not yet sent or refused.
+    writing: usize,
+}
+
+impl StatusWrites {
+    fn lock(&self) -> std::sync::MutexGuard<'_, PendingStatus> {
+        self.pending
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 }
 
 /// Discord allows starting 10 new DMs with people in 10 minutes, and treats
@@ -800,6 +850,9 @@ const PROFILES: usize = 32;
 const NOTES: usize = 256;
 
 type Notes = Arc<Mutex<HashMap<String, String>>>;
+
+/// Profile frames' layers by SKU, as [`Discord::kept_frame`] gives them.
+type Frames = Arc<Mutex<HashMap<String, Option<Arc<[profile::FrameLayer]>>>>>;
 
 /// Keeps a note this account has on `user`.
 fn keep_note(notes: &Notes, user: &str, note: &str) {
@@ -881,6 +934,7 @@ impl Discord {
             feed_place: Arc::default(),
             notes,
             effects: Arc::default(),
+            frames: Arc::default(),
             listed_threads: Arc::default(),
             new_dms: Arc::new(Mutex::new(limits::Window::new(NEW_DMS, NEW_DM_SPAN))),
             application_icons: Arc::default(),
@@ -888,6 +942,7 @@ impl Discord {
             default_sounds: Arc::default(),
             commands: kept_commands,
             autocompletes: interactions::Autocompletes::default(),
+            status_writes: Arc::default(),
         })
     }
 
@@ -1642,6 +1697,13 @@ impl Discord {
             kept(earlier);
         }
         let value = self.api.profile(user, server(guild)).await?;
+        self.keep_profile(guild, user, &value)
+    }
+
+    /// Learns what a profile Discord sent says of names and roles, and keeps
+    /// it, in memory and on disk, as [`Self::profile`] gives it again.
+    fn keep_profile(&self, guild: &str, user: &str, value: &Value) -> Result<Profile> {
+        let same = |kept: &&Kept| kept.user == user && kept.guild == guild;
         let learned = {
             let mut names = self.write_names();
             let before = names.version();
@@ -1660,7 +1722,7 @@ impl Discord {
         if learned {
             let _ = self.live.send(Live::Names);
         }
-        let profile = profile::parse(&value, server(guild))
+        let profile = profile::parse(value, server(guild))
             .ok_or_else(|| anyhow!("could not understand Discord's answer"))?;
         {
             let mut profiles = self.lock_profiles();
@@ -1799,14 +1861,30 @@ impl Discord {
     /// This account's own profile, for its editor, fetched afresh: in
     /// `guild`, or its main one.
     pub async fn own_profile(&self, guild: Option<&str>) -> Result<profile::OwnProfile> {
+        Ok(self.own_profile_and_card(guild).await?.0)
+    }
+
+    /// [`Self::own_profile`], and for the main profile also the profile the
+    /// account's card shows, from the same answer, kept as [`Self::profile`]
+    /// keeps it: after a save, the card shows what was saved without asking
+    /// Discord a second time.
+    pub async fn own_profile_and_card(
+        &self,
+        guild: Option<&str>,
+    ) -> Result<(profile::OwnProfile, Option<Profile>)> {
         let me = self.snapshots.borrow().user_id.clone();
         let me = me.ok_or_else(|| anyhow!("Discord hasn't said who this account is yet"))?;
         let value = self.api.profile(&me, guild).await?;
-        match guild {
+        let own = match guild {
             Some(guild) => profile::parse_server(&value, guild),
             None => profile::parse_main(&value),
         }
-        .ok_or_else(|| anyhow!("could not understand Discord's answer"))
+        .ok_or_else(|| anyhow!("could not understand Discord's answer"))?;
+        let card = match guild {
+            Some(_) => None,
+            None => self.keep_profile(PRIVATE, &me, &value).ok(),
+        };
+        Ok((own, card))
     }
 
     /// Changes this account's profile in a server as Discord's client
@@ -2185,6 +2263,35 @@ impl Discord {
         });
     }
 
+    /// The layers of the profile frame sold as `sku`, if they were asked
+    /// for already: `Some(None)` for a SKU that isn't a frame.
+    pub fn kept_frame(&self, sku: &str) -> Option<Option<Arc<[profile::FrameLayer]>>> {
+        self.frames
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(sku)
+            .cloned()
+    }
+
+    /// The layers of the profile frame sold as `sku`, from the shop's
+    /// `GET /collectibles-products/{sku}`, asked for once and kept. None for
+    /// a SKU that isn't one.
+    pub async fn profile_frame(&self, sku: &str) -> Result<Option<Arc<[profile::FrameLayer]>>> {
+        if let Some(kept) = self.kept_frame(sku) {
+            return Ok(kept);
+        }
+        let product = self.api.collectibles_product(sku).await?;
+        let frame = profile::frame(&product).map(Arc::from);
+        if frame.is_none() {
+            tracing::info!(sku, "the shop has no profile frame with this SKU");
+        }
+        self.frames
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(sku.to_owned(), frame.clone());
+        Ok(frame)
+    }
+
     /// The profile effect sold as `sku`: its layers, from the shop, asked for
     /// once and kept for the next few cards. None for a SKU that isn't one.
     pub async fn profile_effect(&self, sku: &str) -> Result<Option<Arc<profile_effect::Effect>>> {
@@ -2297,27 +2404,104 @@ impl Discord {
     }
 
     /// Sets or clears the custom status, everywhere this account is signed
-    /// in, and shows it from this session.
-    pub async fn set_custom_status(&self, custom: Option<CustomStatus>) -> Result<()> {
-        self.api.set_custom_status(custom.as_ref()).await?;
-        let _ = self.requests.send(Request::CustomStatus(custom));
-        Ok(())
+    /// in, and shows it from this session. The change is made as this is
+    /// called, so changes go in the order they were asked for.
+    pub fn set_custom_status(
+        &self,
+        custom: Option<CustomStatus>,
+    ) -> impl Future<Output = Result<()>> + Send + 'static {
+        self.change_status_settings(
+            move |current| settings::write_custom(current, custom.as_ref(), now_ms()),
+            |now| Request::CustomStatus(now.custom.flatten()),
+        )
     }
 
     /// Sets the status, `online`, `idle`, `dnd` or `invisible`, everywhere
     /// this account is signed in, and shows it from this session.
-    pub async fn set_status(&self, status: &str) -> Result<()> {
-        self.api.set_status(status).await?;
-        let _ = self.requests.send(Request::Status(status.to_owned()));
-        Ok(())
+    pub fn set_status(&self, status: &str) -> impl Future<Output = Result<()>> + Send + 'static {
+        let status = status.to_owned();
+        self.change_status_settings(
+            move |current| settings::write_status(current, &status, now_ms()),
+            |now| Request::Status(now.status.unwrap_or_else(|| "online".into())),
+        )
     }
 
     /// Shares the game this account plays, everywhere it's signed in, or
     /// stops sharing it. Stopping ends game detection and Rich Presence.
-    pub async fn set_show_game(&self, shown: bool) -> Result<()> {
-        self.api.set_show_game(shown).await?;
-        let _ = self.requests.send(Request::ShowGame(shown));
-        Ok(())
+    pub fn set_show_game(&self, shown: bool) -> impl Future<Output = Result<()>> + Send + 'static {
+        self.change_status_settings(
+            move |current| settings::write_show_game(current, shown),
+            move |now| Request::ShowGame(now.show_game.unwrap_or(shown)),
+        )
+    }
+
+    /// Changes the settings' `status` with `change`, then has the session
+    /// show `then` of them. As Discord's client does, the change starts from
+    /// the settings Discord last sent, not from a request for them, and
+    /// joins those still on their way: each PATCH carries the whole `status`
+    /// as it now stands, since Discord resets what a write of it leaves out,
+    /// so however the writes are ordered the last carries every change.
+    fn change_status_settings(
+        &self,
+        change: impl FnOnce(&[u8]) -> Vec<u8>,
+        then: impl FnOnce(settings::StatusSettings) -> Request + Send + 'static,
+    ) -> impl Future<Output = Result<()>> + Send + 'static {
+        let changed = {
+            let sent = self.snapshots.borrow().status_settings.clone();
+            let mut pending = self.status_writes.lock();
+            // Discord's settings start it, unless this session's changes
+            // are still on their way or newer than what Discord last sent.
+            if pending.writing == 0 && (pending.status.is_none() || pending.seen != sent) {
+                pending.status = sent.as_deref().map(<[u8]>::to_vec);
+                pending.seen = sent;
+            }
+            match pending.status.as_deref().map(change) {
+                Some(status) => {
+                    pending.status = Some(status);
+                    pending.writing += 1;
+                    Ok(())
+                }
+                None => Err(anyhow!("Discord hasn't sent this account's settings yet")),
+            }
+        };
+        let (api, writes, requests) = (
+            self.api.clone(),
+            self.status_writes.clone(),
+            self.requests.clone(),
+        );
+        async move {
+            changed?;
+            let _turn = writes.sending.lock().await;
+            let (status, unsent) = {
+                let pending = writes.lock();
+                let status = pending.status.clone().unwrap_or_default();
+                let unsent = pending.sent.as_ref() != Some(&status);
+                (status, unsent)
+            };
+            // One before it sent this change with its own.
+            let result = if unsent {
+                api.set_user_settings(&settings::encode_status(&status))
+                    .await
+            } else {
+                Ok(())
+            };
+            {
+                let mut pending = writes.lock();
+                pending.writing -= 1;
+                match &result {
+                    Ok(()) => pending.sent = Some(status.clone()),
+                    // What didn't go through starts from Discord's again.
+                    Err(_) if pending.writing == 0 => {
+                        pending.status = None;
+                        pending.sent = None;
+                    }
+                    Err(_) => {}
+                }
+            }
+            result?;
+            let _ = requests.send(then(settings::read(&settings::encode_status(&status))));
+            Ok(())
+        }
     }
 
     /// Tells the session nobody has used Yapfast since `since`, in Unix

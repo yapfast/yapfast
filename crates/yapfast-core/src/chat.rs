@@ -289,6 +289,9 @@ pub struct Friend {
     pub presence: Option<Presence>,
     pub activity: Option<String>,
     pub activities: Activities,
+    /// When they became friends, in Unix milliseconds; written out only for
+    /// the profile on screen.
+    pub since: Option<u64>,
 }
 
 /// A file waiting in the composer to go with the next message.
@@ -817,6 +820,22 @@ impl ProfileEffect {
     }
 }
 
+/// Whether a picture is a layer of a profile frame,
+/// `/collectibles-shop/{sku}/{id}/static`, where a decoration's or
+/// nameplate's still is `/collectibles-shop/{sku}/static`.
+pub fn is_frame_layer(url: &str) -> bool {
+    url.split_once("/collectibles-shop/")
+        .is_some_and(|(_, rest)| rest.ends_with("/static") && rest.matches('/').count() == 2)
+}
+
+/// The address of a banner's moving version: Discord's moving pictures have
+/// hashes that start with `a_`, and come as GIFs.
+pub fn moving_banner(url: &str) -> Option<String> {
+    let (start, end) = url.split_once(".png?")?;
+    let hash = start.rsplit('/').next()?;
+    hash.starts_with("a_").then(|| format!("{start}.gif?{end}"))
+}
+
 /// Marks the address of a profile effect's picture, which decodes at the
 /// card's size rather than an avatar's.
 pub const EFFECT_PICTURE: &str = "#effect";
@@ -863,6 +882,9 @@ pub struct Profile {
     /// The SKU of the profile effect they equip, which
     /// [`Event::ProfileEffect`] describes.
     pub effect: Option<String>,
+    /// The layers of the frame around their card, the back ones first; none
+    /// without one, or until [`Event::ProfileFrame`] says what it is.
+    pub frame: Arc<[ProfileFrameLayer]>,
     /// The two colours of their profile's theme, when they set one.
     pub theme: Option<[u32; 2]>,
     /// The address of their banner, and its colour when there's no picture.
@@ -881,6 +903,10 @@ pub struct Profile {
     pub created: Option<String>,
     /// When they joined this server, as a date.
     pub joined: Option<String>,
+    /// The server `joined` is of, whose icon shows beside it: its name and
+    /// the address of its icon.
+    pub server_name: String,
+    pub server_icon: Option<String>,
     /// The servers and friends this account shares with them.
     pub servers: Vec<ProfileServer>,
     pub friends: Vec<ProfileFriend>,
@@ -907,6 +933,29 @@ pub struct Profile {
     /// What they did lately, once asked for.
     pub recent: Vec<RecentActivity>,
     pub recent_asked: bool,
+    /// Discord's answer to it came, even an empty or failed one.
+    pub recent_came: bool,
+}
+
+/// One picture of a profile frame; see `yapfast_discord::profile::FrameLayer`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProfileFrameLayer {
+    pub src: String,
+    pub kind: String,
+    pub anchor: String,
+    pub front: bool,
+}
+
+#[cfg(feature = "discord")]
+impl From<&yapfast_discord::profile::FrameLayer> for ProfileFrameLayer {
+    fn from(layer: &yapfast_discord::profile::FrameLayer) -> Self {
+        Self {
+            src: layer.src.clone(),
+            kind: layer.kind.clone(),
+            anchor: layer.anchor.clone(),
+            front: layer.front,
+        }
+    }
 }
 
 /// A past thing on someone's Activity tab.
@@ -3134,10 +3183,13 @@ pub enum DiscordCommand {
     /// the other person in a DM. It comes back as [`Event::Profile`], and
     /// the effect it names as [`Event::ProfileEffect`] when `effect` asks
     /// for it; without, the shop isn't asked what the effect is made of.
+    /// Its frame comes with it, or as [`Event::ProfileFrame`] the first time,
+    /// when `frame` asks for it.
     Profile {
         room: String,
         user: String,
         effect: bool,
+        frame: bool,
     },
     /// Download server icons and avatars by address. Each that arrives comes
     /// back as [`Event::Picture`]; one that fails doesn't.
@@ -4076,6 +4128,12 @@ pub enum Event {
     },
     /// The layers of a profile effect a [`Profile::effect`] names.
     ProfileEffect(Arc<ProfileEffect>),
+    /// The layers of the frame of `user`'s profile, which the shop
+    /// described after [`Event::Profile`] came.
+    ProfileFrame {
+        user: String,
+        frame: Arc<[ProfileFrameLayer]>,
+    },
     /// The Activity panel's feed, in Discord's order; empty if it can't be had.
     ActivityFeed(Arc<[FeedEntry]>),
     /// It's time to ask for the Activity panel's feed again.

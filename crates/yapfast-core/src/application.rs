@@ -529,6 +529,9 @@ pub struct AppState {
     /// it shows.
     pub discord_show_game: bool,
     pub discord_playing: Option<chat::Playing>,
+    /// What the Discord account shows it's doing, on this device and its
+    /// others, as its own profile shows it.
+    pub discord_activities: chat::Activities,
     /// How loud the Discord account's soundboard plays, as Discord keeps
     /// it: from 0 to 100, on its slider's curve.
     pub soundboard_volume: f32,
@@ -2397,7 +2400,8 @@ pub struct Application {
     /// came: their downloads were called off, and one that comes all the same
     /// isn't kept.
     let_go_emoji: HashSet<String>,
-    /// The profile effects' pictures in `AppState::pictures`.
+    /// The profile cards' own large pictures in `AppState::pictures`: their
+    /// effects', frames' and moving banners'.
     effect_pictures: Vec<String>,
     /// Forwards sent, until each conversation they went to answers.
     forwards: Vec<ForwardSent>,
@@ -2745,6 +2749,12 @@ fn pictures_on_screen<'a>(
                         .filter_map(Option::as_deref)
                         .chain(cosmetics.decoration(profile.decoration.as_deref()))
                         .chain(tag_badge(cosmetics, &profile.tag))
+                        .chain(
+                            cosmetics
+                                .frame(Some(&profile.frame))
+                                .into_iter()
+                                .flat_map(|frame| frame.iter().map(|layer| layer.src.as_str())),
+                        )
                         .chain(profile.bio_emoji.iter().map(|emoji| emoji.picture.as_str()))
                         // Its layers are asked for when it first plays.
                         .chain(effect.into_iter().flat_map(move |effect| {
@@ -2916,18 +2926,16 @@ impl Application {
         effects
     }
 
-    /// Lets a profile effect's pictures go with its card, rather than with
-    /// the next trim: each is the size of the card, as much as a few hundred
-    /// avatars.
+    /// Lets a profile effect's, frame's or moving banner's pictures go with
+    /// its card, rather than with the next trim: each is about the size of
+    /// the card, as much as a few hundred avatars.
     fn let_go_of_effect_pictures(&mut self) {
         if self.effect_pictures.is_empty() {
             return;
         }
         let state = &self.state;
-        let shown: Vec<&str> = state
-            .profile
-            .iter()
-            .chain(&state.panel_profile)
+        let views = || state.profile.iter().chain(&state.panel_profile);
+        let mut shown: Vec<&str> = views()
             .filter_map(|view| view.profile.effect.as_deref())
             .filter_map(|sku| {
                 state
@@ -2937,9 +2945,16 @@ impl Application {
             })
             .flat_map(|effect| effect.pictures())
             .collect();
+        shown.extend(
+            views().flat_map(|view| view.profile.frame.iter().map(|layer| layer.src.as_str())),
+        );
+        let banners: Vec<String> = views()
+            .filter_map(|view| view.profile.banner.as_deref())
+            .filter_map(chat::moving_banner)
+            .collect();
         let (kept, gone): (Vec<String>, Vec<String>) = std::mem::take(&mut self.effect_pictures)
             .into_iter()
-            .partition(|url| shown.contains(&url.as_str()));
+            .partition(|url| shown.contains(&url.as_str()) || banners.contains(url));
         self.effect_pictures = kept;
         for url in &gone {
             self.state.pictures.remove(url);
@@ -3147,7 +3162,11 @@ impl Application {
             return;
         }
         let emoji = is_custom_emoji(&url);
-        if url.ends_with(chat::EFFECT_PICTURE) {
+        // A card's own large pictures go with it.
+        if url.ends_with(chat::EFFECT_PICTURE)
+            || chat::is_frame_layer(&url)
+            || (url.contains("/banners/") && url.contains(".gif?"))
+        {
             self.effect_pictures.push(url.clone());
         }
         if self.state.pictures.insert(url, picture).is_none() && emoji {
@@ -4247,6 +4266,7 @@ impl Application {
             Event::ProfileBoard { user, widgets } => self.profile_board_named(&user, widgets),
             Event::ProfileRecent { user, recent } => self.profile_recent_came(&user, recent),
             Event::BadgeLevels { user, badges } => self.show_badge_levels(&user, badges),
+            Event::ProfileFrame { user, frame } => self.show_profile_frame(&user, &frame),
             Event::ProfileEffect(effect) => {
                 // The few of the cards seen lately.
                 let profile_effects = &mut self.state.profile_effects;
