@@ -83,6 +83,8 @@ A read is the same: what it answers is what the capability names.
 | `messages.get`, `messages.history` | `messages.read` |
 | `people.get`, `people.member` | `people.read` |
 | `media.get` | `media.read` |
+| The `decorate` reply's `hide` and `hide_media` | `messages.filter` |
+| Keeping a deleted row on screen | `messages.retain`, declared and nothing more: the parent merges the row |
 | `identity.decorate`, the `identity` activation trigger | `people.read` |
 | `code_block.render`, the `code` activation trigger | `messages.read`: a block is message content |
 

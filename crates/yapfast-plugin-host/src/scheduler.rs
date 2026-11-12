@@ -921,6 +921,8 @@ impl<B: Backend + 'static> Shared<B> {
             plugin: plugin.as_ref().clone(),
             message: message.to_owned(),
             tree: None,
+            hide: false,
+            hide_media: false,
         };
         if self.ensure_active(slot).is_none() {
             let _ = self.reply(task.id, &nothing());
@@ -933,21 +935,24 @@ impl<B: Backend + 'static> Shared<B> {
         let (result, late) = self.call(&[slot], DECORATE_BUDGET, |backend| {
             backend.invoke(&plugin, "yf_decorate", &bytes)
         });
-        let tree = match &result {
+        let decoration = match &result {
             // An export that answered nothing, or answered `null`, draws
             // nothing: a decoration is optional, so an empty one is no fault.
             Ok(Some(answer)) => serde_json::from_slice::<serde_json::Value>(answer)
                 .ok()
-                .filter(|tree| !tree.is_null()),
+                .and_then(yapfast_plugin_api::message::Decoration::parse),
             Ok(None) => None,
             Err(_) => None,
-        };
+        }
+        .unwrap_or_default();
         let _ = self.reply(
             task.id,
             &FromHelper::Decorated {
                 plugin: plugin.as_ref().clone(),
                 message: message.to_owned(),
-                tree,
+                tree: decoration.tree,
+                hide: decoration.hide,
+                hide_media: decoration.hide_media,
             },
         );
         match result {
@@ -1379,6 +1384,8 @@ impl<B: Backend + 'static> Shared<B> {
                         plugin,
                         message: message.clone(),
                         tree: None,
+                        hide: false,
+                        hide_media: false,
                     },
                 );
             }

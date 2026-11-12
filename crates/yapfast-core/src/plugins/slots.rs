@@ -73,10 +73,12 @@ pub enum Output {
     },
     /// What a plugin draws under a message, by the message's id; `None`
     /// takes it away. The runtime decorates again a message that's edited.
+    /// `hide` is what the plugin asked be kept out of sight.
     Decorate {
         plugin: String,
         message: String,
         tree: Option<Tree>,
+        hide: Hidden,
     },
 }
 
@@ -89,7 +91,28 @@ pub const DECORATIONS: usize = 512;
 pub struct Decoration {
     pub message: String,
     pub plugin: usize,
-    pub tree: Arc<Tree>,
+    /// What the plugin draws under the row, when it drew something: a plugin
+    /// that only filters a row answers a hide and no tree.
+    pub tree: Option<Arc<Tree>>,
+    /// The row is hidden from view, which `messages.filter` allows and which
+    /// deletes nothing: turning the plugin off brings it back.
+    pub hide: bool,
+    /// The row's pictures and files are hidden, and its text is not.
+    pub hide_media: bool,
+}
+
+/// What a plugin asked be kept out of sight for one message.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Hidden {
+    pub row: bool,
+    pub media: bool,
+}
+
+impl Hidden {
+    /// Nothing hidden, or nothing left to hide.
+    pub fn none(self) -> bool {
+        !self.row && !self.media
+    }
 }
 
 /// One plugin's tree in one slot; `plugin` is its index in the names.
@@ -246,7 +269,13 @@ impl Slots {
 
     /// Draws a plugin's tree under a message, or takes it away; false when
     /// nothing changed.
-    pub fn decorate(&mut self, plugin: &str, message: &str, tree: Option<Tree>) -> bool {
+    pub fn decorate(
+        &mut self,
+        plugin: &str,
+        message: &str,
+        tree: Option<Tree>,
+        hide: Hidden,
+    ) -> bool {
         let Some(plugin) = self.index(plugin) else {
             return false;
         };
@@ -255,25 +284,30 @@ impl Slots {
             .iter()
             .position(|kept| kept.plugin == plugin && kept.message == message);
         let old = place.and_then(|place| self.decorations.remove(place));
-        match tree {
-            None if old.is_none() => return false,
-            None => {}
-            Some(tree) => {
-                let unchanged = old.as_ref().is_some_and(|old| *old.tree == tree);
-                self.decorations.push_back(Decoration {
-                    message: message.to_owned(),
-                    plugin,
-                    tree: old
-                        .filter(|_| unchanged)
-                        .map_or_else(|| Arc::new(tree), |old| old.tree),
-                });
-                if self.decorations.len() > DECORATIONS {
-                    let gone = self.decorations.pop_front();
-                    self.decorated.extend(gone.map(|gone| gone.message));
-                }
-                if unchanged {
-                    return false;
-                }
+        let tree = tree.map(Arc::new);
+        // Nothing to draw and nothing hidden is not an entry: a plugin that
+        // answered nothing leaves the row as it was.
+        if tree.is_none() && hide.none() {
+            if old.is_none() {
+                return false;
+            }
+        } else {
+            let unchanged = old.as_ref().is_some_and(|old| {
+                old.hide == hide.row && old.hide_media == hide.media && old.tree == tree
+            });
+            self.decorations.push_back(Decoration {
+                message: message.to_owned(),
+                plugin,
+                tree: old.filter(|_| unchanged).and_then(|old| old.tree).or(tree),
+                hide: hide.row,
+                hide_media: hide.media,
+            });
+            if self.decorations.len() > DECORATIONS {
+                let gone = self.decorations.pop_front();
+                self.decorated.extend(gone.map(|gone| gone.message));
+            }
+            if unchanged {
+                return false;
             }
         }
         self.decorated.push(message.to_owned());
@@ -286,6 +320,23 @@ impl Slots {
         self.decorations
             .iter()
             .filter(move |kept| kept.message == message)
+    }
+
+    /// What is hidden for one message, across every plugin that asked: a row
+    /// any of them hides is hidden, and so is one's media. The interface asks
+    /// per row, so a row nobody filtered costs one scan of the decorations kept
+    /// for it and nothing else.
+    pub fn hidden(&self, message: &str) -> Hidden {
+        let mut hidden = Hidden::default();
+        for kept in self
+            .decorations
+            .iter()
+            .filter(|kept| kept.message == message)
+        {
+            hidden.row |= kept.hide;
+            hidden.media |= kept.hide_media;
+        }
+        hidden
     }
 
     /// The messages whose decorations changed since this was last called.
@@ -301,7 +352,8 @@ impl Slots {
                 plugin,
                 message,
                 tree,
-            } => self.decorate(&plugin, &message, tree),
+                hide,
+            } => self.decorate(&plugin, &message, tree, hide),
         }
     }
 }
@@ -358,23 +410,69 @@ mod tests {
     fn decorations_follow_their_message_and_the_oldest_go() {
         let mut slots = slots();
         let badge = tree(r#"{ "rows": [{ "cells": [{ "kind": "badge", "text": "Link" }] }] }"#);
-        assert!(slots.decorate("a.one", "m1", Some(badge.clone())));
+        assert!(slots.decorate("a.one", "m1", Some(badge.clone()), Hidden::default()));
         assert!(
-            !slots.decorate("a.one", "m1", Some(badge.clone())),
+            !slots.decorate("a.one", "m1", Some(badge.clone()), Hidden::default()),
             "the same"
         );
-        assert!(slots.decorate("a.two", "m1", Some(badge.clone())));
+        assert!(slots.decorate("a.two", "m1", Some(badge.clone()), Hidden::default()));
         assert_eq!(slots.decorations("m1").count(), 2);
         assert_eq!(slots.take_decorated(), ["m1", "m1"]);
         assert!(slots.take_decorated().is_empty());
-        assert!(slots.decorate("a.one", "m1", None));
-        assert!(!slots.decorate("a.one", "m1", None));
+        assert!(slots.decorate("a.one", "m1", None, Hidden::default()));
+        assert!(!slots.decorate("a.one", "m1", None, Hidden::default()));
         assert_eq!(slots.decorations("m1").count(), 1);
         for index in 0..DECORATIONS {
-            slots.decorate("a.one", &format!("x{index}"), Some(badge.clone()));
+            slots.decorate(
+                "a.one",
+                &format!("x{index}"),
+                Some(badge.clone()),
+                Hidden::default(),
+            );
         }
         assert_eq!(slots.decorations("m1").count(), 0, "the least recent went");
         assert!(slots.take_decorated().contains(&"m1".to_owned()));
+    }
+
+    #[test]
+    fn a_row_is_hidden_when_any_plugin_says_so() {
+        let mut slots = slots();
+        let badge = tree(r#"{ "rows": [{ "cells": [{ "kind": "badge", "text": "Link" }] }] }"#);
+        assert!(slots.hidden("m1").none(), "nothing is hidden to begin with");
+        slots.decorate(
+            "a.one",
+            "m1",
+            Some(badge.clone()),
+            Hidden {
+                row: false,
+                media: true,
+            },
+        );
+        assert_eq!(
+            slots.hidden("m1"),
+            Hidden {
+                row: false,
+                media: true
+            }
+        );
+        slots.decorate(
+            "a.two",
+            "m1",
+            None,
+            Hidden {
+                row: true,
+                media: false,
+            },
+        );
+        assert_eq!(
+            slots.hidden("m1"),
+            Hidden {
+                row: true,
+                media: true
+            },
+            "one plugin's row and another's media"
+        );
+        assert!(slots.hidden("m2").none(), "another row is untouched");
     }
 
     #[test]

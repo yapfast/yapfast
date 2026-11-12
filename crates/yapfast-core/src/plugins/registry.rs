@@ -130,6 +130,9 @@ pub struct Summary {
     /// Whether an enabled plugin colours code blocks, which is the only reason a
     /// row reads its markdown for fences.
     pub colours_code: bool,
+    /// Whether an enabled plugin keeps deleted messages visible, which is the
+    /// only reason the timeline merges what a backend dropped.
+    pub retains: bool,
 }
 
 /// One installed plugin, copied out of the registry for the settings page
@@ -625,6 +628,12 @@ impl Registry {
                     .activation
                     .as_ref()
                     .is_some_and(|activation| activation.colours_code());
+            // `messages.retain` is the whole declaration: a plugin that asks to
+            // keep deleted messages keeps them by asking.
+            summary.retains |= entry
+                .manifest
+                .permissions
+                .allows(Capability::MessagesRetain);
         }
         self.summary = summary;
     }

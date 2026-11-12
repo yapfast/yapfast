@@ -218,6 +218,28 @@ guest's own call: it answers the widget tree `interface.md` describes, or
 `null` for "nothing under this one". The parent checks the tree, so a plugin
 that answers a shape the widget set doesn't have simply draws nothing.
 
+The answer may also keep the row or its pictures out of sight, which is
+[§17.2](../../PLAN.md#172-additions-to-the-api)'s `hide_media` and its filter:
+
+```json
+{ "hide_media": true }
+{ "hide": true, "tree": { "rows": [ { "cells": [ { "kind": "muted", "text": "hidden" } ] } ] } }
+```
+
+A bare tree is still an answer, so a plugin that only draws says what it always
+said. `hide` takes the whole row out of view and `hide_media` takes its pictures
+and files and leaves its text: both are display only, nothing is deleted and
+nothing is sent, and both need `messages.filter`. A plugin without that
+capability has the flags dropped and keeps whatever it drew, so a plugin that
+declares `decorate` alone can draw under a row and cannot make it go away.
+
+`messages.retain` is the other half of showing what went: a plugin that declares
+it keeps a deleted row on screen, flagged `deleted` with its text, while the
+backend's new timeline no longer holds it. The plugin is told about the deletion
+by the `message_delete` event, which is where the row it stores comes from. The
+merge is the parent's (`plugins/retention.rs`), so a plugin keeps the row by
+declaring the capability and needs no call.
+
 `yf_identity` is asked once per (person, server) and not once per message, so
 the answer is a description of a person and not of a row:
 

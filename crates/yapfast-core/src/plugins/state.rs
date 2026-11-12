@@ -499,6 +499,12 @@ impl PluginState {
         self.bridge.colours_code()
     }
 
+    /// Whether an enabled plugin keeps deleted messages visible, which is the
+    /// only reason the timeline merges what the backend dropped.
+    pub fn retains(&self) -> bool {
+        self.bridge.retains()
+    }
+
     /// Whether this block has been asked about, either way: a block whose
     /// answer is kept is never asked about again.
     pub fn knows_code_block(&self, block: &str) -> bool {

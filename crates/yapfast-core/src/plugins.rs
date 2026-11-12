@@ -34,6 +34,7 @@ pub mod network;
 pub mod page;
 pub mod permissions;
 pub mod registry;
+pub mod retention;
 pub mod settings;
 pub mod slots;
 pub mod spawn;
@@ -256,6 +257,7 @@ pub fn preview(found: &Found) -> Vec<slots::Output> {
                 .and_then(ui::Tree::checked);
             let output = tree.and_then(|tree| match key.strip_prefix("message:") {
                 Some(message) => Ok(slots::Output::Decorate {
+                    hide: slots::Hidden::default(),
                     plugin: plugin.clone(),
                     message: message.to_owned(),
                     tree: Some(tree),

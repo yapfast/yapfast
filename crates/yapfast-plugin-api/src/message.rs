@@ -202,7 +202,94 @@ pub enum ToHelper {
     Shutdown,
 }
 
-/// What `yf_decorate` is given: a message a plugin may draw under, with what
+/// What `yf_decorate` may answer: what to draw under a message, and whether the
+/// message or its media should be hidden from view.
+///
+/// A bare widget tree is still an answer, so a plugin that draws and nothing else
+/// says what it always said. The object form is for a plugin that also filters:
+///
+/// ```json
+/// { "hide_media": true }
+/// { "hide": true, "tree": { "rows": [] } }
+/// ```
+///
+/// Hiding is display only: nothing is deleted, nothing is sent, and turning the
+/// plugin off brings the row back. Both flags need `messages.filter`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Decoration {
+    /// The widget tree to draw under the row, when the plugin drew one.
+    pub tree: Option<serde_json::Value>,
+    /// Hide the whole row from view.
+    pub hide: bool,
+    /// Hide the row's pictures and files.
+    pub hide_media: bool,
+}
+
+impl Decoration {
+    /// What a plugin's answer means, or `None` when it is not an answer at all.
+    ///
+    /// A bare object with `rows` is a tree, as it always was; `null`, or nothing,
+    /// draws nothing and hides nothing.
+    pub fn parse(answer: serde_json::Value) -> Option<Self> {
+        if answer.is_null() {
+            return None;
+        }
+        let object = answer.as_object()?;
+        if object.contains_key("rows") {
+            return Some(Decoration {
+                tree: Some(answer),
+                ..Decoration::default()
+            });
+        }
+        let flag = |field: &str| object.get(field).and_then(serde_json::Value::as_bool);
+        let decoration = Decoration {
+            tree: object.get("tree").filter(|tree| !tree.is_null()).cloned(),
+            hide: flag("hide").unwrap_or(false),
+            hide_media: flag("hide_media").unwrap_or(false),
+        };
+        if decoration.tree.is_none() && !decoration.hide && !decoration.hide_media {
+            return None;
+        }
+        Some(decoration)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bare_tree_is_still_a_decoration() {
+        let tree = serde_json::json!({ "rows": [{ "cells": [{ "kind": "text", "text": "hi" }] }] });
+        let parsed = Decoration::parse(tree.clone()).unwrap();
+        assert_eq!(parsed.tree, Some(tree));
+        assert!(!parsed.hide && !parsed.hide_media);
+    }
+
+    #[test]
+    fn hiding_media_or_a_row_is_an_answer_on_its_own() {
+        let parsed = Decoration::parse(serde_json::json!({ "hide_media": true })).unwrap();
+        assert!(parsed.hide_media);
+        assert_eq!(parsed.tree, None);
+        assert!(
+            !Decoration::parse(serde_json::json!({ "hide": true }))
+                .unwrap()
+                .hide_media
+        );
+        let both =
+            Decoration::parse(serde_json::json!({ "hide": true, "hide_media": false })).unwrap();
+        assert!(both.hide && !both.hide_media);
+    }
+
+    #[test]
+    fn nothing_and_nonsense_are_no_answer() {
+        assert!(Decoration::parse(serde_json::Value::Null).is_none());
+        assert!(Decoration::parse(serde_json::json!({})).is_none());
+        assert!(Decoration::parse(serde_json::json!("hello")).is_none());
+        assert!(Decoration::parse(serde_json::json!({ "hide": "yes" })).is_none());
+    }
+}
+
 /// it needs to decide whether it does.
 ///
 /// It is the row's own summary and no more: a plugin that wants the whole
@@ -278,6 +365,12 @@ pub enum FromHelper {
         message: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tree: Option<serde_json::Value>,
+        /// Hide the row, and hide its pictures, from view. Display only, and
+        /// both need `messages.filter`; the parent drops them otherwise.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        hide: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        hide_media: bool,
     },
     /// How a plugin answered about one person, as `yf_identity` returned it, or
     /// nothing when it said nothing. The parent checks the answer, and keeps it

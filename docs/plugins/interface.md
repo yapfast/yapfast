@@ -278,6 +278,31 @@ for them like any other, so wiring one of them is a lookup and not a new call.
 The `badges` field is answered and kept but drawn nowhere: the card's badges are
 Discord's own, with pictures, and a plugin's name-only badge has no surface yet.
 
+## Keeping a deleted row, and hiding one
+
+A plugin that declares `messages.retain` keeps a deleted row on screen. When a
+backend's timeline no longer holds a message the timeline had, the parent keeps
+the row it had, in place, flagged `deleted`, with its text and without its
+reactions or its actions
+([`plugins/retention.rs`](../../crates/yapfast-core/src/plugins/retention.rs)).
+The merge is one pass over the messages already in memory, and nothing at all
+while no plugin declares the capability. A plugin stores what a message said from
+the `message_delete` event it is already sent, and draws it as a decoration.
+
+A plugin that declares `messages.filter` may answer a `yf_decorate` question with
+`hide` or `hide_media`, which keeps the row, or its pictures and files, out of
+view. `Slots::hidden(message)` says what is hidden for one message across every
+plugin that asked: a row any of them hides is hidden.
+
+**Which surfaces draw it.** The kept row is drawn by the timeline like any other,
+with the `deleted` flag the row already had. The hide is kept in
+[`plugins/slots.rs`](../../crates/yapfast-core/src/plugins/slots.rs) and read per
+row, and the message rows do not consume it yet: `show_timeline` in
+`src/ui/messages.rs` builds one row per message and has no way to skip one, so a
+hidden row is still drawn. Wiring it is a `hidden(message)` test in that
+function and, for media, one where a row's images, stickers and files are
+collected.
+
 ## Colouring code blocks
 
 A plugin that colours code blocks declares `code` in its activation, and needs
