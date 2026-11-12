@@ -2727,6 +2727,10 @@ export global InlineEdit {
     /// `end`, the text's length in bytes: as editing starts.
     in property <int> focus-tick;
     in property <int> end;
+    /// The `focus-tick` the field last took the keys for. A row built again,
+    /// scrolled back into view or its room opened again, leaves the keys and
+    /// the cursor where they are.
+    in-out property <int> focused-tick;
     /// Counts up to give the field the keys again, with its cursor where it was:
     /// as the emoji picker closes.
     in-out property <int> refocus;
@@ -2768,8 +2772,11 @@ component InlineEditor inherits VerticalLayout {
         changed at-width => { InlineEdit.field-width = self.at-width; }
         init => {
             InlineEdit.field-x = self.at-x; InlineEdit.field-y = self.at-y; InlineEdit.field-width = self.at-width;
-            field.focus-input();
-            field.place-caret(InlineEdit.end);
+            if InlineEdit.focused-tick != InlineEdit.focus-tick {
+                InlineEdit.focused-tick = InlineEdit.focus-tick;
+                field.focus-input();
+                field.place-caret(InlineEdit.end);
+            }
         }
         HorizontalLayout {
             padding-left: 10px; padding-right: 12px; spacing: 6px;
@@ -2785,7 +2792,7 @@ component InlineEditor inherits VerticalLayout {
                 suggestion-dismissed => { InlineEdit.suggestion-dismissed(); }
                 escaped => { InlineEdit.cancel(); return true; }
                 paste => { self.paste-text(); }
-                changed focus-tick => { self.focus-input(); self.place-caret(InlineEdit.end); }
+                changed focus-tick => { InlineEdit.focused-tick = InlineEdit.focus-tick; self.focus-input(); self.place-caret(InlineEdit.end); }
                 property <int> focus-tick: InlineEdit.focus-tick;
                 changed refocus => { self.focus-input(); }
                 property <int> refocus: InlineEdit.refocus;

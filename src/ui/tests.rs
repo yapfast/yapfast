@@ -749,6 +749,38 @@ fn an_edit_starts_with_the_cursor_after_the_text_and_escape_and_enter_end_it() {
 }
 
 #[test]
+fn an_edits_row_built_again_leaves_the_keys_where_they_are() {
+    use slint::platform::Key;
+    let window = one_message("Hi there");
+    let edit = window.global::<InlineEdit>();
+    edit.set_text("Hi there".into());
+    edit.set_item("i0".into());
+    edit.set_end(8);
+    edit.set_focus_tick(1);
+    settle(&window);
+    tap(&window, "!".into());
+    assert_eq!(edit.get_text(), "Hi there!", "the edit takes the keys");
+    window.invoke_focus_composer();
+    // The row goes and comes back, as when its room is left and opened again
+    // or it scrolls out of view and back, with no new edit started.
+    // A key between them lets the timeline drop the row and build it again.
+    edit.set_item("".into());
+    settle(&window);
+    tap(&window, Key::Shift.into());
+    edit.set_item("i0".into());
+    settle(&window);
+    tap(&window, "x".into());
+    assert_eq!(window.get_draft(), "x", "the composer keeps the keys");
+    assert_eq!(edit.get_text(), "Hi there!");
+    // A new edit takes them again.
+    edit.set_end(9);
+    edit.set_focus_tick(2);
+    settle(&window);
+    tap(&window, "?".into());
+    assert_eq!(edit.get_text(), "Hi there!?");
+}
+
+#[test]
 fn starting_an_edit_puts_the_cursor_after_its_text_and_an_empty_save_asks_to_delete() {
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();
