@@ -1903,7 +1903,13 @@ export component YapfastWindow inherits Window {
     changed camera-filming => { root.camera-preview = @image-url(""); root.test-camera(self.camera-filming); }
     changed gate-metered => { root.gate-level = -100; root.gate-sending = false; root.gate-meter-note = ""; root.gate-metering(self.gate-metered); }
     Timer { interval: 50ms; running: root.gate-metered; triggered => { root.gate-meter-tick(); } }
-    Timer { interval: 33ms; running: root.sharing || root.watching || root.video-active || root.camera-filming || (root.call-video && (root.grid-shown || root.pip-shown)); triggered => { root.stream-tick(); } }
+    // How often the pictures a stream brings are taken: at the rate that stream
+    // runs at, which its worker says in its report, so a 60 fps share shows all
+    // 60 rather than every other one. The share setting's rate until one has
+    // said, and 30 where nothing on screen says — a camera and a clip are both
+    // at most that.
+    in property <int> stream-tick-ms: 33;
+    Timer { interval: root.stream-tick-ms * 1ms; running: root.sharing || root.watching || root.video-active || root.camera-filming || (root.call-video && (root.grid-shown || root.pip-shown)); triggered => { root.stream-tick(); } }
     input-menu := PopupWindow {
         x: max(8px, min(root.width - self.width - 8px, root.menu-x - 6px));
         y: max(8px, root.menu-y - self.height - 6px);
