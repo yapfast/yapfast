@@ -119,6 +119,8 @@ struct Applied {
     folder: PathBuf,
     /// Font families registered for each role.
     fonts: Vec<(Role, String)>,
+    /// Families registered for ransom names, in the theme's order.
+    ransom: Vec<String>,
 }
 
 /// A theme on trial: what to go back to, and when.
@@ -284,6 +286,10 @@ fn apply_package(
     super::theme_media::load(&resolved, folder, |token| {
         token_colour(&resolved, token).map(Color::from_argb_encoded)
     })?;
+    let mut ransom = Vec::new();
+    for font in resolved.layout.names.iter().flat_map(|names| &names.fonts) {
+        ransom.push(register_font(&folder.join(font))?);
+    }
     let colours = colours_of(&resolved);
     STATE.with_borrow_mut(|state| {
         state.applied = Some(Applied {
@@ -292,6 +298,7 @@ fn apply_package(
             resolved,
             folder: folder.to_owned(),
             fonts,
+            ransom,
         });
         state.failed = None;
     });
@@ -358,6 +365,7 @@ pub fn clear(window: &YapfastWindow) {
 
 /// Every token a theme sets, back to stock.
 pub fn reset(window: &YapfastWindow) {
+    super::theme_layout::reset(window);
     let look = window.global::<Look>();
     let stock = Shape {
         radius: -1.,
@@ -450,6 +458,18 @@ fn paint(window: &YapfastWindow) {
             return;
         };
         let resolved = &applied.resolved;
+        let names_face = applied
+            .fonts
+            .iter()
+            .find(|(role, _)| *role == Role::Names)
+            .map(|(_, family)| family.as_str());
+        super::theme_layout::apply(
+            window,
+            &resolved.layout,
+            &applied.ransom,
+            names_face,
+            state.performance,
+        );
         let look = window.global::<Look>();
         let tokens = window.global::<yapfast_ui::Theme>();
         for (token, paint) in &resolved.colours {
@@ -619,6 +639,7 @@ fn set_shape(look: &Look<'_>, surface: Surface, shape: Shape) {
         Surface::Tile => look.set_tile(shape),
         Surface::Code => look.set_code(shape),
         Surface::Embed => look.set_embed(shape),
+        Surface::Toggle => look.set_toggle(shape),
     }
 }
 

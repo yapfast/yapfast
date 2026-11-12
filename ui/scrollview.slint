@@ -67,7 +67,7 @@ component ScrollBar inherits Rectangle {
     property <length> travel: root.track-size - root.thumb-length;
     property <float> share: root.maximum <= 0phx ? 0 : -root.value / root.maximum;
 
-    border-width: 1px;
+    border-width: Look.line(1px);
     border-radius: Look.radius(7px);
     // Under a pixel is a fractional width's rounding, not something to scroll.
     visible: (self.policy == ScrollBarPolicy.always-on) || (self.policy == ScrollBarPolicy.as-needed && self.maximum > 1px);
@@ -254,7 +254,7 @@ export component AutoscrollMarker inherits Rectangle {
     height: 30px;
     border-radius: self.width / 2;
     background: Theme.raised-fill;
-    border-width: 1px;
+    border-width: Look.line(1px);
     border-color: Theme.line;
     drop-shadow-blur: Look.shadow-blur(8px); drop-shadow-offset-x: Look.shadow-x(0px);
     drop-shadow-color: Look.shadow-color(#00000060);

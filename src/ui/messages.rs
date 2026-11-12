@@ -53,6 +53,8 @@ pub(super) struct Marks<'a> {
 /// What a row shows of the messages around it, and of its author's picture.
 struct Decoration<'a> {
     first: bool,
+    /// The group's seed: its first message's, taken from its item.
+    group: i32,
     day: Option<String>,
     picture_url: &'a str,
     reply_picture_url: &'a str,
@@ -67,6 +69,7 @@ impl Decoration<'_> {
     fn apply(&self, row: &mut MessageRow) -> bool {
         let day = self.day.as_deref().unwrap_or_default();
         let changed = row.first != self.first
+            || row.group != self.group
             || row.day.as_str() != day
             || row.picture_url.as_str() != self.picture_url
             || row.reply_picture_url.as_str() != self.reply_picture_url
@@ -75,6 +78,7 @@ impl Decoration<'_> {
             || row.highlighted != self.highlighted;
         if changed {
             row.first = self.first;
+            row.group = self.group;
             row.day = day.into();
             row.picture_url = self.picture_url.into();
             row.reply_picture_url = self.reply_picture_url.into();
@@ -84,6 +88,16 @@ impl Decoration<'_> {
         }
         changed
     }
+}
+
+/// A group's seed from its first message's item: the same each time, and
+/// spread so the groups beside each other differ.
+fn group_seed(item: &str) -> i32 {
+    // FNV-1a, which needs nothing to be set up and is the same on every run.
+    let hash = item.bytes().fold(0x811c_9dc5_u32, |hash, byte| {
+        (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+    });
+    (hash & 0x7fff_ffff) as i32
 }
 
 /// Shows `messages` in `model`, which shows `rows`, built for `shown`. A row
@@ -115,6 +129,7 @@ pub(super) fn show_timeline(
     let mut changed = Vec::with_capacity(messages.len());
     let mut before: Option<&ChatMessage> = None;
     let mut before_date = None;
+    let mut group = 0;
     for (index, message) in messages.iter().enumerate() {
         let was = at.get(message.id.as_str()).copied();
         // A row the backend sent again is the same one.
@@ -124,10 +139,14 @@ pub(super) fn show_timeline(
         let new_day = date.is_some() && (before.is_none() || before_date != date);
         // The author shows again below the "New" divider.
         let unread_start = marks.first_unread == Some(message.item.as_str());
+        let first =
+            new_day || unread_start || before.is_none_or(|before| !continues(before, message));
+        if first {
+            group = group_seed(&message.item);
+        }
         let decoration = Decoration {
-            first: new_day
-                || unread_start
-                || before.is_none_or(|before| !continues(before, message)),
+            first,
+            group,
             day: new_day.then(|| day(message.timestamp)),
             picture_url: if collapsed(message, marks.revealed) {
                 ""
@@ -753,13 +772,13 @@ pub(super) fn message_row_within(
         short_time: message
             .time
             .split_whitespace()
-            .next()
-            .filter(|time| time.contains(':'))
+            .find(|time| time.contains(':'))
             .unwrap_or_default()
             .into(),
         own: message.own,
         // Grouping depends on the neighbouring messages; refresh sets both.
         first: true,
+        group: 0,
         day: SharedString::default(),
         unread_start: false,
         // A reply to this account's is highlighted too while it's new; refresh knows.

@@ -283,7 +283,7 @@ export struct MentionRow {
 // Suggestions just above the composer, as wide as it: Up and Down choose, Tab or
 // Enter or a click takes one, Escape closes them.
 export component SuggestionFrame inherits Rectangle {
-    background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
 }
 

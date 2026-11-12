@@ -266,7 +266,7 @@ export component StickersSection inherits VerticalLayout {
     Label { text: "Stickers can be static (JPG, PNG) or animated (APNG, GIF). Stickers must be exactly 320 x 320 pixels and no larger than 512 KB. We will automatically resize static JPG, PNG and animated GIF stickers for you."; }
     for card in root.page.cards: Rectangle {
         border-radius: Look.radius(8px); background: Theme.overlay.with-alpha(0.03);
-        border-width: 1px; border-color: Theme.line;
+        border-width: Look.line(1px); border-color: Theme.line;
         height: inner.preferred-height;
         inner := VerticalLayout {
             padding: 16px; spacing: 12px;

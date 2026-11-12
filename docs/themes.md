@@ -197,7 +197,7 @@ whatever the setting. A theme's cost is shown before it's installed, measured
 from its files: the memory its fonts hold once registered and its sounds
 once decoded (with its icons' files), how many animations it declares and
 how many are heavy, the most redraws a second they ask for, its text
-effects, and how many sounds and icons it ships. A clock runs only while an animation may
+effects, how many sounds and icons it ships, and what its layout changes. A clock runs only while an animation may
 move; text effects tick only while one plays.
 
 ### `theme.json`
@@ -217,7 +217,7 @@ move; text effects tick only while one plays.
   "icon": "icon.png",
   "colours": { … }, "shape": { … }, "type": { … }, "spacing": { … },
   "motion": { … }, "animations": [ … ], "effects": { … }, "art": { … },
-  "sounds": { … }, "icons": { … },
+  "sounds": { … }, "icons": { … }, "layout": { … },
   "variants": {
     "dark": { "base": "yap", "colours": { … } },
     "light": { "base": "sakura", "colours": { … } }
@@ -302,6 +302,7 @@ percentage of its size: 50 a circle, 0 a square.
 | `tile` | Cards in settings |
 | `code` | Code blocks: corners and outline (stock 1 px of `line`) |
 | `embed` | Embeds: corners and outline (stock none) |
+| `toggle` | Switches: a `radius` in pixels (999, a pill, as stock), and their border |
 
 Every other corner in the window takes `radii`: `small` for stock corners of
 4 pixels or less, `medium` up to 8, `large` above. Every other shadow takes
@@ -315,6 +316,32 @@ Every other corner in the window takes `radii`: `small` for stock corners of
   "avatar": { "radius": 30 },
   "radii": { "small": 2, "medium": 6, "large": 10 },
   "shadows": { "blur": 0, "x": 3, "y": 3, "colour": "#141414" }
+}
+```
+
+`outline_width` (0–4 pixels) sets every hairline outline and rule the stock
+window draws a pixel wide; a surface's own `border` wins. `borders` dashes or
+dots an outline, as a "cut here" line. Each place takes `"dashed"`,
+`"dotted"` or `"solid"`, or an object: `style` (dashed when left out),
+`dash` and `gap` (1–24 pixels; a dot is as long as the line is wide),
+`width` (1–4) and `colour`. Width and colour otherwise follow the surface's
+`shape` border, then the stock outline. Corners of a dashed outline are
+square.
+
+| Place | Outline |
+| --- | --- |
+| `composer` | The message box |
+| `card` | Profile cards and popouts |
+| `menu`, `dialog`, `tooltip` | Those |
+| `message` | A card or bubble around messages |
+| `embed`, `code` | Embeds and code blocks |
+| `tile` | Cards in settings |
+| `divider` | The day and "New" lines across the messages |
+
+```json
+"shape": {
+  "outline_width": 2, "toggle": { "radius": 0 },
+  "borders": { "card": "dashed", "divider": { "style": "dotted", "gap": 3 } }
 }
 ```
 
@@ -333,6 +360,26 @@ own, once per run.
 | `names` | Authors of messages, the member list, the profile card | 12–24 |
 | `code` | Code blocks and inline code | 11–20 |
 | `labels` | Small capital headings, such as THEME | 10–16 |
+
+`names` also takes `style`: `"ransom"` cuts people's names from several
+fonts, letter by letter, each letter on a scrap of its own, as a ransom note,
+beside messages, on profile cards and in the member list, with `fonts` and
+`papers`.
+`style` is `ransom`, the only one; the `irc` message style keeps names plain,
+so its columns line up. `fonts` lists 2 to 8 font files the
+letters cycle through (the names and body faces when left out), checked and
+registered as the type faces are; `papers` lists up to 6 `[ground, ink]`
+colour pairs the scraps cycle through. Only the first 12 letters are cut,
+the rest following as one plain piece; a name with letters outside Latin
+script, such as CJK, Arabic or emoji, shows whole. Letters never squeeze: a
+name wider than its room is cut at the edge under an ellipsis. A person's own name
+style wins, and Settings → Appearance has *Plain names*, which draws every
+name plainly.
+
+```json
+"type": { "names": { "style": "ransom", "fonts": ["fonts/a.ttf", "fonts/b.otf"],
+           "papers": [["#ffffff", "#141414"], ["#ff71ce", "#141414"]] } }
+```
 
 **Spacing** (`spacing`), in pixels: `message_gap` (0–16), `message_group_gap`
 (0–40), `channel_row_height` (24–48), `member_row_height` (32–56),
@@ -624,6 +671,54 @@ way. `src/ui/theme_media.rs` sets them, and the interface events' sounds
 come from the `Cue` global. A new icon in `ui/icons/` needs a property in
 `IconPack`, a line in `theme_media.rs`'s list and its name in
 `yapfast_core::themes::media::ICONS`; a test checks the three agree.
+
+**Layout** (`layout`): where the panes sit and how messages are laid out,
+each from a closed list. Yapfast moves what it already draws; it never adds
+or takes away a control.
+
+| Field | Values | Stock |
+| --- | --- | --- |
+| `rail` | `left`, `right`, `top`: the edge the server rail runs along | `left` |
+| `members` | `right`, `left`, `hidden`: where the member list docks, or that it doesn't | `right` |
+| `composer` | `bottom`, `top`: the message box under or over the messages | `bottom` |
+| `messages` | `flat`, `bubbles`, `irc`, `cards` (below) | `flat` |
+| `chat_max_width` | 480–1600 pixels: the messages and the composer grow no wider, centred | none |
+| `chat_avatars` | `false` hides the avatars beside messages | `true` |
+| `irc`, `bubbles`, `cards` | Settings for those message styles | |
+
+| Messages | What |
+| --- | --- |
+| `flat` | Avatar, name and time over the text, as stock |
+| `bubbles` | Each message in a bubble; your own on the right, without avatar or name, as a phone's messenger shows them |
+| `irc` | One line a message, as a terminal's chat log: a time column, the name right-aligned in a column of its own, a separator, then the text |
+| `cards` | Each run of messages from one person on a card of its own, which may lean a little, as scraps pasted on a page |
+
+Every style keeps what a message carries: replies, reactions, embeds,
+attachments, threads, edits, the day and "New" dividers, the hover bar and
+the keyboard's message. A kind of message a style doesn't lay out, such as a
+notice that someone pinned a message or joined, draws the stock row, one
+message at a time, and so does any kind a later Yapfast adds. Focus order,
+the focus ring and every accessible name stay as stock.
+
+- `irc`: `time_width` (0–120 pixels, 0 hides the time), `nick_width` (48–240
+  pixels; a longer name ends in an ellipsis, and pointing at it shows the
+  whole name) and `separator` (at most 3 characters,
+  such as `│` or `>`).
+- `bubbles`: `max_width` (40–95, a percentage of the column), `radius`
+  (pixels), and the grounds `own` and `other` with `own_text`, the text on
+  your own. Unset, your own are `accent` with `on-accent` text, and others'
+  `raised` with `text`; either pair has to read at 4.5:1.
+- `cards`: `tilt` (0–4 degrees; each card leans its own way within it, from
+  who wrote it and when), `gap` and `padding` (0–24 pixels), and `ground`
+  (`raised` unset), which `text` has to read on. Only the card leans: text
+  never rotates.
+
+```json
+"layout": {
+  "rail": "top", "messages": "irc", "chat_avatars": false, "chat_max_width": 960,
+  "irc": { "time_width": 56, "nick_width": 120, "separator": "│" }
+}
+```
 
 **Parts.** A later Yapfast lets a theme rebuild a few named parts —
 `message-row`, `member-row`, `account-panel`, `server-header`,

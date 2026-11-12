@@ -133,7 +133,7 @@ export component FoundCard inherits Rectangle {
     min-height: content.preferred-height;
     border-radius: Look.radius(8px);
     background: pointer.has-hover ? Theme.hover : Theme.chat-fill;
-    border-width: 1px; border-color: Theme.line;
+    border-width: Look.line(1px); border-color: Theme.line;
     accessible-role: button;
     accessible-label: root.found.author + ", " + root.found.when + ", jump to the message";
     accessible-action-default => { root.jump(); }
@@ -216,7 +216,7 @@ component Popover inherits Rectangle {
     in property <string> detail;
     callback close;
     background: Theme.sidebar-fill;
-    border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(10px);
+    border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(10px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066); drop-shadow-offset-y: Look.shadow-y(8px);
     clip: true;
     accessible-role: groupbox;
@@ -299,7 +299,7 @@ component ThreadEntry inherits Rectangle {
     }
     if root.entry.room != "": Rectangle {
         y: root.height - 80px; height: 72px; x: 16px; width: root.width - 32px;
-        border-radius: Look.radius(8px); border-width: 1px;
+        border-radius: Look.radius(8px); border-width: Look.line(1px);
         background: pointer.has-hover ? Theme.raised-fill : Theme.hover;
         border-color: pointer.has-hover ? Theme.active : Theme.line;
         accessible-role: button;
@@ -397,7 +397,7 @@ export component ThreadsPopover inherits Rectangle {
     /// list's Create Thread ("list-empty").
     callback create(string);
     background: Theme.sidebar-fill;
-    border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(10px);
+    border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(10px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066); drop-shadow-offset-y: Look.shadow-y(8px);
     clip: true;
     accessible-role: groupbox;

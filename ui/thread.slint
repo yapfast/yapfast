@@ -288,7 +288,7 @@ export component ThreadPanel inherits Rectangle {
                     if (self.lit || root.react-item == message.item || root.menu-item == message.item || root.confirm-delete == message.item) && !message.deleted && message.delivery == "": message-bar := Rectangle {
                         x: parent.width - self.width - 12px; y: index == 0 ? 4px : -16px;
                         width: actions.preferred-width; height: actions.preferred-height;
-                        background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+                        background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
                         drop-shadow-blur: Look.shadow-blur(10px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000059); drop-shadow-offset-y: Look.shadow-y(2px);
                         // Shift's quick actions, as in the timeline.
                         property <bool> quick: root.shift-held && root.react-item != message.item && root.menu-item != message.item;
@@ -564,7 +564,7 @@ export component NewThreadPanel inherits Rectangle {
         Rectangle {
             x: 16px; width: parent.width - 32px; y: (parent.height - self.height) / 2;
             height: ask.preferred-height;
-            background: Theme.sidebar-fill; border-radius: Look.radius(10px); border-width: 1px; border-color: Theme.edge;
+            background: Theme.sidebar-fill; border-radius: Look.radius(10px); border-width: Look.line(1px); border-color: Theme.edge;
             ask := VerticalLayout {
                 padding: 16px; spacing: 10px;
                 Text { text: "Are you sure you want to go?"; color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }

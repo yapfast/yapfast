@@ -83,7 +83,7 @@ component ThreeState inherits Rectangle {
     in property <string> title;
     callback chose(int);
     width: 108px; height: 28px; border-radius: Look.radius(6px);
-    border-width: 1px; border-color: Theme.line;
+    border-width: Look.line(1px); border-color: Theme.line;
     HorizontalLayout {
         for choice[index] in [
             { icon: IconPack.x, label: "Deny", fill: Theme.danger },

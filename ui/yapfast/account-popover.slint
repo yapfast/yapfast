@@ -45,7 +45,7 @@ export component AccountPopover inherits Rectangle {
         ? @linear-gradient(180deg, root.theme-start 0%, ProfileTheme.wash(root.profile.theme-secondary, root.light) 100%)
         : Theme.panel-fill;
     border-radius: Look.radius(8px);
-    border-width: 1px; border-color: root.themed ? root.profile.theme-primary : Theme.line;
+    border-width: Look.line(1px); border-color: root.themed ? root.profile.theme-primary : Theme.line;
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox; accessible-label: "Account";
     height: min(root.available-height, content.preferred-height);
@@ -80,7 +80,7 @@ export component AccountPopover inherits Rectangle {
                 padding-left: 16px; alignment: start;
                 Rectangle {
                     width: min(root.profile.badges.length, 8) * 22px + 6px; height: 24px;
-                    background: #97979f1f; border-radius: Look.radius(8px); border-width: 1px; border-color: #97979f0a;
+                    background: #97979f1f; border-radius: Look.radius(8px); border-width: Look.line(1px); border-color: #97979f0a;
                     Rectangle {
                         x: 3px; y: 1px; width: parent.width - 6px; height: 20px;
                         for badge[index] in root.profile.badges: ProfileBadge {

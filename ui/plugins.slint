@@ -352,7 +352,7 @@ export component PluginToast inherits Rectangle {
     callback acted(string, string, string, string, string);
     callback dismissed(string, string);
     width: 340px; height: toast-content.preferred-height;
-    background: Theme.raised-fill; border-radius: Look.radius(8px); border-width: 1px; border-color: Theme.edge;
+    background: Theme.raised-fill; border-radius: Look.radius(8px); border-width: Look.line(1px); border-color: Theme.edge;
     drop-shadow-blur: Look.shadow-blur(16px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066); drop-shadow-offset-y: Look.shadow-y(4px);
     accessible-role: groupbox;
     accessible-label: root.part.name;

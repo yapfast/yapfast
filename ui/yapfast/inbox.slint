@@ -78,7 +78,7 @@ export component InboxPopout inherits Rectangle {
     // Discord's popout: 440px wide, rounded, with its own outline.
     width: 440px; height: 560px;
     background: Theme.raised-fill; border-radius: Look.radius(8px);
-    border-width: 1px; border-color: Theme.line;
+    border-width: Look.line(1px); border-color: Theme.line;
     drop-shadow-blur: Look.shadow-blur(16px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066); drop-shadow-offset-y: Look.shadow-y(4px);
     TouchArea { }
     FocusScope {

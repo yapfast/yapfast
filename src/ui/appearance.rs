@@ -409,6 +409,7 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
             });
         }};
     }
+    super::theme_layout::init(window);
     {
         let weak = window.as_weak();
         window

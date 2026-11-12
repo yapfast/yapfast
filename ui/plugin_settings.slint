@@ -739,7 +739,7 @@ component FormRow inherits VerticalLayout {
         acted(plugin, slot, id, value, subject) => { PluginPage.setting-widget(root.item.key, id, value); }
     }
     if root.item.shape == 4 && root.item.widget.rows.length == 0: Rectangle {
-        border-radius: Look.radius(8px); border-width: 1px; border-color: Theme.edge; min-height: 48px;
+        border-radius: Look.radius(8px); border-width: Look.line(1px); border-color: Theme.edge; min-height: 48px;
         Label { text: "The plugin draws this while it runs."; }
     }
 }

@@ -2,6 +2,7 @@ import { IconPack, Cue } from "media.slint";
 import { ScrollView } from "scrollview.slint";
 import { Theme, Tip, Middle, Label, Look } from "theme.slint";
 import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
+import { Arrange, DashedOutline } from "theme_layout.slint";
 import { ClientStyle } from "yapfast/style.slint";
 
 // A labelled action. Primary is marigold, danger red, ghost transparent until hovered.
@@ -1362,6 +1363,7 @@ export component ContextMenu inherits Rectangle {
                 x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.menu, 8px);
                 layers: Art.menu; glass: Art.glass-menu; ground: Theme.menu;
             }
+            if Arrange.dash-menu.on: DashedOutline { x: 0px; y: 0px; z: 100; dash: Arrange.dash-menu; stock-width: Look.bw(Look.menu, 1px); stock-ink: Look.bc(Look.menu, Theme.menu-line); }
             TouchArea { }
             main-flick := Flickable {
             content-height: main.preferred-height;
@@ -1408,6 +1410,7 @@ export component ContextMenu inherits Rectangle {
                 x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.menu, 8px);
                 layers: Art.menu; glass: Art.glass-menu; ground: Theme.menu;
             }
+            if Arrange.dash-menu.on: DashedOutline { x: 0px; y: 0px; z: 100; dash: Arrange.dash-menu; stock-width: Look.bw(Look.menu, 1px); stock-ink: Look.bc(Look.menu, Theme.menu-line); }
             TouchArea { }
             sub-flick := Flickable {
             content-height: sub.preferred-height;
@@ -1528,7 +1531,7 @@ export component QuickDeviceMenu inherits Rectangle {
     // Five devices before the list scrolls.
     property <length> list-height: root.listing ? min(5, max(1, root.devices.length)) * 32px + 4px : 0px;
     animate list-height { duration: 180ms; easing: ease-out; }
-    background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(10px);
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(10px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     VerticalLayout {
         padding: 6px; spacing: 4px;

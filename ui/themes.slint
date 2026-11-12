@@ -448,7 +448,7 @@ export component ThemeReviewDialog inherits Rectangle {
     Rectangle {
         width: min(root.width - 32px, 560px);
         height: min(root.height - 32px, body.preferred-height);
-        border-radius: 12px; background: Theme.chat-fill; border-width: 1px; border-color: Theme.edge;
+        border-radius: 12px; background: Theme.chat-fill; border-width: Look.line(1px); border-color: Theme.edge;
         drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
         clip: true;
         accessible-role: groupbox; accessible-label: "Install " + ThemesPage.review.name;
@@ -506,7 +506,7 @@ export component ThemeReviewDialog inherits Rectangle {
 // A theme on trial: its name, the seconds left, and Keep or Revert.
 export component TryBanner inherits Rectangle {
     height: 48px; width: row.preferred-width + 8px;
-    border-radius: 10px; background: Theme.raised-fill; border-width: 1px; border-color: Theme.edge;
+    border-radius: 10px; background: Theme.raised-fill; border-width: Look.line(1px); border-color: Theme.edge;
     drop-shadow-blur: 16px; drop-shadow-color: #00000066; drop-shadow-offset-y: 4px;
     accessible-role: groupbox; accessible-label: "Trying " + ThemesPage.trying;
     row := HorizontalLayout {

@@ -7,6 +7,7 @@ import { ActionButton, IconButton, Avatar, Nameplate, StatusText, StyledName, Na
 import { StatusDot } from "rail.slint";
 import { BotTag } from "messages.slint";
 import { PluginBadge, PluginBadgeView, PluginPart, PluginWidgets } from "plugins.slint";
+import { Arrange, DashedOutline, RansomName } from "theme_layout.slint";
 
 /// A member of the open room, or the heading, with no id, that starts a group.
 export struct MemberRow {
@@ -210,7 +211,7 @@ export component MemberPanel inherits Rectangle {
                 height: !root.activity-hidden && (root.activity-open || index < 3) ? 76px : 0px;
                 if !root.activity-hidden && (root.activity-open || index < 3): Rectangle {
                     y: 0px; height: 68px;
-                    border-radius: Look.radius(8px); border-width: 1px;
+                    border-radius: Look.radius(8px); border-width: Look.line(1px);
                     border-color: Theme.line;
                     background: activity-touch.has-hover ? Theme.overlay.with-alpha(0.12) : Theme.overlay.with-alpha(0.06);
                     accessible-role: button;
@@ -314,12 +315,18 @@ export component MemberPanel inherits Rectangle {
                         alignment: center; horizontal-stretch: 1;
                         HorizontalLayout {
                             alignment: start; spacing: 4px;
-                            if member.name-style.length == 0 && !Art.names.on: Text {
+                            // A theme's ransom letters, cut short at the row's end.
+                            if member.name-style.length == 0 && Arrange.ransom: Rectangle {
+                                min-width: member-ransom.min-width; preferred-width: member-ransom.preferred-width; height: member-ransom.preferred-height;
+                                opacity: member.presence == "offline" ? 0.5 : 1;
+                                member-ransom := RansomName { x: 0px; y: 0px; width: parent.width; text: member.name; font-size: Look.name-size(16px) * 0.9; font-weight: Look.name-weight(500); }
+                            }
+                            if member.name-style.length == 0 && !Arrange.ransom && !Art.names.on: Text {
                                 text: member.name; color: member.has-color ? member.color : Theme.secondary; font-size: Look.name-size(16px); font-weight: Look.name-weight(500); overflow: elide;
                                 font-family: Look.name-font(""); letter-spacing: Look.spacing-names;
                                 opacity: member.presence == "offline" ? 0.5 : 1;
                             }
-                            if member.name-style.length == 0 && Art.names.on: ArtLabel {
+                            if member.name-style.length == 0 && !Arrange.ransom && Art.names.on: ArtLabel {
                                 art: Art.names;
                                 text: member.name; ink: member.has-color ? member.color : Theme.secondary; font-size: Look.name-size(16px); font-weight: Look.name-weight(500); overflow: elide;
                                 font-family: Look.name-font(""); letter-spacing: Look.spacing-names;
@@ -685,7 +692,7 @@ export component BadgeTipCard inherits Rectangle {
     height: card.preferred-height;
     background: Theme.tooltip;
     border-radius: Look.radius(8px);
-    border-width: 1px;
+    border-width: Look.line(1px);
     border-color: #97979f1f;
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#0000003d); drop-shadow-offset-y: Look.shadow-y(12px);
     // The caret under it, pointing at the badge.
@@ -822,7 +829,7 @@ export component ServerCard inherits Rectangle {
     callback open;
     height: body.preferred-height;
     background: Theme.sidebar-fill;
-    border-radius: Look.radius(12px); border-width: 1px; border-color: Theme.edge;
+    border-radius: Look.radius(12px); border-width: Look.line(1px); border-color: Theme.edge;
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox;
     accessible-label: root.server.name;
@@ -1025,6 +1032,7 @@ export component ProfileCard inherits Rectangle {
     drop-shadow-blur: root.docked ? 0px : Look.sb(Look.card, 24px); drop-shadow-offset-x: root.docked ? 0px : Look.sx(Look.card, 0px); drop-shadow-color: root.docked ? transparent : Look.sc(Look.card, #00000080); drop-shadow-offset-y: root.docked ? 0px : Look.sy(Look.card, 8px);
     accessible-role: groupbox;
     accessible-label: root.data.name + "'s profile";
+    if Arrange.dash-card.on && !root.docked: DashedOutline { x: 0px; y: 0px; z: 100; dash: Arrange.dash-card; stock-width: Look.bw(Look.card, 1px); stock-ink: Look.bc(Look.card, Theme.edge); }
     // Clicks on the card stay on it, instead of closing it, and it knows when
     // the pointer is on it.
     card-pointer := TouchArea {
@@ -1070,11 +1078,11 @@ export component ProfileCard inherits Rectangle {
                         // The full profile's.
                         if root.has-thought && root.large: Rectangle {
                             x: root.pad + root.avatar-size + 14px; y: root.banner-height - root.avatar-size / 2 + 30px; width: 10px; height: 10px; border-radius: Look.radius(5px);
-                            background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                            background: root.bubble; border-color: root.bubble-edge; border-width: Look.line(1px);
                         }
                         if root.has-thought && root.large: Rectangle {
                             x: root.pad + root.avatar-size + 26px; y: root.banner-height - root.avatar-size / 2 + 37px; width: 18px; height: 18px; border-radius: Look.radius(9px);
-                            background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                            background: root.bubble; border-color: root.bubble-edge; border-width: Look.line(1px);
                         }
                         if root.has-thought && root.large: Rectangle {
                             x: root.pad + root.avatar-size + 18px; y: root.banner-height - root.avatar-size / 2 + 45px;
@@ -1082,7 +1090,7 @@ export component ProfileCard inherits Rectangle {
                             height: (large-bubble.has-hover ? large-thought.preferred-height : min(large-thought.preferred-height, 42px)) + 16px;
                             animate height { duration: 180ms; easing: ease-out; }
                             clip: true; z: large-bubble.has-hover ? 10 : 0;
-                            border-radius: Look.radius(16px); background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                            border-radius: Look.radius(16px); background: root.bubble; border-color: root.bubble-edge; border-width: Look.line(1px);
                             // The bump joins the bubble with no line between them.
                             Rectangle { x: 9px; y: 0px; width: 16px; height: 2px; background: root.bubble; }
                             large-bubble := TouchArea { }
@@ -1098,11 +1106,11 @@ export component ProfileCard inherits Rectangle {
                         // The card's.
                         if root.has-thought && !root.large: Rectangle {
                             x: root.pad + root.avatar-size + 2px; y: root.banner-height - 16px; width: 7px; height: 7px; border-radius: Look.radius(3.5px);
-                            background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                            background: root.bubble; border-color: root.bubble-edge; border-width: Look.line(1px);
                         }
                         if root.has-thought && !root.large: Rectangle {
                             x: root.pad + root.avatar-size + 11px; y: root.banner-height - 9px; width: 11px; height: 11px; border-radius: Look.radius(5.5px);
-                            background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                            background: root.bubble; border-color: root.bubble-edge; border-width: Look.line(1px);
                         }
                         if root.has-thought && !root.large: Rectangle {
                             x: root.pad + root.avatar-size + 12px; y: root.banner-height + 4px;
@@ -1110,7 +1118,7 @@ export component ProfileCard inherits Rectangle {
                             height: (small-bubble.has-hover ? thought.preferred-height : min(thought.preferred-height, 38px)) + 14px;
                             animate height { duration: 180ms; easing: ease-out; }
                             clip: true; z: small-bubble.has-hover ? 10 : 0;
-                            border-radius: Look.radius(14px); background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                            border-radius: Look.radius(14px); background: root.bubble; border-color: root.bubble-edge; border-width: Look.line(1px);
                             small-bubble := TouchArea { }
                             Rectangle {
                                 x: 12px; y: 7px; width: parent.width - 24px; height: parent.height - 14px; clip: true;
@@ -1151,14 +1159,21 @@ export component ProfileCard inherits Rectangle {
                             // The profile.name slot, moved inside a box the layout
                             // measures as the name.
                             if root.data.name-style.length == 0: Rectangle {
-                                min-height: profile-name.preferred-height; preferred-width: profile-name.preferred-width;
-                                if Art.names.on: ArtTextBehind {
+                                min-height: Arrange.ransom ? profile-ransom.preferred-height : profile-name.preferred-height;
+                                preferred-width: Arrange.ransom ? profile-ransom.preferred-width : profile-name.preferred-width;
+                                // A theme's ransom letters, nothing unless it cuts names.
+                                profile-ransom := RansomName {
+                                    x: 0px; y: 0px; width: min(self.preferred-width, parent.width); height: parent.height; visible: Arrange.ransom;
+                                    text: Arrange.ransom ? root.data.name : ""; font-size: root.large ? 24px : 19px; font-weight: 800;
+                                }
+                                if Art.names.on && !Arrange.ransom: ArtTextBehind {
                                     x: profile-name.x; y: profile-name.y; width: parent.width; height: parent.height; art: Art.names;
                                     text: profile-name.text; font-size: profile-name.font-size; font-weight: profile-name.font-weight;
                                     font-family: profile-name.font-family; letter-spacing: profile-name.letter-spacing;
                                     opacity: profile-name.opacity; transform-scale: profile-name.transform-scale; transform-rotation: profile-name.transform-rotation;
                                 }
                                 profile-name := TextInput {
+                                    visible: !Arrange.ransom;
                                     x: Look.profile-name.x; y: Look.profile-name.y; width: parent.width; height: parent.height;
                                     text: Look.profile-text(root.data.name); color: root.ink; font-size: root.large ? 26px : 20px; font-weight: Look.name-weight(700);
                                     font-family: Look.name-font(""); letter-spacing: Look.spacing-names;
@@ -1243,7 +1258,7 @@ export component ProfileCard inherits Rectangle {
                             Rectangle {
                                 width: min(root.data.badges.length, 6) * 22px + (root.data.badges.length > 6 ? 26px : 0px) + 6px; height: 24px;
                                 background: pill-hover.has-hover ? #97979f33 : #97979f1f;
-                                border-radius: Look.radius(8px); border-width: 1px; border-color: #97979f0a;
+                                border-radius: Look.radius(8px); border-width: Look.line(1px); border-color: #97979f0a;
                                 pill-hover := TouchArea { mouse-cursor: MouseCursor.default; }
                                 Rectangle {
                                     x: 3px; y: 1px; width: parent.width - 6px; height: 20px;
@@ -1349,7 +1364,7 @@ export component ProfileCard inherits Rectangle {
                                 spacing: 4px; alignment: start;
                                 for role in row.roles: Rectangle {
                                     height: 24px; border-radius: Look.radius(8px); background: transparent;
-                                    border-width: 1px; border-color: root.ink.transparentize(0.8);
+                                    border-width: Look.line(1px); border-color: root.ink.transparentize(0.8);
                                     HorizontalLayout {
                                         padding-left: 6px; padding-right: 8px; spacing: 6px;
                                         Middle { Rectangle { width: 12px; height: 12px; border-radius: Look.radius(6px); background: role.has-color ? role.color : Theme.faint; } }
@@ -1734,7 +1749,7 @@ export component RoleCard inherits Rectangle {
     /// Someone was chosen without the pointer.
     callback choose-member(string);
     width: 260px; height: min(root.limit, role-content.preferred-height);
-    background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox;
     accessible-label: "Role " + root.role-name;

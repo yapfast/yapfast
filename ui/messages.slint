@@ -3,6 +3,7 @@ import { ClientStyle } from "yapfast/style.slint";
 import { ListView, ScrollView } from "scrollview.slint";
 import { Theme, Tip, ReactionHover, Middle, Label, Twemoji, Look } from "theme.slint";
 import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
+import { Arrange, DashedOutline, RansomName } from "theme_layout.slint";
 import { ActionButton, IconButton, Avatar, Motion, Picture, UprightVolumeSlider, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField, ContextMenu, MenuRow, StyledName, NameStyleRow, ServerTagChip } from "controls.slint";
 import { FavoriteStar, GifFavorites } from "gifs.slint";
 import { PluginPart, PluginWidgets } from "plugins.slint";
@@ -681,7 +682,7 @@ export component PollView inherits HorizontalLayout {
     padding-top: 4px;
     Rectangle {
         max-width: 480px; horizontal-stretch: 100;
-        background: Theme.sidebar-fill; border-radius: Look.radius(8px); border-width: 1px; border-color: Theme.line;
+        background: Theme.sidebar-fill; border-radius: Look.radius(8px); border-width: Look.line(1px); border-color: Theme.line;
         accessible-role: groupbox;
         accessible-label: "Poll: " + root.poll.question;
         VerticalLayout {
@@ -794,6 +795,9 @@ export struct MessageRow {
     tag: string, tag-badge: string,
     /// Starts a group: shows the avatar and author. Later messages from the same person follow compactly.
     first: bool,
+    /// The same for every message of a group, and unlike the groups beside
+    /// it: what a theme's card lean is taken from.
+    group: int,
     /// A date divider above this message, when it starts a new day.
     day: string,
     /// The first message that was unread when the conversation was opened:
@@ -956,7 +960,7 @@ export component MessageStickerCardView inherits Rectangle {
         ? root.card.server-online + " · " + root.card.server-note
         : root.card.server-online + root.card.server-note;
     width: 288px; height: body.preferred-height;
-    background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox; accessible-label: root.card.name;
     // Clicks on the card stay on it, instead of closing it.
@@ -1082,7 +1086,7 @@ export component EmojiCardView inherits Rectangle {
         ? root.card.server-online + " · " + root.card.server-note
         : root.card.server-online + root.card.server-note;
     width: 288px; height: body.preferred-height;
-    background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox; accessible-label: root.card.name;
     // Clicks on the card stay on it, instead of closing it.
@@ -1422,7 +1426,7 @@ export component MessageMenu inherits Rectangle {
     panel := Rectangle {
         x: root.flip ? root.content-width - root.menu-width : 0px; y: 0px;
         width: root.menu-width; height: root.menu-height;
-        background: Art.glass-menu ? transparent : Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: Look.radius(8px);
+        background: Art.glass-menu ? transparent : Theme.menu; border-color: Theme.menu-line; border-width: Look.line(1px); border-radius: Look.radius(8px);
         drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
         if Art.menu.length > 0 || Art.glass-menu: ArtLayer {
             x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.radius(8px);
@@ -1540,7 +1544,7 @@ export component MessageMenu inherits Rectangle {
         // Level with the Apps row, kept within the component.
         y: max(0px, min(root.apps-y - 6px, root.content-height - root.apps-height));
         width: root.apps-width; height: root.apps-height;
-        background: Art.glass-menu ? transparent : Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: Look.radius(8px);
+        background: Art.glass-menu ? transparent : Theme.menu; border-color: Theme.menu-line; border-width: Look.line(1px); border-radius: Look.radius(8px);
         drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
         if Art.menu.length > 0 || Art.glass-menu: ArtLayer {
             x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.radius(8px);
@@ -1871,7 +1875,7 @@ export component FileCard inherits HorizontalLayout {
                     Rectangle {
                         y: volume-popup.up ? 0px : volume.height + volume-popup.gap;
                         height: volume-popup.slider;
-                        background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+                        background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
                         drop-shadow-blur: Look.shadow-blur(16px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000060);
                         volume-level := UprightVolumeSlider {
                             x: (parent.width - self.width) / 2; y: 6px; height: parent.height - 12px;
@@ -1905,7 +1909,7 @@ export component FileCard inherits HorizontalLayout {
     }
     if !root.file.voice: Rectangle {
         min-height: file-card.preferred-height; max-width: 432px; horizontal-stretch: 100;
-        background: Theme.sidebar-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+        background: Theme.sidebar-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
         file-card := HorizontalLayout {
             padding: 12px; padding-right: 8px; spacing: 12px;
             Image { source: IconPack.file; width: 30px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.accent-text); }
@@ -2000,7 +2004,8 @@ component TextBlockView inherits VerticalLayout {
             padding-top: root.block.padding;
             padding-left: root.block.quoted ? 12px : 0px;
             if root.block.level == 5: Rectangle {
-                background: Theme.code; border-radius: Look.r(Look.code, 4px); border-width: Look.bw(Look.code, 1px); border-color: Look.bc(Look.code, Theme.line);
+                background: Theme.code; border-radius: Look.r(Look.code, 4px); border-width: Look.bw(Look.code, Look.line(1px)); border-color: Look.bc(Look.code, Theme.line);
+                if Arrange.dash-code.on: DashedOutline { x: 0px; y: 0px; dash: Arrange.dash-code; stock-ink: Theme.line; }
                 VerticalLayout {
                     padding: root.code-size / 2;
                     StyledText {
@@ -2061,6 +2066,7 @@ export component EmbedView inherits HorizontalLayout {
         max-width: 432px; horizontal-stretch: 100;
         background: Theme.embed; border-radius: Look.r(Look.embed, 4px); clip: true;
         border-width: Look.bw(Look.embed, 0px); border-color: Look.bc(Look.embed, transparent);
+        if Arrange.dash-embed.on: DashedOutline { x: 0px; y: 0px; dash: Arrange.dash-embed; stock-ink: Theme.line; }
         Rectangle { x: 0px; width: 4px; background: root.embed.has-color ? root.embed.color : Theme.edge; }
         embed-body := HorizontalLayout {
             padding: 12px; padding-left: 16px; padding-right: 16px; spacing: 16px;
@@ -2295,7 +2301,7 @@ export component CardView inherits HorizontalLayout {
                 }
                 // As Discord's client tells of components it doesn't know.
                 if row.kind == CardRowKind.unknown: Rectangle {
-                    border-width: 1px; border-color: Theme.accent; border-radius: Look.radius(12px);
+                    border-width: Look.line(1px); border-color: Theme.accent; border-radius: Look.radius(12px);
                     HorizontalLayout {
                         padding: 16px;
                         Text { text: "Yapfast can't show this part of the message yet."; color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
@@ -2427,7 +2433,7 @@ export component UnreadBar inherits Rectangle {
 export component PresentBar inherits Rectangle {
     callback jump;
     height: 36px; border-radius: Look.radius(8px);
-    background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px;
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px);
     drop-shadow-blur: Look.shadow-blur(12px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000060); drop-shadow-offset-y: Look.shadow-y(4px);
     accessible-role: button;
     accessible-label: "You're viewing older messages. Jump to present";
@@ -2798,9 +2804,81 @@ export component MessageContent inherits VerticalLayout {
     // than that, so Show more never uncovers only a line or two. A line of
     // message text is 1.3 times its size, as the font lays it out.
     property <length> line-height: root.message-font-size * 1.3;
+    // A theme's layout of the message (Arrange.messages): 0 flat, as
+    // stock, 1 bubbles, 2 irc, 3 cards. A notice keeps the stock row.
+    property <int> style: message.notice != "" ? 0 : Arrange.messages;
+    /// The last message of its group, where a card closes.
+    in property <bool> group-end: true;
+    property <bool> mine-right: root.style == 1 && message.own;
+    property <bool> avatars: !Arrange.hide-avatars && root.style != 2 && !root.mine-right;
+    property <length> card-pad: root.style == 3 ? Arrange.cards-padding : 0px;
+    property <length> lead: Arrange.centre(root.width, root.start-padding) + root.card-pad;
+    property <length> trail: Arrange.chat-max-width > 0px ? max(root.end-padding, Arrange.centre(root.width, root.start-padding) + root.card-pad + 32px) : root.end-padding + root.card-pad;
+    // Names: the theme's ransom letters, unless the person styles their own.
+    property <bool> ransom-name: Arrange.ransom && message.name-style.length == 0;
+    property <bool> plain-name: ClientStyle.enabled;
     HorizontalLayout {
-        padding-left: root.start-padding; padding-right: root.end-padding; padding-top: 2px; padding-bottom: 2px; spacing: 16px;
-        Rectangle {
+        padding-left: root.lead; padding-right: root.trail;
+        padding-top: root.style == 3 && message.first ? root.card-pad : 2px;
+        padding-bottom: root.style == 3 && root.group-end ? root.card-pad : 2px;
+        spacing: root.style == 2 ? 8px : root.avatars ? 16px : 0px;
+        // Your own bubbles sit on the right.
+        if root.mine-right: Rectangle { horizontal-stretch: 1; }
+        // The terminal's log columns: the time on every line, the name on
+        // a group's first, right-aligned, then the separator.
+        if root.style == 2: Text {
+            width: Arrange.irc-time; visible: Arrange.irc-time > 0px;
+            text: message.short-time; color: Theme.muted; font-size: root.message-font-size * 0.875;
+            font-family: Look.mono; vertical-alignment: top; overflow: elide;
+            accessible-role: none;
+        }
+        if root.style == 2: Rectangle {
+            width: Arrange.irc-nick;
+            // A name longer than the column ends in an ellipsis; pointing at
+            // it shows the whole name.
+            // The whole name's width, unseen, to tell when it's cut.
+            if message.first: Rectangle {
+            irc-whole := Text {
+                visible: false; text: message.author;
+                font-size: root.message-font-size; font-weight: Look.name-weight(600); font-family: Look.name-font("");
+                accessible-role: none;
+            }
+            // A moment after the pointer rests on a cut name, as the row it
+            // lights clears tooltips when it changes.
+            Timer {
+                interval: 150ms;
+                running: nick-touch.has-hover && irc-whole.preferred-width > irc-nick.width && Tip.text != message.author;
+                triggered => {
+                    Tip.text = message.author;
+                    Tip.side = 0;
+                    Tip.x = nick-touch.absolute-position.x + nick-touch.width / 2;
+                    Tip.y = nick-touch.absolute-position.y;
+                }
+            }
+            irc-nick := Text {
+                y: 0px; width: parent.width; height: root.line-height;
+                text: message.author; color: message.has-color ? message.color : Theme.text;
+                font-size: root.message-font-size; font-weight: Look.name-weight(600); font-family: Look.name-font("");
+                horizontal-alignment: right; vertical-alignment: center; overflow: elide;
+                accessible-role: none;
+                nick-touch := TouchArea {
+                    mouse-cursor: message.sender != "" ? MouseCursor.pointer : MouseCursor.default;
+                    clicked => {
+                        Tip.text = "";
+                        if message.sender != "" { root.author-card(message.item, message.sender, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
+                    }
+                    changed has-hover => {
+                        if !self.has-hover && Tip.text == message.author { Tip.text = ""; }
+                    }
+                }
+            }
+            }
+        }
+        if root.style == 2: Text {
+            text: Arrange.irc-separator; color: Theme.faint; font-size: root.message-font-size; height: root.line-height;
+            vertical-alignment: center; accessible-role: none;
+        }
+        if root.avatars: Rectangle {
             width: root.avatar;
             min-height: message.first && message.notice == "" ? (root.header ? 24px + root.avatar : root.avatar) : 0px;
             if root.header: Rectangle {
@@ -2845,8 +2923,17 @@ export component MessageContent inherits VerticalLayout {
                 horizontal-alignment: right; overflow: elide;
             }
         }
+        // A bubble's ground; flat, irc and cards draw none.
+        bubble := Rectangle {
+            horizontal-stretch: root.style == 1 ? 0 : 1;
+            max-width: root.style == 1 ? max(120px, (root.width - root.lead - root.trail - (root.avatars ? root.avatar + 16px : 0px)) * Arrange.bubble-max) : 100000px;
+            background: root.style != 1 ? transparent : message.own ? Arrange.bubble-own : Arrange.bubble-other;
+            border-radius: root.style == 1 ? Arrange.bubble-radius : 0px;
+            if root.style == 1 && Arrange.dash-message.on: DashedOutline { x: 0px; y: 0px; dash: Arrange.dash-message; }
         VerticalLayout {
-            spacing: ClientStyle.message-gap; horizontal-stretch: 1;
+            spacing: ClientStyle.message-gap;
+            padding-left: root.style == 1 ? 12px : 0px; padding-right: self.padding-left;
+            padding-top: root.style == 1 ? 6px : 0px; padding-bottom: self.padding-top;
             // Clicking the quote jumps to the message it quotes.
             if message.has-reply: Rectangle {
                 height: 22px;
@@ -2909,22 +2996,24 @@ export component MessageContent inherits VerticalLayout {
                 }
                 Rectangle { horizontal-stretch: 1; }
             }
-            if message.first && message.notice == "": HorizontalLayout {
+            if message.first && message.notice == "" && root.style != 2 && !root.mine-right: HorizontalLayout {
                 spacing: 8px;
                 // Discord's name line is 22px tall, a little over the text's.
                 padding-bottom: ClientStyle.enabled ? 2px : 0px;
                 Rectangle {
-                    min-width: author-name.min-width; preferred-width: ClientStyle.enabled || message.name-style.length > 0 ? author-plain.preferred-width : author-name.preferred-width;
+                    // Ransom letters past the room left end in an ellipsis.
+                    min-width: root.ransom-name ? min(ransom.preferred-width, 120px) : author-name.min-width;
+                    preferred-width: root.ransom-name ? min(ransom.preferred-width, 16 * root.message-font-size) : root.plain-name || message.name-style.length > 0 ? author-plain.preferred-width : author-name.preferred-width;
                     preferred-height: author-name.preferred-height; horizontal-stretch: 0;
                     // Discord's names are medium weight, a step under bold.
-                    if Art.names.on && ClientStyle.enabled && message.name-style.length == 0: ArtTextBehind {
+                    if Art.names.on && root.plain-name && !root.ransom-name && message.name-style.length == 0: ArtTextBehind {
                         width: parent.width; height: parent.height; art: Art.names;
                         text: author-plain.text; font-size: author-plain.font-size; font-weight: author-plain.font-weight;
                         font-family: author-plain.font-family; letter-spacing: author-plain.letter-spacing; overflow: elide; vertical-alignment: center;
                     }
                     author-plain := Text {
                         stroke: Art.outline(Art.names); stroke-width: Art.names.outline; stroke-style: outside;
-                        width: parent.width; height: parent.height; visible: ClientStyle.enabled && message.name-style.length == 0;
+                        width: parent.width; height: parent.height; visible: root.plain-name && !root.ransom-name && (message.name-style.length == 0);
                         text: message.author; color: message.has-color ? message.color : Theme.text;
                         font-size: root.message-font-size; vertical-alignment: center; overflow: elide;
                         // A styled name measures in its own font.
@@ -2933,8 +3022,13 @@ export component MessageContent inherits VerticalLayout {
                         letter-spacing: Look.spacing-names;
                     }
                     author-name := StyledText {
-                        width: parent.width; height: parent.height; visible: !ClientStyle.enabled && message.name-style.length == 0;
+                        width: parent.width; height: parent.height; visible: !root.plain-name && !root.ransom-name && message.name-style.length == 0;
                         text: message.author-styled; link-color: Theme.link; default-color: message.has-color ? message.color : Theme.text; default-font-size: root.message-font-size; max-lines: 1; vertical-alignment: center;
+                    }
+                    // Empty, and so nothing, unless the theme cuts names into letters.
+                    ransom := RansomName {
+                        x: 0px; y: 0px; width: parent.width; height: parent.height; visible: root.ransom-name;
+                        text: root.ransom-name ? message.author : ""; font-size: root.message-font-size; font-weight: Look.name-weight(600);
                     }
                     if message.name-style.length > 0: StyledName {
                         width: parent.width; height: parent.height;
@@ -2974,14 +3068,16 @@ export component MessageContent inherits VerticalLayout {
                 property <bool> folded: self.long && !message.expanded;
                 Rectangle {
                     height: body-fold.folded ? root.line-height * 12 : body.preferred-height;
+                    // As wide as the text would run, so a bubble fits it.
+                    preferred-width: root.style == 1 ? body.preferred-width : 0px;
                     clip: body-fold.folded;
                     body := VerticalLayout {
                         y: 0px; height: self.preferred-height;
                         if message.blocks.length == 0: StyledText {
                             // An overlong word breaks, as in Discord's client, rather than widening the row.
                             min-width: 0px;
-                            text: message.styled; link-color: Theme.link;
-                            default-color: message.deleted || message.delivery != "" ? Theme.muted : message.notice != "" ? Theme.secondary : Theme.text;
+                            text: message.styled; link-color: root.mine-right ? Arrange.bubble-own-text : Theme.link;
+                            default-color: message.deleted || message.delivery != "" ? Theme.muted : message.notice != "" ? Theme.secondary : root.mine-right ? Arrange.bubble-own-text : Theme.text;
                             // Discord's large emoji are 48 pixels where text's are 22.
                             default-font-size: message.jumbo ? root.message-font-size * 2.2 : root.message-font-size;
                             // A mention's card opens beside the pointer.
@@ -2992,7 +3088,7 @@ export component MessageContent inherits VerticalLayout {
                             accessible-role: text; accessible-label: "Message from " + message.author + ": " + message.body;
                             TextBlocks {
                                 blocks: message.blocks; font-size: root.message-font-size;
-                                color: message.deleted || message.delivery != "" ? Theme.muted : Theme.text;
+                                color: message.deleted || message.delivery != "" ? Theme.muted : root.mine-right ? Arrange.bubble-own-text : Theme.text;
                                 open-link(link) => { root.link-clicked(link); }
                             }
                         }
@@ -3026,7 +3122,7 @@ export component MessageContent inherits VerticalLayout {
                 color: message.timed-out ? Theme.danger : Theme.muted; font-size: root.message-font-size;
                 font-italic: !message.timed-out; wrap: word-wrap;
             }
-            if message.edited && !message.deleted: Text { text: "(edited)"; color: Theme.muted; font-size: 12px; }
+            if message.edited && !message.deleted: Text { text: "(edited)"; color: root.mine-right ? Arrange.bubble-own-text.transparentize(0.3) : Theme.muted; font-size: 12px; }
             // Fixed-size children sit beside a spacer, so they do not cap the column's width.
             if message.images.length > 0: MessageGallery {
                 images: message.images; gallery-width: message.gallery-width; gallery-height: message.gallery-height;
@@ -3114,5 +3210,8 @@ export component MessageContent inherits VerticalLayout {
                 }
             }
         }
+        }
+        // Everyone else's bubbles sit on the left, as wide as they need.
+        if root.style == 1 && !message.own: Rectangle { horizontal-stretch: 1; }
     }
 }

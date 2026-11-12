@@ -17,13 +17,17 @@
     "menu": { "radius": 10 },
     "dialog": { "radius": 14 },
     "chip": { "radius": 999 },
+    "toggle": { "radius": 999 },
     "avatar": { "radius": 50 },
-    "radii": { "small": 4, "medium": 8, "large": 12 }
+    "radii": { "small": 4, "medium": 8, "large": 12 },
+    "outline_width": 1,
+    "borders": { "tile": "dashed", "divider": { "style": "dotted", "gap": 4 } }
   },
   "type": {
     "body": { "size": 15 },
     "headings": { "weight": 800, "letter_spacing": 0.2 },
-    "names": { "weight": 600 },
+    "names": { "weight": 600, "style": "ransom",
+               "papers": [["#f5f1e8", "#141414"], ["#141414", "#f5f1e8"]] },
     "labels": { "letter_spacing": 1 }
   },
   "spacing": {
@@ -76,6 +80,16 @@
   "icons": {
     "hash": "icons/hash.svg",
     "send-horizontal": { "file": "icons/send.svg", "colour": "accent-text" }
+  },
+  "layout": {
+    "rail": "left",
+    "members": "right",
+    "composer": "bottom",
+    "messages": "flat",
+    "chat_avatars": true,
+    "irc": { "time_width": 56, "nick_width": 120, "separator": "│" },
+    "bubbles": { "max_width": 72, "radius": 18 },
+    "cards": { "tilt": 0, "gap": 8, "padding": 12 }
   },
 
   "variants": {

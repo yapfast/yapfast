@@ -2,6 +2,7 @@ import { IconPack } from "media.slint";
 import { ScrollView } from "scrollview.slint";
 import { Theme, Middle, Label, Popup, Twemoji, Look } from "theme.slint";
 import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
+import { DialogFrame } from "theme_layout.slint";
 import { ActionButton, IconButton, Avatar, TextField, MenuItem } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { StatusDot } from "rail.slint";
@@ -55,6 +56,7 @@ export component StatusDialog inherits Rectangle {
             layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.raised-fill;
         }
         drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
+        DialogFrame { x: 0px; y: 0px; z: 100; }
         accessible-role: groupbox;
         accessible-label: "Set a custom status";
         TouchArea { }
@@ -157,6 +159,7 @@ export component NewDmDialog inherits Rectangle {
             layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.raised-fill;
         }
         drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
+        DialogFrame { x: 0px; y: 0px; z: 100; }
         accessible-role: groupbox;
         accessible-label: "New message";
         TouchArea { }
@@ -256,6 +259,7 @@ export component ForwardDialog inherits Rectangle {
             layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.raised-fill;
         }
         drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
+        DialogFrame { x: 0px; y: 0px; z: 100; }
         accessible-role: groupbox;
         accessible-label: "Forward To";
         TouchArea { }
@@ -390,6 +394,7 @@ export component QuickSwitcher inherits Rectangle {
             layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.raised-fill;
         }
         drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
+        DialogFrame { x: 0px; y: 0px; z: 100; }
         accessible-role: groupbox;
         accessible-label: "Quick switcher";
         TouchArea { }
@@ -505,6 +510,7 @@ export component LeavingDialog inherits Rectangle {
             layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.raised-fill;
         }
         drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
+        DialogFrame { x: 0px; y: 0px; z: 100; }
         accessible-role: groupbox;
         accessible-label: "Leaving Yapfast";
         TouchArea { }
@@ -654,7 +660,7 @@ export component StatusMenu inherits Rectangle {
     callback choose(string);
     callback custom-status;
     callback edit-profile;
-    background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox;
     accessible-label: "Status";
@@ -740,6 +746,7 @@ export component PersonDialog inherits Rectangle {
             layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.raised-fill;
         }
         drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
+        DialogFrame { x: 0px; y: 0px; z: 100; }
         accessible-role: groupbox;
         accessible-label: root.prompt.title;
         TouchArea { }
@@ -841,6 +848,7 @@ export component ReactionsDialog inherits Rectangle {
             layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.raised-fill;
         }
         drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
+        DialogFrame { x: 0px; y: 0px; z: 100; }
         accessible-role: groupbox;
         accessible-label: root.voters ? "Votes" : "Reactions";
         TouchArea { }
@@ -992,6 +1000,7 @@ export component PollDialog inherits Rectangle {
             layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.raised-fill;
         }
         drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
+        DialogFrame { x: 0px; y: 0px; z: 100; }
         accessible-role: groupbox;
         accessible-label: "Create a Poll";
         TouchArea { }

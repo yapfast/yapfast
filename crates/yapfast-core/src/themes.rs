@@ -16,6 +16,7 @@
 
 pub mod check;
 pub mod install;
+pub mod layout;
 pub mod media;
 pub mod motion;
 pub mod package;

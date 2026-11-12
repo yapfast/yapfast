@@ -10,6 +10,7 @@ import { ActionButton, IconButton, Avatar, SensitivitySlider, VolumeSlider, Text
 import { DiscordLinkPanel } from "discord.slint";
 import { ChannelRow } from "rail.slint";
 import { Soundboard, SoundRow } from "voice.slint";
+import { Arrange, DashedOutline } from "theme_layout.slint";
 
 // Settings: a section's title, a group's heading, a switch with what it does, and
 // a row of exclusive choices with the current one raised.
@@ -359,7 +360,7 @@ export component SettingsCard inherits Rectangle {
         width: min(ClientStyle.settings-width, root.width - root.margin);
         height: min(ClientStyle.settings-height, root.height - root.margin);
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
-        border-radius: Look.radius(12px); border-width: 1px; border-color: Theme.edge;
+        border-radius: Look.radius(12px); border-width: Look.line(1px); border-color: Theme.edge;
         // The shadow shows once the card is open: a card this large costs
         // a blurred image as large to draw again each frame it grows.
         drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: root.motion == 1 ? Look.shadow-color(#00000080) : transparent; drop-shadow-offset-y: Look.shadow-y(8px);
@@ -858,6 +859,7 @@ component ThemeTile inherits Rectangle {
     border-width: root.current || focus.has-focus ? 2px : 1px;
     border-color: root.current || focus.has-focus ? Theme.accent : pointer.has-hover ? Theme.faint : Theme.line;
     background: pointer.has-hover ? Theme.hover : transparent;
+    if Arrange.dash-tile.on && !root.current: DashedOutline { x: 0px; y: 0px; dash: Arrange.dash-tile; stock-ink: Theme.line; }
     animate background, border-color { duration: Theme.quick; }
     preview := Rectangle {
         x: 8px; y: 8px; width: parent.width - 16px; height: 78px;
@@ -935,7 +937,7 @@ component ThemeColourRow inherits HorizontalLayout {
     Middle {
         Rectangle {
             width: 28px; height: 28px; border-radius: Look.radius(6px); background: root.colour.colour;
-            border-width: 1px; border-color: Theme.line;
+            border-width: Look.line(1px); border-color: Theme.line;
         }
     }
     VerticalLayout {
@@ -1066,6 +1068,13 @@ export component AppearanceSettings inherits VerticalLayout {
             checked <=> Looks.name-styles;
             toggled => { root.preferences-changed(); }
         }
+        // Only while the theme cuts names into ransom letters.
+        if Arrange.ransom-names: SettingsSwitch {
+            text: "Plain names";
+            description: "Names as plain text, not cut into the theme's letters.";
+            checked <=> Arrange.plain-names;
+            toggled => { root.preferences-changed(); }
+        }
         SettingsSwitch {
             text: "Show server tags";
             description: "The tag and its badge beside people's names.";
@@ -1167,7 +1176,7 @@ export component MessageSettings inherits VerticalLayout {
     SettingsTitle { title: "Messages"; }
     // A message as the chosen text size and clock show it.
     Rectangle {
-        border-radius: Look.radius(8px); border-width: 1px; border-color: Theme.line;
+        border-radius: Look.radius(8px); border-width: Look.line(1px); border-color: Theme.line;
         accessible-role: groupbox; accessible-label: "Preview";
         HorizontalLayout {
             padding: 16px; spacing: 16px;

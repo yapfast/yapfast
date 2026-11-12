@@ -67,6 +67,7 @@ mod shell;
 mod stickers;
 mod theme;
 mod theme_art;
+pub mod theme_layout;
 pub mod theme_look;
 mod theme_media;
 mod tiles;
@@ -1323,6 +1324,8 @@ struct Layout {
     moving_cosmetics: Option<bool>,
     name_styles: Option<bool>,
     server_tags: Option<bool>,
+    /// Names show plain, not in a theme's ransom letters.
+    plain_names: bool,
     /// Joining a call turns the microphone on; on unless turned off.
     unmute_on_join: Option<bool>,
     /// Joining a call deafens.
@@ -1565,6 +1568,9 @@ impl Layout {
         looks.set_moving(cosmetics.moving);
         looks.set_name_styles(cosmetics.name_styles);
         looks.set_server_tags(cosmetics.server_tags);
+        window
+            .global::<yapfast_ui::Arrange>()
+            .set_plain_names(self.plain_names);
         pictures::set_moving_collectibles(cosmetics.moving);
     }
 
@@ -1576,6 +1582,7 @@ impl Layout {
         self.moving_cosmetics = Some(looks.get_moving());
         self.name_styles = Some(looks.get_name_styles());
         self.server_tags = Some(looks.get_server_tags());
+        self.plain_names = window.global::<yapfast_ui::Arrange>().get_plain_names();
         pictures::set_moving_collectibles(self.cosmetics().moving);
     }
 

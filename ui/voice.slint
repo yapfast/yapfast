@@ -203,7 +203,7 @@ export component CallLinkCard inherits Rectangle {
     property <int> shown: root.tab == 1 && CallLink.code.length > 0 ? 1
         : root.tab == 2 && CallLink.streaming ? 2 : 0;
     property <bool> copied;
-    background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox; accessible-label: "Voice details";
     init => { CallLink.read(); }
@@ -611,7 +611,7 @@ export component StreamPip inherits Rectangle {
     callback dropped;
     width: 320px; height: 180px; border-radius: Look.radius(8px); clip: true;
     background: #000000;
-    border-width: 1px; border-color: Theme.edge;
+    border-width: Look.line(1px); border-color: Theme.edge;
     accessible-role: button; accessible-label: root.title + ". Return to the call";
     accessible-action-default => { root.open-call(); }
     Image { width: parent.width; height: parent.height; source: root.frame; image-fit: contain; }
@@ -1306,7 +1306,7 @@ export component ShareMenu inherits Rectangle {
     /// it, the menu is as tall as it gets and the choices scroll, above the
     /// button that starts the stream, which stays.
     out property <length> full-height: choices.preferred-height + start.preferred-height + 12px;
-    background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     VerticalLayout {
         padding: 6px; spacing: 0px;
@@ -1419,7 +1419,7 @@ export component VolumeMenu inherits Rectangle {
     /// A person, whether it's their stream, the volume, and whether it's
     /// the last of a drag.
     callback volume-changed(string, bool, int, bool);
-    background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox; accessible-label: root.volume-name + "'s volume";
     volume-content := VerticalLayout {
@@ -1520,7 +1520,7 @@ export component Soundboard inherits Rectangle {
     property <length> gap: 6px;
     width: 372px;
     height: min(440px, top.preferred-height + max(1, root.rows.length) * root.row-height + 10px);
-    background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(10px);
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(10px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     clip: true;
     accessible-role: groupbox; accessible-label: root.title;

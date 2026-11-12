@@ -1,0 +1,190 @@
+// A theme's layout presets: where the panes sit, how a message is laid
+// out, dashed outlines and ransom names, from the closed lists in
+// crates/yapfast-core/src/themes/layout.rs. src/ui/theme_layout.rs
+// sets these; every default is the stock window, so with no theme nothing
+// here draws.
+
+import { Theme, Look } from "theme.slint";
+
+/// One outline drawn in dashes or dots instead of a line.
+export struct Dash {
+    on: bool,
+    dotted: bool,
+    dash: length,
+    gap: length,
+    /// Negative follows the surface's own border width.
+    width: length,
+    /// Transparent follows the surface's own border colour.
+    ink: color,
+}
+
+/// A letter of a ransom-note name: its text, the font it's cut from, its
+/// lean, and its scrap's ground and ink.
+export struct Scrap {
+    text: string,
+    family: string,
+    rotation: float,
+    paper: color,
+    ink: color,
+    /// What's past the cut letters, or a name not cut at all: one plain
+    /// piece, without a scrap's margin.
+    rest: bool,
+}
+
+export global Arrange {
+    /// The server rail's edge: 0 left (stock), 1 right, 2 top.
+    in property <int> rail;
+    /// The member list: 0 right (stock), 1 left, 2 hidden.
+    in property <int> members;
+    in property <bool> composer-top;
+    /// Messages: 0 flat (stock), 1 bubbles, 2 irc, 3 cards.
+    in property <int> messages;
+    /// The widest the messages and the composer grow, centred; 0 for no limit.
+    in property <length> chat-max-width: 0px;
+    in property <bool> hide-avatars;
+    // irc
+    in property <length> irc-time: 64px;
+    in property <length> irc-nick: 128px;
+    in property <string> irc-separator: "│";
+    // bubbles
+    in property <float> bubble-max: 0.72;
+    in property <color> bubble-own-set: transparent;
+    in property <color> bubble-other-set: transparent;
+    in property <color> bubble-own-text-set: transparent;
+    in property <length> bubble-radius: 16px;
+    out property <brush> bubble-own: self.bubble-own-set != transparent ? self.bubble-own-set : Theme.accent-fill;
+    out property <brush> bubble-other: self.bubble-other-set != transparent ? self.bubble-other-set : Theme.raised-fill;
+    out property <color> bubble-own-text: self.bubble-own-text-set != transparent ? self.bubble-own-text-set : self.bubble-own-set != transparent ? Theme.text : Theme.on-accent;
+    // cards
+    in property <float> cards-tilt;
+    in property <length> cards-gap: 8px;
+    in property <length> cards-padding: 12px;
+    in property <color> cards-ground-set: transparent;
+    out property <brush> cards-ground: self.cards-ground-set != transparent ? self.cards-ground-set : Theme.raised-fill;
+    // Dashed and dotted outlines, by place.
+    in property <Dash> dash-composer;
+    in property <Dash> dash-card;
+    in property <Dash> dash-menu;
+    in property <Dash> dash-dialog;
+    in property <Dash> dash-tooltip;
+    in property <Dash> dash-message;
+    in property <Dash> dash-embed;
+    in property <Dash> dash-code;
+    in property <Dash> dash-tile;
+    in property <Dash> dash-divider;
+    // Names cut into ransom letters from the theme's fonts, unless the
+    // person turns on Settings' "Plain names".
+    in property <bool> ransom-names;
+    in-out property <bool> plain-names;
+    out property <bool> ransom: self.ransom-names && !self.plain-names;
+    /// A name's letters as scraps, at most 24; the rest comes back as one
+    /// scrap in the first font.
+    pure callback scraps(string) -> [Scrap];
+    /// A message's lean in `cards`, from its group's seed: within ±tilt.
+    public pure function lean(seed: int) -> float {
+        self.cards-tilt == 0 ? 0 : self.cards-tilt * (Math.mod(seed, 201) - 100) / 100
+    }
+    /// The side padding that centres a column at most `chat-max-width` wide
+    /// in `width`, never under `stock`.
+    public pure function centre(width: length, stock: length) -> length {
+        self.chat-max-width > 0px ? max(stock, (width - self.chat-max-width) / 2) : stock
+    }
+}
+
+/// An outline in dashes or dots around its parent, under its content. Its
+/// corners are square: a "cut here" line.
+export component DashedOutline inherits Rectangle {
+    in property <Dash> dash;
+    /// The width and ink the solid border would have had.
+    in property <length> stock-width: 1px;
+    in property <brush> stock-ink: Theme.outline;
+    property <length> stroke: max(1px, root.dash.width >= 0px ? root.dash.width : root.stock-width);
+    property <brush> ink: root.dash.ink != transparent ? root.dash.ink : root.stock-ink;
+    property <length> seg: root.dash.dotted ? root.stroke : root.dash.dash;
+    property <length> step: max(2px, root.seg + root.dash.gap);
+    property <int> across: floor(root.width / root.step) + 1;
+    property <int> down: floor(root.height / root.step) + 1;
+    accessible-role: none;
+    for i in root.across: Rectangle {
+        x: i * root.step; y: 0px; width: max(0px, min(root.seg, root.width - self.x)); height: root.stroke;
+        background: root.ink; border-radius: root.dash.dotted ? root.stroke / 2 : 0px;
+    }
+    for i in root.across: Rectangle {
+        x: i * root.step; y: root.height - root.stroke; width: max(0px, min(root.seg, root.width - self.x)); height: root.stroke;
+        background: root.ink; border-radius: root.dash.dotted ? root.stroke / 2 : 0px;
+    }
+    for i in root.down: Rectangle {
+        x: 0px; y: i * root.step; width: root.stroke; height: max(0px, min(root.seg, root.height - self.y));
+        background: root.ink; border-radius: root.dash.dotted ? root.stroke / 2 : 0px;
+    }
+    for i in root.down: Rectangle {
+        x: root.width - root.stroke; y: i * root.step; width: root.stroke; height: max(0px, min(root.seg, root.height - self.y));
+        background: root.ink; border-radius: root.dash.dotted ? root.stroke / 2 : 0px;
+    }
+}
+
+/// A dashed or dotted rule across its width, for dividers.
+export component DashedRule inherits Rectangle {
+    in property <Dash> dash;
+    in property <brush> stock-ink: Theme.line;
+    property <length> stroke: max(1px, root.dash.width >= 0px ? root.dash.width : 1px);
+    property <brush> ink: root.dash.ink != transparent ? root.dash.ink : root.stock-ink;
+    property <length> seg: root.dash.dotted ? root.stroke : root.dash.dash;
+    property <length> step: max(2px, root.seg + root.dash.gap);
+    height: root.stroke;
+    accessible-role: none;
+    for i in floor(root.width / root.step) + 1: Rectangle {
+        x: i * root.step; width: max(0px, min(root.seg, root.width - self.x)); height: root.stroke;
+        background: root.ink; border-radius: root.dash.dotted ? root.stroke / 2 : 0px;
+    }
+}
+
+/// A name as ransom letters: each its own scrap, cut from the theme's fonts.
+/// The letters never squeeze: a name wider than the room is cut at its
+/// edge, under an ellipsis on a scrap of its own.
+export component RansomName inherits Rectangle {
+    in property <string> text;
+    in property <length> font-size: 16px;
+    in property <int> font-weight: 600;
+    property <[Scrap]> letters: root.text == "" ? [] : Arrange.scraps(root.text);
+    property <bool> cut: row.preferred-width > root.width + 0.5px;
+    min-width: min(row.preferred-width, 3 * root.font-size);
+    preferred-width: row.preferred-width;
+    preferred-height: row.preferred-height;
+    clip: true;
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+    row := HorizontalLayout {
+        x: 0px; width: self.preferred-width; height: parent.height;
+        spacing: 1px;
+        for letter in root.letters: Rectangle {
+            background: letter.paper;
+            transform-rotation: letter.rotation * 1deg;
+            width: glyph.preferred-width + (letter.rest ? 0px : 4px);
+            accessible-role: none;
+            glyph := Text {
+                text: letter.text; color: letter.ink;
+                font-family: letter.family; font-size: root.font-size; font-weight: root.font-weight;
+                horizontal-alignment: center; vertical-alignment: center;
+                accessible-role: none;
+            }
+        }
+    }
+    if root.cut: Rectangle {
+        x: root.width - self.width; width: dots.preferred-width + 6px; height: root.height;
+        background: root.letters.length > 0 && root.letters[0].paper != transparent ? root.letters[0].paper : Theme.chat-fill;
+        accessible-role: none;
+        dots := Text {
+            text: "…"; color: root.letters.length > 0 && root.letters[0].paper != transparent ? root.letters[0].ink : Theme.text;
+            font-size: root.font-size; font-weight: root.font-weight;
+            horizontal-alignment: center; vertical-alignment: center;
+            accessible-role: none;
+        }
+    }
+}
+
+/// A dialog's dashed or dotted outline, if the theme dashes it.
+export component DialogFrame inherits Rectangle {
+    accessible-role: none;
+    if Arrange.dash-dialog.on: DashedOutline { x: 0px; y: 0px; dash: Arrange.dash-dialog; stock-width: Look.bw(Look.dialog, 1px); stock-ink: Look.bc(Look.dialog, Theme.edge); }
+}

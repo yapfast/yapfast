@@ -45,7 +45,7 @@ export component DiscordLinkPanel inherits VerticalLayout {
         Rectangle {
             min-height: warning.preferred-height;
             background: Theme.danger.with-alpha(0.1); border-radius: Look.radius(8px);
-            border-width: 1px; border-color: Theme.danger.with-alpha(0.35);
+            border-width: Look.line(1px); border-color: Theme.danger.with-alpha(0.35);
             warning := HorizontalLayout {
                 padding: 12px; spacing: 10px;
                 VerticalLayout {

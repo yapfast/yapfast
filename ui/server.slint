@@ -720,7 +720,7 @@ component HoverEdit inherits Rectangle {
     in property <MouseCursor> cursor: MouseCursor.pointer;
     callback clicked;
     // As measured from Discord's: a 1px line of 17% white, 7px round, in 100ms.
-    border-radius: Look.radius(7px); border-width: 1px;
+    border-radius: Look.radius(7px); border-width: Look.line(1px);
     border-color: touch.has-hover && root.enabled ? #ffffff2c : #ffffff00;
     animate border-color { duration: 100ms; }
     accessible-role: button;
@@ -933,7 +933,7 @@ component ColourPopover inherits Rectangle {
     }
     init => { root.load(root.parse-hex(root.start)); field.text = root.start; }
     width: 240px; height: 250px; border-radius: Look.radius(12px); background: Theme.raised-fill;
-    border-color: Theme.edge; border-width: 1px;
+    border-color: Theme.edge; border-width: Look.line(1px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(6px);
     TouchArea { }
     Rectangle {
@@ -1347,7 +1347,7 @@ component NameStyleWindow inherits Rectangle {
                 Rectangle {
                     x: 40px; y: 132px; width: 305px; height: 216px; border-radius: Look.radius(14px);
                     background: @linear-gradient(180deg, root.card-top, root.card-bottom);
-                    border-color: Theme.edge; border-width: 1px;
+                    border-color: Theme.edge; border-width: Look.line(1px);
                     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066); drop-shadow-offset-y: Look.shadow-y(8px);
                     Rectangle {
                         x: 16px; y: 56px; width: 80px; height: 80px;
@@ -1366,7 +1366,7 @@ component NameStyleWindow inherits Rectangle {
                 }
                 Rectangle {
                     x: 65px; y: 338px; width: 320px; height: 85px; border-radius: Look.radius(12px);
-                    background: root.sample-fill; border-color: root.sample-edge; border-width: 1px;
+                    background: root.sample-fill; border-color: root.sample-edge; border-width: Look.line(1px);
                     animate background { duration: 180ms; }
                     drop-shadow-blur: Look.shadow-blur(18px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000055); drop-shadow-offset-y: Look.shadow-y(6px);
                     Avatar { x: 20px; y: 22px; size: 40px; initial: root.initial; tint: root.tint; picture: root.picture; }
@@ -1379,7 +1379,7 @@ component NameStyleWindow inherits Rectangle {
                 }
                 Rectangle {
                     x: 40px; y: 418px; width: 282px; height: 50px; border-radius: Look.radius(10px);
-                    background: root.sample-fill; border-color: root.sample-edge; border-width: 1px;
+                    background: root.sample-fill; border-color: root.sample-edge; border-width: Look.line(1px);
                     animate background { duration: 180ms; }
                     drop-shadow-blur: Look.shadow-blur(14px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000055); drop-shadow-offset-y: Look.shadow-y(4px);
                     Avatar { x: 10px; y: 9px; size: 32px; initial: root.initial; tint: root.tint; picture: root.picture; }
@@ -1432,7 +1432,7 @@ component NameStyleWindow inherits Rectangle {
         visible: root.picker-open;
         x: 24px; y: colour-row.absolute-position.y - root.absolute-position.y - self.height - 8px;
         width: 240px; height: 250px; border-radius: Look.radius(12px); background: Theme.raised-fill;
-        border-color: Theme.edge; border-width: 1px;
+        border-color: Theme.edge; border-width: Look.line(1px);
         drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(6px);
         TouchArea { }
         // Saturation across and brightness down, for the hue below.
@@ -1590,7 +1590,7 @@ export component ProfileEditorDialog inherits Rectangle {
     if root.prompt.main && !root.side-open: Rectangle {
         x: card.x - 30px; y: card.y + 40px; width: 42px; height: 36px;
         opacity: 1 - root.side-out;
-        border-radius: Look.radius(10px); background: #000000; border-color: Theme.edge; border-width: 1px;
+        border-radius: Look.radius(10px); background: #000000; border-color: Theme.edge; border-width: Look.line(1px);
         accessible-role: button; accessible-label: "Show Styles";
         accessible-action-default => { root.side-open = true; }
         Image { x: 7px; y: 9px; width: 18px; height: 18px; source: IconPack.brush; colorize: IconPack.tint(self.source, #ffffff); }
@@ -1686,7 +1686,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                     banner-menu := PopupWindow {
                                         x: parent.width - 236px; y: 56px; width: 180px;
                                         Rectangle {
-                                            background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+                                            background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
                                             drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
                                             VerticalLayout {
                                                 padding: 6px; spacing: 2px;
@@ -1722,17 +1722,17 @@ export component ProfileEditorDialog inherits Rectangle {
                                     // What you're up to, a thought beside the picture.
                                     if root.prompt.main: Rectangle {
                                         x: root.avatar-size + 14px; y: 38px; width: 10px; height: 10px; border-radius: Look.radius(5px);
-                                        background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                                        background: root.bubble; border-color: root.bubble-edge; border-width: Look.line(1px);
                                     }
                                     if root.prompt.main: Rectangle {
                                         x: root.avatar-size + 28px; y: 45px; width: 20px; height: 20px; border-radius: Look.radius(10px);
-                                        background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                                        background: root.bubble; border-color: root.bubble-edge; border-width: Look.line(1px);
                                     }
                                     if root.prompt.main: Rectangle {
                                         x: root.avatar-size + 18px; y: 53px;
                                         width: min(180px, thought.preferred-width + 26px);
                                         height: thought.preferred-width > 154px ? 54px : 36px;
-                                        border-radius: Look.radius(16px); background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                                        border-radius: Look.radius(16px); background: root.bubble; border-color: root.bubble-edge; border-width: Look.line(1px);
                                         accessible-role: button;
                                         accessible-label: root.has-status ? "Change custom status" : "Set a custom status";
                                         // The bump joins the bubble with no line between them.
@@ -1766,7 +1766,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                     avatar-menu := PopupWindow {
                                         x: 12px; y: parent.height - 4px; width: 180px;
                                         Rectangle {
-                                            background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+                                            background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
                                             drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
                                             VerticalLayout {
                                                 padding: 6px; spacing: 2px;
@@ -1792,7 +1792,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                             Rectangle {
                                                 width: 28px; height: 28px; border-radius: Look.radius(6px);
                                                 background: root.prompt.has-colour ? root.prompt.colour : Theme.raised-fill;
-                                                border-width: 1px; border-color: Theme.line;
+                                                border-width: Look.line(1px); border-color: Theme.line;
                                             }
                                         }
                                         Middle {
@@ -1908,7 +1908,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                                     x: 0px; y: 28px; width: 270px; height: min(290px, 56px + 36px * (root.prompt.server-tags.length + 1));
                                                     close-policy: PopupClosePolicy.close-on-click-outside;
                                                     Rectangle {
-                                                        background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(10px); clip: true;
+                                                        background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(10px); clip: true;
                                                         VerticalLayout {
                                                             padding: 8px; spacing: 6px;
                                                             tag-search := TextField { placeholder: "Search"; label: "Search server tags"; text-size: 13px; min-height: 32px; border-radius: Look.radius(8px); }
@@ -1974,7 +1974,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                     more-menu := PopupWindow {
                                         x: more-button.x; y: 38px; width: 170px;
                                         Rectangle {
-                                            background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+                                            background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
                                             VerticalLayout {
                                                 padding: 6px;
                                                 MenuItem { text: "Copy User ID"; icon: IconPack.copy; clicked => { root.copy-id(); more-menu.close(); } }
@@ -2033,7 +2033,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                         spacing: 4px;
                                         Rectangle {
                                             height: 110px; border-radius: Look.radius(6px); background: Theme.sunken;
-                                            border-width: 1px; border-color: Theme.accent.with-alpha(0.8);
+                                            border-width: Look.line(1px); border-color: Theme.accent.with-alpha(0.8);
                                             Text {
                                                 x: 10px; y: 8px; width: parent.width - 20px;
                                                 visible: root.bio == "";

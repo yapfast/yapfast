@@ -230,6 +230,9 @@ pub struct Cost {
     /// Sound files and replaced icons.
     pub sounds: usize,
     pub icons: usize,
+    /// What its layout changes, as a short phrase such as `layout: irc, rail
+    /// top`; it costs no more than the stock window.
+    pub looks: Vec<String>,
 }
 
 impl Cost {
@@ -295,6 +298,7 @@ impl Cost {
                 if self.icons == 1 { "" } else { "s" }
             ));
         }
+        parts.extend(self.looks.iter().cloned());
         parts.join(" · ")
     }
 
@@ -371,6 +375,13 @@ impl Cost {
         }
         cost.fonts = fonts.len();
         cost.memory += art_memory;
+        for variant in resolved {
+            for look in looks(variant) {
+                if !cost.looks.contains(&look) {
+                    cost.looks.push(look);
+                }
+            }
+        }
         cost
     }
 }
@@ -412,6 +423,11 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
                 let (errors, warnings) = art::readable(&variant, files);
                 report.errors.extend(errors);
                 report.warnings.extend(warnings);
+                for sentence in unreadable_layout(&variant) {
+                    if !report.errors.contains(&sentence) {
+                        report.errors.push(sentence);
+                    }
+                }
                 resolved.push(variant);
             }
             Err(error) => report.errors.push(error.0),
@@ -583,6 +599,130 @@ pub fn unreadable(variant: &Resolved) -> Vec<String> {
                     refused.push(sentence);
                 }
             }
+        }
+    }
+    refused
+}
+
+/// What a variant's `layout` changes, as the cost line lists it:
+/// `layout: irc, rail top, ransom names (3 fonts)`.
+fn looks(variant: &Resolved) -> Vec<String> {
+    let layout = &variant.layout;
+    let mut changes: Vec<String> = Vec::new();
+    if let Some(style) = layout.messages {
+        changes.push(style.name().to_owned());
+    }
+    if let Some(side) = layout.rail {
+        changes.push(format!("rail {}", side.name()));
+    }
+    if let Some(side) = layout.members {
+        changes.push(format!("members {}", side.name()));
+    }
+    if let Some(side) = layout.composer {
+        changes.push(format!("composer {}", side.name()));
+    }
+    if let Some(width) = layout.chat_max_width {
+        changes.push(format!("chat at most {width}px"));
+    }
+    if layout.chat_avatars == Some(false) {
+        changes.push("no chat avatars".to_owned());
+    }
+    if let Some(width) = layout.outline_width {
+        changes.push(format!("{width}px outlines"));
+    }
+    if !layout.borders.is_empty() {
+        changes.push(format!(
+            "{} cut outline{}",
+            layout.borders.len(),
+            if layout.borders.len() == 1 { "" } else { "s" }
+        ));
+    }
+    if let Some(names) = &layout.names {
+        changes.push(if names.fonts.is_empty() {
+            "ransom names".to_owned()
+        } else {
+            format!("ransom names ({} fonts)", names.fonts.len())
+        });
+    }
+    let mut out = Vec::new();
+    if !changes.is_empty() {
+        out.push(format!("layout: {}", changes.join(", ")));
+    }
+    out
+}
+
+/// A colour as a variant shows it: its own, the base's, or what it follows.
+fn shown_colours(variant: &Resolved, token: &str) -> Option<Vec<u32>> {
+    variant
+        .paint(token)
+        .map(Paint::colours)
+        .or_else(|| base_colour(&variant.base, token).map(|colour| vec![colour]))
+        .or_else(|| follows(token).and_then(|follow| shown_colours(variant, follow)))
+}
+
+/// Text on the grounds a layout sets: bubbles and cards. Each pair under
+/// 4.5:1 is a sentence naming its place.
+pub fn unreadable_layout(variant: &Resolved) -> Vec<String> {
+    let layout = &variant.layout;
+    let colours = |set: Option<u32>, token: &str| match set {
+        Some(colour) => Some(vec![colour]),
+        None => shown_colours(variant, token),
+    };
+    // (text's name, its colours, ground's name, its colours)
+    type Pair<'a> = (&'a str, Option<Vec<u32>>, &'a str, Option<Vec<u32>>);
+    let mut pairs: Vec<Pair> = Vec::new();
+    // Only a theme that lays messages out on these grounds, or sets one,
+    // is held to them.
+    let bubbles = layout.messages == Some(super::layout::MessageStyle::Bubbles);
+    if bubbles || layout.bubbles.own.is_some() || layout.bubbles.own_text.is_some() {
+        pairs.push((
+            if layout.bubbles.own_text.is_some() {
+                "layout.bubbles.own_text"
+            } else {
+                "on-accent"
+            },
+            colours(layout.bubbles.own_text, "on-accent"),
+            if layout.bubbles.own.is_some() {
+                "layout.bubbles.own"
+            } else {
+                "accent"
+            },
+            colours(layout.bubbles.own, "accent"),
+        ));
+    }
+    if bubbles || layout.bubbles.other.is_some() {
+        pairs.push((
+            "text",
+            shown_colours(variant, "text"),
+            if layout.bubbles.other.is_some() {
+                "layout.bubbles.other"
+            } else {
+                "raised"
+            },
+            colours(layout.bubbles.other, "raised"),
+        ));
+    }
+    if let Some(ground) = layout.cards.ground {
+        pairs.push((
+            "text",
+            shown_colours(variant, "text"),
+            "layout.cards.ground",
+            Some(vec![ground]),
+        ));
+    }
+    let mut refused = Vec::new();
+    for (text, fronts, ground, backs) in pairs {
+        let (Some(fronts), Some(backs)) = (fronts, backs) else {
+            continue;
+        };
+        let worst = fronts
+            .iter()
+            .flat_map(|front| backs.iter().map(move |back| contrast(*front, *back)))
+            .fold(f64::INFINITY, f64::min);
+        if worst < READABLE - 0.005 {
+            refused.push(format!(
+                "{text} on {ground} contrasts {worst:.1}:1, under {READABLE:.1}:1; text has to stay readable"
+            ));
         }
     }
     refused
@@ -1023,6 +1163,118 @@ mod tests {
         assert_eq!(check_image(&png), Ok(()));
         assert!(check_image(b"GIF89a....").is_err());
         assert!(check_image(&png[..20]).is_err());
+    }
+
+    #[test]
+    fn bubbles_and_cards_have_to_read() {
+        let with = |layout: &str| {
+            PLUM.replace(
+                r##""colours": { "chat": "#2a1a3a" }"##,
+                &format!(r#""layout": {layout}"#),
+            )
+        };
+        // Yap's on-accent on its accent, and text on raised, read.
+        let report = check(
+            &files(&with(r#"{ "messages": "bubbles" }"#)),
+            Strictness::Install,
+        );
+        assert!(report.passed(), "{:?}", report.errors);
+        let report = check(
+            &files(&with(
+                r##"{ "messages": "bubbles", "bubbles": { "own": "#ffffff", "own_text": "#eeeeee" } }"##,
+            )),
+            Strictness::Install,
+        );
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("layout.bubbles.own_text on layout.bubbles.own")),
+            "{:?}",
+            report.errors
+        );
+        let report = check(
+            &files(&with(r##"{ "bubbles": { "other": "#e0e0e0" } }"##)),
+            Strictness::Install,
+        );
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("text on layout.bubbles.other")),
+            "{:?}",
+            report.errors
+        );
+        let report = check(
+            &files(&with(
+                r##"{ "messages": "cards", "cards": { "ground": "#dddddd" } }"##,
+            )),
+            Strictness::Install,
+        );
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("layout.cards.ground")),
+            "{:?}",
+            report.errors
+        );
+        // Outline colours are decoration.
+        let report = check(
+            &files(&PLUM.replace(
+                r##""colours": { "chat": "#2a1a3a" }"##,
+                r##""shape": { "borders": { "card": { "style": "dashed", "colour": "#1e1f24" } } }"##,
+            )),
+            Strictness::Install,
+        );
+        assert!(report.passed(), "{:?}", report.errors);
+    }
+
+    #[test]
+    fn ransom_fonts_are_named_files_and_parsed() {
+        let manifest = PLUM.replace(
+            r##""colours": { "chat": "#2a1a3a" }"##,
+            r#""type": { "names": { "style": "ransom", "fonts": ["a.ttf", "b.otf"] } }"#,
+        );
+        let mut theme = files(&manifest);
+        let report = check(&theme, Strictness::Install);
+        assert!(
+            report.errors.iter().any(|error| error.contains("a.ttf")),
+            "{:?}",
+            report.errors
+        );
+        theme.files.insert("a.ttf".into(), b"not a font".to_vec());
+        theme.files.insert("b.otf".into(), b"not a font".to_vec());
+        let report = check(&theme, Strictness::Install);
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.starts_with("a.ttf: ")),
+            "{:?}",
+            report.errors
+        );
+    }
+
+    #[test]
+    fn the_cost_names_the_layout() {
+        let manifest = PLUM.replace(
+            r##""colours": { "chat": "#2a1a3a" }"##,
+            r#""layout": { "messages": "irc", "rail": "top" }, "type": { "names": { "style": "ransom" } }"#,
+        );
+        let report = check(&files(&manifest), Strictness::Install);
+        assert!(report.passed(), "{:?}", report.errors);
+        let text = report.cost.text();
+        assert!(
+            text.contains("layout: irc, rail top, ransom names"),
+            "{text}"
+        );
+        assert!(
+            !check(&files(PLUM), Strictness::Install)
+                .cost
+                .text()
+                .contains("layout")
+        );
     }
 
     #[test]

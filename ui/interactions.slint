@@ -43,7 +43,7 @@ export component BotSelectDropdown inherits Rectangle {
         x: max(8px, min(BotSelectAnchor.x, root.width - root.panel-width - 8px));
         y: root.above ? BotSelectAnchor.y - root.gap - root.panel-height : min(BotSelectAnchor.y + BotSelectAnchor.height + root.gap, root.height - root.panel-height - 8px);
         width: root.panel-width; height: root.panel-height;
-        background: Theme.raised-fill; border-radius: Look.radius(8px); border-width: 1px; border-color: Theme.edge;
+        background: Theme.raised-fill; border-radius: Look.radius(8px); border-width: Look.line(1px); border-color: Theme.edge;
         drop-shadow-blur: Look.shadow-blur(16px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000055); clip: true;
         accessible-role: list; accessible-label: root.heading;
         TouchArea { }
@@ -161,7 +161,7 @@ export component BotModalDialog inherits Rectangle {
     TouchArea { enabled: !root.saving; clicked => { root.close(); } }
     Rectangle {
         width: min(520px, root.width - 40px); height: min(modal-layout.preferred-height, root.height - 48px);
-        background: Theme.raised-fill; border-radius: Look.radius(12px); border-width: 1px; border-color: Theme.edge;
+        background: Theme.raised-fill; border-radius: Look.radius(12px); border-width: Look.line(1px); border-color: Theme.edge;
         drop-shadow-blur: Look.shadow-blur(28px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000077);
         accessible-role: groupbox; accessible-label: root.heading;
         TouchArea { }
@@ -252,7 +252,7 @@ export component BotModalDialog inherits Rectangle {
                                     }
                                 }
                                 if field.files.length < field.max-files: Rectangle {
-                                    height: 56px; border-radius: Look.radius(8px); border-width: 1px;
+                                    height: 56px; border-radius: Look.radius(8px); border-width: Look.line(1px);
                                     border-color: upload-touch.has-hover && !root.saving ? Theme.accent : Theme.edge;
                                     background: Theme.sunken;
                                     accessible-role: button; accessible-label: "Choose files for " + field.label;

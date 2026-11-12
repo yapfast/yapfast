@@ -183,10 +183,12 @@ pub enum Surface {
     Code,
     /// Embeds: their outline.
     Embed,
+    /// Switches: `radius` in pixels, 999 a pill as stock.
+    Toggle,
 }
 
 impl Surface {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::Button,
         Self::Field,
         Self::Composer,
@@ -201,6 +203,7 @@ impl Surface {
         Self::Tile,
         Self::Code,
         Self::Embed,
+        Self::Toggle,
     ];
 
     pub fn name(self) -> &'static str {
@@ -219,6 +222,7 @@ impl Surface {
             Self::Tile => "tile",
             Self::Code => "code",
             Self::Embed => "embed",
+            Self::Toggle => "toggle",
         }
     }
 
@@ -897,6 +901,8 @@ pub struct Resolved {
     pub sounds: BTreeMap<super::media::SoundSlot, super::media::SoundChoice>,
     /// Replaced icons by their name in `ui/icons/`.
     pub icons: BTreeMap<&'static str, super::media::IconChoice>,
+    /// Where the panes sit and how messages are laid out.
+    pub layout: super::layout::Layout,
 }
 
 impl Resolved {
@@ -915,6 +921,11 @@ impl Resolved {
             if let Some(font) = &kind.font
                 && !fonts.contains(&font.as_path())
             {
+                fonts.push(font);
+            }
+        }
+        for font in self.layout.names.iter().flat_map(|names| &names.fonts) {
+            if !fonts.contains(&font.as_path()) {
                 fonts.push(font);
             }
         }
@@ -1002,8 +1013,9 @@ const TOP_KEYS: [&str; 15] = [
 ];
 
 /// The layers, at the top level or in a variant.
-const LAYER_KEYS: [&str; 10] = [
+const LAYER_KEYS: [&str; 11] = [
     "art",
+    "layout",
     "colours",
     "shape",
     "type",
@@ -1225,9 +1237,11 @@ impl Package {
                     &mut resolved.shadows,
                     notes,
                 )?;
+                super::layout::read_outlines(shape, &place("shape"), &mut resolved.layout, notes)?;
             }
             if let Some(kind) = layers.get("type") {
                 read_types(kind, &place("type"), &mut resolved.types, notes)?;
+                super::layout::read_ransom(kind, &place("type"), &mut resolved.layout)?;
             }
             if let Some(spacing) = layers.get("spacing") {
                 read_spacing(spacing, &place("spacing"), &mut resolved.spacing, notes)?;
@@ -1249,6 +1263,9 @@ impl Package {
             }
             if let Some(icons) = layers.get("icons") {
                 super::media::read_icons(icons, &place("icons"), &mut resolved.icons, notes)?;
+            }
+            if let Some(layout) = layers.get("layout") {
+                super::layout::read_layout(layout, &place("layout"), &mut resolved.layout, notes)?;
             }
         }
         Ok(resolved)
@@ -1478,13 +1495,16 @@ fn parse_linear(text: &str) -> Option<Paint> {
     })
 }
 
-fn object<'a>(value: &'a Value, place: &str) -> Result<&'a serde_json::Map<String, Value>, Error> {
+pub(super) fn object<'a>(
+    value: &'a Value,
+    place: &str,
+) -> Result<&'a serde_json::Map<String, Value>, Error> {
     value
         .as_object()
         .ok_or_else(|| Error(format!("\"{place}\" has to be an object")))
 }
 
-fn number(value: &Value, place: &str, (low, high): (f32, f32)) -> Result<f32, Error> {
+pub(super) fn number(value: &Value, place: &str, (low, high): (f32, f32)) -> Result<f32, Error> {
     let number = value
         .as_f64()
         .ok_or_else(|| Error(format!("\"{place}\" has to be a number")))? as f32;
@@ -1494,7 +1514,7 @@ fn number(value: &Value, place: &str, (low, high): (f32, f32)) -> Result<f32, Er
     Ok(number)
 }
 
-fn colour_at(value: &Value, place: &str) -> Result<u32, Error> {
+pub(super) fn colour_at(value: &Value, place: &str) -> Result<u32, Error> {
     value
         .as_str()
         .and_then(parse_colour)
@@ -1578,6 +1598,10 @@ fn read_shapes(
                 };
                 radii[index] = Some(number(value, &format!("{at}.{key}"), (0.0, 999.0))?);
             }
+            continue;
+        }
+        // Outlines are the layout's: see super::layout::read_outlines.
+        if name == "outline_width" || name == "borders" {
             continue;
         }
         if name == "shadows" {
@@ -1685,6 +1709,8 @@ fn read_types(
                 "title_size" if role == Role::Headings => {
                     kind.title_size = Some(number(value, &here, (12.0, 40.0))?);
                 }
+                // Ransom names are the layout's: see super::layout::read_ransom.
+                key if role == Role::Names && super::layout::RANSOM_KEYS.contains(&key) => {}
                 "uppercase" if role == Role::Headings => {
                     kind.uppercase = Some(
                         value
@@ -1740,7 +1766,7 @@ fn read_spacing(
     Ok(())
 }
 
-fn named<T: Copy>(
+pub(super) fn named<T: Copy>(
     value: &Value,
     place: &str,
     all: &[T],

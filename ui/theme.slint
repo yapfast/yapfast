@@ -196,6 +196,8 @@ export global Look {
     /// Code blocks and embeds: their corners and outline.
     in property <Shape> code: { radius: -1px, border: -1px, shadow-blur: -1px };
     in property <Shape> embed: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// Switches: track and knob; 999 is the stock pill.
+    in property <Shape> toggle: { radius: -1px, border: -1px, shadow-blur: -1px };
     // Every other corner by its stock size: small (4px and under), medium
     // (up to 8px) and large.
     in property <length> radius-small: -1px;
@@ -221,7 +223,11 @@ export global Look {
     public pure function shadow-color(stock: color) -> color { self.shadows-on ? self.shadows-color : stock }
     /// A named surface's radius, border and shadow over the stock values.
     public pure function r(shape: Shape, stock: length) -> length { shape.radius >= 0px ? shape.radius : self.radius(stock) }
-    public pure function bw(shape: Shape, stock: length) -> length { shape.border >= 0px ? shape.border : stock }
+    public pure function bw(shape: Shape, stock: length) -> length { shape.border >= 0px ? shape.border : self.line(stock) }
+    /// Every outline and rule the stock window draws a pixel wide takes a
+    /// theme's `layout.outline_width`; negative leaves stock.
+    in property <length> outline-width: -1px;
+    public pure function line(stock: length) -> length { self.outline-width >= 0px && stock > 0px && stock <= 1px ? self.outline-width : stock }
     public pure function bc(shape: Shape, stock: brush) -> brush { shape.border >= 0px && shape.border-color != transparent ? shape.border-color : stock }
     public pure function sb(shape: Shape, stock: length) -> length { shape.shadow-blur >= 0px ? shape.shadow-blur : self.shadow-blur(stock) }
     public pure function sx(shape: Shape, stock: length) -> length { shape.shadow-blur >= 0px ? shape.shadow-x : self.shadow-x(stock) }

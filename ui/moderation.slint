@@ -357,7 +357,7 @@ export component AuditLogSection inherits VerticalLayout {
             property <bool> open: index == root.page.open;
             padding-bottom: 8px;
             Rectangle {
-                border-radius: Look.radius(8px); border-width: 1px; border-color: Theme.line;
+                border-radius: Look.radius(8px); border-width: Look.line(1px); border-color: Theme.line;
                 background: Theme.overlay.with-alpha(0.02);
                 VerticalLayout {
                     Rectangle {

@@ -1041,8 +1041,60 @@ export component ServerRail inherits Rectangle {
     /// Whether the "+" at the foot offers to join a Discord server.
     in property <bool> can-join;
     callback join-server;
+    /// A theme's layout runs the rail along the window's top.
+    in property <bool> horizontal;
     width: 72px; background: Art.glass-rail ? transparent : Theme.rail-fill;
-    VerticalLayout {
+    /// Draws a theme's rail art itself: on the right or the top, where the
+    /// navigation pane that draws it on the left isn't behind it.
+    in property <bool> own-art;
+    if root.own-art && (Art.rail.length > 0 || Art.glass-rail): ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.rail; glass: Art.glass-rail; ground: Theme.rail-fill;
+    }
+    if root.horizontal: Flickable {
+        content-width: across.preferred-width;
+        across := HorizontalLayout {
+            padding-left: 6px; padding-right: 6px; spacing: 0px; alignment: start;
+            height: parent.height;
+            RailItem {
+                width: 60px; y: (parent.height - self.height) / 2;
+                icon: IconPack.logo; icon-color: Theme.accent-text; icon-size: ClientStyle.enabled ? 24px : 32px; home: true;
+                label: "Direct messages" + (root.dms-badge != "" ? ", " + root.dms-badge + " waiting" : root.dms-unread ? ", unread" : "");
+                tip: "Direct messages";
+                selected: root.dms-selected; unread: root.dms-unread; badge: root.dms-badge;
+                clicked => { root.navigate-dms(); }
+            }
+            for server in root.servers: Rectangle {
+                width: server.divider ? 9px : 60px;
+                if server.divider: Rectangle { x: 4px; width: 1px; height: 32px; background: Theme.outline; }
+                if server.folder: FolderItem {
+                    x: -6px; width: 72px; y: (parent.height - self.height) / 2;
+                    label: server.name + " folder, " + (server.open ? "open" : "closed");
+                    tip: server.name;
+                    open: false; tint: server.tint; servers: server.preview;
+                    selected: server.selected; unread: server.unread; badge: server.badge; call: server.call;
+                    clicked => { root.toggle-folder(server.id); }
+                    context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
+                }
+                if !server.folder && !server.divider: RailItem {
+                    width: 60px; y: (parent.height - self.height) / 2;
+                    initial: server.initial; picture: server.picture; picture-url: server.picture-url;
+                    label: server.name + (server.dm ? ", unread" : "") + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
+                    tip: server.name;
+                    selected: server.selected; unread: server.unread || server.dm; badge: server.badge; discord: server.discord;
+                    call: server.call; opacity: server.unavailable ? 0.5 : 1;
+                    clicked => { if server.dm { root.open-dm(server.id); } else { root.navigate-server(server.id); } }
+                    context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
+                }
+            }
+            if root.can-join: RailItem {
+                width: 60px; y: (parent.height - self.height) / 2;
+                icon: IconPack.circle-plus; icon-color: Theme.accent; icon-size: 24px;
+                label: "Join a server"; tip: "Join a server";
+                clicked => { root.join-server(); }
+            }
+        }
+    }
+    if !root.horizontal: VerticalLayout {
         padding-top: ClientStyle.enabled ? 0px : 12px; padding-bottom: 12px; spacing: 8px;
         RailItem {
             // The app's logo, as Discord puts its own here.
