@@ -54,6 +54,12 @@ const INVOKE_BUDGET: Duration = Duration::from_secs(2);
 /// it leaves the row plain until it is asked again.
 const DECORATE_BUDGET: Duration = Duration::from_millis(16);
 
+/// How long one plugin's `yf_identity` may run. The answer is kept and used by
+/// every surface that shows that person, so it is asked once and not per row;
+/// it still runs in the background lane, and the person is drawn as Yapfast
+/// already knows them until it comes.
+const IDENTITY_BUDGET: Duration = Duration::from_millis(16);
+
 /// How long `yf_deactivate` may take. Its answer is a convenience handed to the
 /// next activation, so it gets long enough to write that and no longer: an
 /// instance going away must not hold the helper.
@@ -175,6 +181,13 @@ pub enum Message {
         plugin: PluginId,
         message: String,
         request: yapfast_plugin_api::message::DecorateRequest,
+    },
+    /// How a plugin says one person looks, answered with
+    /// [`FromHelper::Identity`]: `yf_identity`'s export, with the pair.
+    Identity {
+        id: u64,
+        plugin: PluginId,
+        request: yapfast_plugin_api::identity::IdentityRequest,
     },
     /// The parent's answer to a guest's host call.
     Return {
@@ -499,6 +512,29 @@ impl<B: Backend + 'static> Shared<B> {
                     Job::Decorate { message, request },
                 );
             }
+            Message::Identity {
+                id,
+                plugin,
+                request,
+            } => {
+                let slot = state.slot_for(&plugin);
+                let server = request.server.clone();
+                let person = request.person.clone();
+                let request = serde_json::to_value(request).unwrap_or(serde_json::Value::Null);
+                // One answer serves every row the person wrote, so it is worth
+                // waiting behind other work for: the person is drawn as Yapfast
+                // already knows them until it comes.
+                state.push(
+                    slot,
+                    Lane::Background,
+                    id,
+                    Job::Identity {
+                        person,
+                        server,
+                        request,
+                    },
+                );
+            }
             Message::Return {
                 plugin,
                 call,
@@ -552,6 +588,11 @@ impl<B: Backend + 'static> Shared<B> {
                 args_base64,
             } => self.invoke(task, function, args_base64),
             Job::Decorate { message, request } => self.decorate(task, message, request),
+            Job::Identity {
+                person,
+                server,
+                request,
+            } => self.identity(task, person, server.as_deref(), request),
             Job::Return { call, answer } => self.answer(task.owner(), *call, answer),
         }
     }
@@ -876,6 +917,63 @@ impl<B: Backend + 'static> Shared<B> {
         }
     }
 
+    /// Asks a plugin how one person looks, and answers the parent with the
+    /// answer or with nothing.
+    ///
+    /// The person is drawn as Yapfast already knows them while this runs, which
+    /// is why the budget is 16 ms: the answer is kept by the parent and shown
+    /// everywhere that person appears.
+    fn identity(
+        &self,
+        task: &Task,
+        person: &str,
+        server: Option<&str>,
+        request: &serde_json::Value,
+    ) {
+        let slot = task.owner();
+        let plugin = self.id(slot);
+        let nothing = || FromHelper::Identity {
+            plugin: plugin.as_ref().clone(),
+            person: person.to_owned(),
+            server: server.map(str::to_owned),
+            identity: None,
+        };
+        if self.ensure_active(slot).is_none() {
+            let _ = self.reply(task.id, &nothing());
+            return;
+        }
+        let Ok(bytes) = serde_json::to_vec(request) else {
+            let _ = self.reply(task.id, &nothing());
+            return;
+        };
+        let (result, late) = self.call(&[slot], IDENTITY_BUDGET, |backend| {
+            backend.invoke(&plugin, "yf_identity", &bytes)
+        });
+        let identity = match &result {
+            // An export that said nothing, or answered `null`, changes nothing:
+            // an answer is optional, so an empty one is no fault.
+            Ok(Some(answer)) => {
+                serde_json::from_slice::<yapfast_plugin_api::identity::Identity>(answer).ok()
+            }
+            Ok(None) => None,
+            Err(_) => None,
+        };
+        let _ = self.reply(
+            task.id,
+            &FromHelper::Identity {
+                plugin: plugin.as_ref().clone(),
+                person: person.to_owned(),
+                server: server.map(str::to_owned),
+                identity,
+            },
+        );
+        match result {
+            Ok(_) if late => self.discard(slot, deadline_fault("how someone looks"), None),
+            Ok(_) => {}
+            Err(fault) => self.discard(slot, fault, None),
+        }
+    }
+
     /// Calls one export of one plugin for another: what `plugin.call` asked the
     /// parent for, run where the callee's instance is.
     fn invoke(&self, task: &Task, function: &str, args_base64: &str) {
@@ -1194,6 +1292,19 @@ impl<B: Backend + 'static> Shared<B> {
                     },
                 );
             }
+            // A person nobody answered about is drawn as Yapfast already knows
+            // them.
+            Job::Identity { person, server, .. } => {
+                let _ = self.reply(
+                    task.id,
+                    &FromHelper::Identity {
+                        plugin,
+                        person: person.clone(),
+                        server: server.clone(),
+                        identity: None,
+                    },
+                );
+            }
             Job::Load(_) | Job::Unload | Job::Evict | Job::Kick | Job::Return { .. } => {}
         }
     }
@@ -1427,6 +1538,11 @@ enum Job {
     },
     Decorate {
         message: String,
+        request: serde_json::Value,
+    },
+    Identity {
+        person: String,
+        server: Option<String>,
         request: serde_json::Value,
     },
     Return {

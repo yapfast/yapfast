@@ -209,6 +209,14 @@ fn dispatch(
             });
             After::Continue
         }
+        ToHelper::Identity { plugin, request } => {
+            scheduler.send(Message::Identity {
+                id,
+                plugin,
+                request,
+            });
+            After::Continue
+        }
         ToHelper::Unload { plugin } => {
             scheduler.send(Message::Unload { plugin });
             After::Continue

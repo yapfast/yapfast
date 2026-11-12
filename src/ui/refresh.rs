@@ -4911,6 +4911,12 @@ impl Adapter {
 
     /// The open profile card, and the profile beside a one-to-one DM, with
     /// what's known so far.
+    ///
+    /// It is shown again on its own when a plugin says how its person looks:
+    /// that changes the card and nothing else on screen.
+    pub(super) fn show_profile_card(&mut self, window: &YapfastWindow) {
+        self.show_profile(window);
+    }
     fn show_profile(&mut self, window: &YapfastWindow) {
         let state = &self.app.state;
         window.set_profile_open(state.profile.is_some());

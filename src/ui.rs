@@ -2826,6 +2826,14 @@ impl Adapter {
                         self.show_plugin_slots(&window);
                     }
                 }
+                // How the person on the profile card looks changed, so the card
+                // is drawn again; nothing else on screen moved.
+                #[cfg(feature = "plugins")]
+                Effect::Plugin(yapfast_core::application::plugins::Effect::Identity) => {
+                    if let Some(window) = self.window.upgrade() {
+                        self.show_profile_card(&window);
+                    }
+                }
                 // The Plugins page holds a copy of the runtime's view: hand it a
                 // fresh one, which redraws the page if it's open.
                 #[cfg(feature = "plugins")]

@@ -222,6 +222,12 @@ impl Activation {
         self.on.iter().any(|trigger| trigger == "decorate")
     }
 
+    /// The plugin asks to say how people look, as `yf_identity`: one answer
+    /// per person and server, which the parent keeps.
+    pub fn identities(&self) -> bool {
+        self.on.iter().any(|trigger| trigger == "identity")
+    }
+
     /// The event names this activation subscribes to, without the prefix.
     pub fn events(&self) -> impl Iterator<Item = &str> {
         self.on

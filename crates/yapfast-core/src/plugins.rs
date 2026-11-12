@@ -25,6 +25,7 @@
 pub mod bridge;
 pub mod fetch;
 pub mod grants;
+pub mod identity;
 pub mod installing;
 pub mod marketplace;
 pub mod network;

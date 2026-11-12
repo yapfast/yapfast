@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::call::{CommandInvocation, CommandOutcome, HostCall, HostReturn};
 use crate::event::{EventEnvelope, TopicEvent};
 use crate::hook::{HookOutcome, HookRequest};
+use crate::identity::{Identity, IdentityRequest};
 use crate::ids::PluginId;
 
 /// Where a plugin stands, as the page shows it.
@@ -172,6 +173,16 @@ pub enum ToHelper {
         plugin: PluginId,
         request: DecorateRequest,
     },
+    /// Ask a plugin how one person should look, with `yf_identity`: the answer
+    /// is one [`Identity`], or nothing.
+    ///
+    /// It is one request per (person, server) and not per message: the parent
+    /// keeps the answer, and every surface that shows that person reads it from
+    /// there.
+    Identity {
+        plugin: PluginId,
+        request: IdentityRequest,
+    },
     /// The answer to a guest's host call.
     Return {
         plugin: PluginId,
@@ -260,6 +271,19 @@ pub enum FromHelper {
         message: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tree: Option<serde_json::Value>,
+    },
+    /// How a plugin answered about one person, as `yf_identity` returned it, or
+    /// nothing when it said nothing. The parent checks the answer, and keeps it
+    /// under the pair it was asked about.
+    Identity {
+        plugin: PluginId,
+        /// The person and the server the parent asked about, echoed back so an
+        /// answer that arrives late still files where it belongs.
+        person: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        server: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        identity: Option<Identity>,
     },
     /// An event batch finished; nothing to report.
     EventDone { plugin: PluginId },

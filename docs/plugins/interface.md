@@ -223,6 +223,61 @@ A tree the widget set refuses is dropped where it arrives, and the row stays as
 it was. Turning the plugin off takes its decorations with it, and so does
 suspending it.
 
+## How people look
+
+A plugin that changes how people appear declares `identity` in its activation,
+and needs `people.read`:
+
+```json
+{ "activation": { "on": ["identity"] },
+  "permissions": { "capabilities": ["people.read"] } }
+```
+
+The parent asks with `yf_identity` **once per (person, server)** and not once
+per message, because a channel shows one author twenty times and a member list
+shows a hundred people. What comes back is a description of a person: a display
+name, a name colour, an avatar, a banner, a decoration, a pronouns line and
+badges, every one of them optional. The fields and their caps are in
+[`abi.md`](abi.md#the-payloads); a field Yapfast won't draw is dropped and the
+rest of the answer still applies.
+
+[`plugins/identity.rs`](../../crates/yapfast-core/src/plugins/identity.rs)
+keeps the answers, and is the whole cost of the feature when nothing is drawn
+from it:
+
+- **One answer per (person, server)**, keyed by the pair, so the second message
+  from one author costs nothing. A DM and a room no server holds are one pair,
+  with no server.
+- **Asked on a miss, never on a timer.** A person is asked about when a surface
+  that shows them finds no answer for them, or finds one older than five
+  minutes: the cache is what decides, so a person nobody shows is never asked
+  about.
+- **Capped at 256 people**, the least lately shown forgotten first, so a long
+  session in a large server keeps the people it has shown lately.
+- **One answer that changes nothing is kept too**, because "nobody changed this
+  person" is an answer: without it every surface would ask again.
+- **The chain's order decides, not the arrival order.** Every plugin whose
+  activation says `identity` and whose manifest says `people.read` is asked, and
+  the answer from the earlier plugin in the chain wins while it is fresh. A
+  plugin that declares the trigger without the capability is never asked at all.
+- **A change stamp**, `Identities::changes`, so the interface redraws on an
+  answer that changed how somebody looks and on nothing else.
+- **Turning a plugin off takes the answers with it**, so what a plugin that no
+  longer runs said about somebody doesn't stay on screen.
+
+**Which surfaces use it.** Today, one: the profile card, opened from a message,
+from the member list, from a DM or from the friends list. The card is drawn from
+the answer at once if one is kept, and again when one arrives; its person's name,
+name colour, avatar, banner, avatar decoration and pronouns change, and nothing
+about the card's roles, badges, notes or tabs does.
+
+**Which don't, yet.** The message row's author line and avatar, the member list
+row, the DM header, the thread's rows, reply previews, mention chips and search
+results draw Yapfast's own view of a person and no plugin's. The answer is kept
+for them like any other, so wiring one of them is a lookup and not a new call.
+The `badges` field is answered and kept but drawn nowhere: the card's badges are
+Discord's own, with pictures, and a plugin's name-only badge has no surface yet.
+
 ## Slots
 
 [`plugins/slots.rs`](../../crates/yapfast-core/src/plugins/slots.rs) keeps what

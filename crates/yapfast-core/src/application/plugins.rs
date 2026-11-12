@@ -73,6 +73,9 @@ pub enum Effect {
     /// A plugin drew something in a slot or under a message, or what it drew
     /// was taken away: the interface shows the slots that moved, and no others.
     Slots,
+    /// How the person on the profile card looks changed, so the card is drawn
+    /// again from what the application now holds.
+    Identity,
 }
 
 /// A plugin waiting for the person to say whether it may reach a site.
@@ -605,7 +608,12 @@ impl Application {
                     .plugin_slots
                     .as_mut()
                     .is_some_and(|slots| slots.forget(plugin.as_ref()));
-                redraw_if(gone)
+                let identities = self
+                    .state
+                    .plugins
+                    .as_mut()
+                    .is_some_and(|plugins| plugins.forget_identities());
+                redraw_if(gone || identities)
             }
             // The store changed under the instances that drew what's on
             // screen, so all of it goes.
@@ -615,7 +623,29 @@ impl Application {
                     .plugin_slots
                     .as_mut()
                     .is_some_and(|slots| slots.clear_all());
-                redraw_if(gone)
+                let identities = self
+                    .state
+                    .plugins
+                    .as_mut()
+                    .is_some_and(|plugins| plugins.forget_identities());
+                redraw_if(gone || identities)
+            }
+            // How a plugin says somebody looks: what is on screen that shows
+            // them is drawn again, and nothing else.
+            News::Notice(Notice::Identity {
+                person,
+                server,
+                rank,
+                identity,
+                ..
+            }) => {
+                let kept = self.state.plugins.as_mut().is_some_and(|plugins| {
+                    plugins.note_identity(&person, server.as_deref(), rank, identity)
+                });
+                if !kept {
+                    return Vec::new();
+                }
+                self.plugins_identity_arrived(&person, server.as_deref())
             }
             News::Observed(envelope) => {
                 self.plugins_observe(envelope);
@@ -826,6 +856,78 @@ impl Application {
         }
     }
 
+    /// Applies what plugins say about how one person looks, asking for an
+    /// answer when nothing fresh is kept for them.
+    ///
+    /// §17.2 asks for one answer per (person, server) used by every surface
+    /// that shows that person. The profile card is the surface that hosts it
+    /// today: the card a message, a member list, a DM or a friend opens. The
+    /// answer changes how that card draws them, and nothing else.
+    pub(super) fn plugins_identify(&mut self, room: &str, profile: &mut crate::chat::Profile) {
+        let Some(plugins) = self.state.plugins.as_mut() else {
+            return;
+        };
+        if !plugins.identifies() {
+            return;
+        }
+        let server = plugin_server(room);
+        let person = profile.id.clone();
+        if let Some(identity) = plugins.identity(&person, server.as_deref()) {
+            decorate_profile(profile, &identity);
+            return;
+        }
+        plugins.ask_identity(yapfast_plugin_api::identity::IdentityRequest {
+            person,
+            server,
+            name: profile.name.clone(),
+            username: Some(profile.handle.clone()).filter(|handle| !handle.is_empty()),
+            own: self.state.account.as_deref() == Some(profile.id.as_str()),
+        });
+    }
+
+    /// A plugin answered about somebody: the surfaces on screen that show them
+    /// are drawn again, and nothing else.
+    fn plugins_identity_arrived(&mut self, person: &str, server: Option<&str>) -> Vec<AppEffect> {
+        let Some(plugins) = self.state.plugins.as_mut() else {
+            return Vec::new();
+        };
+        let shown = self
+            .state
+            .profile
+            .as_ref()
+            .is_some_and(|view| view.profile.id == person)
+            || self
+                .state
+                .panel_profile
+                .as_ref()
+                .is_some_and(|view| view.profile.id == person);
+        if !shown {
+            // Nothing on screen shows them, so the answer is kept for the next
+            // card that does and no frame is spent on it.
+            return Vec::new();
+        }
+        let known = plugins.identity(person, server);
+        if let Some(identity) = known {
+            if let Some(view) = self
+                .state
+                .profile
+                .as_mut()
+                .filter(|view| view.profile.id == person)
+            {
+                decorate_profile(&mut view.profile, &identity);
+            }
+            if let Some(view) = self
+                .state
+                .panel_profile
+                .as_mut()
+                .filter(|view| view.profile.id == person)
+            {
+                decorate_profile(&mut view.profile, &identity);
+            }
+        }
+        redraw_identity()
+    }
+
     /// Hands one event to the plugins that subscribed to it. The bridge
     /// applies each subscription's filter and writes the payload once, so a
     /// tap only has to say what happened.
@@ -985,6 +1087,44 @@ fn plugin_network(network: Network) -> PluginNetwork {
     }
 }
 
+/// The server a room id belongs to, as the plugin API names one: nothing for a
+/// DM or a room no server holds, which is one answer for that person
+/// everywhere.
+fn plugin_server(room: &str) -> Option<String> {
+    crate::discord::parse_room(room)
+        .map(|(server, _)| server.to_owned())
+        .filter(|server| server != crate::discord::DM_GUILD)
+}
+
+/// Draws a profile as a plugin says its person looks.
+///
+/// A field the plugin left out stays as Yapfast had it, which is why every
+/// surface can apply an answer over what it already knows. The name colour is a
+/// style of one colour, the way the profile editor writes one.
+fn decorate_profile(
+    profile: &mut crate::chat::Profile,
+    identity: &yapfast_plugin_api::identity::Identity,
+) {
+    if let Some(name) = &identity.display_name {
+        profile.name = name.clone();
+    }
+    if let Some(colour) = identity.name_colour {
+        profile.style = Some(Arc::new(crate::chat::NameStyle::new(0, 1, &[colour])));
+    }
+    if let Some(avatar) = &identity.avatar {
+        profile.avatar = Some(avatar.clone());
+    }
+    if let Some(banner) = &identity.banner {
+        profile.banner = Some(banner.clone());
+    }
+    if let Some(decoration) = &identity.decoration {
+        profile.decoration = Some(Arc::from(decoration.as_str()));
+    }
+    if let Some(pronouns) = &identity.pronouns {
+        profile.pronouns = pronouns.clone();
+    }
+}
+
 /// The interface redraws the slots plugins draw in, or nothing does.
 ///
 /// A tree that came again unchanged, or a slot emptied twice, draws nothing: the
@@ -995,6 +1135,12 @@ fn redraw_if(changed: bool) -> Vec<AppEffect> {
     } else {
         Vec::new()
     }
+}
+
+/// The interface redraws the profile card, because how its person looks has
+/// changed under it.
+fn redraw_identity() -> Vec<AppEffect> {
+    vec![AppEffect::Plugin(Effect::Identity)]
 }
 
 /// One event, with its payload written out here: the bridge hands the same

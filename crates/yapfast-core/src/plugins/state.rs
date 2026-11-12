@@ -40,6 +40,9 @@ pub struct PluginState {
     /// changes. A refused value is never stored, so the page's own copy of the
     /// form — read back from the store — would otherwise forget why it refused.
     refused: BTreeMap<PluginId, BTreeMap<String, settings::Refused>>,
+    /// What plugins said about how people look, kept once per (person, server)
+    /// so the twentieth message from one author costs nothing.
+    identities: crate::plugins::identity::Identities,
 }
 
 /// Something the plugin system did, for the application to act on.
@@ -102,6 +105,18 @@ pub enum Notice {
     /// keep and show. The runtime coalesces these, so a plugin that draws once
     /// per event costs one update per frame at most.
     Slot(crate::plugins::slots::Output),
+    /// How a plugin says one person looks: the application keeps it under the
+    /// pair the plugin was asked about, and every surface that shows that
+    /// person reads it from there. `rank` is where the plugin sits in the
+    /// chain, so which plugin wins doesn't depend on which answer arrived
+    /// first.
+    Identity {
+        plugin: PluginId,
+        person: String,
+        server: Option<String>,
+        rank: usize,
+        identity: Option<yapfast_plugin_api::identity::Identity>,
+    },
     /// Take away everything one plugin drew, because it was turned off or
     /// suspended: a plugin that isn't running shows nothing.
     SlotsGone(PluginId),
@@ -201,6 +216,7 @@ impl PluginState {
             grants,
             settings: settings::Store::new(data_dir.join("plugins")),
             refused: BTreeMap::new(),
+            identities: crate::plugins::identity::Identities::default(),
         })
     }
 
@@ -394,6 +410,69 @@ impl PluginState {
     /// Asks each of them what it draws under the rows on screen.
     pub fn decorate(&mut self, rows: &[yapfast_plugin_api::message::DecorateRequest]) {
         self.bridge.decorate(rows);
+    }
+
+    /// Whether an enabled plugin says how people look. A surface that shows a
+    /// person asks this before it costs an answer.
+    pub fn identifies(&self) -> bool {
+        self.bridge.identifies()
+    }
+
+    /// How plugins say this person looks, when anything about them changed.
+    ///
+    /// It is one answer per (person, server) and not one per row: the cache is
+    /// what makes a channel of twenty messages from one author cost one answer.
+    pub fn identity(
+        &mut self,
+        person: &str,
+        server: Option<&str>,
+    ) -> Option<Arc<yapfast_plugin_api::identity::Identity>> {
+        self.identities
+            .get(person, server, std::time::Instant::now())
+    }
+
+    /// Asks the plugins about one person, when what is kept about them is
+    /// missing or stale. A fresh answer costs nothing, which is what makes this
+    /// safe to call from wherever a person is drawn.
+    pub fn ask_identity(&mut self, request: yapfast_plugin_api::identity::IdentityRequest) {
+        if !self.bridge.identifies() {
+            return;
+        }
+        let pair = request.pair();
+        if !self.identities.needs(
+            &pair.0,
+            Some(pair.1.as_str()).filter(|server| !server.is_empty()),
+            std::time::Instant::now(),
+        ) {
+            return;
+        }
+        self.bridge.ask_identities(&[request]);
+    }
+
+    /// Keeps what a plugin answered about one person, and answers whether what
+    /// a surface draws changed: the same answer again redraws nothing.
+    pub fn note_identity(
+        &mut self,
+        person: &str,
+        server: Option<&str>,
+        rank: usize,
+        identity: Option<yapfast_plugin_api::identity::Identity>,
+    ) -> bool {
+        self.identities
+            .note(person, server, rank, identity, std::time::Instant::now())
+    }
+
+    /// Forgets every answer about how people look, which is what changing which
+    /// plugins are enabled asks for: what a plugin that no longer runs said must
+    /// not stay on screen. Answers whether anything was forgotten.
+    pub fn forget_identities(&mut self) -> bool {
+        self.identities.forget()
+    }
+
+    /// The count of answers that changed how somebody looks, so a redraw
+    /// happens on a change and not on every answer.
+    pub fn identity_changes(&self) -> u64 {
+        self.identities.changes()
     }
 
     /// Runs the `message.pre_send` chain, if anything intercepts sends.

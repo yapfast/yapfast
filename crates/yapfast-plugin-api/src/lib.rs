@@ -18,6 +18,7 @@ pub mod frame;
 pub mod graph;
 pub mod guest;
 pub mod hook;
+pub mod identity;
 pub mod ids;
 pub mod limits;
 pub mod manifest;

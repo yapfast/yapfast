@@ -129,6 +129,7 @@ impl Bridge {
             wanted: AtomicU64::new(0),
             intercepts: AtomicBool::new(false),
             decorates: AtomicBool::new(false),
+            identifies: AtomicBool::new(false),
             gesture: Mutex::new(None),
             sends: Mutex::new(BTreeMap::new()),
             off: Mutex::new(None),
@@ -187,6 +188,33 @@ impl Bridge {
                 self.send(Request::Decorate {
                     plugin: plugin.clone(),
                     request: row.clone(),
+                });
+            }
+        }
+    }
+
+    /// Whether an enabled plugin says how people look. One answer serves every
+    /// row that person wrote, so this is asked once per person and not per row.
+    pub fn identifies(&self) -> bool {
+        self.shared.identifies.load(Ordering::Relaxed)
+    }
+
+    /// Asks every plugin that says how people look about each of these people.
+    ///
+    /// The callers ask about the people on screen whose answer is missing or
+    /// stale, never about every row: one pair is one answer, and the parent
+    /// keeps it. A plugin is asked in the chain's order, so which answer wins is
+    /// the chain's order too and not the order two answers arrive in.
+    pub fn ask_identities(&mut self, people: &[yapfast_plugin_api::identity::IdentityRequest]) {
+        let plugins = self.shared.registry().identities();
+        if plugins.is_empty() || people.is_empty() {
+            return;
+        }
+        for request in people.iter().take(MAX_IDENTITIES) {
+            for plugin in &plugins {
+                self.send(Request::Identity {
+                    plugin: plugin.clone(),
+                    request: request.clone(),
                 });
             }
         }
@@ -1029,6 +1057,9 @@ pub(crate) struct Shared {
     /// Whether an enabled plugin draws under messages, which a row asks before
     /// it costs one call per message on screen.
     decorates: AtomicBool,
+    /// Whether an enabled plugin says how people look, which a profile asks
+    /// before it costs one answer per person.
+    identifies: AtomicBool,
     /// When the person last did something a plugin's send can stand behind.
     gesture: Mutex<Option<Instant>>,
     /// When each plugin last sent a message, for the 5-per-10-s the plan puts
@@ -1061,6 +1092,7 @@ impl Shared {
         self.wanted.store(summary.wanted, Ordering::Relaxed);
         self.intercepts.store(summary.intercepts, Ordering::Relaxed);
         self.decorates.store(summary.decorates, Ordering::Relaxed);
+        self.identifies.store(summary.identifies, Ordering::Relaxed);
     }
 
     /// Records that the person just did something, which is what a plugin's
@@ -1443,6 +1475,12 @@ enum Request {
     Decorate {
         plugin: PluginId,
         request: yapfast_plugin_api::message::DecorateRequest,
+    },
+    /// How a plugin says one person looks, asked once per person and server:
+    /// the answer comes back as [`FromHelper::Identity`].
+    Identity {
+        plugin: PluginId,
+        request: yapfast_plugin_api::identity::IdentityRequest,
     },
     /// Replace a plugin with what the store holds now, with the plugins that
     /// need it stopped first and started again after.
@@ -1829,6 +1867,15 @@ const DECORATE_TIMEOUT: Duration = Duration::from_millis(250);
 /// misreported visible range can't turn into a burst of calls.
 const MAX_DECORATE_ROWS: usize = 64;
 
+/// How long the parent waits for one plugin's answer about a person: the
+/// helper's own budget is 16 ms, and the rest is the frame it takes to get
+/// there.
+const IDENTITY_TIMEOUT: Duration = Duration::from_millis(250);
+
+/// The most people one pass asks about: a screenful of authors or a member
+/// list's first page, so a misreported range can't turn into a burst of calls.
+const MAX_IDENTITIES: usize = 64;
+
 /// How often a folder plugin's files are looked at. A save is one `stat` of two
 /// files a second, which is nothing beside a build that takes longer than that.
 const DEV_POLL: Duration = Duration::from_secs(1);
@@ -2209,6 +2256,10 @@ impl Session {
                 self.decorate(shared, &plugin, request);
                 None
             }
+            Request::Identity { plugin, request } => {
+                self.identity(shared, &plugin, request);
+                None
+            }
             Request::CallAnswer {
                 plugin,
                 call,
@@ -2504,6 +2555,33 @@ impl Session {
         );
     }
 
+    /// Asks one plugin how a person looks, once for the pair.
+    ///
+    /// The answer is kept by the application, so this is asked for a person
+    /// whose cache entry is missing or stale and not for every row that person
+    /// wrote.
+    fn identity(
+        &mut self,
+        shared: &Shared,
+        plugin: &PluginId,
+        request: yapfast_plugin_api::identity::IdentityRequest,
+    ) {
+        self.activate(shared, plugin);
+        let message = ToHelper::Identity {
+            plugin: plugin.clone(),
+            request,
+        };
+        self.request(
+            &message,
+            IDENTITY_TIMEOUT,
+            Purpose::Agent {
+                what: "how someone looks",
+                plugin: plugin.clone(),
+                budget: IDENTITY_TIMEOUT,
+            },
+        );
+    }
+
     /// Runs one plugin's call into another, which is what `plugin.call` asks for.
     ///
     /// The answer can't be built here: it is an export of the callee, and only
@@ -2737,6 +2815,9 @@ impl Session {
             // A row that comes back after a swap is decorated again by the
             // interface's next report of what is on screen.
             Request::Decorate { plugin, .. } => self.in_swap(plugin),
+            // A person's answer is asked for again when the surfaces that show
+            // them ask the cache, which forgets every answer at a swap.
+            Request::Identity { plugin, .. } => self.in_swap(plugin),
             // An answer to a guest's call is about a guest that may be shut
             // down with the swap, so it goes as it comes.
             Request::CallAnswer { .. } => false,
@@ -2986,6 +3067,16 @@ impl Session {
             } => {
                 self.pending.remove(&frame.id);
                 self.on_decorated(shared, &plugin, &message, tree);
+                None
+            }
+            FromHelper::Identity {
+                plugin,
+                person,
+                server,
+                identity,
+            } => {
+                self.pending.remove(&frame.id);
+                self.on_identity(shared, &plugin, &person, server, identity);
                 None
             }
             FromHelper::EventDone { .. } => None,
@@ -3911,6 +4002,36 @@ impl Session {
         }));
     }
 
+    /// Files a plugin's answer about one person: the application keeps it, and
+    /// only the plugin's place in the chain decides whether it wins.
+    ///
+    /// An answer from a plugin that is no longer enabled is dropped, which is
+    /// what a frame that raced a suspend or a disable looks like.
+    fn on_identity(
+        &mut self,
+        shared: &Shared,
+        plugin: &PluginId,
+        person: &str,
+        server: Option<String>,
+        identity: Option<yapfast_plugin_api::identity::Identity>,
+    ) {
+        let Some(rank) = shared
+            .registry()
+            .identities()
+            .iter()
+            .position(|asking| asking == plugin)
+        else {
+            return;
+        };
+        shared.announce(Notice::Identity {
+            plugin: plugin.clone(),
+            person: person.to_owned(),
+            server,
+            rank,
+            identity,
+        });
+    }
+
     /// Reports a command's answer: a line for the person, or the reason it
     /// failed, on the application's own event path.
     fn on_command_done(
@@ -4636,6 +4757,7 @@ mod tests {
             wanted: AtomicU64::new(0),
             intercepts: AtomicBool::new(false),
             decorates: AtomicBool::new(false),
+            identifies: AtomicBool::new(false),
             gesture: Mutex::new(None),
             sends: Mutex::new(BTreeMap::new()),
             off: Mutex::new(None),
@@ -6571,6 +6693,12 @@ mod tests {
         "version":"1.0.0","wasm":"plugin.wasm",
         "permissions":{"capabilities":["messages.send"]}}"#;
 
+    /// A plugin that says how people look, which needs `people.read`.
+    const FACES_MANIFEST: &str = r#"{"api":1,"id":"com.example.faces","name":"Faces",
+        "version":"1.0.0","wasm":"plugin.wasm",
+        "activation":{"on":["identity"]},
+        "permissions":{"capabilities":["people.read"]}}"#;
+
     /// The reply a chain sends for the request it was handed: the helper's own
     /// frame id is the one the parent is waiting under.
     fn hook_done(id: u64, outcome: HookOutcome, by: Option<PluginId>) -> Frame {
@@ -6870,6 +6998,121 @@ mod tests {
             notices.recv_timeout(Duration::from_millis(100)).is_err(),
             "a tree Yapfast refuses draws nothing at all"
         );
+    }
+
+    #[test]
+    fn a_plugin_says_how_a_person_looks_once_for_the_pair() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), FACES_MANIFEST, b"not a real module");
+        let (wake, notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        let person = yapfast_plugin_api::identity::IdentityRequest {
+            person: "person-1".to_owned(),
+            server: Some("server-1".to_owned()),
+            name: "Ada".to_owned(),
+            username: Some("ada".to_owned()),
+            own: false,
+        };
+        runtime().block_on(session.on_command(
+            &shared,
+            Request::Identity {
+                plugin: plugin.clone(),
+                request: person.clone(),
+            },
+        ));
+
+        // The instance comes up first, then the pair is asked about.
+        let activate = next_frame(&written);
+        assert!(matches!(
+            message(&activate),
+            ToHelper::Activate { plugin: started, .. } if started == plugin
+        ));
+        let ask = next_frame(&written);
+        let ToHelper::Identity {
+            plugin: asked,
+            request,
+        } = message(&ask)
+        else {
+            panic!("the second frame is the question about a person");
+        };
+        assert_eq!(asked, plugin);
+        assert_eq!(request, person, "the pair travels as the plugin reads it");
+
+        let identity = yapfast_plugin_api::identity::Identity {
+            display_name: Some("Ada Lovelace".to_owned()),
+            avatar: Some("http://example.test/a.png".to_owned()),
+            ..Default::default()
+        };
+        assert!(
+            session
+                .on_frame(
+                    &shared,
+                    Frame::new(
+                        FrameKind::Report,
+                        ask.id,
+                        serde_json::to_vec(&FromHelper::Identity {
+                            plugin: plugin.clone(),
+                            person: "person-1".to_owned(),
+                            server: Some("server-1".to_owned()),
+                            identity: Some(identity.clone()),
+                        })
+                        .expect("it serializes"),
+                    ),
+                )
+                .is_none()
+        );
+        let notice = notices
+            .recv_timeout(Duration::from_secs(2))
+            .expect("a notice");
+        let Notice::Identity {
+            plugin: said_by,
+            person: said_about,
+            server,
+            rank,
+            identity: answered,
+        } = notice
+        else {
+            panic!("an answer about a person is its own notice: {notice:?}");
+        };
+        assert_eq!(said_by, plugin);
+        assert_eq!(said_about, "person-1");
+        assert_eq!(server.as_deref(), Some("server-1"));
+        assert_eq!(rank, 0);
+        assert_eq!(answered, Some(identity));
+    }
+
+    #[test]
+    fn a_plugin_that_may_not_read_people_is_never_asked_how_they_look() {
+        // The trigger without `people.read` leaves the summary flag off, so the
+        // surfaces ask nobody; the registry says why, and the bridge agrees.
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        installed(
+            directory.path(),
+            r#"{"api":1,"id":"com.example.blind","name":"Blind",
+                "version":"1.0.0","wasm":"plugin.wasm",
+                "activation":{"on":["identity"]}}"#,
+            b"not a real module",
+        );
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let mut bridge = Bridge {
+            data_dir: directory.path().to_owned(),
+            background: None,
+            fetches: Vec::new(),
+            shared,
+            supervisor: None,
+            next_send: 0,
+        };
+        assert!(!bridge.identifies());
+        bridge.ask_identities(&[yapfast_plugin_api::identity::IdentityRequest {
+            person: "person-1".to_owned(),
+            server: None,
+            name: "Ada".to_owned(),
+            username: None,
+            own: false,
+        }]);
     }
 
     #[test]

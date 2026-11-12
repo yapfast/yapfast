@@ -54,6 +54,8 @@ Every payload is a JSON object with a `t` naming the variant. The first is
 | `kick` | `plugin` | Run an instance again with nothing new: an eviction clock's trigger |
 | `event` | `plugin`, `events` | A batch of events, already filtered and serialized |
 | `hook` | `chain`, `request` | One hook, for the whole chain at once |
+| `decorate` | `plugin`, `request` | Ask a plugin what it draws under a message on screen, with `yf_decorate` |
+| `identity` | `plugin`, `request` | Ask a plugin how one (person, server) looks, with `yf_identity` |
 | `command` | `plugin`, `command` | A command the person typed, with its options |
 | `invoke` | `plugin`, `function`, `args_base64` | One export of one plugin, called for another: `plugin.call`. Answered with `invoked` |
 | `return` | `plugin`, `call`, `answer` | The answer to a guest's host call |
@@ -88,6 +90,7 @@ given a fresh one.
 | `hook_done` | `outcome`, `failures`, `by` | A chain's final answer, the plugins that failed on the way, and the plugin whose answer it is |
 | `command_done` | `plugin`, `outcome` | A command's answer |
 | `invoked` | `answer_base64`, `fault` | The export's answer, or the fault that stopped it |
+| `identity` | `plugin`, `person`, `server`, `identity` | How a plugin says one person looks, or nothing |
 | `event_done` | `plugin` | An event batch finished |
 | `status` | `plugin`, `status` | A plugin's state changed, for the page and the registry |
 | `fault` | `plugin`, `fault` | An instance was discarded, and why |
@@ -119,9 +122,10 @@ surface. The method is a name inside the payload, an unknown method answers
 
 A guest that doesn't export one of those five is a `bad_module` fault at
 activation, so a PDK that forgets `yf_event` fails early and clearly rather than
-on the first message. `yf_decorate` and `yf_ui_event` are for drawing beside a
-row, which is the interface half of the API and not in this build; a module that
-declares them is left alone.
+on the first message. `yf_decorate`, `yf_identity` and `yf_ui_event` are the
+interface's half of the API and are optional: a module that declares them is
+left alone, and one that doesn't simply draws nothing and says nothing about
+how people look.
 
 ### The payloads
 
@@ -211,6 +215,30 @@ message.
 guest's own call: it answers the widget tree `interface.md` describes, or
 `null` for "nothing under this one". The parent checks the tree, so a plugin
 that answers a shape the widget set doesn't have simply draws nothing.
+
+`yf_identity` is asked once per (person, server) and not once per message, so
+the answer is a description of a person and not of a row:
+
+```json
+{ "person": "person-1", "server": "server-1", "name": "Ada",
+  "username": "ada", "own": false }
+```
+
+```json
+{ "display_name": "Ada Lovelace", "name_colour": 11580159,
+  "avatar": "https://example.test/ada.png",
+  "banner": "https://example.test/banner.png",
+  "decoration": "https://example.test/decoration.png",
+  "pronouns": "she/her", "badges": ["early", "bug-hunter"] }
+```
+
+Every field of the answer is optional: a plugin that changes only the name
+answers only the name, and the rest stays as Yapfast had it. `null`, or an
+answer with nothing in it, says nobody changed this person, which the parent
+keeps as an answer so it isn't asked again. A name, a pronoun line or a badge
+is one line of at most 64 characters, there are at most 8 badges, a colour is
+`0xRRGGBB`, and a picture address is `https` and at most 2048 characters: a
+field that isn't is dropped, and the rest of the answer still applies.
 
 A settings change arrives as the answer to the `settings.on_change` call that
 asked for it: the keys that changed, with the values they hold now, and the
