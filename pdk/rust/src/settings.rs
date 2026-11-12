@@ -8,9 +8,9 @@
 
 use serde::de::DeserializeOwned;
 
+use crate::Result;
 use crate::call::{self, method};
 use crate::wire;
-use crate::Result;
 
 /// One setting, by the key its manifest gave it.
 ///

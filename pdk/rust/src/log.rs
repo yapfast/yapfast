@@ -47,11 +47,5 @@ pub fn info(message: impl AsRef<str>) {
 }
 
 fn line(level: Level, message: &str) {
-    let _ = call::post(
-        LOG,
-        Line {
-            level,
-            message,
-        },
-    );
+    let _ = call::post(LOG, Line { level, message });
 }

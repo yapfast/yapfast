@@ -101,6 +101,11 @@ pub enum Capability {
 
 impl Capability {
     /// Every capability, in the order the review dialog lists them.
+    ///
+    /// The list stays whole even for a capability nothing checks: a manifest an
+    /// older version wrote still parses, and the declared list is filtered where
+    /// it is read, so a stored name reads back as itself. See
+    /// [`Capability::is_implemented`].
     pub const ALL: [Capability; 26] = [
         Capability::Storage,
         Capability::MessagesRead,
@@ -129,6 +134,21 @@ impl Capability {
         Capability::NetworkLocal,
         Capability::OpenApp,
     ];
+
+    /// Whether anything in this build looks at this capability.
+    ///
+    /// Two aren't looked at: `files.save` has no save dialog behind it and
+    /// `microphone` no recording path, so a manifest may still name them — an
+    /// older one does — and reading it leaves them out. The review dialog lists
+    /// what a manifest declares, and a line promising a recording with nothing
+    /// behind it is worse than a short list.
+    ///
+    /// `typing.intercept` and `uploads.intercept` stay: they are what
+    /// `typing.pre_send` and `attachment.pre_upload` ask for, and the chain
+    /// those hooks run is picked by them.
+    pub fn is_implemented(self) -> bool {
+        !matches!(self, Capability::FilesSave | Capability::Microphone)
+    }
 
     /// The name written in a manifest.
     pub fn as_str(self) -> &'static str {
@@ -346,7 +366,10 @@ use std::str::FromStr;
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Permissions {
     /// Every capability the plugin means to use.
-    #[serde(default)]
+    ///
+    /// Read through [`declared`], which leaves out the ones nothing checks; see
+    /// [`Capability::is_implemented`].
+    #[serde(default, deserialize_with = "declared")]
     pub capabilities: Vec<Capability>,
     /// The hosts it may reach over HTTPS.
     #[serde(default)]
@@ -398,6 +421,20 @@ impl Permissions {
     }
 }
 
+/// Reads the capabilities a manifest declares, leaving out the ones this build
+/// doesn't check.
+///
+/// Dropped rather than refused: a plugin that lists what it could use is still
+/// one Yapfast can run, and the capability it named asks for nothing that
+/// happens.
+fn declared<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<Capability>, D::Error> {
+    let mut declared: Vec<Capability> = Deserialize::deserialize(deserializer)?;
+    declared.retain(|capability| capability.is_implemented());
+    Ok(declared)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -412,6 +449,28 @@ mod tests {
                 capability
             );
         }
+    }
+
+    #[test]
+    fn a_capability_nothing_checks_is_left_out_of_what_is_read() {
+        let permissions: Permissions = serde_json::from_str(
+            r#"{ "capabilities": ["messages.read", "files.save", "microphone", "typing.intercept"] }"#,
+        )
+        .expect("a manifest's permissions");
+        assert_eq!(
+            permissions.capabilities,
+            [Capability::MessagesRead, Capability::TypingIntercept],
+            "the typing hook is real, the save dialog and the microphone aren't"
+        );
+        assert!(
+            !Capability::FilesSave.is_implemented() && !Capability::Microphone.is_implemented(),
+            "the save dialog and the recording path aren't there yet"
+        );
+        assert!(
+            Capability::TypingIntercept.is_implemented()
+                && Capability::UploadsIntercept.is_implemented(),
+            "the typing and upload hooks are"
+        );
     }
 
     #[test]

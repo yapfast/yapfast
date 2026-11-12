@@ -31,7 +31,7 @@ use yapfast_plugin_api::hook::{HookOutcome, HookRequest, Lane};
 use yapfast_plugin_api::limits;
 use yapfast_plugin_api::message::{Fault, FaultKind, FromHelper, PluginStatus};
 
-use crate::backend::{Backend, CancelToken, HookRun, LoadSpec};
+use crate::backend::{Backend, CancelToken, HookRun, LoadSpec, Wait, Waits};
 use crate::pipe::{Outbox, Waker};
 
 /// How long one batch of events may run. Events aren't on a person's path, so
@@ -75,6 +75,15 @@ const DEACTIVATE_BUDGET: Duration = Duration::from_millis(100);
 /// plugin misbehaving.
 const START_BUDGET: Duration = Duration::from_secs(2);
 
+/// How often the watchdog fires a deadline that has already passed.
+///
+/// A cancel reaches a guest only while the runtime is holding the call it is
+/// for: one aimed at a worker still on its way into the backend, or at a call
+/// extism hasn't started, is dropped there. So a missed deadline is fired again
+/// at this pace for as long as its call is out, which is well inside the
+/// budgets a person waits on and far inside the 30 s backstop.
+const RE_FIRE: Duration = Duration::from_millis(1);
+
 /// Bytes in a page of guest memory, for the helper's own budget.
 const PAGE_BYTES: u64 = 64 << 10;
 
@@ -111,19 +120,6 @@ impl Config {
             _ => 1,
         }
     }
-}
-
-/// Something that keeps an instance from being idle, and so from being evicted.
-///
-/// A plugin holding a timer, or waiting for the parent to answer a call it made,
-/// has more to lose than the memory it occupies: evicting it would drop the work
-/// it is in the middle of. The runtime reports both through [`Scheduler::hold`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Held {
-    /// A host call the parent has not answered yet.
-    Request,
-    /// A timer the guest asked for and has not cancelled.
-    Timer,
 }
 
 /// What the parent asked for, once its frame is decoded.
@@ -236,6 +232,20 @@ impl<B: Backend + 'static> Scheduler<B> {
             waker,
         });
 
+        // The runtime is the only thing that sees a guest's host call or its
+        // timers, so it is where both are reported from; the account is the
+        // scheduler's, and a weak handle to it is what the runtime holds. A
+        // shared one would be a cycle: the account owns the runtime.
+        let waits: Waits = {
+            let account = Arc::downgrade(&shared);
+            Arc::new(move |plugin: &PluginId, wait: Wait| {
+                if let Some(account) = account.upgrade() {
+                    account.waits(plugin, wait);
+                }
+            })
+        };
+        shared.backend.set_wait_sink(waits);
+
         let count = config.worker_count();
         let mut workers = Vec::with_capacity(count);
         for index in 0..count {
@@ -269,15 +279,18 @@ impl<B: Backend + 'static> Scheduler<B> {
         self.shared.enqueue(message);
     }
 
-    /// Declares that a plugin is waiting on something, so it isn't evicted as
-    /// idle while it is.
-    pub fn hold(&self, plugin: &PluginId, held: Held) {
-        self.shared.hold(plugin, held, true);
-    }
-
-    /// Says the wait is over.
-    pub fn release(&self, plugin: &PluginId, held: Held) {
-        self.shared.hold(plugin, held, false);
+    /// The host calls the parent hasn't answered for a plugin yet.
+    ///
+    /// This is what keeps the instance off the eviction list, and it is the only
+    /// way to see it: a hold that was never recorded writes no frame, so it
+    /// shows only as an instance evicted while a guest was waiting to be
+    /// resumed.
+    pub fn waiting(&self, plugin: &PluginId) -> usize {
+        let state = lock(&self.shared.state);
+        state
+            .index
+            .get(plugin)
+            .map_or(0, |&slot| state.slots[slot].waiting.len())
     }
 
     /// Stops the watchdog and the workers, dropping work that hasn't started.
@@ -337,12 +350,12 @@ fn watch<B: Backend + 'static>(shared: Arc<Shared<B>>) {
         let mut idle: Vec<usize> = Vec::new();
         let mut next: Option<Instant> = None;
         for running in &state.running {
-            if running.fired {
-                continue;
-            }
             let Some(deadline) = running.deadline else {
                 continue;
             };
+            // A deadline that fired isn't over: the runtime drops a cancel aimed
+            // at a call it isn't holding, so the entry stays overdue until the
+            // worker's call comes back and takes it away.
             if deadline <= now {
                 overdue.push(running.serial);
             } else {
@@ -360,16 +373,20 @@ fn watch<B: Backend + 'static>(shared: Arc<Shared<B>>) {
                 next = earliest(next, at);
             }
         }
+        if !overdue.is_empty() {
+            // The call is still out, so the watchdog comes back for it at this
+            // pace: one fire may have been swallowed, and the next one lands.
+            next = earliest(next, now + RE_FIRE);
+        }
         if !overdue.is_empty() || !idle.is_empty() {
             drop(state);
-            for serial in overdue {
-                shared.fire(serial);
+            for serial in &overdue {
+                shared.fire(*serial);
             }
             for index in idle {
                 shared.evict(index);
             }
             state = lock(&shared.state);
-            continue;
         }
         state = match next {
             Some(at) => {
@@ -610,17 +627,21 @@ impl<B: Backend + 'static> Shared<B> {
         self.work.notify_all();
     }
 
-    /// Records or forgets something a plugin is waiting on.
-    fn hold(&self, plugin: &PluginId, held: Held, on: bool) {
+    /// Records what a guest left a plugin waiting on.
+    ///
+    /// The runtime calls this from the thread running the guest, which is why
+    /// the slot is looked up rather than assumed: a guest speaks for a plugin
+    /// the scheduler has a mailbox for, and one that has none has nothing that
+    /// could be evicted either.
+    fn waits(&self, plugin: &PluginId, wait: Wait) {
         let mut state = lock(&self.state);
         let Some(&slot) = state.index.get(plugin) else {
             return;
         };
         let slot = &mut state.slots[slot];
-        match held {
-            Held::Request if on => slot.waiting += 1,
-            Held::Request => slot.waiting = slot.waiting.saturating_sub(1),
-            Held::Timer => slot.timer = on,
+        match wait {
+            Wait::Call(call) => slot.waiting.push(call),
+            Wait::Timer(on) => slot.timer = on,
         }
     }
 
@@ -691,6 +712,10 @@ impl<B: Backend + 'static> Shared<B> {
             entry.live = false;
             entry.pending = false;
             entry.loaded = None;
+            // Timers belong to the parent and an eviction leaves them alone,
+            // but a module leaving takes the record of them with it, and the
+            // parent forgets them with the plugin.
+            entry.timer = false;
         }
         self.status(slot, PluginStatus::Installed);
         self.check_empty();
@@ -698,6 +723,13 @@ impl<B: Backend + 'static> Shared<B> {
 
     /// Instantiates and calls `yf_activate`, answering the parent's request.
     fn activate(&self, slot: usize, id: u64) {
+        // Before anything else: a parent that asks for an activation is a person
+        // turning the plugin on again, and that is the one thing that lifts a
+        // suspension. Without it the status stayed `suspended` for the life of
+        // the helper — nothing on this side clears it — and every later attempt
+        // was refused with the reason that caused it, which the parent counts
+        // as another strike.
+        self.resume(slot);
         lock(&self.state).slots[slot].pending = false;
         match self.ensure_active(slot) {
             Some(handoff) => {
@@ -1185,6 +1217,17 @@ impl<B: Backend + 'static> Shared<B> {
 
     /// Hands a guest the answer the parent sent for a call it made earlier.
     fn answer(&self, slot: usize, call: u64, answer: &HostReturn) {
+        // The call is settled whether or not the instance that asked is still
+        // there, and by its own id: the parent also answers posts, which no
+        // instance was ever held for, so anything else would release a hold that
+        // belongs to a call still out.
+        {
+            let mut state = lock(&self.state);
+            let entry = &mut state.slots[slot];
+            if let Some(at) = entry.waiting.iter().position(|&pending| pending == call) {
+                entry.waiting.swap_remove(at);
+            }
+        }
         if !self.is_live(slot) {
             // The instance stopped at an arbitrary point and was discarded since
             // it asked; there is nobody left to tell.
@@ -1192,10 +1235,6 @@ impl<B: Backend + 'static> Shared<B> {
             return;
         }
         let plugin = self.id(slot);
-        {
-            let mut state = lock(&self.state);
-            state.slots[slot].waiting = state.slots[slot].waiting.saturating_sub(1);
-        }
         let (result, late) = self.call(&[slot], EVENT_BUDGET, |backend| {
             backend.answer(&plugin, call, answer)
         });
@@ -1378,6 +1417,30 @@ impl<B: Backend + 'static> Shared<B> {
         };
         for task in abandoned {
             self.abandon(&task);
+        }
+    }
+
+    /// Lifts a suspension, for an activation the parent asked for.
+    ///
+    /// The strikes go with it: they were the price of the failures that stopped
+    /// the plugin, and a plugin a person turned back on is one that starts with
+    /// a clean account. There is no message that carries a strike count, so the
+    /// parent's own idea of the plugin is the status it is told here — `enabled`
+    /// first, so a row that said `suspended` says why it isn't any more — and the
+    /// `active` or `faulted` that follows the activation.
+    fn resume(&self, slot: usize) {
+        let lifted = {
+            let mut state = lock(&self.state);
+            let entry = &mut state.slots[slot];
+            let suspended = matches!(entry.status, PluginStatus::Suspended { .. });
+            if suspended {
+                entry.status = PluginStatus::Enabled;
+                entry.strikes.clear();
+            }
+            suspended
+        };
+        if lifted {
+            self.status(slot, PluginStatus::Enabled);
         }
     }
 
@@ -1565,28 +1628,41 @@ impl<B: Backend + 'static> Shared<B> {
             Some(index) => {
                 let running = state.running.remove(index);
                 drop(state);
+                if running.fired {
+                    // Fired once more now that the worker is back. A cancel the
+                    // runtime had nowhere to put — the deadline passed before the
+                    // guest was inside the call — was dropped there, and this is
+                    // the cheapest way to say "stop" to an instance that is about
+                    // to be discarded anyway rather than only throwing it away.
+                    for trigger in running.triggers.as_slice() {
+                        trigger();
+                    }
+                }
                 (value, running.fired)
             }
             None => (value, false),
         }
     }
 
-    /// Fires a deadline that has passed. The triggers were taken when the call
-    /// started, so the watchdog needs no lock the call is holding and the
-    /// cancel reaches the guest mid-call, which is the only moment it matters.
+    /// Fires a deadline that has passed.
+    ///
+    /// The triggers were taken when the call started, so the watchdog needs no
+    /// lock the call is holding and the cancel reaches the guest mid-call, which
+    /// is the only moment it matters. They stay with the entry rather than being
+    /// consumed, because a single fire can be swallowed: the runtime drops a
+    /// cancel aimed at a call it isn't handing yet, and the guest then runs to
+    /// the 30 s backstop while the parent gave up long ago. The watchdog fires
+    /// again until the worker's call comes back and removes the entry.
     fn fire(&self, serial: u64) {
-        let triggers = {
-            let mut state = lock(&self.state);
-            let Some(running) = state.running.iter_mut().find(|r| r.serial == serial) else {
-                return;
-            };
-            if running.fired {
-                return;
-            }
-            running.fired = true;
-            std::mem::take(&mut running.triggers)
+        // Fired with the state lock held: the entry is the only thing that says
+        // the call is still out, and a fire that landed after it went would
+        // cancel whatever that plugin does next.
+        let mut state = lock(&self.state);
+        let Some(running) = state.running.iter_mut().find(|r| r.serial == serial) else {
+            return;
         };
-        for trigger in triggers.as_slice() {
+        running.fired = true;
+        for trigger in running.triggers.as_slice() {
             trigger();
         }
     }
@@ -1817,8 +1893,13 @@ struct Slot {
     status: PluginStatus,
     /// The last call it was given, for idle eviction.
     last_call: Instant,
-    /// Host calls the parent hasn't answered.
-    waiting: usize,
+    /// The host calls the parent hasn't answered, by the id it will answer
+    /// under.
+    ///
+    /// By id rather than counted: the parent answers every request a guest
+    /// sends, including the posts nothing waits on, and an answer that arrived
+    /// for one of those mustn't release a hold another call is still using.
+    waiting: Vec<u64>,
     /// Whether it holds a timer.
     timer: bool,
 }
@@ -1838,7 +1919,7 @@ impl Slot {
             strikes: VecDeque::new(),
             status: PluginStatus::Installed,
             last_call: Instant::now(),
-            waiting: 0,
+            waiting: Vec::new(),
             timer: false,
         }
     }
@@ -1863,7 +1944,7 @@ impl Slot {
 
     /// Nothing is waiting on it, so its memory can go back.
     fn unheld(&self) -> bool {
-        self.waiting == 0 && !self.timer
+        self.waiting.is_empty() && !self.timer
     }
 }
 

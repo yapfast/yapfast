@@ -34,6 +34,32 @@ use yapfast_plugin_api::message::{FromHelper, LogLevel, LogRecord};
 /// own ring is the record that outlives this process.
 pub const RING_LINES: usize = 100;
 
+/// The most of a line's text that is kept.
+///
+/// A frame may carry a mebibyte and a guest may write one per line, so a plugin
+/// that logged in large print would pin the helper's ring, the frame on its way
+/// to the parent and the parent's own ring at once: hundreds of megabytes,
+/// across two processes, for a page that shows a few dozen short lines. The text
+/// is cut where the record is made, and again where it is kept, for the lines
+/// the runtime makes of a `yf_post` rather than of a tracing event. The rest of
+/// the record travels as it was.
+pub const MAX_LINE_BYTES: usize = 4 << 10;
+
+/// A line's text, cut to [`MAX_LINE_BYTES`] on a character boundary.
+fn capped(mut message: String) -> String {
+    const CUT: &str = "…";
+    if message.len() <= MAX_LINE_BYTES {
+        return message;
+    }
+    let mut end = MAX_LINE_BYTES - CUT.len();
+    while !message.is_char_boundary(end) {
+        end -= 1;
+    }
+    message.truncate(end);
+    message.push_str(CUT);
+    message
+}
+
 /// Installs the helper's subscriber: its own lines to standard error at
 /// `YAPFAST_LOG`'s level, every plugin's lines to `reports` instead.
 ///
@@ -96,7 +122,8 @@ impl LogBuffer {
     }
 
     /// Keeps one line, dropping the oldest once the ring is full.
-    pub fn record(&self, plugin: &PluginId, record: LogRecord) {
+    pub fn record(&self, plugin: &PluginId, mut record: LogRecord) {
+        record.message = capped(std::mem::take(&mut record.message));
         let mut rings = lock(&self.rings);
         let ring = rings
             .entry(plugin.clone())
@@ -158,7 +185,7 @@ where
         let record = LogRecord {
             level: level_of(*event.metadata().level()),
             target: event.metadata().target().to_owned(),
-            message: fields.message.unwrap_or_default(),
+            message: capped(fields.message.unwrap_or_default()),
             at: now_ms(),
         };
         // The pipe's relay keeps the ring as the line passes it, so there is
@@ -243,6 +270,37 @@ mod tests {
         assert_eq!(lines.len(), RING_LINES);
         assert_eq!(lines[0].message, "5");
         assert_eq!(lines[RING_LINES - 1].message, (RING_LINES + 4).to_string());
+    }
+
+    /// A guest writes what it wants, so a line is cut before it is kept: an
+    /// uncut one is pinned in this ring with every line after it.
+    #[test]
+    fn a_long_line_is_cut_to_a_few_kilobytes() {
+        let logs = LogBuffer::new();
+        // Two bytes a character, so the cut lands inside one and has to walk
+        // back to a boundary: the text stays valid UTF-8.
+        logs.record(&plugin(), line(&"é".repeat(MAX_LINE_BYTES)));
+        let lines = logs.lines(&plugin());
+        let kept = &lines[0];
+        assert!(
+            kept.message.len() <= MAX_LINE_BYTES,
+            "{} bytes",
+            kept.message.len()
+        );
+        assert!(kept.message.ends_with('…'), "{}", kept.message);
+        // Only the text is cut; what the line was made of is all there.
+        assert_eq!(kept.level, LogLevel::Info);
+        assert_eq!(kept.target, "guest");
+        assert_eq!(kept.at, 0);
+    }
+
+    /// A line that already fits is the line the guest wrote.
+    #[test]
+    fn a_line_at_the_cap_is_kept_as_it_is() {
+        let logs = LogBuffer::new();
+        let exact = "a".repeat(MAX_LINE_BYTES);
+        logs.record(&plugin(), line(&exact));
+        assert_eq!(logs.lines(&plugin())[0].message, exact);
     }
 
     #[test]

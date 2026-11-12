@@ -4,7 +4,7 @@
 //! and its import section is walked to see what it would call. A module that
 //! imports a host function the ABI doesn't offer is refused with that import
 //! named, because the question at install time is what a plugin can reach, not
-//! whether it compiles. See `PLAN.md` §8.5 step 4.
+//! whether it compiles. See `docs/plugins/host.md`.
 //!
 //! The module is already in memory — the fetch read it out of a git object — and
 //! is at most 8 MiB, so this walks the bytes it was handed rather than reading a

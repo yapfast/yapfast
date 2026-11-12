@@ -309,7 +309,7 @@ impl Application {
                         .cloned()
                         .collect();
                     // An update that asks for no capability the person hasn't
-                    // already given is one click (`PLAN.md` §8.5); one that
+                    // already given is one click (`docs/plugins/host.md`); one that
                     // does shows its review first.
                     if ask.is_update() && adds.is_empty() {
                         self.plugin_page.fetched = Some(fetched);
@@ -460,7 +460,7 @@ impl Application {
 
     /// Update: the marketplace's entry pins the commit to go to; a plugin from
     /// a URL is fetched again at its own ref, and its own source, since no
-    /// registry lists it (`PLAN.md` §8.5: URL installs stay manual).
+    /// registry lists it (`docs/plugins/host.md`: URL installs stay manual).
     fn plugins_update(&mut self, plugin: &str) -> Vec<AppEffect> {
         let asked = self
             .plugin_page

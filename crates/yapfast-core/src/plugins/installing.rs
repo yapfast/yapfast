@@ -6,7 +6,7 @@
 //! the module and the icon it names out of the helper's scratch directory and
 //! deletes that directory, so neither side leaves anything behind. Nothing here
 //! runs the plugin: the manifest is parsed as JSON, and the module was already
-//! checked against the ABI by the fetch that read it (`PLAN.md` §8.5).
+//! checked against the ABI by the fetch that read it (`docs/plugins/host.md`).
 
 use std::path::Path;
 use std::process::Command;

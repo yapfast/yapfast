@@ -17,6 +17,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use serde_json::json;
+use tempfile::TempDir;
 use yapfast_plugin_api::API_VERSION;
 use yapfast_plugin_api::PluginId;
 use yapfast_plugin_api::call::HostReturn;
@@ -181,6 +182,60 @@ fn a_guest_call_reaches_the_parent_and_is_answered() {
     helper.wait_for(BUDGET, "EventDone", |message| {
         matches!(message, FromHelper::EventDone { .. })
     });
+}
+
+/// A method the helper once answered `unsupported` for, though the app has it:
+/// the table of forwarded names left `ui.set_slot` out, so no guest could draw
+/// anything in a slot however finished the parent's side was. A check on that
+/// table alone would not prove the call travels, which is what this does.
+#[test]
+fn a_ui_call_reaches_the_parent_rather_than_answering_unsupported() {
+    let mut helper = Helper::start("ui-slot");
+    let slots = plugin("slots");
+    let folder = tempfile::tempdir().expect("a folder for the rewritten module");
+    let module = asking_for(
+        &folder,
+        r#"{"method":"ui.set_slot","payload":{"slot":"banner","tree":{}}}"#,
+    );
+    helper.activate_module(&slots, &module, PAGES);
+    helper.wait_for(BUDGET, "Activated", |message| {
+        matches!(message, FromHelper::Activated { .. })
+    });
+
+    helper.event(&slots, an_event());
+    // The call goes out while the guest is still inside its event handler, so by
+    // the time the event is done the parent has the request or never will: an
+    // `unsupported` answer is one the guest takes and finishes with.
+    helper.wait_for(BUDGET, "EventDone", |message| {
+        matches!(message, FromHelper::EventDone { .. })
+    });
+    match helper
+        .seen
+        .iter()
+        .find(|message| matches!(message, FromHelper::Call { .. }))
+    {
+        Some(FromHelper::Call {
+            plugin,
+            call,
+            request,
+        }) => {
+            assert_eq!(plugin, &slots);
+            assert!(*call > 0, "a host call has the id its answer names");
+            assert_eq!(
+                request.method, "ui.set_slot",
+                "a name this build forwards reaches the parent"
+            );
+            assert_eq!(
+                request.payload["slot"], "banner",
+                "the request's own payload reaches the parent"
+            );
+        }
+        _ => panic!(
+            "`ui.set_slot` was answered `unsupported` in the helper instead of reaching \
+             the parent; the helper said {:?}",
+            helper.seen
+        ),
+    }
 }
 
 #[test]
@@ -401,6 +456,38 @@ fn fixtures() -> PathBuf {
         .expect("the fixture folder is in the repository")
 }
 
+/// A module that asks the parent for `request`, made from the fixture that asks
+/// it for an `http.fetch`.
+///
+/// A fixture of its own would need a WebAssembly toolchain, and the helper loads
+/// compiled modules only, so a test that wants a guest to name another method
+/// rewrites the request in the one that already makes a call: it is a data
+/// segment, the module copies a fixed count of its own bytes into an
+/// allocation, and the replacement is padded to that count with spaces, which
+/// JSON reads as the end of the value.
+fn asking_for(folder: &TempDir, request: &str) -> PathBuf {
+    /// The request `slow_host.wat` carries, as its data segment holds it.
+    const ASKED: &str = r#"{"method":"http.fetch","payload":{"method":"GET","url":"https://api.example.com/version"}}"#;
+    assert!(
+        request.len() <= ASKED.len(),
+        "a rewritten request has to fit the {} bytes the fixture copies, and this one is {}",
+        ASKED.len(),
+        request.len()
+    );
+    let mut bytes = std::fs::read(fixtures().join("slow_host.wasm"))
+        .expect("the fixture module is in the repository");
+    let at = bytes
+        .windows(ASKED.len())
+        .position(|window| window == ASKED.as_bytes())
+        .expect("`slow_host.wasm` holds the request it copies");
+    let mut padded = request.to_owned();
+    padded.push_str(&" ".repeat(ASKED.len() - request.len()));
+    bytes[at..at + ASKED.len()].copy_from_slice(padded.as_bytes());
+    let module = folder.path().join("request.wasm");
+    std::fs::write(&module, bytes).expect("the rewritten module is written");
+    module
+}
+
 /// The event every scenario sends.
 fn an_event() -> EventEnvelope {
     EventEnvelope {
@@ -511,10 +598,12 @@ impl Helper {
         );
     }
 
-    /// Asks the helper to instantiate and activate a plugin.
-    /// Activates a plugin, giving it its module in the same request: loading and
-    /// activating are one phase, which is why the request carries both.
-    fn activate(&mut self, plugin: &PluginId, fixture: &str, memory_pages: u32) {
+    /// Asks the helper to instantiate and activate a plugin whose module is a
+    /// file the test wrote, rather than a fixture by name.
+    ///
+    /// Loading and activating are one phase, which is why the request carries
+    /// both.
+    fn activate_module(&mut self, plugin: &PluginId, wasm: &Path, memory_pages: u32) {
         let id = self.next_id();
         self.send(
             FrameKind::Request,
@@ -522,13 +611,19 @@ impl Helper {
             &ToHelper::Activate {
                 plugin: plugin.clone(),
                 load: Some(Activation {
-                    wasm: fixtures().join(fixture).with_extension("wasm"),
+                    wasm: wasm.to_path_buf(),
                     memory_pages,
                     wasi: false,
                     state: None,
                 }),
             },
         );
+    }
+
+    /// Activates one of the fixtures, giving it its module in the same request.
+    fn activate(&mut self, plugin: &PluginId, fixture: &str, memory_pages: u32) {
+        let wasm = fixtures().join(fixture).with_extension("wasm");
+        self.activate_module(plugin, &wasm, memory_pages);
     }
 
     /// Activates a plugin whose module the helper was given earlier, by a `load`.

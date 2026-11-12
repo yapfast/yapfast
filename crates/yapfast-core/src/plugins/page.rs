@@ -94,7 +94,7 @@ pub struct Installed {
     pub log: Vec<LogLine>,
 }
 
-/// What a plugin is doing; see the states in `PLAN.md` §4.1.
+/// What a plugin is doing; see the states in `docs/plugins/interface.md`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Status {
     /// Installed, not enabled.
@@ -530,7 +530,7 @@ pub struct Line {
 /// at install and whenever an update adds it.
 pub const BACKGROUND_SEND: &str = "Sends messages automatically, without you doing anything. Automated sending can get your Discord account banned.";
 
-/// A capability in plain words, as `PLAN.md` §9.1 words it, and whether it's
+/// A capability in plain words, as `docs/plugins/permissions.md` words it, and whether it's
 /// shown in bold or in the danger tone.
 pub fn capability(name: &str) -> (String, Tone) {
     let (text, tone) = match name {

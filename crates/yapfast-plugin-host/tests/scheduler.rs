@@ -12,15 +12,15 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use yapfast_plugin_api::PluginId;
-use yapfast_plugin_api::call::{CommandInvocation, CommandOutcome};
+use yapfast_plugin_api::call::{CommandInvocation, CommandOutcome, HostReturn};
 use yapfast_plugin_api::event::{EventEnvelope, EventKind, Network, TopicEvent};
 use yapfast_plugin_api::frame::{Frame, FrameKind, read_frame};
 use yapfast_plugin_api::hook::{Draft, HookKind, HookOutcome, HookRequest, HookSubject};
 use yapfast_plugin_api::message::{Fault, FaultKind, FromHelper, PluginStatus};
 
-use yapfast_plugin_host::backend::{Backend, CancelToken, LoadSpec};
+use yapfast_plugin_host::backend::{Backend, CancelToken, LoadSpec, Wait, Waits};
 use yapfast_plugin_host::pipe::{Pipe, Signal};
-use yapfast_plugin_host::scheduler::{Config, Held, Message, Scheduler};
+use yapfast_plugin_host::scheduler::{Config, Message, Scheduler};
 
 /// How long a test waits for the scheduler before calling it stuck.
 const PATIENCE: Duration = Duration::from_secs(5);
@@ -239,6 +239,54 @@ fn a_call_that_runs_late_is_cancelled_and_faulted() {
     harness.finish();
 }
 
+/// One fire isn't enough to stop a guest.
+///
+/// The deadline is stamped before the worker has the backend, and the runtime
+/// drops a cancel aimed at a call it isn't holding — one that arrives while the
+/// guest is still being set up never reaches it. So the watchdog comes back for a
+/// deadline that has passed until the call returns, which is what keeps a
+/// spinning guest from holding its worker and its whole hook chain for the 30 s
+/// backstop.
+#[test]
+fn a_deadline_is_fired_again_while_the_call_is_still_out() {
+    let harness = Harness::new(config(1));
+    let a = plugin("a");
+    harness.load(&a, 256);
+    harness.live(&a, 1);
+    // Four times the 25 ms a typing hook has.
+    harness.sleep(Duration::from_millis(100));
+
+    harness.send(Message::Hook {
+        id: 2,
+        chain: vec![a.clone()],
+        request: HookRequest {
+            hook: HookKind::TypingPreSend,
+            subject: HookSubject::Draft(Draft {
+                room: "room-1".into(),
+                body: "hi".into(),
+                reply_to: None,
+                attachments: Vec::new(),
+            }),
+        },
+    });
+    harness.wait_until(|reports| {
+        reports
+            .iter()
+            .any(|report| matches!(report, FromHelper::HookDone { .. }))
+    });
+
+    let cancels = harness
+        .log()
+        .iter()
+        .filter(|call| call.as_str() == "cancel:com.example.a")
+        .count();
+    assert!(
+        cancels > 1,
+        "the deadline is fired until the call is over, not once: {cancels}"
+    );
+    harness.finish();
+}
+
 #[test]
 fn a_plugin_is_asked_how_a_person_looks_through_its_own_export() {
     let harness = Harness::new(config(1));
@@ -336,6 +384,103 @@ fn three_traps_in_a_window_suspend_a_plugin() {
     harness.finish();
 }
 
+/// A suspension lasts the session, and a person turning the plugin back on is
+/// the one thing that ends it: an activation after a disable starts with a
+/// clean account rather than with the strikes that stopped the plugin.
+#[test]
+fn activating_a_suspended_plugin_lifts_the_suspension() {
+    let harness = Harness::new(config(1));
+    let a = plugin("a");
+    let b = plugin("b");
+    harness.load(&a, 256);
+    harness.load(&b, 256);
+    harness.live(&a, 1);
+    // b is what keeps the helper alive across the disable, so the activation
+    // reaches a helper that still has the suspended plugin in its slots.
+    harness.live(&b, 2);
+    harness.trap("command:com.example.a");
+
+    for id in 1..=3 {
+        harness.send(Message::Command {
+            id,
+            plugin: a.clone(),
+            command: command("boom"),
+        });
+    }
+    harness.wait_until(|reports| {
+        reports.iter().any(|report| {
+            matches!(
+                report,
+                FromHelper::Status {
+                    plugin,
+                    status: PluginStatus::Suspended { .. },
+                } if *plugin == a
+            )
+        })
+    });
+
+    // Off and on again, as the page does it.
+    harness.send(Message::Deactivate {
+        id: 10,
+        plugin: a.clone(),
+    });
+    harness.wait_for_reply(10);
+    harness.trap("nothing:");
+    harness.activate(&a, 11);
+    harness.wait_until(|reports| {
+        reports.iter().any(|report| {
+            matches!(
+                report,
+                FromHelper::Activated { plugin, .. } if *plugin == a
+            )
+        })
+    });
+
+    // The strikes went with the suspension: one more fault faults the plugin
+    // rather than suspending it again after a single failure.
+    harness.trap("command:com.example.a");
+    harness.send(Message::Command {
+        id: 12,
+        plugin: a.clone(),
+        command: command("boom again"),
+    });
+    let reports = harness.wait_until(|reports| {
+        let Some(resumed) = resumed_at(reports, &a) else {
+            return false;
+        };
+        reports[resumed..]
+            .iter()
+            .any(|report| matches!(report, FromHelper::Fault { plugin, .. } if *plugin == a))
+    });
+    let resumed = resumed_at(&reports, &a).expect("the suspension was lifted");
+    assert!(
+        !reports[resumed..].iter().any(|report| matches!(
+            report,
+            FromHelper::Status {
+                status: PluginStatus::Suspended { .. },
+                ..
+            }
+        )),
+        "one fault after the person turned it on is a fault, not a suspension: {reports:?}"
+    );
+    harness.finish();
+}
+
+/// Where a plugin's `enabled` status was last reported, which is the one that
+/// says a suspension was lifted: eviction reports the same status, and every one
+/// of those comes before it.
+fn resumed_at(reports: &[FromHelper], plugin: &PluginId) -> Option<usize> {
+    reports.iter().rposition(|report| {
+        matches!(
+            report,
+            FromHelper::Status {
+                plugin: reported,
+                status: PluginStatus::Enabled,
+            } if reported == plugin
+        )
+    })
+}
+
 #[test]
 fn idle_eviction_leaves_an_instance_holding_a_timer() {
     let harness = Harness::new(Config {
@@ -348,7 +493,7 @@ fn idle_eviction_leaves_an_instance_holding_a_timer() {
     harness.load(&b, 256);
     harness.live(&a, 1);
     harness.live(&b, 2);
-    harness.scheduler.hold(&b, Held::Timer);
+    harness.report(&b, Wait::Timer(true));
 
     let reports = harness.wait_until(|reports| {
         reports.iter().any(|report| {
@@ -374,6 +519,82 @@ fn idle_eviction_leaves_an_instance_holding_a_timer() {
     let log = harness.log();
     assert!(log.contains(&"evict:com.example.a".to_string()), "{log:?}");
     assert!(!log.contains(&"evict:com.example.b".to_string()), "{log:?}");
+    harness.finish();
+}
+
+/// A guest that made a host call and returned is not idle: the answer is the
+/// only thing that resumes it, and evicting the instance would leave the answer
+/// arriving for a call nobody has.
+#[test]
+fn a_plugin_waiting_for_an_answer_is_not_idle() {
+    let harness = Harness::new(Config {
+        workers: 1,
+        idle_after: Duration::from_millis(40),
+    });
+    let a = plugin("a");
+    harness.load(&a, 256);
+    harness.live(&a, 1);
+
+    // The guest asked the parent something — an HTTP fetch, a storage write —
+    // and returned pending. The runtime reports the wait, and this is the
+    // account that keeps the instance off the eviction list.
+    harness.report(&a, Wait::Call(7));
+    assert_eq!(
+        harness.scheduler.waiting(&a),
+        1,
+        "a pending call is a hold, and it is the only record of it"
+    );
+
+    // Well past the idle timeout with nothing else to do: the instance stays,
+    // because it has work in the world rather than work in its mailbox.
+    thread::sleep(Duration::from_millis(150));
+    let log = harness.log();
+    assert!(!log.contains(&"evict:com.example.a".to_string()), "{log:?}");
+
+    // The answer settles the call, and the instance is idle again from there.
+    harness.send(Message::Return {
+        plugin: a.clone(),
+        call: 7,
+        answer: HostReturn::Unsupported,
+    });
+    harness.wait_log("answer:com.example.a:7");
+    assert_eq!(harness.scheduler.waiting(&a), 0, "the answer ends the wait");
+    harness.wait_until(|reports| {
+        reports.iter().any(|report| {
+            matches!(
+                report,
+                FromHelper::Status {
+                    plugin,
+                    status: PluginStatus::Enabled,
+                } if *plugin == a
+            )
+        })
+    });
+    harness.finish();
+}
+
+/// The parent answers every request, including the posts nothing waits on. An
+/// answer to one of those must not take the hold off a call still in flight, so
+/// the account keeps ids rather than a count.
+#[test]
+fn an_answer_nothing_was_held_for_does_not_settle_a_pending_call() {
+    let harness = Harness::new(config(1));
+    let a = plugin("a");
+    harness.load(&a, 256);
+    harness.live(&a, 1);
+    harness.report(&a, Wait::Call(7));
+
+    harness.send(Message::Return {
+        plugin: a.clone(),
+        call: 99,
+        answer: HostReturn::Unsupported,
+    });
+    harness.wait_log("answer:com.example.a:99");
+    assert_eq!(
+        harness.scheduler.waiting(&a),
+        1,
+        "a post's answer is not the answer a fetch is waiting for"
+    );
     harness.finish();
 }
 
@@ -522,6 +743,17 @@ impl Harness {
         *lock(&self.fake.sleep) = duration;
     }
 
+    /// Reports what a guest left the plugin waiting on, through the sink the
+    /// scheduler gave the backend: the same path a host call takes, from the
+    /// thread running a guest to the account the watchdog and the eviction list
+    /// read.
+    fn report(&self, plugin: &PluginId, wait: Wait) {
+        let sink = lock(&self.fake.waits)
+            .clone()
+            .expect("the scheduler installs a wait sink when it starts");
+        sink(plugin, wait);
+    }
+
     fn trap(&self, call: &str) {
         *lock(&self.fake.traps) = Some(call.to_owned());
     }
@@ -664,6 +896,9 @@ struct FakeLog {
     traps: Mutex<Option<String>>,
     /// How long each call takes, to run past a deadline.
     sleep: Mutex<Duration>,
+    /// Where the runtime would report a guest's waits; the scheduler installs
+    /// it, and a test writes through it the way a guest's host call does.
+    waits: Mutex<Option<Waits>>,
 }
 
 impl FakeLog {
@@ -787,6 +1022,10 @@ impl Backend for Fake {
         let plugin = plugin.clone();
         let calls = Arc::clone(&self.calls);
         Some(Arc::new(move || calls.note(format!("cancel:{plugin}"))))
+    }
+
+    fn set_wait_sink(&self, waits: Waits) {
+        *lock(&self.calls.waits) = Some(waits);
     }
 }
 

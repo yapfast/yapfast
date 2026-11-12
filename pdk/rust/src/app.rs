@@ -5,8 +5,8 @@
 //! Asking is one host call, so ask once in `activate` and keep the answer in a
 //! field.
 
-use crate::call::{self, method};
 use crate::Result;
+use crate::call::{self, method};
 
 pub use crate::wire::AppInfo;
 

@@ -6,13 +6,13 @@
 //! once. Handlers they don't override do nothing, which is why a plugin that
 //! only adds a command never writes a hook.
 
+use crate::Result;
 use crate::call::Pending;
 use crate::command::{Command, Reply};
 use crate::event::Event;
 use crate::hook::HookRequest;
 use crate::json;
 use crate::wire::{self, CallResult, CommandInvocation, HookOutcome, PluginId};
-use crate::Result;
 
 /// What the helper hands `yf_activate`.
 ///

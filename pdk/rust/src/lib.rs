@@ -67,12 +67,12 @@ pub mod prelude {
     pub use crate::Error;
     pub use crate::Result;
     pub use crate::json;
+    pub use crate::wire::method;
     pub use crate::yapfast_plugin;
     pub use crate::{app, call, http, log, settings, storage, timers};
-    pub use crate::wire::method;
 
-    pub use crate::command::{Command, Reply};
     pub use crate::call::{CallResult, HostReturn, Pending};
+    pub use crate::command::{Command, Reply};
     pub use crate::event::{Event, EventKind, Network};
     pub use crate::hook::{Draft, HookKind, HookOutcome, HookRequest, HookSubject};
     pub use crate::plugin::{Activation, Call, Context, Plugin};
@@ -95,4 +95,3 @@ pub use serde_json::json;
 /// Extism's own crate, for the pieces a plugin occasionally needs directly: the
 /// export attribute the macro uses, and `FnResult`.
 pub use extism_pdk;
-

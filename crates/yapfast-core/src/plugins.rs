@@ -108,6 +108,15 @@ pub trait Runtime {
 /// JSON; fields this struct doesn't name belong to the runtime and are
 /// skipped here, but the `ui` section, its menu rows and each setting take
 /// no field they don't know.
+///
+/// The sections the interface draws are the API crate's to define — `menus`,
+/// `rail_items`, `header_buttons` and `ui` — because one file is read by two
+/// parsers: an install reads it with
+/// [`yapfast_plugin_api::PluginManifest`], which is what a plugin is once the
+/// store holds it, and a folder is read with this. The shape of those sections
+/// lives there (`wire` turns it into what [`ui`] draws), so a field added to
+/// one and not the other stops the build instead of letting the two disagree
+/// about what a plugin may say.
 #[derive(Clone, Debug, Deserialize)]
 pub struct Manifest {
     pub api: u32,
@@ -123,17 +132,17 @@ pub struct Manifest {
     #[serde(default)]
     pub permissions: Permissions,
     /// Rows the plugin adds to menus.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "wire::menus")]
     pub menus: Vec<ui::MenuItem>,
     /// Buttons it adds to the bottom of the server rail, from its manifest, so
     /// they show without it running.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "wire::buttons")]
     pub rail_items: Vec<ui::Button>,
     /// Buttons it adds to a conversation's header, the same way.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "wire::buttons")]
     pub header_buttons: Vec<ui::Button>,
     /// Changes to Yapfast's own interface.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "wire::ui_section")]
     pub ui: Option<ui::Ui>,
     /// The plugin's own settings, checked as the manifest is read: one that
     /// can't be used refuses the manifest.
@@ -194,6 +203,138 @@ impl Manifest {
             .capabilities
             .iter()
             .any(|declared| declared == capability)
+    }
+}
+
+/// The manifest's drawn sections, read as the API crate writes them and taken
+/// as [`ui`] draws them.
+///
+/// Written out field by field rather than made the same type, because the two
+/// sides want different things from them: the file's shape is the contract with
+/// a plugin's author, and the interface's is what a menu builder can hold. It is
+/// a few lines of `From` for a manifest read once per load, and it buys the one
+/// property that matters — a field added to either side, or a target, a
+/// condition or a button given a new name, stops this compiling.
+mod wire {
+    use serde::Deserialize;
+
+    use yapfast_plugin_api::manifest::{
+        ButtonDecl, MenuDecl, MenuTarget, NetworkName, UiDecl, UiRow, WhenClause,
+    };
+
+    use super::ui;
+
+    /// `menus` as the file writes them.
+    pub(super) fn menus<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Vec<ui::MenuItem>, D::Error> {
+        let rows: Vec<MenuDecl> = Deserialize::deserialize(deserializer)?;
+        Ok(rows.into_iter().map(ui::MenuItem::from).collect())
+    }
+
+    /// `rail_items` and `header_buttons`, which are one shape.
+    pub(super) fn buttons<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Vec<ui::Button>, D::Error> {
+        let items: Vec<ButtonDecl> = Deserialize::deserialize(deserializer)?;
+        Ok(items.into_iter().map(ui::Button::from).collect())
+    }
+
+    /// The `ui` section, which a manifest may leave out.
+    pub(super) fn ui_section<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<ui::Ui>, D::Error> {
+        let section: Option<UiDecl> = Deserialize::deserialize(deserializer)?;
+        Ok(section.map(ui::Ui::from))
+    }
+
+    impl From<MenuDecl> for ui::MenuItem {
+        fn from(item: MenuDecl) -> Self {
+            ui::MenuItem {
+                target: ui::Target::from(item.target),
+                label: item.label,
+                icon: item.icon,
+                action: item.action,
+                when: item.when.map(ui::When::from).unwrap_or_default(),
+            }
+        }
+    }
+
+    impl From<ButtonDecl> for ui::Button {
+        fn from(item: ButtonDecl) -> Self {
+            ui::Button {
+                label: item.label,
+                action: item.action,
+            }
+        }
+    }
+
+    impl From<UiDecl> for ui::Ui {
+        fn from(section: UiDecl) -> Self {
+            ui::Ui {
+                menu: section.menu.into_iter().map(ui::RowEdit::from).collect(),
+                parts: ui::Parts {
+                    hide: section.parts.hide,
+                    replace: section.parts.replace,
+                },
+                colors: section.colors,
+                sizes: section.sizes,
+            }
+        }
+    }
+
+    impl From<UiRow> for ui::RowEdit {
+        fn from(item: UiRow) -> Self {
+            ui::RowEdit {
+                target: ui::Target::from(item.target),
+                row: item.row,
+                hide: item.hide,
+                label: item.label,
+                before: item.before,
+                after: item.after,
+                when: item.when.map(ui::When::from).unwrap_or_default(),
+            }
+        }
+    }
+
+    impl From<WhenClause> for ui::When {
+        fn from(clause: WhenClause) -> Self {
+            ui::When {
+                network: clause.network.map(|network| match network {
+                    NetworkName::Discord => ui::NetworkName::Discord,
+                    NetworkName::Matrix => ui::NetworkName::Matrix,
+                }),
+                own: clause.own,
+                dm: clause.dm,
+                has_attachment: clause.has_attachment,
+                is_bot: clause.is_bot,
+                role: clause.role,
+            }
+        }
+    }
+
+    impl From<MenuTarget> for ui::Target {
+        fn from(target: MenuTarget) -> Self {
+            match target {
+                MenuTarget::Message => ui::Target::Message,
+                MenuTarget::User => ui::Target::User,
+                MenuTarget::UserProfile => ui::Target::UserProfile,
+                MenuTarget::Channel => ui::Target::Channel,
+                MenuTarget::Thread => ui::Target::Thread,
+                MenuTarget::GroupDm => ui::Target::GroupDm,
+                MenuTarget::Server => ui::Target::Server,
+                MenuTarget::ServerHeader => ui::Target::ServerHeader,
+                MenuTarget::Role => ui::Target::Role,
+                MenuTarget::Emoji => ui::Target::Emoji,
+                MenuTarget::Sticker => ui::Target::Sticker,
+                MenuTarget::Image => ui::Target::Image,
+                MenuTarget::Stream => ui::Target::Stream,
+                MenuTarget::Game => ui::Target::Game,
+                MenuTarget::ForumTag => ui::Target::ForumTag,
+                MenuTarget::Composer => ui::Target::Composer,
+                MenuTarget::Attach => ui::Target::Attach,
+            }
+        }
     }
 }
 

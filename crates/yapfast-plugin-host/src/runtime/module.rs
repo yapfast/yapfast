@@ -20,9 +20,9 @@ use yapfast_plugin_api::message::{Fault, FaultKind, IMPORTS};
 
 /// The exports the helper calls, in the order of [`Shape::present`]'s bits.
 ///
-/// The ABI also names `yf_decorate`, which no call path reaches in this build,
-/// so a guest that leaves it out still runs and one that exports it is not
-/// refused.
+/// The ABI also names `yf_decorate`, which a plugin needs only to draw under
+/// a message, so a guest that leaves it out still runs and one that exports it
+/// is not refused.
 pub const REQUIRED_EXPORTS: [&str; 5] = [
     "yf_activate",
     "yf_deactivate",

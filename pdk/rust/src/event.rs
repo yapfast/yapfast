@@ -161,7 +161,10 @@ mod tests {
 
     #[test]
     fn a_named_kind_decodes_to_its_variant() {
-        let event = Event::from(envelope("message_create", serde_json::json!({"body": "hi"})));
+        let event = Event::from(envelope(
+            "message_create",
+            serde_json::json!({"body": "hi"}),
+        ));
         assert!(matches!(event, Event::MessageCreate(_)));
         assert_eq!(event.kind(), &EventKind::MessageCreate);
         assert_eq!(event.room(), Some("room-1"));

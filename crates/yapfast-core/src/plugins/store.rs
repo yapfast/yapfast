@@ -414,8 +414,8 @@ impl Store {
     }
 
     /// The manifest's own text, which the interface reads with
-    /// [`crate::plugins::Manifest`]: it holds the `ui` and `settings` sections
-    /// that the runtime's manifest leaves out.
+    /// [`crate::plugins::Manifest`]: `permissions`, `settings` and `tweaks` as
+    /// the file wrote them, where that read keeps only what it draws.
     pub fn manifest_text(&self, entry: &LockEntry) -> Result<String> {
         let directory = self
             .store_dir(entry)
@@ -769,8 +769,10 @@ fn hex(bytes: &[u8]) -> String {
 /// A value's size as JSON.
 fn json_len(value: &Value) -> u64 {
     // A value that can't be serialized can't be written either, so measuring it
-    // as nothing only makes the cap optimistic by one key's worth.
-    serde_json::to_vec(value).map_or(0, |bytes| bytes.len() as u64)
+    // as nothing only makes the cap optimistic by one key's worth. It is counted
+    // rather than written: a store's value is written once, by the file that
+    // holds it, and a copy of it to measure it would be dropped right after.
+    crate::plugins::world::json_bytes(value).unwrap_or(0)
 }
 
 /// Writes a file and flushes it to the disk, so what a later rename makes

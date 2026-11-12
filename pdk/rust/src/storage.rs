@@ -12,10 +12,10 @@
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+use crate::Result;
 use crate::call::{self, method};
 use crate::json;
 use crate::wire;
-use crate::Result;
 
 /// One value, by key.
 ///

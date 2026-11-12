@@ -2,7 +2,7 @@
 //! browsing it gives the page.
 //!
 //! The registry is a git repository and nothing else — no server, no API
-//! (`PLAN.md` §8.6):
+//! (`docs/plugins/marketplace.md`):
 //!
 //! ```text
 //! yapfast-plugin-registry/
@@ -48,9 +48,9 @@ pub const ENTRIES: &str = "plugins";
 /// The folder the icons sit in, one `<id>.webp` each.
 pub const ICONS: &str = "icons";
 
-/// An icon is 128 by 128 (`PLAN.md` §8.6).
+/// An icon is 128 by 128 (`docs/plugins/marketplace.md`).
 pub const ICON_SIDE: u32 = 128;
-/// An icon is at most 24 KiB (`PLAN.md` §8.6).
+/// An icon is at most 24 KiB (`docs/plugins/marketplace.md`).
 pub const ICON_BYTES: usize = 24 << 10;
 
 /// The scheme a listing's icon is asked for under: `plugin-icon://<id>`.
@@ -172,7 +172,7 @@ impl Entry {
 }
 
 /// A plugin the registry no longer lists. One taken down for a security reason
-/// is a notice for whoever has it (`PLAN.md` §8.6).
+/// is a notice for whoever has it (`docs/plugins/marketplace.md`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Delisted {
     pub id: String,
@@ -642,7 +642,7 @@ impl Catalog {
                 bytes.insert(entry.id.clone(), Arc::from(icon.as_slice()));
             }
             // A listing is reviewed because a maintainer read its source before
-            // merging the entry that pins it (`PLAN.md` §8.6).
+            // merging the entry that pins it (`docs/plugins/marketplace.md`).
             listings.push(entry.listing(true));
             kept.push(entry);
         }

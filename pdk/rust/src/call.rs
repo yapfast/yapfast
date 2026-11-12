@@ -103,7 +103,9 @@ pub fn value(method: &str, answer: HostReturn) -> Result<Value, Error> {
         HostReturn::Unsupported => Err(Error::msg(format!(
             "this Yapfast doesn't have `{method}`; it may need to be enabled in the plugin's manifest"
         ))),
-        HostReturn::Denied { reason } => Err(Error::msg(format!("`{method}` was refused: {reason}"))),
+        HostReturn::Denied { reason } => {
+            Err(Error::msg(format!("`{method}` was refused: {reason}")))
+        }
         HostReturn::Pending { tag } => Err(Error::msg(format!(
             "`{method}` answered later, under `{tag}`, and this caller can't wait"
         ))),
@@ -133,10 +135,7 @@ pub(crate) fn parse<T: DeserializeOwned>(method: &str, value: Value) -> Result<T
 }
 
 /// Sends `method` and decodes its answer's payload as `T`.
-pub(crate) fn call<T: DeserializeOwned>(
-    method: &str,
-    payload: impl Serialize,
-) -> Result<T, Error> {
+pub(crate) fn call<T: DeserializeOwned>(method: &str, payload: impl Serialize) -> Result<T, Error> {
     parse(method, ok(method, payload)?)
 }
 

@@ -134,7 +134,11 @@ mod tests {
     fn a_missing_or_blank_required_option_names_itself() {
         let command = command();
         assert_eq!(command.required_string("text").expect("given"), "hi");
-        assert!(command.required_string("body").is_err_and(|error| error.to_string().contains("body")));
+        assert!(
+            command
+                .required_string("body")
+                .is_err_and(|error| error.to_string().contains("body"))
+        );
         let blank = Command {
             name: "shout".to_owned(),
             options: serde_json::from_value(json!({"text": "  "})).expect("an options map"),

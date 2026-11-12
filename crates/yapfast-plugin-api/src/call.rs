@@ -82,6 +82,72 @@ pub mod method {
     pub const DISCORD_ADD_STICKER: &str = "discord.add_sticker";
     pub const AUDIO_PLAY: &str = "audio.play";
     pub const AUDIO_SPEAK: &str = "audio.speak";
+
+    /// Every name above, in the order they are declared.
+    ///
+    /// A method is reachable only if the code in front of it knows its name, so
+    /// the helper's table of the calls it forwards is a list of these, and this
+    /// is what a test compares that table against: a method added above without
+    /// a place in the table would answer `unsupported` to every guest forever,
+    /// and nothing else would say so.
+    pub const ALL: [&str; 56] = [
+        APP_VERSION,
+        APP_LOCALE,
+        APP_THEME_MODE,
+        ACCOUNT_ME,
+        ROOMS_SELECTED,
+        ROOMS_GET,
+        ROOMS_LIST,
+        MESSAGES_GET,
+        MESSAGES_HISTORY,
+        PEOPLE_GET,
+        PEOPLE_MEMBER,
+        STORAGE_GET,
+        STORAGE_SET,
+        STORAGE_DELETE,
+        STORAGE_LIST,
+        SETTINGS_GET,
+        SETTINGS_ON_CHANGE,
+        HTTP_FETCH,
+        TIMERS_AFTER,
+        TIMERS_EVERY,
+        TIMERS_CANCEL,
+        UI_SET_SLOT,
+        UI_CLEAR_SLOT,
+        UI_NOTICE,
+        UI_TOAST,
+        UI_OPEN_DIALOG,
+        MEDIA_GET,
+        MESSAGES_SEND,
+        MESSAGES_EDIT,
+        MESSAGES_DELETE,
+        MESSAGES_REACT,
+        MESSAGES_JUMP_TO,
+        COMPOSER_GET_DRAFT,
+        COMPOSER_SET_DRAFT,
+        COMPOSER_INSERT,
+        PLUGIN_CALL,
+        PLUGIN_PUBLISH,
+        PLUGIN_SUBSCRIBE,
+        NOTIFY_SEND,
+        CLIPBOARD_WRITE,
+        OPEN_URL,
+        DISCORD_SET_STATUS,
+        DISCORD_SET_CUSTOM_STATUS,
+        DISCORD_SET_ACTIVITY,
+        DISCORD_CLEAR_ACTIVITY,
+        DISCORD_MARK_READ,
+        DISCORD_SET_MUTE,
+        DISCORD_OPEN_ROOM,
+        DISCORD_START_REPLY,
+        DISCORD_START_EDIT,
+        DISCORD_REACTORS,
+        DISCORD_PAUSE_INVITES,
+        DISCORD_ADD_EMOJI,
+        DISCORD_ADD_STICKER,
+        AUDIO_PLAY,
+        AUDIO_SPEAK,
+    ];
 }
 
 /// One host call, as it crosses the pipe.
@@ -219,7 +285,9 @@ pub struct TimerRequest {
     /// Milliseconds; a repeating timer is at least
     /// [`crate::limits::MIN_TIMER_INTERVAL_MS`].
     pub interval_ms: u64,
-    /// The plugin's name for this timer, echoed in the timer event.
+    /// The plugin's name for this timer. It is kept for the plugin's own
+    /// bookkeeping and not sent back: a timer that fires arrives as an empty
+    /// event batch, which is the only thing the guest is told.
     pub tag: String,
 }
 

@@ -10,7 +10,7 @@
 //! have to allow the host first. A pending one is completed in a later call,
 //! which is why the request carries a tag of the plugin's own.
 
-use crate::call::{self, method, Pending};
+use crate::call::{self, Pending, method};
 use crate::wire;
 use crate::{Error, Result};
 
@@ -77,9 +77,7 @@ impl HttpRequest {
 
     /// The body, decoded; `None` when the request had none.
     pub fn body(&self) -> Option<Vec<u8>> {
-        self.body_base64
-            .as_deref()
-            .and_then(wire::base64::decode)
+        self.body_base64.as_deref().and_then(wire::base64::decode)
     }
 }
 
@@ -91,9 +89,7 @@ impl HttpResponse {
 
     /// The body, decoded; `None` when it was too large to fit in one answer.
     pub fn body(&self) -> Option<Vec<u8>> {
-        self.body_base64
-            .as_deref()
-            .and_then(wire::base64::decode)
+        self.body_base64.as_deref().and_then(wire::base64::decode)
     }
 
     /// The body as text, when it was there and is UTF-8.

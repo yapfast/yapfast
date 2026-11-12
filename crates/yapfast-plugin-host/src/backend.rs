@@ -18,6 +18,28 @@ use yapfast_plugin_api::message::Fault;
 /// Fires the deadline of the call a plugin is running.
 pub type CancelToken = Arc<dyn Fn() + Send + Sync>;
 
+/// Something a guest left its plugin waiting on, which the runtime sees and the
+/// scheduler keeps the account of.
+///
+/// A guest that makes a host call returns instead of waiting for the answer, and
+/// one that sets a timer returns before it fires. Either way there is more to
+/// lose than the memory the instance occupies: evicting it would drop the work
+/// it is in the middle of, and the answer would arrive for a call no live
+/// instance has. So the runtime reports both, and the scheduler keeps such an
+/// instance off the idle and memory-pressure eviction lists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Wait {
+    /// A host call the parent will answer under this id. The guest has already
+    /// returned; only that answer resumes it.
+    Call(u64),
+    /// Whether the guest holds a timer the parent hasn't taken away.
+    Timer(bool),
+}
+
+/// Where a runtime reports those waits: the scheduler's own account, reached
+/// from the thread running a guest.
+pub type Waits = Arc<dyn Fn(&PluginId, Wait) + Send + Sync>;
+
 /// A module to load, with the limits its manifest gave it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LoadSpec {
@@ -107,6 +129,15 @@ pub trait Backend: Send + Sync {
     /// so the scheduler takes this once and calls it from another thread. The
     /// instance stops at an arbitrary point and is therefore discarded.
     fn cancel_handle(&self, plugin: &PluginId) -> Option<CancelToken>;
+
+    /// Takes the place to report what a guest leaves the plugin waiting on.
+    ///
+    /// A host call and a timer both outlive the call that made them, and only
+    /// the runtime sees either: the guest's request goes straight to the parent
+    /// rather than through the scheduler. A runtime that doesn't report them
+    /// leaves every instance looking idle, which is what evicts a plugin
+    /// waiting to be resumed.
+    fn set_wait_sink(&self, _waits: Waits) {}
 }
 
 /// A chain's answer, and whoever failed on the way.

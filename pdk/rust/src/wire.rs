@@ -258,7 +258,9 @@ pub enum HostReturn {
 ///
 /// The first group has a typed wrapper in this crate. The rest are named by the
 /// ABI so a plugin can feature-detect them: a build that lacks one answers
-/// `unsupported`, which arrives as an error naming the method.
+/// `unsupported`, which arrives as an error naming the method. Every name
+/// Yapfast's own list has is here, so a plugin built against this crate can name
+/// anything the app might answer.
 pub mod method {
     pub const APP_VERSION: &str = "app.version";
     pub const APP_LOCALE: &str = "app.locale";
@@ -297,6 +299,38 @@ pub mod method {
     pub const NOTIFY_SEND: &str = "notify.send";
     pub const CLIPBOARD_WRITE: &str = "clipboard.write";
     pub const OPEN_URL: &str = "open.url";
+
+    // The rest of what a plugin reads from the app: who a person is, a setting
+    // as it changes, and the interface's slots, notices and dialogs, which the
+    // parent draws. A call to one is an ask, so the answer says whether this
+    // build has a place for it.
+    pub const PEOPLE_MEMBER: &str = "people.member";
+    pub const SETTINGS_ON_CHANGE: &str = "settings.on_change";
+    pub const UI_SET_SLOT: &str = "ui.set_slot";
+    pub const UI_CLEAR_SLOT: &str = "ui.clear_slot";
+    pub const UI_NOTICE: &str = "ui.notice";
+    pub const UI_TOAST: &str = "ui.toast";
+    pub const UI_OPEN_DIALOG: &str = "ui.open_dialog";
+    pub const MEDIA_GET: &str = "media.get";
+
+    // The curated actions, which Yapfast does as itself: its own token, its own
+    // rate limiter and the person's own permissions, so a plugin asks for the
+    // action rather than for the account.
+    pub const DISCORD_SET_STATUS: &str = "discord.set_status";
+    pub const DISCORD_SET_CUSTOM_STATUS: &str = "discord.set_custom_status";
+    pub const DISCORD_SET_ACTIVITY: &str = "discord.set_activity";
+    pub const DISCORD_CLEAR_ACTIVITY: &str = "discord.clear_activity";
+    pub const DISCORD_MARK_READ: &str = "discord.mark_read";
+    pub const DISCORD_SET_MUTE: &str = "discord.set_mute";
+    pub const DISCORD_OPEN_ROOM: &str = "discord.open_room";
+    pub const DISCORD_START_REPLY: &str = "discord.start_reply";
+    pub const DISCORD_START_EDIT: &str = "discord.start_edit";
+    pub const DISCORD_REACTORS: &str = "discord.reactors";
+    pub const DISCORD_PAUSE_INVITES: &str = "discord.pause_invites";
+    pub const DISCORD_ADD_EMOJI: &str = "discord.add_emoji";
+    pub const DISCORD_ADD_STICKER: &str = "discord.add_sticker";
+    pub const AUDIO_PLAY: &str = "audio.play";
+    pub const AUDIO_SPEAK: &str = "audio.speak";
 }
 
 /// `storage.set`: the value is the plugin's own JSON.
@@ -546,8 +580,7 @@ pub struct RoomView {
 /// Only bodies need it: everything else on the wire is JSON, and a body isn't
 /// always text.
 pub mod base64 {
-    const ALPHABET: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
     /// Encodes bytes as base64, padded.
     pub fn encode(bytes: &[u8]) -> String {

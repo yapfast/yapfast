@@ -1,6 +1,6 @@
 //! The marketplace's registry, as a repository's CI and the helper read it.
 //!
-//! `PLAN.md` §8.6: a registry is a git repository holding one entry file per
+//! `docs/plugins/marketplace.md`: a registry is a git repository holding one entry file per
 //! plugin, its icons, and an index built by CI. Nothing about it is served:
 //! browsing fetches the repository and reads files.
 //!
@@ -133,14 +133,36 @@ impl Entry {
     /// fetching the plugin: its schema, its pin, its license, the source link
     /// a maintainer reads, the hosts it may reach, and which icon file is
     /// its own.
+    /// Reads an entry strictly: an https:// repository and nothing else.
+    ///
+    /// The application's install check reads entries with its own type; this
+    /// one is what the registry's own tests hold the rule to, and what
+    /// [`Entry::parse_verifying`] relaxes for the one local case.
+    #[cfg(test)]
     pub fn parse(text: &str, file: &str) -> anyhow::Result<Entry> {
+        Self::read(text, file, false)
+    }
+
+    /// Reads an entry that is being verified on this machine, where the
+    /// repository it pins may be one that isn't fetched yet.
+    ///
+    /// The difference is `file://`, and only that: `verify-entry` runs on a
+    /// checkout — a registry's CI, or a person reviewing a pull request — and
+    /// there the entry has to be checked against the repository beside it. A
+    /// registry the application installs from never gets this, so a published
+    /// entry still cannot name a path on someone's disk.
+    pub fn parse_verifying(text: &str, file: &str) -> anyhow::Result<Entry> {
+        Self::read(text, file, true)
+    }
+
+    fn read(text: &str, file: &str, local_ok: bool) -> anyhow::Result<Entry> {
         let entry: Entry = serde_json::from_str(text)
             .with_context(|| format!("`{file}` isn't an entry Yapfast reads"))?;
-        entry.check(file)?;
+        entry.check(file, local_ok)?;
         Ok(entry)
     }
 
-    fn check(&self, file: &str) -> anyhow::Result<()> {
+    fn check(&self, file: &str, local_ok: bool) -> anyhow::Result<()> {
         match self.api {
             Some(api) if api == u64::from(API_VERSION) => {}
             Some(api) => {
@@ -160,7 +182,8 @@ impl Entry {
         if self.name.trim().is_empty() || self.version.trim().is_empty() {
             bail!("`{file}` has no name or no version");
         }
-        if !fetchable(&self.repo) {
+        let local = local_ok && self.repo.starts_with("file://") && self.repo.len() > "file://".len();
+        if !fetchable(&self.repo) && !local {
             bail!(
                 "`{}` isn't a repository Yapfast may fetch; use the https:// address",
                 self.repo
@@ -220,8 +243,8 @@ impl Entry {
     }
 
     /// The address `fetch` reads for this entry: the commit it pins, and the
-    /// folder inside its repository. The app builds it; this side pins a fetch
-    /// by setting the two fields, so a `file://` source works too.
+    /// folder inside its repository. The app builds it; an install and a verify
+    /// pin a fetch by setting the two fields on the source instead.
     #[allow(dead_code)]
     pub fn url(&self) -> String {
         let mut url = String::with_capacity(self.repo.len() + self.rev.len() + 16);
@@ -351,12 +374,10 @@ pub fn verify_entry(file: &Path) -> anyhow::Result<Verified> {
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| file.display().to_string());
-    let entry = Entry::parse(&text, &shown)?;
+    let entry = Entry::parse_verifying(&text, &shown)?;
 
     // The commit the entry pins, in the folder it names: the same fetch an
-    // install does, so what CI checks is what a person gets. The pin is set on
-    // the source rather than written after an `@`, because a `file://` source
-    // takes no ref — a directory's own name may hold an `@`.
+    // install does, so what CI checks is what a person gets.
     let work = Scratch::new(".yapfast-verify")?;
     let mut source = super::url::Source::parse(&entry.repo)?;
     source.reference = Some(entry.rev.clone());
@@ -617,9 +638,17 @@ fn id_of(file: &str) -> Option<&str> {
     (!id.is_empty()).then_some(id)
 }
 
+/// Whether an entry's `repo` is an address a fetch may read.
+///
+/// A listing is written by a stranger and installed by someone who never reads
+/// it, so it may name a repository over the network and nowhere else. A pasted
+/// URL may still be `file://`, for local development and for the tests, but an
+/// entry may not: reading a repository on this disk runs `git upload-pack`
+/// against it, and a repository whose own config sets
+/// `uploadpack.packObjectsHook` turns that into a command of its choosing — the
+/// one thing a fetch promises a repository never gets to do.
 fn fetchable(url: &str) -> bool {
-    (url.starts_with("https://") && url.len() > "https://".len())
-        || (url.starts_with("file://") && url.len() > "file://".len())
+    url.starts_with("https://") && url.len() > "https://".len()
 }
 
 fn names(source: &str, repo: &str) -> bool {
@@ -780,6 +809,26 @@ mod tests {
         let branch = entry_text("com.example.word-filter").replace(&"a".repeat(40), "main");
         let error = Entry::parse(&branch, file).expect_err("not a commit");
         assert!(error.to_string().contains("40-character"), "{error}");
+    }
+
+    /// A listing may name a repository on the network and nowhere else. A
+    /// `file://` one is read by running git's own `upload-pack` against it, and
+    /// a repository whose config sets `uploadpack.packObjectsHook` makes that a
+    /// program of the repository's choosing.
+    #[test]
+    fn an_entry_may_not_name_a_file_url() {
+        let file = "plugins/com.example.word-filter.json";
+        let local = entry_text("com.example.word-filter")
+            .replace(
+                "\"repo\": \"https://codeberg.org/ada/word-filter\"",
+                "\"repo\": \"file:///home/you/word-filter\"",
+            )
+            .replace(
+                "\"source\": \"https://codeberg.org/ada/word-filter\"",
+                "\"source\": \"file:///home/you/word-filter\"",
+            );
+        let error = Entry::parse(&local, file).expect_err("not an address a listing may name");
+        assert!(error.to_string().contains("https://"), "{error}");
     }
 
     #[test]

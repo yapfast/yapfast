@@ -47,7 +47,7 @@ use yapfast_plugin_api::limits::MAX_HANDOFF_BYTES;
 use yapfast_plugin_api::message::{Fault, FaultKind, FromHelper};
 use yapfast_plugin_api::{API_VERSION, PluginId};
 
-use crate::backend::{Backend, LoadSpec};
+use crate::backend::{Backend, LoadSpec, Waits};
 
 /// How long one guest call may run when nothing else stops it.
 ///
@@ -87,21 +87,54 @@ pub struct ExtismBackend {
     /// own map, filled before a guest is called, and a token resolves at fire
     /// time rather than when it is handed out.
     live: LiveMap,
+    /// Where a guest's waits are reported: the scheduler's account, which is
+    /// what keeps an instance with an answer still owed off the eviction list.
+    /// It is set once, by the scheduler, before any module is loaded.
+    waits: std::sync::Mutex<Option<Waits>>,
 }
 
 /// The triggers of every live instance, shared with the tokens handed out.
 type LiveMap = std::sync::Arc<std::sync::Mutex<HashMap<PluginId, std::sync::Arc<InstanceCancel>>>>;
 
+/// The flag a deadline's fire leaves on an instance, and the call that reads it.
+///
+/// A fire can land when there is no call to stop — the worker may still be on
+/// its way into the backend — so the flag is not by itself proof that a guest
+/// was interrupted. Each call starts from a clear flag and takes it as it ends,
+/// which is what keeps a leftover from reporting the next ordinary trap, or an
+/// out-of-memory, as a deadline.
+#[derive(Default)]
+struct Fired(std::sync::atomic::AtomicBool);
+
+impl Fired {
+    /// Set by the fire, from the watchdog's thread.
+    fn set(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Cleared as a call starts: what a fire before it says is that the deadline
+    /// passed, not that this call was stopped.
+    fn begin(&self) {
+        self.0.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Taken as a call ends: true if a fire landed while the guest was running,
+    /// and false otherwise, leaving the flag clear for the next call.
+    fn take(&self) -> bool {
+        self.0.swap(false, std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
 /// One instance's deadline: the flag a trap is read against, and the runtime's
 /// own handle for stopping the call.
 struct InstanceCancel {
-    fired: std::sync::atomic::AtomicBool,
+    fired: Fired,
     handle: CancelHandle,
 }
 
 impl InstanceCancel {
     fn fire(&self) {
-        self.fired.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.fired.set();
         if let Err(error) = self.handle.cancel() {
             tracing::warn!(
                 "a deadline couldn't be fired because the runtime's timer stopped: {error:#}"
@@ -119,6 +152,7 @@ impl ExtismBackend {
             outbox,
             loaded: std::sync::Mutex::new(HashMap::new()),
             live: LiveMap::default(),
+            waits: std::sync::Mutex::new(None),
         })
     }
 
@@ -167,7 +201,16 @@ impl Backend for ExtismBackend {
             return Ok(());
         }
         let shape = module::check_file(&spec.wasm, spec.wasi)?;
-        let channel = Arc::new(host::Channel::new(spec.plugin.clone(), self.outbox.clone()));
+        let waits = self
+            .waits
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        let channel = Arc::new(host::Channel::new(
+            spec.plugin.clone(),
+            self.outbox.clone(),
+            waits,
+        ));
         let compiled = self.compile(&spec, channel.clone())?;
         let state = spec.state.clone();
         let mut loaded = self
@@ -180,6 +223,7 @@ impl Backend for ExtismBackend {
                 spec,
                 compiled,
                 shape,
+                channel,
                 instance: None,
                 state,
             })),
@@ -216,6 +260,10 @@ impl Backend for ExtismBackend {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let loaded = &mut *guard;
+        // Before the early return: the parent drops a plugin's timers before it
+        // asks for a deactivation, so its record of them goes whether or not an
+        // instance is up to hear about it.
+        loaded.channel.forget_timers();
         if loaded.instance.is_none() {
             return Ok(None);
         }
@@ -248,6 +296,12 @@ impl Backend for ExtismBackend {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let loaded = &mut *guard;
+        // A batch with nothing in it is a timer's tick: the parent sends one for
+        // each timer it fires, and that is the only notice the helper gets that
+        // one of them is spent.
+        if events.is_empty() && topics.is_empty() {
+            loaded.channel.ticked();
+        }
         loaded.ensure(&live)?;
         loaded.call::<()>("yf_event", &bytes).map(|_| ())
     }
@@ -339,6 +393,13 @@ impl Backend for ExtismBackend {
             }
         }))
     }
+
+    fn set_wait_sink(&self, waits: Waits) {
+        *self
+            .waits
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(waits);
+    }
 }
 
 impl ExtismBackend {
@@ -400,6 +461,10 @@ struct Loaded {
     compiled: CompiledPlugin,
     /// Which exports the module was compiled with.
     shape: module::Shape,
+    /// The host functions' channel, which is where a guest's calls and its
+    /// timers are seen. It outlives the instances: a timer belongs to the parent
+    /// and survives an eviction.
+    channel: Arc<host::Channel>,
     instance: Option<Instance>,
     /// What the last `yf_deactivate` handed on, for the next activation. The
     /// parent persists it, but only the helper holds it between the two calls,
@@ -436,7 +501,7 @@ impl Loaded {
             reason: format!("`{}` didn't instantiate: {error:#}", self.spec.plugin),
         })?;
         let cancel = std::sync::Arc::new(InstanceCancel {
-            fired: std::sync::atomic::AtomicBool::new(false),
+            fired: Fired::default(),
             handle: plugin.cancel_handle(),
         });
         if let Ok(mut live) = live.lock() {
@@ -513,14 +578,20 @@ impl Loaded {
             return Err(not_loaded(&plugin));
         };
         let cancel = instance.cancel.clone();
-        match instance.plugin.call::<&[u8], Option<&[u8]>>(export, input) {
+        // A call starts from a clear flag: a fire that arrived while this worker
+        // was still on its way in says a deadline passed, not that the guest was
+        // stopped, and read as proof it would make the next ordinary trap or
+        // out-of-memory report itself as a deadline.
+        cancel.fired.begin();
+        let answer = instance.plugin.call::<&[u8], Option<&[u8]>>(export, input);
+        // Taken as the call ends, whichever way it ended, so the flag is clear
+        // for the next one and true only when a fire landed while this guest ran.
+        let cancelled = cancel.fired.take();
+        match answer {
             Ok(None) => Ok(None),
             Ok(Some(bytes)) => read(bytes).map(Some),
             Err(error) => {
-                let (kind, discard) = classify(
-                    &error,
-                    cancel.fired.load(std::sync::atomic::Ordering::Relaxed),
-                );
+                let (kind, discard) = classify(&error, cancelled);
                 let fault = Fault {
                     kind,
                     reason: summarize(format!("`{plugin}`'s {export}: {error}")),
@@ -743,6 +814,39 @@ mod tests {
         assert!(!discard, "a trap leaves the store as it was");
     }
 
+    /// A fire is not a proof: it can land when there was no call to stop, and a
+    /// flag left over from one would report an out-of-memory or an ordinary trap
+    /// as a deadline, which discards an instance that was meant to survive and
+    /// shows a person the wrong sentence.
+    #[test]
+    fn a_fire_from_before_a_call_says_nothing_about_it() {
+        let fired = Fired::default();
+        fired.set();
+        fired.begin();
+        let (kind, discard) = classify(&extism::Error::msg("oom"), fired.take());
+        assert_eq!(
+            kind,
+            FaultKind::OutOfMemory,
+            "memory is what ran out, not time"
+        );
+        assert!(discard, "memory can't shrink, so the instance goes");
+    }
+
+    #[test]
+    fn a_fire_that_lands_while_the_guest_runs_is_taken_once() {
+        let fired = Fired::default();
+        fired.begin();
+        fired.set();
+        assert!(
+            fired.take(),
+            "a fire during the call is what a trap is read against"
+        );
+        assert!(
+            !fired.take(),
+            "and it is taken, so the call after it starts from nothing"
+        );
+    }
+
     #[test]
     fn a_hand_off_is_cut_on_a_character_boundary() {
         let state = "é".repeat(10);
@@ -838,7 +942,7 @@ mod tests {
     fn an_unknown_host_method_is_answered_unsupported_without_the_parent() {
         let (outbox, inbox) = mpsc::channel();
         let plugin = PluginId::parse("com.example.word-filter").unwrap();
-        let channel = host::Channel::new(plugin, outbox);
+        let channel = host::Channel::new(plugin, outbox, None);
         // The two functions are built for every plugin; building them is what a
         // load does, and it must not need a parent to be alive.
         assert_eq!(host::functions(Arc::new(channel)).len(), 2);
@@ -849,7 +953,7 @@ mod tests {
     fn a_host_call_carries_the_plugin_it_came_from() {
         let (outbox, inbox) = mpsc::channel();
         let plugin = PluginId::parse("com.example.word-filter").unwrap();
-        let channel = host::Channel::new(plugin.clone(), outbox);
+        let channel = host::Channel::new(plugin.clone(), outbox, None);
         channel
             .send(FromHelper::Call {
                 plugin: plugin.clone(),

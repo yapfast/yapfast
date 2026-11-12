@@ -314,19 +314,33 @@ pub struct CommandDecl {
 }
 
 /// What a menu row applies to.
+///
+/// A closed list, so a name outside it is refused while the JSON is read. It is
+/// the list of menus the interface has, one for one with
+/// `plugins::ui::Target` in yapfast-core, and the match that turns one into the
+/// other names every variant: a menu added to one and not the other stops the
+/// build rather than being a target a plugin may name and no menu shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MenuTarget {
     Message,
     User,
+    /// Someone's profile.
+    UserProfile,
     Channel,
+    Thread,
+    /// A conversation with several people and no server.
+    GroupDm,
     Server,
+    /// The dropdown in a server's header.
+    ServerHeader,
     Role,
     Emoji,
     Sticker,
     Image,
     Stream,
     Game,
+    ForumTag,
     Composer,
     Attach,
 }
@@ -350,12 +364,16 @@ pub struct MenuDecl {
 }
 
 /// The closed set of conditions a menu row or setting may carry.
+///
+/// Each field given must match and each left out always does, and the fields are
+/// the ones the interface tests (`plugins::ui::When` in yapfast-core): a
+/// condition nothing tests would be one a person read in the manifest and never
+/// saw applied, so a name outside this set is refused.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WhenClause {
-    /// `discord` or `matrix`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub network: Option<String>,
+    pub network: Option<NetworkName>,
     /// Whether the message or person is the account's own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub own: Option<bool>,
@@ -364,9 +382,143 @@ pub struct WhenClause {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub has_attachment: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub has_link: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_bot: Option<bool>,
+    /// A role id the person the menu is about has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+}
+
+/// A network as a manifest names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NetworkName {
+    Discord,
+    Matrix,
+}
+
+/// The most characters a label can have, on a menu row, a button or the label a
+/// `ui` section puts on a built-in row.
+///
+/// The interface keeps the same number (`plugins::ui::LABEL_CHARS` in
+/// yapfast-core) and cuts nothing: a longer label is refused while the manifest
+/// is read, because one that won't show is a mistake worth fixing rather than
+/// something to draw short.
+pub const LABEL_CHARS: usize = 64;
+
+/// The most menu rows, buttons or changes to built-in UI one plugin may add.
+///
+/// Again the interface's number (`plugins::ui::CHANGES`): a plugin past it is
+/// refused rather than silently keeping the first 64, so a manifest that grew
+/// by copy and paste is caught before anyone installs it.
+pub const CHANGES: usize = 64;
+
+/// A button a plugin puts where Yapfast already draws a row of its own: a
+/// `rail_items` entry at the bottom of the server rail, and a `header_buttons`
+/// entry in a conversation's header.
+///
+/// Both are plain data, drawn from the manifest before the plugin has ever run,
+/// so both live here with the rest of what a manifest declares. Choosing one
+/// sends the plugin its `action`, as a menu row's does, and needs no capability:
+/// it is the plugin's own surface.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ButtonDecl {
+    pub label: String,
+    /// What choosing it tells the plugin, as a plain name.
+    pub action: String,
+}
+
+/// A change to one of Yapfast's built-in menu rows, from a manifest's
+/// `ui.menu`.
+///
+/// `row` is the built-in row's id, and the row is hidden, relabelled or moved
+/// `before` or `after` another: not both, which the interface refuses on the
+/// plugin's page rather than at the manifest.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UiRow {
+    pub target: MenuTarget,
+    /// The built-in row's id, as the interface names it, such as `copy-id`.
+    pub row: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hide: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<WhenClause>,
+}
+
+/// The named parts of the interface a `ui` section hides or replaces.
+///
+/// The names are the interface's (`plugins::ui::Part` in yapfast-core), which is
+/// also where a name it doesn't have is refused, since only it knows which parts
+/// exist this build.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UiParts {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hide: Vec<String>,
+    /// Replacing one needs the plugin's `wasm` to draw what takes its place.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub replace: Vec<String>,
+}
+
+/// A manifest's `ui` section: what a plugin changes in the interface Yapfast
+/// already draws.
+///
+/// It is here, with the rest of the manifest, because the interface draws it
+/// from the file alone: an install reads this and refuses what it can't draw.
+/// Which colours, sizes, parts and built-in rows exist is the interface's own
+/// business — it changes with Yapfast, not with the plugin ABI — so a name it
+/// doesn't have is refused there, on the plugin's page, with a sentence that
+/// says what it knew. Asking for any of it needs `ui.modify`, and a section
+/// without that capability changes nothing rather than refusing the plugin.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UiDecl {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub menu: Vec<UiRow>,
+    #[serde(default, skip_serializing_if = "UiParts::is_empty")]
+    pub parts: UiParts,
+    /// Colour tokens, by name, as `#rgb`, `#rrggbb` or `#rrggbbaa`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub colors: BTreeMap<String, String>,
+    /// Sizes, by name, in logical pixels, each clamped to its range.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub sizes: BTreeMap<String, f64>,
+}
+
+impl UiParts {
+    /// Whether it names nothing, which a manifest may leave out entirely.
+    pub fn is_empty(&self) -> bool {
+        self.hide.is_empty() && self.replace.is_empty()
+    }
+}
+
+impl UiDecl {
+    /// Whether it changes nothing, which a manifest may leave out entirely.
+    pub fn is_empty(&self) -> bool {
+        self.changes() == 0
+    }
+
+    /// How many things the section changes: a row, a part, a colour or a size
+    /// each count one against [`CHANGES`].
+    pub fn changes(&self) -> usize {
+        self.menu.len()
+            + self.parts.hide.len()
+            + self.parts.replace.len()
+            + self.colors.len()
+            + self.sizes.len()
+    }
+}
+
+/// Whether a `bool` is false, which a manifest may leave out.
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// The type of a generated setting.
@@ -381,6 +533,9 @@ pub enum SettingKind {
     Integer,
     /// A list of records the person adds to and edits.
     List,
+    /// A tree the plugin draws while it runs; it carries no value of its own,
+    /// which is why it needs no other field.
+    Widget,
 }
 
 /// One setting the plugin's page draws for it.
@@ -479,8 +634,19 @@ pub struct PluginManifest {
 
     #[serde(default)]
     pub commands: Vec<CommandDecl>,
+    /// Rows it adds to the menus of Yapfast's own interface.
     #[serde(default)]
     pub menus: Vec<MenuDecl>,
+    /// Buttons it adds to the bottom of the server rail, drawn from the
+    /// manifest so they appear without the plugin running.
+    #[serde(default)]
+    pub rail_items: Vec<ButtonDecl>,
+    /// Buttons it adds to a conversation's header, the same way.
+    #[serde(default)]
+    pub header_buttons: Vec<ButtonDecl>,
+    /// What it changes in the interface Yapfast already draws.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui: Option<UiDecl>,
     #[serde(default)]
     pub settings: Vec<SettingDecl>,
 
@@ -515,10 +681,17 @@ impl PluginManifest {
     }
 
     /// The capabilities, in the order the review dialog lists them.
+    ///
+    /// The dialog's lines come from what the manifest declares, so reading one
+    /// drops the capabilities this build doesn't check
+    /// ([`Capability::is_implemented`]): a line saying a plugin listens to the
+    /// microphone, with nothing behind it, is a promise the review can't keep.
     pub fn capabilities(&self) -> Vec<Capability> {
         Capability::ALL
             .into_iter()
-            .filter(|capability| self.permissions.allows(*capability))
+            .filter(|capability| {
+                capability.is_implemented() && self.permissions.allows(*capability)
+            })
             .collect()
     }
 
@@ -535,6 +708,9 @@ impl PluginManifest {
         if self.wasm.is_none()
             && self.commands.is_empty()
             && self.menus.is_empty()
+            && self.rail_items.is_empty()
+            && self.header_buttons.is_empty()
+            && self.ui.as_ref().is_none_or(UiDecl::is_empty)
             && self.tweaks.is_empty()
             && self.settings.is_empty()
         {
@@ -570,6 +746,7 @@ impl PluginManifest {
         {
             return Err(ManifestError::Command);
         }
+        self.drawn()?;
         let mut keys: Vec<&str> = self.settings.iter().map(|setting| &*setting.key).collect();
         let count = keys.len();
         keys.sort_unstable();
@@ -579,6 +756,99 @@ impl PluginManifest {
         }
         if self.dependencies.contains_key(&self.id) {
             return Err(ManifestError::DependsOnItself);
+        }
+        Ok(())
+    }
+
+    /// Everything wrong with the sections the interface draws from the file
+    /// alone: the rows it adds to menus, its rail items and header buttons, and
+    /// its `ui` section.
+    ///
+    /// What is checked here is what would be drawn wrong — a label that won't
+    /// show, an id the interface can't look a row up by, more of them than it
+    /// draws — because the interface also reads these sections when a folder is
+    /// loaded without an install, and a person writing a plugin should hear
+    /// about it once, not watch it be silently left out. Which rows, parts,
+    /// colours and sizes exist is checked where they are applied, since only the
+    /// interface knows what this build has.
+    fn drawn(&self) -> Result<(), ManifestError> {
+        if self.menus.len() > CHANGES {
+            return Err(ManifestError::TooMany { field: "menu rows" });
+        }
+        for row in &self.menus {
+            if !plain_label(&row.label) {
+                return Err(ManifestError::Label {
+                    field: "a menu row's label",
+                });
+            }
+            if !plain_id(&row.action) {
+                return Err(ManifestError::Name {
+                    field: "a menu row's action",
+                });
+            }
+        }
+        for (field, items) in [
+            ("rail items", &self.rail_items),
+            ("header buttons", &self.header_buttons),
+        ] {
+            if items.len() > CHANGES {
+                return Err(ManifestError::TooMany { field });
+            }
+            for item in items {
+                if !plain_label(&item.label) {
+                    return Err(ManifestError::Label {
+                        field: "a button's label",
+                    });
+                }
+                if !plain_id(&item.action) {
+                    return Err(ManifestError::Name {
+                        field: "a button's action",
+                    });
+                }
+            }
+        }
+        let Some(ui) = &self.ui else {
+            return Ok(());
+        };
+        if ui.changes() > CHANGES {
+            return Err(ManifestError::TooMany {
+                field: "changes to the interface",
+            });
+        }
+        for row in &ui.menu {
+            if !plain_id(&row.row) {
+                return Err(ManifestError::Name {
+                    field: "a `ui` row's `row`",
+                });
+            }
+            if let Some(label) = &row.label
+                && !plain_label(label)
+            {
+                return Err(ManifestError::Label {
+                    field: "a `ui` row's label",
+                });
+            }
+            for anchor in row.before.iter().chain(row.after.iter()) {
+                if !plain_id(anchor) {
+                    return Err(ManifestError::Name {
+                        field: "a `ui` row's `before` or `after`",
+                    });
+                }
+            }
+        }
+        for id in ui.parts.hide.iter().chain(ui.parts.replace.iter()) {
+            if !plain_id(id) {
+                return Err(ManifestError::Name {
+                    field: "a part's name",
+                });
+            }
+        }
+        for name in ui.colors.keys().chain(ui.sizes.keys()) {
+            if !plain_id(name) {
+                return Err(ManifestError::Name {
+                    field: "a colour's or size's name",
+                });
+            }
         }
         Ok(())
     }
@@ -601,6 +871,27 @@ impl PluginManifest {
         }
         (!out.as_os_str().is_empty()).then_some(out)
     }
+}
+
+/// A label as it can show: plain text on one line, 1 to [`LABEL_CHARS`]
+/// characters.
+///
+/// The interface trims the label it draws (`plugins::ui::label` in yapfast-core);
+/// this only refuses one that couldn't be drawn at all.
+fn plain_label(text: &str) -> bool {
+    let text = text.trim();
+    !text.is_empty() && text.chars().count() <= LABEL_CHARS && !text.chars().any(char::is_control)
+}
+
+/// An action's or a row's id: letters, digits, `-`, `_` and `.`.
+///
+/// The interface carries a row's action inside `plugin/<index>/<action>`, and
+/// looks a built-in row up by its id, so neither can hold anything else.
+fn plain_id(id: &str) -> bool {
+    (1..=LABEL_CHARS).contains(&id.len())
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
 }
 
 /// Refuses a path that isn't relative and doesn't stay inside the plugin.
@@ -651,6 +942,19 @@ pub enum ManifestError {
     BlockWithoutCapability,
     /// A command with no name or an empty description.
     Command,
+    /// A label the interface can't draw: empty, over [`LABEL_CHARS`] characters,
+    /// or with a line break in it.
+    Label {
+        field: &'static str,
+    },
+    /// An action or a row's id that isn't a plain name.
+    Name {
+        field: &'static str,
+    },
+    /// More rows, buttons or interface changes than one plugin may add.
+    TooMany {
+        field: &'static str,
+    },
     /// Two settings with one key.
     DuplicateSetting,
     DependsOnItself,
@@ -667,9 +971,10 @@ impl fmt::Display for ManifestError {
             ManifestError::Path { field } => {
                 write!(f, "`{field}` must be a path inside the plugin's directory")
             }
-            ManifestError::DoesNothing => {
-                f.write_str("this plugin has no `wasm` and adds no command, menu, setting or tweak")
-            }
+            ManifestError::DoesNothing => f.write_str(
+                "this plugin has no `wasm` and adds no command, menu row, button, setting, tweak \
+                 or change to the interface",
+            ),
             ManifestError::MemoryPages { asked } => write!(
                 f,
                 "`memory_pages` is {asked}; it must be between {} and {}",
@@ -684,6 +989,19 @@ impl fmt::Display for ManifestError {
                 f.write_str("`on_failure: \"block\"` needs the `messages.intercept` capability")
             }
             ManifestError::Command => f.write_str("a command needs a name and a description"),
+            ManifestError::Label { field } => {
+                write!(
+                    f,
+                    "{field} must be 1 to {LABEL_CHARS} characters on one line"
+                )
+            }
+            ManifestError::Name { field } => write!(
+                f,
+                "{field} must be a plain name of letters, digits, `-`, `_` and `.`"
+            ),
+            ManifestError::TooMany { field } => {
+                write!(f, "a plugin adds at most {CHANGES} {field}")
+            }
             ManifestError::DuplicateSetting => f.write_str("two settings share a key"),
             ManifestError::DependsOnItself => f.write_str("a plugin can't depend on itself"),
         }
@@ -794,6 +1112,68 @@ mod tests {
         let manifest = PluginManifest::parse(WORD_FILTER).unwrap();
         assert!(manifest.permissions.reaches_network());
         assert!(!manifest.permissions.allows(Capability::Network));
+    }
+
+    /// The plan's example plus the sections the interface draws, which the
+    /// install path used to refuse as fields it didn't know.
+    #[test]
+    fn the_sections_the_interface_draws_are_part_of_the_manifest() {
+        let text = WORD_FILTER.replace(
+            "\"settings\": [",
+            r##""rail_items": [{ "label": "Notes", "action": "notes" }],
+        "header_buttons": [{ "label": "Summarise", "action": "summarise" }],
+        "ui": {
+            "menu": [{ "target": "user", "row": "copy-id", "label": "Copy user ID" }],
+            "parts": { "hide": ["timeline.typing"] },
+            "colors": { "accent": "#7aa2ff" },
+            "sizes": { "message-group-gap": 8 }
+        },
+        "settings": ["##,
+        );
+        let manifest = PluginManifest::parse(&text).unwrap();
+        let ui = manifest.ui.as_ref().expect("its ui section");
+        assert_eq!(ui.changes(), 4, "one row, one part, one colour, one size");
+        assert_eq!(ui.menu[0].target, MenuTarget::User);
+        assert_eq!(manifest.rail_items[0].action, "notes");
+        assert_eq!(manifest.header_buttons[0].label, "Summarise");
+    }
+
+    /// A plugin that only changes the interface runs no code and adds no row,
+    /// and is still a plugin with something to do.
+    #[test]
+    fn a_plugin_that_only_changes_the_interface_does_something() {
+        let text = r##"{
+            "api": 1,
+            "id": "com.example.accent",
+            "name": "Accent",
+            "version": "1.0.0",
+            "permissions": { "capabilities": ["ui.modify"] },
+            "ui": { "colors": { "accent": "#7aa2ff" } },
+            "rail_items": [{ "label": "Notes", "action": "notes" }]
+        }"##;
+        let manifest = PluginManifest::parse(text).unwrap();
+        assert_eq!(
+            manifest.ui.as_ref().expect("its ui section").colors.len(),
+            1
+        );
+        assert_eq!(manifest.rail_items.len(), 1);
+    }
+
+    /// `when` takes the conditions the interface tests, and only those: a
+    /// condition nothing looks at would be one a person read and never saw
+    /// applied.
+    #[test]
+    fn a_menu_row_takes_the_conditions_the_interface_tests() {
+        let with_role = WORD_FILTER.replace(r#""own": false"#, r#""own": false, "role": "30""#);
+        let manifest = PluginManifest::parse(&with_role).unwrap();
+        let when = manifest.menus[0].when.as_ref().expect("a condition");
+        assert_eq!(when.role.as_deref(), Some("30"));
+
+        let with_link = WORD_FILTER.replace(r#""own": false"#, r#""has_link": true"#);
+        assert!(matches!(
+            PluginManifest::parse(&with_link),
+            Err(ManifestError::Json(_))
+        ));
     }
 
     /// A hook fails open unless the manifest says otherwise, and saying it needs

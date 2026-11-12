@@ -5,7 +5,7 @@
 //! the message as it was. Only a plugin whose manifest says it may block, and
 //! which holds the capability that allows it, can stop a send.
 
-pub use crate::wire::{AttachmentPending, Draft, HookKind, HookRequest, HookSubject, HookOutcome};
+pub use crate::wire::{AttachmentPending, Draft, HookKind, HookOutcome, HookRequest, HookSubject};
 
 impl HookRequest {
     /// The draft this hook is about, for the hooks about outgoing text.
