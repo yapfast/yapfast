@@ -170,18 +170,26 @@ Two things are deliberately not there yet:
 
 Beyond those, every method the first version of the API names is answered:
 `storage`, `settings`, `http`, `timers`, `ui`, `notify`, `clipboard`, `open`, the
-`app`, `account`, `rooms`, `messages` and `people` groups, and the `plugin`
-group's `call`, `publish` and `subscribe`. A method this build doesn't have
-answers `unsupported`, which is what a plugin feature-detects on. What the API
-still doesn't have is [§17.2](../../PLAN.md#172-additions-to-the-api)'s
-additions: the curated actions (`presence`, `mark_read`, `set_mute`,
-`open_room`, `start_reply`, `start_edit`, `reactors`, `pause_invites`,
-`add_emoji`, `add_sticker`), `media.get`, retention, `identity.decorate`,
-`code_block.render`, providers, audio and the microphone, and the changes to
-built-in UI beyond the part hides and the colour and size overlay. The hooks are
+`app`, `account`, `rooms`, `messages` and `people` groups, the `plugin` group's
+`call`, `publish` and `subscribe`, [§17.2](../../PLAN.md#172-additions-to-the-api)'s
+curated actions (`discord.set_status`, `set_custom_status`, `set_activity`,
+`clear_activity`, `mark_read`, `set_mute`, `open_room`, `start_reply`,
+`start_edit`, `reactors`, `pause_invites`, `add_emoji`, `add_sticker`), and
+`audio.play` and `audio.speak`. A method this build doesn't have answers
+`unsupported`, which is what a plugin feature-detects on. What the API still
+doesn't have is the rest of §17.2: `media.get`, retention, attachments out
+(`messages.send` with bytes, which waits on the chunked frames above),
+`identity.decorate`, `code_block.render`, providers, `audio.record` and the
+microphone, `file.save`, local reach, input, the menu targets and widgets, and
+the changes to built-in UI beyond the part hides and the colour and size
+overlay. `audio.record` waits
+because the microphone has no path that isn't a call's: `audio_io::Input` is
+opened by the call and the input meter, and recording to a file for a plugin
+would be a new Yapfast feature rather than a wrapper over one. The hooks are
 `message.pre_send`, `message.pre_edit`, `typing.pre_send` and
 `attachment.pre_upload`, with `message.decorate` drawn through `yf_decorate`;
 `activity.pre_publish` exists in the ABI and Yapfast publishes no activity to run
-it on.
+it on, so `discord.set_activity` shows the game Discord sees the account play,
+which is the only activity there is.
 `docs/plugins/manifest.md` lists the fields; a manifest may declare `menus`,
 `settings` and `tweaks` that nothing draws yet.

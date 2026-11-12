@@ -42,7 +42,10 @@ mod app_commands;
 mod audit_log;
 mod channels;
 mod commands;
-mod expressions;
+/// A server's Emoji and Stickers, and the pictures a person brings for them.
+/// `pub(crate)` for `discord.add_emoji` and `discord.add_sticker`: a plugin's
+/// picture takes the reader a person's does.
+pub(crate) mod expressions;
 mod gifs;
 mod interactions;
 mod open_channel;

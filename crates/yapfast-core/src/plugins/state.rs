@@ -155,6 +155,75 @@ pub enum AppCall {
     Open {
         url: String,
     },
+    /// The curated actions of PLAN §17.2: each wraps something Yapfast
+    /// already does, so the token, the rate limiter and the person's own
+    /// permissions stay here.
+    SetStatus {
+        status: String,
+    },
+    SetCustomStatus {
+        emoji: Option<String>,
+        text: String,
+        clear_after: Option<u64>,
+    },
+    /// Whether the game Discord sees this account play shows on it; Yapfast
+    /// publishes no activity of its own.
+    SetActivity {
+        enabled: bool,
+    },
+    MarkRead {
+        room: String,
+    },
+    SetMute {
+        room: String,
+        muting: crate::chat::Muting,
+    },
+    OpenRoom {
+        room: String,
+    },
+    StartReply {
+        room: String,
+        message: String,
+    },
+    StartEdit {
+        room: String,
+        message: String,
+    },
+    /// The reactions the open timeline holds for a message, with their
+    /// counts. Who gave them is a request Yapfast makes, not state it keeps.
+    Reactors {
+        room: String,
+        message: String,
+    },
+    PauseInvites {
+        server: String,
+        invites: bool,
+        dms: bool,
+        hours: u8,
+    },
+    AddEmoji {
+        server: String,
+        name: String,
+        /// The picture, as the plugin brought it; the format is read from its
+        /// own first bytes.
+        image: Vec<u8>,
+    },
+    AddSticker {
+        server: String,
+        name: String,
+        tags: String,
+        description: String,
+        image: Vec<u8>,
+    },
+    /// A sound file to play on the speakers, and how loud.
+    PlaySound {
+        sound: Vec<u8>,
+        volume: Option<u8>,
+    },
+    /// Text for the OS's own speech.
+    Speak {
+        text: String,
+    },
 }
 
 /// What `pre_send` decided about an outgoing message.

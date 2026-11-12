@@ -22,6 +22,7 @@
 //!      └──────Effect::Plugin────────────┘◀───────frames───────────┘
 //! ```
 
+pub mod audio;
 pub mod bridge;
 pub mod fetch;
 pub mod grants;

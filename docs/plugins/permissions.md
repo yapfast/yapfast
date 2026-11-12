@@ -112,6 +112,18 @@ gesture at all, the send is the plugin acting on its own and needs
 | `notify.send` | `notifications` |
 | `clipboard.write` | `clipboard.write` |
 | `open.url` | `open.app` |
+| `discord.set_status`, `set_custom_status`, `set_activity`, `clear_activity` | `presence.write` |
+| `discord.mark_read`, `set_mute` | `notifications.manage` |
+| `discord.reactors` | `messages.read`: it answers what people gave to a message |
+| `discord.pause_invites`, `add_emoji`, `add_sticker` | `servers.manage`, and the person's own roles on that server |
+| `audio.play` | `audio.play` |
+| `audio.speak` | `audio.speak` |
+| `discord.open_room`, `start_reply`, `start_edit` | none, and a recent user gesture: without one they answer `denied` |
+
+A curated action wraps something Yapfast already does, so the capability is the
+first of two gates and the person's own permissions are the second: a plugin may
+ask a server to pause its invites, and it happens only if this account has Manage
+Server there. Yapfast never acts with anything a plugin didn't declare.
 
 ## The network gate
 

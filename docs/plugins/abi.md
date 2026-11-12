@@ -251,6 +251,54 @@ so nothing waits on a person:
 | `clipboard.write` | `{ text }` | Puts text on the clipboard |
 | `open.url` | `{ url }` | Opens a page the way a message's link does |
 
+The curated actions of [PLAN §17.2](../../PLAN.md#172-additions-to-the-api) are
+the same kind of call, named `discord.*`: each wraps something Yapfast already
+does for the person, so the token, the rate limiter and the account's own
+permissions stay here. A plugin names what it wants and never reaches REST.
+
+| Call | Payload | Answer | Does |
+| --- | --- | --- | --- |
+| `discord.set_status` | `{ status }` | `true` | Sets `online`, `idle`, `dnd` or `invisible`, as the status menu does |
+| `discord.set_custom_status` | `{ text, emoji?, clear_after? }` | `true` | Sets the line under the name; `clear_after` is seconds. Empty text and no emoji clears it |
+| `discord.set_activity` | `{ enabled }` | `true` | Shows or hides the game Discord sees you play, which is the only activity Yapfast has |
+| `discord.clear_activity` | none | `true` | The same as `{ enabled: false }` |
+| `discord.mark_read` | `{ room }` | `true` | Marks a conversation, server, category or folder read, as its menu does |
+| `discord.set_mute` | `{ room, muting }` | `true` | Mutes a conversation, channel or server; `muting` is `"off"`, `"always"` or `{ "minutes": n }` |
+| `discord.open_room` | `{ room }` | `true` | Opens it where a click in the sidebar does |
+| `discord.start_reply` | `{ room, message }` | `true` | Puts the composer in reply to a message of the room on screen |
+| `discord.start_edit` | `{ room, message }` | `true` | The same for an edit, when it's this account's to edit |
+| `discord.reactors` | `{ room, message }` | `[{ emoji, count, me }]` | The reactions the open timeline holds for a message, and how many gave each |
+| `discord.pause_invites` | `{ server, invites, dms, hours }` | `true` | Pauses or resumes a server's invites and DMs, for one of the lengths Discord offers |
+| `discord.add_emoji` | `{ server, name, image_base64 }` | `true` | Adds an emoji from a PNG, JPEG or GIF |
+| `discord.add_sticker` | `{ server, name, tags?, description?, image_base64 }` | `true` | Adds a sticker from a PNG, JPEG or GIF |
+
+A room, server or message the person can't see is an `error`, not a silent
+nothing: Yapfast answers about what it holds. A server action the person has no
+permission for is an `error` too — `servers.manage` is what lets a plugin ask,
+and the person's own roles are what lets it happen.
+
+`discord.open_room`, `start_reply` and `start_edit` need no capability and do
+need a recent user gesture, as §9.1 says: a plugin can't move the window or
+write the composer while nobody is there. Without one they answer `denied`.
+
+### A plugin's own sound, and its voice
+
+| Call | Payload | Answer | Does |
+| --- | --- | --- | --- |
+| `audio.play` | `{ sound_base64, volume? }` | `true` | Plays a sound file on the speakers, at `volume` percent |
+| `audio.speak` | `{ text }` | `true` | Says up to 1000 characters in the OS's own voice |
+
+The sound is decoded before the call answers, so what isn't a sound is an
+`error`; then it plays on a thread of its own, as Yapfast's own sounds do, and
+another sound overlaps it. A WAV file is read here; in a build with Discord's
+media stack the MP3 and Ogg the soundboard plays are read too. A sound is at
+most 512 KB, plays for at most 10 seconds, and is cut where that ends.
+
+Speech is the operating system's: `spd-say` on Linux, `say` on macOS, and SAPI
+through PowerShell on Windows. The words are one argument of the program, or a
+file the script reads, so nothing a plugin writes can become a command. The
+answer says the voice was asked to speak, not that it finished.
+
 A send a plugin asks for isn't run through `message.pre_send`: that chain is for
 what the person wrote, and a plugin that both intercepts and sends would meet
 itself.

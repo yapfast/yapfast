@@ -62,6 +62,25 @@ pub mod method {
     pub const NOTIFY_SEND: &str = "notify.send";
     pub const CLIPBOARD_WRITE: &str = "clipboard.write";
     pub const OPEN_URL: &str = "open.url";
+
+    // The curated actions of PLAN §17.2, and audio. Each wraps something
+    // Yapfast already does, so the token, the rate limiter and the person's
+    // own permissions stay here.
+    pub const DISCORD_SET_STATUS: &str = "discord.set_status";
+    pub const DISCORD_SET_CUSTOM_STATUS: &str = "discord.set_custom_status";
+    pub const DISCORD_SET_ACTIVITY: &str = "discord.set_activity";
+    pub const DISCORD_CLEAR_ACTIVITY: &str = "discord.clear_activity";
+    pub const DISCORD_MARK_READ: &str = "discord.mark_read";
+    pub const DISCORD_SET_MUTE: &str = "discord.set_mute";
+    pub const DISCORD_OPEN_ROOM: &str = "discord.open_room";
+    pub const DISCORD_START_REPLY: &str = "discord.start_reply";
+    pub const DISCORD_START_EDIT: &str = "discord.start_edit";
+    pub const DISCORD_REACTORS: &str = "discord.reactors";
+    pub const DISCORD_PAUSE_INVITES: &str = "discord.pause_invites";
+    pub const DISCORD_ADD_EMOJI: &str = "discord.add_emoji";
+    pub const DISCORD_ADD_STICKER: &str = "discord.add_sticker";
+    pub const AUDIO_PLAY: &str = "audio.play";
+    pub const AUDIO_SPEAK: &str = "audio.speak";
 }
 
 /// One host call, as it crosses the pipe.
@@ -354,6 +373,123 @@ pub struct CopyText {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OpenUrl {
     pub url: String,
+}
+
+/// `discord.set_status`: the status the account shows, as Discord names it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetStatus {
+    /// `online`, `idle`, `dnd` or `invisible`.
+    pub status: String,
+}
+
+/// `discord.set_custom_status`: the line under the account's name.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetCustomStatus {
+    /// Empty clears the text, and with no emoji the status too.
+    #[serde(default)]
+    pub text: String,
+    /// A Unicode emoji, or a custom one's `:name:`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emoji: Option<String>,
+    /// Seconds after which it goes; absent keeps it until it's changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clear_after: Option<u64>,
+}
+
+/// `discord.set_activity`: whether the game Discord sees this account play
+/// shows on it. Yapfast publishes no activity of its own, so that is the
+/// only one there is to set.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetActivity {
+    pub enabled: bool,
+}
+
+/// How long a mute lasts, as `discord.set_mute` asks for one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Mute {
+    /// Unmute it.
+    Off,
+    /// Until it's unmuted.
+    Always,
+    /// For this many minutes.
+    Minutes(u32),
+}
+
+/// `discord.set_mute`: a conversation, and how long it stays quiet.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetMute {
+    pub room: String,
+    pub muting: Mute,
+}
+
+/// `discord.pause_invites`: a server's invites and direct messages, paused
+/// or resumed, for `hours`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PauseInvites {
+    pub server: String,
+    #[serde(default)]
+    pub invites: bool,
+    #[serde(default)]
+    pub dms: bool,
+    /// One of the lengths Discord's own dialog offers.
+    #[serde(default)]
+    pub hours: u8,
+}
+
+/// `discord.add_emoji`: a new emoji for a server, as a picture the plugin
+/// brings.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AddEmoji {
+    pub server: String,
+    pub name: String,
+    /// A PNG, JPEG or GIF, base64: the whole picture is one frame, so it is
+    /// capped at 256 KB as Discord caps an emoji.
+    pub image_base64: String,
+}
+
+/// `discord.add_sticker`: a new sticker for a server, with its name, its
+/// related emoji and its description.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AddSticker {
+    pub server: String,
+    pub name: String,
+    #[serde(default)]
+    pub tags: String,
+    #[serde(default)]
+    pub description: String,
+    /// A PNG, JPEG or GIF, base64: one frame, capped at 512 KB as Discord
+    /// caps a sticker.
+    pub image_base64: String,
+}
+
+/// `discord.reactors`' answer: one reaction of a message, as the timeline
+/// Yapfast holds has it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReactionCount {
+    /// The emoji as Discord writes it in the message's `reactions`.
+    pub emoji: String,
+    pub count: u64,
+    /// Whether this account gave it.
+    #[serde(default)]
+    pub me: bool,
+}
+
+/// `audio.play`: a sound the plugin brings.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlaySound {
+    /// A sound file base64: WAV, or, in a build with Discord's media stack,
+    /// the MP3 and Ogg the soundboard plays too.
+    pub sound_base64: String,
+    /// A percentage of the sound's own loudness; absent plays it as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume: Option<u8>,
+}
+
+/// `audio.speak`: what the OS's speech says, and nothing else.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Speak {
+    pub text: String,
 }
 
 /// `ui.set_slot`: a widget tree to draw in one of the interface's slots.

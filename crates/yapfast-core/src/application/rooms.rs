@@ -370,7 +370,7 @@ impl AppState {
     }
 
     /// Whether an id names a folder of servers on the rail.
-    fn is_folder(&self, id: &str) -> bool {
+    pub(super) fn is_folder(&self, id: &str) -> bool {
         self.folder_servers(id).next().is_some()
     }
 

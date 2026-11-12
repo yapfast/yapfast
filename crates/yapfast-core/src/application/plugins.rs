@@ -13,7 +13,7 @@ use std::sync::Arc;
 use serde_json::Value;
 use tokio::sync::mpsc::UnboundedSender;
 use yapfast_plugin_api::PluginId;
-use yapfast_plugin_api::call::CommandInvocation;
+use yapfast_plugin_api::call::{CommandInvocation, HostReturn, ReactionCount};
 use yapfast_plugin_api::event::{EventEnvelope, EventKind, Network as PluginNetwork, RoomView};
 use yapfast_plugin_api::hook::{AttachmentPending, Draft};
 
@@ -765,7 +765,347 @@ impl Application {
             // The link goes through the same confirmation a message's does: a
             // plugin asks, and the person still sees where it goes.
             AppCall::Open { url } => (vec![AppEffect::OpenPage(url)], done),
+            // The curated actions of PLAN §17.2. Each goes where the person's
+            // own click goes, so the token, the rate limiter and this
+            // account's permissions stay where they are.
+            AppCall::SetStatus { status } => match self.ready_for_discord() {
+                Ok(()) => (self.dispatch(AppAction::SetStatus(status)), done),
+                Err(message) => (Vec::new(), HostReturn::Error { message }),
+            },
+            AppCall::SetCustomStatus {
+                emoji,
+                text,
+                clear_after,
+            } => answered(self.plugin_status(emoji, text, clear_after)),
+            // The only activity Yapfast has is the game Discord sees this
+            // account play, so that is the one a plugin can show or clear.
+            AppCall::SetActivity { enabled } => match self.ready_for_discord() {
+                Ok(()) => (self.dispatch(AppAction::ShowGame(enabled)), done),
+                Err(message) => (Vec::new(), HostReturn::Error { message }),
+            },
+            AppCall::MarkRead { room } => match self.listed_place(&room) {
+                true => (self.dispatch(AppAction::MarkRead(room)), done),
+                false => (Vec::new(), not_listed(&room)),
+            },
+            AppCall::SetMute { room, muting } => {
+                if !self.listed_place(&room) {
+                    return (Vec::new(), not_listed(&room));
+                }
+                // A conversation is muted through its own menu, and a channel
+                // or a server through its notifications, as each does when a
+                // person picks Mute.
+                let mut effects = self.dispatch(AppAction::MuteDm {
+                    room: room.clone(),
+                    muting,
+                });
+                if effects.is_empty() {
+                    effects = self.dispatch(AppAction::ChangeNotifications {
+                        place: room,
+                        change: crate::chat::NotificationChange::Mute(muting),
+                    });
+                }
+                (effects, done)
+            }
+            AppCall::OpenRoom { room } => match self.listed_place(&room) {
+                true => (self.dispatch(AppAction::Open(room)), done),
+                false => (Vec::new(), not_listed(&room)),
+            },
+            AppCall::StartReply { room, message } => {
+                answered(self.plugin_compose(&room, &message, false))
+            }
+            AppCall::StartEdit { room, message } => {
+                answered(self.plugin_compose(&room, &message, true))
+            }
+            AppCall::Reactors { room, message } => {
+                // The reactions a message has are held for the conversation on
+                // screen, which is the one whose messages Yapfast keeps.
+                if self.state.message(&message).is_none()
+                    || self.state.room_of(&message).map(String::as_str) != Some(room.as_str())
+                {
+                    return (
+                        Vec::new(),
+                        HostReturn::Error {
+                            message: format!(
+                                "{message} isn't a message the open conversation holds"
+                            ),
+                        },
+                    );
+                }
+                let reactions: Vec<ReactionCount> = self
+                    .state
+                    .message(&message)
+                    .map(|held| {
+                        held.reactions
+                            .iter()
+                            .map(|reaction| ReactionCount {
+                                emoji: reaction.key.clone(),
+                                count: reaction.count as u64,
+                                me: reaction.mine,
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                match serde_json::to_value(reactions) {
+                    Ok(value) => (Vec::new(), HostReturn::Ok(value)),
+                    Err(error) => (
+                        Vec::new(),
+                        HostReturn::Error {
+                            message: format!("could not write the reactions: {error}"),
+                        },
+                    ),
+                }
+            }
+            AppCall::PauseInvites {
+                server,
+                invites,
+                dms,
+                hours,
+            } => answered(self.plugin_pause_invites(&server, invites, dms, hours)),
+            AppCall::AddEmoji {
+                server,
+                name,
+                image,
+            } => answered(self.plugin_add_emoji(&server, &name, &image)),
+            AppCall::AddSticker {
+                server,
+                name,
+                tags,
+                description,
+                image,
+            } => answered(self.plugin_add_sticker(&server, &name, &tags, &description, &image)),
+            AppCall::PlaySound { sound, volume } => {
+                match crate::plugins::audio::play(sound, volume) {
+                    Ok(()) => (Vec::new(), done),
+                    Err(error) => (
+                        Vec::new(),
+                        HostReturn::Error {
+                            message: error.to_string(),
+                        },
+                    ),
+                }
+            }
+            AppCall::Speak { text } => match crate::plugins::audio::speak(&text) {
+                Ok(()) => (Vec::new(), done),
+                Err(error) => (
+                    Vec::new(),
+                    HostReturn::Error {
+                        message: error.to_string(),
+                    },
+                ),
+            },
         }
+    }
+
+    /// Whether an id names something the sidebar lists: a conversation, a
+    /// server, a folder or a category. A plugin can only act on a place the
+    /// person can see.
+    fn listed_place(&self, place: &str) -> bool {
+        self.state.rooms.iter().any(|room| room.id == place)
+            || self.state.servers.iter().any(|server| server.id == place)
+            || self.state.is_folder(place)
+            || self.state.is_category(place)
+    }
+
+    /// Whether this Yapfast can change a Discord account at all: it is linked,
+    /// and the window isn't showing the preview that has no account behind it.
+    fn ready_for_discord(&self) -> Result<(), String> {
+        if self.state.preview || self.state.discord_user.is_none() {
+            return Err("this Yapfast has no Discord account signed in".to_owned());
+        }
+        Ok(())
+    }
+
+    /// The custom status a plugin asked for, sent without the person's status
+    /// editor being open: that editor is a dialog nobody opened here.
+    fn plugin_status(
+        &mut self,
+        emoji: Option<String>,
+        text: String,
+        clear_after: Option<u64>,
+    ) -> Result<Vec<AppEffect>, String> {
+        self.ready_for_discord()?;
+        let text = text.trim().to_owned();
+        let emoji = emoji.filter(|emoji| !emoji.is_empty());
+        let command = |status: Option<crate::chat::CustomStatus>| {
+            AppEffect::Backend(Command::Discord(
+                crate::chat::DiscordCommand::SetCustomStatus(status),
+            ))
+        };
+        if text.is_empty() && emoji.is_none() {
+            return Ok(vec![command(None)]);
+        }
+        let (emoji, emoji_id) = match emoji {
+            Some(name) if name.contains(':') => {
+                let found = self.status_emoji(&name).map_err(str::to_owned)?;
+                (
+                    Some(found.text.trim_matches(':').to_owned()),
+                    Some(found.id),
+                )
+            }
+            emoji => (emoji, None),
+        };
+        Ok(vec![command(Some(crate::chat::CustomStatus {
+            text,
+            emoji,
+            emoji_id,
+            expires_at_ms: clear_after
+                .map(|seconds| crate::clock::now_ms().saturating_add(seconds.saturating_mul(1000))),
+        }))])
+    }
+
+    /// Starts a reply to, or an edit of, a message the open conversation holds.
+    fn plugin_compose(
+        &mut self,
+        room: &str,
+        message: &str,
+        edit: bool,
+    ) -> Result<Vec<AppEffect>, String> {
+        if self.state.message(message).is_none() {
+            return Err(format!(
+                "{message} isn't a message the open conversation holds"
+            ));
+        }
+        let Some(open) = self.state.room_of(message) else {
+            return Err(format!(
+                "{message} isn't a message the open conversation holds"
+            ));
+        };
+        if open != room {
+            return Err(format!("{message} is in {open}, not {room}"));
+        }
+        let message = message.to_owned();
+        Ok(if edit {
+            self.dispatch(AppAction::Edit(message))
+        } else {
+            self.dispatch(AppAction::Reply(message))
+        })
+    }
+
+    /// Pauses a server's invites, or resumes them, as Security Actions does.
+    fn plugin_pause_invites(
+        &mut self,
+        server: &str,
+        invites: bool,
+        dms: bool,
+        hours: u8,
+    ) -> Result<Vec<AppEffect>, String> {
+        if !self.state.servers.iter().any(|listed| listed.id == server) {
+            return Err(format!("{server} isn't a server this account is in"));
+        }
+        // The lengths Discord's own dialog offers; anything else takes the
+        // longest, which is what pausing for good looks like there.
+        let offered = super::server_settings::PAUSE_HOURS;
+        let hours = if offered.contains(&hours) {
+            hours
+        } else {
+            offered[offered.len() - 1]
+        };
+        if !self.may(server, crate::chat::Permission::ManageServer) {
+            return Err(format!(
+                "you don't have Manage Server in {server}, so a plugin can't pause its invites"
+            ));
+        }
+        Ok(vec![AppEffect::Backend(Command::Discord(
+            crate::chat::DiscordCommand::Invites {
+                server: server.to_owned(),
+                action: crate::chat::InvitesAction::Pause {
+                    invites,
+                    dms,
+                    hours,
+                },
+            },
+        ))])
+    }
+
+    /// Adds a server's emoji, through the reader a person's own picture goes
+    /// through, and then the upload a person's does.
+    #[cfg(feature = "discord")]
+    fn plugin_add_emoji(
+        &mut self,
+        server: &str,
+        name: &str,
+        image: &[u8],
+    ) -> Result<Vec<AppEffect>, String> {
+        self.may_add_expressions(server)?;
+        let name = super::emoji_name(name.trim());
+        if name.chars().count() < 2 {
+            return Err("an emoji's name is at least two characters".to_owned());
+        }
+        let picture = with_brought_picture(image, crate::discord_text::expressions::read_emoji)?;
+        Ok(vec![AppEffect::Backend(Command::Discord(
+            crate::chat::DiscordCommand::Emoji {
+                server: server.to_owned(),
+                action: crate::chat::EmojiAction::Upload { name, picture },
+            },
+        ))])
+    }
+
+    #[cfg(not(feature = "discord"))]
+    fn plugin_add_emoji(
+        &mut self,
+        _server: &str,
+        _name: &str,
+        _image: &[u8],
+    ) -> Result<Vec<AppEffect>, String> {
+        Err("this build has no Discord, so it has no emoji to add".to_owned())
+    }
+
+    /// The same for a server's stickers.
+    #[cfg(feature = "discord")]
+    fn plugin_add_sticker(
+        &mut self,
+        server: &str,
+        name: &str,
+        tags: &str,
+        description: &str,
+        image: &[u8],
+    ) -> Result<Vec<AppEffect>, String> {
+        self.may_add_expressions(server)?;
+        let name = name.trim().to_owned();
+        if name.is_empty() {
+            return Err("a sticker needs a name".to_owned());
+        }
+        let file = with_brought_picture(image, crate::discord_text::expressions::read_sticker)?;
+        Ok(vec![AppEffect::Backend(Command::Discord(
+            crate::chat::DiscordCommand::Stickers {
+                server: server.to_owned(),
+                action: Box::new(crate::chat::StickerAction::Upload {
+                    form: crate::chat::StickerForm {
+                        name,
+                        tags: tags.trim().to_owned(),
+                        description: description.trim().to_owned(),
+                    },
+                    file,
+                }),
+            },
+        ))])
+    }
+
+    #[cfg(not(feature = "discord"))]
+    fn plugin_add_sticker(
+        &mut self,
+        _server: &str,
+        _name: &str,
+        _tags: &str,
+        _description: &str,
+        _image: &[u8],
+    ) -> Result<Vec<AppEffect>, String> {
+        Err("this build has no Discord, so it has no stickers to add".to_owned())
+    }
+
+    /// Whether this account may add an emoji or a sticker to a server: what
+    /// Emoji's and Stickers' own buttons ask for.
+    fn may_add_expressions(&self, server: &str) -> Result<(), String> {
+        if !self.state.servers.iter().any(|listed| listed.id == server) {
+            return Err(format!("{server} isn't a server this account is in"));
+        }
+        let rules = self.expression_rules(server);
+        if !(rules.manage || rules.create) {
+            return Err(format!(
+                "you may not add expressions in {server}, so a plugin can't either"
+            ));
+        }
+        Ok(())
     }
 
     /// Sends a plugin's text in a room, leaving the person's own draft where it
@@ -1187,6 +1527,66 @@ fn content_type(name: &str) -> Option<String> {
     Some(kind.to_owned())
 }
 
+/// A plugin's picture where the reader that prepares an emoji or a sticker
+/// takes one: a file, as a person's own picker hands it over, removed as soon
+/// as it's read.
+#[cfg(feature = "discord")]
+fn with_brought_picture<T>(
+    image: &[u8],
+    read: impl FnOnce(&Path) -> Result<T, String>,
+) -> Result<T, String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let path = std::env::temp_dir().join(format!(
+        "yapfast-plugin-{}-{}.{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed),
+        // The reader makes the picture's name part of what it says when it
+        // refuses one, so the name says what the picture is.
+        match image {
+            [0x89, b'P', b'N', b'G', ..] => "png",
+            [b'G', b'I', b'F', ..] => "gif",
+            [0xff, 0xd8, ..] => "jpg",
+            [
+                b'R',
+                b'I',
+                b'F',
+                b'F',
+                _,
+                _,
+                _,
+                _,
+                b'W',
+                b'E',
+                b'B',
+                b'P',
+                ..,
+            ] => "webp",
+            _ => "img",
+        }
+    ));
+    std::fs::write(&path, image)
+        .map_err(|error| format!("could not read that picture: {error}"))?;
+    let read = read(&path);
+    let _ = std::fs::remove_file(&path);
+    read
+}
+
+/// A call the application carried out, from what it came to.
+fn answered(outcome: Result<Vec<AppEffect>, String>) -> (Vec<AppEffect>, HostReturn) {
+    match outcome {
+        Ok(effects) => (effects, HostReturn::Ok(serde_json::Value::Bool(true))),
+        Err(message) => (Vec::new(), HostReturn::Error { message }),
+    }
+}
+
+/// The answer to a plugin that named something this account can't see.
+fn not_listed(place: &str) -> HostReturn {
+    HostReturn::Error {
+        message: format!("{place} isn't a conversation or server this account can see"),
+    }
+}
+
 /// The name a renamed upload goes under: the last part of what the chain
 /// answered, so a plugin can't send a file called `../../x`, and the file's own
 /// name when what it answered has no usable part.
@@ -1525,5 +1925,365 @@ mod tests {
             crate::plugins::grants::Ask::Allowed,
             "the answer is what the gate finds on the plugin's next request"
         );
+    }
+
+    /// A conversation whose timeline holds `message`, with a Discord account
+    /// linked behind it.
+    fn with_message(message: crate::chat::ChatMessage) -> Application {
+        let mut app = connected();
+        app.state.discord_user = Some("1".into());
+        app.apply(Event::Timeline {
+            room: "dm".into(),
+            messages: vec![Arc::new(message)],
+        });
+        app
+    }
+
+    /// A message of the open conversation, as a timeline sends one.
+    fn a_message(item: &str) -> crate::chat::ChatMessage {
+        crate::chat::ChatMessage {
+            id: item.into(),
+            item: item.into(),
+            author: "Bob".into(),
+            body: "something".into(),
+            can_reply: true,
+            can_edit: true,
+            can_react: true,
+            ..Default::default()
+        }
+    }
+
+    fn plugin() -> yapfast_plugin_api::PluginId {
+        yapfast_plugin_api::PluginId::parse("dev.local.actions").expect("an id")
+    }
+
+    /// §17.2's presence group: what a plugin sets is what the person's own
+    /// switches set.
+    #[test]
+    fn a_plugins_presence_goes_where_the_persons_own_switches_go() {
+        let mut app = connected();
+        app.state.discord_user = Some("1".into());
+
+        let (effects, answer) = app.plugins_call(
+            &plugin(),
+            crate::plugins::state::AppCall::SetStatus {
+                status: "dnd".into(),
+            },
+        );
+        assert!(matches!(
+            effects.as_slice(),
+            [AppEffect::Backend(Command::Discord(
+                crate::chat::DiscordCommand::SetStatus(status)
+            ))] if status == "dnd"
+        ));
+        assert!(matches!(answer, HostReturn::Ok(_)));
+
+        let (effects, _) = app.plugins_call(
+            &plugin(),
+            crate::plugins::state::AppCall::SetCustomStatus {
+                emoji: Some("🐛".into()),
+                text: " debugging ".into(),
+                clear_after: Some(600),
+            },
+        );
+        let [
+            AppEffect::Backend(Command::Discord(crate::chat::DiscordCommand::SetCustomStatus(
+                Some(status),
+            ))),
+        ] = effects.as_slice()
+        else {
+            panic!("a custom status is one command");
+        };
+        assert_eq!(status.text, "debugging");
+        assert_eq!(status.emoji.as_deref(), Some("🐛"));
+        assert!(status.expires_at_ms.is_some(), "it clears when asked");
+
+        // Nothing written and no emoji clears it, as the person's own field
+        // does.
+        let (effects, _) = app.plugins_call(
+            &plugin(),
+            crate::plugins::state::AppCall::SetCustomStatus {
+                emoji: None,
+                text: "   ".into(),
+                clear_after: None,
+            },
+        );
+        assert!(matches!(
+            effects.as_slice(),
+            [AppEffect::Backend(Command::Discord(
+                crate::chat::DiscordCommand::SetCustomStatus(None)
+            ))]
+        ));
+
+        // The game Discord sees this account play is the one activity Yapfast
+        // has, so it is the one a plugin shows and clears.
+        let (effects, _) = app.plugins_call(
+            &plugin(),
+            crate::plugins::state::AppCall::SetActivity { enabled: true },
+        );
+        assert!(app.state.discord_show_game);
+        assert!(matches!(
+            effects.as_slice(),
+            [AppEffect::Backend(Command::Discord(
+                crate::chat::DiscordCommand::ShowGame(true)
+            ))]
+        ));
+        let (effects, _) = app.plugins_call(
+            &plugin(),
+            crate::plugins::state::AppCall::SetActivity { enabled: false },
+        );
+        assert!(!app.state.discord_show_game);
+        assert!(matches!(
+            effects.as_slice(),
+            [AppEffect::Backend(Command::Discord(
+                crate::chat::DiscordCommand::ShowGame(false)
+            ))]
+        ));
+
+        // Without an account behind it, nothing is claimed.
+        let mut unlinked = connected();
+        let (_, answer) = unlinked.plugins_call(
+            &plugin(),
+            crate::plugins::state::AppCall::SetStatus {
+                status: "idle".into(),
+            },
+        );
+        assert!(matches!(answer, HostReturn::Error { .. }));
+    }
+
+    /// A conversation with something unread, and a Discord DM beside it.
+    fn unread_and_a_discord_dm() -> Application {
+        let mut app = Application::default();
+        app.state.discord_user = Some("1".into());
+        app.apply(Event::Connected {
+            user: "@alice:test".into(),
+            trusted: true,
+            storage: "test",
+        });
+        app.apply(Event::Sync(true));
+        app.apply(Event::Rooms(crate::chat::RoomIndex {
+            rooms: vec![
+                crate::chat::ChatRoom {
+                    unread: 3,
+                    ..preview_room("dm", "DM", true, 2)
+                },
+                crate::chat::ChatRoom {
+                    id: "discord:@me:7".into(),
+                    network: crate::network::Network::Discord,
+                    person: Some("7".into()),
+                    ..preview_room("discord:@me:7", "Sam", true, 2)
+                },
+            ],
+            servers: vec![],
+        }));
+        app
+    }
+
+    /// §17.2's reading state group: the same commands the person's own menu
+    /// sends, and a place nobody can see is refused.
+    #[test]
+    fn a_plugin_marks_a_conversation_read_and_mutes_it() {
+        let mut app = unread_and_a_discord_dm();
+        let (effects, answer) = app.plugins_call(
+            &plugin(),
+            crate::plugins::state::AppCall::MarkRead { room: "dm".into() },
+        );
+        assert!(matches!(
+            effects.as_slice(),
+            [AppEffect::Backend(Command::MarkRead { room, .. })] if room == "dm"
+        ));
+        assert!(matches!(answer, HostReturn::Ok(_)));
+
+        let (effects, _) = app.plugins_call(
+            &plugin(),
+            crate::plugins::state::AppCall::SetMute {
+                room: "discord:@me:7".into(),
+                muting: crate::chat::Muting::Minutes(60),
+            },
+        );
+        assert!(matches!(
+            effects.as_slice(),
+            [AppEffect::Backend(Command::Discord(crate::chat::DiscordCommand::Mute {
+                room,
+                muting,
+            }))] if room == "discord:@me:7"
+                && *muting == crate::chat::Muting::Minutes(60)
+        ));
+
+        let (effects, answer) = app.plugins_call(
+            &plugin(),
+            crate::plugins::state::AppCall::MarkRead {
+                room: "nowhere".into(),
+            },
+        );
+        assert!(effects.is_empty());
+        assert!(
+            matches!(answer, HostReturn::Error { .. }),
+            "a place this account can't see is refused"
+        );
+    }
+
+    /// §17.2's navigation group opens a room where a click in the sidebar
+    /// does, and refuses one nobody can see.
+    #[test]
+    fn a_plugin_opens_a_room() {
+        let mut app = unread_and_a_discord_dm();
+        let (_, answer) = app.plugins_call(
+            &plugin(),
+            crate::plugins::state::AppCall::OpenRoom {
+                room: "discord:@me:7".into(),
+            },
+        );
+        assert!(matches!(answer, HostReturn::Ok(_)));
+        assert_eq!(app.state.selected.as_deref(), Some("discord:@me:7"));
+
+        let (_, answer) = app.plugins_call(
+            &plugin(),
+            crate::plugins::state::AppCall::OpenRoom {
+                room: "nowhere".into(),
+            },
+        );
+        assert!(matches!(answer, HostReturn::Error { .. }));
+    }
+
+    /// §17.2's navigation group, which writes nothing itself: it leaves the
+    /// composer in the state a click on Reply or Edit leaves it in.
+    #[test]
+    fn a_plugin_starts_a_reply_and_an_edit() {
+        let mut app = with_message(a_message("m1"));
+        let (_, answer) = app.plugins_call(
+            &plugin(),
+            crate::plugins::state::AppCall::StartReply {
+                room: "dm".into(),
+                message: "m1".into(),
+            },
+        );
+        assert!(matches!(answer, HostReturn::Ok(_)));
+        assert!(matches!(
+            app.state.compose.get("dm"),
+            Some(Compose::Reply { item, .. }) if item == "m1"
+        ));
+
+        app.plugins_call(
+            &plugin(),
+            crate::plugins::state::AppCall::StartEdit {
+                room: "dm".into(),
+                message: "m1".into(),
+            },
+        );
+        assert!(matches!(
+            app.state.compose.get("dm"),
+            Some(Compose::Edit { item, .. }) if item == "m1"
+        ));
+
+        // A message the open conversation doesn't hold is refused rather than
+        // guessed at.
+        let (_, answer) = app.plugins_call(
+            &plugin(),
+            crate::plugins::state::AppCall::StartReply {
+                room: "dm".into(),
+                message: "not-here".into(),
+            },
+        );
+        assert!(matches!(answer, HostReturn::Error { .. }));
+    }
+
+    /// §17.2's messages group: the reactions Yapfast holds for a message.
+    #[test]
+    fn a_plugin_reads_the_reactions_the_open_timeline_holds() {
+        let mut message = a_message("m1");
+        message.reactions = vec![crate::chat::Reaction {
+            key: "👍".into(),
+            count: 2,
+            mine: true,
+        }];
+        let mut app = with_message(message);
+        let (_, answer) = app.plugins_call(
+            &plugin(),
+            crate::plugins::state::AppCall::Reactors {
+                room: "dm".into(),
+                message: "m1".into(),
+            },
+        );
+        assert_eq!(
+            answer,
+            HostReturn::Ok(serde_json::json!([
+                { "emoji": "👍", "count": 2, "me": true }
+            ]))
+        );
+
+        let (_, answer) = app.plugins_call(
+            &plugin(),
+            crate::plugins::state::AppCall::Reactors {
+                room: "dm".into(),
+                message: "elsewhere".into(),
+            },
+        );
+        assert!(matches!(answer, HostReturn::Error { .. }));
+    }
+
+    /// §17.2's servers group: Yapfast's own permissions decide, so a plugin
+    /// gets no further than the person would.
+    #[test]
+    fn a_plugin_changes_a_server_only_where_the_person_may() {
+        let mut app = connected();
+        app.apply(Event::Rooms(crate::chat::RoomIndex {
+            rooms: vec![preview_room("dm", "DM", true, 2)],
+            servers: vec![crate::chat::ChatServer {
+                id: "discord:10".into(),
+                name: "Friends".into(),
+                discord: true,
+                ..Default::default()
+            }],
+        }));
+        for request in [
+            crate::plugins::state::AppCall::PauseInvites {
+                server: "discord:10".into(),
+                invites: true,
+                dms: false,
+                hours: 1,
+            },
+            crate::plugins::state::AppCall::AddEmoji {
+                server: "discord:10".into(),
+                name: "bug".into(),
+                image: b"\x89PNG\r\n\x1a\n".to_vec(),
+            },
+            crate::plugins::state::AppCall::AddSticker {
+                server: "discord:10".into(),
+                name: "bug".into(),
+                tags: "🐛".into(),
+                description: String::new(),
+                image: b"\x89PNG\r\n\x1a\n".to_vec(),
+            },
+        ] {
+            let (effects, answer) = app.plugins_call(&plugin(), request);
+            assert!(effects.is_empty(), "nothing is asked of Discord");
+            assert!(
+                matches!(answer, HostReturn::Error { .. }),
+                "no permission there, so no change"
+            );
+        }
+    }
+
+    /// Audio: what isn't a sound, and words that aren't any, are refused here
+    /// rather than at the speakers.
+    #[test]
+    fn a_sound_that_isnt_one_is_refused_and_so_is_silence_spoken() {
+        let mut app = connected();
+        let (effects, answer) = app.plugins_call(
+            &plugin(),
+            crate::plugins::state::AppCall::PlaySound {
+                sound: b"not a sound".to_vec(),
+                volume: None,
+            },
+        );
+        assert!(effects.is_empty());
+        assert!(matches!(answer, HostReturn::Error { .. }));
+
+        let (_, answer) = app.plugins_call(
+            &plugin(),
+            crate::plugins::state::AppCall::Speak { text: "   ".into() },
+        );
+        assert!(matches!(answer, HostReturn::Error { .. }));
     }
 }

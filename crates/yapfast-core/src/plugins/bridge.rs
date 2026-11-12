@@ -30,11 +30,12 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use yapfast_plugin_api::call::{
-    self, ClearSlot, CommandInvocation, CommandOutcome, CopyText, DraftRequest, EditMessage,
-    HostCall, HostReturn, HttpRequest, InsertText, Line, MessageGet, MessageHistory, MessageRef,
-    NotifySend, OpenDialog, OpenUrl, PeopleGet, PeopleMember, PluginCall, PluginSubscribe,
-    ReactMessage, RoomGet, RoomsList, SendMessage, SetSlot, SettingsNews, SlotDrawn, StorageGet,
-    StorageList, StorageSet, TimerCancel, TimerRequest,
+    self, AddEmoji, AddSticker, ClearSlot, CommandInvocation, CommandOutcome, CopyText,
+    DraftRequest, EditMessage, HostCall, HostReturn, HttpRequest, InsertText, Line, MessageGet,
+    MessageHistory, MessageRef, Mute, NotifySend, OpenDialog, OpenUrl, PauseInvites, PeopleGet,
+    PeopleMember, PlaySound, PluginCall, PluginSubscribe, ReactMessage, RoomGet, RoomsList,
+    SendMessage, SetActivity, SetCustomStatus, SetMute, SetSlot, SetStatus, SettingsNews,
+    SlotDrawn, Speak, StorageGet, StorageList, StorageSet, TimerCancel, TimerRequest,
 };
 use yapfast_plugin_api::capability::{Capability, HostPattern};
 use yapfast_plugin_api::event::{EventEnvelope, EventKind, TopicEvent};
@@ -1821,6 +1822,16 @@ const GESTURE_WINDOW: Duration = Duration::from_secs(30);
 const SEND_LIMIT: usize = 5;
 const SEND_WINDOW: Duration = Duration::from_secs(10);
 
+/// The largest picture a plugin may bring for `discord.add_emoji`, and for
+/// `discord.add_sticker`: Discord's own caps, so what Yapfast carries is what
+/// Discord would take.
+const MAX_ADDED_EMOJI_BYTES: usize = 256 << 10;
+const MAX_ADDED_STICKER_BYTES: usize = 512 << 10;
+
+/// The largest sound `audio.play` may bring. A frame carries a megabyte, so
+/// this is the sound a plugin can hand over at all.
+const MAX_PLAYED_SOUND_BYTES: usize = 512 << 10;
+
 /// How long the parent waits for one plugin's decoration: the helper's own
 /// budget is 16 ms, and the rest is the frame it takes to get there.
 const DECORATE_TIMEOUT: Duration = Duration::from_millis(250);
@@ -3192,6 +3203,113 @@ impl Session {
             call::method::OPEN_URL => request
                 .parse::<OpenUrl>()
                 .map(|open| AppCall::Open { url: open.url }),
+            call::method::DISCORD_SET_STATUS => request
+                .parse::<SetStatus>()
+                .map(|set| AppCall::SetStatus { status: set.status }),
+            call::method::DISCORD_SET_CUSTOM_STATUS => {
+                request
+                    .parse::<SetCustomStatus>()
+                    .map(|set| AppCall::SetCustomStatus {
+                        emoji: set.emoji,
+                        text: set.text,
+                        clear_after: set.clear_after,
+                    })
+            }
+            call::method::DISCORD_SET_ACTIVITY => {
+                request
+                    .parse::<SetActivity>()
+                    .map(|set| AppCall::SetActivity {
+                        enabled: set.enabled,
+                    })
+            }
+            // Nothing to read: clearing an activity has no argument.
+            call::method::DISCORD_CLEAR_ACTIVITY => Ok(AppCall::SetActivity { enabled: false }),
+            call::method::DISCORD_MARK_READ => request
+                .parse::<RoomGet>()
+                .map(|room| AppCall::MarkRead { room: room.room }),
+            call::method::DISCORD_SET_MUTE => {
+                request.parse::<SetMute>().map(|set| AppCall::SetMute {
+                    room: set.room,
+                    muting: muting(set.muting),
+                })
+            }
+            call::method::DISCORD_OPEN_ROOM => request
+                .parse::<RoomGet>()
+                .map(|room| AppCall::OpenRoom { room: room.room }),
+            call::method::DISCORD_START_REPLY => {
+                request
+                    .parse::<MessageRef>()
+                    .map(|asked| AppCall::StartReply {
+                        room: asked.room,
+                        message: asked.message,
+                    })
+            }
+            call::method::DISCORD_START_EDIT => {
+                request
+                    .parse::<MessageRef>()
+                    .map(|asked| AppCall::StartEdit {
+                        room: asked.room,
+                        message: asked.message,
+                    })
+            }
+            call::method::DISCORD_REACTORS => {
+                request
+                    .parse::<MessageRef>()
+                    .map(|asked| AppCall::Reactors {
+                        room: asked.room,
+                        message: asked.message,
+                    })
+            }
+            call::method::DISCORD_PAUSE_INVITES => {
+                request
+                    .parse::<PauseInvites>()
+                    .map(|asked| AppCall::PauseInvites {
+                        server: asked.server,
+                        invites: asked.invites,
+                        dms: asked.dms,
+                        hours: asked.hours,
+                    })
+            }
+            // A picture a plugin brings is base64 inside the one frame the
+            // call arrived in, so a picture over the cap is refused here
+            // rather than carried, decoded and remembered.
+            call::method::DISCORD_ADD_EMOJI => match request.parse::<AddEmoji>() {
+                Err(error) => return Some(wrong_payload(method, error)),
+                Ok(emoji) => match brought(&emoji.image_base64, MAX_ADDED_EMOJI_BYTES) {
+                    Ok(image) => Ok(AppCall::AddEmoji {
+                        server: emoji.server,
+                        name: emoji.name,
+                        image,
+                    }),
+                    Err(message) => return Some(HostReturn::Error { message }),
+                },
+            },
+            call::method::DISCORD_ADD_STICKER => match request.parse::<AddSticker>() {
+                Err(error) => return Some(wrong_payload(method, error)),
+                Ok(sticker) => match brought(&sticker.image_base64, MAX_ADDED_STICKER_BYTES) {
+                    Ok(image) => Ok(AppCall::AddSticker {
+                        server: sticker.server,
+                        name: sticker.name,
+                        tags: sticker.tags,
+                        description: sticker.description,
+                        image,
+                    }),
+                    Err(message) => return Some(HostReturn::Error { message }),
+                },
+            },
+            call::method::AUDIO_PLAY => match request.parse::<PlaySound>() {
+                Err(error) => return Some(wrong_payload(method, error)),
+                Ok(play) => match brought(&play.sound_base64, MAX_PLAYED_SOUND_BYTES) {
+                    Ok(sound) => Ok(AppCall::PlaySound {
+                        sound,
+                        volume: play.volume,
+                    }),
+                    Err(message) => return Some(HostReturn::Error { message }),
+                },
+            },
+            call::method::AUDIO_SPEAK => request
+                .parse::<Speak>()
+                .map(|speak| AppCall::Speak { text: speak.text }),
             _ => return None,
         };
         let app = match parsed {
@@ -3231,6 +3349,17 @@ impl Session {
                     ),
                 });
             }
+        }
+        // A navigation or compose action needs no capability, and does need a
+        // person's own hand behind it: a plugin must not move the window or
+        // start a reply while nobody is there.
+        if needs_gesture(&app) && !shared.has_gesture() {
+            return Some(HostReturn::Denied {
+                reason: format!(
+                    "{plugin} wants to move the window or write the composer \
+                     without you doing anything: that needs a click of yours first"
+                ),
+            });
         }
         shared.announce(Notice::Call {
             plugin: plugin.clone(),
@@ -4295,6 +4424,21 @@ fn is_app_call(method: &str) -> bool {
             | call::method::NOTIFY_SEND
             | call::method::CLIPBOARD_WRITE
             | call::method::OPEN_URL
+            | call::method::DISCORD_SET_STATUS
+            | call::method::DISCORD_SET_CUSTOM_STATUS
+            | call::method::DISCORD_SET_ACTIVITY
+            | call::method::DISCORD_CLEAR_ACTIVITY
+            | call::method::DISCORD_MARK_READ
+            | call::method::DISCORD_SET_MUTE
+            | call::method::DISCORD_OPEN_ROOM
+            | call::method::DISCORD_START_REPLY
+            | call::method::DISCORD_START_EDIT
+            | call::method::DISCORD_REACTORS
+            | call::method::DISCORD_PAUSE_INVITES
+            | call::method::DISCORD_ADD_EMOJI
+            | call::method::DISCORD_ADD_STICKER
+            | call::method::AUDIO_PLAY
+            | call::method::AUDIO_SPEAK
     )
 }
 
@@ -4308,12 +4452,62 @@ fn app_capability(call: &AppCall) -> Option<Capability> {
         AppCall::Notify { .. } => Some(Capability::Notifications),
         AppCall::Copy { .. } => Some(Capability::ClipboardWrite),
         AppCall::Open { .. } => Some(Capability::OpenApp),
+        AppCall::SetStatus { .. }
+        | AppCall::SetCustomStatus { .. }
+        | AppCall::SetActivity { .. } => Some(Capability::PresenceWrite),
+        AppCall::MarkRead { .. } | AppCall::SetMute { .. } => Some(Capability::NotificationsManage),
+        // Who reacted to a message is what people said, read the way the
+        // history and the message calls read it.
+        AppCall::Reactors { .. } => Some(Capability::MessagesRead),
+        AppCall::PauseInvites { .. } | AppCall::AddEmoji { .. } | AppCall::AddSticker { .. } => {
+            Some(Capability::ServersManage)
+        }
+        AppCall::PlaySound { .. } => Some(Capability::AudioPlay),
+        AppCall::Speak { .. } => Some(Capability::AudioSpeak),
         // Navigation and the composer need no capability; the plan gives them
         // a recent gesture instead, and the composer is the person's own text.
         AppCall::JumpTo { .. }
         | AppCall::GetDraft { .. }
         | AppCall::SetDraft { .. }
-        | AppCall::Insert { .. } => None,
+        | AppCall::Insert { .. }
+        | AppCall::OpenRoom { .. }
+        | AppCall::StartReply { .. }
+        | AppCall::StartEdit { .. } => None,
+    }
+}
+
+/// Whether a call stands behind a person's own gesture.
+///
+/// §9.1: opening a room, starting a reply and starting an edit need no
+/// capability, and they do need a click of the person's behind them.
+fn needs_gesture(call: &AppCall) -> bool {
+    matches!(
+        call,
+        AppCall::OpenRoom { .. } | AppCall::StartReply { .. } | AppCall::StartEdit { .. }
+    )
+}
+
+/// The bytes a plugin brought base64 inside its call, or the sentence saying
+/// why they aren't usable.
+fn brought(encoded: &str, cap: usize) -> Result<Vec<u8>, String> {
+    let bytes = call::base64::decode(encoded)
+        .ok_or_else(|| "the bytes this call carries aren't base64".to_owned())?;
+    if bytes.len() > cap {
+        return Err(format!(
+            "this call carries {} bytes, and {} is the most it may",
+            bytes.len(),
+            cap
+        ));
+    }
+    Ok(bytes)
+}
+
+/// `discord.set_mute`'s length of time, as the application mutes with.
+fn muting(mute: Mute) -> crate::chat::Muting {
+    match mute {
+        Mute::Off => crate::chat::Muting::Off,
+        Mute::Always => crate::chat::Muting::Always,
+        Mute::Minutes(minutes) => crate::chat::Muting::Minutes(minutes),
     }
 }
 
@@ -7013,6 +7207,272 @@ mod tests {
         assert!(
             written.recv_timeout(Duration::from_millis(50)).is_err(),
             "nothing is asked of a helper when nothing intercepts"
+        );
+    }
+
+    /// A manifest that declares `capabilities` and nothing else.
+    fn action_manifest(capabilities: &[&str]) -> String {
+        let declared: Vec<String> = capabilities
+            .iter()
+            .map(|capability| format!("\"{capability}\""))
+            .collect();
+        format!(
+            r#"{{"api":1,"id":"com.example.actions","name":"Actions","version":"1.0.0",
+                "wasm":"plugin.wasm",
+                "permissions":{{"capabilities":[{}]}}}}"#,
+            declared.join(",")
+        )
+    }
+
+    /// One curated action of PLAN §17.2 or an audio call: the method, its
+    /// payload, the capability it needs, and what the application is asked to
+    /// do.
+    #[allow(clippy::type_complexity)]
+    fn curated_actions() -> Vec<(&'static str, serde_json::Value, Option<Capability>, AppCall)> {
+        let picture = call::base64::encode(&[0x89, b'P', b'N', b'G']);
+        vec![
+            (
+                call::method::DISCORD_SET_STATUS,
+                serde_json::json!({ "status": "dnd" }),
+                Some(Capability::PresenceWrite),
+                AppCall::SetStatus {
+                    status: "dnd".into(),
+                },
+            ),
+            (
+                call::method::DISCORD_SET_CUSTOM_STATUS,
+                serde_json::json!({ "text": "away", "clear_after": 600 }),
+                Some(Capability::PresenceWrite),
+                AppCall::SetCustomStatus {
+                    emoji: None,
+                    text: "away".into(),
+                    clear_after: Some(600),
+                },
+            ),
+            (
+                call::method::DISCORD_SET_ACTIVITY,
+                serde_json::json!({ "enabled": true }),
+                Some(Capability::PresenceWrite),
+                AppCall::SetActivity { enabled: true },
+            ),
+            (
+                call::method::DISCORD_CLEAR_ACTIVITY,
+                serde_json::Value::Null,
+                Some(Capability::PresenceWrite),
+                AppCall::SetActivity { enabled: false },
+            ),
+            (
+                call::method::DISCORD_MARK_READ,
+                serde_json::json!({ "room": "room-1" }),
+                Some(Capability::NotificationsManage),
+                AppCall::MarkRead {
+                    room: "room-1".into(),
+                },
+            ),
+            (
+                call::method::DISCORD_SET_MUTE,
+                serde_json::json!({ "room": "room-1", "muting": { "minutes": 30 } }),
+                Some(Capability::NotificationsManage),
+                AppCall::SetMute {
+                    room: "room-1".into(),
+                    muting: crate::chat::Muting::Minutes(30),
+                },
+            ),
+            (
+                call::method::DISCORD_OPEN_ROOM,
+                serde_json::json!({ "room": "room-1" }),
+                None,
+                AppCall::OpenRoom {
+                    room: "room-1".into(),
+                },
+            ),
+            (
+                call::method::DISCORD_START_REPLY,
+                serde_json::json!({ "room": "room-1", "message": "message-1" }),
+                None,
+                AppCall::StartReply {
+                    room: "room-1".into(),
+                    message: "message-1".into(),
+                },
+            ),
+            (
+                call::method::DISCORD_START_EDIT,
+                serde_json::json!({ "room": "room-1", "message": "message-1" }),
+                None,
+                AppCall::StartEdit {
+                    room: "room-1".into(),
+                    message: "message-1".into(),
+                },
+            ),
+            (
+                call::method::DISCORD_REACTORS,
+                serde_json::json!({ "room": "room-1", "message": "message-1" }),
+                Some(Capability::MessagesRead),
+                AppCall::Reactors {
+                    room: "room-1".into(),
+                    message: "message-1".into(),
+                },
+            ),
+            (
+                call::method::DISCORD_PAUSE_INVITES,
+                serde_json::json!({ "server": "discord:1", "invites": true, "hours": 1 }),
+                Some(Capability::ServersManage),
+                AppCall::PauseInvites {
+                    server: "discord:1".into(),
+                    invites: true,
+                    dms: false,
+                    hours: 1,
+                },
+            ),
+            (
+                call::method::DISCORD_ADD_EMOJI,
+                serde_json::json!({ "server": "discord:1", "name": "bug", "image_base64": picture }),
+                Some(Capability::ServersManage),
+                AppCall::AddEmoji {
+                    server: "discord:1".into(),
+                    name: "bug".into(),
+                    image: vec![0x89, b'P', b'N', b'G'],
+                },
+            ),
+            (
+                call::method::DISCORD_ADD_STICKER,
+                serde_json::json!({ "server": "discord:1", "name": "bug", "image_base64": picture }),
+                Some(Capability::ServersManage),
+                AppCall::AddSticker {
+                    server: "discord:1".into(),
+                    name: "bug".into(),
+                    tags: String::new(),
+                    description: String::new(),
+                    image: vec![0x89, b'P', b'N', b'G'],
+                },
+            ),
+            (
+                call::method::AUDIO_PLAY,
+                serde_json::json!({ "sound_base64": call::base64::encode(b"a sound") }),
+                Some(Capability::AudioPlay),
+                AppCall::PlaySound {
+                    sound: b"a sound".to_vec(),
+                    volume: None,
+                },
+            ),
+            (
+                call::method::AUDIO_SPEAK,
+                serde_json::json!({ "text": "the build failed" }),
+                Some(Capability::AudioSpeak),
+                AppCall::Speak {
+                    text: "the build failed".into(),
+                },
+            ),
+        ]
+    }
+
+    /// Asks one action of a session around a plugin declaring `capabilities`,
+    /// with a gesture behind it, and answers what came back.
+    #[allow(clippy::type_complexity)]
+    fn ask_action(
+        method: &str,
+        payload: serde_json::Value,
+        capabilities: &[&str],
+    ) -> (HostReturn, std::sync::mpsc::Receiver<Notice>) {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(
+            directory.path(),
+            &action_manifest(capabilities),
+            b"not a real module",
+        );
+        let (wake, notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        // A person clicked a moment ago, so only the capability can refuse
+        // what the call asks for.
+        shared.gesture();
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+        let call = HostCall {
+            method: method.to_owned(),
+            payload,
+        };
+        runtime().block_on(async { session.on_call(&shared, 9, plugin, call) });
+        let answer = match written.recv_timeout(Duration::from_millis(50)) {
+            Ok(frame) => returned(&frame).1,
+            // Nothing was written: the application is answering it.
+            Err(_) => HostReturn::Pending {
+                tag: "the application".into(),
+            },
+        };
+        (answer, notices)
+    }
+
+    /// M9's exit for the curated actions: each needs the capability §9.1 gives
+    /// it, and with it the application is asked to do it.
+    #[test]
+    fn every_curated_action_needs_its_capability_and_then_reaches_the_application() {
+        for (method, payload, capability, expected) in curated_actions() {
+            let (answer, notices) = ask_action(method, payload.clone(), &[]);
+            match capability {
+                Some(capability) => {
+                    let HostReturn::Denied { reason } = answer else {
+                        panic!("{method} should need `{capability}`: {answer:?}");
+                    };
+                    assert!(
+                        reason.contains(capability.as_str()),
+                        "{method} names the capability it needs: {reason}"
+                    );
+                    assert!(
+                        notices.recv_timeout(Duration::from_millis(50)).is_err(),
+                        "{method} reaches no one without `{capability}`"
+                    );
+                }
+                None => assert!(
+                    matches!(answer, HostReturn::Pending { .. }),
+                    "navigation needs no capability: {method} {answer:?}"
+                ),
+            }
+
+            let declared: Vec<&str> = capability.map(|c| vec![c.as_str()]).unwrap_or_default();
+            let (answer, notices) = ask_action(method, payload, &declared);
+            assert!(
+                matches!(answer, HostReturn::Pending { .. }),
+                "with its capability {method} waits for the application: {answer:?}"
+            );
+            let notice = notices
+                .recv_timeout(Duration::from_secs(2))
+                .unwrap_or_else(|_| panic!("{method} should reach the application"));
+            let Notice::Call { request, .. } = notice else {
+                panic!("{method} asks the application: {notice:?}");
+            };
+            assert_eq!(request, expected, "{method}");
+        }
+    }
+
+    /// §9.1's rule for navigation: it needs no capability, and it does need a
+    /// person's own hand behind it.
+    #[test]
+    fn a_navigation_action_without_a_gesture_is_refused() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(
+            directory.path(),
+            &action_manifest(&[]),
+            b"not a real module",
+        );
+        let (wake, notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+        let call = HostCall::new(
+            call::method::DISCORD_OPEN_ROOM,
+            RoomGet {
+                room: "room-1".to_owned(),
+            },
+        )
+        .expect("a call payload");
+        runtime().block_on(async { session.on_call(&shared, 11, plugin, call) });
+        let (id, answer) = returned(&next_frame(&written));
+        assert_eq!(id, 11);
+        let HostReturn::Denied { reason } = answer else {
+            panic!("opening a room with nobody there is refused: {answer:?}");
+        };
+        assert!(reason.contains("click"), "{reason}");
+        assert!(
+            notices.recv_timeout(Duration::from_millis(50)).is_err(),
+            "the window doesn't move"
         );
     }
 }
