@@ -2020,13 +2020,29 @@ impl Sink {
                 self.effort,
                 self.hardware,
             )?)),
-            // The encoder that reads pictures, opened first whichever rung ends
-            // up encoding: an encoder FFmpeg has for this codec is what says
-            // which card the stream is on, and NVENC's is the one NVIDIA's own
-            // import can feed. It is the one [`Sink::dmabuf`] falls back to.
+            // The session that reads pictures, which is also the one [`Sink::dmabuf`]
+            // falls back to: the card's own on a machine with NVIDIA's, or an
+            // encoder FFmpeg opens on any other.
             #[cfg(target_os = "linux")]
             Footage::Dmabuf => {
-                let encoder = Encoder::new(
+                // NVENC is on the card the picture is already on, so the driver
+                // imports it where the compositor drew it and converts it there,
+                // and the session that reads it needs no copy of any pixel. On a
+                // machine with NVIDIA's card that is the path to open first:
+                // FFmpeg has no way from a descriptor into NVENC, so its session
+                // would be one opened for a picture it can't read and given up
+                // again — a teardown the card's own session does not survive (see
+                // [`Sink::offers`]), and a log line for an encoder that never
+                // encodes a frame. A card that can't take the path says why once,
+                // and every picture goes the processor's way, through the session
+                // opened below.
+                #[cfg(nvcuda)]
+                if encode::nvidia_card()
+                    && let Some(cuda) = Cuda::open(codec, width, height, self.fps, aimed)
+                {
+                    return Ok(Encoding::Cuda(cuda));
+                }
+                Ok(Encoding::Picture(Encoder::new(
                     codec,
                     width,
                     height,
@@ -2034,32 +2050,7 @@ impl Sink {
                     aimed,
                     self.effort,
                     self.hardware,
-                )?;
-                // NVENC is on the card the picture is already on, so the driver
-                // imports it where the compositor drew it and converts it there,
-                // and the session that reads it needs no copy of any pixel. The
-                // encoder opened above is given up before that one opens rather
-                // than kept beside it: a driver does not survive a session's
-                // teardown while another is live (see [`Sink::offers`]). A card
-                // that can't take the path says why once, and every picture goes
-                // the processor's way, through the session opened again for it.
-                #[cfg(nvcuda)]
-                if encoder.engine().ends_with("_nvenc") {
-                    drop(encoder);
-                    if let Some(cuda) = Cuda::open(codec, width, height, self.fps, aimed) {
-                        return Ok(Encoding::Cuda(cuda));
-                    }
-                    return Ok(Encoding::Picture(Encoder::new(
-                        codec,
-                        width,
-                        height,
-                        self.fps,
-                        aimed,
-                        self.effort,
-                        self.hardware,
-                    )?));
-                }
-                Ok(Encoding::Picture(encoder))
+                )?))
             }
         }
     }
@@ -4787,6 +4778,11 @@ fn capture_dmabufs(
         let Some(shot) = last.as_ref() else {
             continue;
         };
+        // Whether this pass has a picture that has just arrived, which the stream
+        // sends and the window is shown: both are answered once, and the two are
+        // not the same — a still desktop is one the window can be shown again
+        // without the stream sending it.
+        let arrived = fresh;
         fresh = false;
         let sent = fit(shot.width, shot.height, max_width, max_height);
         if size != Some(sent) {
@@ -4854,10 +4850,16 @@ fn capture_dmabufs(
         }
         // The picture the window shows where the compositor drew it: the tile is
         // the descriptor itself, published where a slot is free and only while
-        // something shows one. A window that can't sample it after all — its
-        // socket has gone, or it stopped retiring slots — leaves the share on the
-        // processor, which is where its pixels are.
-        if publishing(wanted, preview_pending)
+        // something shows one. Every picture that arrives is published rather
+        // than the one that was there when the preview came up: the capture's
+        // buffers cycle through the compositor's pool, so a tile left on one of
+        // them shows what that buffer held the last time it came round, and the
+        // window redraws only when it is handed another. A still desktop
+        // publishes nothing, the buffer the window has keeping what it shows. A
+        // window that can't sample one after all — its socket has gone, or it
+        // stopped retiring slots — leaves the share on the processor, which is
+        // where its pixels are.
+        if publishing(wanted, preview_pending || arrived)
             && !readback
             && let Some(_slot) = sink.writer.claim()
         {

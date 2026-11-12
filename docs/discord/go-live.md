@@ -410,7 +410,12 @@ wants one: a viewer joining, a decoder that lost its place, a codec Discord
 chose. A picture that has just arrived is published for the window when a preview is
 wanted, into a slot `frames::Writer::claim` answers, with
 `frames::Writer::publish_dmabuf`: the descriptor and its plane go over the
-stream's socket, and the window imports them. `frames::Writer::dmabuf_showable`
+stream's socket, and the window imports them. Every picture that arrives is
+published while one is wanted, not the one that was there when the tile came
+up: the capture's buffers cycle through the compositor's pool, so a tile left on
+one of them shows what that buffer held the last time it came round, and the
+window draws again only when it is handed another. A still desktop publishes
+nothing, the buffer the window has keeping what it shows. `frames::Writer::dmabuf_showable`
 is asked before any capture opens, and again before a publish that leaves a slot
 free — but it decides the *preview*, not the stream. A window drawing on the
 processor can't sample a descriptor, and before this it took the whole share down
@@ -780,7 +785,13 @@ holds in neither rows nor an array, and a device that isn't the picture's are
 one sentence and the
 processor's copy, which is the ladder every encoder here walks. The session's
 settings are `native/hwenc.c`'s NVENC row, and a test holds the two tables to one
-answer.
+answer. A share whose pictures are descriptors opens this session first on a
+machine with NVIDIA's card (`encode::nvidia_card`, FFmpeg's own CUDA device):
+FFmpeg has no way from a descriptor into NVENC, so its session would be one
+opened for a picture it can't read and given up again, which is a teardown the
+card's own session doesn't survive, and a log line for an encoder that never
+encodes a frame. Where this path can't open, FFmpeg's own session is opened as
+on any other machine, and the processor's copy takes the stream.
 
 What a descriptor can hold here is an NV12 picture in one buffer: that is what
 a picture the card decoded is, and what a VA-API surface is made of without

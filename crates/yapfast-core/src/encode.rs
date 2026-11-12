@@ -146,6 +146,10 @@ unsafe extern "C" {
     /// hasn't got is one no stream can offer, and one it has may still fail to
     /// open on this machine.
     fn yapfast_hwenc_has(name: *const c_char) -> c_int;
+    /// Whether this machine has the card NVENC encodes on, which FFmpeg's own
+    /// CUDA device answers: what a Linux share's DMA-BUF path asks before it
+    /// opens one of FFmpeg's NVENC sessions to find out.
+    fn yapfast_hwenc_nvidia() -> c_int;
     /// What an encoder is asked for beyond the picture: the frame's shape and
     /// rate, the bitrate to aim at, the tuning, the encoders to try and the
     /// kind of GPU the stream asked for.
@@ -1940,6 +1944,24 @@ fn has(name: &str) -> bool {
 
 #[cfg(not(hwenc))]
 fn has(_: &str) -> bool {
+    false
+}
+
+/// Whether this machine has the card NVENC encodes on, which is CUDA's and is
+/// asked once. A Linux share's DMA-BUF path wants the card's own session on that
+/// card — FFmpeg has no path from a descriptor into NVENC — so this says whether
+/// there is one to open without opening FFmpeg's NVENC session to learn it, which
+/// would be a session per codec for a picture it can't read. False where this
+/// build has no hardware encoders, which is what makes the DMA-BUF path open
+/// FFmpeg's own session the way every other machine does.
+#[cfg(all(target_os = "linux", hwenc))]
+pub fn nvidia_card() -> bool {
+    // SAFETY: no arguments, and FFmpeg's own answer to a CUDA device.
+    unsafe { yapfast_hwenc_nvidia() != 0 }
+}
+
+#[cfg(all(target_os = "linux", not(hwenc)))]
+pub fn nvidia_card() -> bool {
     false
 }
 

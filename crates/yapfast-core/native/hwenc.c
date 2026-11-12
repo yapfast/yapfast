@@ -1417,6 +1417,12 @@ void yapfast_hwenc_engine(struct yapfast_hwenc *h, char *name, size_t size) {
  * and one it has may still fail to open on a machine. */
 int yapfast_hwenc_has(const char *name) { return avcodec_find_encoder_by_name(name) != NULL; }
 
+/* Whether this machine has the card NVENC encodes on, which FFmpeg's own CUDA
+ * device answers once: what a Linux share asks before it opens one of FFmpeg's
+ * NVENC sessions to find out, the picture's own path on that card being the one
+ * it wants. */
+int yapfast_hwenc_nvidia(void) { return nvidia_card(); }
+
 /* Changes the bitrate aimed for, from the next frame on, without a
  * keyframe: patches/ in vendor/ffmpeg-src make NVENC, AMF and VA-API follow
  * it, and FFmpeg's own Quick Sync applies it to its running session. Returns
