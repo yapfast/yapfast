@@ -506,6 +506,10 @@ they answer different questions:
 | TinyGo 0.43.0, `-scheduler=none -no-debug` | 11.6 KiB | 2 pages | 2 pages | ~0.7 MiB | under all three |
 | TinyGo 0.43.0, `-opt=z -gc=leaking -scheduler=none -no-debug -panic=trap` | **6.0 KiB** | 2 pages | 2 pages | ~0.7 MiB | under all three |
 | Rust PDK, `plugins/ping` | 160.8 KiB | 17 pages, 1,088 KiB | 18 pages | ~0.9 MiB | under all three |
+| C PDK, `examples/shout` (clang 22, `-O2 -nostdlib -ffreestanding`) | 12.1 KiB | 5 pages, 320 KiB | 5 pages | ~0.65 MiB | under all three |
+| C, the ABI shape alone, `-O2` / `-Oz` | **0.7 KiB** | 2 pages, 128 KiB | 2 pages | ~0.7 MiB | under all three |
+| Zig PDK, `examples/shout` (0.17.1, `ReleaseSmall`) | 56.4 KiB | 17 pages, 1,088 KiB | 19 pages | ~0.64 MiB | under all three |
+| Zig, the ABI shape alone, `ReleaseSmall` | **0.4 KiB** | 17 pages | 17 pages | ~0.7 MiB | under all three |
 | Javy 9.1.0, reads its input and answers | 1,328.1 KiB | 22 pages, 1,408 KiB | 22 pages | ~0.6 MiB (no `yf_*` export to call) | over on size, 2.6× |
 | Extism JS PDK 1.6.1 (`extism-js`, QuickJS-ng + Wizer) | 2,425.9 KiB | 38 pages, 2,432 KiB | **100 pages, 6,400 KiB** | **~5.9 MiB** | over on size (4.7×), memory (1.6×) and resident (1.5×) |
 | quickjs-ng 0.18.0 reactor — the engine floor, not a PDK | 1,523.6 KiB | 34 pages | — | — | over on size alone |
@@ -514,6 +518,19 @@ they answer different questions:
 | GHC 9.12 wasm32-wasi, `-O2 -split-sections`, RTS `-A64k` | 1,460.9 KiB | 7 pages, 448 KiB | **142 pages, 9,088 KiB** | ~1.3 MiB | over on size (2.9×) and memory (2.2×) |
 
 ### Verdicts
+
+**C and Zig** are the two that ship, and they bracket the question. C with
+clang and no libc is 762 bytes and two pages; Zig with `ReleaseSmall` is 435
+bytes, and its 17 pages are not the plugin's data at all — Zig's wasm stack is
+1 MiB by default, so a module that allocates nothing still asks for 1,088 KiB,
+sixteen times what wasm-ld gives C (64 KiB of stack and a page of data). Zig
+0.17.1 has no flag to lower it: `-fstack-size` was rejected, and the linker's
+`-z stack-size` is not something `zig build-exe` passes through, so the floor
+belongs to the language's defaults until that changes. Both examples — the real
+plugins a person would copy — are 12.1 KiB (C) and 56.4 KiB (Zig), and both are
+comfortably under every bar; the difference between them is Zig compiling its
+own panic handler and formatting into the module, which C's `-nostdlib` build
+does not have.
 
 **AssemblyScript** is the control case and the reason "a real language" is not
 the problem: 6.8 KiB and one page for the PDK's own shape, 1.4 KiB of data, no
