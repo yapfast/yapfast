@@ -165,7 +165,7 @@ repository.
   keep the base's contrast.
 - **Bundled, checked files.** Paths are relative, inside the folder, with `/`;
   a URL, `..` or an absolute path is refused. Sounds are decoded whole, under
-  limits (see Sounds). Fonts are `.ttf` or `.otf`,
+  limits (see Sounds), and cursors under theirs (see Cursors). Fonts are `.ttf` or `.otf`,
   parsed whole (inside a guard that refuses a file that panics the parser)
   before anything draws with them. Pictures are PNG, JPEG or WebP, at most
   3840 pixels a side and 2 MiB, and decode whole. SVGs are refused if they hold
@@ -175,7 +175,8 @@ repository.
   be set, so Block, Ban and Delete keep Yapfast's red. While a protected screen
   is open — signing in, a link's confirmation, a plugin's review with its
   permissions, a theme's review — the window shows the stock theme, shape and
-  motion, and the theme comes back when the last one closes.
+  motion and the system's cursors, and the theme comes back when the last one
+  closes.
 - **The way back.** Ctrl+Shift+T shows the default theme until Yapfast starts
   again; `--default-theme` starts with it. A theme that can't be shown at start
   falls back to the default with a notice saying why.
@@ -197,7 +198,8 @@ whatever the setting. A theme's cost is shown before it's installed, measured
 from its files: the memory its fonts hold once registered and its sounds
 once decoded (with its icons' files), how many animations it declares and
 how many are heavy, the most redraws a second they ask for, its text
-effects, how many sounds and icons it ships, and what its layout changes. A clock runs only while an animation may
+effects, how many sounds, icons and cursors it ships (cursors as their
+pictures decoded), and what its layout changes. A clock runs only while an animation may
 move; text effects tick only while one plays.
 
 ### `theme.json`
@@ -680,9 +682,8 @@ An icon is checked as every SVG in a theme is (see Safety) and drawn at the
 size it shows, so it should be square and read at 16 pixels. A theme's icons
 show everywhere Yapfast draws that icon, channel lists and menus included,
 and go back to stock while a protected screen is open. Status dots are drawn
-shapes, not icons, except Idle's `moon`. Pointer cursors stay the system's:
-Slint offers only the standard named cursors, the same on Windows and Linux,
-and no picture of a theme's own.
+shapes, not icons, except Idle's `moon`. Mouse cursors are their own layer:
+see Cursors.
 
 The window draws every icon through the Slint global `IconPack`
 (`ui/media.slint`), one image property per icon that starts as the stock
@@ -692,6 +693,47 @@ way. `src/ui/theme_media.rs` sets them, and the interface events' sounds
 come from the `Cue` global. A new icon in `ui/icons/` needs a property in
 `IconPack`, a line in `theme_media.rs`'s list and its name in
 `yapfast_core::themes::media::ICONS`; a test checks the three agree.
+
+**Cursors** (`cursors`): a theme gives any kind of mouse cursor a PNG of its
+own, by the kind's CSS name: `default`, `pointer` (links and buttons),
+`text`, `grab`, `grabbing`, `not-allowed`, `no-drop`, `wait`, `progress`,
+`help`, `crosshair`, `move`, `copy`, `alias`, and the resize kinds
+`col-resize`, `row-resize`, `ew-resize`, `ns-resize`, `nesw-resize`,
+`nwse-resize`, `n-resize`, `e-resize`, `s-resize`, `w-resize`,
+`ne-resize`, `nw-resize`, `se-resize` and `sw-resize`. A kind it doesn't name
+keeps the system's cursor, and `null` in a variant gives one back.
+
+```json
+"cursors": {
+  "default": { "image": "cursors/arrow.png", "hotspot": [2, 1] },
+  "pointer": { "image": ["cursors/hand.png", "cursors/hand@2x.png"], "hotspot": [9, 2] },
+  "text": { "image": "cursors/beam.png", "hotspot": [16, 16] }
+}
+```
+
+`image` is one picture, or the same picture at up to 4 sizes, smallest
+first and each the same shape; on a screen scaled above 100% the window
+shows the smallest at least as large as the first times the scale, or the
+largest. `hotspot` is the point that clicks, `[x, y]` in pixels from the
+first picture's top left (`[0, 0]` if left out), scaled for the larger
+sizes. A cursor is a PNG of at most 128 pixels a side and 256 KiB, decoded
+whole by the check and again, under the same limits, when the theme shows;
+a picture that doesn't load leaves that kind the system's. 32 pixels, with
+64 for HiDPI, matches the system's cursors. Keep a contrasting outline so
+it shows on every ground, and keep `text` thin: an I-beam that hides the
+caret is a bug. Cursors don't animate: an animated picture shows its first
+frame.
+
+Settings → Themes → Installed → *Cursors* → *Use the theme's cursors* (on)
+turns them off for the theme shown, kept in `layout.json`'s
+`theme_cursors_off`. A protected screen shows the system's cursors. Cursors
+cost their pictures decoded, every size, and nothing per frame: the window
+hands one to the system when the kind under the pointer changes.
+
+Underneath, Slint's core (`vendor/i-slint-core/yapfast_cursors.rs`) asks
+`src/ui/theme_cursor.rs` for a picture before it gives the window a named
+cursor, and gives it a custom one in its place, which Slint's winit backend
+shows as an image cursor on Windows, X11, Wayland and macOS alike.
 
 **Layout** (`layout`): where the panes sit and how messages are laid out,
 each from a closed list. Yapfast moves what it already draws; it never adds

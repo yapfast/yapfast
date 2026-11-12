@@ -133,6 +133,14 @@ six times. Deltas smaller than a notch, as from touchpads that send no phases,
 keep their pace. These are the changes marked `Yapfast:` around
 `accelerate_wheel` in `items/flickable.rs`.
 
+A theme's mouse cursors replace the system's by kind. Before the window gives
+its adapter a built-in cursor, it asks the hook `yapfast_cursors::set` installs
+for a picture of that kind at the window's scale, and gives a custom cursor
+in its place; upstream, only a `MouseCursor.custom` in `.slint` shows a picture.
+Setting the hook again makes each window give its cursor again at the
+pointer's next move. This is `yapfast_cursors.rs` and the changes marked
+`Yapfast:` about cursors in `window.rs`.
+
 A middle click autoscrolls, as browsers do: the innermost flickable under it
 with more to show than fits scrolls towards the pointer, faster the farther
 away the pointer is from where it clicked, until the next press, key or wheel.

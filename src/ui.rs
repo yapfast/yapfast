@@ -68,6 +68,7 @@ mod stickers;
 mod theme;
 mod theme_art;
 mod theme_content;
+mod theme_cursor;
 pub mod theme_layout;
 pub mod theme_look;
 mod theme_media;
@@ -1406,6 +1407,8 @@ struct Layout {
     /// and media; see [`theme_content`].
     #[serde(skip_serializing_if = "std::collections::BTreeSet::is_empty")]
     theme_content: std::collections::BTreeSet<String>,
+    /// Installed themes whose cursors the person turned off, by id.
+    theme_cursors_off: std::collections::BTreeSet<String>,
     /// Closing the window leaves Yapfast in the system tray; on unless turned off.
     close_to_tray: Option<bool>,
     /// Starting Yapfast again on this folder starts another, rather than
