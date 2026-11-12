@@ -27,6 +27,22 @@ pub enum HookKind {
 }
 
 impl HookKind {
+    /// The hooks this build hands to a chain, which is every one but
+    /// [`HookKind::ActivityPrePublish`].
+    ///
+    /// Yapfast does publish an activity — the game it detects, merged into its
+    /// own presence — but that happens in `yapfast-discord`'s session, which has
+    /// no bridge to ask, so nothing dispatches `activity_pre_publish` yet and
+    /// the constant says so rather than leaving it to be guessed. The bridge's
+    /// test holds this list to [`HookKind::ALL`]: adding a dispatch fails it
+    /// until the list is updated.
+    pub const DISPATCHED: [HookKind; 4] = [
+        HookKind::MessagePreSend,
+        HookKind::MessagePreEdit,
+        HookKind::TypingPreSend,
+        HookKind::AttachmentPreUpload,
+    ];
+
     /// Every hook kind.
     pub const ALL: [HookKind; 5] = [
         HookKind::MessagePreSend,

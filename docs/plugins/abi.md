@@ -185,7 +185,12 @@ are opt-in and coalesced, so a burst is one call with several events rather than
 one call each.
 
 A hook's subject is a draft about to be sent, a file on its way up, a typing
-indicator about to go, or an activity about to be published. The answer is
+indicator about to go, or an activity about to be published — the last of which
+nothing dispatches yet: Yapfast does publish an activity, the game it detects
+merged into its own presence, but that happens in the Discord client's session,
+which has no bridge to ask, so `activity_pre_publish` is named in the ABI and
+`HookKind::DISPATCHED` says it is the one hook no chain runs. Wiring it means
+asking the chain where the session builds its presence. The answer is
 `unchanged`, `changed` with the new subject, which the next plugin in the chain
 sees, or `block` with a reason. A `block` stops the message only from a plugin
 whose manifest says `"on_failure": "block"`, which needs `messages.intercept`;

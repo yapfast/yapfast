@@ -7184,6 +7184,24 @@ mod tests {
     }
 
     #[test]
+    fn activity_pre_publish_is_the_one_hook_this_build_doesnt_dispatch() {
+        // Yapfast publishes an activity — the game it detects, merged into its
+        // own presence in `yapfast-discord`'s `show_presence` — but the plugin
+        // bridge lives here and that publish is the service's, so no call
+        // reaches the hook. The doc says so; this holds the list to the truth,
+        // and adding a dispatch fails it until the list and the doc agree.
+        let missing: Vec<HookKind> = HookKind::ALL
+            .into_iter()
+            .filter(|hook| !HookKind::DISPATCHED.contains(hook))
+            .collect();
+        assert_eq!(
+            missing,
+            vec![HookKind::ActivityPrePublish],
+            "every hook but activity_pre_publish reaches a chain"
+        );
+    }
+
+    #[test]
     fn a_decorator_is_asked_about_the_rows_on_screen_and_answers_with_a_tree() {
         let directory = tempfile::tempdir().expect("a temporary directory");
         let plugin = installed(directory.path(), DECORATOR_MANIFEST, b"not a real module");

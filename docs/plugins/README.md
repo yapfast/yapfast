@@ -184,8 +184,10 @@ built-in UI beyond the part hides and the colour and size overlay. The hooks are
 `identity.decorate` answered through `yf_identity` once per (person, server) and
 `code_block.render` through `yf_code_block` once per block; a plugin's colours
 for a block are kept and nothing draws them yet.
-`activity.pre_publish` exists in the ABI and Yapfast publishes no activity to run
-it on. `media.get` reads the picture store — what a conversation has already
+`activity.pre_publish` exists in the ABI and no chain runs it yet: Yapfast does
+publish an activity — the game it detects, merged into its own presence — but
+that happens in the Discord client's session, which has no bridge to ask, and
+`HookKind::DISPATCHED` names it as the one hook nothing dispatches. `media.get` reads the picture store — what a conversation has already
 shown — and never fetches anything. `messages.retain` keeps a row the backend
 dropped, flagged deleted, and the `decorate` reply's `hide` and `hide_media` keep
 a row or its media out of view, both through their capability.
