@@ -1930,6 +1930,16 @@ fn engine_name(backend: gpu::Backend, codec: Codec) -> Option<&'static str> {
     })
 }
 
+/// FFmpeg's name for the session NVENC opens for `codec`: what the card's own
+/// path (`stream_worker`'s `Cuda`, which talks to NVENC itself rather than
+/// through an encoder FFmpeg opens) puts first in the line it reports, since
+/// the Stream tab reads where the encoding runs from that name. `None` for a
+/// codec NVENC has no session for, which that path never opens.
+#[cfg(nvcuda)]
+pub(crate) fn nvenc_name(codec: Codec) -> Option<&'static str> {
+    engine_name(gpu::Backend::Nvenc, codec)
+}
+
 /// Whether this FFmpeg build has the encoder `name`: what its configure line
 /// enabled, which is not the same as this machine being able to open it.
 #[cfg(hwenc)]

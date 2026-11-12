@@ -820,10 +820,17 @@ impl Cuda {
                 return None;
             }
         };
-        // The line the report carries from here on: the backend, the card and
-        // its driver, and where its pictures come from. Said once, at the open,
-        // with what the session actually took, as the VA-API path says its own.
-        let engine = format!("{}, encoding DMA-BUFs where they lie", convert.describe());
+        // The line the report carries from here on: the session, by FFmpeg's
+        // name for it, then the card and its driver, and where its pictures
+        // come from. The name comes first because the Stream tab reads where
+        // the encoding runs from it, as it does for the encoders FFmpeg opens.
+        // Said once, at the open, with what the session actually took, as the
+        // VA-API path says its own.
+        let name = encode::nvenc_name(codec).expect("NVENC opened a session for this codec");
+        let engine = format!(
+            "{name} ({}), encoding DMA-BUFs where they lie",
+            convert.describe()
+        );
         let (config, tuning) = (encoder.config(), encoder.tuning());
         tracing::info!(
             engine = engine.as_str(),

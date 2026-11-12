@@ -796,8 +796,12 @@ them in a row — 30 pictures at 60 a second — is the layout changed for good 
 the device gone, and then the processor's capturer takes the share over, which
 is the ladder every encoder here walks. The session's
 settings are `native/hwenc.c`'s NVENC row, and a test holds the two tables to one
-answer. A share whose pictures are descriptors opens this session first on a
-machine with NVIDIA's card (`encode::nvidia_card`, FFmpeg's own CUDA device):
+answer. Its line in the share's report names the session first, as the VA-API
+encoders' do — `av1_nvenc (… · CUDA 13.5), encoding DMA-BUFs where they lie` — so
+the Stream tab reads where the encoding runs, not where the pictures come from,
+from its first word. A share whose pictures are descriptors opens this session
+first on a machine with NVIDIA's card (`encode::nvidia_card`, FFmpeg's own CUDA
+device):
 FFmpeg has no way from a descriptor into NVENC, so its session would be one
 opened for a picture it can't read and given up again, which is a teardown the
 card's own session doesn't survive, and a log line for an encoder that never
