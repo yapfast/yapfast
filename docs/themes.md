@@ -160,7 +160,7 @@ repository.
 - **Readable.** Text under 4.5:1 against a surface it's drawn on is refused,
   naming the pair: `text`, `secondary`, `muted`, `link` and `accent-text` on
   `sidebar`, `panel`, `chat` and `field`; `on-accent` on `accent`; `text` on
-  `raised`, `menu` and `composer`; `on-tooltip` on `tooltip`. A gradient is
+  `raised`, `menu`, `composer` and `actions`; `on-tooltip` on `tooltip`. A gradient is
   checked at every stop. A pair the base theme already draws lower only has to
   keep the base's contrast.
 - **Bundled, checked files.** Paths are relative, inside the folder, with `/`;
@@ -269,6 +269,8 @@ another until one does:
 | `members` | The member list's ground | `chat` (`sidebar` without Discord's look) |
 | `app-badge` | The APP tag after a bot's name | Discord's blurple |
 | `account` | The account panel's ground at the bottom left (avatar, name, mic, headphones, settings) | `panel` |
+| `actions` | The ground of the bar of actions over a message under the pointer | `raised` |
+| `actions-hover` | A button's ground under the pointer in that bar, and in the quick reactions atop a message's menu | the stock wash |
 
 A theme that sets `hover` also lights the hovered row of a context menu with
 it, instead of the stock white or black wash, and `scrim` dims the window
@@ -303,6 +305,18 @@ percentage of its size: 50 a circle, 0 a square.
 | `code` | Code blocks: corners and outline (stock 1 px of `line`) |
 | `embed` | Embeds: corners and outline (stock none) |
 | `toggle` | Switches: a `radius` in pixels (999, a pill, as stock), and their border |
+| `actions` | The bar of actions over a message under the pointer: quick reactions, Reply, Forward, More |
+| `row` | A message row's hover, mention and jump bands: `radius`, and `inset` (below) |
+
+`row` also takes `inset`: pixels each band keeps from the column's sides
+(0–32), or `[sides, ends]` with the room it keeps from the row's top and
+bottom too (0–8), so flat and `irc` rows can light as rounded, inset
+strips. Its `radius` follows `message` when left out. Bands follow the
+message style: in `cards` they lie on the card, leaning and cornered as it
+is; in `bubbles` hover and a mention tint the bubble (hover as a wash of
+`overlay`, not `row-hover`); in `flat` and `irc` they run across the row,
+or across the column and 8 pixels past it when `chat_max_width` centres
+it.
 
 Every other corner in the window takes `radii`: `small` for stock corners of
 4 pixels or less, `medium` up to 8, `large` above. Every other shadow takes
@@ -326,7 +340,10 @@ dots an outline, as a "cut here" line. Each place takes `"dashed"`,
 `dash` and `gap` (1–24 pixels; a dot is as long as the line is wide),
 `width` (1–4) and `colour`. Width and colour otherwise follow the surface's
 `shape` border, then the stock outline. Corners of a dashed outline are
-square.
+square. A profile card or a server card whose border, outline width or
+dashes a theme sets keeps its banner, art and glass inside that border,
+under corners rounded to its inner edge, so the border always shows whole;
+the stock card keeps its banner to the edge.
 
 | Place | Outline |
 | --- | --- |
@@ -337,6 +354,7 @@ square.
 | `embed`, `code` | Embeds and code blocks |
 | `tile` | Cards in settings |
 | `divider` | The day and "New" lines across the messages |
+| `actions` | The bar of actions over a message |
 
 ```json
 "shape": {
@@ -487,7 +505,8 @@ variant's `surfaces` and `text` replace the shared ones surface by surface.
 gap), `rail`, `sidebar`, `chat`, `members`, `account` (the account panel at the
 bottom left, on the `account` colour; `panel`, its first name, is read as it),
 `card` (a profile card the person hasn't themed themselves), `dialog`,
-`composer` and `menu`. Each takes a layer or a list of up to 4, bottom first,
+`composer`, `menu` and `actions` (the bar of actions over a message, on the
+`actions` colour). Each takes a layer or a list of up to 4, bottom first,
 drawn over the surface's ground and under its content:
 
 | Field | |
@@ -555,7 +574,9 @@ At most 160 fly at once.
 *Events*, one effect each: `click` `ripple` (labelled buttons), `hover`
 `gloss` (a sweep of light over labelled buttons and the rail's servers),
 `select` `highlighter` (a marker stroke that swipes under the chosen channel),
-`reaction` `stamp` (your reaction lands with a thunk). Each is the effect's
+`reaction` `stamp` (your reaction lands with a thunk), `row` `highlighter`
+(a marker stroke swipes under the message under the pointer, in place of
+the flat `row-hover` tint; Light and reduced motion keep the tint). Each is the effect's
 name, `none`, or `{ "effect", "colour", "duration" }` (80–3000 ms).
 
 *Foil*: a holographic band of three `colours` over `card` and `tile`
@@ -711,7 +732,26 @@ the focus ring and every accessible name stay as stock.
 - `cards`: `tilt` (0–4 degrees; each card leans its own way within it, from
   who wrote it and when), `gap` and `padding` (0–24 pixels), and `ground`
   (`raised` unset), which `text` has to read on. Only the card leans: text
-  never rotates.
+  never rotates. `shadow`, as `shape` writes one (`blur` 0 for a hard
+  offset), lies under each card and leans with it. `art` pastes one or two
+  pictures on each card, such as a strip of tape, leaning with it: each a
+  layer (`image` or `texture`, `opacity`, `blend` with the card's ground,
+  `blur`, `dim`, `colour`, `fit` within its size; never `drift` or `frames`)
+  with `position` (`top`, `bottom right`, … or `[x, y]`: across the card,
+  and its top edge, or its bottom with y over 0.5), `size` (`[width,
+  height]`, 4–480 by 4–240 pixels; the picture's own when left out),
+  `offset` (`[x, y]`, −64–64 pixels from its place, centred on the edge)
+  and `rotation` (−45–45 degrees beyond the card's lean). A picture is
+  decoded once, at most 960 × 480, and every card shares it.
+
+```json
+"layout": {
+  "messages": "cards",
+  "cards": { "tilt": 1.2, "shadow": { "blur": 0, "x": 5, "y": 5, "colour": "#14141440" },
+             "art": [{ "image": "art/tape.png", "position": "top left", "size": [84, 22],
+                       "offset": [18, -2], "rotation": -5 }] }
+}
+```
 
 ```json
 "layout": {

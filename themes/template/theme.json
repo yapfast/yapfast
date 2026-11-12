@@ -19,9 +19,11 @@
     "chip": { "radius": 999 },
     "toggle": { "radius": 999 },
     "avatar": { "radius": 50 },
+    "actions": { "radius": 10, "shadow": { "blur": 12, "y": 4, "colour": "#00000055" } },
+    "row": { "radius": 6, "inset": [8, 1] },
     "radii": { "small": 4, "medium": 8, "large": 12 },
     "outline_width": 1,
-    "borders": { "tile": "dashed", "divider": { "style": "dotted", "gap": 4 } }
+    "borders": { "tile": "dashed", "divider": { "style": "dotted", "gap": 4 }, "actions": "solid" }
   },
   "type": {
     "body": { "size": 15 },
@@ -55,7 +57,8 @@
     "surfaces": {
       "chat": { "texture": "paper", "colour": "#ffffff", "opacity": 0.05, "blend": "screen" },
       "sidebar": [{ "texture": "noise", "colour": "#000000", "opacity": 0.12, "scale": 2 }],
-      "account": { "texture": "grain", "colour": "#ffffff", "opacity": 0.04 }
+      "account": { "texture": "grain", "colour": "#ffffff", "opacity": 0.04 },
+      "actions": { "texture": "grain", "colour": "#ffffff", "opacity": 0.04 }
     },
     "overlays": [
       { "kind": "vignette", "opacity": 0.25 },
@@ -69,7 +72,7 @@
     "particles": [
       { "preset": "sparkles", "on": "message.sent", "colours": ["#7aa2ff", "#ffffff"], "count": 10 }
     ],
-    "events": { "click": "ripple", "hover": "gloss", "select": { "effect": "highlighter", "colour": "#7aa2ff" }, "reaction": "stamp" },
+    "events": { "click": "ripple", "hover": "gloss", "select": { "effect": "highlighter", "colour": "#7aa2ff" }, "reaction": "stamp", "row": "none" },
     "foil": { "surfaces": ["card"], "opacity": 0.12 },
     "transition": { "kind": "fade", "duration": 260 }
   },
@@ -89,7 +92,10 @@
     "chat_avatars": true,
     "irc": { "time_width": 56, "nick_width": 120, "separator": "│" },
     "bubbles": { "max_width": 72, "radius": 18 },
-    "cards": { "tilt": 0, "gap": 8, "padding": 12 }
+    "cards": { "tilt": 0, "gap": 8, "padding": 12,
+               "shadow": { "blur": 0, "x": 4, "y": 4, "colour": "#00000040" },
+               "art": [{ "texture": "paper", "colour": "#f5f1e8", "opacity": 0.8, "position": "top",
+                         "size": [72, 18], "rotation": -3 }] }
   },
 
   "variants": {
@@ -101,7 +107,9 @@
         "on-accent": "#0b1020",
         "accent-text": "#93b4ff",
         "selection": "#7aa2ff59",
-        "account": "#1a1d27"
+        "account": "#1a1d27",
+        "actions": "#23262f",
+        "actions-hover": "#7aa2ff33"
       }
     },
     "light": {

@@ -65,7 +65,7 @@ pub const COLOURS: [&str; 37] = [
 
 /// Colours only a theme sets (plugins can't), each following another until a
 /// theme does: what it follows is [`follows`].
-pub const EXTRA_COLOURS: [&str; 23] = [
+pub const EXTRA_COLOURS: [&str; 25] = [
     "accent-text",
     "on-tooltip",
     "selection",
@@ -89,6 +89,8 @@ pub const EXTRA_COLOURS: [&str; 23] = [
     "members",
     "app-badge",
     "account",
+    "actions",
+    "actions-hover",
 ];
 
 /// The colour an extra colour shows while a theme doesn't set it, for
@@ -97,7 +99,8 @@ pub fn follows(token: &str) -> Option<&'static str> {
     Some(match token {
         "accent-text" | "focus-ring" => "accent",
         "on-tooltip" => "text",
-        "menu" => "raised",
+        "menu" | "actions" => "raised",
+        "actions-hover" => "hover",
         "composer" => "field",
         "menu-line" => "line",
         "placeholder" => "muted",
@@ -124,7 +127,7 @@ pub const BRUSHES: [&str; 6] = ["rail", "sidebar", "chat", "panel", "raised", "a
 
 /// Each text colour and the surfaces it's drawn on, which it must stay
 /// readable against.
-pub const TEXT_ON: [(&str, &[&str]); 17] = [
+pub const TEXT_ON: [(&str, &[&str]); 18] = [
     ("text", &SURFACES),
     ("secondary", &SURFACES),
     ("muted", &SURFACES),
@@ -142,6 +145,7 @@ pub const TEXT_ON: [(&str, &[&str]); 17] = [
     ("text", &["account"]),
     ("secondary", &["account"]),
     ("muted", &["account"]),
+    ("text", &["actions"]),
 ];
 
 /// The surfaces most text sits on.
@@ -185,10 +189,15 @@ pub enum Surface {
     Embed,
     /// Switches: `radius` in pixels, 999 a pill as stock.
     Toggle,
+    /// The bar of actions over a message under the pointer: quick
+    /// reactions, Reply, Forward, More.
+    Actions,
+    /// A message row's hover, mention and jump bands: `radius` and `inset`.
+    Row,
 }
 
 impl Surface {
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 17] = [
         Self::Button,
         Self::Field,
         Self::Composer,
@@ -204,6 +213,8 @@ impl Surface {
         Self::Code,
         Self::Embed,
         Self::Toggle,
+        Self::Actions,
+        Self::Row,
     ];
 
     pub fn name(self) -> &'static str {
@@ -223,6 +234,8 @@ impl Surface {
             Self::Code => "code",
             Self::Embed => "embed",
             Self::Toggle => "toggle",
+            Self::Actions => "actions",
+            Self::Row => "row",
         }
     }
 
@@ -706,6 +719,9 @@ pub struct Shape {
     /// ARGB.
     pub border_colour: Option<u32>,
     pub shadow: Option<Shadow>,
+    /// `row` only: pixels a band keeps from the column's sides and from the
+    /// row's top and bottom.
+    pub inset: Option<(f32, f32)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1292,7 +1308,12 @@ impl Package {
                         files.push(file.to_owned());
                     }
                 }
-                for picture in resolved.art.files() {
+                for picture in resolved
+                    .art
+                    .files()
+                    .into_iter()
+                    .chain(resolved.layout.files())
+                {
                     if !files.contains(&picture) {
                         files.push(picture);
                     }
@@ -1627,6 +1648,15 @@ fn read_shapes(
                 "radius" => shape.radius = Some(number(value, &here, (0.0, surface.max_radius()))?),
                 "border" => shape.border = Some(number(value, &here, (0.0, 4.0))?),
                 "border_colour" => shape.border_colour = Some(colour_at(value, &here)?),
+                "inset" if surface == Surface::Row => {
+                    shape.inset = Some(match value {
+                        Value::Array(items) if items.len() == 2 => (
+                            number(&items[0], &format!("{here}[0]"), (0.0, 32.0))?,
+                            number(&items[1], &format!("{here}[1]"), (0.0, 8.0))?,
+                        ),
+                        _ => (number(value, &here, (0.0, 32.0))?, 0.0),
+                    });
+                }
                 "shadow" => {
                     shape.shadow = if value.as_str() == Some("none") {
                         Some(Shadow {
@@ -1648,7 +1678,7 @@ fn read_shapes(
     Ok(())
 }
 
-fn read_shadow(value: &Value, here: &str) -> Result<Shadow, Error> {
+pub(super) fn read_shadow(value: &Value, here: &str) -> Result<Shadow, Error> {
     let fields = object(value, here)?;
     let get = |key: &str, range: (f32, f32), default: f32| {
         fields.get(key).map_or(Ok(default), |value| {

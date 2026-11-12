@@ -42,9 +42,9 @@ import "fonts/DisplayName-Journal.ttf";
 // discord.slint, voice.slint, rail.slint, composer.slint, messages.slint,
 // settings.slint, people.slint, friends.slint, dialogs.slint and sign-in.slint.
 import { Theme, Tip, BadgeTip, ReactionHover, Middle, Popup, PopupMotion, Twemoji, Look } from "theme.slint";
-import { Arrange, DashedOutline, DashedRule } from "theme_layout.slint";
+import { Arrange, DashedOutline, DashedRule, ActionsFrame } from "theme_layout.slint";
 import { TitleBar, ResizeEdges } from "title_bar.slint";
-import { Art, ArtLayer, ArtOverlays, ArtParticles, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil, ArtTransition } from "theme_art.slint";
+import { Art, ArtLayer, ArtOverlays, ArtParticles, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil, ArtTransition, ArtPicture } from "theme_art.slint";
 import { InboxRow, InboxPopout } from "yapfast/inbox.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { StickerPicker, StickerGridTile } from "stickers.slint";
@@ -82,7 +82,7 @@ export { InboxRow } from "yapfast/inbox.slint";
 export { Theme, Badges, Popup, Twemoji, Looks, Look, Shape, SlotMotion } from "theme.slint";
 export { Arrange, Dash, Scrap } from "theme_layout.slint";
 export { Autoscroll } from "scrollview.slint";
-export { Art, ArtImage, ArtOverlay, ArtText, ArtParticle } from "theme_art.slint";
+export { Art, ArtImage, ArtOverlay, ArtText, ArtParticle, CardArt } from "theme_art.slint";
 export { PersonRow, CallLink, ShareScreen, VoiceCard } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
 export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer, NameStyles, ActivityClock } from "controls.slint";
@@ -3537,42 +3537,99 @@ export component YapfastWindow inherits Window {
                                             // never covers an earlier row's text. Slices overlap
                                             // by the turn's reach, so their seams don't show; the
                                             // first and last reach past the row for the corners.
-                                            if self.carded: Rectangle {
+                                            // The bands: hover (or a theme's highlighter), the jump's
+                                            // light, a mention and the keyboard's edge. In `cards` they
+                                            // lie on the card, leaning with it; in `bubbles` on the
+                                            // bubble; otherwise across the row, as a theme's `row`
+                                            // shape insets and rounds them.
+                                            property <bool> bubbled: Arrange.messages == 1 && message.notice == "";
+                                            property <bool> jump-shown: self.jumped && root.jump-lit;
+                                            property <bool> marker: Art.row-highlighter && !self.jump-shown;
+                                            property <brush> tint: self.jump-shown ? Theme.accent.transparentize(0.86) : self.lit && !self.marker ? Theme.row-hover : transparent;
+                                            property <brush> mark: message.highlighted ? (row-pointer.has-hover ? Theme.mentioned-hover : Theme.mentioned) : transparent;
+                                            // A bubble's: a wash over its own colour.
+                                            property <brush> bubble-tint: self.jump-shown ? Theme.accent.transparentize(0.86) : self.lit ? Theme.overlay.with-alpha(0.08) : transparent;
+                                            property <length> band-x: Look.row-inset-x + (Arrange.chat-max-width > 0px ? max(0px, (self.width - Arrange.chat-max-width) / 2 - 8px) : 0px);
+                                            if self.carded: slice := Rectangle {
                                                 property <length> from: parent.body + (message.first && parent.head == 0px ? col.padding-top : 0px);
                                                 property <length> to: parent.height - (parent.group-end ? parent.tail : 0px);
                                                 property <length> reach: (parent.width - 2 * parent.lead) / 2 * Math.abs(Math.sin(Arrange.lean(message.group) * 1deg)) + 2px;
+                                                // Past the card's top and bottom for its shadow and
+                                                // pictures, and past a row's edges for its shadow.
+                                                property <length> up: message.first ? self.reach + Arrange.cards-over-top : 0px;
+                                                property <length> down: msg-row.group-end ? self.reach + Arrange.cards-over-bottom : 0px;
+                                                property <length> bleed: self.reach + Arrange.cards-bleed;
+                                                property <length> top-corner: message.first ? Look.r(Look.message, 4px) : 0px;
+                                                property <length> bottom-corner: msg-row.group-end ? Look.r(Look.message, 4px) : 0px;
                                                 x: 0px; width: parent.width;
-                                                y: self.from - (message.first ? self.reach : 0px);
-                                                height: self.to - self.y + (parent.group-end ? self.reach : 0px);
+                                                y: self.from - self.up;
+                                                height: self.to - self.y + self.down;
                                                 clip: true;
-                                                Rectangle {
+                                                card := Rectangle {
                                                     x: msg-row.lead; width: parent.width - 2 * msg-row.lead;
-                                                    y: message.first ? parent.reach : -parent.reach;
-                                                    height: parent.to - parent.from + (message.first ? 0px : parent.reach) + (msg-row.group-end ? 0px : parent.reach);
+                                                    y: message.first ? parent.up : -parent.bleed;
+                                                    height: parent.to - parent.from + (message.first ? 0px : parent.bleed) + (msg-row.group-end ? 0px : parent.bleed);
                                                     background: Arrange.cards-ground;
-                                                    border-top-left-radius: message.first ? Look.r(Look.message, 4px) : 0px; border-top-right-radius: self.border-top-left-radius;
-                                                    border-bottom-left-radius: msg-row.group-end ? Look.r(Look.message, 4px) : 0px; border-bottom-right-radius: self.border-bottom-left-radius;
+                                                    border-top-left-radius: parent.top-corner; border-top-right-radius: parent.top-corner;
+                                                    border-bottom-left-radius: parent.bottom-corner; border-bottom-right-radius: parent.bottom-corner;
+                                                    drop-shadow-blur: Arrange.cards-shadow-blur >= 0px ? Arrange.cards-shadow-blur : 0px;
+                                                    drop-shadow-offset-x: Arrange.cards-shadow-x; drop-shadow-offset-y: Arrange.cards-shadow-y;
+                                                    drop-shadow-color: Arrange.cards-shadow-blur >= 0px ? Arrange.cards-shadow-color : transparent;
                                                     transform-rotation: Arrange.lean(message.group) * 1deg;
+                                                    Rectangle {
+                                                        background: msg-row.tint; animate background { duration: 400ms; }
+                                                        border-top-left-radius: parent.border-top-left-radius; border-top-right-radius: parent.border-top-left-radius;
+                                                        border-bottom-left-radius: parent.border-bottom-left-radius; border-bottom-right-radius: parent.border-bottom-left-radius;
+                                                    }
+                                                    if msg-row.marker: ArtHighlighter {
+                                                        x: 0px; y: message.first ? 0px : slice.bleed;
+                                                        width: parent.width; height: slice.to - slice.from;
+                                                        selected: msg-row.lit; colour: Art.row-highlighter-color; time: Art.row-highlighter-time;
+                                                    }
+                                                    if message.highlighted: Rectangle {
+                                                        background: msg-row.mark;
+                                                        border-top-left-radius: parent.border-top-left-radius; border-top-right-radius: parent.border-top-left-radius;
+                                                        border-bottom-left-radius: parent.border-bottom-left-radius; border-bottom-right-radius: parent.border-bottom-left-radius;
+                                                        Rectangle { x: 0px; width: 2px; background: Theme.accent-fill; border-top-left-radius: parent.border-top-left-radius; border-bottom-left-radius: parent.border-bottom-left-radius; }
+                                                    }
+                                                    if msg-row.lit && root.browsing: Rectangle { x: 0px; width: 3px; background: Theme.accent-fill; }
                                                     if Arrange.dash-message.on: DashedOutline { x: 0px; y: 0px; dash: Arrange.dash-message; }
+                                                    // A theme's pictures on the card's top edge, on its
+                                                    // first row, and on its bottom edge, on its last.
+                                                    for art in Art.cards: Rectangle {
+                                                        property <bool> here: art.bottom ? msg-row.group-end : message.first;
+                                                        visible: self.here;
+                                                        width: self.here ? art.width : 0px; height: self.here ? art.height : 0px;
+                                                        x: (parent.width - art.width) * art.across + art.dx;
+                                                        y: (art.bottom ? parent.height : 0px) - art.height / 2 + art.dy;
+                                                        transform-rotation: art.rotation * 1deg;
+                                                        if self.here: ArtPicture { x: 0px; y: 0px; width: parent.width; height: parent.height; layer: art.picture; }
+                                                    }
                                                 }
                                             }
-                                            Rectangle {
-                                                y: parent.body; height: parent.height - parent.body - parent.tail;
-                                                border-radius: Look.r(Look.message, 0px);
-                                                background: parent.jumped && root.jump-lit ? Theme.accent.transparentize(0.86) : parent.lit ? Theme.row-hover : transparent;
+                                            if !self.carded && !self.bubbled: Rectangle {
+                                                x: parent.band-x; width: parent.width - 2 * parent.band-x;
+                                                y: parent.body + Look.row-inset-y; height: parent.height - parent.body - parent.tail - 2 * Look.row-inset-y;
+                                                border-radius: Look.row-radius;
+                                                background: parent.tint;
                                                 animate background { duration: 400ms; }
+                                                if msg-row.marker: ArtHighlighter {
+                                                    x: 0px; y: 0px; width: parent.width; height: parent.height;
+                                                    selected: msg-row.lit; colour: Art.row-highlighter-color; time: Art.row-highlighter-time;
+                                                }
                                             }
                                             // A message that calls on this account is tinted marigold with a
                                             // marigold edge, below the history notice and the dividers above it:
                                             // a mention always, a reply to its message while it's new.
-                                            if message.highlighted: Rectangle {
-                                                y: parent.body; border-radius: Look.r(Look.message, 0px); clip: true;
-                                                height: parent.height - self.y - parent.tail;
-                                                background: row-pointer.has-hover ? Theme.mentioned-hover : Theme.mentioned;
+                                            if message.highlighted && !self.carded && !self.bubbled: Rectangle {
+                                                x: parent.band-x; width: parent.width - 2 * parent.band-x;
+                                                y: parent.body + Look.row-inset-y; border-radius: Look.row-radius; clip: true;
+                                                height: parent.height - self.y - parent.tail - Look.row-inset-y;
+                                                background: parent.mark;
                                                 Rectangle { x: 0px; width: 2px; background: Theme.accent-fill; }
                                             }
                                             // The keyboard's message has a marigold edge.
-                                            if self.lit && root.browsing: Rectangle { x: 0px; y: parent.body; width: 3px; height: parent.height - parent.body; background: Theme.accent-fill; }
+                                            if self.lit && root.browsing && !self.carded: Rectangle { x: parent.band-x; y: parent.body; width: 3px; height: parent.height - parent.body; background: Theme.accent-fill; }
                                             // The pointer area wraps the row, so hovering selectable text still counts.
                                             // The last hovered or clicked message keeps its actions: the list takes
                                             // the pointer when a press starts, which ends hover, so a hover-only bar
@@ -3644,6 +3701,7 @@ export component YapfastWindow inherits Window {
                                                         }
                                                     }
                                                     MessageContent {
+                                                        band: msg-row.bubbled ? msg-row.bubble-tint : transparent; mark: msg-row.bubbled ? msg-row.mark : transparent;
                                                         message: message; group-end: msg-row.group-end; active-item: root.active-item; preview: root.preview; reactions-enabled: root.reactions-enabled; bot-busy-item: root.bot-busy-item; bot-failed-item: root.bot-failed-item; bot-failed-text: root.bot-failed-text;
                                                         emoji-font: root.emoji-font; message-font-size: root.message-font-size;
                                                         collapse-long: root.collapse-long;
@@ -3708,11 +3766,9 @@ export component YapfastWindow inherits Window {
                                             }
                                             // Actions, the reaction picker and delete confirmation float over the
                                             // row's top edge, so opening them never moves the timeline.
-                                            if (self.lit || root.react-item == message.item || root.menu-item == message.item || root.confirm-delete == message.item) && !message.deleted && message.delivery == "": message-bar := Rectangle {
+                                            if (self.lit || root.react-item == message.item || root.menu-item == message.item || root.confirm-delete == message.item) && !message.deleted && message.delivery == "": message-bar := ActionsFrame {
                                                 x: parent.width - self.width - 16px; y: parent.body + (index == 0 && parent.head == 0px ? 4px : -16px);
                                                 width: actions.preferred-width; height: actions.preferred-height;
-                                                background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
-                                                drop-shadow-blur: Look.shadow-blur(10px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000059); drop-shadow-offset-y: Look.shadow-y(2px);
                                                 // Holding Shift swaps the frequent reactions for Pin, Create Thread
                                                 // and, on your own message, Reply, adds Forward, and swaps More for a
                                                 // Delete that doesn't ask, as in Discord's client; not while the
@@ -3731,16 +3787,16 @@ export component YapfastWindow inherits Window {
                                                     // Reply on someone else's, and everything else under More.
                                                     if root.confirm-delete != message.item: HorizontalLayout {
                                                         spacing: 0px;
-                                                        if message-bar.quick && message.can-pin: IconButton {
+                                                        if message-bar.quick && message.can-pin: IconButton { hover-fill: Theme.actions-hover;
                                                             icon: message.pinned ? IconPack.pin-off : IconPack.pin;
                                                             label: message.pinned ? "Unpin" : "Pin";
                                                             clicked => { root.pin-message(message.item); }
                                                         }
-                                                        if message-bar.quick && root.can-start-threads && message.can-reply && message.thread-room == "": IconButton {
+                                                        if message-bar.quick && root.can-start-threads && message.can-reply && message.thread-room == "": IconButton { hover-fill: Theme.actions-hover;
                                                             icon: IconPack.thread; label: "Create Thread";
                                                             clicked => { root.new-thread(message.item, "message"); }
                                                         }
-                                                        if message-bar.quick && message.own && message.can-edit && message.can-reply && root.composer-enabled && UiParts.message-reply: IconButton {
+                                                        if message-bar.quick && message.own && message.can-edit && message.can-reply && root.composer-enabled && UiParts.message-reply: IconButton { hover-fill: Theme.actions-hover;
                                                             icon: IconPack.reply; label: "Reply";
                                                             clicked => { root.reply(message.item); root.focus-composer(); }
                                                         }
@@ -3748,7 +3804,7 @@ export component YapfastWindow inherits Window {
                                                             spacing: 0px;
                                                             if !message-bar.quick: HorizontalLayout {
                                                                 spacing: 0px;
-                                                                for cell in root.bar-reactions: EmojiButton {
+                                                                for cell in root.bar-reactions: EmojiButton { hover-fill: Theme.actions-hover;
                                                                     animation-key: cell.key;
                                                                     emoji: cell; font: root.emoji-font;
                                                                     clicked => { root.react(message.item, cell.key); }
@@ -3758,7 +3814,7 @@ export component YapfastWindow inherits Window {
                                                                     Rectangle { width: 1px; height: 20px; background: Theme.line; }
                                                                 }
                                                             }
-                                                            IconButton {
+                                                            IconButton { hover-fill: Theme.actions-hover;
                                                                 icon: IconPack.smile-plus; label: "Add reaction";
                                                                 clicked => {
                                                                     root.anchor(self.absolute-position.x, self.absolute-position.y, self.width, self.height, false);
@@ -3766,14 +3822,14 @@ export component YapfastWindow inherits Window {
                                                                 }
                                                             }
                                                         }
-                                                        if message.own && message.can-edit && root.composer-enabled: IconButton { icon: IconPack.pencil; label: "Edit"; clicked => { root.edit(message.item); root.focus-composer(); } }
-                                                        if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled && UiParts.message-reply: IconButton { icon: IconPack.reply; label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
+                                                        if message.own && message.can-edit && root.composer-enabled: IconButton { hover-fill: Theme.actions-hover; icon: IconPack.pencil; label: "Edit"; clicked => { root.edit(message.item); root.focus-composer(); } }
+                                                        if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled && UiParts.message-reply: IconButton { hover-fill: Theme.actions-hover; icon: IconPack.reply; label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
                                                         // Beside Reply, as in Discord, whether or not Shift is held.
-                                                        if message.can-forward && root.forward-allowed: IconButton {
+                                                        if message.can-forward && root.forward-allowed: IconButton { hover-fill: Theme.actions-hover;
                                                             icon: IconPack.forward; label: "Forward";
                                                             clicked => { root.start-forward(message.item); }
                                                         }
-                                                        if message-bar.deletes: IconButton {
+                                                        if message-bar.deletes: IconButton { hover-fill: Theme.actions-hover;
                                                             icon: IconPack.trash-2; label: "Delete"; danger: true;
                                                             clicked => { root.delete-now(message.item); }
                                                         }
@@ -3781,7 +3837,7 @@ export component YapfastWindow inherits Window {
                                                             parts: root.plugin-hover; subject: message.item;
                                                             acted(plugin, slot, id, value, subject) => { root.plugin-acted(plugin, slot, id, value, subject); }
                                                         }
-                                                        if !message-bar.deletes && UiParts.message-more: IconButton {
+                                                        if !message-bar.deletes && UiParts.message-more: IconButton { hover-fill: Theme.actions-hover;
                                                             icon: IconPack.ellipsis; label: "More";
                                                             clicked => {
                                                                 root.anchor(self.absolute-position.x, self.absolute-position.y, self.width, self.height, false);

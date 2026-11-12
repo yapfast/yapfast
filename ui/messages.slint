@@ -169,6 +169,8 @@ export component EmojiButton inherits Rectangle {
     in property <length> size: 32px;
     in property <length> glyph: 20px;
     in property <color> fill: transparent;
+    /// Its ground under the pointer, over the stock wash.
+    in property <color> hover-fill: transparent;
     in property <bool> tip: true;
     /// Whether this account may use the emoji here. One it may not shows
     /// greyed, with a lock over its corner, and clicking it offers Nitro.
@@ -190,7 +192,7 @@ export component EmojiButton inherits Rectangle {
     callback locked;
     width: root.size; height: root.size;
     border-radius: Look.radius(6px);
-    background: pointer.has-hover ? Theme.overlay.with-alpha(0.12) : root.fill;
+    background: pointer.has-hover ? (root.hover-fill != transparent ? root.hover-fill : Theme.overlay.with-alpha(0.12)) : root.fill;
     animate background { duration: Theme.quick; }
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
@@ -1440,7 +1442,7 @@ export component MessageMenu inherits Rectangle {
                 alignment: space-between;
                 for cell in root.menu-reactions: EmojiButton {
                     animation-key: cell.key;
-                    emoji: cell; font: root.emoji-font; size: 44px; height: 44px; glyph: 24px; fill: Theme.field;
+                    emoji: cell; font: root.emoji-font; size: 44px; height: 44px; glyph: 24px; fill: Theme.field; hover-fill: Theme.actions-hover;
                     clicked => { root.react(root.menu-message.item, cell.key); }
                 }
             }
@@ -2809,6 +2811,10 @@ export component MessageContent inherits VerticalLayout {
     property <int> style: message.notice != "" ? 0 : Arrange.messages;
     /// The last message of its group, where a card closes.
     in property <bool> group-end: true;
+    /// In `bubbles`, the row's hover or jump wash and its mention tint,
+    /// laid on the bubble instead of across the row.
+    in property <brush> band: transparent;
+    in property <brush> mark: transparent;
     property <bool> mine-right: root.style == 1 && message.own;
     property <bool> avatars: !Arrange.hide-avatars && root.style != 2 && !root.mine-right;
     property <length> card-pad: root.style == 3 ? Arrange.cards-padding : 0px;
@@ -2929,6 +2935,15 @@ export component MessageContent inherits VerticalLayout {
             max-width: root.style == 1 ? max(120px, (root.width - root.lead - root.trail - (root.avatars ? root.avatar + 16px : 0px)) * Arrange.bubble-max) : 100000px;
             background: root.style != 1 ? transparent : message.own ? Arrange.bubble-own : Arrange.bubble-other;
             border-radius: root.style == 1 ? Arrange.bubble-radius : 0px;
+            if root.style == 1: Rectangle {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                border-radius: Arrange.bubble-radius; background: root.band;
+                animate background { duration: 400ms; }
+            }
+            if root.style == 1: Rectangle {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                border-radius: Arrange.bubble-radius; background: root.mark;
+            }
             if root.style == 1 && Arrange.dash-message.on: DashedOutline { x: 0px; y: 0px; dash: Arrange.dash-message; }
         VerticalLayout {
             spacing: ClientStyle.message-gap;

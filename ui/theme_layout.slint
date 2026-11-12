@@ -5,6 +5,7 @@
 // here draws.
 
 import { Theme, Look } from "theme.slint";
+import { Art, ArtLayer } from "theme_art.slint";
 
 /// One outline drawn in dashes or dots instead of a line.
 export struct Dash {
@@ -61,6 +62,17 @@ export global Arrange {
     in property <length> cards-padding: 12px;
     in property <color> cards-ground-set: transparent;
     out property <brush> cards-ground: self.cards-ground-set != transparent ? self.cards-ground-set : Theme.raised-fill;
+    /// Each card's shadow; a negative blur for none.
+    in property <length> cards-shadow-blur: -1px;
+    in property <length> cards-shadow-x;
+    in property <length> cards-shadow-y;
+    in property <color> cards-shadow-color;
+    /// How far a card's shadow and pictures reach past its top and bottom
+    /// edges, and its shadow past a row's, so a row's slice of the card
+    /// draws them whole.
+    in property <length> cards-over-top;
+    in property <length> cards-over-bottom;
+    in property <length> cards-bleed;
     // Dashed and dotted outlines, by place.
     in property <Dash> dash-composer;
     in property <Dash> dash-card;
@@ -72,6 +84,7 @@ export global Arrange {
     in property <Dash> dash-code;
     in property <Dash> dash-tile;
     in property <Dash> dash-divider;
+    in property <Dash> dash-actions;
     // Names cut into ransom letters from the theme's fonts, unless the
     // person turns on Settings' "Plain names".
     in property <bool> ransom-names;
@@ -187,4 +200,25 @@ export component RansomName inherits Rectangle {
 export component DialogFrame inherits Rectangle {
     accessible-role: none;
     if Arrange.dash-dialog.on: DashedOutline { x: 0px; y: 0px; dash: Arrange.dash-dialog; stock-width: Look.bw(Look.dialog, 1px); stock-ink: Look.bc(Look.dialog, Theme.edge); }
+}
+
+/// The bar of actions over a message under the pointer, as a theme's
+/// `actions` surface draws it: ground, outline (solid, dashed or dotted),
+/// shadow, art and glass. Unthemed, the stock bar.
+export component ActionsFrame inherits Rectangle {
+    background: Art.glass-actions ? transparent : Theme.actions-fill;
+    border-color: Look.bc(Look.actions, Theme.edge);
+    border-width: Arrange.dash-actions.on ? 0px : Look.bw(Look.actions, 1px);
+    border-radius: Look.r(Look.actions, 8px);
+    drop-shadow-blur: Look.sb(Look.actions, 10px); drop-shadow-offset-x: Look.sx(Look.actions, 0px);
+    drop-shadow-color: Look.sc(Look.actions, #00000059); drop-shadow-offset-y: Look.sy(Look.actions, 2px);
+    if Art.actions.length > 0 || Art.glass-actions: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.actions, 8px);
+        layers: Art.actions; glass: Art.glass-actions; ground: Theme.actions-fill;
+    }
+    @children
+    if Arrange.dash-actions.on: DashedOutline {
+        x: 0px; y: 0px; dash: Arrange.dash-actions;
+        stock-width: Look.bw(Look.actions, 1px); stock-ink: Look.bc(Look.actions, Theme.edge);
+    }
 }

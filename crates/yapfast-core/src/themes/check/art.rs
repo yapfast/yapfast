@@ -13,6 +13,8 @@ pub const DISPLAY: (u32, u32) = (2560, 1600);
 /// A glass pane's blurred copy of the window's art is kept at this fraction
 /// of its size on each side: the blur hides the difference.
 pub const GLASS_SHRINK: u32 = 4;
+/// The largest a card's picture is decoded: twice the largest it shows.
+pub const CARD_ART: (u32, u32) = (960, 480);
 /// A texture Yapfast makes: square, this many pixels a side.
 pub const TEXTURE_SIDE: u32 = 256;
 
@@ -168,9 +170,11 @@ fn texts(surface: ArtSurface) -> &'static [&'static str] {
         ArtSurface::Sidebar | ArtSurface::Chat | ArtSurface::Members | ArtSurface::Account => {
             &["text", "secondary", "muted"]
         }
-        ArtSurface::Card | ArtSurface::Dialog | ArtSurface::Menu | ArtSurface::Composer => {
-            &["text"]
-        }
+        ArtSurface::Card
+        | ArtSurface::Dialog
+        | ArtSurface::Menu
+        | ArtSurface::Composer
+        | ArtSurface::Actions => &["text"],
         ArtSurface::Window | ArtSurface::Rail => &[],
     }
 }
@@ -260,6 +264,13 @@ pub fn memory(variant: &Resolved, files: &Files) -> u64 {
         if let Some(sprite) = &particles.sprite {
             total += size(sprite, (256, 256));
         }
+    }
+    // A card's pictures are decoded once, shared by every card.
+    for card in &variant.layout.cards.art {
+        total += match &card.layer.source {
+            Source::Image(path) => size(path, CARD_ART),
+            Source::Texture(_) => u64::from(TEXTURE_SIDE * TEXTURE_SIDE * 4),
+        };
     }
     total
 }

@@ -14,7 +14,11 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 
-use super::package::{Error, colour_at, named, number, object, relative};
+use super::package::art::{Layer, Source, read_layer};
+use super::package::{Error, Shadow, colour_at, named, number, object, read_shadow, relative};
+
+/// The most pictures one card carries.
+pub const MAX_CARD_ART: usize = 2;
 
 /// Declares a closed list of names: the enum, its names in `theme.json`, and
 /// its index, which the interface reads as an int.
@@ -100,6 +104,8 @@ closed! {
         Tile => "tile",
         /// The day and "New" lines across the messages.
         Divider => "divider",
+        /// The bar of actions over a message under the pointer.
+        Actions => "actions",
     }
 }
 
@@ -155,7 +161,33 @@ pub struct Cards {
     pub padding: Option<f32>,
     /// ARGB ground of a card; `raised` when not set.
     pub ground: Option<u32>,
+    /// Each card's shadow, a hard offset when its blur is 0.
+    pub shadow: Option<Shadow>,
+    /// Pictures pasted on each card, such as a strip of tape over its top
+    /// edge: they lean with it.
+    pub art: Vec<CardArt>,
 }
+
+/// A picture on a card's top or bottom edge, leaning with the card.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CardArt {
+    /// The picture or texture, with its opacity, blend (with the card's
+    /// ground), blur, dim and colour. Fit is within `size`.
+    pub layer: Layer,
+    /// Across the card, 0 its left and 1 its right.
+    pub across: f32,
+    /// On the card's bottom edge rather than its top.
+    pub bottom: bool,
+    /// Logical pixels, width and height; the picture's own size when unset.
+    pub size: Option<(f32, f32)>,
+    /// Logical pixels it moves from its place on the edge.
+    pub offset: (f32, f32),
+    /// Degrees it turns beyond the card's own lean.
+    pub rotation: f32,
+}
+
+/// The keys a card's picture takes beyond a layer's.
+const CARD_ART_KEYS: [&str; 3] = ["size", "offset", "rotation"];
 
 /// People's names cut letter by letter from different fonts, each letter on a
 /// scrap of its own, as a ransom note: `"names": { "style": "ransom", … }`.
@@ -198,6 +230,89 @@ impl Layout {
     pub fn is_stock(&self) -> bool {
         *self == Self::default()
     }
+
+    /// The pictures it names, once each.
+    pub fn files(&self) -> Vec<PathBuf> {
+        let mut files: Vec<PathBuf> = Vec::new();
+        for art in &self.cards.art {
+            if let Source::Image(path) = &art.layer.source
+                && !files.contains(path)
+            {
+                files.push(path.clone());
+            }
+        }
+        files
+    }
+}
+
+/// `layout.cards.art`: one picture or a list of up to two.
+fn read_card_art(
+    value: &Value,
+    place: &str,
+    notes: &mut Vec<String>,
+) -> Result<Vec<CardArt>, Error> {
+    let items: Vec<&Value> = match value {
+        Value::Array(items) => items.iter().collect(),
+        other => vec![other],
+    };
+    if items.len() > MAX_CARD_ART {
+        return Err(Error(format!(
+            "\"{place}\" puts at most {MAX_CARD_ART} pictures on a card"
+        )));
+    }
+    let mut read = Vec::new();
+    for (index, item) in items.into_iter().enumerate() {
+        let at = format!("{place}[{index}]");
+        let fields = object(item, &at)?;
+        let picture: serde_json::Map<String, Value> = fields
+            .iter()
+            .filter(|(key, _)| !CARD_ART_KEYS.contains(&key.as_str()))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        let layer = read_layer(&Value::Object(picture), &at, notes)?;
+        if layer.moves() {
+            return Err(Error(format!(
+                "\"{at}\" stays still on its card: no drift or frames"
+            )));
+        }
+        let mut art = CardArt {
+            across: layer.position.0,
+            bottom: layer.position.1 > 0.5,
+            layer,
+            size: None,
+            offset: (0.0, 0.0),
+            rotation: 0.0,
+        };
+        for (key, value) in fields {
+            let here = format!("{at}.{key}");
+            match key.as_str() {
+                "size" => {
+                    let pair = value
+                        .as_array()
+                        .filter(|items| items.len() == 2)
+                        .ok_or_else(|| Error(format!("\"{here}\" is [width, height]")))?;
+                    art.size = Some((
+                        number(&pair[0], &format!("{here}[0]"), (4.0, 480.0))?,
+                        number(&pair[1], &format!("{here}[1]"), (4.0, 240.0))?,
+                    ));
+                }
+                "offset" => {
+                    let pair = value
+                        .as_array()
+                        .filter(|items| items.len() == 2)
+                        .ok_or_else(|| Error(format!("\"{here}\" is [x, y]")))?;
+                    art.offset = (
+                        number(&pair[0], &format!("{here}[0]"), (-64.0, 64.0))?,
+                        number(&pair[1], &format!("{here}[1]"), (-64.0, 64.0))?,
+                    );
+                }
+                "rotation" => art.rotation = number(value, &here, (-45.0, 45.0))?,
+                _ => {}
+            }
+        }
+        read.push(art);
+    }
+    Ok(read)
 }
 
 pub(super) fn read_layout(
@@ -261,6 +376,14 @@ pub(super) fn read_layout(
                         "gap" => layout.cards.gap = Some(number(value, &at, (0.0, 24.0))?),
                         "padding" => layout.cards.padding = Some(number(value, &at, (0.0, 24.0))?),
                         "ground" => layout.cards.ground = Some(colour_at(value, &at)?),
+                        "shadow" => {
+                            layout.cards.shadow = if value.as_str() == Some("none") {
+                                None
+                            } else {
+                                Some(read_shadow(value, &at)?)
+                            }
+                        }
+                        "art" => layout.cards.art = read_card_art(value, &at, notes)?,
                         _ => notes.push(format!("\"{at}\" isn't something cards takes; ignored")),
                     }
                 }
@@ -507,6 +630,102 @@ mod tests {
         assert!(files.contains(&PathBuf::from("a.ttf")) && files.contains(&PathBuf::from("b.otf")));
         let stock = theme("").unwrap().resolve(Mode::Dark).unwrap();
         assert!(stock.layout.is_stock());
+    }
+
+    #[test]
+    fn reads_the_hover_bar_rows_and_card_extras() {
+        let package = theme(
+            r##""colours": { "actions": "#202020", "actions-hover": "#ff71ce33" },
+            "shape": { "actions": { "radius": 0, "border": 2, "border_colour": "#141414",
+                                    "shadow": { "blur": 0, "x": 4, "y": 4, "colour": "#ff48b0" } },
+                       "row": { "radius": 6, "inset": [8, 2] },
+                       "borders": { "actions": "dashed" } },
+            "art": { "surfaces": { "actions": { "texture": "paper", "opacity": 0.3 } },
+                     "glass": { "surfaces": ["actions"] },
+                     "events": { "row": { "effect": "highlighter", "colour": "#f3e37a" } } },
+            "layout": { "messages": "cards",
+                "cards": { "shadow": { "blur": 0, "x": 5, "y": 6, "colour": "#14141440" },
+                           "art": [{ "image": "art/tape.png", "position": "bottom right", "size": [84, 22],
+                                     "offset": [-12, 3], "rotation": -5 },
+                                   { "texture": "kraft" }] } },"##,
+        )
+        .unwrap();
+        assert!(package.notes.is_empty(), "{:?}", package.notes);
+        let resolved = package.resolve(Mode::Dark).unwrap();
+        use crate::themes::package::Surface;
+        use crate::themes::package::art::{ArtSurface, EventSlot};
+        let actions = &resolved.shapes[&Surface::Actions];
+        assert_eq!(actions.border, Some(2.0));
+        assert_eq!(
+            actions.shadow.map(|shadow| (shadow.x, shadow.blur)),
+            Some((4.0, 0.0))
+        );
+        assert_eq!(resolved.shapes[&Surface::Row].inset, Some((8.0, 2.0)));
+        assert!(resolved.paint("actions-hover").is_some());
+        assert!(resolved.layout.borders.contains_key(&BorderPlace::Actions));
+        assert!(resolved.art.surfaces.contains_key(&ArtSurface::Actions));
+        assert!(resolved.art.events.contains_key(&EventSlot::Row));
+        let cards = &resolved.layout.cards;
+        assert_eq!(cards.shadow.map(|shadow| shadow.y), Some(6.0));
+        assert_eq!(cards.art.len(), 2);
+        let tape = &cards.art[0];
+        assert!(tape.bottom);
+        assert_eq!(tape.across, 1.0);
+        assert_eq!(tape.size, Some((84.0, 22.0)));
+        assert_eq!(tape.offset, (-12.0, 3.0));
+        assert_eq!(tape.rotation, -5.0);
+        assert!(!cards.art[1].bottom);
+        assert_eq!(resolved.layout.files(), vec![PathBuf::from("art/tape.png")]);
+        assert!(package.files().contains(&PathBuf::from("art/tape.png")));
+
+        // A row's inset alone, and an inset on any other surface is noted.
+        let package =
+            theme(r#""shape": { "row": { "inset": 4 }, "card": { "inset": 4 } },"#).unwrap();
+        let resolved = package.resolve(Mode::Dark).unwrap();
+        assert_eq!(resolved.shapes[&Surface::Row].inset, Some((4.0, 0.0)));
+        assert!(
+            package
+                .notes
+                .iter()
+                .any(|note| note.contains("shape.card.inset")),
+            "{:?}",
+            package.notes
+        );
+    }
+
+    #[test]
+    fn refuses_card_art_that_moves_or_crowds() {
+        for (layers, place) in [
+            (
+                r#""layout": { "cards": { "art": [{ "texture": "paper", "drift": [4, 0] }] } },"#,
+                "layout.cards.art[0]",
+            ),
+            (
+                r#""layout": { "cards": { "art": [{ "texture": "paper" }, { "texture": "paper" }, { "texture": "paper" }] } },"#,
+                "layout.cards.art",
+            ),
+            (
+                r#""layout": { "cards": { "art": { "texture": "paper", "size": [2, 10] } } },"#,
+                "layout.cards.art[0].size[0]",
+            ),
+            (
+                r#""layout": { "cards": { "art": { "texture": "paper", "rotation": 90 } } },"#,
+                "layout.cards.art[0].rotation",
+            ),
+            (
+                r#""shape": { "row": { "inset": [8, 20] } },"#,
+                "shape.row.inset[1]",
+            ),
+            (
+                r#""art": { "events": { "row": "gloss" } },"#,
+                "art.events.row",
+            ),
+        ] {
+            let error = theme(layers)
+                .and_then(|package| package.resolve(Mode::Dark))
+                .unwrap_err();
+            assert!(error.0.contains(place), "{layers}: {}", error.0);
+        }
     }
 
     #[test]

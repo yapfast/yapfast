@@ -379,6 +379,8 @@ pub fn reset(window: &YapfastWindow) {
     look.set_radius_small(-1.);
     look.set_radius_medium(-1.);
     look.set_radius_large(-1.);
+    look.set_row_inset_x(0.);
+    look.set_row_inset_y(0.);
     look.set_shadows_on(false);
     for role in Role::ALL {
         set_font(&look, role, "");
@@ -500,6 +502,14 @@ fn paint(window: &YapfastWindow) {
                     shadow_color: Color::from_argb_encoded(colour),
                 },
             );
+        }
+        if let Some((x, y)) = resolved
+            .shapes
+            .get(&Surface::Row)
+            .and_then(|shape| shape.inset)
+        {
+            look.set_row_inset_x(x);
+            look.set_row_inset_y(y);
         }
         let [small, medium, large] = resolved.radii;
         look.set_radius_small(small.unwrap_or(-1.));
@@ -640,6 +650,8 @@ fn set_shape(look: &Look<'_>, surface: Surface, shape: Shape) {
         Surface::Code => look.set_code(shape),
         Surface::Embed => look.set_embed(shape),
         Surface::Toggle => look.set_toggle(shape),
+        Surface::Actions => look.set_actions(shape),
+        Surface::Row => look.set_row(shape),
     }
 }
 
@@ -758,6 +770,14 @@ fn set_extra(tokens: &yapfast_ui::Theme<'_>, token: &str, colour: Option<Color>)
         "account" => {
             tokens.set_account_set(colour);
             tokens.set_account_on(on);
+        }
+        "actions" => {
+            tokens.set_actions_set(colour);
+            tokens.set_actions_on(on);
+        }
+        "actions-hover" => {
+            tokens.set_actions_hover_set(colour);
+            tokens.set_actions_hover_on(on);
         }
         "mentioned" => tokens.set_mentioned(if on {
             colour

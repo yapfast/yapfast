@@ -64,6 +64,13 @@ pub fn reset(window: &YapfastWindow) {
     arrange.set_cards_gap(8.);
     arrange.set_cards_padding(12.);
     arrange.set_cards_ground_set(Color::default());
+    arrange.set_cards_shadow_blur(-1.);
+    arrange.set_cards_shadow_x(0.);
+    arrange.set_cards_shadow_y(0.);
+    arrange.set_cards_shadow_color(Color::default());
+    arrange.set_cards_over_top(0.);
+    arrange.set_cards_over_bottom(0.);
+    arrange.set_cards_bleed(0.);
     for place in BorderPlace::ALL {
         set_dash(&arrange, *place, Dash::default());
     }
@@ -137,6 +144,18 @@ pub fn apply(
     if let Some(colour) = layout.cards.ground {
         arrange.set_cards_ground_set(Color::from_argb_encoded(colour));
     }
+    // A card's shadow reaches past its edges by its offset and blur; each
+    // row's slice of the card draws that much more, so it shows whole.
+    if let Some(shadow) = layout.cards.shadow {
+        arrange.set_cards_shadow_blur(shadow.blur);
+        arrange.set_cards_shadow_x(shadow.x);
+        arrange.set_cards_shadow_y(shadow.y);
+        arrange.set_cards_shadow_color(Color::from_argb_encoded(shadow.colour));
+        let reach = shadow.blur + shadow.x.abs().max(shadow.y.abs());
+        arrange.set_cards_over_top((shadow.blur - shadow.y).max(0.));
+        arrange.set_cards_over_bottom((shadow.blur + shadow.y).max(0.));
+        arrange.set_cards_bleed(reach);
+    }
     for (place, border) in &layout.borders {
         set_dash(
             &arrange,
@@ -194,6 +213,7 @@ pub fn apply(
 fn set_dash(arrange: &Arrange<'_>, place: BorderPlace, dash: Dash) {
     match place {
         BorderPlace::Composer => arrange.set_dash_composer(dash),
+        BorderPlace::Actions => arrange.set_dash_actions(dash),
         BorderPlace::Card => arrange.set_dash_card(dash),
         BorderPlace::Menu => arrange.set_dash_menu(dash),
         BorderPlace::Dialog => arrange.set_dash_dialog(dash),

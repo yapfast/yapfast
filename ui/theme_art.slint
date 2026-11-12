@@ -71,6 +71,20 @@ export struct ArtParticle {
     sprite: int,
 }
 
+/// A picture pasted on each message card in `cards`, on its top or bottom
+/// edge, leaning with the card.
+export struct CardArt {
+    picture: ArtImage,
+    /// Across the card, 0 its left and 1 its right.
+    across: float,
+    bottom: bool,
+    width: length,
+    height: length,
+    dx: length,
+    dy: length,
+    rotation: float,
+}
+
 export global Art {
     // Layers per surface, bottom first.
     in property <[ArtImage]> window;
@@ -83,6 +97,9 @@ export global Art {
     in property <[ArtImage]> dialog;
     in property <[ArtImage]> composer;
     in property <[ArtImage]> menu;
+    in property <[ArtImage]> actions;
+    /// Pictures on each message card, at most two.
+    in property <[CardArt]> cards;
     in property <[ArtOverlay]> overlays;
     /// Whether any overlay lies over the conversation only.
     in property <bool> chat-overlays;
@@ -103,6 +120,7 @@ export global Art {
     in property <bool> glass-dialog;
     in property <bool> glass-composer;
     in property <bool> glass-menu;
+    in property <bool> glass-actions;
     in property <image> blurred;
     in property <float> glass-opacity: 1;
     in property <color> highlight;
@@ -148,6 +166,11 @@ export global Art {
     in property <bool> highlighter;
     in property <color> highlighter-color;
     in property <duration> highlighter-time: 260ms;
+    /// `row`: a highlighter stroke under the message under the pointer,
+    /// instead of the flat row-hover tint.
+    in property <bool> row-highlighter;
+    in property <color> row-highlighter-color;
+    in property <duration> row-highlighter-time: 260ms;
     in property <bool> stamp;
     in property <duration> stamp-time: 320ms;
 
@@ -447,11 +470,13 @@ export component ArtGloss inherits Rectangle {
 /// first, as the row's ground.
 export component ArtHighlighter inherits Rectangle {
     in property <bool> selected;
+    in property <color> colour: Art.highlighter-color;
+    in property <duration> time: Art.highlighter-time;
     property <float> amount: root.selected ? 1 : 0;
-    animate amount { duration: Art.highlighter-time; easing: ease-out; }
+    animate amount { duration: root.time; easing: ease-out; }
     Rectangle {
         x: 2px; y: root.height * 0.18; width: (root.width - 4px) * root.amount; height: root.height * 0.64;
-        border-radius: 2px; background: Art.highlighter-color; opacity: 0.55;
+        border-radius: 2px; background: root.colour; opacity: 0.55;
         transform-rotation: -0.6deg;
     }
 }

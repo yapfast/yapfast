@@ -18,13 +18,15 @@ use std::time::{Duration, Instant};
 use image::{Rgba, RgbaImage};
 use slint::{Color, ComponentHandle, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, VecModel};
 use yapfast_core::themes::Performance;
-use yapfast_core::themes::check::art::{DISPLAY, GLASS_SHRINK, TEXTURE_SIDE, blend_channel, shown};
+use yapfast_core::themes::check::art::{
+    CARD_ART, DISPLAY, GLASS_SHRINK, TEXTURE_SIDE, blend_channel, shown,
+};
 use yapfast_core::themes::package::art::{
     Art, ArtSurface, EventSlot, Fit, FoilSurface, Layer, OverlayKind, Preset, Source, TextLook,
     TextRole, Texture, TransitionKind, Trigger,
 };
 use yapfast_core::themes::package::{Property, Resolved};
-use yapfast_ui::{ArtImage, ArtOverlay, ArtParticle, ArtText, SlotMotion, YapfastWindow};
+use yapfast_ui::{ArtImage, ArtOverlay, ArtParticle, ArtText, CardArt, SlotMotion, YapfastWindow};
 
 /// The rail's servers run a phase apart in this many groups, which repeat
 /// down the rail.
@@ -105,6 +107,8 @@ pub fn reset(window: &YapfastWindow) {
     art.set_dialog(none());
     art.set_composer(none());
     art.set_menu(none());
+    art.set_actions(none());
+    art.set_cards(ModelRc::new(VecModel::<CardArt>::default()));
     art.set_overlays(ModelRc::new(VecModel::<ArtOverlay>::default()));
     art.set_chat_overlays(false);
     art.set_t(0.);
@@ -118,6 +122,7 @@ pub fn reset(window: &YapfastWindow) {
         yapfast_ui::Art::set_glass_dialog,
         yapfast_ui::Art::set_glass_composer,
         yapfast_ui::Art::set_glass_menu,
+        yapfast_ui::Art::set_glass_actions,
     ] {
         set(&art, false);
     }
@@ -136,6 +141,7 @@ pub fn reset(window: &YapfastWindow) {
     art.set_ripple(false);
     art.set_gloss(false);
     art.set_highlighter(false);
+    art.set_row_highlighter(false);
     art.set_stamp(false);
     art.set_hover_in(-1);
     art.set_hover_out(-1);
@@ -183,6 +189,7 @@ pub fn apply(
         state.reduced = reduced;
         state.owed = vec![0.0; art.particles.len()];
     });
+    cards(window, resolved, folder);
     if art.is_empty() {
         return;
     }
@@ -212,6 +219,7 @@ pub fn apply(
             ArtSurface::Dialog => global.set_dialog(model),
             ArtSurface::Composer => global.set_composer(model),
             ArtSurface::Menu => global.set_menu(model),
+            ArtSurface::Actions => global.set_actions(model),
         }
     }
     // Overlays: Light leaves out the heavy ones, Balanced holds them still.
@@ -294,6 +302,7 @@ pub fn apply(
                 ArtSurface::Dialog => yapfast_ui::Art::set_glass_dialog,
                 ArtSurface::Composer => yapfast_ui::Art::set_glass_composer,
                 ArtSurface::Menu => yapfast_ui::Art::set_glass_menu,
+                ArtSurface::Actions => yapfast_ui::Art::set_glass_actions,
                 ArtSurface::Window => continue,
             };
             set(&global, true);
@@ -348,6 +357,11 @@ pub fn apply(
                     global.set_stamp(true);
                     global.set_stamp_time(time);
                 }
+                EventSlot::Row => {
+                    global.set_row_highlighter(true);
+                    global.set_row_highlighter_color(colour);
+                    global.set_row_highlighter_time(time);
+                }
             }
         }
         if let Some(time) = hover.0 {
@@ -391,6 +405,66 @@ pub fn apply(
     STATE.with_borrow_mut(|state| state.moving = moving);
     start_clock(window);
     event(window, Trigger::ThemeApplied);
+}
+
+/// The pictures on each message card: decoded once at no more than twice
+/// the size they show, shared by every card, and how far they reach past
+/// a card's edges, which each row's slice of the card leaves room for.
+fn cards(window: &YapfastWindow, resolved: &Resolved, folder: &Path) {
+    let layout = &resolved.layout;
+    if layout.cards.art.is_empty() {
+        return;
+    }
+    let ground = layout
+        .cards
+        .ground
+        .or_else(|| shown(resolved, "raised"))
+        .unwrap_or(0xff00_0000);
+    let arrange = window.global::<yapfast_ui::Arrange>();
+    let (mut over_top, mut over_bottom) = (
+        arrange.get_cards_over_top(),
+        arrange.get_cards_over_bottom(),
+    );
+    let mut placed = Vec::new();
+    for card in &layout.cards.art {
+        let key = format!("card:{:?}:{ground:08x}", card.layer);
+        let Some(image) = STATE
+            .with_borrow(|state| state.cache.get(&key).cloned())
+            .or_else(|| {
+                let image = slint_image(baked_at(folder, &card.layer, ground, CARD_ART)?);
+                STATE.with_borrow_mut(|state| state.cache.insert(key.clone(), image.clone()));
+                Some(image)
+            })
+        else {
+            continue;
+        };
+        let natural = image.size();
+        let (width, height) = card.size.unwrap_or((
+            (natural.width as f32).min(480.),
+            (natural.height as f32).min(240.),
+        ));
+        let turn = width / 2. * card.rotation.to_radians().sin().abs();
+        if card.bottom {
+            over_bottom = over_bottom.max(height / 2. + card.offset.1 + turn + 1.);
+        } else {
+            over_top = over_top.max(height / 2. - card.offset.1 + turn + 1.);
+        }
+        placed.push(CardArt {
+            picture: art_image(&card.layer, image, false, 0.0),
+            across: card.across,
+            bottom: card.bottom,
+            width,
+            height,
+            dx: card.offset.0,
+            dy: card.offset.1,
+            rotation: card.rotation,
+        });
+    }
+    arrange.set_cards_over_top(over_top);
+    arrange.set_cards_over_bottom(over_bottom);
+    window
+        .global::<yapfast_ui::Art>()
+        .set_cards(ModelRc::new(VecModel::from(placed)));
 }
 
 fn art_image(layer: &Layer, image: Image, moves: bool, jitter: f32) -> ArtImage {
@@ -493,15 +567,18 @@ fn slint_image(picture: RgbaImage) -> Image {
 /// A layer's pixels at display size: decoded or made, scaled, blurred, and
 /// mixed with the surface's ground as its blend says, dimmed and faded.
 fn baked(folder: &Path, layer: &Layer, ground: u32) -> Option<RgbaImage> {
+    let cap = if layer.fit == Fit::Tile {
+        (1024, 1024)
+    } else {
+        DISPLAY
+    };
+    baked_at(folder, layer, ground, cap)
+}
+
+/// [`baked`], decoded no larger than `cap`.
+fn baked_at(folder: &Path, layer: &Layer, ground: u32, cap: (u32, u32)) -> Option<RgbaImage> {
     let mut picture = match &layer.source {
-        Source::Image(path) => {
-            let cap = if layer.fit == Fit::Tile {
-                (1024, 1024)
-            } else {
-                DISPLAY
-            };
-            load(&folder.join(path), cap)?
-        }
+        Source::Image(path) => load(&folder.join(path), cap)?,
         Source::Texture(kind) => texture_pixels(*kind, layer.colour),
     };
     if layer.fit == Fit::Tile && (layer.scale - 1.0).abs() > 0.01 {

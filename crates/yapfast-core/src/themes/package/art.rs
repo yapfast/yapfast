@@ -50,6 +50,7 @@ closed! {
         Dialog = "dialog",
         Composer = "composer",
         Menu = "menu",
+        Actions = "actions",
     }
 }
 
@@ -72,6 +73,7 @@ impl ArtSurface {
             Self::Card | Self::Dialog => "raised",
             Self::Composer => "composer",
             Self::Menu => "menu",
+            Self::Actions => "actions",
         }
     }
 }
@@ -269,7 +271,7 @@ closed! {
 closed! {
     /// The event slots: a click on a button, the pointer on a button or a
     /// server, a channel chosen, a reaction added.
-    EventSlot { Click = "click", Hover = "hover", Select = "select", Reaction = "reaction" }
+    EventSlot { Click = "click", Hover = "hover", Select = "select", Reaction = "reaction", Row = "row" }
 }
 
 impl EventSlot {
@@ -280,6 +282,7 @@ impl EventSlot {
             Self::Hover => EventEffect::Gloss,
             Self::Select => EventEffect::Highlighter,
             Self::Reaction => EventEffect::Stamp,
+            Self::Row => EventEffect::Highlighter,
         }
     }
 }
@@ -608,7 +611,11 @@ fn position(value: &Value, place: &str) -> Result<(f32, f32), Error> {
     Ok((x, y))
 }
 
-fn read_layer(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<Layer, Error> {
+pub(crate) fn read_layer(
+    value: &Value,
+    place: &str,
+    notes: &mut Vec<String>,
+) -> Result<Layer, Error> {
     let fields = object(value, place)?;
     let source = match (fields.get("image"), fields.get("texture")) {
         (Some(image), None) => Source::Image(relative(
@@ -973,13 +980,13 @@ fn read_event(
         colour: match slot {
             EventSlot::Click => 0x40ff_ffff,
             EventSlot::Hover => 0x38ff_ffff,
-            EventSlot::Select => 0xffff_e45c,
+            EventSlot::Select | EventSlot::Row => 0xffff_e45c,
             EventSlot::Reaction => 0,
         },
         duration: match slot {
             EventSlot::Click => 450.0,
             EventSlot::Hover => 600.0,
-            EventSlot::Select => 260.0,
+            EventSlot::Select | EventSlot::Row => 260.0,
             EventSlot::Reaction => 320.0,
         },
     };

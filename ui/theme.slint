@@ -129,6 +129,13 @@ export global Theme {
     /// The dim behind a dialog: a theme's own colour, or what each dialog
     /// draws.
     public pure function scrim(stock: color) -> color { self.scrim-on ? self.scrim-set : stock }
+    /// The bar of actions over a message: its ground (`raised`), and a
+    /// button's ground under the pointer there and in the message menu's
+    /// reactions (the stock wash).
+    in property <color> actions-set; in property <bool> actions-on;
+    out property <brush> actions-fill: self.actions-on ? self.actions-set : self.raised-fill;
+    in property <color> actions-hover-set; in property <bool> actions-hover-on;
+    out property <color> actions-hover: self.actions-hover-on ? self.actions-hover-set : transparent;
 
     // Surfaces a theme may paint with a gradient. Each is its colour until a
     // theme sets a brush.
@@ -198,6 +205,15 @@ export global Look {
     in property <Shape> embed: { radius: -1px, border: -1px, shadow-blur: -1px };
     /// Switches: track and knob; 999 is the stock pill.
     in property <Shape> toggle: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// The bar of actions over a message.
+    in property <Shape> actions: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// A message row's hover, mention and jump bands: their corners and
+    /// how far they keep from the column's sides and the row's top and
+    /// bottom. Unset, the corners follow `message`.
+    in property <Shape> row: { radius: -1px, border: -1px, shadow-blur: -1px };
+    in property <length> row-inset-x;
+    in property <length> row-inset-y;
+    out property <length> row-radius: self.row.radius >= 0px ? self.row.radius : self.r(self.message, 0px);
     // Every other corner by its stock size: small (4px and under), medium
     // (up to 8px) and large.
     in property <length> radius-small: -1px;

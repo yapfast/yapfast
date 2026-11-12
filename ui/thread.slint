@@ -2,6 +2,7 @@ import { IconPack } from "media.slint";
 import { UiParts } from "yapfast/parts.slint";
 import { ListView } from "scrollview.slint";
 import { Theme, Middle, Look } from "theme.slint";
+import { ActionsFrame } from "theme_layout.slint";
 import { IconButton, PingToggle, ActionButton, MessagesSkeleton, TextField } from "controls.slint";
 import { FoundRow, FoundCard } from "header.slint";
 import { SettingsSwitch } from "settings.slint";
@@ -285,11 +286,9 @@ export component ThreadPanel inherits Rectangle {
                     }
                     // The row's actions float over its top edge, as in the timeline,
                     // with fewer reactions for the narrower panel.
-                    if (self.lit || root.react-item == message.item || root.menu-item == message.item || root.confirm-delete == message.item) && !message.deleted && message.delivery == "": message-bar := Rectangle {
+                    if (self.lit || root.react-item == message.item || root.menu-item == message.item || root.confirm-delete == message.item) && !message.deleted && message.delivery == "": message-bar := ActionsFrame {
                         x: parent.width - self.width - 12px; y: index == 0 ? 4px : -16px;
                         width: actions.preferred-width; height: actions.preferred-height;
-                        background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(8px);
-                        drop-shadow-blur: Look.shadow-blur(10px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000059); drop-shadow-offset-y: Look.shadow-y(2px);
                         // Shift's quick actions, as in the timeline.
                         property <bool> quick: root.shift-held && root.react-item != message.item && root.menu-item != message.item;
                         property <bool> deletes: self.quick && message.can-delete && root.composer-enabled;
@@ -303,36 +302,36 @@ export component ThreadPanel inherits Rectangle {
                             }
                             if root.confirm-delete != message.item: HorizontalLayout {
                                 spacing: 0px;
-                                if message-bar.quick && message.can-pin: IconButton {
+                                if message-bar.quick && message.can-pin: IconButton { hover-fill: Theme.actions-hover;
                                     icon: message.pinned ? IconPack.pin-off : IconPack.pin;
                                     label: message.pinned ? "Unpin" : "Pin";
                                     clicked => { root.pin-message(message.item); }
                                 }
-                                if message-bar.quick && message.own && message.can-edit && message.can-reply && root.composer-enabled && UiParts.message-reply: IconButton {
+                                if message-bar.quick && message.own && message.can-edit && message.can-reply && root.composer-enabled && UiParts.message-reply: IconButton { hover-fill: Theme.actions-hover;
                                     icon: IconPack.reply; label: "Reply";
                                     clicked => { root.reply(message.item); root.focus-composer(); }
                                 }
                                 if message.can-react && root.new-reactions-enabled && UiParts.message-react: HorizontalLayout {
                                     spacing: 0px;
-                                    for cell[slot] in root.bar-reactions: EmojiButton {
+                                    for cell[slot] in root.bar-reactions: EmojiButton { hover-fill: Theme.actions-hover;
                                         animation-key: cell.key;
                                         visible: slot < 2 && !message-bar.quick; width: slot < 2 && !message-bar.quick ? 32px : 0px;
                                         emoji: cell; font: root.emoji-font;
                                         clicked => { root.react(message.item, cell.key); }
                                     }
-                                    IconButton {
+                                    IconButton { hover-fill: Theme.actions-hover;
                                         icon: IconPack.smile-plus; label: "Add reaction";
                                         clicked => { root.open-picker(message.item, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                                     }
                                 }
-                                if message.own && message.can-edit && root.composer-enabled: IconButton { icon: IconPack.pencil; label: "Edit"; clicked => { root.edit(message.item); root.focus-composer(); } }
-                                if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled && UiParts.message-reply: IconButton { icon: IconPack.reply; label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
+                                if message.own && message.can-edit && root.composer-enabled: IconButton { hover-fill: Theme.actions-hover; icon: IconPack.pencil; label: "Edit"; clicked => { root.edit(message.item); root.focus-composer(); } }
+                                if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled && UiParts.message-reply: IconButton { hover-fill: Theme.actions-hover; icon: IconPack.reply; label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
                                 // Beside Reply, as in Discord, whether or not Shift is held.
-                                if message.can-forward && root.forward-allowed: IconButton {
+                                if message.can-forward && root.forward-allowed: IconButton { hover-fill: Theme.actions-hover;
                                     icon: IconPack.forward; label: "Forward";
                                     clicked => { root.start-forward(message.item); }
                                 }
-                                if message-bar.deletes: IconButton {
+                                if message-bar.deletes: IconButton { hover-fill: Theme.actions-hover;
                                     icon: IconPack.trash-2; label: "Delete"; danger: true;
                                     clicked => { root.delete-now(message.item); }
                                 }
@@ -340,7 +339,7 @@ export component ThreadPanel inherits Rectangle {
                                     parts: root.plugin-hover; subject: message.item;
                                     acted(plugin, slot, id, value, subject) => { root.plugin-acted(plugin, slot, id, value, subject); }
                                 }
-                                if !message-bar.deletes && UiParts.message-more: IconButton {
+                                if !message-bar.deletes && UiParts.message-more: IconButton { hover-fill: Theme.actions-hover;
                                     icon: IconPack.ellipsis; label: "More";
                                     clicked => { root.open-menu(message, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                                 }

@@ -124,6 +124,9 @@ export component IconButton inherits Rectangle {
     in property <length> glyph: 20px;
     in property <color> tint: Theme.secondary;
     in property <color> fill: transparent;
+    /// Its ground under the pointer, over the stock wash; transparent keeps
+    /// the wash.
+    in property <color> hover-fill: transparent;
     in property <int> tip-side: 0;
     in property <length> radius: 6px;
     out property <bool> hovered: pointer.has-hover;
@@ -142,7 +145,7 @@ export component IconButton inherits Rectangle {
         background: !root.enabled ? root.fill
             : root.emphasis ? (pointer.has-hover ? Theme.accent-hover : Theme.accent-fill)
             : root.danger && pointer.has-hover ? Theme.danger.with-alpha(0.16)
-            : pointer.has-hover ? root.fill.mix(Theme.overlay, 0.9) : root.fill;
+            : pointer.has-hover ? (root.hover-fill != transparent ? root.hover-fill : root.fill.mix(Theme.overlay, 0.9)) : root.fill;
         animate background { duration: Theme.quick; }
         border-width: focus.has-focus ? 2px : 0px;
         border-color: Theme.accent;

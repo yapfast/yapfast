@@ -637,6 +637,16 @@ fn looks(variant: &Resolved) -> Vec<String> {
             if layout.borders.len() == 1 { "" } else { "s" }
         ));
     }
+    if layout.cards.shadow.is_some() {
+        changes.push("card shadows".to_owned());
+    }
+    if !layout.cards.art.is_empty() {
+        let count = layout.cards.art.len();
+        changes.push(format!(
+            "{count} picture{} on each card",
+            if count == 1 { "" } else { "s" }
+        ));
+    }
     if let Some(names) = &layout.names {
         changes.push(if names.fonts.is_empty() {
             "ransom names".to_owned()
@@ -1216,6 +1226,22 @@ mod tests {
                 .errors
                 .iter()
                 .any(|error| error.contains("layout.cards.ground")),
+            "{:?}",
+            report.errors
+        );
+        // The hover bar's ground carries its "Delete for everyone?".
+        let report = check(
+            &files(&PLUM.replace(
+                r##""colours": { "chat": "#2a1a3a" }"##,
+                r##""colours": { "actions": "#e8e8e8" }"##,
+            )),
+            Strictness::Install,
+        );
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("text on actions")),
             "{:?}",
             report.errors
         );
