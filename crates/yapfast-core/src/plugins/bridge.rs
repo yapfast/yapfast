@@ -129,6 +129,7 @@ impl Bridge {
             wanted: AtomicU64::new(0),
             intercepts: AtomicBool::new(false),
             decorates: AtomicBool::new(false),
+            decorates_members: AtomicBool::new(false),
             gesture: Mutex::new(None),
             sends: Mutex::new(BTreeMap::new()),
             off: Mutex::new(None),
@@ -169,6 +170,18 @@ impl Bridge {
         self.shared.decorates.load(Ordering::Relaxed)
     }
 
+    /// Whether an enabled plugin badges people in the member list. A list that
+    /// nobody badged costs one load of this and nothing else.
+    pub fn decorates_members(&self) -> bool {
+        self.shared.decorates_members.load(Ordering::Relaxed)
+    }
+
+    /// How many plugins badge people in the member list: a person the list has
+    /// heard from every one of them about isn't asked about again.
+    pub fn member_decorator_count(&self) -> usize {
+        self.shared.registry().member_decorator_count()
+    }
+
     /// Asks every plugin that draws under messages what it draws under each row
     /// on screen.
     ///
@@ -185,6 +198,29 @@ impl Bridge {
         for row in rows.iter().take(MAX_DECORATE_ROWS) {
             for plugin in &plugins {
                 self.send(Request::Decorate {
+                    plugin: plugin.clone(),
+                    request: row.clone(),
+                });
+            }
+        }
+    }
+
+    /// Asks every plugin that badges people what it badges the members on
+    /// screen with.
+    ///
+    /// As with a message's decoration, only the rows in sight are asked about,
+    /// so a large server costs what its list shows and not its whole roster.
+    pub fn decorate_members(
+        &mut self,
+        rows: &[yapfast_plugin_api::message::DecorateMemberRequest],
+    ) {
+        let plugins = self.shared.registry().member_decorators();
+        if plugins.is_empty() || rows.is_empty() {
+            return;
+        }
+        for row in rows.iter().take(MAX_DECORATE_ROWS) {
+            for plugin in &plugins {
+                self.send(Request::DecorateMember {
                     plugin: plugin.clone(),
                     request: row.clone(),
                 });
@@ -1029,6 +1065,9 @@ pub(crate) struct Shared {
     /// Whether an enabled plugin draws under messages, which a row asks before
     /// it costs one call per message on screen.
     decorates: AtomicBool,
+    /// Whether an enabled plugin badges people in the member list, which the
+    /// list asks before it costs one call per person on screen.
+    decorates_members: AtomicBool,
     /// When the person last did something a plugin's send can stand behind.
     gesture: Mutex<Option<Instant>>,
     /// When each plugin last sent a message, for the 5-per-10-s the plan puts
@@ -1061,6 +1100,8 @@ impl Shared {
         self.wanted.store(summary.wanted, Ordering::Relaxed);
         self.intercepts.store(summary.intercepts, Ordering::Relaxed);
         self.decorates.store(summary.decorates, Ordering::Relaxed);
+        self.decorates_members
+            .store(summary.decorates_members, Ordering::Relaxed);
     }
 
     /// Records that the person just did something, which is what a plugin's
@@ -1443,6 +1484,12 @@ enum Request {
     Decorate {
         plugin: PluginId,
         request: yapfast_plugin_api::message::DecorateRequest,
+    },
+    /// What a plugin badges one member of the open room's list with: the answer
+    /// comes back as [`FromHelper::MemberDecorated`].
+    DecorateMember {
+        plugin: PluginId,
+        request: yapfast_plugin_api::message::DecorateMemberRequest,
     },
     /// Replace a plugin with what the store holds now, with the plugins that
     /// need it stopped first and started again after.
@@ -2209,6 +2256,10 @@ impl Session {
                 self.decorate(shared, &plugin, request);
                 None
             }
+            Request::DecorateMember { plugin, request } => {
+                self.decorate_member(shared, &plugin, request);
+                None
+            }
             Request::CallAnswer {
                 plugin,
                 call,
@@ -2504,6 +2555,30 @@ impl Session {
         );
     }
 
+    /// Asks one plugin for the badge it puts beside a person's name in the
+    /// member list, starting it if it isn't running.
+    fn decorate_member(
+        &mut self,
+        shared: &Shared,
+        plugin: &PluginId,
+        request: yapfast_plugin_api::message::DecorateMemberRequest,
+    ) {
+        self.activate(shared, plugin);
+        let message = ToHelper::DecorateMember {
+            plugin: plugin.clone(),
+            request,
+        };
+        self.request(
+            &message,
+            DECORATE_TIMEOUT,
+            Purpose::Agent {
+                what: "a member badge",
+                plugin: plugin.clone(),
+                budget: DECORATE_TIMEOUT,
+            },
+        );
+    }
+
     /// Runs one plugin's call into another, which is what `plugin.call` asks for.
     ///
     /// The answer can't be built here: it is an export of the callee, and only
@@ -2737,6 +2812,7 @@ impl Session {
             // A row that comes back after a swap is decorated again by the
             // interface's next report of what is on screen.
             Request::Decorate { plugin, .. } => self.in_swap(plugin),
+            Request::DecorateMember { plugin, .. } => self.in_swap(plugin),
             // An answer to a guest's call is about a guest that may be shut
             // down with the swap, so it goes as it comes.
             Request::CallAnswer { .. } => false,
@@ -2986,6 +3062,15 @@ impl Session {
             } => {
                 self.pending.remove(&frame.id);
                 self.on_decorated(shared, &plugin, &message, tree);
+                None
+            }
+            FromHelper::MemberDecorated {
+                plugin,
+                member,
+                badge,
+            } => {
+                self.pending.remove(&frame.id);
+                self.on_member_decorated(shared, &plugin, &member, badge);
                 None
             }
             FromHelper::EventDone { .. } => None,
@@ -3911,6 +3996,34 @@ impl Session {
         }));
     }
 
+    /// Reports the badge a plugin puts beside one person's name in the member
+    /// list, or that it answered with none.
+    fn on_member_decorated(
+        &mut self,
+        shared: &Shared,
+        plugin: &PluginId,
+        member: &str,
+        badge: Option<serde_json::Value>,
+    ) {
+        let badge = match badge {
+            Some(value) => match crate::plugins::slots::Badge::parse(&value) {
+                Ok(badge) => Some(badge),
+                Err(refusal) => {
+                    tracing::warn!(%plugin, %refusal, "a plugin answered with a member badge Yapfast refused");
+                    return;
+                }
+            },
+            // An answer of none is kept as such: the person was asked, and
+            // scrolling back to them asks nothing again.
+            None => None,
+        };
+        shared.announce(Notice::Slot(crate::plugins::slots::Output::MemberBadge {
+            plugin: plugin.to_string(),
+            member: member.to_owned(),
+            badge,
+        }));
+    }
+
     /// Reports a command's answer: a line for the person, or the reason it
     /// failed, on the application's own event path.
     fn on_command_done(
@@ -4636,6 +4749,7 @@ mod tests {
             wanted: AtomicU64::new(0),
             intercepts: AtomicBool::new(false),
             decorates: AtomicBool::new(false),
+            decorates_members: AtomicBool::new(false),
             gesture: Mutex::new(None),
             sends: Mutex::new(BTreeMap::new()),
             off: Mutex::new(None),

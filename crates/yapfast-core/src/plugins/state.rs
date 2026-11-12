@@ -396,6 +396,25 @@ impl PluginState {
         self.bridge.decorate(rows);
     }
 
+    /// Whether an enabled plugin badges people in the member list, which a list
+    /// that scrolls checks before it costs anything.
+    pub fn decorates_members(&self) -> bool {
+        self.bridge.decorates_members()
+    }
+
+    /// How many plugins badge people in the member list.
+    pub fn member_decorator_count(&self) -> usize {
+        self.bridge.member_decorator_count()
+    }
+
+    /// Asks each of them for the badge of a person the member list shows.
+    pub fn decorate_members(
+        &mut self,
+        rows: &[yapfast_plugin_api::message::DecorateMemberRequest],
+    ) {
+        self.bridge.decorate_members(rows);
+    }
+
     /// Runs the `message.pre_send` chain, if anything intercepts sends.
     pub fn pre_send(&mut self, draft: Draft) -> PreSend {
         self.bridge.pre_send(draft)

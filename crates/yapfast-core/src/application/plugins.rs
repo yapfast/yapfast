@@ -826,6 +826,73 @@ impl Application {
         }
     }
 
+    /// Asks the plugins that badge people in the member list about the rows on
+    /// screen, and no others: a large server costs what its list shows.
+    ///
+    /// A person every decorating plugin has answered about isn't asked again,
+    /// so scrolling back up costs nothing after the first pass. The cache goes
+    /// when the member list's snapshot changes.
+    pub(super) fn plugins_decorate_members(&mut self, room: &str, ids: &[String]) {
+        if !self.plugins_on() {
+            return;
+        }
+        let Some(members) = self
+            .state
+            .members
+            .as_ref()
+            .and_then(|members| members.as_ref().ok())
+        else {
+            return;
+        };
+        let Some(slots) = self.state.plugin_slots.as_deref_mut() else {
+            return;
+        };
+        // Another room's list is another set of people: what a plugin said
+        // about the last one's is dropped here rather than asked about again.
+        if self.badges_rooms.as_deref() != Some(room) {
+            slots.members_changed();
+            self.badges_rooms = Some(room.to_owned());
+        }
+        let Some(plugins) = self.state.plugins.as_ref() else {
+            return;
+        };
+        if !plugins.decorates_members() {
+            return;
+        }
+        let decorators = plugins.member_decorator_count();
+        if decorators == 0 {
+            return;
+        }
+        let server = crate::discord::parse_room(room)
+            .map(|(guild, _)| guild.to_owned())
+            .filter(|guild| guild != crate::discord::DM_GUILD)
+            .unwrap_or_default();
+        let asked: Vec<yapfast_plugin_api::message::DecorateMemberRequest> = ids
+            .iter()
+            .filter(|id| slots.members_asked(id) < decorators)
+            .filter_map(|id| {
+                members
+                    .iter()
+                    .find(|member| &member.id == id)
+                    .map(|member| yapfast_plugin_api::message::DecorateMemberRequest {
+                        server: server.clone(),
+                        room: room.to_owned(),
+                        member: member.id.clone(),
+                        name: member.name.clone(),
+                        own: self.state.discord_user.as_deref() == Some(member.id.as_str()),
+                        bot: member.bot,
+                        roles: member.roles.to_vec(),
+                    })
+            })
+            .collect();
+        if asked.is_empty() {
+            return;
+        }
+        if let Some(plugins) = self.state.plugins.as_mut() {
+            plugins.decorate_members(&asked);
+        }
+    }
+
     /// Hands one event to the plugins that subscribed to it. The bridge
     /// applies each subscription's filter and writes the payload once, so a
     /// tap only has to say what happened.

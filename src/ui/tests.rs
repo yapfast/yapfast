@@ -3280,6 +3280,7 @@ fn dragging_the_member_list_resizes_it_within_limits_and_remembers_it() {
         .window()
         .set_size(slint::LogicalSize::new(1400., 760.));
     window.set_members_available(true);
+    window.set_members_available(true);
     window.set_member_list(true);
     let drag = |from: f32, to: f32| {
         let window = window.window();
@@ -11011,3 +11012,153 @@ fn the_installed_tab_is_a_list_or_cards() {
     assert_eq!(page.get_view(), 0);
     page.invoke_closed();
 }
+
+/// What a plugin draws says what it is: every interactive cell has a role and
+/// a label naming its plugin, its default action is the one a click or the
+/// keyboard takes, and a row from a manifest reports its plugin and action.
+/// The member list's badges and a person's card are labelled the same way.
+#[cfg(feature = "plugins")]
+#[test]
+#[ignore = "walks the element tree, which needs YAPFAST_SLINT_DEBUG_INFO=1 at build time"]
+fn plugin_cells_and_rows_say_what_they_are() {
+    use i_slint_backend_testing::{AccessibleRole, ElementQuery};
+    use yapfast_core::plugins::{
+        slots::{Output, Slot},
+        ui::Tree,
+        Input, Manifest, Runtime,
+    };
+
+    struct Recorder(Rc<RefCell<Vec<Input>>>);
+    impl Runtime for Recorder {
+        fn input(&self, input: Input) {
+            self.0.borrow_mut().push(input);
+        }
+    }
+
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+
+    // A plugin with a row at the foot of the rail and one in the header, and
+    // the ui.modify a slot doesn't need.
+    let manifest = Manifest::parse(
+        r#"{ "api": 1, "id": "com.example.p0", "name": "Plugin 0",
+            "rail_items": [{ "label": "Wave", "action": "wave" }],
+            "header_buttons": [{ "label": "Keep", "action": "keep" }] }"#,
+    )
+    .unwrap();
+    let checked = vec![yapfast_core::plugins::ui::check(&manifest)];
+    let overrides =
+        yapfast_core::plugins::ui::derive(&checked, &std::collections::BTreeMap::new()).0;
+    let received = Rc::new(RefCell::new(Vec::new()));
+    let mut plugins = plugins::Plugins::with(overrides, Some(Box::new(Recorder(received.clone()))));
+    plugins.enable(&mut adapter.borrow_mut().app);
+    plugins::show(&window, Some(&plugins));
+    adapter.borrow_mut().plugins = Some(Box::new(plugins));
+
+    let surfaces = window.global::<yapfast_ui::PluginSurfaces>();
+    let rail = surfaces.get_rail_items();
+    assert_eq!(rail.row_count(), 1);
+    let row = rail.row_data(0).unwrap();
+    assert_eq!((row.id.as_str(), row.label.as_str()), ("plugin/0/wave", "Wave"));
+    assert_eq!(surfaces.get_header_buttons().row_data(0).unwrap().id, "plugin/0/keep");
+
+    // A tree in a slot: a button, a switch, a select and a link, each labelled
+    // with the plugin's name so none passes for Yapfast's own.
+    let event = yapfast_core::chat::Event::PluginSlot(Output::SetSlot {
+        plugin: "com.example.p0".into(),
+        slot: Slot::Toast,
+        tree: Tree::parse(
+            r#"{ "rows": [
+                { "cells": [
+                    { "kind": "button", "id": "go", "text": "Go", "tone": "accent" },
+                    { "kind": "toggle", "id": "on", "text": "Every morning", "checked": true },
+                    { "kind": "select", "id": "pick", "text": "Which one", "options": ["a", "b"] },
+                    { "kind": "link", "id": "open", "text": "Open", "value": "https://example.org" }
+                ] }
+            ] }"#,
+        )
+        .unwrap(),
+    });
+    let reach = refresh::Reach::of(&event);
+    adapter.borrow_mut().app.apply(event);
+    adapter.borrow_mut().show(&window, reach);
+    // A person's card, and the member list's badge.
+    let profile = yapfast_core::chat::Event::PluginSlot(Output::SetSlot {
+        plugin: "com.example.p0".into(),
+        slot: Slot::ProfileBadges,
+        tree: Tree::parse(r#"{ "rows": [{ "cells": [{ "kind": "text", "text": "Since 2019" }] }] }"#).unwrap(),
+    });
+    let reach = refresh::Reach::of(&profile);
+    adapter.borrow_mut().app.apply(profile);
+    adapter.borrow_mut().show(&window, reach);
+    assert_eq!(window.get_plugin_profile().row_count(), 1);
+    window.set_roster(ModelRc::new(VecModel::from(vec![MemberRow {
+        id: "u1".into(),
+        name: "Ada".into(),
+        plugin: ModelRc::new(VecModel::from(vec![yapfast_ui::PluginBadge {
+            text: "Link".into(),
+            tone: yapfast_ui::PluginTone::Accent,
+            name: "Plugin 0".into(),
+        }])),
+        ..MemberRow::default()
+    }])));
+    window.set_members_available(true);
+    window.set_member_list(true);
+    window.show().unwrap();
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(50));
+
+    let find = |role: AccessibleRole, label: &str| {
+        ElementQuery::from_root(&window)
+            .match_accessible_role(role)
+            .match_accessible_label(label)
+            .find_first()
+            .unwrap_or_else(|| {
+                let labels: Vec<String> = ElementQuery::from_root(&window)
+                    .find_all()
+                    .iter()
+                    .filter_map(|element| element.accessible_label())
+                    .map(|label| label.to_string())
+                    .collect();
+                panic!("no {role:?} labelled {label:?}; the window says {labels:?}")
+            })
+    };
+    // Each interactive cell's role and label.
+    let go = find(AccessibleRole::Button, "Plugin 0: Go");
+    let _switch = find(AccessibleRole::Switch, "Every morning");
+    find(AccessibleRole::Combobox, "Which one");
+    find(AccessibleRole::Button, "Open");
+    // A row from a manifest, and its plugin's name beside it.
+    let wave = find(AccessibleRole::Button, "Wave, from Plugin 0");
+    let keep = find(AccessibleRole::Button, "Keep, from Plugin 0");
+    // A member's badge is text, and says whose it is.
+    find(AccessibleRole::Text, "Link, from Plugin 0");
+
+    // The default action is what a click or the keyboard's Space and Enter take.
+    go.invoke_accessible_default_action();
+    wave.invoke_accessible_default_action();
+    keep.invoke_accessible_default_action();
+    let inputs = received.borrow();
+    assert_eq!(inputs.len(), 3, "{inputs:?}");
+    assert!(matches!(
+        &inputs[0],
+        Input::Widget { plugin, slot: Slot::Toast, id, .. }
+            if plugin == "com.example.p0" && id == "go"
+    ));
+    assert!(matches!(
+        &inputs[1],
+        Input::Menu { plugin, action, .. } if plugin == "com.example.p0" && action == "wave"
+    ));
+    assert!(matches!(
+        &inputs[2],
+        Input::Menu { plugin, action, .. } if plugin == "com.example.p0" && action == "keep"
+    ));
+}
+

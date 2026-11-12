@@ -119,6 +119,13 @@ pub struct Manifest {
     /// Rows the plugin adds to menus.
     #[serde(default)]
     pub menus: Vec<ui::MenuItem>,
+    /// Buttons it adds to the bottom of the server rail, from its manifest, so
+    /// they show without it running.
+    #[serde(default)]
+    pub rail_items: Vec<ui::Button>,
+    /// Buttons it adds to a conversation's header, the same way.
+    #[serde(default)]
+    pub header_buttons: Vec<ui::Button>,
     /// Changes to Yapfast's own interface.
     #[serde(default)]
     pub ui: Option<ui::Ui>,

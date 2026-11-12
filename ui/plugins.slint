@@ -43,6 +43,25 @@ export struct PluginRow { framed: bool, indent: int, cells: [PluginCell] }
 /// name, which labels what it draws.
 export struct PluginPart { plugin: string, name: string, slot: string, rows: [PluginRow] }
 
+/// A button a plugin's manifest puts where Yapfast draws rows of its own: at
+/// the bottom of the server rail, or in a conversation's header. It shows
+/// without the plugin running, and says whose it is.
+export struct PluginButton { plugin: string, name: string, id: string, label: string }
+
+/// What plugins put outside a slot, in parts of the window that are drawn far
+/// from the root: the server rail, the header and a person's card read these
+/// directly. The window sets them as its plugins load; choosing a row from a
+/// manifest comes back through `row-acted`, and a widget a plugin drew comes
+/// back through the window's own `plugin-acted`.
+export global PluginSurfaces {
+    /// Buttons from `rail_items`, at the bottom of the server rail.
+    in-out property <[PluginButton]> rail-items;
+    /// Buttons from `header_buttons`, in the conversation's header.
+    in-out property <[PluginButton]> header-buttons;
+    /// A static row from a manifest: the plugin, and its action.
+    callback row-acted(string, string);
+}
+
 export global PluginTones {
     pure public function ink(tone: PluginTone) -> color {
         if tone == PluginTone.muted { return Theme.muted; }
@@ -248,6 +267,60 @@ export component PluginWidgets inherits Rectangle {
                 }
             }
         }
+    }
+}
+
+// A plugin's button where Yapfast draws rows of its own: its label, and whose
+// it is to a screen reader, under it on the rail where there is room.
+export component PluginRowButton inherits Rectangle {
+    in property <PluginButton> entry;
+    /// The plugin's name under the label, which the rail has room for.
+    in property <bool> named: false;
+    callback clicked;
+    min-height: content.preferred-height; border-radius: 6px;
+    background: hover.has-hover ? Theme.hover : transparent;
+    vertical-stretch: 0;
+    content := VerticalLayout {
+        padding: 4px; spacing: 0px;
+        Text {
+            text: root.entry.label; color: Theme.secondary; font-size: 12px; font-weight: 600;
+            horizontal-alignment: center; overflow: elide;
+        }
+        if root.named: Text {
+            text: root.entry.name; color: Theme.muted; font-size: 9px;
+            horizontal-alignment: center; overflow: elide;
+        }
+    }
+    accessible-role: button;
+    accessible-label: root.entry.label + ", from " + root.entry.name;
+    accessible-action-default => { root.clicked(); }
+    forward-focus: focus;
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == "\n" || event.text == " " { root.clicked(); return accept; }
+            return reject;
+        }
+        hover := TouchArea {
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { root.clicked(); }
+        }
+    }
+}
+
+/// What a plugin badges a person with, as `member.decorate` answered.
+export struct PluginBadge { text: string, tone: PluginTone, name: string }
+
+// A plugin's badge beside a person's name in the member list: a few characters
+// and a tone, never a colour of its own, and whose it is to a screen reader.
+export component PluginBadgeView inherits Rectangle {
+    in property <PluginBadge> badge;
+    height: 18px; width: badge-text.preferred-width + 12px; border-radius: 9px;
+    background: PluginTones.ink(root.badge.tone).with-alpha(0.18);
+    accessible-role: text;
+    accessible-label: root.badge.text + ", from " + root.badge.name;
+    badge-text := Text {
+        text: root.badge.text; color: PluginTones.ink(root.badge.tone);
+        font-size: 11px; font-weight: 700;
     }
 }
 

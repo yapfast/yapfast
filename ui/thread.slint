@@ -6,6 +6,7 @@ import { FoundRow, FoundCard } from "header.slint";
 import { SettingsSwitch } from "settings.slint";
 import { Composer, StagedFile, StagedTile, MentionRow, MentionList, EmojiSuggestions } from "composer.slint";
 import { EmojiCell, EmojiButton, MessageRow, MessageContent, HistoryEdge } from "messages.slint";
+import { PluginButtons, PluginPart } from "plugins.slint";
 
 /// A Discord thread beside the open channel, in place of its member list, as
 /// Discord opens a thread from a message: its messages and a composer, with a
@@ -57,6 +58,11 @@ export component ThreadPanel inherits Rectangle {
     /// Shift is held: the hover bar shows its quick actions.
     in property <bool> shift-held;
     in property <bool> forward-allowed;
+    /// Plugins' buttons on a message's hover bar here, as in the open channel:
+    /// the same slot, and what a button acts on is this thread's message.
+    in property <[PluginPart]> plugin-hover;
+    /// A plugin's button, its slot, the cell's id, its value, and the message.
+    callback plugin-acted(string, string, string, string, string);
     /// The rows at the top and bottom of the view, for the media to load.
     property <int> top-index: -1;
     property <int> bottom-index: -1;
@@ -328,6 +334,10 @@ export component ThreadPanel inherits Rectangle {
                                 if message-bar.deletes: IconButton {
                                     icon: @image-url("icons/trash-2.svg"); label: "Delete"; danger: true;
                                     clicked => { root.delete-now(message.item); }
+                                }
+                                if root.plugin-hover.length > 0: PluginButtons {
+                                    parts: root.plugin-hover; subject: message.item;
+                                    acted(plugin, slot, id, value, subject) => { root.plugin-acted(plugin, slot, id, value, subject); }
                                 }
                                 if !message-bar.deletes && UiParts.message-more: IconButton {
                                     icon: @image-url("icons/ellipsis.svg"); label: "More";

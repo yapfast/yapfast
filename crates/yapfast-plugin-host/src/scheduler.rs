@@ -176,6 +176,14 @@ pub enum Message {
         message: String,
         request: yapfast_plugin_api::message::DecorateRequest,
     },
+    /// What a plugin puts beside a person's name in the member list, answered
+    /// with [`FromHelper::MemberDecorated`]: `yf_member_decorate`'s export.
+    DecorateMember {
+        id: u64,
+        plugin: PluginId,
+        member: String,
+        request: yapfast_plugin_api::message::DecorateMemberRequest,
+    },
     /// The parent's answer to a guest's host call.
     Return {
         plugin: PluginId,
@@ -499,6 +507,23 @@ impl<B: Backend + 'static> Shared<B> {
                     Job::Decorate { message, request },
                 );
             }
+            Message::DecorateMember {
+                id,
+                plugin,
+                member,
+                request,
+            } => {
+                let slot = state.slot_for(&plugin);
+                let request = serde_json::to_value(request).unwrap_or(serde_json::Value::Null);
+                // A badge is a nicety over a list that scrolls regardless, so it
+                // waits in the background lane like a message's decoration.
+                state.push(
+                    slot,
+                    Lane::Background,
+                    id,
+                    Job::DecorateMember { member, request },
+                );
+            }
             Message::Return {
                 plugin,
                 call,
@@ -552,6 +577,9 @@ impl<B: Backend + 'static> Shared<B> {
                 args_base64,
             } => self.invoke(task, function, args_base64),
             Job::Decorate { message, request } => self.decorate(task, message, request),
+            Job::DecorateMember { member, request } => {
+                self.decorate_member(task, member, request)
+            }
             Job::Return { call, answer } => self.answer(task.owner(), *call, answer),
         }
     }
@@ -876,6 +904,55 @@ impl<B: Backend + 'static> Shared<B> {
         }
     }
 
+    /// Asks a plugin what it puts beside one person's name in the member list,
+    /// and answers the parent with the badge or with nothing.
+    ///
+    /// The name is drawn without it while this runs: a badge is worth a frame
+    /// and not a wait, and the plan gives it the same 16 ms as a message's
+    /// decoration.
+    fn decorate_member(&self, task: &Task, member: &str, request: &serde_json::Value) {
+        let slot = task.owner();
+        let plugin = self.id(slot);
+        let nothing = || FromHelper::MemberDecorated {
+            plugin: plugin.as_ref().clone(),
+            member: member.to_owned(),
+            badge: None,
+        };
+        if self.ensure_active(slot).is_none() {
+            let _ = self.reply(task.id, &nothing());
+            return;
+        }
+        let Ok(bytes) = serde_json::to_vec(request) else {
+            let _ = self.reply(task.id, &nothing());
+            return;
+        };
+        let (result, late) = self.call(&[slot], DECORATE_BUDGET, |backend| {
+            backend.invoke(&plugin, "yf_member_decorate", &bytes)
+        });
+        let badge = match &result {
+            // An export that answered nothing draws no badge, which is what a
+            // plugin that doesn't badge this person answers.
+            Ok(Some(answer)) => serde_json::from_slice::<serde_json::Value>(answer)
+                .ok()
+                .filter(|badge| !badge.is_null()),
+            Ok(None) => None,
+            Err(_) => None,
+        };
+        let _ = self.reply(
+            task.id,
+            &FromHelper::MemberDecorated {
+                plugin: plugin.as_ref().clone(),
+                member: member.to_owned(),
+                badge,
+            },
+        );
+        match result {
+            Ok(_) if late => self.discard(slot, deadline_fault("a member badge"), None),
+            Ok(_) => {}
+            Err(fault) => self.discard(slot, fault, None),
+        }
+    }
+
     /// Calls one export of one plugin for another: what `plugin.call` asked the
     /// parent for, run where the callee's instance is.
     fn invoke(&self, task: &Task, function: &str, args_base64: &str) {
@@ -1194,6 +1271,17 @@ impl<B: Backend + 'static> Shared<B> {
                     },
                 );
             }
+            // A badge that never runs leaves the name as it was drawn.
+            Job::DecorateMember { member, .. } => {
+                let _ = self.reply(
+                    task.id,
+                    &FromHelper::MemberDecorated {
+                        plugin,
+                        member: member.clone(),
+                        badge: None,
+                    },
+                );
+            }
             Job::Load(_) | Job::Unload | Job::Evict | Job::Kick | Job::Return { .. } => {}
         }
     }
@@ -1427,6 +1515,12 @@ enum Job {
     },
     Decorate {
         message: String,
+        request: serde_json::Value,
+    },
+    /// One person in the member list, asked for the badge a plugin draws by
+    /// their name.
+    DecorateMember {
+        member: String,
         request: serde_json::Value,
     },
     Return {

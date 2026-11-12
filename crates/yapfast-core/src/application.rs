@@ -1740,6 +1740,10 @@ pub enum Action {
         items: Vec<String>,
         at_end: bool,
     },
+    /// People in or near the open room's member list viewport, in the list's
+    /// order: what a plugin that badges people is asked about, so a large
+    /// server costs what its list shows.
+    VisibleMembers { room: String, ids: Vec<String> },
     /// Show the selected room's message with this item; see
     /// [`AppState::jump`]. When the timeline doesn't have it, the messages
     /// around it load in its place; see [`AppState::detached`].
@@ -2435,6 +2439,13 @@ pub struct Application {
     /// gone through again.
     pictured_timeline: Arc<Vec<Arc<ChatMessage>>>,
     visible_messages: Vec<String>,
+    /// The people the member list last reported in view, so a report that says
+    /// the same asks nobody and a new one asks only what changed.
+    visible_members: Vec<String>,
+    /// The room the member badges in `state.plugin_slots` were answered for.
+    /// `None` asks again for everything in sight, which a new snapshot does.
+    #[cfg(feature = "plugins")]
+    badges_rooms: Option<String>,
     /// Files the `attachment.pre_upload` chain is holding, by the id it
     /// answered under, each with the room it was going to.
     #[cfg(feature = "plugins")]
@@ -3332,6 +3343,20 @@ impl Application {
                     items,
                     at_end,
                 })]
+            }
+            Action::VisibleMembers { room, ids } => {
+                if self.state.selected.as_ref() != Some(&room) {
+                    return vec![];
+                }
+                // Only a list that changed asks anyone: scrolling a list that
+                // nobody badges costs one compare.
+                if self.visible_members == ids {
+                    return vec![];
+                }
+                self.visible_members = ids.clone();
+                #[cfg(feature = "plugins")]
+                self.plugins_decorate_members(&room, &ids);
+                vec![]
             }
             Action::Navigate(navigation) => self.navigate(navigation),
             #[cfg(feature = "plugins")]
@@ -4364,6 +4389,14 @@ impl Application {
                 let listed = members.is_err() && matches!(self.state.members, Some(Ok(_)));
                 if self.state.selected.as_ref() == Some(&room) && !listed {
                     self.state.members = Some(members.map(Arc::new));
+                    // A new snapshot: someone's roles or name may have changed,
+                    // so what a plugin badged them with is asked again for the
+                    // rows in sight.
+                    #[cfg(feature = "plugins")]
+                    {
+                        self.badges_rooms = None;
+                        self.visible_members.clear();
+                    }
                 }
             }
             Event::People {

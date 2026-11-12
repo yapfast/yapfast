@@ -172,6 +172,16 @@ pub enum ToHelper {
         plugin: PluginId,
         request: DecorateRequest,
     },
+    /// Ask a plugin for the badge it puts beside a person's name in the member
+    /// list, with `yf_member_decorate`: the answer is a short badge, or nothing.
+    ///
+    /// It is a request of its own, on the background lane: the member list
+    /// scrolls whether or not a plugin has answered, and a row shows without a
+    /// badge until it does.
+    DecorateMember {
+        plugin: PluginId,
+        request: DecorateMemberRequest,
+    },
     /// The answer to a guest's host call.
     Return {
         plugin: PluginId,
@@ -199,6 +209,42 @@ pub struct DecorateRequest {
     pub body: String,
     /// Whether this account wrote it.
     pub own: bool,
+}
+
+/// What `yf_member_decorate` is given: someone in the open room's member list,
+/// with what decides whether a plugin badges them.
+///
+/// It is one person's place in the list and no more: a plugin that wants the
+/// whole member reads them with `people.get`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DecorateMemberRequest {
+    /// The server the list is of; empty for a direct message.
+    #[serde(default)]
+    pub server: String,
+    pub room: String,
+    /// The person, by id.
+    pub member: String,
+    /// Their display name in this room.
+    pub name: String,
+    /// Whether it is this account.
+    pub own: bool,
+    /// A Discord application's account.
+    pub bot: bool,
+    /// The ids of the roles they have here; empty where unknown.
+    #[serde(default)]
+    pub roles: Vec<String>,
+}
+
+/// What a plugin badges a person in the member list with: a few characters and
+/// a tone, not a tree. The parent caps and checks it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemberBadge {
+    pub text: String,
+    /// `normal`, `muted`, `accent`, `success`, `warning` or `danger`, as a
+    /// widget tree's cells name theirs.
+    #[serde(default)]
+    pub tone: String,
 }
 
 /// The helper's report to the parent.
@@ -260,6 +306,14 @@ pub enum FromHelper {
         message: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tree: Option<serde_json::Value>,
+    },
+    /// What a plugin badges a person in the member list with, as
+    /// `yf_member_decorate` answered: unchecked, so the parent checks it.
+    MemberDecorated {
+        plugin: PluginId,
+        member: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        badge: Option<serde_json::Value>,
     },
     /// An event batch finished; nothing to report.
     EventDone { plugin: PluginId },
