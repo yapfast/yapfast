@@ -703,6 +703,118 @@ fn escape_in_the_composer_cancels_a_reply_and_keeps_the_draft() {
 }
 
 #[test]
+fn an_edit_starts_with_the_cursor_after_the_text_and_escape_and_enter_end_it() {
+    use slint::platform::{Key, WindowEvent};
+    let window = one_message("Hi there");
+    let edit = window.global::<InlineEdit>();
+    let saved = Rc::new(Cell::new(0));
+    let cancelled = Rc::new(Cell::new(0));
+    let (count, gone) = (saved.clone(), cancelled.clone());
+    edit.on_save(move || count.set(count.get() + 1));
+    edit.on_cancel(move || gone.set(gone.get() + 1));
+    // As the application starts an edit: the text, then the message, then the keys.
+    edit.set_text("Hi there".into());
+    edit.set_item("i0".into());
+    edit.set_end(8);
+    edit.set_focus_tick(1);
+    settle(&window);
+    tap(&window, "!".into());
+    assert_eq!(edit.get_text(), "Hi there!", "typing goes after the text");
+    assert_eq!(window.get_draft(), "", "and not to the composer");
+    let press = |text: SharedString| {
+        window
+            .window()
+            .dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
+        window
+            .window()
+            .dispatch_event(WindowEvent::KeyReleased { text });
+    };
+    window.window().dispatch_event(WindowEvent::KeyPressed {
+        text: Key::Shift.into(),
+    });
+    press(Key::Return.into());
+    window.window().dispatch_event(WindowEvent::KeyReleased {
+        text: Key::Shift.into(),
+    });
+    assert_eq!(
+        edit.get_text(),
+        "Hi there!\n",
+        "Shift+Enter breaks the line"
+    );
+    assert_eq!(saved.get(), 0);
+    press(Key::Return.into());
+    assert_eq!((saved.get(), cancelled.get()), (1, 0), "Enter saves");
+    press(Key::Escape.into());
+    assert_eq!((saved.get(), cancelled.get()), (1, 1), "Escape cancels");
+}
+
+#[test]
+fn an_edits_row_built_again_leaves_the_keys_where_they_are() {
+    use slint::platform::Key;
+    let window = one_message("Hi there");
+    let edit = window.global::<InlineEdit>();
+    edit.set_text("Hi there".into());
+    edit.set_item("i0".into());
+    edit.set_end(8);
+    edit.set_focus_tick(1);
+    settle(&window);
+    tap(&window, "!".into());
+    assert_eq!(edit.get_text(), "Hi there!", "the edit takes the keys");
+    window.invoke_focus_composer();
+    // The row goes and comes back, as when its room is left and opened again
+    // or it scrolls out of view and back, with no new edit started.
+    // A key between them lets the timeline drop the row and build it again.
+    edit.set_item("".into());
+    settle(&window);
+    tap(&window, Key::Shift.into());
+    edit.set_item("i0".into());
+    settle(&window);
+    tap(&window, "x".into());
+    assert_eq!(window.get_draft(), "x", "the composer keeps the keys");
+    assert_eq!(edit.get_text(), "Hi there!");
+    // A new edit takes them again.
+    edit.set_end(9);
+    edit.set_focus_tick(2);
+    settle(&window);
+    tap(&window, "?".into());
+    assert_eq!(edit.get_text(), "Hi there!?");
+}
+
+#[test]
+fn starting_an_edit_puts_the_cursor_after_its_text_and_an_empty_save_asks_to_delete() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    window.invoke_explore_preview();
+    let own = window.get_messages().iter().find(|row| row.own).unwrap();
+    let edit = window.global::<InlineEdit>();
+    let ticks = edit.get_focus_tick();
+    window.invoke_edit(own.item.clone());
+    assert_ne!(edit.get_focus_tick(), ticks, "the field takes the keys");
+    assert_eq!(edit.get_end() as usize, own.body.len(), "after the text");
+
+    edit.invoke_edited("".into());
+    edit.invoke_save();
+    assert_eq!(
+        window.get_confirm_delete(),
+        own.item,
+        "saving nothing asks whether to delete the message"
+    );
+    assert_eq!(edit.get_item(), own.item, "and the edit stays open");
+    window.invoke_cancel_delete();
+    assert!(window.get_confirm_delete().is_empty());
+    edit.invoke_cancel();
+    assert_eq!(edit.get_item(), "");
+}
+
+#[test]
 fn ctrl_shortcuts_work_on_cyrillic_and_thai_layouts() {
     use slint::platform::{Key, WindowEvent};
     let window = one_message("Hi");
@@ -4897,13 +5009,18 @@ fn message_actions_reach_the_shared_application_in_the_preview() {
 
     window.invoke_draft_edited("Unsent draft".into());
     window.invoke_edit(own.item.clone());
-    assert_eq!(window.get_draft(), own.body);
-    assert_eq!(window.get_compose_label(), "Editing your message");
-    window.invoke_draft_edited("Changed".into());
-    window.invoke_send();
+    // The message is edited in its row, and the composer keeps its draft.
+    let edit = window.global::<InlineEdit>();
+    assert_eq!(edit.get_item(), own.item);
+    assert_eq!(edit.get_text(), own.body);
+    assert_eq!(window.get_draft(), "Unsent draft");
+    assert_eq!(window.get_compose_label(), "");
+    edit.invoke_edited("Changed".into());
+    edit.invoke_save();
     let edited = row(&own.item);
     assert!(edited.edited && edited.body == "Changed");
     assert_eq!(window.get_draft(), "Unsent draft");
+    assert_eq!(edit.get_item(), "", "saving closes the field");
 
     window.invoke_request_delete(other.item.clone());
     assert!(

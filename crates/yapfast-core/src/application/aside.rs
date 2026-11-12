@@ -41,7 +41,7 @@ impl AppState {
             .map_or("", String::as_str)
     }
 
-    /// The message the thread beside's composer replies to or edits.
+    /// The message the thread beside's composer replies to.
     pub fn aside_compose(&self) -> Option<&Compose> {
         self.compose.get(&self.aside.as_ref()?.room)
     }
@@ -59,7 +59,6 @@ impl AppState {
         self.aside.as_ref().is_some_and(|aside| {
             self.can_write_in(&aside.room)
                 && !self.preview
-                && !matches!(self.aside_compose(), Some(Compose::Edit { .. }))
                 && self.aside_staged().len() < chat::MAX_FILES
         })
     }
@@ -127,14 +126,11 @@ impl AppState {
     /// Whether the composer of a room on screen can send what it holds.
     pub fn can_send_in(&self, room: &str) -> bool {
         let draft = self.drafts.get(room).map_or("", String::as_str);
-        let editing = matches!(self.compose.get(room), Some(Compose::Edit { .. }));
         let staged = self
             .staged
             .get(room)
             .is_some_and(|staged| !staged.is_empty());
-        self.can_write_in(room)
-            && self.sending.is_none()
-            && (!draft.trim().is_empty() || (!editing && staged))
+        self.can_write_in(room) && self.sending.is_none() && (!draft.trim().is_empty() || staged)
     }
 }
 

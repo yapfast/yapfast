@@ -47,7 +47,7 @@ import { ActionButton, IconButton, Motion, PingToggle, DeviceToggle, Avatar, Tex
 import { PersonRow, VoiceCard, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList, VoiceCardView } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
-import { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, EmojiCardView, MessageStickerCard, MessageStickerCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, VoicePlayer, Polls } from "messages.slint";
+import { InlineEdit, EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, EmojiCardView, MessageStickerCard, MessageStickerCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, VoicePlayer, Polls } from "messages.slint";
 import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
 import { ActivityMenu, MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
@@ -78,7 +78,7 @@ export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameL
 export { ServerTagRow } from "server.slint";
 export { ProfileTheme } from "people.slint";
 export { StagedFile, MentionRow } from "composer.slint";
-export { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, MessageStickerCard, EmojiFavorites, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, VoicePlayer, PollAction, PollAnswerRow, PollCard, Polls } from "messages.slint";
+export { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, MessageStickerCard, EmojiFavorites, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, VoicePlayer, PollAction, PollAnswerRow, PollCard, Polls, InlineEdit } from "messages.slint";
 export { MemberRow, MemberActivityRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileBadgeRow, ProfileData, ActivityRow, ProfileGameRow, ProfileWidgetRow, ProfileWishlistRow, ProfileRecentRow } from "people.slint";
 export { RequestRow, FriendRow } from "friends.slint";
 export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from "dialogs.slint";
@@ -632,6 +632,8 @@ export component YapfastWindow inherits Window {
     // The suggestions are for the thread's composer beside the channel, which
     // was typed in last, and show above it rather than the channel's.
     in property <bool> suggesting-aside;
+    // Or for the field of the message being edited, in its row, and show above it.
+    in property <bool> suggesting-edit;
     property <int> aside-caret-tick;
     property <int> aside-caret-offset;
     public function place-aside-composer-caret(offset: int) {
@@ -648,6 +650,8 @@ export component YapfastWindow inherits Window {
     callback emoji-suggestion-dismissed;
     // An emoji from the picker, by its reaction key, goes in at the composer's cursor.
     callback insert-emoji(string);
+    /// An emoji chosen for the message being edited.
+    callback insert-edit-emoji(string);
     /// The GIF picker, in the picker above the composer; see GifPicker.
     in property <bool> can-pick-gifs;
     /// The sticker picker beside it; see StickerPicker.
@@ -1850,7 +1854,6 @@ export component YapfastWindow inherits Window {
         root.member-list-toggled(root.member-list);
     }
 
-    property <bool> is-editing: root.compose-label == "Editing your message";
     property <color> voice-color: root.voice-tone == 1 ? Theme.live : root.voice-tone == 2 ? Theme.danger : Theme.accent;
 
     // Yapfast joins calls muted and hearing; these preferences deafen, or turn the
@@ -2048,6 +2051,11 @@ export component YapfastWindow inherits Window {
     // grid is built: the 408px popup here, the picker's shared width in
     // open-expressions below.
     property <length> emoji-popup-width: 408px;
+    /// The emoji button of the field of a message being edited, at this place.
+    public function open-edit-picker(x: length, y: length, width: length, height: length) {
+        root.anchor(x, y, width, height, false);
+        root.open-picker("yapfast:edit");
+    }
     function open-picker(item: string) {
         root.react-item = item;
         root.emoji-query = "";
@@ -2259,6 +2267,7 @@ export component YapfastWindow inherits Window {
         if !root.picker-open {
             if !root.expressions-open { root.emoji-picker-closed(); }
             if root.react-item == "yapfast:composer" { root.focus-composer(); }
+            if root.react-item == "yapfast:edit" { InlineEdit.refocus += 1; }
             root.react-item = "";
         }
     }
@@ -2271,6 +2280,8 @@ export component YapfastWindow inherits Window {
             root.poll-answer-emoji(root.poll-emoji-answer, cell.key);
         } else if root.react-item == "yapfast:composer" {
             root.insert-emoji(cell.key);
+        } else if root.react-item == "yapfast:edit" {
+            root.insert-edit-emoji(cell.key);
         } else {
             root.react(root.react-item, cell.key);
         }
@@ -2519,7 +2530,7 @@ export component YapfastWindow inherits Window {
             emoji-font: root.emoji-font; composer-enabled: root.composer-enabled; forward-allowed: root.forward-allowed; preview: root.preview;
             react(item, key) => { root.react(item, key); message-menu.close(); }
             open-picker(item) => { root.open-picker(item); message-menu.close(); }
-            edit(item) => { root.edit(item); root.focus-composer-of-menu(); message-menu.close(); }
+            edit(item) => { root.edit(item); message-menu.close(); }
             reply(item) => { root.reply(item); root.focus-composer-of-menu(); message-menu.close(); }
             start-forward(item) => { root.start-forward(item); message-menu.close(); }
             copy-text(text) => { root.copy-text(text); message-menu.close(); }
@@ -3334,7 +3345,7 @@ export component YapfastWindow inherits Window {
                                         root.reply(root.keyed-message.item); root.focus-composer(); return accept;
                                     }
                                     if (event.text == "e" || event.text == "E") && root.keyed-message.own && root.keyed-message.can-edit && root.composer-enabled {
-                                        root.edit(root.keyed-message.item); root.focus-composer(); return accept;
+                                        root.edit(root.keyed-message.item); return accept;
                                     }
                                     if (event.text == Key.Delete || event.text == Key.Backspace) && root.keyed-message.can-delete && root.composer-enabled {
                                         root.request-delete(root.keyed-message.item); return accept;
@@ -3389,6 +3400,20 @@ export component YapfastWindow inherits Window {
                                                     }
                                                 }
                                             }
+                                            // The message being edited stays in view as its field opens and
+                                            // grows, as Discord scrolls to it.
+                                            property <bool> edited: message.item != "" && InlineEdit.item == message.item && !InlineEdit.aside;
+                                            function reveal-edit() {
+                                                if self.edited {
+                                                    if self.y + self.height + timeline.content-y > timeline.height {
+                                                        timeline.content-y = max(min(0px, timeline.height - timeline.content-height), timeline.height - self.y - self.height);
+                                                    } else if self.y + timeline.content-y < 0px {
+                                                        root.follow-latest = false;
+                                                        timeline.content-y = min(0px, -self.y);
+                                                    }
+                                                }
+                                            }
+                                            changed edited => { self.reveal-edit(); }
                                             property <bool> keyed: self.lit && root.keyboard-popup != "";
                                             changed keyed => {
                                                 if self.keyed {
@@ -3410,7 +3435,7 @@ export component YapfastWindow inherits Window {
                                             }
                                             init => { root.view-tick += 1; }
                                             changed view-y => { self.report-view(); }
-                                            changed height => { self.report-view(); }
+                                            changed height => { self.report-view(); self.reveal-edit(); }
                                             changed view-tick => { self.report-view(); }
                                             changed row-index => { self.report-view(); }
                                             // The space that holds a short history down stays outside the row.
@@ -3428,6 +3453,12 @@ export component YapfastWindow inherits Window {
                                                 y: parent.body; height: parent.height - parent.body - parent.tail;
                                                 background: parent.jumped && root.jump-lit ? Theme.accent.transparentize(0.86) : parent.lit ? Theme.row-hover : transparent;
                                                 animate background { duration: 400ms; }
+                                            }
+                                            // The message being edited has Discord's edit tint (measured #29292d
+                                            // on its dark theme).
+                                            if message.item != "" && InlineEdit.item == message.item && !InlineEdit.aside: Rectangle {
+                                                y: parent.body; height: parent.height - self.y - parent.tail;
+                                                background: Theme.active.mix(Theme.chat, 0.79);
                                             }
                                             // A message that calls on this account is tinted marigold with a
                                             // marigold edge, below the history notice and the dividers above it:
@@ -3624,7 +3655,7 @@ export component YapfastWindow inherits Window {
                                                                 }
                                                             }
                                                         }
-                                                        if message.own && message.can-edit && root.composer-enabled: IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; clicked => { root.edit(message.item); root.focus-composer(); } }
+                                                        if message.own && message.can-edit && root.composer-enabled: IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; clicked => { root.edit(message.item); } }
                                                         if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled: IconButton { icon: @image-url("icons/reply.svg"); label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
                                                         // Beside Reply, as in Discord, whether or not Shift is held.
                                                         if message.can-forward && root.forward-allowed: IconButton {
@@ -3752,10 +3783,10 @@ export component YapfastWindow inherits Window {
                                 border-top-left-radius: 10px; border-top-right-radius: 10px;
                                 HorizontalLayout {
                                     padding-left: 14px; padding-right: 4px; spacing: 8px;
-                                    Image { source: root.is-editing ? @image-url("icons/pencil.svg") : @image-url("icons/reply.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
+                                    Image { source: @image-url("icons/reply.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
                                     Text { text: root.compose-label; color: Theme.secondary; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
-                                    if !root.is-editing: VerticalLayout { alignment: center; PingToggle { on: root.reply-ping; toggled => { root.toggle-reply-ping(); } } }
-                                    IconButton { icon: @image-url("icons/x.svg"); label: root.is-editing ? "Cancel editing" : "Cancel reply"; size: 28px; glyph: 16px; clicked => { root.cancel-compose(); } }
+                                    VerticalLayout { alignment: center; PingToggle { on: root.reply-ping; toggled => { root.toggle-reply-ping(); } } }
+                                    IconButton { icon: @image-url("icons/x.svg"); label: "Cancel reply"; size: 28px; glyph: 16px; clicked => { root.cancel-compose(); } }
                                 }
                             }
                             if root.composer-locked && !root.room-request: Rectangle {
@@ -3821,11 +3852,11 @@ export component YapfastWindow inherits Window {
                                         composer := Composer {
                                             pad: ClientStyle.composer-padding; min-height: ClientStyle.composer-height;
                                             text <=> root.draft; enabled: root.composer-enabled; label: "Message";
-                                            placeholder: root.is-editing ? "Edit your message" : root.compose-label != "" ? "Write a reply" : root.room-selected ? root.composer-placeholder : "Write a message";
+                                            placeholder: root.compose-label != "" ? "Write a reply" : root.room-selected ? root.composer-placeholder : "Write a message";
                                             edited(text) => { root.draft-edited(text); }
                                             accepted => { root.send(); }
-                                            suggesting: !root.suggesting-aside && ((root.command-picker-open && root.command-choices.length > 0) || root.mentions.length > 0 || root.emoji-suggestions.length > 0);
-                                            picking: !root.suggesting-aside && root.command-picker-open;
+                                            suggesting: !root.suggesting-aside && !root.suggesting-edit && ((root.command-picker-open && root.command-choices.length > 0) || root.mentions.length > 0 || root.emoji-suggestions.length > 0);
+                                            picking: !root.suggesting-aside && !root.suggesting-edit && root.command-picker-open;
                                             caret(text, offset) => { root.composer-caret(text, offset); }
                                             command-name: root.command-name; command-options: root.command-options; command-focus: root.command-focus;
                                             command-option-clicked(index) => { root.focus-command-option(index); }
@@ -3911,7 +3942,7 @@ export component YapfastWindow inherits Window {
                                             alignment: end; padding-bottom: ClientStyle.composer-button-inset;
                                             IconButton {
                                                 icon: @image-url("icons/send-horizontal.svg");
-                                                label: root.sending ? "Sending..." : root.is-editing ? "Save" : "Send";
+                                                label: root.sending ? "Sending..." : "Send";
                                                 enabled: root.can-send; emphasis: root.can-send;
                                                 clicked => { root.send(); }
                                             }
@@ -4239,7 +4270,7 @@ export component YapfastWindow inherits Window {
     // reply's or an edit's bar; see MentionList.
     // The `/` picker, or what the focused option of an app's command may
     // take, in the same place; see CommandList.
-    if root.command-picker-open && root.composer-enabled && !root.suggesting-aside: CommandList {
+    if root.command-picker-open && root.composer-enabled && !root.suggesting-aside && !root.suggesting-edit: CommandList {
         x: composer-box.absolute-position.x;
         width: composer-box.width;
         y: composer-box.absolute-position.y - (root.compose-label != "" ? 36px : 0px) - self.height - 8px;
@@ -4247,7 +4278,7 @@ export component YapfastWindow inherits Window {
         choice-index: root.command-choice-index; commands: root.command-rows-are-commands;
         chosen(index) => { root.pick-command(index); }
     }
-    if root.mentions.length > 0 && root.composer-enabled && !root.suggesting-aside && !root.command-picker-open: MentionList {
+    if root.mentions.length > 0 && root.composer-enabled && !root.suggesting-aside && !root.suggesting-edit && !root.command-picker-open: MentionList {
         x: composer-box.absolute-position.x;
         width: composer-box.width;
         y: composer-box.absolute-position.y - (root.compose-label != "" ? 36px : 0px) - self.height - 8px;
@@ -4255,10 +4286,26 @@ export component YapfastWindow inherits Window {
         mention-chosen(index) => { root.mention-chosen(index); }
     }
     // Emoji suggestions, in the same place; see EmojiSuggestions.
-    if root.emoji-suggestions.length > 0 && root.mentions.length == 0 && root.composer-enabled && !root.suggesting-aside && !root.command-picker-open: EmojiSuggestions {
+    if root.emoji-suggestions.length > 0 && root.mentions.length == 0 && root.composer-enabled && !root.suggesting-aside && !root.suggesting-edit && !root.command-picker-open: EmojiSuggestions {
         x: composer-box.absolute-position.x;
         width: composer-box.width;
         y: composer-box.absolute-position.y - (root.compose-label != "" ? 36px : 0px) - self.height - 8px;
+        emoji: root.emoji-suggestions; query: root.emoji-suggestion-query;
+        emoji-index: root.emoji-suggestion-index; emoji-font: root.emoji-font;
+        emoji-chosen(index) => { root.emoji-suggestion-chosen(index); }
+    }
+    // The same suggestions above the field of a message being edited.
+    if root.mentions.length > 0 && root.suggesting-edit: MentionList {
+        x: InlineEdit.field-x;
+        width: InlineEdit.field-width;
+        y: InlineEdit.field-y - self.height - 8px;
+        mentions: root.mentions; mention-index: root.mention-index;
+        mention-chosen(index) => { root.mention-chosen(index); }
+    }
+    if root.emoji-suggestions.length > 0 && root.mentions.length == 0 && root.suggesting-edit: EmojiSuggestions {
+        x: InlineEdit.field-x;
+        width: InlineEdit.field-width;
+        y: InlineEdit.field-y - self.height - 8px;
         emoji: root.emoji-suggestions; query: root.emoji-suggestion-query;
         emoji-index: root.emoji-suggestion-index; emoji-font: root.emoji-font;
         emoji-chosen(index) => { root.emoji-suggestion-chosen(index); }
