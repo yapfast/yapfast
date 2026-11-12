@@ -129,6 +129,12 @@ const WAITING_EVERY: Duration = Duration::from_secs(5);
 /// catching a layout that has changed for good.
 #[cfg(nvcuda)]
 const REFUSED_PICTURES: u32 = 30;
+/// How long a desktop that stopped drawing goes unsaid before the share says so:
+/// a compositor sends a picture when it has one, so a share of a screen nobody is
+/// drawing to sends nothing, which is worth a line rather than being taken for a
+/// stream that stalled.
+#[cfg(target_os = "linux")]
+const IDLE_EVERY: Duration = Duration::from_secs(5);
 /// How long a shared stream whose connection ended waits for a server
 /// Discord moved it to.
 const MOVE_GRACE: Duration = Duration::from_secs(5);
@@ -4102,8 +4108,10 @@ fn capture_textures(
         if withdrawn {
             showable = false;
             shared = None;
+            // The tile is a copy of the picture; the stream's own path is
+            // untouched, so the report's fallback stays clear for it: what the
+            // window shows is the presentation's to say.
             sink.diagnosis.presentation = Some(Presentation::Copy);
-            sink.diagnosis.fallback = Some("the window can't show the card's picture".to_owned());
         }
         // What the window does with the pictures is the one thing only the two
         // processes together know: a picture the window took is shown from the
@@ -4679,6 +4687,12 @@ fn capture_dmabufs(
     // produced nothing: a stream that negotiates nothing waits here, and the line
     // the share opens with is a snapshot taken before that wait began.
     let mut waited: Option<Instant> = None;
+    // When the desktop last drew something, and whether the share has said that
+    // it stopped drawing: a screen nothing is drawing to sends no pictures, so a
+    // stream that goes quiet and a preview that stops following it are the
+    // desktop's doing rather than the share's, and worth one line each way.
+    let mut drew_at: Option<Instant> = None;
+    let mut idle_said = false;
     while !stop.load(Ordering::Relaxed) {
         // The next slot and how long it is away. The capture waits that long for
         // the desktop to change, so a still screen costs one wake-up a slot and
@@ -4744,7 +4758,17 @@ fn capture_dmabufs(
         }
         match arrival {
             Found::Picture(shot) => {
-                sink.diagnosis.captured_at = Some(Instant::now());
+                let now = Instant::now();
+                sink.diagnosis.captured_at = Some(now);
+                if idle_said {
+                    idle_said = false;
+                    tracing::info!(
+                        still_for_ms =
+                            drew_at.map_or(0, |at| now.duration_since(at).as_millis() as u64),
+                        "the desktop is drawing again"
+                    );
+                }
+                drew_at = Some(now);
                 saw_picture = true;
                 last = Some(shot);
                 fresh = true;
@@ -4776,6 +4800,19 @@ fn capture_dmabufs(
                     tracing::info!(
                         capture = capture.describe().as_str(),
                         "the share has no picture yet"
+                    );
+                }
+                // A screen that has drawn something and then stops sends nothing:
+                // the compositor draws a frame when it has one, and a share's
+                // pictures are the compositor's. Said once, so a quiet stream is
+                // known to be a quiet desktop rather than a share that stalled,
+                // and the tile is known to hold its last picture on purpose.
+                if saw_picture && !idle_said && drew_at.is_some_and(|at| at.elapsed() >= IDLE_EVERY)
+                {
+                    idle_said = true;
+                    tracing::info!(
+                        still_for_ms = drew_at.map(|at| at.elapsed().as_millis() as u64),
+                        "the desktop has drawn nothing for a while: the share keeps its last picture, and the stream sends nothing until it draws"
                     );
                 }
                 // Nothing has been drawn since the last picture. It is still a
@@ -4901,10 +4938,12 @@ fn capture_dmabufs(
                      the stream is still the card's own"
                 );
                 readback = true;
+                // The tile is a copy; the stream is not. The report's
+                // presentation says what the window shows, and the fallback is
+                // reserved for the stream's own path — a share whose pictures
+                // the card encodes would otherwise read as one the processor
+                // took over.
                 sink.diagnosis.presentation = Some(Presentation::Copy);
-                sink.diagnosis.fallback = Some(
-                    "the window draws on the processor, so the tile's preview is a copy".to_owned(),
-                );
             } else {
                 tracing::info!(
                     "sharing from the processor: the window can't show the card's picture"

@@ -152,10 +152,10 @@ export global CallLink {
     in property <string> arrival-skew;
     in property <string> presentation-skew;
     in property <string> late-pictures;
-    /// How the pictures reach the window ("the worker's own texture" or
-    /// "copied to the processor"), and the adapter the window draws on: a
-    /// share that copies every frame says here whether the two adapters are
-    /// why.
+    /// How the pictures reach the window ("the worker's own texture" or "a
+    /// copy of the picture"), and the adapter the window draws on: a share
+    /// whose tile is a copy says here whether the two adapters are why. It is
+    /// about the window, never the encoder, which the encoder's own row names.
     in property <string> presentation;
     in property <string> presented-on;
     /// How long a frame waited between the capture having it and the encoder

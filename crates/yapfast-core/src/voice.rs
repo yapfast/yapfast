@@ -261,7 +261,7 @@ impl Presentation {
     /// What the Stream tab calls it.
     pub fn name(self) -> &'static str {
         match self {
-            Self::Copy => "copied to the processor",
+            Self::Copy => "a copy of the picture",
             Self::Shared => "the worker's own texture",
         }
     }

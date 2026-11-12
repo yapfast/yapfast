@@ -188,7 +188,7 @@ stream's numbers only in developer mode.
 
 Beside those it says how the pictures reach the window — "the worker's own
 texture", which on Linux is a DMA-BUF the window imports and draws where the
-compositor drew it, or "copied to the processor" frame by
+compositor drew it, or "a copy of the picture" frame by
 frame — the adapter the window draws on ("adapter
 0x1488a"), how long a frame waited between the capture having it and the encoder
 being given it, what the encoder's output buffers hold now and the most they
