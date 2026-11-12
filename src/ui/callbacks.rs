@@ -2293,6 +2293,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.gpu_encoding = Some(window.get_gpu_encoding());
         layout.high_bitrate = Some(window.get_high_bitrate());
         yapfast_core::stream_worker::set_high_bitrate(window.get_high_bitrate());
+        layout.stream_codec = chosen(&StreamCodec::ALL, window.get_stream_codec());
+        yapfast_core::stream_worker::set_stream_codec(layout.stream_codec);
         #[cfg(feature = "discord")]
         yapfast_core::stream_worker::set_hardware_encoding(window.get_gpu_encoding());
         layout.close_to_tray = Some(window.get_close_to_tray());

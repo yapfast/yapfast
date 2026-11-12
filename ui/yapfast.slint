@@ -1356,8 +1356,10 @@ export component YapfastWindow inherits Window {
     /// Whether a share declares the experimental ceiling: 35 Mbit/s rather than
     /// the safe 9, far above what Discord's own clients ask for.
     in-out property <bool> high-bitrate: false;
-    /// How a share captures its screen: 0 Automatic, 1 Windows Graphics
-    /// Capture, 2 Desktop Duplication.
+    /// Which codec a share asks Discord for first, as an index into
+    /// `yapfast_core::stream_worker::StreamCodec::ALL`: Automatic unless
+    /// chosen.
+    in-out property <int> stream-codec: 0;
     /// Closing the window leaves Yapfast in the system tray, when there's one.
     in-out property <bool> close-to-tray: true;
     in property <bool> tray-available;
@@ -4354,6 +4356,7 @@ export component YapfastWindow inherits Window {
             gpu-encoding <=> root.gpu-encoding;
             share-on-the-card: root.share-on-the-card;
             high-bitrate <=> root.high-bitrate;
+            stream-codec <=> root.stream-codec;
             close-to-tray <=> root.close-to-tray; tray-available: root.tray-available;
             multiple-windows <=> root.multiple-windows;
             developer-mode <=> root.developer-mode;

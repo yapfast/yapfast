@@ -1338,8 +1338,10 @@ export component AdvancedSettings inherits VerticalLayout {
     /// for, and a path that can't carry it gets a worse picture rather than a
     /// better one.
     in-out property <bool> high-bitrate;
-    /// How a share captures a screen: 0 Automatic, 1 Windows Graphics Capture,
-    /// 2 Desktop Duplication.
+    /// Which codec a share asks Discord for first, as an index into
+    /// `yapfast_core::stream_worker::StreamCodec::ALL`: 0 Automatic, 1 AV1,
+    /// 2 H.265, 3 H.264.
+    in-out property <int> stream-codec;
     in property <bool> gpu-running;
     /// Whether this machine's graphics card can share without the processor
     /// copying each picture: the note below is shown only where it can.
@@ -1415,6 +1417,18 @@ export component AdvancedSettings inherits VerticalLayout {
         warning: true;
         checked <=> root.high-bitrate;
         toggled => { root.preferences-changed(); }
+    }
+    VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "STREAM CODEC (EXPERIMENTAL)"; }
+        Choices {
+            label: "Stream codec"; options: ["Automatic", "AV1", "H.265", "H.264"];
+            current <=> root.stream-codec;
+            chosen => { root.preferences-changed(); }
+        }
+        Label {
+            text: "What Yapfast asks Discord to send when you share your screen. Automatic offers the best codec this computer's graphics card encodes — AV1, then H.265, then H.264 — and Discord sends the one every person watching can decode. Choose one to ask for it first: H.264 is the one every client decodes, and AV1 or H.265 look better at the same bitrate wherever everyone watching can take them. A codec this machine can't encode is left to the automatic order.";
+        }
     }
     SettingsSwitch {
         text: "Developer Mode";

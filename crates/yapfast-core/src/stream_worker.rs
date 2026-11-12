@@ -28,7 +28,7 @@ use std::{
     process::{Child, ChildStdin, Command, ExitStatus, Stdio},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering},
         mpsc as channel,
     },
     time::{Duration, Instant},
@@ -181,6 +181,12 @@ pub enum Job {
         /// own, and it is where the stream is declared.
         #[serde(default)]
         high_bitrate: bool,
+        /// The codec Settings' experimental choice asks Discord for first; see
+        /// [`StreamCodec`]. It travels with the job for the same reason again:
+        /// the worker is a process of its own, and it is where the codecs are
+        /// offered.
+        #[serde(default)]
+        codec: StreamCodec,
         /// How a screen is captured — the setting's choice, or Auto; see
         /// [`crate::capture`]. It travels with the job because the worker is a
         /// process of its own: a choice made in Yapfast's process means nothing
@@ -544,6 +550,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
             effort,
             hardware,
             high_bitrate,
+            codec,
             capture: preference,
         } => {
             crate::capture::set(preference);
@@ -551,6 +558,9 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
             // job: op 12 goes out once, with the rate this process was told to
             // allow, and the controller is seeded from it.
             stream_connection::set_high_bitrate(high_bitrate);
+            // The codecs are offered from here too, so the setting's choice
+            // comes with the job as well: it is this process that offers them.
+            set_stream_codec(codec);
             // The interface offers 15, 30 and 60; a measurement may ask for
             // more, and a stream of its own is the only thing that suffers.
             let fps = fps.clamp(1, 240);
@@ -1221,6 +1231,61 @@ impl Video {
 /// The codecs only a GPU encodes, most wanted first, offered before H264
 /// where the GPU's encoder for them opens.
 const GPU_CODECS: [Codec; 2] = [Codec::Av1, Codec::H265];
+
+/// Which codec a share asks Discord to send first: Settings, Advanced's
+/// "Stream codec", still experimental. [`Automatic`](Self::Automatic) is the
+/// order [`GPU_CODECS`] gives, most wanted first; a codec names the one to put
+/// in front of it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StreamCodec {
+    /// AV1, then H265, then H264, as each is better than the one after it at
+    /// the same bitrate and every machine has H264.
+    #[default]
+    Automatic,
+    Av1,
+    H265,
+    H264,
+}
+
+impl StreamCodec {
+    /// The setting's choices, in the order Settings lists them.
+    pub const ALL: [Self; 4] = [Self::Automatic, Self::Av1, Self::H265, Self::H264];
+
+    /// The codec to put first, or `None` for [`Automatic`](Self::Automatic).
+    const fn wanted(self) -> Option<Codec> {
+        match self {
+            Self::Automatic => None,
+            Self::Av1 => Some(Codec::Av1),
+            Self::H265 => Some(Codec::H265),
+            Self::H264 => Some(Codec::H264),
+        }
+    }
+
+    /// How the setting's choice is written in the log.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Automatic => "automatic",
+            Self::Av1 => "av1",
+            Self::H265 => "h265",
+            Self::H264 => "h264",
+        }
+    }
+}
+
+/// `available` in the order a share offers it, with the setting's codec first
+/// where this machine encodes it: Discord streams the first every viewer
+/// decodes, so the codec the setting names is what goes out wherever a viewer
+/// takes it, and the rest stay behind it as its fallbacks.
+fn preferred(available: Vec<Codec>, choice: StreamCodec) -> Vec<Codec> {
+    let Some(wanted) = choice.wanted().filter(|wanted| available.contains(wanted)) else {
+        return available;
+    };
+    let mut offers = available;
+    offers.retain(|codec| *codec != wanted);
+    offers.insert(0, wanted);
+    offers
+}
 
 fn log_encoder(encoder: &Encoding) {
     let (width, height) = encoder.size();
@@ -1916,7 +1981,9 @@ impl Sink {
 
     /// The codecs to offer Discord, most wanted first, and an encoder for
     /// the first: AV1, then H265, where the GPU's encoder for each opens,
-    /// then H264. Discord streams the first every viewer decodes.
+    /// then H264. Discord streams the first every viewer decodes. The
+    /// settings' own codec, where one is chosen and this machine encodes it,
+    /// is put in front of all of them.
     ///
     /// A card's own session is asked which codecs its driver encodes rather
     /// than another opened for each codec and given up beside it: a driver does
@@ -1932,8 +1999,19 @@ impl Sink {
         height: u32,
         device: Option<*mut c_void>,
     ) -> Result<(Vec<Codec>, Encoding)> {
+        // The settings' codec is asked for first, so the encoder opened for the
+        // stream is that codec's. H264 joins the probe only where the setting
+        // names it: it is the stream's fallback whatever the setting says.
+        let choice = stream_codec();
+        let mut probes = GPU_CODECS.to_vec();
+        if let Some(wanted) = choice.wanted().filter(|wanted| !probes.contains(wanted)) {
+            probes.push(wanted);
+        }
         let mut first = None;
-        for codec in GPU_CODECS.iter().copied().filter(|_| self.hardware) {
+        for codec in preferred(probes, choice)
+            .into_iter()
+            .filter(|_| self.hardware)
+        {
             if let Ok(encoder) = self.open(codec, width, height, device) {
                 first = Some(encoder);
                 break;
@@ -1967,6 +2045,17 @@ impl Sink {
         if !offers.contains(&stream_connection::SEND_CODEC) {
             offers.push(stream_connection::SEND_CODEC);
         }
+        // A codec the setting names that this machine has no encoder for is
+        // nothing to reorder around: the share offers what it can, and says so
+        // once, rather than failing to start.
+        if let Some(wanted) = choice.wanted().filter(|wanted| !offers.contains(wanted)) {
+            tracing::warn!(
+                wanted = wanted.name(),
+                "the settings ask for a codec this machine doesn't encode; the share offers the \
+                 ones it does"
+            );
+        }
+        let offers = preferred(offers, choice);
         log_encoder(&encoder);
         Ok((offers, encoder))
     }
@@ -5468,6 +5557,30 @@ pub fn set_high_bitrate(on: bool) {
     HIGH_BITRATE.store(on, Ordering::Relaxed);
 }
 
+/// The codec Settings' experimental choice asks a share to offer first, as an
+/// index into [`StreamCodec::ALL`]. It travels with the job because the worker
+/// is a process of its own, and it is the worker that offers codecs to Discord.
+static STREAM_CODEC: AtomicU8 = AtomicU8::new(0);
+
+/// Puts the codec the settings chose in front of the next share's offers; see
+/// [`StreamCodec`]. A share already running offered its codecs when it
+/// started, and keeps them.
+pub fn set_stream_codec(choice: StreamCodec) {
+    let index = StreamCodec::ALL
+        .iter()
+        .position(|one| *one == choice)
+        .unwrap_or(0);
+    STREAM_CODEC.store(index as u8, Ordering::Relaxed);
+}
+
+/// The codec the settings chose, as the last [`set_stream_codec`] said.
+fn stream_codec() -> StreamCodec {
+    StreamCodec::ALL
+        .get(usize::from(STREAM_CODEC.load(Ordering::Relaxed)))
+        .copied()
+        .unwrap_or_default()
+}
+
 /// Encodes streams started from now on with the GPU's encoder, or not: the
 /// switch is [`crate::encode`]'s, which a call's camera reads too.
 pub fn set_hardware_encoding(on: bool) {
@@ -5567,6 +5680,7 @@ impl Worker {
             },
             hardware: crate::encode::hardware(),
             high_bitrate: HIGH_BITRATE.load(Ordering::Relaxed),
+            codec: stream_codec(),
             capture: crate::capture::preference(),
         };
         let (worker, reports) = Self::start(&job, Some(&frames))?;
@@ -6317,6 +6431,7 @@ mod tests {
             effort: Effort::Light,
             hardware: false,
             high_bitrate: false,
+            codec: StreamCodec::Automatic,
             capture: crate::capture::Preference::Auto,
         };
         assert!(!shared.decodes(), "a shared screen only encodes");
@@ -6614,6 +6729,32 @@ mod tests {
         sink.hardware = false;
         let (offers, encoder) = sink.offers(320, 180, None).unwrap();
         assert_eq!((offers, encoder.engine()), (vec![Codec::H264], "x264"));
+    }
+
+    /// The codecs to offer Discord, most wanted first, with the settings' own
+    /// codec in front where this machine encodes it.
+    #[test]
+    fn the_settings_codec_is_offered_first() {
+        let card = vec![Codec::Av1, Codec::H265, Codec::H264];
+        assert_eq!(
+            preferred(card.clone(), StreamCodec::Automatic),
+            card,
+            "automatic is the order the card's codecs are in"
+        );
+        assert_eq!(
+            preferred(card.clone(), StreamCodec::H264),
+            vec![Codec::H264, Codec::Av1, Codec::H265]
+        );
+        assert_eq!(
+            preferred(card, StreamCodec::H265),
+            vec![Codec::H265, Codec::Av1, Codec::H264]
+        );
+        // A codec this machine has no encoder for isn't offered at all, so
+        // there is nothing to put first: the order is what it was.
+        assert_eq!(
+            preferred(vec![Codec::H264], StreamCodec::Av1),
+            vec![Codec::H264]
+        );
     }
 
     /// A share whose frames come from the card encodes with the card's encoder,
@@ -7029,6 +7170,7 @@ mod tests {
             effort: Effort::Light,
             hardware,
             high_bitrate: false,
+            codec: StreamCodec::Automatic,
             capture: crate::capture::Preference::Auto,
         };
         writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
@@ -7742,6 +7884,7 @@ root.mainloop()
             effort: Effort::Light,
             hardware: false,
             high_bitrate: false,
+            codec: StreamCodec::Automatic,
             capture: crate::capture::Preference::Auto,
         };
         let (input, mut feed) = std::io::pipe().unwrap();
@@ -7800,6 +7943,7 @@ root.mainloop()
             effort: Effort::Light,
             hardware: false,
             high_bitrate: false,
+            codec: StreamCodec::Automatic,
             capture: crate::capture::Preference::Auto,
         };
         let (input, mut feed) = std::io::pipe().unwrap();
@@ -7944,6 +8088,7 @@ root.mainloop()
                 effort: Effort::Light,
                 hardware: false,
                 high_bitrate: false,
+                codec: StreamCodec::Automatic,
                 capture: crate::capture::Preference::Auto,
             };
             let (input, mut feed) = std::io::pipe().unwrap();
@@ -7999,6 +8144,7 @@ root.mainloop()
             effort: Effort::Light,
             hardware: false,
             high_bitrate: false,
+            codec: StreamCodec::Automatic,
             capture: crate::capture::Preference::Auto,
         };
         let (input, mut feed) = std::io::pipe().unwrap();
@@ -8036,6 +8182,7 @@ root.mainloop()
             effort: Effort::Light,
             hardware: false,
             high_bitrate: false,
+            codec: StreamCodec::Automatic,
             capture: crate::capture::Preference::Auto,
         };
         let mut reports = Vec::new();

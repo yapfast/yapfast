@@ -30,6 +30,7 @@ use yapfast_core::{
     runtime::BackgroundRuntime,
     sounds::{self, Sound, SoundSet},
     spoiler,
+    stream_worker::StreamCodec,
     voice::{self, Phase},
 };
 
@@ -1396,6 +1397,10 @@ struct Layout {
     /// one; see `AdvancedSettings::high-bitrate`.
     #[serde(default)]
     high_bitrate: Option<bool>,
+    /// The codec a share asks Discord for first; see [`StreamCodec`] and
+    /// `AdvancedSettings::stream-codec`.
+    #[serde(default)]
+    stream_codec: StreamCodec,
     /// tried; whichever can be borderless here unless changed. See
     /// [`yapfast_core::capture`].
     /// The theme chosen, by its id; Yap unless chosen.
@@ -1714,9 +1719,11 @@ impl Layout {
         window.set_share_on_the_card(yapfast_core::gpu::shares_on_the_card());
         window.set_gpu_encoding(self.gpu_encoding.unwrap_or(true));
         window.set_high_bitrate(self.high_bitrate.unwrap_or(false));
+        window.set_stream_codec(choice(&StreamCodec::ALL, self.stream_codec));
         #[cfg(feature = "discord")]
         yapfast_core::stream_worker::set_hardware_encoding(self.gpu_encoding.unwrap_or(true));
         yapfast_core::stream_worker::set_high_bitrate(self.high_bitrate.unwrap_or(false));
+        yapfast_core::stream_worker::set_stream_codec(self.stream_codec);
         // Before any share opens, which is what asks: a capture already
         // running keeps the way it started with.
         window.set_close_to_tray(self.close_to_tray.unwrap_or(true));

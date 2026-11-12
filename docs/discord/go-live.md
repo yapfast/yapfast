@@ -920,7 +920,15 @@ the GPU: NVENC's slowest preset looked no better than p4.
 
 Where the GPU's encoder encodes AV1 or H265, the stream offers them too,
 first, AV1 before H265, as Discord's client orders them: each looks better
-than the one after it at the same bitrate. When the stream starts, the
+than the one after it at the same bitrate. Settings, Advanced's "Stream codec"
+(experimental) puts AV1, H265 or H264 in front of that order instead, from the
+next share started: the card is probed for that codec first, so the session
+opened and kept is its, and the rest stay behind it as fallbacks — Discord
+still streams the first every viewer's client decodes. Automatic, the default,
+is the order above. A codec this machine has no encoder for — AV1 on a card
+that predates it, any of the three with "Encode streams with the GPU" off — is
+offered as Automatic would, and the log says which was wanted and why it
+wasn't. When the stream starts, the
 worker opens the first of them that opens and keeps it: an encoder FFmpeg
 has isn't enough, the GPU and its driver must encode the codec. What else
 the card can send is read from that kept session — NVENC's driver names every
