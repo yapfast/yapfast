@@ -79,7 +79,7 @@ component ActivityPicture inherits Rectangle {
     changed picture => { root.request(); }
     width: root.size; height: root.size;
     border-radius: root.size / 6; clip: true;
-    background: Theme.raised;
+    background: Theme.raised-fill;
     accessible-role: image;
     accessible-label: root.label;
     Image { source: root.picture; width: root.size; height: root.size; image-fit: cover; }
@@ -128,7 +128,7 @@ export component MemberPanel inherits Rectangle {
     changed top-index => { root.viewport(root.top-index, root.bottom-index); }
     changed bottom-index => { root.viewport(root.top-index, root.bottom-index); }
     // Discord's member list sits on the conversation's ground, a faint line on its left.
-    background: ClientStyle.enabled ? Theme.chat : Theme.sidebar;
+    background: ClientStyle.enabled ? Theme.chat-fill : Theme.sidebar-fill;
     accessible-role: list;
     accessible-label: "Members";
     if ClientStyle.enabled: Rectangle { x: 0px; width: 1px; background: Theme.outline-chat; }
@@ -809,7 +809,7 @@ export component ServerCard inherits Rectangle {
     in property <ProfileServerRow> server;
     callback open;
     height: body.preferred-height;
-    background: Theme.sidebar;
+    background: Theme.sidebar-fill;
     border-radius: Look.radius(12px); border-width: 1px; border-color: Theme.edge;
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox;
@@ -824,17 +824,17 @@ export component ServerCard inherits Rectangle {
             Rectangle {
                 height: 90px + 32px + 8px;
                 Rectangle {
-                    y: 0px; height: 90px; background: Theme.raised;
+                    y: 0px; height: 90px; background: Theme.raised-fill;
                     if root.server.banner.width > 0: Image {
                         width: parent.width; height: parent.height; source: root.server.banner; image-fit: cover;
                     }
                 }
                 Rectangle {
                     x: 10px; y: 90px - 32px - 6px; width: 76px; height: 76px; border-radius: Look.radius(22px);
-                    background: Theme.sidebar;
+                    background: Theme.sidebar-fill;
                     Rectangle {
                         width: 64px; height: 64px; border-radius: Look.radius(18px); clip: true;
-                        background: root.server.picture.width > 0 ? transparent : Theme.raised;
+                        background: root.server.picture.width > 0 ? transparent : Theme.raised-fill;
                         if root.server.picture.width == 0: Text {
                             text: root.server.initial; color: Theme.text; font-size: 24px; font-weight: 700;
                         }
@@ -911,7 +911,7 @@ export component ProfileListRow inherits Rectangle {
                 }
                 if !root.person: Rectangle {
                     border-radius: Look.radius(10px); clip: true;
-                    background: root.picture.width > 0 ? transparent : Theme.raised;
+                    background: root.picture.width > 0 ? transparent : Theme.raised-fill;
                     if root.picture.width == 0: Text {
                         text: root.initial; color: root.ink; font-size: 13px; font-weight: 700;
                         horizontal-alignment: center; vertical-alignment: center;
@@ -1007,7 +1007,8 @@ export component ProfileCard inherits Rectangle {
     property <color> bubble-edge: !root.themed ? Theme.edge : root.light ? #00000026 : #404044;
     height: min(body.preferred-height, root.limit);
     background: root.themed ? @linear-gradient(180deg, root.data.theme-primary 0%, root.data.theme-secondary 100%) : root.plain-ground;
-    border-radius: root.docked ? Look.radius(ClientStyle.enabled ? 8px : 0px) : Look.r(Look.card, 12px);
+    property <length> corner: root.docked ? Look.radius(ClientStyle.enabled ? 8px : 0px) : Look.r(Look.card, 12px);
+    border-radius: root.corner;
     border-width: root.themed ? 0px : root.docked && !ClientStyle.enabled ? 0px : Look.bw(Look.card, 1px); border-color: Look.bc(Look.card, Theme.edge);
     drop-shadow-blur: root.docked ? 0px : Look.sb(Look.card, 24px); drop-shadow-offset-x: root.docked ? 0px : Look.sx(Look.card, 0px); drop-shadow-color: root.docked ? transparent : Look.sc(Look.card, #00000080); drop-shadow-offset-y: root.docked ? 0px : Look.sy(Look.card, 8px);
     accessible-role: groupbox;
@@ -1034,7 +1035,11 @@ export component ProfileCard inherits Rectangle {
                         height: root.banner-height + root.avatar-size / 2 + 8px;
                         Rectangle {
                             y: 0px; height: root.banner-height;
-                            background: root.data.has-accent ? root.data.accent : root.themed ? root.data.theme-primary : Theme.raised;
+                            // Its top corners follow the card's, inside its border.
+                            border-top-left-radius: max(0px, root.corner - root.border-width);
+                            border-top-right-radius: max(0px, root.corner - root.border-width);
+                            clip: true;
+                            background: root.data.has-accent ? root.data.accent : root.themed ? root.data.theme-primary : Theme.raised-fill;
                             if root.data.banner.width > 0: Image {
                                 width: parent.width; height: parent.height; source: root.data.banner; image-fit: cover;
                             }
@@ -1097,7 +1102,9 @@ export component ProfileCard inherits Rectangle {
                         }
                         Rectangle {
                             x: root.pad - 6px; y: root.banner-height - root.avatar-size / 2 - 6px;
-                            width: root.avatar-size + 12px; height: self.width; border-radius: self.width / 2;
+                            width: root.avatar-size + 12px; height: self.width;
+                            // The ring takes the avatar's shape.
+                            border-radius: Look.avatar.radius >= 0px ? self.width * Look.avatar.radius / 100px : self.width / 2;
                             background: root.ground;
                             Avatar { size: root.avatar-size; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; decoration-url: root.data.decoration-url; animate: card-pointer.has-hover; }
                             if root.data.presence != "" && root.data.presence != "offline": StatusDot {
@@ -1120,15 +1127,20 @@ export component ProfileCard inherits Rectangle {
                             spacing: 2px;
                             // The name and username select, to copy, as in
                             // Discord; the picture opens the full profile.
-                            // The profile.name slot.
-                            if root.data.name-style.length == 0: TextInput {
-                                text: Look.profile-text(root.data.name); color: root.ink; font-size: root.large ? 26px : 20px; font-weight: Look.name-weight(700);
-                                font-family: Look.name-font(""); letter-spacing: Look.spacing-names;
-                                opacity: Look.profile-name.opacity; transform-scale: Look.profile-name.scale; transform-rotation: Look.profile-name.rotation * 1deg;
-                                read-only: true; single-line: true;
-                                selection-background-color: Theme.selection;
-                                selection-foreground-color: root.ink;
-                                accessible-label: "Name";
+                            // The profile.name slot, moved inside a box the layout
+                            // measures as the name.
+                            if root.data.name-style.length == 0: Rectangle {
+                                min-height: profile-name.preferred-height; preferred-width: profile-name.preferred-width;
+                                profile-name := TextInput {
+                                    x: Look.profile-name.x; y: Look.profile-name.y; width: parent.width; height: parent.height;
+                                    text: Look.profile-text(root.data.name); color: root.ink; font-size: root.large ? 26px : 20px; font-weight: Look.name-weight(700);
+                                    font-family: Look.name-font(""); letter-spacing: Look.spacing-names;
+                                    opacity: Look.profile-name.opacity; transform-scale: Look.profile-name.scale; transform-rotation: Look.profile-name.rotation * 1deg;
+                                    read-only: true; single-line: true;
+                                    selection-background-color: Theme.selection;
+                                    selection-foreground-color: root.ink;
+                                    accessible-label: "Name";
+                                }
                             }
                             if root.data.name-style.length > 0: StyledName {
                                 text: root.data.name; styles: root.data.name-style; ink: root.ink; font-size: root.large ? 26px : 20px; font-weight: 700;
@@ -1158,7 +1170,7 @@ export component ProfileCard inherits Rectangle {
                             spacing: 8px; alignment: start; height: 32px;
                             if root.data.friend > 0: Rectangle {
                                 height: 32px; width: friend-row.preferred-width + 24px; border-radius: Look.radius(4px);
-                                background: root.data.friend == 3 ? Theme.accent : action-friend.has-hover && root.data.friend != 2 ? root.ink.transparentize(0.8) : root.ink.transparentize(0.88);
+                                background: root.data.friend == 3 ? Theme.accent-fill : action-friend.has-hover && root.data.friend != 2 ? root.ink.transparentize(0.8) : root.ink.transparentize(0.88);
                                 opacity: root.data.friend == 2 ? 0.5 : 1;
                                 accessible-role: button;
                                 accessible-enabled: root.data.friend != 2;
@@ -1525,7 +1537,7 @@ export component ProfileModal inherits Rectangle {
     // The whole panel takes the profile's theme, not only the card on its left.
     background: root.themed
         ? @linear-gradient(180deg, root.theme-start 0%, ProfileTheme.wash(root.data.theme-secondary, root.light) 100%)
-        : Theme.sidebar;
+        : Theme.sidebar-fill;
     border-radius: Look.radius(8px); border-width: root.data.has-theme ? 0px : 1px; border-color: Theme.edge;
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox;
@@ -1695,7 +1707,7 @@ export component RoleCard inherits Rectangle {
     /// Someone was chosen without the pointer.
     callback choose-member(string);
     width: 260px; height: min(root.limit, role-content.preferred-height);
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox;
     accessible-label: "Role " + root.role-name;

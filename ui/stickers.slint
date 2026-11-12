@@ -63,7 +63,7 @@ export component StickerPicker inherits Rectangle {
     changed shown-height => { root.report(); }
     changed tiles => { root.hovered = ""; }
     changed query => { grid.content-y = 0; }
-    background: root.bare ? transparent : Theme.raised;
+    background: root.bare ? transparent : Theme.raised-fill;
     border-color: Theme.edge; border-width: root.bare ? 0px : 1px;
     border-radius: root.bare ? 0px : 10px;
     drop-shadow-blur: root.bare ? 0px : Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
@@ -164,7 +164,7 @@ export component StickerPicker inherits Rectangle {
                             star := Rectangle {
                                 x: parent.width - self.width - 4px; y: 4px;
                                 width: 24px; height: 24px; border-radius: Look.radius(5px);
-                                background: Theme.panel;
+                                background: Theme.panel-fill;
                                 opacity: tile-touch.has-hover ? 1 : 0;
                                 animate opacity { duration: Theme.quick; }
                                 accessible-role: button;
@@ -192,7 +192,7 @@ export component StickerPicker inherits Rectangle {
             }
             // The sticker under the pointer, by name, or what a click does.
             Rectangle {
-                height: 46px; background: Theme.panel;
+                height: 46px; background: Theme.panel-fill;
                 HorizontalLayout {
                     padding-left: 14px; padding-right: 14px;
                     Text {

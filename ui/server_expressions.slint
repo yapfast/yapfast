@@ -188,7 +188,7 @@ export component EmojiUploadDialog inherits Rectangle {
         Rectangle {
             width: 440px; height: box.preferred-height;
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
-            background: Theme.chat; border-radius: Look.radius(8px);
+            background: Theme.chat-fill; border-radius: Look.radius(8px);
             accessible-role: groupbox; accessible-label: "Upload Emoji";
             TouchArea { }
             box := VerticalLayout {
@@ -333,7 +333,7 @@ export component StickerDialog inherits Rectangle {
         Rectangle {
             width: 520px; height: box.preferred-height;
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
-            background: Theme.chat; border-radius: Look.radius(8px);
+            background: Theme.chat-fill; border-radius: Look.radius(8px);
             accessible-role: groupbox; accessible-label: "Upload Sticker";
             TouchArea { }
             box := VerticalLayout {

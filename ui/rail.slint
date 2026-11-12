@@ -165,7 +165,7 @@ export component RailItem inherits Rectangle {
         x: 0px; y: (parent.height - self.height) / 2; width: 4px;
         height: root.selected ? 40px : pointer.has-hover ? 20px : root.unread ? 8px : 0px;
         border-top-right-radius: Look.radius(4px); border-bottom-right-radius: Look.radius(4px);
-        background: Theme.text;
+        background: Theme.pill;
         animate height { duration: 200ms; easing: ease-out; }
         // The unread slot: the pill beside a server with something new.
         opacity: root.unread && !root.lit ? Look.unread.opacity : 1;
@@ -290,7 +290,7 @@ component FolderItem inherits Rectangle {
         x: 0px; y: (parent.height - self.height) / 2; width: 4px;
         height: root.open ? 0px : root.selected ? 40px : pointer.has-hover ? 20px : root.unread ? 8px : 0px;
         border-top-right-radius: Look.radius(4px); border-bottom-right-radius: Look.radius(4px);
-        background: Theme.text;
+        background: Theme.pill;
         animate height { duration: 200ms; easing: ease-out; }
     }
     tile := Rectangle {
@@ -514,7 +514,7 @@ export component ChannelRow inherits Rectangle {
     property <bool> offers-wave: root.wave != "" && (pointer.has-hover || root.selected);
     height: root.person ? ClientStyle.dm-row-height : ClientStyle.channel-row-height;
     border-radius: Look.radius(6px);
-    background: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : transparent;
+    background: root.selected ? Theme.row-selected : pointer.has-hover ? Theme.hover : transparent;
     animate background { duration: 90ms; }
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
@@ -628,7 +628,7 @@ export component ChannelRow inherits Rectangle {
                         if root.official: Middle {
                             Rectangle {
                                 // Discord's verified-style badge: blurple, 16px, a check and OFFICIAL.
-                                height: 16px; width: official-text.preferred-width + 24px; border-radius: Look.radius(4px); background: Theme.accent;
+                                height: 16px; width: official-text.preferred-width + 24px; border-radius: Look.radius(4px); background: Theme.accent-fill;
                                 accessible-role: AccessibleRole.text; accessible-label: "OFFICIAL";
                                 HorizontalLayout {
                                     padding-left: 4px; padding-right: 4px; spacing: 2px; alignment: center;
@@ -663,7 +663,7 @@ export component ChannelRow inherits Rectangle {
                 if root.offers-wave: Middle {
                     Rectangle {
                         height: 24px; width: wave-label.preferred-width + 40px; border-radius: Look.radius(4px);
-                        background: wave-touch.has-hover ? Theme.accent-hover : Theme.accent;
+                        background: wave-touch.has-hover ? Theme.accent-hover : Theme.accent-fill;
                         accessible-role: button; accessible-label: "Wave";
                         accessible-action-default => { root.waved(); }
                         HorizontalLayout {
@@ -976,15 +976,21 @@ export component ServerHeader inherits Rectangle {
         // Discord's chevron follows the name closely, small and light.
         HorizontalLayout {
             spacing: ClientStyle.enabled ? 0px : 6px;
-            Text {
-                // The server.name slot.
-                text: Look.server-text(Look.heading(root.name)); accessible-label: root.name;
-                font-size: Look.heading-size(ClientStyle.text-size);
-                font-weight: Look.heading-weight(ClientStyle.enabled ? 600 : 700);
-                font-family: Look.heading-font(""); letter-spacing: Look.spacing-headings;
-                color: root.on-banner ? #ffffff : Theme.text;
-                vertical-alignment: center; overflow: elide;
-                opacity: Look.server-name.opacity; transform-scale: Look.server-name.scale; transform-rotation: Look.server-name.rotation * 1deg;
+            // The server.name slot, moved inside a box the layout measures as
+            // the name.
+            Rectangle {
+                min-width: 0px; preferred-width: server-name.preferred-width; horizontal-stretch: 0;
+                accessible-role: text; accessible-label: root.name;
+                server-name := Text {
+                    x: Look.server-name.x; y: Look.server-name.y; width: parent.width; height: parent.height;
+                    text: Look.server-text(Look.heading(root.name)); accessible-role: none;
+                    font-size: Look.header-size(ClientStyle.text-size);
+                    font-weight: Look.heading-weight(ClientStyle.enabled ? 600 : 700);
+                    font-family: Look.heading-font(""); letter-spacing: Look.spacing-headings;
+                    color: root.on-banner ? #ffffff : Theme.text;
+                    vertical-alignment: center; overflow: elide;
+                    opacity: Look.server-name.opacity; transform-scale: Look.server-name.scale; transform-rotation: Look.server-name.rotation * 1deg;
+                }
             }
             Image {
                 source: @image-url("icons/chevron-down.svg"); width: ClientStyle.enabled ? 16px : 20px; height: ClientStyle.enabled ? 16px : 20px; y: (parent.height - self.height) / 2;
@@ -1022,7 +1028,7 @@ export component ServerRail inherits Rectangle {
     /// Whether the "+" at the foot offers to join a Discord server.
     in property <bool> can-join;
     callback join-server;
-    width: 72px; background: Theme.rail;
+    width: 72px; background: Theme.rail-fill;
     VerticalLayout {
         padding-top: ClientStyle.enabled ? 0px : 12px; padding-bottom: 12px; spacing: 8px;
         RailItem {

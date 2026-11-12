@@ -122,7 +122,7 @@ export component PickerRail inherits Rectangle {
     callback jump(length);
     /// The section the pointer is over.
     callback hovered(EmojiCell);
-    width: 48px; background: Theme.panel;
+    width: 48px; background: Theme.panel-fill;
     ListView {
         vertical-scrollbar-policy: ScrollBarPolicy.always-off;
         for section in root.sections: HorizontalLayout {
@@ -234,7 +234,7 @@ export component EmojiButton inherits Rectangle {
     if root.favoritable && (pointer.has-hover || root.favorite): Rectangle {
         x: root.width - self.width; y: 0px;
         width: 18px; height: 18px; border-radius: Look.radius(4px);
-        background: Theme.panel;
+        background: Theme.panel-fill;
         accessible-role: button;
         accessible-label: root.favorite ? "Remove from Favorites" : "Add to Favorites";
         accessible-action-default => { root.favorited(); }
@@ -264,7 +264,7 @@ export component ReactionToggle inherits Rectangle {
     in property <string> emoji-font;
     callback clicked;
     min-width: chip.preferred-width; height: 28px; border-radius: Look.r(Look.chip, 8px);
-    background: root.mine ? Theme.accent-soft : Theme.raised;
+    background: root.mine ? Theme.accent-soft : Theme.raised-fill;
     border-width: Look.bw(Look.chip, 1px);
     border-color: root.mine ? Theme.accent.with-alpha(0.7) : pointer.has-hover && root.enabled ? Theme.overlay.with-alpha(0.15) : Look.bc(Look.chip, transparent);
     accessible-role: button;
@@ -670,7 +670,7 @@ export component PollView inherits HorizontalLayout {
     padding-top: 4px;
     Rectangle {
         max-width: 480px; horizontal-stretch: 100;
-        background: Theme.sidebar; border-radius: Look.radius(8px); border-width: 1px; border-color: Theme.line;
+        background: Theme.sidebar-fill; border-radius: Look.radius(8px); border-width: 1px; border-color: Theme.line;
         accessible-role: groupbox;
         accessible-label: "Poll: " + root.poll.question;
         VerticalLayout {
@@ -681,7 +681,7 @@ export component PollView inherits HorizontalLayout {
                 property <bool> clickable: root.poll.interactive && (root.poll.results || root.poll.can-pick);
                 // From the text as wrapped, which a scrolling list would otherwise squeeze.
                 min-height: max(44px, answer-text.preferred-height + 16px); border-radius: Look.radius(8px); clip: true;
-                background: answer-touch.has-hover && self.clickable ? Theme.active : Theme.raised;
+                background: answer-touch.has-hover && self.clickable ? Theme.active : Theme.raised-fill;
                 animate background { duration: Theme.quick; }
                 border-width: answer.picked ? 2px : 0px; border-color: Theme.accent;
                 accessible-role: button;
@@ -707,7 +707,7 @@ export component PollView inherits HorizontalLayout {
                         Rectangle {
                             width: 20px; height: 20px; border-radius: root.poll.multiselect ? 5px : 10px;
                             border-width: answer.picked ? 0px : 2px; border-color: Theme.muted;
-                            background: answer.picked ? Theme.accent : transparent;
+                            background: answer.picked ? Theme.accent-fill : transparent;
                             if answer.picked && root.poll.multiselect: Image { source: @image-url("icons/check.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; }
                             if answer.picked && !root.poll.multiselect: Rectangle { width: 8px; height: 8px; border-radius: Look.radius(4px); background: Theme.on-accent; }
                         }
@@ -945,7 +945,7 @@ export component MessageStickerCardView inherits Rectangle {
         ? root.card.server-online + " · " + root.card.server-note
         : root.card.server-online + root.card.server-note;
     width: 288px; height: body.preferred-height;
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox; accessible-label: root.card.name;
     // Clicks on the card stay on it, instead of closing it.
@@ -981,7 +981,7 @@ export component MessageStickerCardView inherits Rectangle {
             }
         }
         if root.card.server != "": Rectangle {
-            background: Theme.panel;
+            background: Theme.panel-fill;
             border-bottom-left-radius: Look.radius(7px); border-bottom-right-radius: Look.radius(7px);
             VerticalLayout {
                 padding: 16px; spacing: 8px;
@@ -1071,7 +1071,7 @@ export component EmojiCardView inherits Rectangle {
         ? root.card.server-online + " · " + root.card.server-note
         : root.card.server-online + root.card.server-note;
     width: 288px; height: body.preferred-height;
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox; accessible-label: root.card.name;
     // Clicks on the card stay on it, instead of closing it.
@@ -1114,7 +1114,7 @@ export component EmojiCardView inherits Rectangle {
             }
         }
         if root.card.server != "": Rectangle {
-            background: Theme.panel;
+            background: Theme.panel-fill;
             border-bottom-left-radius: Look.radius(7px); border-bottom-right-radius: Look.radius(7px);
             VerticalLayout {
                 // The card's 16px, and the title's 8px below it.
@@ -1235,7 +1235,7 @@ export component EmojiPicker inherits Rectangle {
         }
         grid.content-y = -top;
     }
-    background: root.bare ? transparent : Theme.raised; border-color: Theme.edge; border-width: root.bare ? 0px : 1px;
+    background: root.bare ? transparent : Theme.raised-fill; border-color: Theme.edge; border-width: root.bare ? 0px : 1px;
     border-radius: root.bare ? 0px : 10px;
     drop-shadow-blur: root.bare ? 0px : Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: root.bare ? transparent : Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     clip: true;
@@ -1322,7 +1322,7 @@ export component EmojiPicker inherits Rectangle {
             }
             // The hovered emoji, larger, with its name.
             Rectangle {
-                height: 48px; background: Theme.panel;
+                height: 48px; background: Theme.panel-fill;
                 HorizontalLayout {
                     padding-left: 14px; padding-right: 14px; spacing: 10px;
                     if root.emoji-hover.glyph != "": EmojiFace {
@@ -1638,7 +1638,7 @@ component VoicePlayButton inherits Rectangle {
     out property <bool> focused: focus.has-focus;
     callback clicked;
     width: 36px; height: 36px; border-radius: Look.radius(18px);
-    background: @linear-gradient(135deg, Theme.accent.brighter(0.2) 0%, Theme.accent 100%);
+    background: @linear-gradient(135deg, Theme.accent.brighter(0.2) 0%, Theme.accent-fill 100%);
     border-width: focus.has-focus ? 2px : 0px; border-color: Theme.text;
     opacity: root.enabled ? (touch.has-hover ? 0.9 : 1) : 0.5;
     accessible-role: button; accessible-label: root.playing ? "Pause" : "Play";
@@ -1693,7 +1693,7 @@ export component FileCard inherits HorizontalLayout {
             VoicePlayer.change-volume(clamp(shown + (delta > 0 ? 0.05 : -0.05), 0, 1));
         }
         height: 52px; width: voice-card.preferred-width;
-        background: Theme.sidebar; border-radius: Look.radius(26px);
+        background: Theme.sidebar-fill; border-radius: Look.radius(26px);
         accessible-role: groupbox; accessible-label: "Voice message, " + root.file.duration;
         pill-touch := TouchArea {
             voice-card := HorizontalLayout {
@@ -1768,7 +1768,7 @@ export component FileCard inherits HorizontalLayout {
                         Middle {
                             Rectangle {
                                 width: speed-text.preferred-width + 12px; height: 22px; border-radius: Look.radius(11px);
-                                background: speed-touch.has-hover ? Theme.hover : Theme.raised;
+                                background: speed-touch.has-hover ? Theme.hover : Theme.raised-fill;
                                 border-width: speed-focus.has-focus ? 2px : 0px; border-color: Theme.accent;
                                 accessible-role: button; accessible-label: "Playback speed";
                                 accessible-value: VoicePlayer.speed;
@@ -1850,7 +1850,7 @@ export component FileCard inherits HorizontalLayout {
                     Rectangle {
                         y: volume-popup.up ? 0px : volume.height + volume-popup.gap;
                         height: volume-popup.slider;
-                        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+                        background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
                         drop-shadow-blur: Look.shadow-blur(16px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000060);
                         volume-level := UprightVolumeSlider {
                             x: (parent.width - self.width) / 2; y: 6px; height: parent.height - 12px;
@@ -1884,7 +1884,7 @@ export component FileCard inherits HorizontalLayout {
     }
     if !root.file.voice: Rectangle {
         min-height: file-card.preferred-height; max-width: 432px; horizontal-stretch: 100;
-        background: Theme.sidebar; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+        background: Theme.sidebar-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
         file-card := HorizontalLayout {
             padding: 12px; padding-right: 8px; spacing: 12px;
             Image { source: @image-url("icons/file.svg"); width: 30px; image-fit: contain; colorize: Theme.accent-text; }
@@ -1913,7 +1913,7 @@ export component ThreadChip inherits HorizontalLayout {
     Rectangle {
         max-width: 432px; horizontal-stretch: 100;
         min-height: chip.preferred-height;
-        background: touch.has-hover ? Theme.hover : Theme.sidebar;
+        background: touch.has-hover ? Theme.hover : Theme.sidebar-fill;
         border-color: focus.has-focus ? Theme.accent : Theme.edge; border-width: focus.has-focus ? 2px : 1px;
         border-radius: Look.radius(8px);
         accessible-role: button;
@@ -1979,7 +1979,7 @@ component TextBlockView inherits VerticalLayout {
             padding-top: root.block.padding;
             padding-left: root.block.quoted ? 12px : 0px;
             if root.block.level == 5: Rectangle {
-                background: Theme.panel; border-radius: Look.radius(4px); border-width: 1px; border-color: Theme.line;
+                background: Theme.code; border-radius: Look.radius(4px); border-width: 1px; border-color: Theme.line;
                 VerticalLayout {
                     padding: root.code-size / 2;
                     StyledText {
@@ -2038,7 +2038,7 @@ export component EmbedView inherits HorizontalLayout {
     // preferred height measured it at another width and cut off the end.
     Rectangle {
         max-width: 432px; horizontal-stretch: 100;
-        background: Theme.sidebar; border-radius: Look.radius(4px); clip: true;
+        background: Theme.embed; border-radius: Look.radius(4px); clip: true;
         Rectangle { x: 0px; width: 4px; background: root.embed.has-color ? root.embed.color : Theme.edge; }
         embed-body := HorizontalLayout {
             padding: 12px; padding-left: 16px; padding-right: 16px; spacing: 16px;
@@ -2193,7 +2193,7 @@ export component CardView inherits HorizontalLayout {
     padding-top: 4px;
     Rectangle {
         max-width: root.card.framed ? 600px : 100000px; horizontal-stretch: 100;
-        background: root.card.framed ? Theme.sidebar : transparent;
+        background: root.card.framed ? Theme.sidebar-fill : transparent;
         border-radius: Look.radius(8px); clip: root.card.framed;
         border-width: root.card.framed ? 1px : 0px; border-color: Theme.edge;
         if root.card.framed && root.card.has-color: Rectangle { x: 0px; width: 4px; background: root.card.color; }
@@ -2291,7 +2291,7 @@ export component NoConversation inherits VerticalLayout {
     HorizontalLayout {
         alignment: center;
         Rectangle {
-            width: 80px; height: 80px; border-radius: Look.radius(40px); background: Theme.raised;
+            width: 80px; height: 80px; border-radius: Look.radius(40px); background: Theme.raised-fill;
             Image { source: @image-url("icons/message-circle.svg"); width: 36px; height: 36px; colorize: Theme.secondary; }
         }
     }
@@ -2350,7 +2350,7 @@ export component HistoryEdge inherits HorizontalLayout {
     }
     if !root.start: Rectangle {
         width: content.preferred-width; height: 30px; border-radius: Look.radius(15px); clip: true;
-        background: touch.has-hover && touch.enabled ? Theme.active : Theme.raised;
+        background: touch.has-hover && touch.enabled ? Theme.active : Theme.raised-fill;
         accessible-role: button;
         accessible-label: root.loading ? "Loading " + root.which + " messages" : root.failed ? "Couldn't load " + root.which + " messages. Retry" : root.newer ? "Newer messages" : "Earlier messages";
         accessible-enabled: touch.enabled;
@@ -2384,7 +2384,7 @@ export component UnreadBar inherits Rectangle {
     in property <bool> above;
     callback jump;
     width: content.preferred-width; height: 32px; border-radius: Look.radius(16px);
-    background: touch.has-hover ? Theme.accent-hover : Theme.accent;
+    background: touch.has-hover ? Theme.accent-hover : Theme.accent-fill;
     drop-shadow-blur: Look.shadow-blur(12px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000060); drop-shadow-offset-y: Look.shadow-y(4px);
     accessible-role: button;
     accessible-label: root.label + ". Jump to the first unread message";
@@ -2405,7 +2405,7 @@ export component UnreadBar inherits Rectangle {
 export component PresentBar inherits Rectangle {
     callback jump;
     height: 36px; border-radius: Look.radius(8px);
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px;
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px;
     drop-shadow-blur: Look.shadow-blur(12px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000060); drop-shadow-offset-y: Look.shadow-y(4px);
     accessible-role: button;
     accessible-label: "You're viewing older messages. Jump to present";
@@ -2442,7 +2442,7 @@ export component ConversationStart inherits VerticalLayout {
     padding: 24px; spacing: 8px; alignment: end;
     if root.room-selected && root.room-ready && root.room-direct: Avatar { size: 72px; initial: root.room-initial; tint: root.room-tint; picture: root.room-picture; }
     if root.room-selected && root.room-ready && !root.room-direct: Rectangle {
-        width: 68px; height: 68px; border-radius: Look.radius(34px); background: Theme.raised;
+        width: 68px; height: 68px; border-radius: Look.radius(34px); background: Theme.raised-fill;
         Image { source: root.room-icon; width: 36px; height: 36px; colorize: Theme.text; }
     }
     Text {

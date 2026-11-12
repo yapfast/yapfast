@@ -122,8 +122,12 @@ last good one on the window and says why in the banner.
 
 ### Distribution
 
-A theme installs the way a plugin does (`PLAN.md` §8): Settings → Plugins →
-Themes → *Add from GitHub* asks the `yapfast-plugins fetch` helper to read the
+Themes have their own page, Settings → Themes, laid out as Settings →
+Plugins is: *Marketplace*, *Installed* (as a list or cards) and *Add from
+URL*. Appearance keeps the built-in and custom colour themes, says which
+installed theme shows, and has *Browse themes*, which opens the page.
+
+A theme installs the way a plugin does (`PLAN.md` §8): *Add from URL* asks the `yapfast-plugins fetch` helper to read the
 repository with gix at one commit. The helper reads `theme.json` and only the
 files it names (fonts and pictures by their extension) plus a licence file,
 each at most 4 MiB and 24 MiB together, with no checkout, symlink or LFS
@@ -139,13 +143,17 @@ other's entries. A theme has no grants, no data and no enabled switch.
 For now only public GitHub repositories are accepted (`https://github.com/
 <owner>/<repo>`), for URL installs and listings alike. The marketplace lists
 themes in the plugin catalog as entries with `kind: "theme"`, their modes and
-cost; the Themes tab shows them beside the installed ones as a gallery of
-large previews, decoded only while the tab is open.
+cost; the Marketplace tab shows them as a gallery of large previews,
+searchable, and decoded only while the page is open.
 
 *Try 30 s* shows an installed theme, or one under review, until *Keep* or
-*Revert*, or for 30 seconds, then the theme from before. *Apply* chooses it;
-installed themes also show in Appearance after the built-in and custom ones,
-and *Back to …* there returns to the theme chosen before.
+*Revert*, or for 30 seconds, then the theme from before. *Apply* chooses it,
+and *Back to …* on Installed returns to the theme chosen before.
+
+A custom colour theme in Appearance's editor has *Export as a package*: it
+writes a folder with its `theme.json` (every colour over its base, `id`
+`local.<name>`) and a `LICENSE` to fill in, ready to put in a GitHub
+repository.
 
 ### Safety
 
@@ -163,16 +171,17 @@ and *Back to …* there returns to the theme chosen before.
   a script, an event handler, `foreignObject`, an animation, a doctype or a
   reference outside the file, and have to render.
 - **Protected UI stays stock.** `danger`, `danger-hover` and `on-danger` can't
-  be set, so Block, Ban and Delete keep Yapfast's red. While a protected dialog
-  is open — a link's confirmation, a theme's review — the window shows the
-  stock theme, shape and motion, and the theme comes back when it closes.
+  be set, so Block, Ban and Delete keep Yapfast's red. While a protected screen
+  is open — signing in, a link's confirmation, a plugin's review with its
+  permissions, a theme's review — the window shows the stock theme, shape and
+  motion, and the theme comes back when the last one closes.
 - **The way back.** Ctrl+Shift+T shows the default theme until Yapfast starts
   again; `--default-theme` starts with it. A theme that can't be shown at start
   falls back to the default with a notice saying why.
 
 ### Performance
 
-Settings → Appearance → *Theme performance*:
+Settings → Themes → Installed → *Performance*:
 
 - **Full**: everything, each animation at the rate it asks for (up to 60
   frames a second).
@@ -226,7 +235,8 @@ Listing also needs `license`, a licence file (`LICENSE`, `LICENSE.txt`,
 built-in theme of the same darkness whose colours stand in for any the theme
 doesn't set, and may override any layer for itself; the layers at the top
 level apply to both. With both, the variant follows the system's light or dark
-windows; with one, the theme is that mode only, and the marketplace says so.
+windows, and switches when they do; with one, the theme is that mode only,
+and the marketplace says so.
 
 **Colours** (`colours`): each `#rgb`, `#rrggbb` or `#rrggbbaa`, by its name in
 `ui/theme.slint`: `rail`, `sidebar`, `panel`, `chat`, `stage`, `raised`,
@@ -248,12 +258,18 @@ another until one does:
 | `menu`, `menu-line` | A context menu's ground and outline | `raised`, `line` mixes |
 | `composer`, `placeholder` | The message box and its placeholder | `field`, `muted` mixes |
 | `mentioned`, `mentioned-hover` | A message that mentions you | marigold at 12% and 16% |
+| `composer-focus` | The message box's outline while it has the keys | `muted` at 55% |
+| `row-selected` | A selected channel's or settings page's ground | `active` |
+| `pill` | The pill beside a selected or unread server | `text` |
+| `toggle-off`, `knob-off` | A switch's track and knob while it's off | `field`, `secondary` |
+| `code`, `embed` | The grounds of code blocks and of embeds | `panel`, `sidebar` |
 
 `rail`, `sidebar`, `chat`, `panel`, `raised` and `accent` also take a
 gradient, `linear(135deg, #ff71ce, #01cdfe 80%)`: an angle as CSS measures it
 (180deg, top to bottom, when left out) and two to eight stops, each at a
 percentage or spread evenly. Where one colour is needed, such as a mix, the
-first stop stands in.
+first stop stands in; everywhere the token is a ground, the gradient is
+drawn.
 
 **Shape** (`shape`): per surface, `radius` (pixels, 999 for a pill),
 `border` (0 to 4), `border_colour`, and `shadow` (`blur` 0–48, `x` −16–16,
@@ -291,8 +307,11 @@ Every other corner in the window takes `radii`: `small` for stock corners of
 ```
 
 **Type** (`type`): per role, `font` (a `.ttf` or `.otf` in the folder),
-`size`, `weight` (100–900) and `letter_spacing` (−2 to 4 pixels); headings
-also take `uppercase`. Each font is registered under a family name of its
+`size`, `weight` (100–900, a variable font's weight axis follows it) and
+`letter_spacing` (−2 to 4 pixels; not yet drawn for body text); headings also
+take `uppercase`, `header_size` (the open conversation's and the server's
+names) and `title_size` (page and dialog titles), which otherwise follow
+`size`. Each font is registered under a family name of its
 own, once per run.
 
 | Role | Where | Sizes |
@@ -315,8 +334,9 @@ stock 120), `popup` (milliseconds a popup takes, stock 100), `curve` (`linear`,
 `ease`, `ease-in`, `ease-out`, `ease-in-out`, `spring`, `bounce`, `elastic`),
 `hover` (`fade`, `none`, `lift`, `glow`, `scale`), `press` (`none`, `scale`,
 `sink`), `open` (`grow`, `none`, `fade`, `zoom`, `pop`) and `close`
-(`reverse`, `none`). Hover and press apply to buttons and servers in the rail;
-open and close to every popup, menu and dialog.
+(`reverse`, `none`). Hover and press apply to labelled buttons and servers in
+the rail (a button's face moves and scales inside the space the layout gives
+it); open and close to every popup, menu and dialog.
 
 **Declared animations** (`animations`, at most 16): each moves one property
 of a slot through values. They're values Yapfast computes on one clock; nothing
@@ -353,8 +373,12 @@ runs.
 | `unread` | The pill beside a server with something new |
 | `mention` | The red count of mentions on a server |
 | `typing` | The dots of someone typing |
-| `channel.name`, `server.name`, `profile.name` | Those names (opacity, scale and rotation) |
+| `channel.name`, `server.name`, `profile.name` | Those names |
 | `own.avatar` | Your avatar in the account panel |
+
+Text in the `channel.name`, `server.name` and `profile.name` slots moves by
+`x` and `y` inside the space its layout gives it, so a moving name never moves
+what's beside it.
 
 **Text effects** (`effects`): a built-in effect that plays when a slot's text
 changes: `decrypt` (letters scramble and settle left to right) or

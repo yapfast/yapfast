@@ -882,14 +882,51 @@ pub fn set_overlay(colours: Vec<(&'static str, u32)>) {
     overlay::set(colours);
 }
 
+/// What a protected dialog is: the window shows the stock theme while any
+/// of them is open, whichever closes last.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Protected {
+    /// The question before leaving for a link.
+    Link,
+    /// Signing in.
+    SignIn,
+    /// A plugin's review: what it may do, before it's installed.
+    #[cfg_attr(not(feature = "plugins"), allow(dead_code))]
+    PluginReview,
+    /// A theme's review, before it's installed.
+    ThemeReview,
+}
+
+thread_local! {
+    /// The protected dialogs open now, one bit each.
+    static OPEN: Cell<u8> = const { Cell::new(0) };
+}
+
 /// Shows the chosen theme without plugins' colours while a dialog no plugin
 /// may restyle is open, such as the question before leaving for a link, and
 /// with them again once it closes.
 ///
 /// An installed theme's shape, type, motion and colours give way to the stock
 /// ones the same way: see `theme_look::protect`.
-#[cfg(feature = "plugins")]
 pub fn protect(window: &YapfastWindow, open: bool) {
+    protect_for(window, Protected::Link, open);
+}
+
+/// As [`protect`], for one kind of protected dialog: the window shows stock
+/// from the first one opening to the last one closing.
+pub fn protect_for(window: &YapfastWindow, dialog: Protected, open: bool) {
+    let bit = 1u8 << dialog as u8;
+    let before = OPEN.get();
+    let after = if open { before | bit } else { before & !bit };
+    OPEN.set(after);
+    if (before != 0) == (after != 0) {
+        return;
+    }
+    show_protected(window, after != 0);
+}
+
+#[cfg(feature = "plugins")]
+fn show_protected(window: &YapfastWindow, open: bool) {
     let stock = super::theme_look::protect(window, open);
     if overlay::protect(open)
         && let Some(theme) = overlay::last_chosen()
@@ -902,7 +939,7 @@ pub fn protect(window: &YapfastWindow, open: bool) {
 }
 
 #[cfg(not(feature = "plugins"))]
-pub fn protect(window: &YapfastWindow, open: bool) {
+fn show_protected(window: &YapfastWindow, open: bool) {
     if let Some(theme) = super::theme_look::protect(window, open) {
         theme.set(&window.global::<yapfast_ui::Theme>());
     }
@@ -965,7 +1002,6 @@ pub fn cards(custom: &[Custom]) -> ModelRc<yapfast_ui::ThemeCard> {
                 .iter()
                 .map(|custom| card(&custom.id, &custom.name, true, &custom.theme)),
         )
-        .chain(super::theme_look::cards())
         .collect();
     ModelRc::new(VecModel::from(cards))
 }

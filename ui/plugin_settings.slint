@@ -1,5 +1,4 @@
 import { ScrollView, ListView } from "scrollview.slint";
-import { ThemesTab } from "themes.slint";
 import { Theme, Middle, Label, Look } from "theme.slint";
 import { ActionButton, Avatar, IconButton, TextField, VolumeSlider } from "controls.slint";
 import { SettingsTitle, SettingsHeading, SettingsSwitch, Choices, Picker } from "settings.slint";
@@ -168,7 +167,7 @@ export global PluginPage {
     /// The installed plugins as cards, in pairs, so a grid of them needs no
     /// wrapping layout.
     in property <[[InstalledRow]]> card-rows;
-    /// 0 Marketplace, 1 Installed, 2 Add from URL, 3 Themes.
+    /// 0 Marketplace, 1 Installed, 2 Add from URL.
     in property <int> tab: 1;
     in property <[InstalledRow]> installed;
     /// What's wrong with the helper, in words, and its tone; empty while
@@ -316,7 +315,7 @@ component EmptyState inherits VerticalLayout {
     HorizontalLayout {
         alignment: center;
         Rectangle {
-            width: 64px; height: 64px; border-radius: Look.radius(32px); background: Theme.raised;
+            width: 64px; height: 64px; border-radius: Look.radius(32px); background: Theme.raised-fill;
             Image { source: root.icon; width: 28px; height: 28px; colorize: Theme.muted; }
         }
     }
@@ -390,7 +389,7 @@ component PageDialog inherits Rectangle {
     card := Rectangle {
         width: min(root.width - 32px, 480px);
         height: min(root.height - 32px, body.preferred-height);
-        border-radius: Look.r(Look.dialog, 12px); background: Theme.chat; border-width: Look.bw(Look.dialog, 1px); border-color: Look.bc(Look.dialog, Theme.edge);
+        border-radius: Look.r(Look.dialog, 12px); background: Theme.chat-fill; border-width: Look.bw(Look.dialog, 1px); border-color: Look.bc(Look.dialog, Theme.edge);
         drop-shadow-blur: Look.sb(Look.dialog, 24px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000080); drop-shadow-offset-y: Look.sy(Look.dialog, 8px);
         clip: true;
         accessible-role: groupbox; accessible-label: root.label;
@@ -510,7 +509,7 @@ component UninstallDialog inherits PageDialog {
 component InstalledRow inherits Rectangle {
     in property <InstalledRow> plugin;
     min-height: 64px; border-radius: Look.radius(8px);
-    background: open.has-hover || focus.has-focus ? Theme.hover : Theme.sidebar;
+    background: open.has-hover || focus.has-focus ? Theme.hover : Theme.sidebar-fill;
     border-width: focus.has-focus ? 2px : 0px; border-color: Theme.accent;
     focus := FocusScope {
         accessible-role: button;
@@ -553,7 +552,7 @@ component InstalledRow inherits Rectangle {
 component InstalledCard inherits Rectangle {
     in property <InstalledRow> plugin;
     min-height: 124px; border-radius: Look.radius(12px);
-    background: open.has-hover || focus.has-focus ? Theme.hover : Theme.sidebar;
+    background: open.has-hover || focus.has-focus ? Theme.hover : Theme.sidebar-fill;
     border-width: focus.has-focus ? 2px : 0px; border-color: Theme.accent;
     focus := FocusScope {
         accessible-role: button;
@@ -989,7 +988,7 @@ export component PluginSettings inherits Rectangle {
         spacing: 16px;
         SettingsTitle { title: "Plugins"; }
         Choices {
-            label: "Plugins"; options: ["Marketplace", "Installed", "Add from URL", "Themes"];
+            label: "Plugins"; options: ["Marketplace", "Installed", "Add from URL"];
             current: PluginPage.tab; controlled: true;
             chosen(index) => { PluginPage.tab-chosen(index); }
         }
@@ -1119,9 +1118,7 @@ export component PluginSettings inherits Rectangle {
             }
         }
 
-        if PluginPage.tab == 3: ThemesTab { vertical-stretch: 1; }
-
-        if PluginPage.tab != 3: AdvancedFooter { open => { root.advanced = true; } }
+        AdvancedFooter { open => { root.advanced = true; } }
     }
     if root.advanced: AdvancedDialog { done => { root.advanced = false; } }
     if root.resetting && PluginPage.detail-open: ResetDialog { done => { root.resetting = false; } }

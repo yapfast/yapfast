@@ -14,13 +14,13 @@ export component StagedTile inherits Rectangle {
     in property <bool> can-spoil;
     callback remove;
     callback toggle-spoiler;
-    width: 120px; height: 140px; border-radius: Look.radius(8px); background: Theme.raised;
+    width: 120px; height: 140px; border-radius: Look.radius(8px); background: Theme.raised-fill;
     accessible-role: groupbox;
     accessible-label: root.file.name + ", " + root.file.size + (root.file.spoiler ? ", spoiler" : "");
     VerticalLayout {
         padding: 6px; spacing: 2px;
         Rectangle {
-            height: 86px; border-radius: Look.radius(6px); clip: true; background: Theme.sidebar;
+            height: 86px; border-radius: Look.radius(6px); clip: true; background: Theme.sidebar-fill;
             if root.file.has-picture: Image { width: parent.width; height: parent.height; source: root.file.picture; image-fit: cover; }
             if !root.file.has-picture: Image {
                 x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
@@ -282,7 +282,7 @@ export struct MentionRow {
 // Suggestions just above the composer, as wide as it: Up and Down choose, Tab or
 // Enter or a click takes one, Escape closes them.
 export component SuggestionFrame inherits Rectangle {
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
 }
 

@@ -131,7 +131,7 @@ export component FoundCard inherits Rectangle {
     callback open-link(string);
     min-height: content.preferred-height;
     border-radius: Look.radius(8px);
-    background: pointer.has-hover ? Theme.hover : Theme.chat;
+    background: pointer.has-hover ? Theme.hover : Theme.chat-fill;
     border-width: 1px; border-color: Theme.line;
     accessible-role: button;
     accessible-label: root.found.author + ", " + root.found.when + ", jump to the message";
@@ -214,7 +214,7 @@ component Popover inherits Rectangle {
     in property <string> heading;
     in property <string> detail;
     callback close;
-    background: Theme.sidebar;
+    background: Theme.sidebar-fill;
     border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(10px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066); drop-shadow-offset-y: Look.shadow-y(8px);
     clip: true;
@@ -223,7 +223,7 @@ component Popover inherits Rectangle {
     TouchArea { }
     VerticalLayout {
         Rectangle {
-            height: root.detail != "" ? 64px : 48px; background: Theme.panel;
+            height: root.detail != "" ? 64px : 48px; background: Theme.panel-fill;
             HorizontalLayout {
                 padding-left: 16px; padding-right: 10px; spacing: 10px;
                 Middle { Image { source: root.icon; width: 20px; height: 20px; colorize: Theme.secondary; } }
@@ -299,7 +299,7 @@ component ThreadEntry inherits Rectangle {
     if root.entry.room != "": Rectangle {
         y: root.height - 80px; height: 72px; x: 16px; width: root.width - 32px;
         border-radius: Look.radius(8px); border-width: 1px;
-        background: pointer.has-hover ? Theme.raised : Theme.hover;
+        background: pointer.has-hover ? Theme.raised-fill : Theme.hover;
         border-color: pointer.has-hover ? Theme.active : Theme.line;
         accessible-role: button;
         accessible-label: root.entry.name + ", " + root.entry.time;
@@ -351,7 +351,7 @@ component ThreadEntry inherits Rectangle {
                         height: 20px;
                         for picture[index] in root.entry.member-pictures: Rectangle {
                             x: index * 12px; width: 20px; height: 20px; border-radius: Look.radius(10px);
-                            background: pointer.has-hover ? Theme.raised : Theme.hover;
+                            background: pointer.has-hover ? Theme.raised-fill : Theme.hover;
                             Avatar { x: 1px; y: 1px; size: 18px; picture-url: picture; }
                         }
                     }
@@ -395,7 +395,7 @@ export component ThreadsPopover inherits Rectangle {
     /// Start a thread, from the header's Create ("list") or the empty
     /// list's Create Thread ("list-empty").
     callback create(string);
-    background: Theme.sidebar;
+    background: Theme.sidebar-fill;
     border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(10px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066); drop-shadow-offset-y: Look.shadow-y(8px);
     clip: true;
@@ -406,7 +406,7 @@ export component ThreadsPopover inherits Rectangle {
     TouchArea { }
     VerticalLayout {
         Rectangle {
-            height: 48px; background: Theme.panel;
+            height: 48px; background: Theme.panel-fill;
             HorizontalLayout {
                 padding-left: 16px; padding-right: 10px; spacing: 10px;
                 Middle { Image { source: @image-url("icons/thread.svg"); width: 20px; height: 20px; colorize: Theme.secondary; } }
@@ -581,7 +581,7 @@ export component AddPeoplePopover inherits Rectangle {
                                 Middle {
                                     Rectangle {
                                         width: 22px; height: 22px; border-radius: Look.radius(6px);
-                                        background: person.chosen ? Theme.accent : transparent;
+                                        background: person.chosen ? Theme.accent-fill : transparent;
                                         border-width: person.chosen ? 0px : 2px; border-color: Theme.faint;
                                         if person.chosen: Image { source: @image-url("icons/check.svg"); width: 16px; height: 16px; colorize: Theme.on-accent; }
                                     }
@@ -619,7 +619,7 @@ export component SearchPanel inherits Rectangle {
     callback open-link(string);
     callback more-results;
     callback close;
-    background: Theme.sidebar;
+    background: Theme.sidebar-fill;
     accessible-role: list;
     accessible-label: "Search results";
     Rectangle { x: 0; width: 1px; background: Theme.edge; }

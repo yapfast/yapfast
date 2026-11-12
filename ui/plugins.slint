@@ -226,7 +226,7 @@ component PluginCellView inherits HorizontalLayout {
             accessible-role: progress-indicator; accessible-label: root.cell.text; accessible-value: root.cell.value;
             Rectangle {
                 x: 0px; width: parent.width * max(0, min(1, root.cell.amount)); border-radius: Look.radius(3px);
-                background: root.cell.tone == PluginTone.normal ? Theme.accent : root.ink;
+                background: root.cell.tone == PluginTone.normal ? Theme.accent-fill : root.ink;
             }
         }
     }
@@ -253,7 +253,7 @@ export component PluginWidgets inherits Rectangle {
             accessible-role: none;
         }
         for row in root.part.rows: Rectangle {
-            background: row.framed ? Theme.raised : transparent;
+            background: row.framed ? Theme.raised-fill : transparent;
             border-radius: row.framed ? 8px : 0px;
             border-width: row.framed ? 1px : 0px; border-color: Theme.line;
             min-height: line.preferred-height;
@@ -330,7 +330,7 @@ export component PluginBanner inherits Rectangle {
     in property <PluginPart> part;
     callback acted(string, string, string, string, string);
     callback dismissed(string, string);
-    min-height: content.preferred-height; vertical-stretch: 0; background: Theme.raised;
+    min-height: content.preferred-height; vertical-stretch: 0; background: Theme.raised-fill;
     content := HorizontalLayout {
         padding-left: 16px; padding-right: 8px; padding-top: 8px; padding-bottom: 8px; spacing: 12px;
         PluginWidgets {
@@ -351,7 +351,7 @@ export component PluginToast inherits Rectangle {
     callback acted(string, string, string, string, string);
     callback dismissed(string, string);
     width: 340px; height: toast-content.preferred-height;
-    background: Theme.raised; border-radius: Look.radius(8px); border-width: 1px; border-color: Theme.edge;
+    background: Theme.raised-fill; border-radius: Look.radius(8px); border-width: 1px; border-color: Theme.edge;
     drop-shadow-blur: Look.shadow-blur(16px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066); drop-shadow-offset-y: Look.shadow-y(4px);
     accessible-role: groupbox;
     accessible-label: root.part.name;

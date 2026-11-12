@@ -174,7 +174,7 @@ component LinkTab inherits Rectangle {
         y: 0; text: root.text; font-size: 14px; font-weight: 700;
         color: root.on || tab-touch.has-hover ? Theme.text : Theme.muted;
     }
-    Rectangle { y: parent.height - 2px; height: 2px; background: root.on ? Theme.accent : transparent; }
+    Rectangle { y: parent.height - 2px; height: 2px; background: root.on ? Theme.accent-fill : transparent; }
     tab-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.clicked(); } }
 }
 
@@ -201,7 +201,7 @@ export component CallLinkCard inherits Rectangle {
     property <int> shown: root.tab == 1 && CallLink.code.length > 0 ? 1
         : root.tab == 2 && CallLink.streaming ? 2 : 0;
     property <bool> copied;
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox; accessible-label: "Voice details";
     init => { CallLink.read(); }
@@ -317,7 +317,7 @@ component DockButton inherits Rectangle {
     callback clicked;
     height: 32px; border-radius: Look.radius(8px);
     background: root.on ? (touch.has-hover ? Theme.live.with-alpha(0.32) : Theme.live.with-alpha(0.22))
-        : touch.has-hover && root.enabled ? Theme.hover : Theme.raised;
+        : touch.has-hover && root.enabled ? Theme.hover : Theme.raised-fill;
     animate background { duration: Theme.quick; }
     accessible-role: button; accessible-label: root.label; accessible-enabled: root.enabled;
     accessible-action-default => { if root.enabled { root.clicked(); } }
@@ -384,7 +384,7 @@ export component VoiceDock inherits Rectangle {
     callback open-call-link(length, length, length, length);
     /// Shows the call's channel or DM.
     callback open-call;
-    background: Theme.panel;
+    background: Theme.panel-fill;
     VerticalLayout {
         padding-top: 10px; padding-bottom: 8px; padding-right: 8px; spacing: 6px;
         HorizontalLayout {
@@ -574,7 +574,7 @@ export component JoinVoice inherits VerticalLayout {
     HorizontalLayout {
         alignment: center;
         Rectangle {
-            width: 80px; height: 80px; border-radius: Look.radius(40px); background: Theme.raised;
+            width: 80px; height: 80px; border-radius: Look.radius(40px); background: Theme.raised-fill;
             Image { source: @image-url("icons/volume-2.svg"); width: 38px; height: 38px; colorize: Theme.secondary; }
         }
     }
@@ -945,7 +945,7 @@ export component ParticipantGrid inherits Flickable {
         // once it's watched; until then a click watches it.
         property <bool> streams-here: person.live && !person.local && !person.video;
         property <bool> watched: self.streams-here && person.id == root.watch-user;
-        background: self.filmed || self.watched ? #000000 : Theme.raised;
+        background: self.filmed || self.watched ? #000000 : Theme.raised-fill;
         label: person.name + ", " + person.status + (person.video ? ", camera on" : "");
         viewers: self.watched ? root.watch-viewers : [];
         viewer-names: self.watched ? root.watch-viewer-names : "";
@@ -1087,7 +1087,7 @@ export component IncomingCall inherits Rectangle {
     in property <image> incoming-picture;
     callback answer-call(string, bool);
     width: 300px; height: incoming-content.preferred-height;
-    background: Theme.raised; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+    background: Theme.raised-fill; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
     drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
     accessible-role: groupbox;
     accessible-label: "Incoming call from " + root.incoming-name;
@@ -1150,7 +1150,7 @@ export component SwitchDialog inherits Rectangle {
     Rectangle {
         width: min(420px, root.width - 48px); height: switch-content.preferred-height;
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
-        background: Theme.raised; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        background: Theme.raised-fill; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
         drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
         accessible-role: groupbox;
         accessible-label: root.joins ? "Watch stream?" : "Switch voice channel?";
@@ -1296,7 +1296,7 @@ export component ShareMenu inherits Rectangle {
     /// it, the menu is as tall as it gets and the choices scroll, above the
     /// button that starts the stream, which stays.
     out property <length> full-height: choices.preferred-height + start.preferred-height + 12px;
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     VerticalLayout {
         padding: 6px; spacing: 0px;
@@ -1409,7 +1409,7 @@ export component VolumeMenu inherits Rectangle {
     /// A person, whether it's their stream, the volume, and whether it's
     /// the last of a drag.
     callback volume-changed(string, bool, int, bool);
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox; accessible-label: root.volume-name + "'s volume";
     volume-content := VerticalLayout {
@@ -1510,7 +1510,7 @@ export component Soundboard inherits Rectangle {
     property <length> gap: 6px;
     width: 372px;
     height: min(440px, top.preferred-height + max(1, root.rows.length) * root.row-height + 10px);
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(10px);
+    background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(10px);
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     clip: true;
     accessible-role: groupbox; accessible-label: root.title;

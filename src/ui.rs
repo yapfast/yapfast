@@ -194,6 +194,7 @@ pub fn run(
     let adapter = Adapter::new(Arc::new(runtime), root, &window)?;
     bind_callbacks(&window, &adapter);
     appearance::bind_themes(&window, &adapter);
+    appearance::bind_export(&window, &adapter);
     if let Some(reason) = theme_look::take_failure() {
         adapter.borrow_mut().app.state.notice = Some(reason);
     }
@@ -506,6 +507,16 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                             adapter.action(&window, Action::WindowFocused(*focused));
                         }
                     }
+                }
+                // The system's windows went light or dark: an installed theme
+                // that ships both shows the other one.
+                if let WindowEvent::ThemeChanged(_) = event {
+                    let (adapter, weak) = (adapter.clone(), weak.clone());
+                    slint::Timer::single_shot(Duration::ZERO, move || {
+                        if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
+                            adapter.borrow_mut().system_mode_changed(&window);
+                        }
+                    });
                 }
                 if matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
                     #[cfg(windows)]
@@ -1601,8 +1612,9 @@ impl Layout {
             .get_enabled()
             .then_some("bonfire");
         theme_look::set_motion(window, self.theme_performance, self.reduce_motion);
-        window.set_theme_performance(self.theme_performance.index());
-        window.set_theme_reduce_motion(self.reduce_motion);
+        let page = window.global::<yapfast_ui::ThemesPage>();
+        page.set_performance(self.theme_performance.index());
+        page.set_reduce_motion(self.reduce_motion);
         // An installed theme, or `--theme-dev`'s folder, over its base; the
         // default when this run asked for it or the theme can't be shown.
         let built_in = self
@@ -1620,13 +1632,14 @@ impl Layout {
         chosen.apply(window);
         window.set_theme_id(id.as_str().into());
         window.set_themes(theme::cards(&self.custom_themes));
-        window.set_theme_previous_name(
+        page.set_previous_name(
             self.previous_theme
                 .as_deref()
                 .and_then(|previous| theme_look::name_of(previous, &self.custom_themes))
                 .unwrap_or_default()
                 .into(),
         );
+        window.set_theme_installed_name(theme_look::applied_name().unwrap_or_default().into());
         if let Some(width) = self.sidebar_width {
             window.set_sidebar_width(width);
         }

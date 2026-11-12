@@ -42,7 +42,7 @@ export component AccountPopover inherits Rectangle {
     property <string> presence-label: root.status == "idle" ? "Idle" : root.status == "dnd" ? "Do Not Disturb" : root.status == "invisible" ? "Invisible" : "Online";
     background: root.themed
         ? @linear-gradient(180deg, root.theme-start 0%, ProfileTheme.wash(root.profile.theme-secondary, root.light) 100%)
-        : Theme.panel;
+        : Theme.panel-fill;
     border-radius: Look.radius(8px);
     border-width: 1px; border-color: root.themed ? root.profile.theme-primary : Theme.line;
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
@@ -94,7 +94,7 @@ export component AccountPopover inherits Rectangle {
                 padding: 16px; padding-top: 8px; spacing: 12px;
                 if root.has-custom-status: StatusText { text: root.custom-text; emoji-url: root.custom-emoji; color: root.themed ? root.ink : Theme.muted; }
                 if root.game-name != "": Rectangle {
-                    height: 80px; border-radius: Look.radius(8px); background: Theme.raised;
+                    height: 80px; border-radius: Look.radius(8px); background: Theme.raised-fill;
                     VerticalLayout {
                         padding: 12px; spacing: 4px; alignment: center;
                         Text { text: "Playing"; color: Theme.secondary; font-size: 12px; font-weight: 700; }
@@ -104,7 +104,7 @@ export component AccountPopover inherits Rectangle {
                     Timer { interval: 20s; running: root.game-duration != ""; triggered => { root.game-duration-due(); } }
                 }
                 Rectangle {
-                    background: Theme.raised; border-radius: Look.radius(8px);
+                    background: Theme.raised-fill; border-radius: Look.radius(8px);
                     VerticalLayout {
                         padding: 8px; spacing: 4px;
                         MenuItem { height: 40px; text: "Edit Profile"; icon: @image-url("../icons/pencil.svg"); clicked => { root.edit-profile(); } }
@@ -147,7 +147,7 @@ export component AccountPopover inherits Rectangle {
                     }
                 }
                 Rectangle {
-                    background: Theme.raised; border-radius: Look.radius(8px);
+                    background: Theme.raised-fill; border-radius: Look.radius(8px);
                     VerticalLayout {
                         padding: 8px; spacing: 4px;
                         if root.user-id != "": MenuItem { height: 40px; text: "Copy User ID"; icon: @image-url("../icons/copy.svg"); clicked => { root.copy-id(); } }

@@ -42,7 +42,7 @@ export component BotSelectDropdown inherits Rectangle {
         x: max(8px, min(BotSelectAnchor.x, root.width - root.panel-width - 8px));
         y: root.above ? BotSelectAnchor.y - root.gap - root.panel-height : min(BotSelectAnchor.y + BotSelectAnchor.height + root.gap, root.height - root.panel-height - 8px);
         width: root.panel-width; height: root.panel-height;
-        background: Theme.raised; border-radius: Look.radius(8px); border-width: 1px; border-color: Theme.edge;
+        background: Theme.raised-fill; border-radius: Look.radius(8px); border-width: 1px; border-color: Theme.edge;
         drop-shadow-blur: Look.shadow-blur(16px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000055); clip: true;
         accessible-role: list; accessible-label: root.heading;
         TouchArea { }
@@ -86,7 +86,7 @@ export component BotSelectDropdown inherits Rectangle {
                                     Rectangle {
                                         width: 20px; height: 20px; border-radius: Look.radius(5px); border-width: 2px;
                                         border-color: choice.selected ? Theme.accent : Theme.secondary;
-                                        background: choice.selected ? Theme.accent : transparent;
+                                        background: choice.selected ? Theme.accent-fill : transparent;
                                         if choice.selected: Image { source: @image-url("icons/check.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; }
                                     }
                                 }
@@ -109,8 +109,8 @@ component Mark inherits Rectangle {
     in property <bool> round;
     width: 20px; height: 20px; border-radius: root.round ? 10px : 5px; border-width: 2px;
     border-color: root.on ? Theme.accent : Theme.secondary;
-    background: root.on && !root.round ? Theme.accent : transparent;
-    if root.on && root.round: Rectangle { width: 10px; height: 10px; border-radius: Look.radius(5px); background: Theme.accent; }
+    background: root.on && !root.round ? Theme.accent-fill : transparent;
+    if root.on && root.round: Rectangle { width: 10px; height: 10px; border-radius: Look.radius(5px); background: Theme.accent-fill; }
     if root.on && !root.round: Image { source: @image-url("icons/check.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; }
 }
 
@@ -160,7 +160,7 @@ export component BotModalDialog inherits Rectangle {
     TouchArea { enabled: !root.saving; clicked => { root.close(); } }
     Rectangle {
         width: min(520px, root.width - 40px); height: min(modal-layout.preferred-height, root.height - 48px);
-        background: Theme.raised; border-radius: Look.radius(12px); border-width: 1px; border-color: Theme.edge;
+        background: Theme.raised-fill; border-radius: Look.radius(12px); border-width: 1px; border-color: Theme.edge;
         drop-shadow-blur: Look.shadow-blur(28px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000077);
         accessible-role: groupbox; accessible-label: root.heading;
         TouchArea { }

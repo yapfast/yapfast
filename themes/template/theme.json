@@ -7,7 +7,7 @@
   "authors": ["Your Name"],
   "license": "CC0-1.0",
   "source": "https://github.com/your-name/your-theme",
-  "preview": [],
+  "preview": ["preview.png"],
 
   "shape": {
     "button": { "radius": 8 },

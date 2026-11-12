@@ -119,7 +119,7 @@ component SafetyChoices inherits VerticalLayout {
                 Rectangle {
                     width: 20px; height: 20px; border-radius: Look.radius(10px);
                     border-width: 2px; border-color: choice.on ? Theme.accent : Theme.secondary;
-                    if choice.on: Rectangle { width: 10px; height: 10px; border-radius: Look.radius(5px); background: Theme.accent; }
+                    if choice.on: Rectangle { width: 10px; height: 10px; border-radius: Look.radius(5px); background: Theme.accent-fill; }
                 }
             }
             VerticalLayout {
@@ -266,7 +266,7 @@ export component BanDialog inherits Rectangle {
         Rectangle {
             width: 440px; height: box.preferred-height;
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
-            background: Theme.chat; border-radius: Look.radius(8px);
+            background: Theme.chat-fill; border-radius: Look.radius(8px);
             accessible-role: groupbox; accessible-label: root.page.open-name;
             TouchArea { }
             box := VerticalLayout {

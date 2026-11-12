@@ -220,7 +220,7 @@ component PermissionsSection inherits VerticalLayout {
     SettingsTitle { title: root.prompt.title; }
     Label { text: root.prompt.subtitle; }
     if root.prompt.sync != 0: Rectangle {
-        border-radius: Look.radius(6px); background: Theme.raised; height: sync.preferred-height;
+        border-radius: Look.radius(6px); background: Theme.raised-fill; height: sync.preferred-height;
         sync := HorizontalLayout {
             padding: 10px; padding-left: 12px; spacing: 12px;
             Text {
@@ -234,7 +234,7 @@ component PermissionsSection inherits VerticalLayout {
         }
     }
     Rectangle {
-        border-radius: Look.radius(8px); background: Theme.raised; height: private.preferred-height;
+        border-radius: Look.radius(8px); background: Theme.raised-fill; height: private.preferred-height;
         private := HorizontalLayout {
             padding: 14px;
             SettingsSwitch {
@@ -325,7 +325,7 @@ component OverwriteConfirmDialog inherits Rectangle {
         Rectangle {
             width: 440px; height: box.preferred-height;
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
-            background: Theme.chat; border-radius: Look.radius(8px);
+            background: Theme.chat-fill; border-radius: Look.radius(8px);
             TouchArea { }
             box := VerticalLayout {
                 padding: 16px; spacing: 12px;
@@ -379,7 +379,7 @@ component AddOverwriteDialog inherits Rectangle {
         Rectangle {
             width: 400px; height: min(480px, root.height - 80px);
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
-            background: Theme.chat; border-radius: Look.radius(8px);
+            background: Theme.chat-fill; border-radius: Look.radius(8px);
             TouchArea { }
             VerticalLayout {
                 padding: 16px; spacing: 12px;

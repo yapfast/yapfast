@@ -44,11 +44,17 @@ static DEV: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
 /// Takes `--default-theme` and `--theme-dev <folder>` out of the arguments.
 pub fn take_flags(arguments: &mut Vec<String>) -> Result<(), String> {
-    if let Some(at) = arguments.iter().position(|argument| argument == "--default-theme") {
+    if let Some(at) = arguments
+        .iter()
+        .position(|argument| argument == "--default-theme")
+    {
         arguments.remove(at);
         DEFAULT_THEME.set(true);
     }
-    if let Some(at) = arguments.iter().position(|argument| argument == "--theme-dev") {
+    if let Some(at) = arguments
+        .iter()
+        .position(|argument| argument == "--theme-dev")
+    {
         arguments.remove(at);
         if at >= arguments.len() {
             return Err("--theme-dev needs the folder of a theme".into());
@@ -64,7 +70,10 @@ pub fn take_flags(arguments: &mut Vec<String>) -> Result<(), String> {
 pub fn run_check(arguments: &[String]) -> i32 {
     register_bases();
     let marketplace = arguments.iter().any(|argument| argument == "--marketplace");
-    let Some(folder) = arguments.iter().find(|argument| !argument.starts_with("--")) else {
+    let Some(folder) = arguments
+        .iter()
+        .find(|argument| !argument.starts_with("--"))
+    else {
         eprintln!("usage: yapfast theme check <folder> [--marketplace]");
         return 2;
     };
@@ -93,7 +102,10 @@ pub fn register_bases() {
     check::set_base_colours(|base, token| {
         let built_in = theme::find(base)?;
         let index = theme::token_index(token)?;
-        built_in.theme.colour(index).map(|colour| colour.as_argb_encoded())
+        built_in
+            .theme
+            .colour(index)
+            .map(|colour| colour.as_argb_encoded())
     });
 }
 
@@ -164,34 +176,6 @@ pub fn default_only() -> bool {
     DEFAULT_THEME.get()
 }
 
-/// The installed themes as Appearance's cards, after the built-in and custom
-/// ones.
-pub fn cards() -> Vec<yapfast_ui::ThemeCard> {
-    STATE.with_borrow(|state| {
-        state
-            .installed
-            .iter()
-            .filter_map(|installed| {
-                let mode = installed.package.mode_for(Mode::Dark);
-                let resolved = installed.package.resolve(mode).ok()?;
-                let colours = colours_of(&resolved);
-                Some(yapfast_ui::ThemeCard {
-                    id: format!("{INSTALLED}{}", installed.id).into(),
-                    name: installed.package.name.as_str().into(),
-                    custom: false,
-                    rail: colours.rail,
-                    sidebar: colours.sidebar,
-                    chat: colours.chat,
-                    raised: colours.raised,
-                    accent: colours.accent,
-                    text: colours.text,
-                    muted: colours.muted,
-                })
-            })
-            .collect()
-    })
-}
-
 /// The name Appearance shows for a theme id, built-in, custom or installed.
 pub fn name_of(id: &str, custom: &[theme::Custom]) -> Option<String> {
     if let Some(installed) = id.strip_prefix(INSTALLED) {
@@ -205,7 +189,12 @@ pub fn name_of(id: &str, custom: &[theme::Custom]) -> Option<String> {
     }
     theme::find(id)
         .map(|built_in| built_in.name.to_owned())
-        .or_else(|| custom.iter().find(|theme| theme.id == id).map(|theme| theme.name.clone()))
+        .or_else(|| {
+            custom
+                .iter()
+                .find(|theme| theme.id == id)
+                .map(|theme| theme.name.clone())
+        })
 }
 
 /// The colours of a resolved theme: its base's, with its own over them.
@@ -326,7 +315,10 @@ fn register_font(path: &Path) -> Result<String, String> {
         }),
     );
     if registered.is_empty() {
-        return Err(format!("{} isn't a font Yapfast can draw with", path.display()));
+        return Err(format!(
+            "{} isn't a font Yapfast can draw with",
+            path.display()
+        ));
     }
     STATE.with_borrow_mut(|state| state.families.insert(digest, family.clone()));
     Ok(family)
@@ -366,6 +358,9 @@ pub fn reset(window: &YapfastWindow) {
     look.set_size_names(-1.);
     look.set_size_code(-1.);
     look.set_size_labels(-1.);
+    look.set_weight_body(-1);
+    look.set_size_header(-1.);
+    look.set_size_title(-1.);
     look.set_weight_headings(-1);
     look.set_weight_names(-1);
     look.set_weight_labels(-1);
@@ -424,7 +419,9 @@ fn paint(window: &YapfastWindow) {
         return;
     }
     STATE.with_borrow(|state| {
-        let Some(applied) = &state.applied else { return };
+        let Some(applied) = &state.applied else {
+            return;
+        };
         let resolved = &applied.resolved;
         let look = window.global::<Look>();
         let tokens = window.global::<yapfast_ui::Theme>();
@@ -486,9 +483,12 @@ fn paint(window: &YapfastWindow) {
                 Role::Body => {
                     style.set_text_size_theme(size);
                     look.set_spacing_body(spacing);
+                    look.set_weight_body(weight);
                 }
                 Role::Headings => {
                     look.set_size_headings(size);
+                    look.set_size_header(kind.header_size.unwrap_or(-1.));
+                    look.set_size_title(kind.title_size.unwrap_or(-1.));
                     look.set_weight_headings(weight);
                     look.set_spacing_headings(spacing);
                     look.set_headings_upper(kind.uppercase.unwrap_or(false));
@@ -553,15 +553,17 @@ fn paint(window: &YapfastWindow) {
 fn brush(paint: &Paint) -> Brush {
     match paint {
         Paint::Colour(colour) => Brush::SolidColor(Color::from_argb_encoded(*colour)),
-        Paint::Linear { angle, stops } => Brush::LinearGradient(i_slint_core::graphics::LinearGradientBrush::new(
-            *angle,
-            stops.iter().map(|(colour, at)| {
-                i_slint_core::graphics::GradientStop {
-                    color: Color::from_argb_encoded(*colour),
-                    position: *at,
-                }
-            }),
-        )),
+        Paint::Linear { angle, stops } => {
+            Brush::LinearGradient(i_slint_core::graphics::LinearGradientBrush::new(
+                *angle,
+                stops
+                    .iter()
+                    .map(|(colour, at)| i_slint_core::graphics::GradientStop {
+                        color: Color::from_argb_encoded(*colour),
+                        position: *at,
+                    }),
+            ))
+        }
     }
 }
 
@@ -657,9 +659,45 @@ fn set_extra(tokens: &yapfast_ui::Theme<'_>, token: &str, colour: Option<Color>)
             tokens.set_placeholder_on(on);
         }
         // In `Theme` already, with these stock values.
-        "mentioned" => tokens.set_mentioned(if on { colour } else { Color::from_argb_encoded(0x1ff8_a500) }),
+        "composer-focus" => {
+            tokens.set_composer_focus_set(colour);
+            tokens.set_composer_focus_on(on);
+        }
+        "row-selected" => {
+            tokens.set_row_selected_set(colour);
+            tokens.set_row_selected_on(on);
+        }
+        "pill" => {
+            tokens.set_pill_set(colour);
+            tokens.set_pill_on(on);
+        }
+        "toggle-off" => {
+            tokens.set_toggle_off_set(colour);
+            tokens.set_toggle_off_on(on);
+        }
+        "knob-off" => {
+            tokens.set_knob_off_set(colour);
+            tokens.set_knob_off_on(on);
+        }
+        "code" => {
+            tokens.set_code_set(colour);
+            tokens.set_code_on(on);
+        }
+        "embed" => {
+            tokens.set_embed_set(colour);
+            tokens.set_embed_on(on);
+        }
+        "mentioned" => tokens.set_mentioned(if on {
+            colour
+        } else {
+            Color::from_argb_encoded(0x1ff8_a500)
+        }),
         "mentioned-hover" => {
-            tokens.set_mentioned_hover(if on { colour } else { Color::from_argb_encoded(0x29f8_a500) });
+            tokens.set_mentioned_hover(if on {
+                colour
+            } else {
+                Color::from_argb_encoded(0x29f8_a500)
+            });
         }
         _ => {}
     }
@@ -740,16 +778,17 @@ fn tick_now(window: &YapfastWindow, started: Instant) {
 /// One frame of the declared animations.
 fn tick(window: &YapfastWindow, started: Instant) {
     // Balanced holds still while another window has the focus.
-    let paused = STATE.with_borrow(|state| {
-        state.performance == Performance::Balanced && !super::FOCUSED.get()
-    });
+    let paused = STATE
+        .with_borrow(|state| state.performance == Performance::Balanced && !super::FOCUSED.get());
     if paused {
         return;
     }
     let elapsed = started.elapsed().as_secs_f32() * 1000.0;
     let look = window.global::<Look>();
     STATE.with_borrow(|state| {
-        let Some(applied) = &state.applied else { return };
+        let Some(applied) = &state.applied else {
+            return;
+        };
         let mut slots: HashMap<Slot, SlotMotion> = HashMap::new();
         let mut tint = None;
         let mut accent = None;
@@ -759,14 +798,21 @@ fn tick(window: &YapfastWindow, started: Instant) {
             }
             let value = motion::value_at(animation, elapsed);
             match (animation.slot, animation.property, value) {
-                (Slot::Window, Property::Tint, motion::Value::Colour(colour)) => tint = Some(colour),
+                (Slot::Window, Property::Tint, motion::Value::Colour(colour)) => {
+                    tint = Some(colour)
+                }
                 (Slot::Window, Property::Opacity, motion::Value::Number(opacity)) => {
                     // A window's opacity dims it under a tint of the chat's colour.
-                    let ground = window.global::<yapfast_ui::Theme>().get_chat().as_argb_encoded();
+                    let ground = window
+                        .global::<yapfast_ui::Theme>()
+                        .get_chat()
+                        .as_argb_encoded();
                     let alpha = ((1.0 - opacity).clamp(0.0, 1.0) * 255.0) as u32;
                     tint = Some((alpha << 24) | (ground & 0xff_ffff));
                 }
-                (Slot::Accent, Property::Colour, motion::Value::Colour(colour)) => accent = Some(colour),
+                (Slot::Accent, Property::Colour, motion::Value::Colour(colour)) => {
+                    accent = Some(colour)
+                }
                 (slot, property, motion::Value::Number(number)) => {
                     let moved = slots.entry(slot).or_insert(SlotMotion {
                         opacity: 1.,
@@ -802,7 +848,9 @@ fn tick(window: &YapfastWindow, started: Instant) {
 /// A text slot's text while its effect plays: called by `Look.fx` with the
 /// slot's index in `TextSlot::ALL`.
 pub fn effect_text(window: &YapfastWindow, slot: i32, text: SharedString) -> SharedString {
-    let Ok(slot) = usize::try_from(slot) else { return text };
+    let Ok(slot) = usize::try_from(slot) else {
+        return text;
+    };
     let found = STATE.with(|state| {
         let Ok(mut state) = state.try_borrow_mut() else {
             return None;
@@ -834,7 +882,9 @@ pub fn effect_text(window: &YapfastWindow, slot: i32, text: SharedString) -> Sha
             playing.seed,
         ))
     });
-    let Some((shown, playing)) = found else { return text };
+    let Some((shown, playing)) = found else {
+        return text;
+    };
     if playing {
         keep_effects_moving(window);
     }
@@ -860,17 +910,19 @@ fn keep_effects_moving(window: &YapfastWindow) {
         let timer = slint::Timer::default();
         let inner = window.as_weak();
         let mut quiet = 0;
-        timer.start(slint::TimerMode::Repeated, Duration::from_millis(33), move || {
-            let Some(window) = inner.upgrade() else { return };
-            let look = window.global::<Look>();
-            look.set_fx_tick(look.get_fx_tick().wrapping_add(1));
-            // Stops once every effect has had its time; the next text change
-            // starts it again.
-            let longest = STATE.with_borrow(|state| {
-                state
-                    .applied
-                    .as_ref()
-                    .map_or(0.0, |applied| {
+        timer.start(
+            slint::TimerMode::Repeated,
+            Duration::from_millis(33),
+            move || {
+                let Some(window) = inner.upgrade() else {
+                    return;
+                };
+                let look = window.global::<Look>();
+                look.set_fx_tick(look.get_fx_tick().wrapping_add(1));
+                // Stops once every effect has had its time; the next text change
+                // starts it again.
+                let longest = STATE.with_borrow(|state| {
+                    state.applied.as_ref().map_or(0.0, |applied| {
                         applied
                             .resolved
                             .effects
@@ -878,26 +930,26 @@ fn keep_effects_moving(window: &YapfastWindow) {
                             .map(|effect| effect.duration)
                             .fold(0.0, f32::max)
                     })
-            });
-            let all_done = STATE.with_borrow(|state| {
-                state
-                    .effects
-                    .values()
-                    .all(|playing| playing.started.elapsed().as_secs_f32() * 1000.0 > longest + 50.0)
-            });
-            if all_done {
-                quiet += 1;
-                if quiet > 2 {
-                    STATE.with_borrow_mut(|state| {
-                        if let Some(timer) = &state.fx_timer {
-                            timer.stop();
-                        }
-                    });
+                });
+                let all_done = STATE.with_borrow(|state| {
+                    state.effects.values().all(|playing| {
+                        playing.started.elapsed().as_secs_f32() * 1000.0 > longest + 50.0
+                    })
+                });
+                if all_done {
+                    quiet += 1;
+                    if quiet > 2 {
+                        STATE.with_borrow_mut(|state| {
+                            if let Some(timer) = &state.fx_timer {
+                                timer.stop();
+                            }
+                        });
+                    }
+                } else {
+                    quiet = 0;
                 }
-            } else {
-                quiet = 0;
-            }
-        });
+            },
+        );
         STATE.with_borrow_mut(|state| state.fx_timer = Some(timer));
     });
 }
@@ -917,7 +969,12 @@ pub fn protect(window: &YapfastWindow, open: bool) -> Option<theme::Theme> {
     if open {
         Some(theme::find("bonfire").map_or(theme::YAP, |built_in| built_in.theme))
     } else {
-        STATE.with_borrow(|state| state.applied.as_ref().map(|applied| colours_of(&applied.resolved)))
+        STATE.with_borrow(|state| {
+            state
+                .applied
+                .as_ref()
+                .map(|applied| colours_of(&applied.resolved))
+        })
     }
 }
 
@@ -980,32 +1037,42 @@ pub fn startup(window: &YapfastWindow, chosen: Option<&str>) -> Option<theme::Th
 /// Reloads `--theme-dev`'s folder when a file in it changes: checked twice a
 /// second, by the newest change time of the folder's files.
 fn watch_dev(window: &YapfastWindow) {
-    let Some(folder) = DEV.get().cloned() else { return };
+    let Some(folder) = DEV.get().cloned() else {
+        return;
+    };
     let timer = slint::Timer::default();
     let weak = window.as_weak();
     STATE.with_borrow_mut(|state| state.dev_stamp = newest(&folder));
-    timer.start(slint::TimerMode::Repeated, Duration::from_millis(500), move || {
-        let stamp = newest(&folder);
-        let moved = STATE.with_borrow_mut(|state| {
-            let moved = stamp != state.dev_stamp;
-            state.dev_stamp = stamp;
-            moved
-        });
-        if !moved {
-            return;
-        }
-        let Some(window) = weak.upgrade() else { return };
-        window.invoke_theme_reload();
-    });
+    timer.start(
+        slint::TimerMode::Repeated,
+        Duration::from_millis(500),
+        move || {
+            let stamp = newest(&folder);
+            let moved = STATE.with_borrow_mut(|state| {
+                let moved = stamp != state.dev_stamp;
+                state.dev_stamp = stamp;
+                moved
+            });
+            if !moved {
+                return;
+            }
+            let Some(window) = weak.upgrade() else { return };
+            window.invoke_theme_reload();
+        },
+    );
     STATE.with_borrow_mut(|state| state.dev_timer = Some(timer));
 }
 
 /// The newest change in a folder, two levels deep.
 fn newest(folder: &Path) -> Option<SystemTime> {
     fn walk(folder: &Path, depth: usize, newest: &mut Option<SystemTime>) {
-        let Ok(entries) = std::fs::read_dir(folder) else { return };
+        let Ok(entries) = std::fs::read_dir(folder) else {
+            return;
+        };
         for entry in entries.flatten() {
-            let Ok(metadata) = entry.metadata() else { continue };
+            let Ok(metadata) = entry.metadata() else {
+                continue;
+            };
             if let Ok(modified) = metadata.modified() {
                 *newest = (*newest).max(Some(modified));
             }
@@ -1028,11 +1095,49 @@ pub fn applied_name() -> Option<String> {
     STATE.with_borrow(|state| state.applied.as_ref().map(|applied| applied.name.clone()))
 }
 
-// The Themes tab.
+// Settings → Themes.
+
+/// A theme the marketplace lists.
+#[derive(Clone, Debug, Default)]
+pub struct Listed {
+    pub id: String,
+    pub name: String,
+    pub author: String,
+    pub version: String,
+    pub description: String,
+    pub modes: String,
+    pub cost: String,
+    pub reviewed: bool,
+}
+
+/// The marketplace's themes: the plugin catalog's entries of kind theme.
+#[cfg(feature = "plugins")]
+pub fn marketplace(window: &YapfastWindow) -> Vec<Listed> {
+    super::plugin_settings::theme_listings(window)
+        .into_iter()
+        .map(|listing| Listed {
+            id: listing.id,
+            name: listing.name,
+            author: listing.author,
+            version: listing.version,
+            description: listing.description,
+            modes: listing.modes,
+            cost: listing.cost,
+            reviewed: listing.reviewed,
+        })
+        .collect()
+}
+
+/// A build without plugins has no marketplace.
+#[cfg(not(feature = "plugins"))]
+pub fn marketplace(_: &YapfastWindow) -> Vec<Listed> {
+    Vec::new()
+}
 
 /// Fills the Themes tab: installed themes, and the marketplace's.
-pub fn show_page(window: &YapfastWindow, listed: &[yapfast_core::plugins::page::Listing]) {
+pub fn show_page(window: &YapfastWindow, listed: &[Listed]) {
     let page = window.global::<ThemesPage>();
+    let query = page.get_query().to_lowercase();
     let applied = applied_id();
     let installed: Vec<ThemeListing> = STATE.with_borrow(|state| {
         state
@@ -1045,15 +1150,26 @@ pub fn show_page(window: &YapfastWindow, listed: &[yapfast_core::plugins::page::
                     &theme.id,
                     Some(&theme.folder),
                     applied.as_deref() == Some(id.as_str()),
-                    theme.entry.previous.as_ref().map(|previous| previous.rev.chars().take(7).collect()),
+                    theme
+                        .entry
+                        .previous
+                        .as_ref()
+                        .map(|previous| previous.rev.chars().take(7).collect()),
                 )
             })
             .collect()
     });
     let listed: Vec<ThemeListing> = listed
         .iter()
-        .filter(|listing| listing.kind == yapfast_core::plugins::page::Kind::Theme)
-        .filter(|listing| !STATE.with_borrow(|state| state.installed.iter().any(|theme| theme.id == listing.id)))
+        .filter(|listing| {
+            query.trim().is_empty()
+                || [&listing.name, &listing.description, &listing.author]
+                    .iter()
+                    .any(|text| text.to_lowercase().contains(query.trim()))
+        })
+        .filter(|listing| {
+            !STATE.with_borrow(|state| state.installed.iter().any(|theme| theme.id == listing.id))
+        })
         .map(|listing| ThemeListing {
             id: listing.id.as_str().into(),
             name: listing.name.as_str().into(),
@@ -1072,8 +1188,19 @@ pub fn show_page(window: &YapfastWindow, listed: &[yapfast_core::plugins::page::
             ..ThemeListing::default()
         })
         .collect();
+    page.set_installed_rows(pairs(&installed));
+    page.set_listed_rows(pairs(&listed));
     page.set_installed(ModelRc::new(VecModel::from(installed)));
     page.set_listed(ModelRc::new(VecModel::from(listed)));
+}
+
+/// Two to a row, for the gallery.
+fn pairs(themes: &[ThemeListing]) -> ModelRc<ModelRc<ThemeListing>> {
+    let rows: Vec<ModelRc<ThemeListing>> = themes
+        .chunks(2)
+        .map(|pair| ModelRc::new(VecModel::from(pair.to_vec())))
+        .collect();
+    ModelRc::new(VecModel::from(rows))
 }
 
 fn modes_text(package: &Package) -> &'static str {
@@ -1135,17 +1262,19 @@ fn picture(path: &Path) -> Option<Image> {
     check::check_image(&bytes).ok()?;
     let decoded = image::load_from_memory(&bytes).ok()?;
     let decoded = if decoded.width() > 960 {
-        decoded.resize(960, 960 * decoded.height() / decoded.width(), image::imageops::FilterType::Triangle)
+        decoded.resize(
+            960,
+            960 * decoded.height() / decoded.width(),
+            image::imageops::FilterType::Triangle,
+        )
     } else {
         decoded
     };
     let rgba = decoded.into_rgba8();
     let (width, height) = rgba.dimensions();
-    Some(Image::from_rgba8(slint::SharedPixelBuffer::clone_from_slice(
-        rgba.as_raw(),
-        width,
-        height,
-    )))
+    Some(Image::from_rgba8(
+        slint::SharedPixelBuffer::clone_from_slice(rgba.as_raw(), width, height),
+    ))
 }
 
 /// Drops the gallery's pictures, once the page closes.
@@ -1153,6 +1282,8 @@ pub fn close_page(window: &YapfastWindow) {
     let page = window.global::<ThemesPage>();
     page.set_installed(ModelRc::default());
     page.set_listed(ModelRc::default());
+    page.set_installed_rows(ModelRc::default());
+    page.set_listed_rows(ModelRc::default());
 }
 
 /// Reads the installed themes again, after an install, a roll back or a
@@ -1186,6 +1317,7 @@ pub fn roll_back(id: &str) -> Result<(), String> {
 
 /// Fetches a theme from its repository with the plugin helper, on a thread
 /// of its own, and shows its review when it's back.
+#[cfg(feature = "plugins")]
 pub fn find(window: &YapfastWindow, url: String) {
     let page = window.global::<ThemesPage>();
     page.set_finding(true);
@@ -1210,6 +1342,15 @@ pub fn find(window: &YapfastWindow, url: String) {
     });
 }
 
+/// A build without plugins has no helper to fetch with.
+#[cfg(not(feature = "plugins"))]
+pub fn find(window: &YapfastWindow, _: String) {
+    window
+        .global::<ThemesPage>()
+        .set_error("This build has no plugin helper to fetch themes with.".into());
+}
+
+#[cfg_attr(not(feature = "plugins"), allow(dead_code))]
 fn show_review(window: &YapfastWindow, fetched: Fetched) {
     let package = fetched.package().clone();
     let previews: Vec<Image> = package
@@ -1219,11 +1360,9 @@ fn show_review(window: &YapfastWindow, fetched: Fetched) {
             let bytes = fetched.files.files.get(path)?;
             let decoded = image::load_from_memory(bytes).ok()?.into_rgba8();
             let (width, height) = decoded.dimensions();
-            Some(Image::from_rgba8(slint::SharedPixelBuffer::clone_from_slice(
-                decoded.as_raw(),
-                width,
-                height,
-            )))
+            Some(Image::from_rgba8(
+                slint::SharedPixelBuffer::clone_from_slice(decoded.as_raw(), width, height),
+            ))
         })
         .collect();
     let review = ThemeReview {
@@ -1243,7 +1382,7 @@ fn show_review(window: &YapfastWindow, fetched: Fetched) {
     window.global::<ThemesPage>().set_review(review);
     STATE.with_borrow_mut(|state| state.review = Some(fetched));
     // The review is a protected dialog: it shows in the stock theme.
-    theme::protect(window, true);
+    theme::protect_for(window, theme::Protected::ThemeReview, true);
 }
 
 /// Installs the reviewed theme. Returns its layout id.
@@ -1253,19 +1392,27 @@ pub fn install_review(window: &YapfastWindow) -> Result<String, String> {
         .ok_or("nothing to install")?;
     close_review(window);
     let themes = themes().ok_or("no data folder")?;
-    themes.install(&fetched).map_err(|error| format!("{error:#}"))?;
+    themes
+        .install(&fetched)
+        .map_err(|error| format!("{error:#}"))?;
     reload_installed();
     Ok(format!("{INSTALLED}{}", fetched.package().id))
 }
 
 pub fn close_review(window: &YapfastWindow) {
-    window.global::<ThemesPage>().set_review(ThemeReview::default());
+    window
+        .global::<ThemesPage>()
+        .set_review(ThemeReview::default());
     STATE.with_borrow_mut(|state| {
-        if !state.trial.as_ref().is_some_and(|trial| trial.installed.is_none()) {
+        if !state
+            .trial
+            .as_ref()
+            .is_some_and(|trial| trial.installed.is_none())
+        {
             state.review = None;
         }
     });
-    theme::protect(window, false);
+    theme::protect_for(window, theme::Protected::ThemeReview, false);
 }
 
 /// Shows the reviewed theme for 30 seconds without installing it, from its
@@ -1279,8 +1426,10 @@ pub fn try_review(window: &YapfastWindow, back_to: Option<String>) -> Result<the
                 .map(|fetched| (fetched.package().clone(), fetched.files.clone()))
         })
         .ok_or("nothing to try")?;
-    window.global::<ThemesPage>().set_review(ThemeReview::default());
-    theme::protect(window, false);
+    window
+        .global::<ThemesPage>()
+        .set_review(ThemeReview::default());
+    theme::protect_for(window, theme::Protected::ThemeReview, false);
     // Its fonts are registered from bytes on disk, as an installed theme's
     // are, in a folder that goes when the trial ends.
     let folder = std::env::temp_dir().join(format!(".yapfast-theme-trial-{}", std::process::id()));
@@ -1300,7 +1449,11 @@ pub fn try_review(window: &YapfastWindow, back_to: Option<String>) -> Result<the
 }
 
 /// Shows an installed theme for 30 seconds.
-pub fn try_installed(window: &YapfastWindow, id: &str, back_to: Option<String>) -> Result<theme::Theme, String> {
+pub fn try_installed(
+    window: &YapfastWindow,
+    id: &str,
+    back_to: Option<String>,
+) -> Result<theme::Theme, String> {
     let layout_id = format!("{INSTALLED}{id}");
     let colours = show(window, &layout_id)?;
     let name = applied_name().unwrap_or_default();
@@ -1308,21 +1461,33 @@ pub fn try_installed(window: &YapfastWindow, id: &str, back_to: Option<String>) 
     Ok(colours)
 }
 
-fn begin_trial(window: &YapfastWindow, back_to: Option<String>, installed: Option<String>, name: &str) {
+fn begin_trial(
+    window: &YapfastWindow,
+    back_to: Option<String>,
+    installed: Option<String>,
+    name: &str,
+) {
     let page = window.global::<ThemesPage>();
     page.set_trying(name.into());
     page.set_seconds(TRIAL as i32);
     let until = Instant::now() + Duration::from_secs(TRIAL);
     let timer = slint::Timer::default();
     let weak = window.as_weak();
-    timer.start(slint::TimerMode::Repeated, Duration::from_millis(250), move || {
-        let Some(window) = weak.upgrade() else { return };
-        let left = until.saturating_duration_since(Instant::now()).as_secs_f32().ceil() as i32;
-        window.global::<ThemesPage>().set_seconds(left);
-        if left <= 0 {
-            window.global::<ThemesPage>().invoke_revert();
-        }
-    });
+    timer.start(
+        slint::TimerMode::Repeated,
+        Duration::from_millis(250),
+        move || {
+            let Some(window) = weak.upgrade() else { return };
+            let left = until
+                .saturating_duration_since(Instant::now())
+                .as_secs_f32()
+                .ceil() as i32;
+            window.global::<ThemesPage>().set_seconds(left);
+            if left <= 0 {
+                window.global::<ThemesPage>().invoke_revert();
+            }
+        },
+    );
     STATE.with_borrow_mut(|state| {
         state.trial = Some(Trial {
             back_to,
@@ -1339,7 +1504,9 @@ pub fn end_trial(window: &YapfastWindow, keep: bool) -> Option<Result<String, Op
     let trial = STATE.with_borrow_mut(|state| state.trial.take())?;
     trial.timer.stop();
     let _ = trial.until;
-    window.global::<ThemesPage>().set_trying(SharedString::new());
+    window
+        .global::<ThemesPage>()
+        .set_trying(SharedString::new());
     if keep {
         let id = match trial.installed {
             Some(id) => Ok(id),
@@ -1475,7 +1642,11 @@ mod tests {
         let window = window();
         // Its theme.json changed in the store since it was installed.
         let folder = STATE.with_borrow(|state| state.installed[0].folder.clone());
-        std::fs::write(folder.join("theme.json"), TIDE.replace("#16262f", "#ffffff")).unwrap();
+        std::fs::write(
+            folder.join("theme.json"),
+            TIDE.replace("#16262f", "#ffffff"),
+        )
+        .unwrap();
         init(data.path());
         assert!(startup(&window, Some("installed:dev.example.tide")).is_none());
         assert!(applied_id().is_none());

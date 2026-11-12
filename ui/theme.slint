@@ -95,6 +95,25 @@ export global Theme {
     out property <color> scrollbar: self.scrollbar-on ? self.scrollbar-set : self.dark ? #FFFFFF14 : #00000073;
     in property <color> scrollbar-track-set; in property <bool> scrollbar-track-on;
     out property <color> scrollbar-track: self.scrollbar-track-on ? self.scrollbar-track-set : self.dark ? #2C2C2C : #f0f0f0;
+    /// The message box's outline while it has the keys.
+    in property <color> composer-focus-set; in property <bool> composer-focus-on;
+    out property <color> composer-focus: self.composer-focus-on ? self.composer-focus-set : self.muted.with-alpha(0.55);
+    /// A selected row's ground (a channel, a settings page) and the pill
+    /// beside a selected or unread server.
+    in property <color> row-selected-set; in property <bool> row-selected-on;
+    out property <color> row-selected: self.row-selected-on ? self.row-selected-set : self.active;
+    in property <color> pill-set; in property <bool> pill-on;
+    out property <color> pill: self.pill-on ? self.pill-set : self.text;
+    /// A switch's track and knob while it's off.
+    in property <color> toggle-off-set; in property <bool> toggle-off-on;
+    out property <color> toggle-off: self.toggle-off-on ? self.toggle-off-set : self.field;
+    in property <color> knob-off-set; in property <bool> knob-off-on;
+    out property <color> knob-off: self.knob-off-on ? self.knob-off-set : self.secondary;
+    /// The grounds of code blocks and of embeds.
+    in property <color> code-set; in property <bool> code-on;
+    out property <color> code: self.code-on ? self.code-set : self.panel;
+    in property <color> embed-set; in property <bool> embed-on;
+    out property <color> embed: self.embed-on ? self.embed-set : self.sidebar;
     /// What dims the window behind a dialog.
     in property <color> scrim-set; in property <bool> scrim-on;
     /// The dim behind a dialog: a theme's own colour, or what each dialog
@@ -202,7 +221,12 @@ export global Look {
     in property <length> size-names: -1px;
     in property <length> size-code: -1px;
     in property <length> size-labels: -1px;
+    in property <int> weight-body: -1;
     in property <int> weight-headings: -1;
+    /// The open conversation's and the server's names, and page and dialog
+    /// titles, apart from other headings; negative follows headings.
+    in property <length> size-header: -1px;
+    in property <length> size-title: -1px;
     in property <int> weight-names: -1;
     in property <int> weight-labels: -1;
     in property <length> spacing-body;
@@ -213,6 +237,8 @@ export global Look {
     out property <string> mono: self.font-code != "" ? self.font-code : "monospace";
     public pure function heading-font(stock: string) -> string { self.font-headings != "" ? self.font-headings : stock }
     public pure function heading-size(stock: length) -> length { self.size-headings >= 0px ? self.size-headings : stock }
+    public pure function header-size(stock: length) -> length { self.size-header >= 0px ? self.size-header : self.heading-size(stock) }
+    public pure function title-size(stock: length) -> length { self.size-title >= 0px ? self.size-title : self.heading-size(stock) }
     public pure function heading-weight(stock: int) -> int { self.weight-headings >= 0 ? self.weight-headings : stock }
     public pure function heading(text: string) -> string { self.headings-upper ? text.to-uppercase() : text }
     public pure function name-font(stock: string) -> string { self.font-names != "" ? self.font-names : stock }

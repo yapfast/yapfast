@@ -34,7 +34,7 @@ export component FavoriteStar inherits Rectangle {
     in property <bool> shown;
     callback clicked;
     width: 32px; height: 32px; border-radius: Look.radius(5px);
-    background: Theme.panel;
+    background: Theme.panel-fill;
     opacity: root.shown ? 1 : 0;
     animate opacity { duration: Theme.quick; }
     accessible-role: button;

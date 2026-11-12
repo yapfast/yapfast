@@ -153,7 +153,7 @@ component RoleListRow inherits Rectangle {
     property <length> row-height: 52px;
     height: root.row-height;
     states [
-        dragged when root.dragging: { inner.background: Theme.raised; }
+        dragged when root.dragging: { inner.background: Theme.raised-fill; }
     ]
     inner := Rectangle {
         y: root.offset; height: root.row-height;
@@ -215,7 +215,7 @@ component RoleListRow inherits Rectangle {
                     Text { text: root.role.name; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; vertical-alignment: center; }
                     if root.role.badge != "": Middle {
                         Rectangle {
-                            height: 16px; width: badge.preferred-width + 8px; border-radius: Look.radius(3px); background: Theme.accent;
+                            height: 16px; width: badge.preferred-width + 8px; border-radius: Look.radius(3px); background: Theme.accent-fill;
                             badge := Text { text: root.role.badge; color: #ffffff; font-size: 10px; font-weight: 700; }
                         }
                     }
@@ -249,7 +249,7 @@ component RoleListRow inherits Rectangle {
     more := PopupWindow {
         x: root.width - 200px; y: root.row-height - 4px; width: 180px;
         Rectangle {
-            background: Theme.raised; border-radius: Look.radius(6px); drop-shadow-blur: Look.shadow-blur(12px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066);
+            background: Theme.raised-fill; border-radius: Look.radius(6px); drop-shadow-blur: Look.shadow-blur(12px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066);
             VerticalLayout {
                 padding: 6px; spacing: 2px;
                 for item[index] in [
@@ -259,7 +259,7 @@ component RoleListRow inherits Rectangle {
                     { text: "Delete", danger: true, enabled: root.role.may-copy },
                 ]: Rectangle {
                     height: 32px; border-radius: Look.radius(4px);
-                    background: area.has-hover && item.enabled ? (item.danger ? Theme.danger : Theme.accent) : transparent;
+                    background: area.has-hover && item.enabled ? (item.danger ? Theme.danger : Theme.accent-fill) : transparent;
                     Text {
                         x: 8px; text: item.text; font-size: 14px; vertical-alignment: center;
                         color: !item.enabled ? Theme.faint : area.has-hover ? #ffffff : item.danger ? Theme.danger : Theme.text;
@@ -292,7 +292,7 @@ component RoleTabButton inherits Rectangle {
         color: !root.enabled ? Theme.faint : root.selected ? Theme.text : (area.has-hover ? Theme.text : Theme.secondary);
     }
     Rectangle {
-        y: parent.height - 2px; height: 2px; background: root.selected ? Theme.accent : transparent;
+        y: parent.height - 2px; height: 2px; background: root.selected ? Theme.accent-fill : transparent;
     }
     area := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
 }
@@ -361,7 +361,7 @@ export component RolesSection inherits VerticalLayout {
         // @everyone's card.
         Rectangle {
             height: 64px; border-radius: Look.radius(8px);
-            background: everyone.has-hover ? Theme.raised.brighter(0.1) : Theme.raised;
+            background: everyone.has-hover ? Theme.raised.brighter(0.1) : Theme.raised-fill;
             accessible-role: button; accessible-label: "Default Permissions";
             everyone := TouchArea { clicked => { root.open(root.page.everyone-id); } }
             HorizontalLayout {
@@ -432,7 +432,7 @@ export component RolesSection inherits VerticalLayout {
         }
         SettingsTitle { title: root.page.title; }
         if root.page.notice != "": Rectangle {
-            border-radius: Look.radius(6px); background: Theme.raised; height: notice.preferred-height + 20px;
+            border-radius: Look.radius(6px); background: Theme.raised-fill; height: notice.preferred-height + 20px;
             notice := Text { x: 12px; width: parent.width - 24px; text: root.page.notice; color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
         }
         HorizontalLayout {
@@ -655,7 +655,7 @@ export component RoleConfirmDialog inherits Rectangle {
         Rectangle {
             width: 440px; height: box.preferred-height;
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
-            background: Theme.chat; border-radius: Look.radius(8px);
+            background: Theme.chat-fill; border-radius: Look.radius(8px);
             TouchArea { }
             box := VerticalLayout {
                 padding: 16px; spacing: 12px;
@@ -701,7 +701,7 @@ export component AddMembersDialog inherits Rectangle {
         Rectangle {
             width: 440px; height: min(520px, root.height - 80px);
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
-            background: Theme.chat; border-radius: Look.radius(8px);
+            background: Theme.chat-fill; border-radius: Look.radius(8px);
             TouchArea { }
             VerticalLayout {
                 padding: 16px; spacing: 12px;
@@ -728,7 +728,7 @@ export component AddMembersDialog inherits Rectangle {
                                     Rectangle {
                                         width: 18px; height: 18px; border-radius: Look.radius(4px);
                                         border-width: 1px; border-color: Theme.line;
-                                        background: member.chosen ? Theme.accent : transparent;
+                                        background: member.chosen ? Theme.accent-fill : transparent;
                                         if member.chosen: Image { width: 14px; height: 14px; source: @image-url("icons/check.svg"); colorize: #ffffff; }
                                     }
                                 }

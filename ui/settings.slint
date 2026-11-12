@@ -16,7 +16,7 @@ export component SettingsTitle inherits Text {
     in property <string> title;
     text: Look.settings-text(Look.heading(self.title));
     accessible-label: self.title;
-    color: Theme.text; font-size: Look.heading-size(ClientStyle.enabled ? 24px : 20px); font-weight: Look.heading-weight(700);
+    color: Theme.text; font-size: Look.title-size(ClientStyle.enabled ? 24px : 20px); font-weight: Look.heading-weight(700);
     font-family: Look.heading-font(""); letter-spacing: Look.spacing-headings;
 }
 
@@ -187,7 +187,7 @@ export component UnsavedBar inherits Rectangle {
     Timer { interval: 60ms; running: root.shakes > 0; triggered => { root.shakes -= 1; } }
     Timer { interval: 1200ms; running: root.red; triggered => { root.red = false; } }
     height: 60px;
-    background: root.red ? Theme.danger : Theme.raised;
+    background: root.red ? Theme.danger : Theme.raised-fill;
     animate background { duration: Theme.quick; }
     Rectangle { y: 0px; height: 1px; background: Theme.edge; }
     bar := HorizontalLayout {
@@ -255,7 +255,7 @@ export component SettingsFrame inherits Rectangle {
     callback close;
     /// Takes the keys back, for Escape, once what had them is gone.
     public function focus-keys() { keys.focus(); }
-    background: root.discord-layout ? Theme.panel : Theme.chat;
+    background: root.discord-layout ? Theme.panel-fill : Theme.chat-fill;
     accessible-role: groupbox;
     accessible-label: root.label;
     TouchArea { }
@@ -276,7 +276,7 @@ export component SettingsFrame inherits Rectangle {
                 copy-text(text) => { root.copy-text(text); }
             }
             if !root.discord-layout: Rectangle {
-                background: Theme.sidebar; horizontal-stretch: 0; min-width: 232px;
+                background: Theme.sidebar-fill; horizontal-stretch: 0; min-width: 232px;
                 HorizontalLayout {
                     alignment: end;
                     VerticalLayout {
@@ -301,7 +301,7 @@ export component SettingsFrame inherits Rectangle {
             content := Rectangle {
                 horizontal-stretch: 2; min-width: root.discord-layout ? 320px : 440px;
                 if root.discord-layout: Rectangle {
-                    y: 0px; height: 48px; background: Theme.panel;
+                    y: 0px; height: 48px; background: Theme.panel-fill;
                     HorizontalLayout {
                         padding-left: 16px; padding-right: 8px;
                         Text { text: root.page-title; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
@@ -400,6 +400,7 @@ export component SettingsScreen inherits Rectangle {
         { text: "Discord", icon: @image-url("icons/discord.svg"), id: 4 },
         { text: "Game activity", icon: @image-url("icons/play.svg"), id: 8 },
         { text: "Plugins", icon: @image-url("icons/plugins.svg"), id: 9 },
+        { text: "Themes", icon: @image-url("icons/brush.svg"), id: 10 },
         { text: "Advanced", icon: @image-url("icons/settings.svg"), id: 6 },
     ];
     property <[SettingsRow]> without-discord: [
@@ -411,6 +412,7 @@ export component SettingsScreen inherits Rectangle {
         { text: "Notifications", icon: @image-url("icons/bell.svg"), id: 3 },
         { text: "Sounds", icon: @image-url("icons/volume-2.svg"), id: 5 },
         { text: "Plugins", icon: @image-url("icons/plugins.svg"), id: 9 },
+        { text: "Themes", icon: @image-url("icons/brush.svg"), id: 10 },
         { text: "Advanced", icon: @image-url("icons/settings.svg"), id: 6 },
     ];
     SettingsCard {
@@ -423,14 +425,14 @@ export component SettingsScreen inherits Rectangle {
                 : root.settings-section == 2 ? "Messages" : root.settings-section == 3 ? "Notifications"
                 : root.settings-section == 4 ? "Discord" : root.settings-section == 5 ? "Sounds"
                 : root.settings-section == 6 ? "Advanced" : root.settings-section == 7 ? "Appearance"
-                : root.settings-section == 9 ? "Plugins" : "Game Activity";
+                : root.settings-section == 9 ? "Plugins" : root.settings-section == 10 ? "Themes" : "Game Activity";
             account-name: root.account-name; account-initial: root.account-initial;
             account-tint: root.account-tint; account-picture: root.account-picture;
             with-discord: root.discord-build && !root.preview;
             with-plugins: root.with-plugins;
             // The page scrolls its own parts, and the marketplace makes only
             // the rows in sight.
-            fill: root.settings-section == 9;
+            fill: root.settings-section == 9 || root.settings-section == 10;
             may-edit-profile: root.may-edit-profile;
             edit-profile => { root.edit-profile(); }
             copy-text(text) => { root.copy-text(text); }
@@ -467,7 +469,7 @@ export component AccountSettings inherits VerticalLayout {
     spacing: 16px;
     SettingsTitle { title: "My account"; }
     Rectangle {
-        background: Theme.sidebar; border-radius: Look.radius(8px);
+        background: Theme.sidebar-fill; border-radius: Look.radius(8px);
         HorizontalLayout {
             padding: 16px; spacing: 16px;
             Middle { Avatar { size: 64px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; decoration-url: AccountLook.decoration-url; } }
@@ -963,15 +965,9 @@ export component AppearanceSettings inherits VerticalLayout {
     in property <int> start-index;
     in property <bool> can-save;
     callback choose-theme(string);
-    /// The theme shown before the last one chosen, one click back; empty for
-    /// none.
-    in property <string> previous-name;
-    callback revert-theme();
-    /// How much of an installed theme runs: 0 Full, 1 Balanced, 2 Light.
-    in property <int> performance;
-    callback performance-chosen(int);
-    in-out property <bool> reduce-motion;
-    callback reduce-motion-toggled(bool);
+    /// The installed theme shown, if one is; Settings → Themes has them.
+    in property <string> installed-name;
+    callback browse-themes();
     callback new-theme();
     callback edit-theme(string);
     callback start-chosen(int);
@@ -980,6 +976,7 @@ export component AppearanceSettings inherits VerticalLayout {
     callback save-theme();
     callback cancel-theme();
     callback delete-theme();
+    callback export-theme();
     /// The desktop draws the window's title bar; offered where Yapfast can
     /// draw its own.
     in-out property <bool> system-title-bar;
@@ -991,6 +988,10 @@ export component AppearanceSettings inherits VerticalLayout {
         spacing: 8px;
         HorizontalLayout {
             SettingsHeading { text: "THEME"; vertical-alignment: center; horizontal-stretch: 1; }
+            ActionButton {
+                text: "Browse themes"; small: true; ghost: true; icon: @image-url("icons/brush.svg");
+                clicked => { root.browse-themes(); }
+            }
             ActionButton {
                 text: "New theme"; small: true; icon: @image-url("icons/circle-plus.svg");
                 clicked => { root.new-theme(); }
@@ -1014,32 +1015,8 @@ export component AppearanceSettings inherits VerticalLayout {
             }
         }
     }
-    if !root.editor && root.previous-name != "": HorizontalLayout {
-        alignment: start;
-        ActionButton {
-            text: "Back to " + root.previous-name; small: true; icon: @image-url("icons/arrow-left.svg");
-            clicked => { root.revert-theme(); }
-        }
-    }
-    if !root.editor: VerticalLayout {
-        spacing: 8px;
-        SettingsHeading { text: "THEME PERFORMANCE"; }
-        Choices {
-            label: "Theme performance"; options: ["Full", "Balanced", "Light"];
-            current: root.performance; controlled: true;
-            chosen(index) => { root.performance-chosen(index); }
-        }
-        Label {
-            text: root.performance == 0 ? "Everything an installed theme has: every animation, at the rate it asks for."
-                : root.performance == 1 ? "Heavy animations stay still, the rest run at up to 30 frames a second and pause while Yapfast isn't focused."
-                : "Colours, fonts, shapes and spacing only: no theme animation, effect or motion.";
-        }
-        SettingsSwitch {
-            text: "Reduce motion";
-            description: "Themes' animations, text effects and hover motion stay still, whatever the setting above.";
-            checked <=> root.reduce-motion;
-            toggled(on) => { root.reduce-motion-toggled(on); }
-        }
+    if !root.editor && root.installed-name != "": Label {
+        text: "Showing " + root.installed-name + ", an installed theme. Choose one above, or manage it in Themes.";
     }
     if !root.editor && root.title-bar-choice: SettingsSwitch {
         text: "Use the system title bar";
@@ -1138,7 +1115,13 @@ export component AppearanceSettings inherits VerticalLayout {
             }
         }
         if root.editing-saved: HorizontalLayout {
-            alignment: start;
+            alignment: start; spacing: 8px;
+            // A theme package folder, ready to put in a GitHub repository
+            // and share in Settings → Themes.
+            ActionButton {
+                text: "Export as a package"; small: true; icon: @image-url("icons/download.svg");
+                clicked => { root.export-theme(); }
+            }
             ActionButton {
                 text: form.confirming ? "Delete it for good" : "Delete theme"; danger: true; small: true;
                 icon: @image-url("icons/trash-2.svg");
@@ -1578,7 +1561,7 @@ export component DiscordSettings inherits VerticalLayout {
             spacing: 12px; padding-top: 8px;
             Middle {
                 Rectangle {
-                    width: 40px; height: 40px; border-radius: Look.radius(20px); background: Theme.raised;
+                    width: 40px; height: 40px; border-radius: Look.radius(20px); background: Theme.raised-fill;
                     Image { source: @image-url("icons/ban.svg"); width: 20px; height: 20px; colorize: Theme.secondary; }
                 }
             }

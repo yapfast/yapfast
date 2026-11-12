@@ -378,7 +378,7 @@ export component SecurityActionsDialog inherits Rectangle {
         Rectangle {
             width: 480px; height: box.preferred-height;
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
-            background: Theme.chat; border-radius: Look.radius(8px);
+            background: Theme.chat-fill; border-radius: Look.radius(8px);
             accessible-role: groupbox; accessible-label: "Security Actions";
             TouchArea { }
             box := VerticalLayout {

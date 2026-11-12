@@ -144,7 +144,7 @@ export component ThreadPanel inherits Rectangle {
         thread-list.content-y = min(0px, thread-list.height - thread-list.content-height);
     }
     property <bool> is-editing: root.compose-label == "Editing your message";
-    background: Theme.chat;
+    background: Theme.chat-fill;
     accessible-role: list;
     accessible-label: root.name + " thread";
     Rectangle { x: 0; width: 1px; background: Theme.edge; }
@@ -214,7 +214,7 @@ export component ThreadPanel inherits Rectangle {
                     if message.highlighted: Rectangle {
                         y: index == 0 ? col.padding-top + 42px : 0px;
                         background: row-pointer.has-hover ? Theme.mentioned-hover : Theme.mentioned;
-                        Rectangle { x: 0px; width: 2px; background: Theme.accent; }
+                        Rectangle { x: 0px; width: 2px; background: Theme.accent-fill; }
                     }
                     row-pointer := TouchArea {
                         changed has-hover => { if self.has-hover { root.active-item = message.item; } }
@@ -287,7 +287,7 @@ export component ThreadPanel inherits Rectangle {
                     if (self.lit || root.react-item == message.item || root.menu-item == message.item || root.confirm-delete == message.item) && !message.deleted && message.delivery == "": message-bar := Rectangle {
                         x: parent.width - self.width - 12px; y: index == 0 ? 4px : -16px;
                         width: actions.preferred-width; height: actions.preferred-height;
-                        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+                        background: Theme.raised-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
                         drop-shadow-blur: Look.shadow-blur(10px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000059); drop-shadow-offset-y: Look.shadow-y(2px);
                         // Shift's quick actions, as in the timeline.
                         property <bool> quick: root.shift-held && root.react-item != message.item && root.menu-item != message.item;
@@ -360,7 +360,7 @@ export component ThreadPanel inherits Rectangle {
         VerticalLayout {
             padding-left: 12px; padding-right: 12px; padding-bottom: 12px; spacing: 0px; vertical-stretch: 0;
             if root.compose-label != "": Rectangle {
-                height: 36px; background: Theme.sidebar;
+                height: 36px; background: Theme.sidebar-fill;
                 border-top-left-radius: Look.radius(10px); border-top-right-radius: Look.radius(10px);
                 HorizontalLayout {
                     padding-left: 14px; padding-right: 4px; spacing: 8px;
@@ -483,7 +483,7 @@ export component NewThreadPanel inherits Rectangle {
     changed typing-tick => { composer.focus-input(); composer.place-caret(1000000); }
     callback composer-focused;
     callback escape-composing() -> bool;
-    background: Theme.chat;
+    background: Theme.chat-fill;
     accessible-role: groupbox;
     accessible-label: "New Thread";
     Rectangle { x: 0; width: 1px; background: Theme.edge; }
@@ -563,7 +563,7 @@ export component NewThreadPanel inherits Rectangle {
         Rectangle {
             x: 16px; width: parent.width - 32px; y: (parent.height - self.height) / 2;
             height: ask.preferred-height;
-            background: Theme.sidebar; border-radius: Look.radius(10px); border-width: 1px; border-color: Theme.edge;
+            background: Theme.sidebar-fill; border-radius: Look.radius(10px); border-width: 1px; border-color: Theme.edge;
             ask := VerticalLayout {
                 padding: 16px; spacing: 10px;
                 Text { text: "Are you sure you want to go?"; color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }

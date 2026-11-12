@@ -30,7 +30,7 @@ component BrowseItem inherits Rectangle {
     property <string> locked-tip: "You must unfollow this category to add or remove specific channels.";
     height: 56px;
     border-radius: Look.radius(8px);
-    background: pointer.has-hover && !root.channel.by-category ? Theme.raised : transparent;
+    background: pointer.has-hover && !root.channel.by-category ? Theme.raised-fill : transparent;
     accessible-role: checkbox;
     accessible-label: root.channel.name;
     accessible-description: root.channel.topic;
@@ -82,7 +82,7 @@ component BrowseItem inherits Rectangle {
             Rectangle {
                 width: 20px; height: 20px; border-radius: Look.radius(4px);
                 opacity: root.channel.by-category ? 0.5 : 1;
-                background: root.channel.followed ? Theme.accent : transparent;
+                background: root.channel.followed ? Theme.accent-fill : transparent;
                 border-width: root.channel.followed ? 0px : 1.5px; border-color: Theme.muted;
                 if root.channel.followed: Image {
                     width: 14px; height: 14px; image-fit: contain;

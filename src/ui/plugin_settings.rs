@@ -387,8 +387,6 @@ fn bind_page(window: &YapfastWindow) {
                     forget_icons();
                 }
             });
-            // The Themes tab's previews go with the page.
-            super::theme_look::close_page(&window);
         });
     }
     // How the Installed tab draws plugins: a list to read down, cards to scan
@@ -398,7 +396,7 @@ fn bind_page(window: &YapfastWindow) {
     });
     on!(on_tab_chosen(tab) => |page| {
         page.tab = tab;
-        if tab == 0 || tab == 3 {
+        if tab == 0 {
             load_catalog(page);
         }
     });
@@ -539,9 +537,15 @@ fn input(kind: &Kind, value: &str) -> Input {
 /// Asks for the catalog once the marketplace shows, unless it's there.
 /// The marketplace's themes, for the Themes tab: asks for the catalog when
 /// it isn't loaded, and the tab shows them once it is.
-pub(super) fn theme_listings() -> Vec<Listing> {
+pub(super) fn theme_listings(window: &YapfastWindow) -> Vec<Listing> {
     PAGE.with_borrow_mut(|page| {
-        let Some(page) = page.as_mut() else { return Vec::new() };
+        // Settings → Themes may open before Plugins ever has.
+        let page = page.get_or_insert_with(|| Page::new(source_for(window.get_preview())));
+        // The preview lists the sample catalog, as Settings → Plugins does.
+        if window.get_preview() && !page.sample {
+            page.source = source_for(true);
+            page.sample = true;
+        }
         load_catalog(page);
         match &page.source.view().catalog {
             Catalog::Ready(listings) => listings
@@ -1006,6 +1010,13 @@ fn show(window: &YapfastWindow, page: &mut Page) {
         Find::Review(found) => review(found),
         _ => PluginReview::default(),
     });
+    // A plugin's review, which asks for its permissions, is drawn in the
+    // stock theme.
+    super::theme::protect_for(
+        window,
+        super::theme::Protected::PluginReview,
+        matches!(view.find, Find::Review(_)),
+    );
 
     let advanced = &view.advanced;
     global.set_budget(nearest(&MEMORY_BUDGETS, advanced.memory_budget));
@@ -1316,6 +1327,7 @@ fn clear(window: &YapfastWindow) {
     global.set_detail(PluginDetail::default());
     global.set_form(ModelRc::default());
     global.set_review(PluginReview::default());
+    super::theme::protect_for(window, super::theme::Protected::PluginReview, false);
 }
 
 #[cfg(test)]

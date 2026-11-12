@@ -23,7 +23,7 @@ export component SettingsNavigation inherits Rectangle {
     function matches(text: string) -> bool {
         return root.query == "" || text.to-lowercase().replace-all(root.query.to-lowercase(), "") != text.to-lowercase();
     }
-    width: 266px; horizontal-stretch: 0; background: Theme.chat;
+    width: 266px; horizontal-stretch: 0; background: Theme.chat-fill;
     VerticalLayout {
         padding-top: 16px; spacing: 16px;
         HorizontalLayout {
@@ -73,6 +73,7 @@ export component SettingsNavigation inherits Rectangle {
                     { text: "Discord", icon: @image-url("../icons/discord.svg"), id: 4 },
                     { text: "Game Activity", icon: @image-url("../icons/play.svg"), id: 8 },
                     { text: "Plugins", icon: @image-url("../icons/plugins.svg"), id: 9 },
+                    { text: "Themes", icon: @image-url("../icons/brush.svg"), id: 10 },
                     { text: "Advanced", icon: @image-url("../icons/settings.svg"), id: 6 },
                 ]: VerticalLayout {
                     if entry.heading && root.query == "": VerticalLayout {

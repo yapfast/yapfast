@@ -36,25 +36,33 @@ impl Adapter {
         true
     }
 
-    /// Appearance's Back: the theme shown before the last one chosen.
-    fn show_previous_theme(&self, window: &YapfastWindow) {
+    /// Settings → Themes' Back, to the theme shown before the last one
+    /// chosen, and Appearance's line naming the installed theme shown.
+    pub(super) fn show_previous_theme(&self, window: &YapfastWindow) {
         let name = self
             .layout
             .previous_theme
             .as_deref()
             .filter(|previous| self.layout.theme.as_deref() != Some(*previous))
             .and_then(|previous| theme_look::name_of(previous, &self.layout.custom_themes));
-        window.set_theme_previous_name(name.unwrap_or_default().into());
+        window
+            .global::<yapfast_ui::ThemesPage>()
+            .set_previous_name(name.unwrap_or_default().into());
+        window.set_theme_installed_name(theme_look::applied_name().unwrap_or_default().into());
     }
 
     /// Ctrl+Shift+T: the default theme until Yapfast starts again; the
     /// chosen theme stays chosen.
     pub(super) fn default_theme_for_session(&mut self, window: &YapfastWindow) {
         theme_look::default_for_session(window);
-        let default = window.global::<ClientStyle>().get_enabled().then_some("bonfire");
+        let default = window
+            .global::<ClientStyle>()
+            .get_enabled()
+            .then_some("bonfire");
         let (id, chosen) = theme::chosen(default, &[]);
         window.set_theme_id(id.into());
         self.set_theme(window, &chosen);
+        self.show_previous_theme(window);
         self.app.state.notice = Some(
             "Showing the default theme until Yapfast starts again (Ctrl+Shift+T). Choose any theme in Settings → Appearance."
                 .to_owned(),
@@ -65,28 +73,47 @@ impl Adapter {
     /// Shows what a theme on trial or `--theme-dev` came back to: a theme
     /// by its id, without choosing it.
     fn show_theme(&mut self, window: &YapfastWindow, id: Option<&str>) {
-        let default = window.global::<ClientStyle>().get_enabled().then_some("bonfire");
+        let default = window
+            .global::<ClientStyle>()
+            .get_enabled()
+            .then_some("bonfire");
         if let Some(id) = id.filter(|id| id.starts_with(theme_look::INSTALLED))
             && let Ok(colours) = theme_look::show(window, id)
         {
             window.set_theme_id(id.into());
             self.set_theme(window, &colours);
+            self.show_previous_theme(window);
             return;
         }
         theme_look::clear(window);
         let (id, chosen) = theme::chosen(
-            id.filter(|id| !id.starts_with(theme_look::INSTALLED)).or(default),
+            id.filter(|id| !id.starts_with(theme_look::INSTALLED))
+                .or(default),
             &self.layout.custom_themes,
         );
         window.set_theme_id(id.into());
         self.set_theme(window, &chosen);
+        self.show_previous_theme(window);
+    }
+
+    /// The system went light or dark while an installed theme shows: it
+    /// shows again in the variant that now fits, if it ships both.
+    pub(super) fn system_mode_changed(&mut self, window: &YapfastWindow) {
+        let Some(id) = theme_look::applied_id()
+            .filter(|id| id.starts_with(theme_look::INSTALLED) || id == "dev")
+        else {
+            return;
+        };
+        if let Ok(colours) = theme_look::show(window, &id) {
+            self.set_theme(window, &colours);
+        }
     }
 
     /// Refreshes the Themes tab and Appearance's cards after the installed
     /// themes changed.
     fn themes_changed(&mut self, window: &YapfastWindow) {
         window.set_themes(theme::cards(&self.layout.custom_themes));
-        theme_look::show_page(window, &super::plugin_settings::theme_listings());
+        theme_look::show_page(window, &theme_look::marketplace(window));
     }
 
     /// Shows the window in another theme's colours, building again what
@@ -299,27 +326,13 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
     }
     {
         let weak = window.as_weak();
-        window.global::<Look>().on_fx(move |slot, text, _tick| match weak.upgrade() {
-            Some(window) => theme_look::effect_text(&window, slot, text),
-            None => text,
-        });
+        window
+            .global::<Look>()
+            .on_fx(move |slot, text, _tick| match weak.upgrade() {
+                Some(window) => theme_look::effect_text(&window, slot, text),
+                None => text,
+            });
     }
-    on!(window, on_theme_revert() => |adapter, window| {
-        if let Some(previous) = adapter.layout.previous_theme.clone() {
-            adapter.choose_theme(&window, &previous);
-        }
-    });
-    on!(window, on_theme_performance_chosen(index) => |adapter, window| {
-        adapter.layout.theme_performance = Performance::from_index(index);
-        adapter.layout.write(&adapter.root);
-        window.set_theme_performance(index);
-        theme_look::set_motion(&window, adapter.layout.theme_performance, adapter.layout.reduce_motion);
-    });
-    on!(window, on_theme_reduce_motion_toggled(on) => |adapter, window| {
-        adapter.layout.reduce_motion = on;
-        adapter.layout.write(&adapter.root);
-        theme_look::set_motion(&window, adapter.layout.theme_performance, on);
-    });
     on!(window, on_theme_reload() => |adapter, window| {
         match theme_look::show(&window, "dev") {
             Ok(colours) => {
@@ -335,8 +348,42 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
     });
     let page = window.global::<ThemesPage>();
     on!(page, on_opened() => |adapter, window| {
+        adapter.show_previous_theme(&window);
+        let page = window.global::<ThemesPage>();
+        page.set_performance(adapter.layout.theme_performance.index());
+        page.set_reduce_motion(adapter.layout.reduce_motion);
+        theme_look::show_page(&window, &theme_look::marketplace(&window));
+    });
+    on!(page, on_closed() => |adapter, window| {
         let _ = adapter;
-        theme_look::show_page(&window, &super::plugin_settings::theme_listings());
+        theme_look::close_page(&window);
+    });
+    on!(page, on_tab_chosen(tab) => |adapter, window| {
+        let _ = adapter;
+        let page = window.global::<ThemesPage>();
+        page.set_tab(tab);
+        page.set_error(SharedString::new());
+    });
+    on!(page, on_search(query) => |adapter, window| {
+        let _ = (adapter, query);
+        theme_look::show_page(&window, &theme_look::marketplace(&window));
+    });
+    on!(page, on_revert_theme() => |adapter, window| {
+        if let Some(previous) = adapter.layout.previous_theme.clone() {
+            adapter.choose_theme(&window, &previous);
+            adapter.themes_changed(&window);
+        }
+    });
+    on!(page, on_performance_chosen(index) => |adapter, window| {
+        adapter.layout.theme_performance = Performance::from_index(index);
+        adapter.layout.write(&adapter.root);
+        window.global::<ThemesPage>().set_performance(index);
+        theme_look::set_motion(&window, adapter.layout.theme_performance, adapter.layout.reduce_motion);
+    });
+    on!(page, on_reduce_motion_toggled(on) => |adapter, window| {
+        adapter.layout.reduce_motion = on;
+        adapter.layout.write(&adapter.root);
+        theme_look::set_motion(&window, adapter.layout.theme_performance, on);
     });
     on!(page, on_apply(id) => |adapter, window| {
         adapter.choose_theme(&window, &format!("{}{id}", theme_look::INSTALLED));
@@ -389,6 +436,7 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
         match theme_look::install_review(&window) {
             Ok(id) => {
                 adapter.choose_theme(&window, &id);
+                window.global::<ThemesPage>().set_tab(1);
                 adapter.themes_changed(&window);
             }
             Err(reason) => window.global::<ThemesPage>().set_error(reason.into()),
@@ -419,5 +467,59 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
         if let Some(Err(back)) = theme_look::end_trial(&window, false) {
             adapter.show_theme(&window, back.as_deref());
         }
+    });
+}
+
+/// Appearance's Export: the theme being edited as a package folder in a
+/// folder the person picks, ready for a GitHub repository and Settings →
+/// Themes.
+pub(super) fn bind_export(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
+    let state = adapter.clone();
+    window.on_export_theme(move || {
+        let Ok(adapter) = state.try_borrow() else { return };
+        let Some(window) = adapter.window.upgrade() else { return };
+        let Some(editor) = adapter.theme_editor.as_ref() else { return };
+        let name = window.get_theme_name().to_string();
+        let colours: Vec<(String, u32)> = theme::Theme::NAMES
+            .iter()
+            .enumerate()
+            .filter_map(|(index, token)| {
+                Some((token.replace('_', "-"), editor.theme.colour(index)?.as_argb_encoded()))
+            })
+            .collect();
+        let named: Vec<(&str, u32)> = colours.iter().map(|(token, colour)| (token.as_str(), *colour)).collect();
+        let text = yapfast_core::themes::package::export(&name, editor.base, editor.theme.dark, &named);
+        let folder_name = yapfast_core::themes::package::folder_name(&name);
+        drop(adapter);
+        let weak = Rc::downgrade(&state);
+        state.borrow_mut().dialog(async move {
+            let picked = rfd::AsyncFileDialog::new()
+                .set_title("Export the theme as a package")
+                .pick_folder()
+                .await;
+            let (Some(picked), Some(adapter)) = (picked, weak.upgrade()) else {
+                return;
+            };
+            let folder = picked.path().join(&folder_name);
+            let written = std::fs::create_dir_all(&folder)
+                .and_then(|()| std::fs::write(folder.join(yapfast_core::themes::MANIFEST), &text))
+                .and_then(|()| {
+                    std::fs::write(
+                        folder.join("LICENSE"),
+                        "Choose your theme's licence, and list every font and picture it ships with theirs.\n",
+                    )
+                });
+            let mut adapter = adapter.borrow_mut();
+            adapter.app.state.notice = Some(match written {
+                Ok(()) => format!(
+                    "Exported to {}. Add a preview and a description, check it with `yapfast theme check`, and publish it on GitHub.",
+                    folder.display()
+                ),
+                Err(error) => format!("The theme couldn't be exported: {error}"),
+            });
+            if let Some(window) = adapter.window.upgrade() {
+                adapter.refresh(&window);
+            }
+        });
     });
 }

@@ -955,6 +955,8 @@ impl Adapter {
         let state = &self.app.state;
         let workspace = state.preview || state.account.is_some();
         window.set_workspace(workspace);
+        // Signing in is drawn in the stock theme, whatever is installed.
+        theme::protect_for(window, theme::Protected::SignIn, !workspace);
         window.set_preview(state.preview);
         window.set_busy(state.busy);
         window.set_trusted(state.trusted);
