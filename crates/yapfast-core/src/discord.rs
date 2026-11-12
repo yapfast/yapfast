@@ -59,14 +59,8 @@ pub fn set_custom_games(games: &[(String, String)]) {
     let _ = games;
 }
 
-/// Whether a picture is a layer of a profile frame,
-/// `/collectibles-shop/{sku}/{id}/static`, where a decoration's or
-/// nameplate's still is `/collectibles-shop/{sku}/static`.
 #[cfg(feature = "discord")]
-fn is_frame_layer(url: &str) -> bool {
-    url.split_once("/collectibles-shop/")
-        .is_some_and(|(_, rest)| rest.ends_with("/static") && rest.matches('/').count() == 2)
-}
+use crate::chat::is_frame_layer;
 
 /// The categories message requests are listed under in the DM list.
 pub const REQUESTS: &str = "Message requests";

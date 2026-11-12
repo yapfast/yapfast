@@ -820,6 +820,22 @@ impl ProfileEffect {
     }
 }
 
+/// Whether a picture is a layer of a profile frame,
+/// `/collectibles-shop/{sku}/{id}/static`, where a decoration's or
+/// nameplate's still is `/collectibles-shop/{sku}/static`.
+pub fn is_frame_layer(url: &str) -> bool {
+    url.split_once("/collectibles-shop/")
+        .is_some_and(|(_, rest)| rest.ends_with("/static") && rest.matches('/').count() == 2)
+}
+
+/// The address of a banner's moving version: Discord's moving pictures have
+/// hashes that start with `a_`, and come as GIFs.
+pub fn moving_banner(url: &str) -> Option<String> {
+    let (start, end) = url.split_once(".png?")?;
+    let hash = start.rsplit('/').next()?;
+    hash.starts_with("a_").then(|| format!("{start}.gif?{end}"))
+}
+
 /// Marks the address of a profile effect's picture, which decodes at the
 /// card's size rather than an avatar's.
 pub const EFFECT_PICTURE: &str = "#effect";

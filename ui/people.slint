@@ -95,6 +95,8 @@ export struct MemberActivityRow {
 // The open room's members, grouped by role under the conversation header.
 export component MemberPanel inherits Rectangle {
     in property <[MemberRow]> rows;
+    /// It lists a group DM, whose crown marks who made it.
+    in property <bool> group;
     /// What people here are doing or did lately, in Discord's order; the
     /// panel above the list shows the first three until its header is opened.
     in property <[MemberActivityRow]> activity-rows;
@@ -304,7 +306,7 @@ export component MemberPanel inherits Rectangle {
                                 Image {
                                     source: @image-url("icons/crown.svg"); width: 14px; height: 14px; image-fit: contain;
                                     colorize: #f0b232; opacity: member.presence == "offline" ? 0.5 : 1;
-                                    accessible-role: image; accessible-label: "Server Owner";
+                                    accessible-role: image; accessible-label: root.group ? "Group Owner" : "Server Owner";
                                 }
                             }
                             // Discord's boosting pink, the same in every theme, as in
@@ -361,6 +363,8 @@ export struct ActivityRow {
     /// A stream's address, and what the title opens, such as a Spotify
     /// song's page.
     url: string, link: string,
+    /// It's a game, whose privacy one's own menu manages.
+    game: bool,
 }
 
 /// How a profile's theme colours what shows it, as Discord's client works it
@@ -758,13 +762,10 @@ component ActivityTime inherits Rectangle {
     }
 }
 
-/// The tab the profile editor should open on, which it takes when it opens:
-/// 1 is Activity.
-export global ProfileEditorPage {
-    in-out property <int> wanted: 0;
-    /// What one's own activity's more menu asked for: 1 its tab in the
-    /// editor, 2 its privacy settings. The window acts on it once the
-    /// popups have closed.
+/// What an activity's more menu asked for: 1 the full profile's Activity
+/// tab, 2 one's own game's privacy settings. The window acts on it once the
+/// popups have closed.
+export global ActivityMenu {
     in-out property <int> action: 0;
 }
 
@@ -786,12 +787,12 @@ export component ActivityCard inherits VerticalLayout {
     property <bool> bar: root.activity.start > 0 && root.activity.end > root.activity.start;
     property <int> length: root.activity.end - root.activity.start;
     property <int> played: max(0, min(self.length, ActivityClock.now - root.activity.start));
-    /// `0:42`, `12:05` or `1:02:03`.
+    /// `00:42`, `12:05` or `01:02:03`, padded as Discord's client writes them.
     pure function clock(seconds: int) -> string {
         let hours = floor(seconds / 3600);
         let minutes = Math.mod(floor(seconds / 60), 60);
         let rest = Math.mod(seconds, 60);
-        (hours > 0 ? hours + ":" + (minutes < 10 ? "0" : "") : "") + minutes + ":" + (rest < 10 ? "0" : "") + rest
+        (hours > 0 ? (hours < 10 ? "0" : "") + hours + ":" : "") + (minutes < 10 ? "0" : "") + minutes + ":" + (rest < 10 ? "0" : "") + rest
     }
     spacing: 8px;
     HorizontalLayout {
@@ -1013,8 +1014,8 @@ export component ProfileListRow inherits Rectangle {
 component ProfileFrameLayer {
     in property <ProfileFrameRow> layer;
     in property <length> card-height;
-    in property <length> over-top;
-    in property <length> over-bottom;
+    /// How much lower the top staple sits, as the full profile's does.
+    in property <length> top-shift;
     property <image> picture: PictureStore.picture(root.layer.url, PictureStore.revision(root.layer.url));
     property <length> art-height: root.picture.width > 0 ? self.width * root.picture.height / root.picture.width : 0px;
     function request() {
@@ -1026,9 +1027,12 @@ component ProfileFrameLayer {
     changed picture => { root.request(); }
     if root.layer.kind == "staple": Image {
         x: 0px; width: root.width; height: root.art-height;
-        y: root.layer.anchor == "bottom" ? root.card-height + root.over-bottom - self.height
+        // Discord's frames are drawn 1312 wide, and a staple keeps the same
+        // part over the card whatever its height, 412 at the top and 212 at
+        // the foot; the rest of it reaches past the card.
+        y: root.layer.anchor == "bottom" ? root.card-height - root.width * 212 / 1312
             : root.layer.anchor == "center" ? (root.card-height - self.height) / 2
-            : -root.over-top;
+            : root.width * 412 / 1312 + root.top-shift - self.height;
         source: root.picture; image-fit: fill;
     }
     if root.layer.kind == "rail": Rectangle {
@@ -1088,7 +1092,9 @@ export component ProfileCard inherits Rectangle {
     /// Edit Profile, on one's own card.
     callback edit-profile;
     /// One's own activity's more button was clicked, with where it is.
-    callback activity-more(length, length);
+    /// An activity's more menu, at the button's corner, and whether it
+    /// offers Manage Privacy: one's own game.
+    callback activity-more(length, length, bool);
     property <length> banner-height: root.side ? 140px : root.large ? 210px : root.docked ? (ClientStyle.enabled ? 105px : 120px) : 105px;
     property <length> avatar-size: root.side ? 96px : root.large ? 120px : 80px;
     property <length> pad: root.side ? 20px : root.large ? 24px : 16px;
@@ -1141,17 +1147,15 @@ export component ProfileCard inherits Rectangle {
     changed banner-moving => { root.request-banner(); }
     property <length> frame-side: root.large ? 16px : 12px;
     property <length> frame-width: root.width + 2 * root.frame-side;
-    property <length> frame-over-top: root.frame-width * 77 / 332 - (root.large ? 8px : 0px);
-    property <length> frame-over-bottom: root.frame-width * 53 / 332;
     property <bool> has-frame: root.data.frame.length > 0 && root.show-frame && !root.docked && !root.preview;
     // What of the frame goes behind the card's contents; the full profile
-    // leaves out every layer anchored at the foot, as Discord's does.
+    // leaves out the staple at the foot, as Discord's does.
     if root.has-frame: Rectangle {
         for layer in root.data.frame: Rectangle {
-            if !layer.front && !(root.large && layer.anchor == "bottom"): ProfileFrameLayer {
+            if !layer.front && !(root.large && layer.kind == "staple" && layer.anchor == "bottom"): ProfileFrameLayer {
                 x: -root.frame-side; y: 0px; width: root.frame-width; height: root.height;
                 layer: layer; card-height: root.height;
-                over-top: root.frame-over-top; over-bottom: root.frame-over-bottom;
+                top-shift: root.large ? 8px : 0px;
             }
         }
     }
@@ -1367,8 +1371,9 @@ export component ProfileCard inherits Rectangle {
                         if !root.large: VerticalLayout {
                             spacing: 12px;
                             for activity in root.data.activities: ActivityCard {
-                                menu: root.data.own && !root.preview && !root.docked;
-                                more(x, y) => { root.activity-more(x, y); }
+                                // Discord's card has it on anyone's but a bot's.
+                                menu: !root.data.bot && !root.preview && !root.docked;
+                                more(x, y) => { root.activity-more(x, y, root.data.own && activity.game); }
                                 activity: activity; ink: root.ink; ink2: root.ink2; ink3: root.ink3;
                                 ground: root.themed ? root.theme-start : Theme.sidebar; track: root.themed ? root.ink.transparentize(0.8) : Theme.raised;
                                 open-link(url) => { root.open-link(url); }
@@ -1644,10 +1649,10 @@ export component ProfileCard inherits Rectangle {
     // What of the frame goes over the card.
     if root.has-frame: Rectangle {
         for layer in root.data.frame: Rectangle {
-            if layer.front && !(root.large && layer.anchor == "bottom"): ProfileFrameLayer {
+            if layer.front && !(root.large && layer.kind == "staple" && layer.anchor == "bottom"): ProfileFrameLayer {
                 x: -root.frame-side; y: 0px; width: root.frame-width; height: root.height;
                 layer: layer; card-height: root.height;
-                over-top: root.frame-over-top; over-bottom: root.frame-over-bottom;
+                top-shift: root.large ? 8px : 0px;
             }
         }
     }

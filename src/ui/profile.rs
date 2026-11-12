@@ -344,6 +344,9 @@ fn activity_row(activity: &yapfast_core::chat::Activity) -> ActivityRow {
         end: seconds(activity.end),
         url: text(&activity.url),
         link: text(&activity.link),
+        // Discord's Manage Privacy on one's own: a game's goes to the
+        // activity privacy settings.
+        game: activity.kind == yapfast_core::chat::ActivityKind::Playing,
     }
 }
 
@@ -435,14 +438,6 @@ fn frame_rows(frame: &[yapfast_core::chat::ProfileFrameLayer]) -> ModelRc<Profil
             })
             .collect::<Vec<_>>(),
     ))
-}
-
-/// The address of a banner's moving version: Discord's moving pictures have
-/// hashes that start with `a_`, and come as GIFs.
-pub(super) fn moving_banner(url: &str) -> Option<String> {
-    let (start, end) = url.split_once(".png?")?;
-    let hash = start.rsplit('/').next()?;
-    hash.starts_with("a_").then(|| format!("{start}.gif?{end}"))
 }
 
 /// The profile to show in place of `shown`, keeping its lists where they're
@@ -835,7 +830,7 @@ pub(super) fn profile_data(
         banner_moving: profile
             .banner
             .as_deref()
-            .and_then(moving_banner)
+            .and_then(yapfast_core::chat::moving_banner)
             .unwrap_or_default()
             .into(),
         mutual_friends_text: mutual_count(profile.friends.len(), "Friend").into(),

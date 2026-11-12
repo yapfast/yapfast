@@ -118,7 +118,8 @@ impl Application {
                 room,
                 user: person,
                 effect: self.state.cosmetics.effects,
-                frame: self.state.cosmetics.frames,
+                // The DM's panel draws no frame, so nothing of one is fetched.
+                frame: false,
             }))]
         } else {
             vec![]

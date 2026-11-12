@@ -8857,15 +8857,21 @@ const server = Bun.serve<SocketData>({
         session_id: ws.data.session, status: "online", activities: [], active: true,
         client_info: { client: "web", os: "linux", version: 0 },
       }));
-      dispatch("SESSIONS_REPLACE", [...own, {
+      const song = {
+        type: 2, name: "Spotify", id: "spotify:1", application_id: null, created_at: Date.now(),
+        details: "Song on the phone", state: "An artist", sync_id: "4uLU6hMCjMI75M1A2tKUQC",
+        timestamps: { start: Date.now() - 30_000, end: Date.now() + 150_000 },
+        assets: { large_image: "spotify:ab67616d0000b273", large_text: "An album" },
+      };
+      // With more than one session, Discord puts a merged one, "all", first.
+      dispatch("SESSIONS_REPLACE", [{
+        session_id: "all", status: "online", active: true,
+        client_info: { client: "unknown", os: "unknown", version: 0 },
+        activities: [song],
+      }, ...own, {
         session_id: "fake-phone", status: "online", active: true,
         client_info: { client: "mobile", os: "ios", version: 0 },
-        activities: [{
-          type: 2, name: "Spotify", id: "spotify:1", application_id: null, created_at: Date.now(),
-          details: "Song on the phone", state: "An artist", sync_id: "4uLU6hMCjMI75M1A2tKUQC",
-          timestamps: { start: Date.now() - 30_000, end: Date.now() + 150_000 },
-          assets: { large_image: "spotify:ab67616d0000b273", large_text: "An album" },
-        }],
+        activities: [song],
       }]);
       return new Response("online\n");
     }

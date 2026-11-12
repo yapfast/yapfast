@@ -5971,6 +5971,47 @@ fn profile_effects_are_kept_a_few_at_a_time_and_their_pictures_go_with_the_card(
 }
 
 #[test]
+fn a_cards_frame_and_moving_banner_go_with_it() {
+    let mut app = connected();
+    let layer = "https://cdn.discordapp.com/media/v1/collectibles-shop/9/a/static";
+    let banner = "https://cdn.discordapp.com/banners/1/a_77.png?size=600";
+    let moving = "https://cdn.discordapp.com/banners/1/a_77.gif?size=600";
+    app.state.profile = Some(ProfileView {
+        profile: Profile {
+            id: "1".into(),
+            banner: Some(banner.into()),
+            frame: Arc::from([crate::chat::ProfileFrameLayer {
+                src: layer.into(),
+                kind: "staple".into(),
+                anchor: "top".into(),
+                front: true,
+            }]),
+            theme: None,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    for url in [layer, moving].into_iter().map(String::from) {
+        app.requested_pictures.insert(url.clone());
+        app.apply(Event::Picture {
+            url,
+            picture: Arc::new(Picture::default()),
+        });
+    }
+    // They stay while the card shows, and go as it closes, though the trim
+    // is far off: each is about the card's size.
+    app.dispatch(Action::CloseAside);
+    for shown in [layer, moving] {
+        assert!(app.state.pictures.contains_key(shown), "{shown} stays");
+    }
+    app.dispatch(Action::CloseProfile);
+    for gone in [layer, moving] {
+        assert!(!app.state.pictures.contains_key(gone), "{gone} goes");
+        assert!(!app.requested_pictures.contains(gone), "{gone} goes");
+    }
+}
+
+#[test]
 fn the_selected_dms_nameplate_stays_and_the_others_go() {
     let mut app = connected();
     let selected = app.state.selected.clone().unwrap();

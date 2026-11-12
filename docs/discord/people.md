@@ -20,8 +20,8 @@ grey offline ring. These follow PRESENCE_UPDATE live. The header of an open
 one-to-one DM shows the same dot on their avatar, and their custom status or
 what they're doing in a bubble beside the name. A group DM
 shows how many are in it. A group DM lists its members by name, with their
-presence, and a crown on whoever made it (the channel's `owner_id`), as a
-server's member list crowns its owner. Yapfast downloads the pictures of the first
+presence, and a crown on whoever made it (the channel's `owner_id`), named
+"Group Owner", as a server's member list crowns its owner. Yapfast downloads the pictures of the first
 150 DMs listed; the rest keep their initials.
 
 Friend requests, message requests and spam have their own screen. A
@@ -283,9 +283,13 @@ sends and what the first other active session of the account's shows, from
 READY's `sessions` and `SESSIONS_REPLACE`: custom statuses left out, each
 `type:application_id:name` once, sorted as anyone's are (this session's first
 among equals), with one game at most (`activity::own`,
-`Snapshot::own_activities`). On one's own small card each activity has a
-"..." menu, as Discord's: View All Activity opens the editor on its Activity
-tab, and Manage Privacy opens Settings' activity section.
+`Snapshot::own_activities`). On a small card each activity but a bot's has
+a "..." menu, as Discord's: View All Activity opens the full profile on its
+Activity tab, and on one's own game Manage Privacy opens Settings' game
+activity section. Discord's client sends a Spotify or console activity's
+Manage Privacy to its Connections settings, which Yapfast doesn't have, so
+those have none, as other kinds have none in the client. A song's times read
+as the client's, `03:05` and `01:02:03`.
 The More button of a card, a full profile and a DM's profile panel opens
 the person's menu, as a right click on them does: a member's in a server, a
 DM's in their DM, and elsewhere Message, the friend request, Block, or
@@ -641,19 +645,23 @@ its card; the first time, `Event::ProfileFrame` brings it after the card.
 
 The card draws the layers as Discord's stylesheet does, from 12px past each
 side of a small card and 16px past a full one's: a `staple` once past the
-end it's anchored to, hanging 77 parts in 332 of the frame's width above
-and 53 below; a `rail` the card's height with its picture at its anchor; a
-`border` repeated down the card. The `back` layers go behind the card's
-contents and the others over them. The full profile leaves out the layers
-anchored at the foot, and shows none in a window under 785 pixels tall,
-which leaves no room above the card. The DM's panel and the editor's preview
-show none. Each layer decodes at up to 460 by 1600 (`FRAME_SIZE`), as wide
+end it's anchored to; a `rail` the card's height with its picture at its
+anchor; a `border` repeated down the card. Frames are drawn 1312 wide, and a
+staple keeps the same part over the card whatever its height, 412 at the top
+and 212 at the foot, as Discord's frame maker lays them out, so a short one
+hangs out less. The `back` layers go behind the card's contents and the
+others over them. The full profile leaves out the staple at the foot, and
+shows none in a window under 785 pixels tall, which leaves no room above
+the card. The DM's panel and the editor's preview show none, and the panel
+asks for none. Each layer decodes at up to 460 by 1600 (`FRAME_SIZE`), as wide
 as a card draws it.
 
 A banner whose hash starts with `a_` moves: the card shows its still PNG and
 plays the GIF at the same address once it has come, while animations play
 (`Motion.playing`), as a moving decoration does. With animations off in
-Settings the GIF isn't asked for.
+Settings the GIF isn't asked for. A frame's layers and a moving banner go
+when their card closes, as an effect's pictures do, rather than with the
+next trim.
 
 ## Display name styles
 
