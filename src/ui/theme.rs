@@ -617,7 +617,7 @@ fn token(name: &str) -> String {
 }
 
 /// Where a colour named as `layout.json` has it is in [`Theme::colour`].
-fn token_index(token: &str) -> Option<usize> {
+pub(super) fn token_index(token: &str) -> Option<usize> {
     Theme::NAMES.iter().position(|name| {
         name.bytes()
             .map(|byte| if byte == b'_' { b'-' } else { byte })
@@ -885,17 +885,28 @@ pub fn set_overlay(colours: Vec<(&'static str, u32)>) {
 /// Shows the chosen theme without plugins' colours while a dialog no plugin
 /// may restyle is open, such as the question before leaving for a link, and
 /// with them again once it closes.
+///
+/// An installed theme's shape, type, motion and colours give way to the stock
+/// ones the same way: see `theme_look::protect`.
 #[cfg(feature = "plugins")]
 pub fn protect(window: &YapfastWindow, open: bool) {
+    let stock = super::theme_look::protect(window, open);
     if overlay::protect(open)
         && let Some(theme) = overlay::last_chosen()
     {
         overlay::over(&theme).set(&window.global::<yapfast_ui::Theme>());
     }
+    if let Some(theme) = stock {
+        overlay::over(&theme).set(&window.global::<yapfast_ui::Theme>());
+    }
 }
 
 #[cfg(not(feature = "plugins"))]
-pub fn protect(_: &YapfastWindow, _: bool) {}
+pub fn protect(window: &YapfastWindow, open: bool) {
+    if let Some(theme) = super::theme_look::protect(window, open) {
+        theme.set(&window.global::<yapfast_ui::Theme>());
+    }
+}
 
 impl Theme {
     /// Shows the window in these colours, with plugins' colours over them.
@@ -954,6 +965,7 @@ pub fn cards(custom: &[Custom]) -> ModelRc<yapfast_ui::ThemeCard> {
                 .iter()
                 .map(|custom| card(&custom.id, &custom.name, true, &custom.theme)),
         )
+        .chain(super::theme_look::cards())
         .collect();
     ModelRc::new(VecModel::from(cards))
 }

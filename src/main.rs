@@ -84,9 +84,21 @@ fn main() -> Result<()> {
         return yapfast_core::stream_worker::run();
     }
     let mut arguments: Vec<_> = std::env::args().skip(1).collect();
+    // `yapfast theme check <folder>`: the checks a theme's install and the
+    // marketplace run, with no window.
+    #[cfg(feature = "desktop")]
+    if arguments.first().map(String::as_str) == Some("theme") {
+        if arguments.get(1).map(String::as_str) != Some("check") {
+            bail!("usage: yapfast theme check <folder> [--marketplace]");
+        }
+        std::process::exit(ui::theme_look::run_check(&arguments[2..]));
+    }
     // First, so nothing a desktop handed over with the link is read as an option.
     let handed = handed_link(&mut arguments);
     let renderer = renderer_argument(&mut arguments)?;
+    // `--default-theme` and `--theme-dev <folder>`; see ui::theme_look.
+    #[cfg(feature = "desktop")]
+    ui::theme_look::take_flags(&mut arguments).map_err(|error| anyhow::anyhow!(error))?;
     let background = flag_argument(&mut arguments, "--background");
     // Read before anything else is opened: a start that asked for no plugins
     // must not read the plugin store or spawn a helper, and the flag has to be
@@ -193,7 +205,7 @@ fn main() -> Result<()> {
         }
         [argument] if argument == "--help" || argument == "-h" => {
             println!(
-                "Usage: yapfast [--preview] [--data-dir PATH] [--renderer gpu|software] [--background] [--no-plugins] [LINK]\n       yapfast [--smoke-test | --version | --help | --release-discord-links]\n       yapfast --call-experiment [--resume PATH]\n       yapfast [--voice-demo | --audio-devices]\n       yapfast session login --homeserver URL --user USER --password-stdin [--data-dir PATH]\n       yapfast session status [--data-dir PATH]\n       yapfast session recover --key-stdin [--data-dir PATH]\n       yapfast session logout [--data-dir PATH]\n\nWithout arguments, opens native Slint chat and restores a saved session.\n--renderer selects Skia Software or Skia GPU for this start, over the setting.\nIf Skia GPU fails to start, Yapfast restarts with Skia Software.\n--background starts in the system tray with a saved session, as starting at sign-in does.\n--no-plugins starts without plugins' changes to the interface, keeping which are enabled.\nLINK opens a Discord server, channel, message, profile or invite link in Yapfast.\n--release-discord-links gives discord:// links back to the app that had them, as uninstalling does.\n--preview opens local sample conversations without connecting to Matrix.\n--smoke-test checks the linked stack without signing in or opening audio devices.\n--version prints which build this is: its version, whether it is a stable release, a nightly or a development build, and its commit.\n--call-experiment creates disposable local accounts and checks encrypted synthetic audio. Start scripts/test-stack up first.\n--voice-demo creates two local accounts and a server with encrypted text and voice channels.\n--audio-devices lists native audio devices and cameras without recording.\nSession commands support password sign-in. Secrets are read from stdin."
+                "Usage: yapfast [--preview] [--data-dir PATH] [--renderer gpu|software] [--background] [--no-plugins] [--default-theme] [--theme-dev FOLDER] [LINK]\n       yapfast theme check FOLDER [--marketplace]\n       yapfast [--smoke-test | --version | --help | --release-discord-links]\n       yapfast --call-experiment [--resume PATH]\n       yapfast [--voice-demo | --audio-devices]\n       yapfast session login --homeserver URL --user USER --password-stdin [--data-dir PATH]\n       yapfast session status [--data-dir PATH]\n       yapfast session recover --key-stdin [--data-dir PATH]\n       yapfast session logout [--data-dir PATH]\n\nWithout arguments, opens native Slint chat and restores a saved session.\n--renderer selects Skia Software or Skia GPU for this start, over the setting.\nIf Skia GPU fails to start, Yapfast restarts with Skia Software.\n--background starts in the system tray with a saved session, as starting at sign-in does.\n--no-plugins starts without plugins' changes to the interface, keeping which are enabled.\n--default-theme starts in the default theme, keeping the one chosen; Ctrl+Shift+T does the same while Yapfast runs.\n--theme-dev FOLDER shows the theme in FOLDER and shows it again each time a file in it is saved.\ntheme check FOLDER runs the checks an install runs on a theme, and with --marketplace those for listing it.\nLINK opens a Discord server, channel, message, profile or invite link in Yapfast.\n--release-discord-links gives discord:// links back to the app that had them, as uninstalling does.\n--preview opens local sample conversations without connecting to Matrix.\n--smoke-test checks the linked stack without signing in or opening audio devices.\n--version prints which build this is: its version, whether it is a stable release, a nightly or a development build, and its commit.\n--call-experiment creates disposable local accounts and checks encrypted synthetic audio. Start scripts/test-stack up first.\n--voice-demo creates two local accounts and a server with encrypted text and voice channels.\n--audio-devices lists native audio devices and cameras without recording.\nSession commands support password sign-in. Secrets are read from stdin."
             );
             Ok(())
         }

@@ -66,6 +66,7 @@ mod server_settings;
 mod shell;
 mod stickers;
 mod theme;
+pub mod theme_look;
 mod tiles;
 mod title_bar;
 mod yapfast;
@@ -189,8 +190,13 @@ pub fn run(
         autostart::refresh();
     }
     prepare(&window);
+    theme_look::init(&root);
     let adapter = Adapter::new(Arc::new(runtime), root, &window)?;
     bind_callbacks(&window, &adapter);
+    appearance::bind_themes(&window, &adapter);
+    if let Some(reason) = theme_look::take_failure() {
+        adapter.borrow_mut().app.state.notice = Some(reason);
+    }
     watch_window(&window, &adapter);
     adapter.borrow_mut().watch_away();
     adapter.borrow_mut().watch_talk_key(&window);
@@ -608,6 +614,25 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                             adapter.borrow_mut().stop_moving_person(&window);
                         }
                     });
+                }
+                // Ctrl+Shift+T shows the default theme for the rest of this
+                // run, wherever the focus is: the way back from a theme that
+                // made the window hard to use.
+                if let WindowEvent::KeyboardInput { event: key, .. } = event
+                    && key.state == ElementState::Pressed
+                    && !key.repeat
+                    && keys.control_shift()
+                    && key.physical_key == PhysicalKey::Code(KeyCode::KeyT)
+                    && let Some(window) = weak.upgrade()
+                {
+                    let (adapter, weak) = (adapter.clone(), weak.clone());
+                    slint::Timer::single_shot(Duration::ZERO, move || {
+                        if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
+                            adapter.borrow_mut().default_theme_for_session(&window);
+                        }
+                    });
+                    let _ = window;
+                    return EventResult::PreventDefault;
                 }
                 // Ctrl+K opens the quick switcher, or closes it, wherever the
                 // focus is, as in Discord; not over the settings or a link
@@ -1350,6 +1375,13 @@ struct Layout {
     theme: Option<String>,
     /// The person's own themes, in the order Appearance shows them.
     custom_themes: Vec<theme::Custom>,
+    /// The theme shown before the last one chosen, which Appearance's Back
+    /// returns to.
+    previous_theme: Option<String>,
+    /// How much of an installed theme runs; see `theme_look`.
+    theme_performance: yapfast_core::themes::Performance,
+    /// Installed themes' animations, effects and motion stay still.
+    reduce_motion: bool,
     /// Closing the window leaves Yapfast in the system tray; on unless turned off.
     close_to_tray: Option<bool>,
     /// Starting Yapfast again on this folder starts another, rather than
@@ -1568,11 +1600,33 @@ impl Layout {
             .global::<ClientStyle>()
             .get_enabled()
             .then_some("bonfire");
-        let (id, chosen) =
-            theme::chosen(self.theme.as_deref().or(default_theme), &self.custom_themes);
+        theme_look::set_motion(window, self.theme_performance, self.reduce_motion);
+        window.set_theme_performance(self.theme_performance.index());
+        window.set_theme_reduce_motion(self.reduce_motion);
+        // An installed theme, or `--theme-dev`'s folder, over its base; the
+        // default when this run asked for it or the theme can't be shown.
+        let built_in = self
+            .theme
+            .as_deref()
+            .filter(|id| !id.starts_with(theme_look::INSTALLED) && !theme_look::default_only());
+        let (id, chosen) = theme::chosen(built_in.or(default_theme), &self.custom_themes);
+        let (id, chosen) = match theme_look::startup(window, self.theme.as_deref()) {
+            Some(colours) => (
+                theme_look::applied_id().unwrap_or_else(|| id.to_owned()),
+                colours,
+            ),
+            None => (id.to_owned(), chosen),
+        };
         chosen.apply(window);
-        window.set_theme_id(id.into());
+        window.set_theme_id(id.as_str().into());
         window.set_themes(theme::cards(&self.custom_themes));
+        window.set_theme_previous_name(
+            self.previous_theme
+                .as_deref()
+                .and_then(|previous| theme_look::name_of(previous, &self.custom_themes))
+                .unwrap_or_default()
+                .into(),
+        );
         if let Some(width) = self.sidebar_width {
             window.set_sidebar_width(width);
         }

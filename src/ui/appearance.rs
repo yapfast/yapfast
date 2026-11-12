@@ -6,16 +6,87 @@ impl Adapter {
     /// Shows the window in a theme, built in or the person's own, and keeps
     /// it chosen. False for an id Yapfast doesn't know, which changes nothing.
     pub(super) fn choose_theme(&mut self, window: &YapfastWindow, id: &str) -> bool {
-        let Some((id, chosen)) =
+        let shown = if id.starts_with(theme_look::INSTALLED) {
+            match theme_look::show(window, id) {
+                Ok(colours) => Some((id.to_owned(), colours)),
+                Err(reason) => {
+                    // The theme that was showing stays; the person hears why.
+                    self.app.state.notice = Some(format!("That theme couldn't be shown: {reason}"));
+                    self.refresh(window);
+                    return false;
+                }
+            }
+        } else {
             theme::lookup(id, &self.layout.custom_themes).map(|(id, theme)| (id.to_owned(), theme))
-        else {
+        };
+        let Some((id, chosen)) = shown else {
             return false;
         };
+        if !id.starts_with(theme_look::INSTALLED) {
+            theme_look::clear(window);
+        }
         window.set_theme_id(id.as_str().into());
         self.set_theme(window, &chosen);
+        if self.layout.theme.as_deref() != Some(id.as_str()) {
+            self.layout.previous_theme = self.layout.theme.take();
+        }
         self.layout.theme = Some(id);
         self.layout.write(&self.root);
+        self.show_previous_theme(window);
         true
+    }
+
+    /// Appearance's Back: the theme shown before the last one chosen.
+    fn show_previous_theme(&self, window: &YapfastWindow) {
+        let name = self
+            .layout
+            .previous_theme
+            .as_deref()
+            .filter(|previous| self.layout.theme.as_deref() != Some(*previous))
+            .and_then(|previous| theme_look::name_of(previous, &self.layout.custom_themes));
+        window.set_theme_previous_name(name.unwrap_or_default().into());
+    }
+
+    /// Ctrl+Shift+T: the default theme until Yapfast starts again; the
+    /// chosen theme stays chosen.
+    pub(super) fn default_theme_for_session(&mut self, window: &YapfastWindow) {
+        theme_look::default_for_session(window);
+        let default = window.global::<ClientStyle>().get_enabled().then_some("bonfire");
+        let (id, chosen) = theme::chosen(default, &[]);
+        window.set_theme_id(id.into());
+        self.set_theme(window, &chosen);
+        self.app.state.notice = Some(
+            "Showing the default theme until Yapfast starts again (Ctrl+Shift+T). Choose any theme in Settings → Appearance."
+                .to_owned(),
+        );
+        self.refresh(window);
+    }
+
+    /// Shows what a theme on trial or `--theme-dev` came back to: a theme
+    /// by its id, without choosing it.
+    fn show_theme(&mut self, window: &YapfastWindow, id: Option<&str>) {
+        let default = window.global::<ClientStyle>().get_enabled().then_some("bonfire");
+        if let Some(id) = id.filter(|id| id.starts_with(theme_look::INSTALLED))
+            && let Ok(colours) = theme_look::show(window, id)
+        {
+            window.set_theme_id(id.into());
+            self.set_theme(window, &colours);
+            return;
+        }
+        theme_look::clear(window);
+        let (id, chosen) = theme::chosen(
+            id.filter(|id| !id.starts_with(theme_look::INSTALLED)).or(default),
+            &self.layout.custom_themes,
+        );
+        window.set_theme_id(id.into());
+        self.set_theme(window, &chosen);
+    }
+
+    /// Refreshes the Themes tab and Appearance's cards after the installed
+    /// themes changed.
+    fn themes_changed(&mut self, window: &YapfastWindow) {
+        window.set_themes(theme::cards(&self.layout.custom_themes));
+        theme_look::show_page(window, &super::plugin_settings::theme_listings());
     }
 
     /// Shows the window in another theme's colours, building again what
@@ -205,4 +276,148 @@ fn close_theme_editor(window: &YapfastWindow) {
     window.set_theme_editor(false);
     window.set_theme_colours(ModelRc::default());
     window.set_theme_starts(ModelRc::default());
+}
+
+/// Binds Appearance's installed-theme settings, the Themes tab and
+/// `--theme-dev`'s reload.
+pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
+    use yapfast_core::themes::Performance;
+    use yapfast_ui::{Look, ThemesPage};
+    // Each callback borrows the adapter and the window, as the others do.
+    macro_rules! on {
+        ($target:expr, $callback:ident($($arg:ident),*) => |$adapter:ident, $window:ident| $body:expr) => {{
+            let (state, weak) = (adapter.clone(), window.as_weak());
+            $target.$callback(move |$($arg),*| {
+                if let Some($window) = weak.upgrade()
+                    && let Ok(mut $adapter) = state.try_borrow_mut()
+                {
+                    let $adapter = &mut *$adapter;
+                    $body;
+                }
+            });
+        }};
+    }
+    {
+        let weak = window.as_weak();
+        window.global::<Look>().on_fx(move |slot, text, _tick| match weak.upgrade() {
+            Some(window) => theme_look::effect_text(&window, slot, text),
+            None => text,
+        });
+    }
+    on!(window, on_theme_revert() => |adapter, window| {
+        if let Some(previous) = adapter.layout.previous_theme.clone() {
+            adapter.choose_theme(&window, &previous);
+        }
+    });
+    on!(window, on_theme_performance_chosen(index) => |adapter, window| {
+        adapter.layout.theme_performance = Performance::from_index(index);
+        adapter.layout.write(&adapter.root);
+        window.set_theme_performance(index);
+        theme_look::set_motion(&window, adapter.layout.theme_performance, adapter.layout.reduce_motion);
+    });
+    on!(window, on_theme_reduce_motion_toggled(on) => |adapter, window| {
+        adapter.layout.reduce_motion = on;
+        adapter.layout.write(&adapter.root);
+        theme_look::set_motion(&window, adapter.layout.theme_performance, on);
+    });
+    on!(window, on_theme_reload() => |adapter, window| {
+        match theme_look::show(&window, "dev") {
+            Ok(colours) => {
+                adapter.set_theme(&window, &colours);
+                adapter.app.state.notice = None;
+            }
+            Err(reason) => {
+                // The last good version stays on the window.
+                adapter.app.state.notice = Some(format!("theme-dev: {reason}"));
+            }
+        }
+        adapter.refresh(&window);
+    });
+    let page = window.global::<ThemesPage>();
+    on!(page, on_opened() => |adapter, window| {
+        let _ = adapter;
+        theme_look::show_page(&window, &super::plugin_settings::theme_listings());
+    });
+    on!(page, on_apply(id) => |adapter, window| {
+        adapter.choose_theme(&window, &format!("{}{id}", theme_look::INSTALLED));
+        adapter.themes_changed(&window);
+    });
+    on!(page, on_try(id) => |adapter, window| {
+        let back = adapter.layout.theme.clone();
+        match theme_look::try_installed(&window, &id, back) {
+            Ok(colours) => adapter.set_theme(&window, &colours),
+            Err(reason) => window.global::<ThemesPage>().set_error(reason.into()),
+        }
+    });
+    on!(page, on_remove(id) => |adapter, window| {
+        let layout_id = format!("{}{id}", theme_look::INSTALLED);
+        if adapter.layout.theme.as_deref() == Some(layout_id.as_str()) {
+            let back = adapter.layout.previous_theme.clone().filter(|previous| *previous != layout_id);
+            adapter.layout.theme = back.clone();
+            adapter.layout.previous_theme = None;
+            adapter.layout.write(&adapter.root);
+            adapter.show_theme(&window, back.as_deref());
+        }
+        if let Err(reason) = theme_look::remove(&id) {
+            window.global::<ThemesPage>().set_error(reason.into());
+        }
+        adapter.themes_changed(&window);
+    });
+    on!(page, on_roll_back(id) => |adapter, window| {
+        if let Err(reason) = theme_look::roll_back(&id) {
+            window.global::<ThemesPage>().set_error(reason.into());
+        }
+        let layout_id = format!("{}{id}", theme_look::INSTALLED);
+        if adapter.layout.theme.as_deref() == Some(layout_id.as_str()) {
+            adapter.show_theme(&window, Some(&layout_id));
+        }
+        adapter.themes_changed(&window);
+    });
+    on!(page, on_install_listed(id) => |adapter, window| {
+        let _ = (adapter, id);
+        // The marketplace's own fetch is the plugin system's, and lands with
+        // it; until then a listed theme installs from its repository.
+        window.global::<ThemesPage>().set_error(
+            "Installing from the marketplace comes with the marketplace itself; add the theme from its GitHub repository below.".into(),
+        );
+    });
+    on!(page, on_find(url) => |adapter, window| {
+        let _ = adapter;
+        theme_look::find(&window, url.to_string());
+    });
+    on!(page, on_install_review() => |adapter, window| {
+        match theme_look::install_review(&window) {
+            Ok(id) => {
+                adapter.choose_theme(&window, &id);
+                adapter.themes_changed(&window);
+            }
+            Err(reason) => window.global::<ThemesPage>().set_error(reason.into()),
+        }
+    });
+    on!(page, on_cancel_review() => |adapter, window| {
+        let _ = adapter;
+        theme_look::close_review(&window);
+    });
+    on!(page, on_try_review() => |adapter, window| {
+        let back = adapter.layout.theme.clone();
+        match theme_look::try_review(&window, back) {
+            Ok(colours) => adapter.set_theme(&window, &colours),
+            Err(reason) => window.global::<ThemesPage>().set_error(reason.into()),
+        }
+    });
+    on!(page, on_keep() => |adapter, window| {
+        match theme_look::end_trial(&window, true) {
+            Some(Ok(id)) => {
+                adapter.choose_theme(&window, &id);
+                adapter.themes_changed(&window);
+            }
+            Some(Err(back)) => adapter.show_theme(&window, back.as_deref()),
+            None => {}
+        }
+    });
+    on!(page, on_revert() => |adapter, window| {
+        if let Some(Err(back)) = theme_look::end_trial(&window, false) {
+            adapter.show_theme(&window, back.as_deref());
+        }
+    });
 }

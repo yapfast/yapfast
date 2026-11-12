@@ -387,6 +387,8 @@ fn bind_page(window: &YapfastWindow) {
                     forget_icons();
                 }
             });
+            // The Themes tab's previews go with the page.
+            super::theme_look::close_page(&window);
         });
     }
     // How the Installed tab draws plugins: a list to read down, cards to scan
@@ -396,7 +398,7 @@ fn bind_page(window: &YapfastWindow) {
     });
     on!(on_tab_chosen(tab) => |page| {
         page.tab = tab;
-        if tab == 0 {
+        if tab == 0 || tab == 3 {
             load_catalog(page);
         }
     });
@@ -535,6 +537,23 @@ fn input(kind: &Kind, value: &str) -> Input {
 }
 
 /// Asks for the catalog once the marketplace shows, unless it's there.
+/// The marketplace's themes, for the Themes tab: asks for the catalog when
+/// it isn't loaded, and the tab shows them once it is.
+pub(super) fn theme_listings() -> Vec<Listing> {
+    PAGE.with_borrow_mut(|page| {
+        let Some(page) = page.as_mut() else { return Vec::new() };
+        load_catalog(page);
+        match &page.source.view().catalog {
+            Catalog::Ready(listings) => listings
+                .iter()
+                .filter(|listing| listing.kind == yapfast_core::plugins::page::Kind::Theme)
+                .cloned()
+                .collect(),
+            _ => Vec::new(),
+        }
+    })
+}
+
 fn load_catalog(page: &mut Page) {
     if matches!(page.source.view().catalog, Catalog::Unloaded) {
         page.source.request(Request::LoadCatalog);
@@ -866,7 +885,10 @@ fn review(review: &Review) -> PluginReview {
 fn categories(listings: &[Listing]) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
     for listing in listings {
-        if !listing.category.is_empty() && !found.contains(&listing.category) {
+        if listing.kind == yapfast_core::plugins::page::Kind::Plugin
+            && !listing.category.is_empty()
+            && !found.contains(&listing.category)
+        {
             found.push(listing.category.clone());
         }
     }
@@ -950,6 +972,8 @@ fn show(window: &YapfastWindow, page: &mut Page) {
                 .and_then(|index| all.get(index));
             let rows: Vec<ListingRow> = listings
                 .iter()
+                // Themes have a tab of their own.
+                .filter(|item| item.kind == yapfast_core::plugins::page::Kind::Plugin)
                 .filter(|item| category.is_none_or(|category| item.category == *category))
                 .filter(|item| item.matches(&page.query))
                 .map(|item| listing(item, view.plugin(&item.id).is_some()))

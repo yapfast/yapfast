@@ -63,6 +63,11 @@ impl Keys {
         self.control && !self.alt && !self.shift
     }
 
+    /// Ctrl and Shift are held, without Alt.
+    pub fn control_shift(&self) -> bool {
+        self.control && self.shift && !self.alt
+    }
+
     /// Alt is held, without Ctrl or Shift.
     pub fn alt_only(&self) -> bool {
         self.alt && !self.control && !self.shift

@@ -1,0 +1,72 @@
+{
+  "theme_api": 1,
+  "id": "com.example.template",
+  "name": "Template",
+  "version": "1.0.0",
+  "description": "A starting point: copy this folder, change the id and name, and make it yours.",
+  "authors": ["Your Name"],
+  "license": "CC0-1.0",
+  "source": "https://github.com/your-name/your-theme",
+  "preview": [],
+
+  "shape": {
+    "button": { "radius": 8 },
+    "field": { "radius": 8 },
+    "composer": { "radius": 12 },
+    "card": { "radius": 14, "shadow": { "blur": 24, "y": 8, "colour": "#00000066" } },
+    "menu": { "radius": 10 },
+    "dialog": { "radius": 14 },
+    "chip": { "radius": 999 },
+    "avatar": { "radius": 50 },
+    "radii": { "small": 4, "medium": 8, "large": 12 }
+  },
+  "type": {
+    "body": { "size": 15 },
+    "headings": { "weight": 800, "letter_spacing": 0.2 },
+    "names": { "weight": 600 },
+    "labels": { "letter_spacing": 1 }
+  },
+  "spacing": {
+    "density": "default",
+    "message_group_gap": 18,
+    "avatar_size": 40
+  },
+  "motion": {
+    "quick": 140,
+    "popup": 160,
+    "curve": "ease-out",
+    "hover": "lift",
+    "press": "scale",
+    "open": "zoom",
+    "close": "reverse"
+  },
+  "animations": [
+    { "name": "unread breathes", "slot": "unread", "property": "opacity",
+      "values": [1, 0.55, 1], "period": 2400, "easing": "ease-in-out" }
+  ],
+  "effects": {
+    "channel.name": { "effect": "decrypt", "duration": 500 }
+  },
+
+  "variants": {
+    "dark": {
+      "base": "yap",
+      "colours": {
+        "accent": "#7aa2ff",
+        "accent-hover": "#93b4ff",
+        "on-accent": "#0b1020",
+        "accent-text": "#93b4ff",
+        "selection": "#7aa2ff59"
+      }
+    },
+    "light": {
+      "base": "sakura",
+      "colours": {
+        "accent": "#3558c9",
+        "accent-hover": "#2a48ad",
+        "on-accent": "#ffffff",
+        "accent-text": "#2a48ad"
+      }
+    }
+  }
+}
