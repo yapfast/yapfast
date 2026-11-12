@@ -25,10 +25,36 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use yapfast_core::plugins::installing;
 use yapfast_core::plugins::marketplace;
+use yapfast_core::plugins::page;
 use yapfast_core::plugins::registry::Registry;
 use yapfast_core::plugins::store::{self, Store};
 
 const ID: &str = "dev.local.echo";
+const THEME: &str = "dev.local.night";
+
+/// A theme's entry: `kind: "theme"`, pinned to its `theme.json`'s hash, with
+/// no permissions because a theme has no code.
+fn theme_entry(repository: &str, rev: &str, sha256: &str) -> String {
+    format!(
+        r#"{{
+  "kind": "theme",
+  "api": 1,
+  "id": "{THEME}",
+  "name": "Night",
+  "version": "1.0.0",
+  "description": "Amber on black.",
+  "authors": [],
+  "repo": "{repository}",
+  "path": "",
+  "rev": "{rev}",
+  "sha256": "{sha256}",
+  "category": "Themes",
+  "tags": [],
+  "source": "{repository}",
+  "license": "MIT"
+}}"#
+    )
+}
 
 /// The plugin's manifest, as `plugins/echo/yapfast-plugin.json` holds it.
 fn manifest() -> String {
@@ -103,17 +129,34 @@ fn a_registry_is_browsed_installed_and_checked_against_its_entry() {
     let rev = commit(plugin.path());
     let sha256 = store::sha256(&std::fs::read(&module).expect("the module's bytes"));
 
-    // The registry: the entry, its icon, and the index CI builds.
+    // A theme's repository: a `theme.json` at its root.
+    let theme = tempfile::tempdir().expect("a theme repository");
+    let theme_json = format!(r#"{{ "id": "{THEME}", "name": "Night" }}"#);
+    std::fs::write(theme.path().join("theme.json"), &theme_json).expect("its theme.json");
+    let theme_repository = format!("file://{}", theme.path().display());
+    let theme_rev = commit(theme.path());
+
+    // The registry: the entries, an icon, and the index CI builds.
     let registry = tempfile::tempdir().expect("a registry repository");
     std::fs::create_dir_all(registry.path().join("plugins")).expect("the entry folder");
     std::fs::create_dir_all(registry.path().join("icons")).expect("the icon folder");
     let entry_file = registry.path().join(format!("plugins/{ID}.json"));
     std::fs::write(&entry_file, entry(&repository, &rev, &sha256)).expect("its entry");
     std::fs::write(registry.path().join(format!("icons/{ID}.webp")), icon()).expect("its icon");
+    let theme_file = registry.path().join(format!("plugins/{THEME}.json"));
+    std::fs::write(
+        &theme_file,
+        theme_entry(
+            &theme_repository,
+            &theme_rev,
+            &store::sha256(theme_json.as_bytes()),
+        ),
+    )
+    .expect("the theme's entry");
     std::fs::write(
         registry.path().join("index.json"),
         format!(
-            r#"{{ "api": 1, "plugins": ["{ID}"], "delisted": [
+            r#"{{ "api": 1, "plugins": ["{ID}", "{THEME}"], "delisted": [
                 {{ "id": "org.example.leaky", "reason": "it uploaded what it read", "security": true }}
             ] }}"#
         ),
@@ -125,8 +168,16 @@ fn a_registry_is_browsed_installed_and_checked_against_its_entry() {
     // the entry behind it and the icon's bytes.
     let address = format!("file://{}", registry.path().display());
     let catalog = marketplace::load(&address).expect("the registry reads");
-    assert_eq!(catalog.listings.len(), 1, "one row");
+    assert!(catalog.refused.is_empty(), "{:?}", catalog.refused);
+    assert_eq!(catalog.listings.len(), 2, "a row each");
     assert_eq!(catalog.listings[0].id, ID);
+    assert_eq!(
+        catalog.listings[0].kind,
+        page::Kind::Plugin,
+        "no kind is a plugin"
+    );
+    assert_eq!(catalog.listings[1].id, THEME);
+    assert_eq!(catalog.listings[1].kind, page::Kind::Theme);
     assert!(catalog.listings[0].reviewed, "a maintainer read it");
     assert_eq!(catalog.listings[0].category, "Chat");
     assert_eq!(
@@ -191,6 +242,18 @@ fn a_registry_is_browsed_installed_and_checked_against_its_entry() {
     assert!(
         checked.status.success() && printed.contains("\"kind\":\"verified\""),
         "the entry is accepted: {printed}"
+    );
+
+    // A theme's entry is checked against its `theme.json` at the pinned commit.
+    let checked = Command::new(locate())
+        .arg("verify-entry")
+        .arg(&theme_file)
+        .output()
+        .expect("the helper runs");
+    let printed = String::from_utf8_lossy(&checked.stdout);
+    assert!(
+        checked.status.success() && printed.contains("\"kind\":\"verified\""),
+        "the theme's entry is accepted: {printed}"
     );
 
     // And the entry a maintainer would refuse: a license a listing may not

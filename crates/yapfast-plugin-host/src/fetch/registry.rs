@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! yapfast-plugin-registry/
-//!   plugins/com.example.word-filter.json   repo, path, rev, sha256, category, tags
+//!   plugins/com.example.word-filter.json   kind, repo, path, rev, sha256, category, tags
 //!   icons/com.example.word-filter.webp     128×128, ≤ 24 KiB
 //!   index.json                             built by CI
 //! ```
@@ -46,6 +46,9 @@ pub const INDEX_FILE: &str = "index.json";
 pub const ENTRY_DIR: &str = "plugins";
 /// The folder the icons sit in, one `<id>.webp` each.
 pub const ICON_DIR: &str = "icons";
+/// What a theme is: this one file and what it names. A theme's entry pins its
+/// hash where a plugin's pins its module's.
+pub const THEME_FILE: &str = "theme.json";
 
 /// An icon is 128 by 128, at most 24 KiB.
 pub const ICON_SIDE: u32 = 128;
@@ -87,9 +90,22 @@ pub struct Delisted {
     pub security: bool,
 }
 
+/// What an entry lists. No `kind` is a plugin: registries listed nothing else
+/// before themes, and their entries still read.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    #[default]
+    Plugin,
+    /// A `theme.json` package: no module, and so no permissions.
+    Theme,
+}
+
 /// One entry, as `plugins/<id>.json` writes it.
 #[derive(Debug, Deserialize)]
 pub struct Entry {
+    #[serde(default)]
+    pub kind: Kind,
     #[serde(default)]
     pub api: Option<u64>,
     pub id: String,
@@ -204,8 +220,12 @@ impl Entry {
         }
         if !is_hex(&self.sha256, 64) {
             bail!(
-                "`{}` isn't the SHA-256 of the module the entry pins",
-                self.sha256
+                "`{}` isn't the SHA-256 of the {} the entry pins",
+                self.sha256,
+                match self.kind {
+                    Kind::Plugin => "module",
+                    Kind::Theme => THEME_FILE,
+                }
             );
         }
         if !osi_approved(&self.license) {
@@ -231,6 +251,13 @@ impl Entry {
                      wildcard is written `*.example.com`"
                 );
             }
+        }
+        if self.kind == Kind::Theme
+            && !(self.permissions.capabilities.is_empty() && self.permissions.network.is_empty())
+        {
+            bail!(
+                "`{file}` is a theme and asks for permissions, and a theme has no code to use them"
+            );
         }
         if let Some(icon) = &self.icon
             && icon != &format!("{ICON_DIR}/{}.webp", self.id)
@@ -361,13 +388,15 @@ pub struct Verified {
     pub sha256: String,
 }
 
-/// Checks one entry file, and the plugin it pins.
+/// Checks one entry file, and the plugin or theme it pins.
 ///
 /// This is the review's half that a machine can do: the schema, the license
 /// and source link a listing promises, the commit the entry pins, the hash of
 /// the module at that commit, the manifest's own validity and hosts, and the
-/// icon's size. What is left for the person merging the pull request is
-/// reading the source, which is what *Reviewed* then means.
+/// icon's size. A theme has no module and no manifest: its entry pins the hash
+/// of its `theme.json`, which has to declare the entry's id. What is left for
+/// the person merging the pull request is reading the source, which is what
+/// *Reviewed* then means.
 pub fn verify_entry(file: &Path) -> anyhow::Result<Verified> {
     let text = std::fs::read_to_string(file)
         .with_context(|| format!("could not read {}", file.display()))?;
@@ -391,6 +420,51 @@ pub fn verify_entry(file: &Path) -> anyhow::Result<Verified> {
             snapshot.commit
         );
     }
+    let sha256 = match entry.kind {
+        Kind::Plugin => verify_plugin(&entry, &snapshot)?,
+        Kind::Theme => verify_theme(&entry, &snapshot)?,
+    };
+    verify_icon(&entry, file)?;
+    Ok(Verified {
+        id: entry.id,
+        rev: snapshot.commit,
+        sha256,
+    })
+}
+
+/// A theme's half: the hash of its `theme.json` at the pinned commit, and the
+/// id it declares. What a theme may contain is the themes code's to check, as
+/// an install of it does; a listing promises the file review read.
+fn verify_theme(entry: &Entry, snapshot: &Snapshot) -> anyhow::Result<String> {
+    let text = snapshot
+        .file(Path::new(THEME_FILE), MANIFEST_CAP)?
+        .with_context(|| format!("`{}` holds no `{THEME_FILE}` at this commit", entry.repo))?;
+    let sha256 = hex(Sha256::digest(&text).as_slice());
+    if !sha256.eq_ignore_ascii_case(&entry.sha256) {
+        bail!(
+            "the entry pins `{}` and the `{THEME_FILE}` at that commit is `{sha256}`",
+            entry.sha256
+        );
+    }
+    #[derive(Deserialize)]
+    struct Declared {
+        id: String,
+    }
+    let declared: Declared = serde_json::from_slice(&text)
+        .with_context(|| format!("its `{THEME_FILE}` doesn't name its id"))?;
+    if declared.id != entry.id {
+        bail!(
+            "the entry is for `{}`, and the theme declares `{}`",
+            entry.id,
+            declared.id
+        );
+    }
+    Ok(sha256)
+}
+
+/// A plugin's half: its manifest, the module it names, and what the row copies
+/// from the manifest.
+fn verify_plugin(entry: &Entry, snapshot: &Snapshot) -> anyhow::Result<String> {
     let manifest_text = snapshot
         .file(Path::new(MANIFEST_FILE), MANIFEST_CAP)?
         .with_context(|| format!("`{}` holds no `{MANIFEST_FILE}` at this commit", entry.repo))?;
@@ -479,7 +553,11 @@ pub fn verify_entry(file: &Path) -> anyhow::Result<Verified> {
     }
     // The imports are checked the same way an install checks them.
     super::imports::check(&module, &named.display().to_string(), manifest.wasi)?;
+    Ok(sha256)
+}
 
+/// The entry's icon, which every kind may have.
+fn verify_icon(entry: &Entry, file: &Path) -> anyhow::Result<()> {
     if let Some(icon) = &entry.icon {
         // The icon is the registry's own file, beside the entry's folder: CI
         // runs this inside a checkout of the registry, and a missing picture
@@ -505,11 +583,7 @@ pub fn verify_entry(file: &Path) -> anyhow::Result<Verified> {
             ),
         }
     }
-    Ok(Verified {
-        id: entry.id,
-        rev: snapshot.commit,
-        sha256,
-    })
+    Ok(())
 }
 
 /// `verify-entry`, and the one JSON object it prints.
@@ -867,6 +941,36 @@ mod tests {
         bytes.extend_from_slice(&[127, 0, 0]);
         assert_eq!(webp_size(&bytes), Some((128, 128)));
         assert_eq!(webp_size(b"\x89PNG\r\n\x1a\n"), None);
+    }
+
+    #[test]
+    fn an_entry_is_a_plugin_unless_it_says_it_is_a_theme() {
+        let file = "plugins/com.example.word-filter.json";
+        let old = entry_text("com.example.word-filter");
+        let entry = Entry::parse(&old, file).expect("an entry from before themes");
+        assert_eq!(entry.kind, Kind::Plugin);
+
+        let with = |kind: &str| {
+            old.replacen(
+                "\"api\": 1,",
+                &format!("\"api\": 1, \"kind\": \"{kind}\","),
+                1,
+            )
+        };
+        let theme = with("theme").replace(
+            r#""permissions": { "capabilities": ["messages.read"], "network": ["api.example.com"] }"#,
+            r#""permissions": {}"#,
+        );
+        assert_eq!(
+            Entry::parse(&theme, file).expect("a theme").kind,
+            Kind::Theme
+        );
+
+        // A theme has no code, so a theme asking for permissions is a mistake.
+        let error = Entry::parse(&with("theme"), file).expect_err("a theme with permissions");
+        assert!(error.to_string().contains("no code"), "{error}");
+        // A kind this build doesn't know isn't read as a plugin.
+        assert!(Entry::parse(&with("sound-pack"), file).is_err());
     }
 
     #[test]

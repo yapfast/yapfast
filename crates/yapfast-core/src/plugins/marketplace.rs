@@ -39,7 +39,7 @@ use yapfast_plugin_api::capability::HostPattern;
 use yapfast_plugin_api::{API_VERSION, PluginId};
 
 use super::installing::Fetched;
-use super::page::{Installed, Listing, Origin, Update};
+use super::page::{Installed, Kind, Listing, Origin, Update};
 
 /// The file at the repository's root that says what it lists.
 pub const INDEX: &str = "index.json";
@@ -92,6 +92,9 @@ pub fn icon_id(url: &str) -> Option<&str> {
 /// repository: the plugin's manifest is never fetched to draw a row.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Entry {
+    /// A plugin, or a theme. An entry that doesn't say is a plugin, which is
+    /// every entry a registry wrote before themes were listed.
+    pub kind: Kind,
     pub id: String,
     pub name: String,
     pub description: String,
@@ -103,7 +106,8 @@ pub struct Entry {
     pub path: String,
     /// The commit the entry pins: a full git object name.
     pub rev: String,
-    /// The SHA-256 of the module at that commit, checked again at install.
+    /// The SHA-256 of the module at that commit, checked again at install; a
+    /// theme's is of its `theme.json`.
     pub sha256: String,
     pub category: String,
     pub tags: Vec<String>,
@@ -135,6 +139,7 @@ impl Entry {
     /// [`icon_url`], so a picture is decoded only where it is shown.
     pub fn listing(&self, reviewed: bool) -> Listing {
         Listing {
+            kind: self.kind,
             id: self.id.clone(),
             name: self.name.clone(),
             description: self.description.clone(),
@@ -216,6 +221,10 @@ pub enum Refusal {
     Duplicate(String),
     /// An index that lists no plugin.
     Empty,
+    /// A `kind` that is neither `plugin` nor `theme`.
+    Kind(String),
+    /// A theme that asks for capabilities or hosts: it has no code to use them.
+    ThemePermissions,
 }
 
 impl Refusal {
@@ -267,6 +276,12 @@ impl Refusal {
             ),
             Refusal::Duplicate(written) => format!("`{written}` is listed twice"),
             Refusal::Empty => "it lists no plugin".into(),
+            Refusal::Kind(written) => format!(
+                "`{written}` isn't a kind this Yapfast lists: an entry is a `plugin` or a `theme`"
+            ),
+            Refusal::ThemePermissions => {
+                "it is a theme and asks for permissions, and a theme has no code to use them".into()
+            }
         }
     }
 }
@@ -274,6 +289,8 @@ impl Refusal {
 /// The fields an entry file is read as, before they are checked.
 #[derive(Deserialize)]
 struct Written {
+    #[serde(default)]
+    kind: Option<String>,
     #[serde(default)]
     api: Option<u64>,
     #[serde(default)]
@@ -326,6 +343,14 @@ impl Entry {
             Some(api) if api == u64::from(API_VERSION) => {}
             other => return Err(Refusal::Api(other)),
         }
+        // No `kind` is a plugin: registries listed nothing else before themes.
+        // A kind a later Yapfast adds is refused here rather than offered as
+        // something this one can't install.
+        let kind = match written.kind.as_deref() {
+            None | Some("plugin") => Kind::Plugin,
+            Some("theme") => Kind::Theme,
+            Some(other) => return Err(Refusal::Kind(other.to_owned())),
+        };
         let id = written
             .id
             .filter(|id| !id.is_empty())
@@ -366,6 +391,12 @@ impl Entry {
                 return Err(Refusal::Host(host.clone()));
             }
         }
+        if kind == Kind::Theme
+            && !(written.permissions.capabilities.is_empty()
+                && written.permissions.network.is_empty())
+        {
+            return Err(Refusal::ThemePermissions);
+        }
         let icon = written.icon.filter(|icon| !icon.is_empty());
         if let Some(icon) = &icon
             && icon != &format!("{ICONS}/{id}.webp")
@@ -373,6 +404,7 @@ impl Entry {
             return Err(Refusal::Icon(icon.clone()));
         }
         Ok(Entry {
+            kind,
             id,
             name,
             description: written.description.unwrap_or_default(),
@@ -961,6 +993,46 @@ mod tests {
         assert_eq!(
             entry.url(),
             "https://codeberg.org/ada/word-filter@051b765bb6abe4fe95d5e4f489f03ad7b137edbc"
+        );
+    }
+
+    /// An entry says whether it is a plugin or a theme. One that doesn't is a
+    /// plugin, as every entry was before themes were listed.
+    #[test]
+    fn an_entry_is_a_plugin_unless_it_says_it_is_a_theme() {
+        let file = "plugins/com.example.word-filter.json";
+        let old = entry_text("com.example.word-filter");
+        let entry = Entry::parse(&old, file).expect("an entry without a kind");
+        assert_eq!(entry.kind, Kind::Plugin);
+        assert_eq!(entry.listing(true).kind, Kind::Plugin);
+
+        let with = |kind: &str| {
+            old.replacen(
+                "\"api\": 1,",
+                &format!("\"api\": 1, \"kind\": \"{kind}\","),
+                1,
+            )
+        };
+        let plugin = Entry::parse(&with("plugin"), file).expect("a plugin entry");
+        assert_eq!(plugin.kind, Kind::Plugin);
+
+        // A theme has no code, so it asks for nothing.
+        assert_eq!(
+            Entry::parse(&with("theme"), file),
+            Err(Refusal::ThemePermissions)
+        );
+        let theme = with("theme").replace(
+            r#""permissions": { "capabilities": ["messages.read"], "network": ["api.example.com"] }"#,
+            r#""permissions": {}"#,
+        );
+        let theme = Entry::parse(&theme, file).expect("a theme entry");
+        assert_eq!(theme.kind, Kind::Theme);
+        assert_eq!(theme.listing(true).kind, Kind::Theme);
+
+        // A kind from a later Yapfast is one row this one doesn't offer.
+        assert_eq!(
+            Entry::parse(&with("sound-pack"), file),
+            Err(Refusal::Kind("sound-pack".into()))
         );
     }
 

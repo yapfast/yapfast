@@ -8,7 +8,7 @@ Settings doesn't list the page. The page is behind an `if` in
 It has three choices at the top:
 
 - **Marketplace**: a search field, a category filter and a list of the
-  registry's plugins, each with its icon, *Reviewed* when a maintainer read
+  registry's plugins (its themes, `kind: "theme"`, aren't listed here), each with its icon, *Reviewed* when a maintainer read
   its source, what it reaches (`messages, 1 host`) and Install. The list is
   a `ListView` in a `SettingsFrame` with `fill`, so only the rows in sight
   exist, and a row's icon goes through `PictureStore` only while the row

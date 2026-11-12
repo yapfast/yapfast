@@ -6,7 +6,7 @@ pictures out of it, and keeps nothing once Settings → Plugins is closed.
 
 ```
 yapfast-plugin-registry/
-  plugins/com.example.word-filter.json   one entry per plugin
+  plugins/com.example.word-filter.json   one entry per plugin or theme
   icons/com.example.word-filter.webp     128×128, at most 24 KiB
   index.json                             what the repository lists, built by CI
 ```
@@ -48,6 +48,7 @@ browsing reads one repository:
 
 | Field | What it is, and what is refused |
 | --- | --- |
+| `kind` | `plugin` or `theme`. An entry without one is a plugin, so a registry written before themes still reads; a kind this Yapfast doesn't know is refused rather than listed as a plugin. |
 | `api` | The plugin API version. Names another one and the entry isn't read. |
 | `id` | Reverse-DNS, the plugin's own id. It is the entry's file name: `plugins/<id>.json`. |
 | `name`, `version` | What the row shows. They are the manifest's, and CI compares them. |
@@ -55,11 +56,21 @@ browsing reads one repository:
 | `repo` | The repository the plugin installs from: `https`. `file` is for development only. |
 | `path` | The folder inside it holding `yapfast-plugin.json`, empty for the root. It can't be absolute or climb out with `..`. |
 | `rev` | The pin: the full 40-character commit. A branch or a short id leaves nothing to check an install against. |
-| `sha256` | The SHA-256 of the module at that commit, in lowercase hex. |
+| `sha256` | The SHA-256 of the module at that commit, in lowercase hex; for a theme, of its `theme.json`. |
 | `source` | The public link a maintainer read. It must name `repo`, or the folder or ref in it: review read the code that is installed. |
 | `license` | An OSI-approved license, as SPDX writes it: `MIT`, `Apache-2.0`, `GPL-3.0-or-later`, `MIT OR Apache-2.0`. The manifest's `license` must be the same. |
 | `icon` | `icons/<id>.webp`, a 128×128 WebP of at most 24 KiB, in the registry itself. Pointing at an image host is refused: browsing contacts one repository, and no plugin author learns who is looking. |
-| `permissions.capabilities`, `permissions.network` | What the plugin reaches, which is what the row sums up as `messages, 1 host`. A bare `*` host is refused; a wildcard is `*.example.com`. |
+| `permissions.capabilities`, `permissions.network` | What the plugin reaches, which is what the row sums up as `messages, 1 host`. A bare `*` host is refused; a wildcard is `*.example.com`. A theme has no code, and a theme entry that asks for either is refused. |
+
+### Themes
+
+A theme is listed by the same registry, in the same `plugins/` folder and the
+same `index.json`, as an entry with `"kind": "theme"`. It has no module and no
+manifest: `rev` pins its commit, `sha256` pins its `theme.json`, and `id` is the
+id that file declares. Everything else is a plugin entry's, except
+`permissions`, which a theme leaves out. Settings → Plugins lists only plugins;
+the catalog keeps the theme listings beside them, marked by
+`Listing::kind`, for the page that installs themes.
 
 ## The index
 
@@ -96,7 +107,8 @@ cargo build --profile fast -p yapfast-plugin-host
 target/fast/yapfast-plugins verify-entry plugins/com.example.word-filter.json
 ```
 
-`verify-entry` checks what a machine can check:
+`verify-entry` checks what a machine can check (a theme's entry: the first
+three, then `theme.json`'s hash and id in place of 4 to 6, then the icon):
 
 1. the schema, the entry's file name against its `id`, the API version;
 2. an OSI-approved `license`, and a `source` that names the repository;

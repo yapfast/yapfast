@@ -865,13 +865,19 @@ fn review(review: &Review) -> PluginReview {
 /// The categories in the catalog, in order, after "All categories".
 fn categories(listings: &[Listing]) -> Vec<String> {
     let mut found: Vec<String> = Vec::new();
-    for listing in listings {
+    for listing in listings.iter().filter(|listing| is_plugin(listing)) {
         if !listing.category.is_empty() && !found.contains(&listing.category) {
             found.push(listing.category.clone());
         }
     }
     found.sort();
     found
+}
+
+/// The catalog lists plugins and themes together; this page installs plugins,
+/// and a theme's row is the themes page's to draw.
+fn is_plugin(listing: &Listing) -> bool {
+    listing.kind == page::Kind::Plugin
 }
 
 fn show(window: &YapfastWindow, page: &mut Page) {
@@ -950,6 +956,7 @@ fn show(window: &YapfastWindow, page: &mut Page) {
                 .and_then(|index| all.get(index));
             let rows: Vec<ListingRow> = listings
                 .iter()
+                .filter(|item| is_plugin(item))
                 .filter(|item| category.is_none_or(|category| item.category == *category))
                 .filter(|item| item.matches(&page.query))
                 .map(|item| listing(item, view.plugin(&item.id).is_some()))

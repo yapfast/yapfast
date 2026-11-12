@@ -212,9 +212,21 @@ pub enum Catalog {
     Ready(Arc<[Listing]>),
 }
 
-/// A plugin in the marketplace.
+/// What a marketplace entry is: the catalog lists plugins and themes
+/// together, as `kind` in its entries says.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Kind {
+    #[default]
+    Plugin,
+    /// A `theme.json` package: no code and no permissions. This page lists
+    /// only plugins; a theme's listing is for the page that installs themes.
+    Theme,
+}
+
+/// A plugin or a theme in the marketplace.
 #[derive(Clone, Debug, Default)]
 pub struct Listing {
+    pub kind: Kind,
     pub id: String,
     pub name: String,
     pub description: String,
@@ -940,6 +952,7 @@ impl Fixture {
             reviewed: true,
             capabilities: strings(capabilities),
             network: strings(network),
+            ..Listing::default()
         };
         let mut listings = vec![
             Listing {
