@@ -646,9 +646,7 @@ impl<B: Backend + 'static> Shared<B> {
                 args_base64,
             } => self.invoke(task, function, args_base64),
             Job::Decorate { message, request } => self.decorate(task, message, request),
-            Job::DecorateMember { member, request } => {
-                self.decorate_member(task, member, request)
-            }
+            Job::DecorateMember { member, request } => self.decorate_member(task, member, request),
             Job::Identity {
                 person,
                 server,

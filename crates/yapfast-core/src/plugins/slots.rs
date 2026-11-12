@@ -121,8 +121,8 @@ impl Badge {
     /// A plugin's answer, checked: a few characters on one line and a tone the
     /// theme knows, refused with the reason as a tree is.
     pub fn parse(value: &serde_json::Value) -> Result<Self, String> {
-        let badge: yapfast_plugin_api::message::MemberBadge = serde_json::from_value(value.clone())
-            .map_err(|error| error.to_string())?;
+        let badge: yapfast_plugin_api::message::MemberBadge =
+            serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
         let text = badge.text.trim();
         if text.is_empty() {
             return Err("its text is empty".to_owned());

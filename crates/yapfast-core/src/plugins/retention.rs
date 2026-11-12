@@ -36,7 +36,7 @@ pub fn keep(
     for old in current {
         if present.contains(&old.item) {
             // Everything up to and including this row, as the backend sent it.
-            while let Some(next) = arriving.next() {
+            for next in arriving.by_ref() {
                 let reached = next.item == old.item;
                 kept.push(next);
                 if reached {
@@ -109,7 +109,7 @@ mod tests {
 
         // The same list again keeps nothing new: the row is already flagged,
         // and a row that arrives is never replaced by a kept copy.
-        let again = keep(kept.iter().cloned().collect(), &kept);
+        let again = keep(kept.to_vec(), &kept);
         assert_eq!(again.len(), 2);
     }
 

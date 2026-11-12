@@ -30,12 +30,12 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use yapfast_plugin_api::call::{
-    self, AddEmoji, AddSticker, ClearSlot, CommandInvocation, CommandOutcome, CopyText, DraftRequest,
-    EditMessage, HostCall, HostReturn, HttpRequest, InsertText, Line, MediaGet, MessageGet,
-    MessageHistory, MessageRef, Mute, NotifySend, OpenDialog, OpenUrl, PauseInvites, PeopleGet,
-    PeopleMember, PlaySound, PluginCall, PluginSubscribe, ReactMessage, RoomGet, RoomsList,
-    SendMessage, SetActivity, SetCustomStatus, SetMute, SetSlot, SetStatus, SettingsNews,
-    SlotDrawn, Speak, StorageGet, StorageList, StorageSet, TimerCancel, TimerRequest,
+    self, AddEmoji, AddSticker, ClearSlot, CommandInvocation, CommandOutcome, CopyText,
+    DraftRequest, EditMessage, HostCall, HostReturn, HttpRequest, InsertText, Line, MediaGet,
+    MessageGet, MessageHistory, MessageRef, Mute, NotifySend, OpenDialog, OpenUrl, PauseInvites,
+    PeopleGet, PeopleMember, PlaySound, PluginCall, PluginSubscribe, ReactMessage, RoomGet,
+    RoomsList, SendMessage, SetActivity, SetCustomStatus, SetMute, SetSlot, SetStatus,
+    SettingsNews, SlotDrawn, Speak, StorageGet, StorageList, StorageSet, TimerCancel, TimerRequest,
 };
 use yapfast_plugin_api::capability::{Capability, HostPattern};
 use yapfast_plugin_api::event::{EventEnvelope, EventKind, TopicEvent};

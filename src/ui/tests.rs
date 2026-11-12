@@ -11023,9 +11023,9 @@ fn the_installed_tab_is_a_list_or_cards() {
 fn plugin_cells_and_rows_say_what_they_are() {
     use i_slint_backend_testing::{AccessibleRole, ElementQuery};
     use yapfast_core::plugins::{
+        Input, Manifest, Runtime,
         slots::{Output, Slot},
         ui::Tree,
-        Input, Manifest, Runtime,
     };
 
     struct Recorder(Rc<RefCell<Vec<Input>>>);
@@ -11067,8 +11067,14 @@ fn plugin_cells_and_rows_say_what_they_are() {
     let rail = surfaces.get_rail_items();
     assert_eq!(rail.row_count(), 1);
     let row = rail.row_data(0).unwrap();
-    assert_eq!((row.id.as_str(), row.label.as_str()), ("plugin/0/wave", "Wave"));
-    assert_eq!(surfaces.get_header_buttons().row_data(0).unwrap().id, "plugin/0/keep");
+    assert_eq!(
+        (row.id.as_str(), row.label.as_str()),
+        ("plugin/0/wave", "Wave")
+    );
+    assert_eq!(
+        surfaces.get_header_buttons().row_data(0).unwrap().id,
+        "plugin/0/keep"
+    );
 
     // A tree in a slot: a button, a switch, a select and a link, each labelled
     // with the plugin's name so none passes for Yapfast's own.
@@ -11094,7 +11100,10 @@ fn plugin_cells_and_rows_say_what_they_are() {
     let profile = yapfast_core::chat::Event::PluginSlot(Output::SetSlot {
         plugin: "com.example.p0".into(),
         slot: Slot::ProfileBadges,
-        tree: Tree::parse(r#"{ "rows": [{ "cells": [{ "kind": "text", "text": "Since 2019" }] }] }"#).unwrap(),
+        tree: Tree::parse(
+            r#"{ "rows": [{ "cells": [{ "kind": "text", "text": "Since 2019" }] }] }"#,
+        )
+        .unwrap(),
     });
     let reach = refresh::Reach::of(&profile);
     adapter.borrow_mut().app.apply(profile);
@@ -11161,4 +11170,3 @@ fn plugin_cells_and_rows_say_what_they_are() {
         Input::Menu { plugin, action, .. } if plugin == "com.example.p0" && action == "keep"
     ));
 }
-

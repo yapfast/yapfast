@@ -110,7 +110,7 @@ const IDLE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 enum After {
     Continue,
     /// Stop, with the reason the helper is leaving.
-    Stop(FromHelper),
+    Stop(Box<FromHelper>),
 }
 
 /// Reads frames until the helper has a reason to stop, and gives it.
@@ -130,7 +130,7 @@ fn serve(
         match signal {
             Signal::Frame(frame) => match dispatch(frame, pipe, scheduler, dev) {
                 After::Continue => {}
-                After::Stop(report) => return Some(report),
+                After::Stop(report) => return Some(*report),
             },
             // The parent closed stdin: the cleanest goodbye there is, and
             // nothing is left to tell it.
@@ -315,9 +315,9 @@ fn dispatch(
             scheduler.send(Message::Evict { plugin });
             After::Continue
         }
-        ToHelper::Shutdown => After::Stop(FromHelper::Bye {
+        ToHelper::Shutdown => After::Stop(Box::new(FromHelper::Bye {
             reason: "Yapfast asked the helper to exit".into(),
-        }),
+        })),
     }
 }
 
@@ -327,9 +327,9 @@ fn hello(pipe: &Pipe, api: u32, id: u64) -> After {
         // Loading a plugin written for a newer ABI would fail at
         // instantiation, where nobody could explain it; saying so here is the
         // one thing the helper can do about it.
-        return After::Stop(FromHelper::Bye {
+        return After::Stop(Box::new(FromHelper::Bye {
             reason: format!("Yapfast speaks plugin API {api} and this helper speaks {API_VERSION}"),
-        });
+        }));
     }
     let ready = FromHelper::Ready {
         api: API_VERSION,

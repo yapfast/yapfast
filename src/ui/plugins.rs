@@ -142,11 +142,7 @@ pub(super) fn decorations(slots: &plugins::slots::Slots, message: &str) -> Model
             // A plugin that only filters a row answered a hide and no tree, so
             // there is nothing of its to draw.
             let tree = kept.tree.as_ref()?;
-            Some(part(
-                &slots.names()[kept.plugin],
-                Slot::Message,
-                tree,
-            ))
+            Some(part(&slots.names()[kept.plugin], Slot::Message, tree))
         })
         .collect();
     if parts.is_empty() {
@@ -172,7 +168,10 @@ fn row_button(name: &PluginName, button: &Button, plugin: usize) -> PluginButton
     }
 }
 
-fn buttons(overrides: Option<&UiOverrides>, rows: impl Fn(&UiOverrides) -> &[(Button, usize)]) -> ModelRc<PluginButton> {
+fn buttons(
+    overrides: Option<&UiOverrides>,
+    rows: impl Fn(&UiOverrides) -> &[(Button, usize)],
+) -> ModelRc<PluginButton> {
     let Some(overrides) = overrides else {
         return ModelRc::default();
     };

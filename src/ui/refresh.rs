@@ -2557,10 +2557,12 @@ impl Adapter {
                         activity_emoji,
                         // What plugins badge them with, which a plugin that
                         // hasn't answered yet leaves empty.
-                        plugin: state.plugin_slots.as_ref().map_or_else(
-                            ModelRc::default,
-                            |slots| plugins::badges(slots, &member.id),
-                        ),
+                        plugin: state
+                            .plugin_slots
+                            .as_ref()
+                            .map_or_else(ModelRc::default, |slots| {
+                                plugins::badges(slots, &member.id)
+                            }),
                         ..MemberRow::default()
                     };
                     heading.into_iter().chain([row])

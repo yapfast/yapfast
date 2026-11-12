@@ -1743,7 +1743,10 @@ pub enum Action {
     /// People in or near the open room's member list viewport, in the list's
     /// order: what a plugin that badges people is asked about, so a large
     /// server costs what its list shows.
-    VisibleMembers { room: String, ids: Vec<String> },
+    VisibleMembers {
+        room: String,
+        ids: Vec<String>,
+    },
     /// Show the selected room's message with this item; see
     /// [`AppState::jump`]. When the timeline doesn't have it, the messages
     /// around it load in its place; see [`AppState::detached`].

@@ -869,11 +869,7 @@ pub fn check(manifest: &Manifest) -> Checked {
     checked.rows = rows;
     // Buttons the manifest puts where Yapfast already draws rows of its own.
     // They need no capability: they are the plugin's own surface, as a slot is.
-    fn buttons(
-        items: &[Button],
-        what: &str,
-        refused: &mut Vec<Refusal>,
-    ) -> Vec<Button> {
+    fn buttons(items: &[Button], what: &str, refused: &mut Vec<Refusal>) -> Vec<Button> {
         let mut checked = Vec::new();
         for item in items {
             let name = format!("{what} “{}”", item.label);
@@ -909,7 +905,11 @@ pub fn check(manifest: &Manifest) -> Checked {
         checked
     }
     checked.rail = buttons(&manifest.rail_items, "rail item", &mut checked.refused);
-    checked.header = buttons(&manifest.header_buttons, "header button", &mut checked.refused);
+    checked.header = buttons(
+        &manifest.header_buttons,
+        "header button",
+        &mut checked.refused,
+    );
     checked
 }
 
@@ -1574,7 +1574,11 @@ mod tests {
                 ] }"#,
         );
         let checked = check(&manifest);
-        assert_eq!(checked.rail.len(), 1, "a plugin's own surface needs no ui.modify");
+        assert_eq!(
+            checked.rail.len(),
+            1,
+            "a plugin's own surface needs no ui.modify"
+        );
         assert_eq!(checked.rail[0].action, "wave");
         assert_eq!(checked.header.len(), 1);
         let refused: Vec<&str> = checked.refused.iter().map(|row| row.why.as_str()).collect();

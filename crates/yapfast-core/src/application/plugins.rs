@@ -1427,15 +1427,17 @@ impl Application {
                 members
                     .iter()
                     .find(|member| &member.id == id)
-                    .map(|member| yapfast_plugin_api::message::DecorateMemberRequest {
-                        server: server.clone(),
-                        room: room.to_owned(),
-                        member: member.id.clone(),
-                        name: member.name.clone(),
-                        own: self.state.discord_user.as_deref() == Some(member.id.as_str()),
-                        bot: member.bot,
-                        roles: member.roles.to_vec(),
-                    })
+                    .map(
+                        |member| yapfast_plugin_api::message::DecorateMemberRequest {
+                            server: server.clone(),
+                            room: room.to_owned(),
+                            member: member.id.clone(),
+                            name: member.name.clone(),
+                            own: self.state.discord_user.as_deref() == Some(member.id.as_str()),
+                            bot: member.bot,
+                            roles: member.roles.to_vec(),
+                        },
+                    )
             })
             .collect();
         if asked.is_empty() {
