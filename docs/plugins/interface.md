@@ -196,6 +196,33 @@ together, or an interactive cell without a plain `id`, and cuts text to
 ] }
 ```
 
+## Decorating messages
+
+A plugin that puts something under a message declares `decorate` in its
+activation:
+
+```json
+{ "activation": { "on": ["decorate"] } }
+```
+
+When a row comes on screen, the parent asks the plugin for that row with
+`yf_decorate`, and the answer is a widget tree or nothing. Only the rows the
+person can see are asked about, the whole pass is capped at a screenful (64
+rows), and a row keeps its decoration while it is one of the last 512 decorated
+and is asked for again when the rows on screen change. The row is drawn plain
+until the answer comes: a decoration is worth a frame and not a wait, which is
+why the plugin has 16 ms.
+
+What the plugin is told is the row's own summary — the room, the message's id,
+who wrote it, what it says and whether this account wrote it. A plugin that
+wants the whole message reads it with `messages.get`, which is what
+`messages.read` is for. Nothing a plugin answers here changes the message: it is
+display only, and the plugin's name is above what it draws.
+
+A tree the widget set refuses is dropped where it arrives, and the row stays as
+it was. Turning the plugin off takes its decorations with it, and so does
+suspending it.
+
 ## Slots
 
 [`plugins/slots.rs`](../../crates/yapfast-core/src/plugins/slots.rs) keeps what

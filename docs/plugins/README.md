@@ -178,8 +178,8 @@ application already knows, and of `plugin`, the `call`, `publish` and
 `message.pre_edit` exist, run as a chain with a deadline per plugin and for the
 whole thing, and fail open unless a plugin's manifest asks for
 `on_failure: "block"`; `typing.pre_send` and `attachment.pre_upload` do too, and
-`activity.pre_publish` and `message.decorate` don't: a plugin can draw in its
-slots and in a dialog, and nothing draws beside a message yet. The
+`activity.pre_publish` doesn't. A plugin draws in its slots, in a dialog, and
+under the messages it is on screen for, through `yf_decorate`. The
 OS sandbox under the helper is not started, and the marketplace is read while
 its page is open but not yet checked by a remote-refs query, so an update is
 fetched when asked for rather than offered

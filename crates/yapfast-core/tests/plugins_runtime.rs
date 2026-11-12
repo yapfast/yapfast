@@ -164,6 +164,69 @@ fn a_plugin_that_traps_says_why_in_its_status_and_its_log() {
     state.shutdown();
 }
 
+/// A plugin that draws under messages is asked about the rows on screen, and
+/// one that draws nothing leaves the row plain: `echo.wasm` exports
+/// `yf_decorate` and answers nothing, which is the "no decoration" answer.
+#[test]
+fn a_decorator_is_asked_and_drawing_nothing_leaves_the_row_plain() {
+    let Some(helper) = helper() else {
+        eprintln!("no yapfast-plugins beside the build and no YAPFAST_PLUGINS; skipped");
+        return;
+    };
+    unsafe { std::env::set_var("YAPFAST_PLUGINS", &helper) };
+
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let mut store = Store::open(directory.path()).expect("a store");
+    install_named(&mut store, "dev.local.decorator", "echo.wasm");
+    let id = PluginId::parse("dev.local.decorator").expect("a plugin id");
+    store.set_enabled(&id, true).expect("the plugin is on");
+
+    let notices = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&notices);
+    let wake: Arc<dyn Fn(plugins::state::Notice) + Send + Sync> =
+        Arc::new(move |notice| recorded.lock().unwrap().push(notice));
+    let mut state = PluginState::open(directory.path(), "0.3.0", wake).expect("the plugin system");
+    assert!(
+        state.decorates(),
+        "the manifest asks to draw under messages"
+    );
+
+    state.decorate(&[yapfast_plugin_api::message::DecorateRequest {
+        room: "discord:1:2".to_owned(),
+        message: "message-1".to_owned(),
+        author: "person-1".to_owned(),
+        body: "hi".to_owned(),
+        own: false,
+    }]);
+
+    // The ask starts the instance, which is the proof the request reached the
+    // helper and the export ran: a decoration that draws nothing is silence.
+    let started = Instant::now();
+    let active = || {
+        state
+            .statuses()
+            .into_iter()
+            .any(|(plugin, status)| plugin == id && is_active(&status))
+    };
+    while started.elapsed() < START && !active() {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        active(),
+        "statuses={:?} off={:?}",
+        state.statuses(),
+        state.off()
+    );
+    std::thread::sleep(Duration::from_millis(200));
+    let drawn = notices
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|notice| matches!(notice, plugins::state::Notice::Slot(_)));
+    assert!(!drawn, "a plugin that draws nothing shows nothing");
+    state.shutdown();
+}
+
 /// Installs one fixture module as a plugin of its own.
 fn install_named(store: &mut Store, id: &str, fixture: &str) {
     let path = fixture_path(fixture);
@@ -176,7 +239,7 @@ fn install_named(store: &mut Store, id: &str, fixture: &str) {
   "version": "0.1.0",
   "wasm": "plugin.wasm",
   "limits": {{ "memory_pages": 64 }},
-  "activation": {{ "on": ["event:message_create"] }},
+  "activation": {{ "on": ["event:message_create", "decorate"] }},
   "permissions": {{ "capabilities": ["messages.read"], "network": [] }}
 }}
 "#

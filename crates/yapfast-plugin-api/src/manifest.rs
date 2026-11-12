@@ -217,6 +217,11 @@ impl Activation {
         self.on.iter().any(|trigger| trigger == "startup")
     }
 
+    /// The plugin asks to draw under messages on screen, as `yf_decorate`.
+    pub fn decorates(&self) -> bool {
+        self.on.iter().any(|trigger| trigger == "decorate")
+    }
+
     /// The event names this activation subscribes to, without the prefix.
     pub fn events(&self) -> impl Iterator<Item = &str> {
         self.on

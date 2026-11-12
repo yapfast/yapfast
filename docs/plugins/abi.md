@@ -135,6 +135,7 @@ a log.
 | `yf_event` | `EventBatch { events, results }` | Nothing |
 | `yf_hook` | `HookRequest { hook, subject }` | `HookOutcome` |
 | `yf_command` | `CommandInvocation { name, options }` | `CommandOutcome` |
+| `yf_decorate` | `DecorateRequest { room, message, author, body, own }` | A widget tree, or `null` for none |
 | `yf_call` | `HostCall { method, payload }` | `HostReturn` |
 | `yf_post` | `HostCall` | Nothing |
 
@@ -205,6 +206,11 @@ than the plan's table for one.
 A command's answer is `none`, `notice` with a line for the person to see in the
 room they typed it in, `value` with the plugin's own JSON, or `failed` with a
 message.
+
+`yf_decorate` is asked by the parent for a message on screen, and never by a
+guest's own call: it answers the widget tree `interface.md` describes, or
+`null` for "nothing under this one". The parent checks the tree, so a plugin
+that answers a shape the widget set doesn't have simply draws nothing.
 
 A settings change arrives as the answer to the `settings.on_change` call that
 asked for it: the keys that changed, with the values they hold now, and the

@@ -121,6 +121,9 @@ pub struct Summary {
     /// Whether an enabled plugin changes or stops outgoing messages, which is
     /// the only reason the send path has to wait for anything.
     pub intercepts: bool,
+    /// Whether an enabled plugin draws under messages, which is the only
+    /// reason a row asks anyone anything when it comes on screen.
+    pub decorates: bool,
 }
 
 /// One installed plugin, copied out of the registry for the settings page
@@ -464,6 +467,26 @@ impl Registry {
             .collect()
     }
 
+    /// The plugins that draw under messages, in the order the chain would run
+    /// them: dependencies first, then by id.
+    pub fn decorators(&self) -> Vec<PluginId> {
+        self.order
+            .iter()
+            .filter(|id| {
+                self.entries.get(*id).is_some_and(|entry| {
+                    entry.module.is_some()
+                        && entry.enabled
+                        && entry
+                            .manifest
+                            .activation
+                            .as_ref()
+                            .is_some_and(|activation| activation.decorates())
+                })
+            })
+            .cloned()
+            .collect()
+    }
+
     /// Every plugin's state, for the page that lists them.
     /// Every command the enabled plugins with a module declare, in the order
     /// the plugins run.
@@ -528,6 +551,12 @@ impl Registry {
                 .manifest
                 .permissions
                 .allows(Capability::MessagesIntercept);
+            summary.decorates |= entry.module.is_some()
+                && entry
+                    .manifest
+                    .activation
+                    .as_ref()
+                    .is_some_and(|activation| activation.decorates());
         }
         self.summary = summary;
     }

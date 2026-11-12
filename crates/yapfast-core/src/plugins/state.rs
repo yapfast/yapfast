@@ -317,6 +317,17 @@ impl PluginState {
         self.bridge.observe(event);
     }
 
+    /// Whether an enabled plugin draws under messages, which a visible row
+    /// checks before it costs anything.
+    pub fn decorates(&self) -> bool {
+        self.bridge.decorates()
+    }
+
+    /// Asks each of them what it draws under the rows on screen.
+    pub fn decorate(&mut self, rows: &[yapfast_plugin_api::message::DecorateRequest]) {
+        self.bridge.decorate(rows);
+    }
+
     /// Runs the `message.pre_send` chain, if anything intercepts sends.
     pub fn pre_send(&mut self, draft: Draft) -> PreSend {
         self.bridge.pre_send(draft)

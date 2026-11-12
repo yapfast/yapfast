@@ -49,6 +49,11 @@ const COMMAND_BUDGET: Duration = Duration::from_secs(2);
 /// leaving it waiting for an instance that was discarded.
 const INVOKE_BUDGET: Duration = Duration::from_secs(2);
 
+/// How long one plugin's `yf_decorate` may run. A row is on screen and its
+/// decoration is a nicety: it gets the plan's 16 ms, and a plugin that misses
+/// it leaves the row plain until it is asked again.
+const DECORATE_BUDGET: Duration = Duration::from_millis(16);
+
 /// How long `yf_deactivate` may take. Its answer is a convenience handed to the
 /// next activation, so it gets long enough to write that and no longer: an
 /// instance going away must not hold the helper.
@@ -162,6 +167,14 @@ pub enum Message {
         plugin: PluginId,
         function: String,
         args_base64: String,
+    },
+    /// What a plugin draws under a message, answered with
+    /// [`FromHelper::Decorated`]: `yf_decorate`'s export, with the row.
+    Decorate {
+        id: u64,
+        plugin: PluginId,
+        message: String,
+        request: yapfast_plugin_api::message::DecorateRequest,
     },
     /// The parent's answer to a guest's host call.
     Return {
@@ -469,6 +482,23 @@ impl<B: Backend + 'static> Shared<B> {
                     },
                 );
             }
+            Message::Decorate {
+                id,
+                plugin,
+                message,
+                request,
+            } => {
+                let slot = state.slot_for(&plugin);
+                let request = serde_json::to_value(request).unwrap_or(serde_json::Value::Null);
+                // A drawing waits behind whatever the plugin is already doing,
+                // in the background lane: the row shows plain until it comes.
+                state.push(
+                    slot,
+                    Lane::Background,
+                    id,
+                    Job::Decorate { message, request },
+                );
+            }
             Message::Return {
                 plugin,
                 call,
@@ -521,6 +551,7 @@ impl<B: Backend + 'static> Shared<B> {
                 function,
                 args_base64,
             } => self.invoke(task, function, args_base64),
+            Job::Decorate { message, request } => self.decorate(task, message, request),
             Job::Return { call, answer } => self.answer(task.owner(), *call, answer),
         }
     }
@@ -792,6 +823,54 @@ impl<B: Backend + 'static> Shared<B> {
         );
         match result {
             Ok(_) if late => self.discard(slot, deadline_fault("a command"), None),
+            Ok(_) => {}
+            Err(fault) => self.discard(slot, fault, None),
+        }
+    }
+
+    /// Asks a plugin what it draws under a message on screen, and answers the
+    /// parent with the tree or with nothing.
+    ///
+    /// The row is drawn plain while this runs: a decoration is worth a frame
+    /// and not a wait, which is why the budget is the plan's 16 ms.
+    fn decorate(&self, task: &Task, message: &str, request: &serde_json::Value) {
+        let slot = task.owner();
+        let plugin = self.id(slot);
+        let nothing = || FromHelper::Decorated {
+            plugin: plugin.as_ref().clone(),
+            message: message.to_owned(),
+            tree: None,
+        };
+        if self.ensure_active(slot).is_none() {
+            let _ = self.reply(task.id, &nothing());
+            return;
+        }
+        let Ok(bytes) = serde_json::to_vec(request) else {
+            let _ = self.reply(task.id, &nothing());
+            return;
+        };
+        let (result, late) = self.call(&[slot], DECORATE_BUDGET, |backend| {
+            backend.invoke(&plugin, "yf_decorate", &bytes)
+        });
+        let tree = match &result {
+            // An export that answered nothing, or answered `null`, draws
+            // nothing: a decoration is optional, so an empty one is no fault.
+            Ok(Some(answer)) => serde_json::from_slice::<serde_json::Value>(answer)
+                .ok()
+                .filter(|tree| !tree.is_null()),
+            Ok(None) => None,
+            Err(_) => None,
+        };
+        let _ = self.reply(
+            task.id,
+            &FromHelper::Decorated {
+                plugin: plugin.as_ref().clone(),
+                message: message.to_owned(),
+                tree,
+            },
+        );
+        match result {
+            Ok(_) if late => self.discard(slot, deadline_fault("a message decoration"), None),
             Ok(_) => {}
             Err(fault) => self.discard(slot, fault, None),
         }
@@ -1103,6 +1182,18 @@ impl<B: Backend + 'static> Shared<B> {
                     },
                 );
             }
+            // A decoration that never runs leaves the row plain, which is what
+            // it looked like while the plugin was asked.
+            Job::Decorate { message, .. } => {
+                let _ = self.reply(
+                    task.id,
+                    &FromHelper::Decorated {
+                        plugin,
+                        message: message.clone(),
+                        tree: None,
+                    },
+                );
+            }
             Job::Load(_) | Job::Unload | Job::Evict | Job::Kick | Job::Return { .. } => {}
         }
     }
@@ -1333,6 +1424,10 @@ enum Job {
     Invoke {
         function: String,
         args_base64: String,
+    },
+    Decorate {
+        message: String,
+        request: serde_json::Value,
     },
     Return {
         call: u64,

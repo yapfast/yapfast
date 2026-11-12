@@ -196,6 +196,19 @@ fn dispatch(
             });
             After::Continue
         }
+        ToHelper::Decorate {
+            plugin,
+            request: decorate,
+        } => {
+            let message = decorate.message.clone();
+            scheduler.send(Message::Decorate {
+                id,
+                plugin,
+                message,
+                request: decorate,
+            });
+            After::Continue
+        }
         ToHelper::Unload { plugin } => {
             scheduler.send(Message::Unload { plugin });
             After::Continue

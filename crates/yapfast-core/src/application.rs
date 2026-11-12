@@ -3304,6 +3304,11 @@ impl Application {
                 }
                 self.visible_messages = items.clone();
                 self.pictured_timeline = Arc::new(Vec::new());
+                // A plugin that draws under messages is asked about the rows on
+                // screen and no others, so a long channel costs what a screen
+                // costs.
+                #[cfg(feature = "plugins")]
+                self.plugins_decorate_visible(&room, &items);
                 vec![Effect::Backend(Command::VisibleMessages {
                     room,
                     items,

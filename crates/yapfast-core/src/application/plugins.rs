@@ -658,6 +658,45 @@ impl Application {
         }
     }
 
+    /// Asks the plugins that draw under messages what they draw under the rows
+    /// on screen.
+    ///
+    /// Only the rows the person can see are asked about, and only when one of
+    /// them draws: a channel with no such plugin costs one load of a flag.
+    pub(super) fn plugins_decorate_visible(&mut self, room: &str, items: &[String]) {
+        if !self.plugins_on() {
+            return;
+        }
+        let Some(plugins) = self.state.plugins.as_ref() else {
+            return;
+        };
+        if !plugins.decorates() {
+            return;
+        }
+        // The timeline is the open room's, which is the room these rows are in:
+        // `Action::VisibleMessages` only reports the selected conversation.
+        let timeline = &self.state.messages;
+        let rows: Vec<yapfast_plugin_api::message::DecorateRequest> = items
+            .iter()
+            .filter_map(|item| {
+                let message = timeline.iter().find(|message| &message.item == item)?;
+                Some(yapfast_plugin_api::message::DecorateRequest {
+                    room: room.to_owned(),
+                    message: message.item.clone(),
+                    author: message.author.clone(),
+                    body: message.body.clone(),
+                    own: message.own,
+                })
+            })
+            .collect();
+        if rows.is_empty() {
+            return;
+        }
+        if let Some(plugins) = self.state.plugins.as_mut() {
+            plugins.decorate(&rows);
+        }
+    }
+
     /// Hands one event to the plugins that subscribed to it. The bridge
     /// applies each subscription's filter and writes the payload once, so a
     /// tap only has to say what happened.

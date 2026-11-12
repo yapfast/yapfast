@@ -127,6 +127,7 @@ impl Bridge {
             enabled: AtomicBool::new(false),
             wanted: AtomicU64::new(0),
             intercepts: AtomicBool::new(false),
+            decorates: AtomicBool::new(false),
             off: Mutex::new(None),
             gate: Mutex::new(None),
             held: Mutex::new(BTreeMap::new()),
@@ -157,6 +158,35 @@ impl Bridge {
     /// makes the send path build a draft at all.
     pub fn intercepts_sends(&self) -> bool {
         self.shared.intercepts.load(Ordering::Relaxed)
+    }
+
+    /// Whether an enabled plugin draws under messages. A row that isn't on
+    /// screen for anyone costs one load of this and nothing else.
+    pub fn decorates(&self) -> bool {
+        self.shared.decorates.load(Ordering::Relaxed)
+    }
+
+    /// Asks every plugin that draws under messages what it draws under each row
+    /// on screen.
+    ///
+    /// Only the rows the person can see are asked about, which is what keeps a
+    /// long channel from costing one call per message, and a request that
+    /// arrives while the helper has none is answered by the row staying plain.
+    pub fn decorate(&mut self, rows: &[yapfast_plugin_api::message::DecorateRequest]) {
+        let plugins = self.shared.registry().decorators();
+        if plugins.is_empty() || rows.is_empty() {
+            return;
+        }
+        // One pass asks about a screenful, and a screenful is the most a person
+        // can see: more than this is a report the interface got wrong.
+        for row in rows.iter().take(MAX_DECORATE_ROWS) {
+            for plugin in &plugins {
+                self.send(Request::Decorate {
+                    plugin: plugin.clone(),
+                    request: row.clone(),
+                });
+            }
+        }
     }
 
     /// Whether anything subscribed to this kind of event.
@@ -977,6 +1007,9 @@ pub(crate) struct Shared {
     enabled: AtomicBool,
     wanted: AtomicU64,
     intercepts: AtomicBool,
+    /// Whether an enabled plugin draws under messages, which a row asks before
+    /// it costs one call per message on screen.
+    decorates: AtomicBool,
     /// Why plugins are off, when they are.
     off: Mutex<Option<String>>,
     /// The one place a plugin's HTTP request can be made, once the application
@@ -1003,6 +1036,7 @@ impl Shared {
         self.enabled.store(summary.enabled, Ordering::Relaxed);
         self.wanted.store(summary.wanted, Ordering::Relaxed);
         self.intercepts.store(summary.intercepts, Ordering::Relaxed);
+        self.decorates.store(summary.decorates, Ordering::Relaxed);
     }
 
     /// The registry for reading.
@@ -1214,6 +1248,7 @@ impl Shared {
         self.enabled.store(false, Ordering::Relaxed);
         self.wanted.store(0, Ordering::Relaxed);
         self.intercepts.store(false, Ordering::Relaxed);
+        self.decorates.store(false, Ordering::Relaxed);
     }
 }
 
@@ -1350,6 +1385,12 @@ enum Request {
     Command {
         plugin: PluginId,
         invocation: CommandInvocation,
+    },
+    /// What a plugin draws under a message on screen, asked on the row's
+    /// behalf: the answer comes back as [`FromHelper::Decorated`].
+    Decorate {
+        plugin: PluginId,
+        request: yapfast_plugin_api::message::DecorateRequest,
     },
     /// Replace a plugin with what the store holds now, with the plugins that
     /// need it stopped first and started again after.
@@ -1711,6 +1752,14 @@ struct DevWatch {
     /// When to look again.
     due: Instant,
 }
+
+/// How long the parent waits for one plugin's decoration: the helper's own
+/// budget is 16 ms, and the rest is the frame it takes to get there.
+const DECORATE_TIMEOUT: Duration = Duration::from_millis(250);
+
+/// The most rows one pass asks a plugin to draw under: a screenful, so a
+/// misreported visible range can't turn into a burst of calls.
+const MAX_DECORATE_ROWS: usize = 64;
 
 /// How often a folder plugin's files are looked at. A save is one `stat` of two
 /// files a second, which is nothing beside a build that takes longer than that.
@@ -2088,6 +2137,10 @@ impl Session {
                 self.command(shared, &plugin, invocation);
                 None
             }
+            Request::Decorate { plugin, request } => {
+                self.decorate(shared, &plugin, request);
+                None
+            }
             Request::Swap {
                 plugin,
                 stop,
@@ -2348,6 +2401,33 @@ impl Session {
         );
     }
 
+    /// Asks a plugin what it draws under one message on screen.
+    ///
+    /// The instance is started if it isn't up, and the row stays plain until
+    /// the answer comes: a decoration the person reads a moment later is worth
+    /// more than a row that waits for one.
+    fn decorate(
+        &mut self,
+        shared: &Shared,
+        plugin: &PluginId,
+        request: yapfast_plugin_api::message::DecorateRequest,
+    ) {
+        self.activate(shared, plugin);
+        let message = ToHelper::Decorate {
+            plugin: plugin.clone(),
+            request,
+        };
+        self.request(
+            &message,
+            DECORATE_TIMEOUT,
+            Purpose::Agent {
+                what: "a message decoration",
+                plugin: plugin.clone(),
+                budget: DECORATE_TIMEOUT,
+            },
+        );
+    }
+
     /// Runs one plugin's call into another, which is what `plugin.call` asks for.
     ///
     /// The answer can't be built here: it is an export of the callee, and only
@@ -2578,6 +2658,9 @@ impl Session {
             Request::SettingsNews { plugin, .. } => self.in_swap(plugin),
             Request::Hook { held, .. } => held.chain.iter().any(|plugin| self.in_swap(plugin)),
             Request::Command { plugin, .. } => self.in_swap(plugin),
+            // A row that comes back after a swap is decorated again by the
+            // interface's next report of what is on screen.
+            Request::Decorate { plugin, .. } => self.in_swap(plugin),
             // An eviction is the application asking for memory back, and one
             // that raced a swap would be undoing it; it waits the 100 ms. A
             // second swap waits for the one running for the same reason: the
@@ -2815,6 +2898,15 @@ impl Session {
             }
             FromHelper::CommandDone { plugin, outcome } => {
                 self.on_command_done(frame.id, shared, &plugin, outcome);
+                None
+            }
+            FromHelper::Decorated {
+                plugin,
+                message,
+                tree,
+            } => {
+                self.pending.remove(&frame.id);
+                self.on_decorated(shared, &plugin, &message, tree);
                 None
             }
             FromHelper::EventDone { .. } => None,
@@ -3575,6 +3667,39 @@ impl Session {
         }
     }
 
+    /// Hands the interface what a plugin drew under a message, or takes away
+    /// what it drew before.
+    ///
+    /// A tree that doesn't check out is refused where it arrives: the row stays
+    /// as it was, and the plugin's page can say nothing, because a refusal here
+    /// is a plugin bug rather than a person's decision.
+    fn on_decorated(
+        &mut self,
+        shared: &Shared,
+        plugin: &PluginId,
+        message: &str,
+        tree: Option<serde_json::Value>,
+    ) {
+        let tree = match tree {
+            Some(value) => match serde_json::to_string(&value)
+                .map_err(|error| error.to_string())
+                .and_then(|text| crate::plugins::ui::Tree::parse(&text))
+            {
+                Ok(tree) => Some(tree),
+                Err(refusal) => {
+                    tracing::warn!(%plugin, %refusal, "a plugin drew a message decoration Yapfast refused");
+                    return;
+                }
+            },
+            None => return,
+        };
+        shared.announce(Notice::Slot(crate::plugins::slots::Output::Decorate {
+            plugin: plugin.to_string(),
+            message: message.to_owned(),
+            tree,
+        }));
+    }
+
     /// Reports a command's answer: a line for the person, or the reason it
     /// failed, on the application's own event path.
     fn on_command_done(
@@ -4262,6 +4387,7 @@ mod tests {
             enabled: AtomicBool::new(false),
             wanted: AtomicU64::new(0),
             intercepts: AtomicBool::new(false),
+            decorates: AtomicBool::new(false),
             off: Mutex::new(None),
             gate: Mutex::new(None),
             held: Mutex::new(BTreeMap::new()),
@@ -6184,6 +6310,12 @@ mod tests {
         "wasm":"plugin.wasm",
         "permissions":{"capabilities":["uploads.intercept"]}}"#;
 
+    /// A plugin that draws under messages on screen.
+    const DECORATOR_MANIFEST: &str = r#"{"api":1,"id":"com.example.decorator","name":"Decorator",
+        "version":"1.0.0","wasm":"plugin.wasm",
+        "activation":{"on":["decorate"]},
+        "permissions":{"capabilities":[]}}"#;
+
     /// The reply a chain sends for the request it was handed: the helper's own
     /// frame id is the one the parent is waiting under.
     fn hook_done(id: u64, outcome: HookOutcome, by: Option<PluginId>) -> Frame {
@@ -6354,6 +6486,134 @@ mod tests {
                 name: Some("cat.jpg".to_owned()),
                 blocked: None,
             }
+        );
+    }
+
+    #[test]
+    fn a_decorator_is_asked_about_the_rows_on_screen_and_answers_with_a_tree() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), DECORATOR_MANIFEST, b"not a real module");
+        let (wake, notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        let row = yapfast_plugin_api::message::DecorateRequest {
+            room: "room-1".to_owned(),
+            message: "message-1".to_owned(),
+            author: "person-1".to_owned(),
+            body: "hi".to_owned(),
+            own: false,
+        };
+        runtime().block_on(session.on_command(
+            &shared,
+            Request::Decorate {
+                plugin: plugin.clone(),
+                request: row.clone(),
+            },
+        ));
+
+        // The instance comes up first, then the decoration is asked for.
+        let activate = next_frame(&written);
+        assert!(matches!(
+            message(&activate),
+            ToHelper::Activate { plugin: started, .. } if started == plugin
+        ));
+        let ask = next_frame(&written);
+        let ToHelper::Decorate {
+            plugin: asked,
+            request,
+        } = message(&ask)
+        else {
+            panic!("the second frame is the decoration");
+        };
+        assert_eq!(asked, plugin);
+        assert_eq!(request, row, "the row travels as the plugin reads it");
+
+        let tree = serde_json::json!({ "rows": [
+            { "cells": [{ "kind": "text", "text": "Decorated" }] }
+        ] });
+        assert!(
+            session
+                .on_frame(
+                    &shared,
+                    Frame::new(
+                        FrameKind::Report,
+                        ask.id,
+                        serde_json::to_vec(&FromHelper::Decorated {
+                            plugin: plugin.clone(),
+                            message: "message-1".to_owned(),
+                            tree: Some(tree.clone()),
+                        })
+                        .expect("it serializes"),
+                    ),
+                )
+                .is_none()
+        );
+        let notice = notices
+            .recv_timeout(Duration::from_secs(2))
+            .expect("a notice");
+        let Notice::Slot(slots::Output::Decorate {
+            plugin: drawn_by,
+            message: drawn_for,
+            tree: some,
+        }) = notice
+        else {
+            panic!("a decoration is a slot notice: {notice:?}");
+        };
+        assert_eq!(drawn_by, plugin.to_string());
+        assert_eq!(drawn_for, "message-1");
+        assert!(some.is_some(), "the tree arrives as the plugin drew it");
+    }
+
+    #[test]
+    fn a_decoration_that_doesnt_check_out_draws_nothing() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), DECORATOR_MANIFEST, b"not a real module");
+        let (wake, notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        runtime().block_on(session.on_command(
+            &shared,
+            Request::Decorate {
+                plugin: plugin.clone(),
+                request: yapfast_plugin_api::message::DecorateRequest {
+                    room: "room-1".to_owned(),
+                    message: "message-1".to_owned(),
+                    author: "person-1".to_owned(),
+                    body: "hi".to_owned(),
+                    own: false,
+                },
+            },
+        ));
+        let _activate = next_frame(&written);
+        let ask = next_frame(&written);
+
+        // A button with no id is what the widget set refuses: it could not
+        // report a click, and the row would look interactive and do nothing.
+        let tree = serde_json::json!({ "rows": [
+            { "cells": [{ "kind": "button", "text": "No id" }] }
+        ] });
+        assert!(
+            session
+                .on_frame(
+                    &shared,
+                    Frame::new(
+                        FrameKind::Report,
+                        ask.id,
+                        serde_json::to_vec(&FromHelper::Decorated {
+                            plugin: plugin.clone(),
+                            message: "message-1".to_owned(),
+                            tree: Some(tree),
+                        })
+                        .expect("it serializes"),
+                    ),
+                )
+                .is_none()
+        );
+        assert!(
+            notices.recv_timeout(Duration::from_millis(100)).is_err(),
+            "a tree Yapfast refuses draws nothing at all"
         );
     }
 

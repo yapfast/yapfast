@@ -162,6 +162,16 @@ pub enum ToHelper {
         /// plugin can pass whatever its own pair of plugins agreed on.
         args_base64: String,
     },
+    /// Ask a plugin to draw under a message it is on screen for, with
+    /// `yf_decorate`: the answer is a widget tree, or nothing.
+    ///
+    /// It is a request rather than a guest call because the parent doesn't ask
+    /// the guest anything: the plugin's instance lives here, and the drawing is
+    /// its export's answer.
+    Decorate {
+        plugin: PluginId,
+        request: DecorateRequest,
+    },
     /// The answer to a guest's host call.
     Return {
         plugin: PluginId,
@@ -172,6 +182,23 @@ pub enum ToHelper {
     Evict { plugin: PluginId },
     /// The parent is going away; exit.
     Shutdown,
+}
+
+/// What `yf_decorate` is given: a message a plugin may draw under, with what
+/// it needs to decide whether it does.
+///
+/// It is the row's own summary and no more: a plugin that wants the whole
+/// message reads it with `messages.get`, which is what `messages.read` is for.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DecorateRequest {
+    pub room: String,
+    pub message: String,
+    /// Who wrote it, by id.
+    pub author: String,
+    /// What it says, before any plugin changed the display.
+    pub body: String,
+    /// Whether this account wrote it.
+    pub own: bool,
 }
 
 /// The helper's report to the parent.
@@ -224,6 +251,15 @@ pub enum FromHelper {
         answer_base64: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fault: Option<Fault>,
+    },
+    /// What a plugin drew under a message, as `yf_decorate` answered: a widget
+    /// tree, or nothing when it drew none. The parent checks the tree before
+    /// anything shows it.
+    Decorated {
+        plugin: PluginId,
+        message: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tree: Option<serde_json::Value>,
     },
     /// An event batch finished; nothing to report.
     EventDone { plugin: PluginId },
