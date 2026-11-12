@@ -37,14 +37,17 @@ live-preview = ["desktop", "yapfast-ui/live-preview"]
 # with Vulkan: rust-skia publishes none, so SKIA_BINARIES_URL must name one — the
 # dev shell's, a machine's own copy, or the archive `nix build
 # path:./nix#skia-vulkan` makes (nix/skia-linux-vulkan.nix). A build that leaves
-# the feature out links the prebuilt OpenGL archive instead: the Windows build
-# does, since that archive is Linux's. See docs/building.md#skia-with-vulkan.
+# the feature out links the prebuilt OpenGL archive instead. See
+# docs/building.md#skia-with-vulkan.
+#
+# Vulkan itself is asked for by `crates/skia-vulkan`, on Linux only: a Cargo
+# feature is one answer for every target, and the archive with Vulkan in it is
+# Linux's, so a Windows build with this feature on gets nothing from that crate
+# and links the OpenGL archive it always did.
 skia-vulkan = [
     "desktop",
     "yapfast-ui/skia-vulkan",
-    "i-slint-renderer-skia/vulkan",
-    "i-slint-renderer-skia/unstable-wgpu-30",
-    "skia-safe/vulkan",
+    "dep:skia-vulkan-support",
     "dep:wgpu",
 ]
 
@@ -55,6 +58,9 @@ serde_json.workspace = true
 slint = { workspace = true, optional = true }
 # Reject an unpinned native source build if the prepared Skia archive is unavailable.
 skia-safe = { version = "=0.157.0", default-features = false, features = ["binary-cache", "no-compile"], optional = true }
+# Skia's Vulkan for the targets that have the archive: see `skia-vulkan` under
+# [features], and crates/skia-vulkan.
+skia-vulkan-support = { path = "crates/skia-vulkan", package = "yapfast-skia-vulkan", optional = true }
 # Native open and save dialogs: XDG portals on Linux, common dialogs on Windows.
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"], optional = true }
 # Names and categories for the emoji picker.

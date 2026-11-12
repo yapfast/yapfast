@@ -11902,6 +11902,7 @@ dependencies = [
  "xkeysym",
  "yapfast-core",
  "yapfast-discord",
+ "yapfast-skia-vulkan",
  "yapfast-ui",
  "zbus",
 ]
@@ -11997,6 +11998,15 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "webrtc-sys",
+]
+
+[[package]]
+name = "yapfast-skia-vulkan"
+version = "0.0.0"
+dependencies = [
+ "i-slint-renderer-skia",
+ "skia-safe",
+ "slint",
 ]
 
 [[package]]
