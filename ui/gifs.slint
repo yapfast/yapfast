@@ -1,3 +1,4 @@
+import { IconPack } from "media.slint";
 import { Theme, Tip, Look } from "theme.slint";
 import { IconButton, TextField, Picture } from "controls.slint";
 
@@ -42,8 +43,8 @@ export component FavoriteStar inherits Rectangle {
     accessible-action-default => { root.clicked(); }
     Image {
         width: 20px; height: 20px;
-        source: root.on ? @image-url("icons/star-filled.svg") : @image-url("icons/star.svg");
-        colorize: root.on ? #f0b232 : touch.has-hover ? Theme.text : Theme.secondary;
+        source: root.on ? IconPack.star-filled : IconPack.star;
+        colorize: IconPack.tint(self.source, root.on ? #f0b232 : touch.has-hover ? Theme.text : Theme.secondary);
     }
     touch := TouchArea {
         enabled: root.shown; mouse-cursor: MouseCursor.pointer;
@@ -125,7 +126,7 @@ export component GifPicker inherits VerticalLayout {
         HorizontalLayout {
             padding-left: 16px; padding-right: 16px; padding-bottom: 12px; spacing: 8px;
             if root.view != 0: IconButton {
-                icon: @image-url("icons/chevron-left.svg"); label: "Back"; size: 34px;
+                icon: IconPack.chevron-left; label: "Back"; size: 34px;
                 clicked => { root.back(); }
             }
             if root.view == 1: Text {
@@ -187,8 +188,8 @@ export component GifPicker inherits VerticalLayout {
                     }
                     HorizontalLayout {
                         alignment: center; spacing: 6px;
-                        if tile.kind == 1: Image { y: (parent.height - self.height) / 2; width: 20px; height: 20px; source: @image-url("icons/star-filled.svg"); colorize: #ffffff; }
-                        if tile.kind == 2: Image { y: (parent.height - self.height) / 2; width: 20px; height: 20px; source: @image-url("icons/trending-up.svg"); colorize: #ffffff; }
+                        if tile.kind == 1: Image { y: (parent.height - self.height) / 2; width: 20px; height: 20px; source: IconPack.star-filled; colorize: IconPack.tint(self.source, #ffffff); }
+                        if tile.kind == 2: Image { y: (parent.height - self.height) / 2; width: 20px; height: 20px; source: IconPack.trending-up; colorize: IconPack.tint(self.source, #ffffff); }
                         Text {
                             text: tile.label; color: #ffffff; font-size: 16px; font-weight: 600;
                             vertical-alignment: center; overflow: elide;

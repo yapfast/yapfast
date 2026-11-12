@@ -1,3 +1,4 @@
+import { IconPack } from "media.slint";
 import { ListView } from "scrollview.slint";
 import { Theme, Middle, Look } from "theme.slint";
 import { PictureStore, IconButton, ActionButton, TextField } from "controls.slint";
@@ -122,7 +123,7 @@ component PostCard inherits Rectangle {
                 if root.has-tags: HorizontalLayout {
                     spacing: 6px; height: 20px;
                     if root.entry.pinned: Middle {
-                        Image { source: @image-url("icons/pin.svg"); width: 14px; height: 14px; colorize: Theme.muted; accessible-label: "Pinned"; }
+                        Image { source: IconPack.pin; width: 14px; height: 14px; colorize: IconPack.tint(self.source, Theme.muted); accessible-label: "Pinned"; }
                     }
                     for tag in root.entry.tags: Middle { TagPill { tag: tag; } }
                     if root.entry.more-tags != "": Middle {
@@ -172,7 +173,7 @@ component PostCard inherits Rectangle {
                         }
                     }
                     Middle {
-                        Image { source: @image-url("icons/message-circle.svg"); width: 14px; height: 14px; colorize: Theme.muted; }
+                        Image { source: IconPack.message-circle; width: 14px; height: 14px; colorize: IconPack.tint(self.source, Theme.muted); }
                     }
                     Middle { Text { text: root.entry.replies; color: Theme.muted; font-size: 13px; font-weight: 600; } }
                     Middle { Text { text: "•"; color: Theme.faint; font-size: 13px; } }
@@ -242,9 +243,9 @@ component NewPostForm inherits Rectangle {
             height: 48px;
             HorizontalLayout {
                 padding-left: 16px; padding-right: 10px; spacing: 10px;
-                Middle { Image { source: @image-url("icons/thread.svg"); width: 18px; height: 18px; colorize: Theme.muted; } }
+                Middle { Image { source: IconPack.thread; width: 18px; height: 18px; colorize: IconPack.tint(self.source, Theme.muted); } }
                 Text { text: "New Post"; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
-                Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
+                Middle { IconButton { icon: IconPack.x; label: "Close"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
             }
             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
         }
@@ -282,7 +283,7 @@ component NewPostForm inherits Rectangle {
                                 padding-left: 10px; padding-right: 6px; spacing: 4px;
                                 if choice.tag.emoji != "" || choice.tag.emoji-url != "": PostEmoji { emoji: choice.tag; size: 14px; }
                                 Middle { Text { text: choice.tag.name; color: Theme.text; font-size: 13px; font-weight: 600; } }
-                                Middle { Image { source: @image-url("icons/x.svg"); width: 14px; height: 14px; colorize: Theme.muted; } }
+                                Middle { Image { source: IconPack.x; width: 14px; height: 14px; colorize: IconPack.tint(self.source, Theme.muted); } }
                             }
                             TouchArea {
                                 enabled: !root.posting;
@@ -291,7 +292,7 @@ component NewPostForm inherits Rectangle {
                             }
                         }
                         add-tags := ActionButton {
-                            text: "Add tags"; icon: @image-url("icons/circle-plus.svg"); ghost: true; small: true;
+                            text: "Add tags"; icon: IconPack.circle-plus; ghost: true; small: true;
                             enabled: !root.posting && root.more-tags;
                             clicked => {
                                 root.menu-x = self.absolute-position.x - root.absolute-position.x;
@@ -310,7 +311,7 @@ component NewPostForm inherits Rectangle {
                             Text { text: "Post Guidelines"; color: Theme.text; font-size: 14px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
                             Middle {
                                 IconButton {
-                                    icon: root.show-guidelines ? @image-url("icons/chevron-down.svg") : @image-url("icons/chevron-right.svg");
+                                    icon: root.show-guidelines ? IconPack.chevron-down : IconPack.chevron-right;
                                     label: root.show-guidelines ? "Hide post guidelines" : "Show post guidelines";
                                     size: 24px; glyph: 16px;
                                     clicked => { root.show-guidelines = !root.show-guidelines; }
@@ -349,7 +350,7 @@ component NewPostForm inherits Rectangle {
                             VerticalLayout {
                                 alignment: end; padding-bottom: 8px;
                                 IconButton {
-                                    icon: @image-url("icons/circle-plus.svg"); label: "Attach files"; glyph: 22px;
+                                    icon: IconPack.circle-plus; label: "Attach files"; glyph: 22px;
                                     enabled: root.can-attach && !root.posting;
                                     clicked => { root.attach(); }
                                 }
@@ -411,7 +412,7 @@ component NewPostForm inherits Rectangle {
                                 width: 18px; height: 18px; border-radius: Look.radius(4px);
                                 border-width: choice.chosen ? 0px : 2px; border-color: Theme.muted;
                                 background: choice.chosen ? Theme.accent-fill : transparent;
-                                if choice.chosen: Image { source: @image-url("icons/check.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; }
+                                if choice.chosen: Image { source: IconPack.check; width: 14px; height: 14px; colorize: IconPack.tint(self.source, Theme.on-accent); }
                             }
                         }
                     }
@@ -530,7 +531,7 @@ export component ForumPanel inherits Rectangle {
                 visible: root.can-post;
                 x: parent.width - 16px - self.width; y: 16px;
                 width: self.min-width; height: 36px;
-                text: "New Post"; icon: @image-url("icons/thread.svg"); primary: true;
+                text: "New Post"; icon: IconPack.thread; primary: true;
                 clicked => { root.new-post(); }
             }
         }
@@ -540,7 +541,7 @@ export component ForumPanel inherits Rectangle {
         }
         if root.note == "" && root.empty: VerticalLayout {
             padding: 32px; spacing: 8px; vertical-stretch: 1; alignment: center;
-            Image { source: @image-url("icons/thread.svg"); height: 48px; image-fit: contain; colorize: Theme.faint; }
+            Image { source: IconPack.thread; height: 48px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.faint); }
             Text {
                 text: root.searching ? "No results found" : "There are no posts yet.";
                 color: Theme.text; font-size: 17px; font-weight: 700; horizontal-alignment: center;

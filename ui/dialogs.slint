@@ -1,3 +1,4 @@
+import { IconPack } from "media.slint";
 import { ScrollView } from "scrollview.slint";
 import { Theme, Middle, Label, Popup, Twemoji, Look } from "theme.slint";
 import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
@@ -66,7 +67,7 @@ export component StatusDialog inherits Rectangle {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
                     Text { text: "Set a custom status"; color: Theme.text; font-size: Look.title-size(18px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); vertical-alignment: center; horizontal-stretch: 1; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-status(); } }
+                    IconButton { icon: IconPack.x; label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-status(); } }
                 }
                 HorizontalLayout {
                     spacing: 8px;
@@ -78,7 +79,7 @@ export component StatusDialog inherits Rectangle {
                         accessible-action-default => { root.pick-emoji(); }
                         if root.status-emoji.glyph != "": EmojiFace { emoji: root.status-emoji; font: root.emoji-font; side: 22px; }
                         if root.status-emoji.glyph == "": Image {
-                            source: @image-url("icons/smile-plus.svg"); width: 20px; colorize: Theme.secondary;
+                            source: IconPack.smile-plus; width: 20px; colorize: IconPack.tint(self.source, Theme.secondary);
                         }
                         status-emoji-touch := TouchArea {
                             mouse-cursor: MouseCursor.pointer;
@@ -92,7 +93,7 @@ export component StatusDialog inherits Rectangle {
                             accessible-role: button;
                             accessible-label: "Remove the emoji";
                             accessible-action-default => { root.status-emoji = { glyph: "", name: "", key: "" }; }
-                            Image { source: @image-url("icons/x.svg"); width: 10px; colorize: Theme.text; }
+                            Image { source: IconPack.x; width: 10px; colorize: IconPack.tint(self.source, Theme.text); }
                             remove-touch := TouchArea {
                                 mouse-cursor: MouseCursor.pointer;
                                 clicked => { root.status-emoji = { glyph: "", name: "", key: "" }; }
@@ -168,7 +169,7 @@ export component NewDmDialog inherits Rectangle {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
                     Text { text: "New message"; color: Theme.text; font-size: Look.title-size(18px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); vertical-alignment: center; horizontal-stretch: 1; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-new-dm(); } }
+                    IconButton { icon: IconPack.x; label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-new-dm(); } }
                 }
                 TextField {
                     init => { self.focus-input(); }
@@ -274,7 +275,7 @@ export component ForwardDialog inherits Rectangle {
                             color: Theme.secondary; font-size: 14px; overflow: elide;
                         }
                     }
-                    Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-forward(); } } }
+                    Middle { IconButton { icon: IconPack.x; label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-forward(); } } }
                 }
                 TextField {
                     init => { self.focus-input(); }
@@ -305,7 +306,7 @@ export component ForwardDialog inherits Rectangle {
                                 if !target.avatar: Middle {
                                     Rectangle {
                                         width: 32px; height: 32px; border-radius: Look.radius(16px); background: Theme.field;
-                                        Image { source: target.icon; width: 18px; height: 18px; colorize: Theme.secondary; }
+                                        Image { source: target.icon; width: 18px; height: 18px; colorize: IconPack.tint(self.source, Theme.secondary); }
                                     }
                                 }
                                 VerticalLayout {
@@ -318,7 +319,7 @@ export component ForwardDialog inherits Rectangle {
                                         width: 22px; height: 22px; border-radius: Look.radius(6px);
                                         background: target.chosen ? Theme.accent-fill : transparent;
                                         border-width: target.chosen ? 0px : 2px; border-color: Theme.faint;
-                                        if target.chosen: Image { source: @image-url("icons/check.svg"); width: 16px; height: 16px; colorize: Theme.on-accent; }
+                                        if target.chosen: Image { source: IconPack.check; width: 16px; height: 16px; colorize: IconPack.tint(self.source, Theme.on-accent); }
                                     }
                                 }
                             }
@@ -450,7 +451,7 @@ export component QuickSwitcher inherits Rectangle {
                                 padding-left: 8px; padding-right: 8px; spacing: 10px;
                                 if place.avatar: Middle { Avatar { size: 24px; initial: place.initial; tint: place.tint; picture-url: place.picture-url; } }
                                 if !place.avatar: Middle {
-                                    Image { source: place.icon; width: 20px; height: 20px; colorize: Theme.faint; }
+                                    Image { source: place.icon; width: 20px; height: 20px; colorize: IconPack.tint(self.source, Theme.faint); }
                                 }
                                 Text {
                                     text: place.name; vertical-alignment: center; overflow: elide;
@@ -626,7 +627,7 @@ export component StatusOption inherits Rectangle {
             if root.note != "": Text { text: root.note; color: Theme.muted; font-size: 12px; wrap: word-wrap; }
         }
         if root.checked: Middle {
-            Image { source: @image-url("icons/check.svg"); width: 16px; image-fit: contain; colorize: Theme.accent-text; }
+            Image { source: IconPack.check; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.accent-text); }
         }
     }
     focus := FocusScope {
@@ -681,12 +682,12 @@ export component StatusMenu inherits Rectangle {
         }
         MenuItem {
             text: root.has-custom-status ? "Change custom status" : "Set a custom status";
-            icon: @image-url("icons/smile-plus.svg");
+            icon: IconPack.smile-plus;
             clicked => { root.custom-status(); }
         }
         MenuItem {
             text: "Edit Profile";
-            icon: @image-url("icons/user-pen.svg");
+            icon: IconPack.user-pen;
             clicked => { root.edit-profile(); }
         }
     }
@@ -753,7 +754,7 @@ export component PersonDialog inherits Rectangle {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
                     Text { text: root.prompt.title; color: Theme.text; font-size: Look.title-size(18px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                    IconButton { icon: IconPack.x; label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
                 if root.prompt.text != "": Label { text: root.prompt.text; }
                 if root.prompt.options.length > 0: VerticalLayout {
@@ -854,7 +855,7 @@ export component ReactionsDialog inherits Rectangle {
                 HorizontalLayout {
                     padding-left: 24px; padding-right: 16px; padding-bottom: 12px;
                     Text { text: root.voters ? "Votes" : "Reactions"; color: Theme.text; font-size: Look.title-size(20px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); vertical-alignment: center; horizontal-stretch: 1; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-reactions(); } }
+                    IconButton { icon: IconPack.x; label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-reactions(); } }
                 }
                 Rectangle { height: 1px; background: Theme.line; }
                 HorizontalLayout {
@@ -913,7 +914,7 @@ export component ReactionsDialog inherits Rectangle {
                                         }
                                         if person.removable && person-touch.has-hover: Middle {
                                             IconButton {
-                                                icon: @image-url("icons/x.svg"); label: "Remove Reaction"; size: 28px; glyph: 16px;
+                                                icon: IconPack.x; label: "Remove Reaction"; size: 28px; glyph: 16px;
                                                 clicked => { root.remove-reactor(person.id); }
                                             }
                                         }
@@ -1004,7 +1005,7 @@ export component PollDialog inherits Rectangle {
                 head := HorizontalLayout {
                     padding-bottom: 12px;
                     Text { text: "Create a Poll"; color: Theme.text; font-size: Look.title-size(18px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); vertical-alignment: center; horizontal-stretch: 1; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                    IconButton { icon: IconPack.x; label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
                 ScrollView {
                     vertical-stretch: 1;
@@ -1031,7 +1032,7 @@ export component PollDialog inherits Rectangle {
                                 accessible-action-default => { root.pick-emoji(index, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                                 if answer.emoji.glyph != "": EmojiFace { emoji: answer.emoji; font: root.emoji-font; side: 22px; }
                                 if answer.emoji.glyph == "": Image {
-                                    source: @image-url("icons/smile-plus.svg"); width: 20px; colorize: Theme.secondary;
+                                    source: IconPack.smile-plus; width: 20px; colorize: IconPack.tint(self.source, Theme.secondary);
                                 }
                                 emoji-touch := TouchArea {
                                     mouse-cursor: MouseCursor.pointer;
@@ -1045,7 +1046,7 @@ export component PollDialog inherits Rectangle {
                                     accessible-role: button;
                                     accessible-label: "Remove the emoji";
                                     accessible-action-default => { root.remove-emoji(index); }
-                                    Image { source: @image-url("icons/x.svg"); width: 10px; colorize: Theme.text; }
+                                    Image { source: IconPack.x; width: 10px; colorize: IconPack.tint(self.source, Theme.text); }
                                     remove-emoji-touch := TouchArea {
                                         mouse-cursor: MouseCursor.pointer;
                                         clicked => { root.remove-emoji(index); }
@@ -1060,7 +1061,7 @@ export component PollDialog inherits Rectangle {
                             }
                             if root.answers.length > 1: Middle {
                                 IconButton {
-                                    icon: @image-url("icons/trash-2.svg"); label: "Remove answer " + (index + 1); size: 32px; glyph: 18px;
+                                    icon: IconPack.trash-2; label: "Remove answer " + (index + 1); size: 32px; glyph: 18px;
                                     clicked => { root.remove-answer(index); }
                                 }
                             }
@@ -1068,7 +1069,7 @@ export component PollDialog inherits Rectangle {
                         if root.can-add: HorizontalLayout {
                             alignment: start;
                             ActionButton {
-                                text: "Add another answer"; ghost: true; small: true; icon: @image-url("icons/circle-plus.svg");
+                                text: "Add another answer"; ghost: true; small: true; icon: IconPack.circle-plus;
                                 clicked => { root.add-answer(); }
                             }
                         }
@@ -1091,7 +1092,7 @@ export component PollDialog inherits Rectangle {
                                         width: 20px; height: 20px; border-radius: Look.radius(5px);
                                         background: root.multiselect ? Theme.accent-fill : transparent;
                                         border-width: root.multiselect ? 0px : 2px; border-color: Theme.faint;
-                                        if root.multiselect: Image { source: @image-url("icons/check.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; }
+                                        if root.multiselect: Image { source: IconPack.check; width: 14px; height: 14px; colorize: IconPack.tint(self.source, Theme.on-accent); }
                                     }
                                 }
                                 Text { text: "Allow Multiple Answers"; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; }

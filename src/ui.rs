@@ -68,6 +68,7 @@ mod stickers;
 mod theme;
 mod theme_art;
 pub mod theme_look;
+mod theme_media;
 mod tiles;
 mod title_bar;
 mod yapfast;
@@ -1394,6 +1395,9 @@ struct Layout {
     theme_performance: yapfast_core::themes::Performance,
     /// Installed themes' animations, effects and motion stay still.
     reduce_motion: bool,
+    /// The person's choices for installed themes' sounds, by the theme's id,
+    /// where they aren't the defaults.
+    theme_sounds: std::collections::BTreeMap<String, theme_media::Prefs>,
     /// Closing the window leaves Yapfast in the system tray; on unless turned off.
     close_to_tray: Option<bool>,
     /// Starting Yapfast again on this folder starts another, rather than
@@ -1968,14 +1972,94 @@ struct ChannelIcon {
     age_restricted: slint::Image,
 }
 
-impl ChannelIcon {
-    fn load(plain: &[u8], private: &[u8], age_restricted: &[u8]) -> Result<Self> {
-        Ok(Self {
-            plain: slint::Image::load_from_svg_data(plain)?,
-            private: slint::Image::load_from_svg_data(private)?,
-            age_restricted: slint::Image::load_from_svg_data(age_restricted)?,
-        })
+/// Yapfast's icons that Rust hands the interface, a theme's in place of any
+/// it replaces.
+fn load_icons() -> Result<Icons> {
+    macro_rules! icon {
+        ($name:literal) => {
+            theme_media::icon(
+                $name,
+                include_bytes!(concat!("../ui/icons/", $name, ".svg")),
+            )
+        };
     }
+    Ok(Icons {
+        dm: icon!("message-circle")?,
+        chat: icon!("message-square-text")?,
+        text: ChannelIcon {
+            plain: icon!("hash")?,
+            private: icon!("hash-lock")?,
+            age_restricted: icon!("hash-warning")?,
+        },
+        id: icon!("id-filled")?,
+        thread: icon!("thread")?,
+        forum: ChannelIcon {
+            plain: icon!("message-square-text")?,
+            private: icon!("message-square-text-lock")?,
+            age_restricted: icon!("message-square-text-warning")?,
+        },
+        voice: ChannelIcon {
+            plain: icon!("volume-2")?,
+            private: icon!("volume-2-lock")?,
+            age_restricted: icon!("volume-2-warning")?,
+        },
+        announcement: ChannelIcon {
+            plain: icon!("megaphone")?,
+            private: icon!("megaphone-lock")?,
+            age_restricted: icon!("megaphone-warning")?,
+        },
+        media: ChannelIcon {
+            plain: icon!("image")?,
+            private: icon!("image-lock")?,
+            age_restricted: icon!("image-warning")?,
+        },
+        stage: ChannelIcon {
+            plain: icon!("stage")?,
+            private: icon!("stage-lock")?,
+            age_restricted: icon!("stage")?,
+        },
+        rules: icon!("rules")?,
+        lock: icon!("lock")?,
+        read: icon!("check")?,
+        call: icon!("phone")?,
+        profile: icon!("user")?,
+        copy: icon!("copy")?,
+        befriend: icon!("user-plus")?,
+        cancel: icon!("x")?,
+        pin: icon!("pin")?,
+        unpin: icon!("pin-off")?,
+        note: icon!("sticky-note")?,
+        nickname: icon!("user-pen")?,
+        unfriend: icon!("user-minus")?,
+        ignore: icon!("eye-off")?,
+        show: icon!("eye")?,
+        block: icon!("ban")?,
+        mute: icon!("bell-off")?,
+        unmute: icon!("bell")?,
+        mention: icon!("at-sign")?,
+        rename: icon!("pencil")?,
+        roles: icon!("shield")?,
+        timeout: icon!("clock")?,
+        kick: icon!("user-x")?,
+        ban: icon!("gavel")?,
+        history: icon!("history")?,
+        members: icon!("users")?,
+        invites: icon!("link")?,
+        emoji: icon!("smile")?,
+        crown: icon!("crown")?,
+        create: icon!("circle-plus")?,
+        create_category: icon!("folder-plus")?,
+        settings: icon!("settings")?,
+        edit: icon!("pencil")?,
+        duplicate: icon!("copy-plus")?,
+        delete: icon!("trash-2")?,
+        leave: icon!("log-out")?,
+        mic_off: icon!("mic-off")?,
+        soundboard: icon!("soundboard")?,
+        deafen: icon!("headphone-off")?,
+        move_to: icon!("forward")?,
+        disconnect: icon!("phone-off")?,
+    })
 }
 
 struct Icons {
@@ -2065,6 +2149,12 @@ struct Adapter {
     deferred: Vec<Effect>,
     models: Models,
     icons: Icons,
+    /// The theme icons [`Self::icons`] were loaded with; see
+    /// [`theme_media::generation`].
+    icons_generation: u64,
+    /// [`theme_media::changes`] when the theme's sounds and icons were last
+    /// put in step.
+    media_changes: u64,
     weak: std::rc::Weak<RefCell<Self>>,
     window: slint::Weak<YapfastWindow>,
     away: away::Away,
@@ -2307,101 +2397,7 @@ impl Adapter {
         root: PathBuf,
         window: &YapfastWindow,
     ) -> Result<Rc<RefCell<Self>>> {
-        let icons = Icons {
-            dm: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/message-circle.svg"))?,
-            chat: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/message-square-text.svg"
-            ))?,
-            text: ChannelIcon::load(
-                include_bytes!("../ui/icons/hash.svg"),
-                include_bytes!("../ui/icons/hash-lock.svg"),
-                include_bytes!("../ui/icons/hash-warning.svg"),
-            )?,
-            id: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/id-filled.svg"))?,
-            thread: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/thread.svg"))?,
-            forum: ChannelIcon::load(
-                include_bytes!("../ui/icons/message-square-text.svg"),
-                include_bytes!("../ui/icons/message-square-text-lock.svg"),
-                include_bytes!("../ui/icons/message-square-text-warning.svg"),
-            )?,
-            voice: ChannelIcon::load(
-                include_bytes!("../ui/icons/volume-2.svg"),
-                include_bytes!("../ui/icons/volume-2-lock.svg"),
-                include_bytes!("../ui/icons/volume-2-warning.svg"),
-            )?,
-            announcement: ChannelIcon::load(
-                include_bytes!("../ui/icons/megaphone.svg"),
-                include_bytes!("../ui/icons/megaphone-lock.svg"),
-                include_bytes!("../ui/icons/megaphone-warning.svg"),
-            )?,
-            media: ChannelIcon::load(
-                include_bytes!("../ui/icons/image.svg"),
-                include_bytes!("../ui/icons/image-lock.svg"),
-                include_bytes!("../ui/icons/image-warning.svg"),
-            )?,
-            stage: ChannelIcon::load(
-                include_bytes!("../ui/icons/stage.svg"),
-                include_bytes!("../ui/icons/stage-lock.svg"),
-                include_bytes!("../ui/icons/stage.svg"),
-            )?,
-            rules: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/rules.svg"))?,
-            lock: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/lock.svg"))?,
-            read: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/check.svg"))?,
-            call: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/phone.svg"))?,
-            profile: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/user.svg"))?,
-            copy: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/copy.svg"))?,
-            befriend: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/user-plus.svg"
-            ))?,
-            cancel: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/x.svg"))?,
-            pin: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/pin.svg"))?,
-            unpin: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/pin-off.svg"))?,
-            note: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/sticky-note.svg"))?,
-            nickname: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/user-pen.svg"))?,
-            unfriend: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/user-minus.svg"
-            ))?,
-            ignore: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/eye-off.svg"))?,
-            show: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/eye.svg"))?,
-            block: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/ban.svg"))?,
-            mute: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/bell-off.svg"))?,
-            unmute: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/bell.svg"))?,
-            mention: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/at-sign.svg"))?,
-            rename: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/pencil.svg"))?,
-            roles: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/shield.svg"))?,
-            timeout: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/clock.svg"))?,
-            kick: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/user-x.svg"))?,
-            ban: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/gavel.svg"))?,
-            history: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/history.svg"))?,
-            members: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/users.svg"))?,
-            invites: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/link.svg"))?,
-            emoji: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/smile.svg"))?,
-            crown: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/crown.svg"))?,
-            create: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/circle-plus.svg"
-            ))?,
-            create_category: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/folder-plus.svg"
-            ))?,
-            settings: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/settings.svg"))?,
-            edit: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/pencil.svg"))?,
-            duplicate: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/copy-plus.svg"
-            ))?,
-            delete: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/trash-2.svg"))?,
-            leave: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/log-out.svg"))?,
-            mic_off: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/mic-off.svg"))?,
-            soundboard: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/soundboard.svg"
-            ))?,
-            deafen: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/headphone-off.svg"
-            ))?,
-            move_to: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/forward.svg"))?,
-            disconnect: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/phone-off.svg"
-            ))?,
-        };
+        let icons = load_icons()?;
         let models = Models::default();
         models.attach(window);
         // Before the theme applies, so plugins' colours show in the first frame.
@@ -2478,6 +2474,8 @@ impl Adapter {
                 deferred: Vec::new(),
                 models,
                 icons,
+                icons_generation: 0,
+                media_changes: 0,
                 weak: weak.clone(),
                 window: window.as_weak(),
                 away: away::Away::default(),
@@ -3088,8 +3086,17 @@ impl Adapter {
         self.play(sound);
     }
 
-    /// Plays a sound on the call's speakers, at the volume set for it.
+    /// Plays a sound on the call's speakers, at the volume set for it: the
+    /// shown theme's in its place, if it has one and its sounds are on.
     fn play(&self, sound: Sound) {
+        if let Some((samples, own)) = theme_media::replacing(sound) {
+            sounds::play_decoded(
+                samples,
+                self.layout.sound_gain(sound) * own,
+                self.app.state.voice.speaker.as_deref(),
+            );
+            return;
+        }
         sounds::play(
             self.layout.sound_set,
             sound,

@@ -1,3 +1,4 @@
+import { IconPack } from "media.slint";
 import { DmHeading } from "yapfast/dm-heading.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ListView } from "scrollview.slint";
@@ -111,10 +112,10 @@ component CallBubble inherits Rectangle {
         background: Theme.live;
         Image {
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2 + 1px;
-            source: @image-url("icons/volume-2-bold.svg"); width: 12px; height: 12px;
-            colorize: #000000; opacity: 0.45;
+            source: IconPack.volume-2-bold; width: 12px; height: 12px;
+            colorize: IconPack.tint(self.source, #000000); opacity: 0.45;
         }
-        Image { source: @image-url("icons/volume-2-bold.svg"); width: 12px; height: 12px; colorize: #ffffff; }
+        Image { source: IconPack.volume-2-bold; width: 12px; height: 12px; colorize: IconPack.tint(self.source, #ffffff); }
     }
 }
 
@@ -194,7 +195,7 @@ export component RailItem inherits Rectangle {
         }
         if root.icon.width > 0: Image {
             source: root.icon; width: root.icon-size; height: root.icon-size;
-            colorize: root.lit ? Theme.on-accent : root.icon-color;
+            colorize: IconPack.tint(self.source, root.lit ? Theme.on-accent : root.icon-color);
         }
         if root.icon.width == 0 && root.shown-picture.width == 0: Text {
             text: root.initial; font-size: ClientStyle.enabled ? 16px : 17px; font-weight: ClientStyle.enabled ? 500 : 700;
@@ -302,7 +303,7 @@ component FolderItem inherits Rectangle {
         background: root.open ? transparent : root.tint.with-alpha(pointer.has-hover ? 0.55 : 0.4);
         animate background { duration: 160ms; easing: ease-out; }
         if root.open: Image {
-            source: @image-url("icons/folder.svg"); width: 24px; height: 24px; colorize: root.tint;
+            source: IconPack.folder; width: 24px; height: 24px; colorize: IconPack.tint(self.source, root.tint);
         }
         if !root.open: Rectangle {
             for server[index] in root.servers: Avatar {
@@ -617,7 +618,7 @@ export component ChannelRow inherits Rectangle {
                         }
                     }
                 }
-                if !root.person && !root.thread: Image { source: root.icon; width: 20px; image-fit: contain; colorize: root.danger ? Theme.danger : root.selected && ClientStyle.enabled ? Theme.text : root.selected || root.unread ? Theme.secondary : Theme.faint; }
+                if !root.person && !root.thread: Image { source: root.icon; width: 20px; image-fit: contain; colorize: IconPack.tint(self.source, root.danger ? Theme.danger : root.selected && ClientStyle.enabled ? Theme.text : root.selected || root.unread ? Theme.secondary : Theme.faint); }
                 text-column := VerticalLayout {
                     alignment: center; spacing: 0px; horizontal-stretch: 1;
                     HorizontalLayout {
@@ -637,7 +638,7 @@ export component ChannelRow inherits Rectangle {
                                 accessible-role: AccessibleRole.text; accessible-label: "OFFICIAL";
                                 HorizontalLayout {
                                     padding-left: 4px; padding-right: 4px; spacing: 2px; alignment: center;
-                                    Middle { Image { source: @image-url("icons/check.svg"); width: 12px; height: 12px; colorize: Theme.on-accent; accessible-role: none; } }
+                                    Middle { Image { source: IconPack.check; width: 12px; height: 12px; colorize: IconPack.tint(self.source, Theme.on-accent); accessible-role: none; } }
                                     official-text := Text { text: "OFFICIAL"; color: Theme.on-accent; font-size: 10px; font-weight: 700; vertical-alignment: center; }
                                 }
                             }
@@ -673,7 +674,7 @@ export component ChannelRow inherits Rectangle {
                         accessible-action-default => { root.waved(); }
                         HorizontalLayout {
                             padding-left: 8px; padding-right: 8px; spacing: 4px; alignment: center;
-                            Middle { Image { source: @image-url("icons/hand.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; accessible-role: none; } }
+                            Middle { Image { source: IconPack.hand; width: 14px; height: 14px; colorize: IconPack.tint(self.source, Theme.on-accent); accessible-role: none; } }
                             wave-label := Text { text: "Wave"; color: Theme.on-accent; font-size: 12px; font-weight: 500; vertical-alignment: center; }
                         }
                         wave-touch := TouchArea {
@@ -683,11 +684,11 @@ export component ChannelRow inherits Rectangle {
                     }
                 }
                 if root.call: Image {
-                    source: @image-url("icons/phone.svg"); width: 16px; image-fit: contain; colorize: Theme.live;
+                    source: IconPack.phone; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.live);
                     accessible-role: image; accessible-label: "In a call";
                 }
                 if root.pinned: Image {
-                    source: @image-url("icons/pin.svg"); width: 14px; image-fit: contain; colorize: Theme.faint;
+                    source: IconPack.pin; width: 14px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.faint);
                 }
                 // How long a busy voice channel's call has gone on, as
                 // Discord's client counts it from its first person in.
@@ -714,8 +715,8 @@ export component ChannelRow inherits Rectangle {
                         accessible-label: "Open chat";
                         accessible-action-default => { root.open-chat(); }
                         chat-icon := Image {
-                            source: @image-url("icons/message-square-text.svg"); width: 16px; height: 16px;
-                            colorize: chat-pointer.has-hover ? Theme.text : Theme.secondary;
+                            source: IconPack.message-square-text; width: 16px; height: 16px;
+                            colorize: IconPack.tint(self.source, chat-pointer.has-hover ? Theme.text : Theme.secondary);
                         }
                         chat-pointer := TouchArea {
                             mouse-cursor: MouseCursor.pointer;
@@ -771,8 +772,8 @@ export component VoiceCardView inherits Rectangle {
                 vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
             }
             if card-row.person.video && !card-row.person.elsewhere: Image {
-                source: @image-url("icons/video.svg"); width: 16px; image-fit: contain;
-                colorize: Theme.muted; accessible-role: image; accessible-label: card-row.person.name + "'s camera is on";
+                source: IconPack.video; width: 16px; image-fit: contain;
+                colorize: IconPack.tint(self.source, Theme.muted); accessible-role: image; accessible-label: card-row.person.name + "'s camera is on";
             }
             if card-row.person.live && !card-row.person.elsewhere: Middle { LivePill { clickable: false; } }
         }
@@ -868,8 +869,8 @@ component CategoryHeading inherits Rectangle {
             vertical-alignment: center; overflow: elide; horizontal-stretch: 0;
         }
         Image {
-            source: @image-url("icons/chevron-down.svg");
-            width: 12px; image-fit: contain; colorize: root.ink;
+            source: IconPack.chevron-down;
+            width: 12px; image-fit: contain; colorize: IconPack.tint(self.source, root.ink);
             transform-rotation: root.collapsed ? -90deg : 0deg;
             animate transform-rotation { duration: 120ms; easing: ease-out; }
         }
@@ -922,9 +923,9 @@ component CategoryHeading inherits Rectangle {
         x: parent.width - self.width - 8px; y: 16px; width: 24px; height: 24px;
         opacity: root.can-create && (touch.has-hover || add-touch.has-hover) ? 1 : 0;
         Image {
-            source: @image-url("icons/plus.svg"); width: 16px; height: 16px;
+            source: IconPack.plus; width: 16px; height: 16px;
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
-            colorize: add-touch.has-hover ? Theme.text : Theme.muted; accessible-role: none;
+            colorize: IconPack.tint(self.source, add-touch.has-hover ? Theme.text : Theme.muted); accessible-role: none;
         }
         add-touch := TouchArea {
             enabled: root.can-create;
@@ -972,11 +973,11 @@ export component ServerHeader inherits Rectangle {
         // only a Community server with the Community badge.
         if root.community && !(ClientStyle.enabled && root.verified): VerticalLayout {
             alignment: center;
-            Image { source: @image-url("icons/community.svg"); width: ClientStyle.enabled ? 16px : 20px; height: ClientStyle.enabled ? 16px : 20px; colorize: Theme.text; accessible-role: none; }
+            Image { source: IconPack.community; width: ClientStyle.enabled ? 16px : 20px; height: ClientStyle.enabled ? 16px : 20px; colorize: IconPack.tint(self.source, Theme.text); accessible-role: none; }
         }
         if ClientStyle.enabled && root.verified: VerticalLayout {
             alignment: center;
-            Image { source: @image-url("icons/verified.svg"); width: 16px; height: 16px; accessible-role: none; }
+            Image { source: IconPack.verified; width: 16px; height: 16px; accessible-role: none; }
         }
         // Discord's chevron follows the name closely, small and light.
         HorizontalLayout {
@@ -1005,8 +1006,8 @@ export component ServerHeader inherits Rectangle {
                 }
             }
             Image {
-                source: @image-url("icons/chevron-down.svg"); width: ClientStyle.enabled ? 16px : 20px; height: ClientStyle.enabled ? 16px : 20px; y: (parent.height - self.height) / 2;
-                colorize: root.on-banner ? #ffffff : ClientStyle.enabled ? Theme.secondary : Theme.muted; transform-rotation: root.open ? 180deg : 0deg;
+                source: IconPack.chevron-down; width: ClientStyle.enabled ? 16px : 20px; height: ClientStyle.enabled ? 16px : 20px; y: (parent.height - self.height) / 2;
+                colorize: IconPack.tint(self.source, root.on-banner ? #ffffff : ClientStyle.enabled ? Theme.secondary : Theme.muted); transform-rotation: root.open ? 180deg : 0deg;
                 animate transform-rotation { duration: 120ms; easing: ease-out; }
             }
         }
@@ -1045,7 +1046,7 @@ export component ServerRail inherits Rectangle {
         padding-top: ClientStyle.enabled ? 0px : 12px; padding-bottom: 12px; spacing: 8px;
         RailItem {
             // The app's logo, as Discord puts its own here.
-            icon: @image-url("icons/logo.svg"); icon-color: Theme.accent-text; icon-size: ClientStyle.enabled ? 24px : 32px; home: true;
+            icon: IconPack.logo; icon-color: Theme.accent-text; icon-size: ClientStyle.enabled ? 24px : 32px; home: true;
             label: "Direct messages" + (root.dms-badge != "" ? ", " + root.dms-badge + " waiting" : root.dms-unread ? ", unread" : "");
             tip: "Direct messages";
             selected: root.dms-selected; unread: root.dms-unread; badge: root.dms-badge;
@@ -1112,7 +1113,7 @@ export component ServerRail inherits Rectangle {
             }
         }
         if root.can-join: RailItem {
-            icon: @image-url("icons/circle-plus.svg"); icon-color: Theme.accent; icon-size: 24px;
+            icon: IconPack.circle-plus; icon-color: Theme.accent; icon-size: 24px;
             label: "Join a server"; tip: "Join a server";
             clicked => { root.join-server(); }
         }
@@ -1141,14 +1142,14 @@ component DmScreenLinks inherits VerticalLayout {
     padding-top: 6px; padding-bottom: 6px; spacing: 2px;
     ChannelRow {
         text: "Friends";
-        icon: @image-url("icons/users.svg");
+        icon: IconPack.users;
         selected: root.friends-open;
         clicked => { root.open-friends(); }
     }
     ChannelRow {
         text: "Requests";
         label: "Requests" + (root.requests-badge != "" ? ", " + root.requests-badge + " waiting" : "");
-        icon: @image-url("icons/inbox.svg");
+        icon: IconPack.inbox;
         selected: root.requests-current; badge: root.requests-badge;
         clicked => { root.open-requests(); }
     }
@@ -1162,7 +1163,7 @@ component BrowseLink inherits VerticalLayout {
     padding-top: 6px; padding-bottom: 6px;
     ChannelRow {
         text: "Browse channels";
-        icon: @image-url("icons/hash.svg");
+        icon: IconPack.hash;
         selected: root.browsing;
         clicked => { root.open-browse(); }
     }
@@ -1548,8 +1549,8 @@ export component RoomList inherits Rectangle {
                                 vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
                             }
                             if person.video && !person.elsewhere: Image {
-                                source: @image-url("icons/video.svg"); width: 16px; image-fit: contain;
-                                colorize: Theme.muted; accessible-role: image; accessible-label: person.name + "'s camera is on";
+                                source: IconPack.video; width: 16px; image-fit: contain;
+                                colorize: IconPack.tint(self.source, Theme.muted); accessible-role: image; accessible-label: person.name + "'s camera is on";
                             }
                             if person.live && !person.elsewhere: Middle {
                                 LivePill {
@@ -1558,13 +1559,13 @@ export component RoomList inherits Rectangle {
                                 }
                             }
                             if (person.muted || person.deafened) && !person.elsewhere: Image {
-                                source: @image-url("icons/mic-off.svg"); width: 16px; image-fit: contain;
-                                colorize: person.server-muted ? Theme.danger : Theme.muted; accessible-role: image;
+                                source: IconPack.mic-off; width: 16px; image-fit: contain;
+                                colorize: IconPack.tint(self.source, person.server-muted ? Theme.danger : Theme.muted); accessible-role: image;
                                 accessible-label: person.name + (person.server-muted ? " is server muted" : " is muted");
                             }
                             if person.deafened && !person.elsewhere: Image {
-                                source: @image-url("icons/headphone-off.svg"); width: 16px; image-fit: contain;
-                                colorize: person.server-deafened ? Theme.danger : Theme.muted; accessible-role: image;
+                                source: IconPack.headphone-off; width: 16px; image-fit: contain;
+                                colorize: IconPack.tint(self.source, person.server-deafened ? Theme.danger : Theme.muted); accessible-role: image;
                                 accessible-label: person.name + (person.server-deafened ? " is server deafened" : " is deafened");
                             }
                         }
@@ -1602,8 +1603,8 @@ export component RoomList inherits Rectangle {
                                 vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
                             }
                             if person.video: Image {
-                                source: @image-url("icons/video.svg"); width: 16px; image-fit: contain;
-                                colorize: Theme.muted; accessible-role: image; accessible-label: person.name + "'s camera is on";
+                                source: IconPack.video; width: 16px; image-fit: contain;
+                                colorize: IconPack.tint(self.source, Theme.muted); accessible-role: image; accessible-label: person.name + "'s camera is on";
                             }
                             if person.live: Middle {
                                 LivePill {
@@ -1612,13 +1613,13 @@ export component RoomList inherits Rectangle {
                                 }
                             }
                             if person.muted || person.deafened: Image {
-                                source: @image-url("icons/mic-off.svg"); width: 16px; image-fit: contain;
-                                colorize: person.server-muted ? Theme.danger : Theme.muted; accessible-role: image;
+                                source: IconPack.mic-off; width: 16px; image-fit: contain;
+                                colorize: IconPack.tint(self.source, person.server-muted ? Theme.danger : Theme.muted); accessible-role: image;
                                 accessible-label: person.name + (person.server-muted ? " is server muted" : " is muted");
                             }
                             if person.deafened: Image {
-                                source: @image-url("icons/headphone-off.svg"); width: 16px; image-fit: contain;
-                                colorize: person.server-deafened ? Theme.danger : Theme.muted; accessible-role: image;
+                                source: IconPack.headphone-off; width: 16px; image-fit: contain;
+                                colorize: IconPack.tint(self.source, person.server-deafened ? Theme.danger : Theme.muted); accessible-role: image;
                                 accessible-label: person.name + (person.server-deafened ? " is server deafened" : " is deafened");
                             }
                         }
@@ -1651,8 +1652,8 @@ export component RoomList inherits Rectangle {
         if root.dragged-category: HorizontalLayout {
             padding-left: 2px; spacing: 2px;
             Image {
-                source: root.dragged-row.collapsed ? @image-url("icons/chevron-right.svg") : @image-url("icons/chevron-down.svg");
-                width: 12px; image-fit: contain; colorize: Theme.secondary;
+                source: root.dragged-row.collapsed ? IconPack.chevron-right : IconPack.chevron-down;
+                width: 12px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.secondary);
             }
             Text {
                 text: root.dragged-row.heading; color: Theme.secondary; font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
@@ -1661,7 +1662,7 @@ export component RoomList inherits Rectangle {
         }
         if !root.dragged-category: HorizontalLayout {
             padding-left: 8px; padding-right: 8px; spacing: 8px;
-            Image { source: root.dragged-row.icon; width: 20px; image-fit: contain; colorize: Theme.secondary; }
+            Image { source: root.dragged-row.icon; width: 20px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.secondary); }
             Text {
                 text: root.dragged-row.name; color: Theme.text; font-size: 16px; font-weight: 500;
                 vertical-alignment: center; overflow: elide; horizontal-stretch: 1;

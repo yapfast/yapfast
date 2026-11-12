@@ -421,6 +421,46 @@ pub fn play(set: SoundSet, sound: Sound, volume: f32, speaker: Option<&str>) {
     }
 }
 
+/// How many of a theme's sounds play at once; more are dropped, so a pointer
+/// sweeping across buttons can't pile up streams.
+const MOST_AT_ONCE: usize = 4;
+
+static PLAYING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Plays decoded 48 kHz interleaved stereo, a theme's sound decoded once and
+/// shared, at `volume` from [`gain`], as [`play`] does. Dropped while
+/// [`MOST_AT_ONCE`] are still playing.
+pub fn play_decoded(samples: Arc<[i16]>, volume: f32, speaker: Option<&str>) {
+    use std::sync::atomic::Ordering;
+    if volume <= 0.0 {
+        return;
+    }
+    if PLAYING.fetch_add(1, Ordering::AcqRel) >= MOST_AT_ONCE {
+        PLAYING.fetch_sub(1, Ordering::AcqRel);
+        return;
+    }
+    let speaker: Option<Arc<str>> = speaker.map(Into::into);
+    let started = std::thread::Builder::new()
+        .name("yapfast-sound".into())
+        .spawn(move || {
+            let scaled: Vec<f32> = samples
+                .iter()
+                .map(|sample| f32::from(*sample) / f32::from(i16::MAX) * volume)
+                .collect();
+            if let Err(error) = play_samples(&scaled, speaker.as_deref()) {
+                tracing::warn!(
+                    error = format!("{error:#}"),
+                    "could not play a theme's sound"
+                );
+            }
+            PLAYING.fetch_sub(1, Ordering::AcqRel);
+        });
+    if let Err(error) = started {
+        PLAYING.fetch_sub(1, Ordering::AcqRel);
+        tracing::warn!(%error, "could not start a sound");
+    }
+}
+
 /// Plays interleaved stereo samples to the end.
 fn play_samples(samples: &[f32], speaker: Option<&str>) -> anyhow::Result<()> {
     use anyhow::Context;

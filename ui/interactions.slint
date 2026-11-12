@@ -1,3 +1,4 @@
+import { IconPack } from "media.slint";
 import { Theme, Look } from "theme.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { ActionButton, IconButton, TextField } from "controls.slint";
@@ -87,11 +88,11 @@ export component BotSelectDropdown inherits Rectangle {
                                         width: 20px; height: 20px; border-radius: Look.radius(5px); border-width: 2px;
                                         border-color: choice.selected ? Theme.accent : Theme.secondary;
                                         background: choice.selected ? Theme.accent-fill : transparent;
-                                        if choice.selected: Image { source: @image-url("icons/check.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; }
+                                        if choice.selected: Image { source: IconPack.check; width: 14px; height: 14px; colorize: IconPack.tint(self.source, Theme.on-accent); }
                                     }
                                 }
                                 if root.max-values == 1 && choice.selected: Image {
-                                    source: @image-url("icons/check.svg"); width: 18px; image-fit: contain; colorize: Theme.accent-text;
+                                    source: IconPack.check; width: 18px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.accent-text);
                                 }
                             }
                             choice-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.toggle(choice.index); } }
@@ -111,7 +112,7 @@ component Mark inherits Rectangle {
     border-color: root.on ? Theme.accent : Theme.secondary;
     background: root.on && !root.round ? Theme.accent-fill : transparent;
     if root.on && root.round: Rectangle { width: 10px; height: 10px; border-radius: Look.radius(5px); background: Theme.accent-fill; }
-    if root.on && !root.round: Image { source: @image-url("icons/check.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; }
+    if root.on && !root.round: Image { source: IconPack.check; width: 14px; height: 14px; colorize: IconPack.tint(self.source, Theme.on-accent); }
 }
 
 // An option of a radio group, a checkbox group, or a checkbox's own row.
@@ -171,7 +172,7 @@ export component BotModalDialog inherits Rectangle {
                 padding: 20px; spacing: 20px;
                 HorizontalLayout {
                     Text { text: root.heading; color: Theme.text; font-size: 18px; font-weight: 700; horizontal-stretch: 1; wrap: word-wrap; vertical-alignment: center; }
-                    IconButton { icon: @image-url("icons/x.svg"); enabled: !root.saving; label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
+                    IconButton { icon: IconPack.x; enabled: !root.saving; label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
                 ScrollView {
                     min-height: 0px; preferred-height: fields-layout.preferred-height;
@@ -242,10 +243,10 @@ export component BotModalDialog inherits Rectangle {
                                     accessible-role: groupbox; accessible-label: file;
                                     HorizontalLayout {
                                         padding-left: 10px; padding-right: 4px; spacing: 8px;
-                                        Image { source: @image-url("icons/file.svg"); width: 18px; image-fit: contain; colorize: Theme.secondary; }
+                                        Image { source: IconPack.file; width: 18px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.secondary); }
                                         Text { text: file; color: Theme.text; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                                         IconButton {
-                                            icon: @image-url("icons/x.svg"); label: "Remove " + file; size: 28px; glyph: 16px; enabled: !root.saving;
+                                            icon: IconPack.x; label: "Remove " + file; size: 28px; glyph: 16px; enabled: !root.saving;
                                             clicked => { root.remove-file(index, file-index); }
                                         }
                                     }
@@ -258,7 +259,7 @@ export component BotModalDialog inherits Rectangle {
                                     accessible-action-default => { if !root.saving { root.choose-files(index); } }
                                     HorizontalLayout {
                                         alignment: center; spacing: 8px;
-                                        Image { source: @image-url("icons/circle-plus.svg"); width: 20px; image-fit: contain; colorize: Theme.secondary; }
+                                        Image { source: IconPack.circle-plus; width: 20px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.secondary); }
                                         Text { text: "Choose files"; color: Theme.text; font-size: 14px; font-weight: 500; vertical-alignment: center; }
                                         Text { text: "Up to " + field.max-files; color: Theme.secondary; font-size: 13px; vertical-alignment: center; }
                                     }

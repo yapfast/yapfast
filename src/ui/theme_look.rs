@@ -281,6 +281,9 @@ fn apply_package(
             fonts.push((*role, family));
         }
     }
+    super::theme_media::load(&resolved, folder, |token| {
+        token_colour(&resolved, token).map(Color::from_argb_encoded)
+    })?;
     let colours = colours_of(&resolved);
     STATE.with_borrow_mut(|state| {
         state.applied = Some(Applied {
@@ -294,6 +297,19 @@ fn apply_package(
     });
     paint(window);
     Ok(colours)
+}
+
+/// A colour token's value in a resolved theme: its own, its base's, or what
+/// it follows.
+fn token_colour(resolved: &Resolved, token: &str) -> Option<u32> {
+    resolved
+        .paint(token)
+        .map(Paint::solid)
+        .or_else(|| check::base_colour(&resolved.base, token))
+        .or_else(|| {
+            yapfast_core::themes::package::follows(token)
+                .and_then(|follow| token_colour(resolved, follow))
+        })
 }
 
 /// Registers a theme's font under a family name of its own, after parsing it
@@ -337,6 +353,7 @@ pub fn clear(window: &YapfastWindow) {
     });
     super::theme_art::forget();
     reset(window);
+    super::theme_media::forget();
 }
 
 /// Every token a theme sets, back to stock.
@@ -413,6 +430,7 @@ pub fn reset(window: &YapfastWindow) {
     for token in yapfast_core::themes::package::BRUSHES {
         set_brush(&tokens, token, None);
     }
+    super::theme_media::hide(window);
 }
 
 /// Sets every token of the applied theme, as Performance and reduced motion
@@ -423,6 +441,9 @@ fn paint(window: &YapfastWindow) {
     let protected = STATE.with_borrow(|state| state.protected);
     if protected {
         return;
+    }
+    if STATE.with_borrow(|state| state.applied.is_some()) {
+        super::theme_media::show(window);
     }
     STATE.with_borrow(|state| {
         let Some(applied) = &state.applied else {
@@ -1409,6 +1430,12 @@ fn show_review(window: &YapfastWindow, fetched: Fetched) {
             ))
         })
         .collect();
+    let slots: Vec<_> = package
+        .modes()
+        .into_iter()
+        .filter_map(|mode| package.resolve(mode).ok())
+        .flat_map(|resolved| resolved.sounds.into_keys())
+        .collect();
     let review = ThemeReview {
         shown: true,
         name: package.name.as_str().into(),
@@ -1422,11 +1449,27 @@ fn show_review(window: &YapfastWindow, fetched: Fetched) {
         notes: package.notes.join("\n").into(),
         based_on: package.based_on.clone().unwrap_or_default().into(),
         previews: ModelRc::new(VecModel::from(previews)),
+        notification_sounds: slots.iter().any(|slot| !slot.interface()),
+        interface_sounds: slots.iter().any(|slot| slot.interface()),
     };
-    window.global::<ThemesPage>().set_review(review);
+    let page = window.global::<ThemesPage>();
+    // Notification sounds start on, interface sounds off.
+    page.set_review_notify_on(true);
+    page.set_review_ui_on(false);
+    page.set_review(review);
     STATE.with_borrow_mut(|state| state.review = Some(fetched));
     // The review is a protected dialog: it shows in the stock theme.
     theme::protect_for(window, theme::Protected::ThemeReview, true);
+}
+
+/// The id of the theme under review, if one is.
+pub fn review_id() -> Option<String> {
+    STATE.with_borrow(|state| {
+        state
+            .review
+            .as_ref()
+            .map(|fetched| fetched.package().id.clone())
+    })
 }
 
 /// Installs the reviewed theme. Returns its layout id.
@@ -1713,6 +1756,107 @@ mod tests {
         assert_eq!(back.chat, Color::from_argb_encoded(0xff16_262f));
         assert_eq!(window.global::<Look>().get_button().radius, 999.);
         clear(&window);
+    }
+
+    /// A mono 16-bit WAV of a short blip.
+    fn blip() -> Vec<u8> {
+        let data: Vec<u8> = (0..2400)
+            .flat_map(|index| {
+                let value = (std::f32::consts::TAU * 880.0 * index as f32 / 48_000.0).sin();
+                ((value * 12_000.0) as i16).to_le_bytes()
+            })
+            .collect();
+        let mut file = b"RIFF".to_vec();
+        file.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+        file.extend_from_slice(b"WAVEfmt \x10\0\0\0\x01\0\x01\0");
+        file.extend_from_slice(&48_000u32.to_le_bytes());
+        file.extend_from_slice(&96_000u32.to_le_bytes());
+        file.extend_from_slice(b"\x02\0\x10\0data");
+        file.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        file.extend_from_slice(&data);
+        file
+    }
+
+    #[test]
+    fn a_themes_icons_and_sounds_show_and_stock_comes_back() {
+        const POPS: &str = r##"{ "theme_api": 1, "id": "dev.example.pops", "name": "Pops", "version": "1.0.0",
+            "sounds": { "hover": "sounds/blip.wav", "message": { "file": "sounds/blip.wav", "volume": 0.5 } },
+            "icons": { "hash": "icons/hash.svg", "logo": { "file": "icons/logo.svg", "colour": "keep" } },
+            "variants": { "dark": { "base": "yap" } } }"##;
+        let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="#ff71ce"/></svg>"##;
+        let data = tempfile::tempdir().unwrap();
+        register_bases();
+        let files = [
+            ("sounds/blip.wav", blip()),
+            ("icons/hash.svg", svg.to_vec()),
+            ("icons/logo.svg", svg.to_vec()),
+        ];
+        let fetched = Fetched::new(
+            "https://github.com/ada/pops".into(),
+            String::new(),
+            "main".into(),
+            "0123456789abcdef".into(),
+            Files {
+                manifest: POPS.into(),
+                files: files
+                    .into_iter()
+                    .map(|(path, bytes)| (std::path::PathBuf::from(path), bytes))
+                    .collect(),
+                ..Files::default()
+            },
+        )
+        .unwrap();
+        Themes::open(data.path()).install(&fetched).unwrap();
+        init(data.path());
+        let window = window();
+        let pack = window.global::<yapfast_ui::IconPack>();
+        let cue = window.global::<yapfast_ui::Cue>();
+        let stock_hash = pack.get_hash();
+        assert!(!pack.get_active() && !cue.get_hover());
+
+        show(&window, "installed:dev.example.pops").unwrap();
+        assert!(!cue.get_hover(), "interface sounds start off");
+        let both = super::super::theme_media::Prefs {
+            interface: true,
+            ..Default::default()
+        };
+        super::super::theme_media::set_prefs(&window, both);
+        assert!(pack.get_hash() != stock_hash);
+        assert!(pack.get_active(), "a kept-colour icon asks for its paint");
+        let logo = pack.get_logo();
+        let stock = Brush::SolidColor(Color::from_argb_encoded(0xff00_ff00));
+        assert!(super::super::theme_media::paint(&logo, stock.clone()).is_transparent());
+        assert_eq!(
+            super::super::theme_media::paint(&pack.get_hash(), stock.clone()),
+            stock
+        );
+        assert!(cue.get_hover() && !cue.get_press());
+        assert!(
+            super::super::theme_media::replacing(yapfast_core::sounds::Sound::Message).is_some()
+        );
+        assert!(super::super::theme_media::replacing(yapfast_core::sounds::Sound::Join).is_none());
+
+        protect(&window, true);
+        assert!(pack.get_hash() == stock_hash && !cue.get_hover());
+        assert!(
+            super::super::theme_media::replacing(yapfast_core::sounds::Sound::Message).is_none()
+        );
+        protect(&window, false);
+        assert!(pack.get_hash() != stock_hash && cue.get_hover());
+
+        super::super::theme_media::set_prefs(
+            &window,
+            super::super::theme_media::Prefs { on: false, ..both },
+        );
+        assert!(cue.get_hover(), "the two groups are separate");
+        assert!(
+            super::super::theme_media::replacing(yapfast_core::sounds::Sound::Message).is_none()
+        );
+        super::super::theme_media::set_prefs(&window, Default::default());
+        assert!(!cue.get_hover());
+
+        clear(&window);
+        assert!(pack.get_hash() == stock_hash && !pack.get_active() && !cue.get_hover());
     }
 
     #[test]

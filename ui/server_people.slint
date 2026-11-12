@@ -1,3 +1,4 @@
+import { IconPack } from "media.slint";
 import { ComboBox } from "std-widgets.slint";
 import { Theme, Middle, Label, Look } from "theme.slint";
 import { ActionButton, Avatar, IconButton, TextField, TipIcon } from "controls.slint";
@@ -217,14 +218,14 @@ export component MembersSection inherits VerticalLayout {
                 Middle { preferred-width: 0px; min-width: 0px; horizontal-stretch: 2; RoleChip { name: member.role; color: member.role-color; more: member.more-roles; } }
                 HorizontalLayout {
                     preferred-width: 0px; min-width: 0px; horizontal-stretch: 1.5; spacing: 2px; alignment: start;
-                    if member.unusual-dms: Middle { TipIcon { source: @image-url("icons/message-circle.svg"); colorize: Theme.muted; tip: "Sent excessive DMs to non-friend server members in last 24 hrs"; } }
-                    if member.timed-out != "": Middle { TipIcon { source: @image-url("icons/clock.svg"); colorize: Theme.danger; tip: member.timed-out; } }
-                    if member.spammer: Middle { TipIcon { source: @image-url("icons/triangle-alert.svg"); colorize: Theme.danger; tip: "Engaged in suspected spam activity"; } }
-                    if member.quarantined: Middle { TipIcon { source: @image-url("icons/shield.svg"); colorize: Theme.muted; tip: "User can't talk in server until they change their member name"; } }
+                    if member.unusual-dms: Middle { TipIcon { source: IconPack.message-circle; colorize: IconPack.tint(self.source, Theme.muted); tip: "Sent excessive DMs to non-friend server members in last 24 hrs"; } }
+                    if member.timed-out != "": Middle { TipIcon { source: IconPack.clock; colorize: IconPack.tint(self.source, Theme.danger); tip: member.timed-out; } }
+                    if member.spammer: Middle { TipIcon { source: IconPack.triangle-alert; colorize: IconPack.tint(self.source, Theme.danger); tip: "Engaged in suspected spam activity"; } }
+                    if member.quarantined: Middle { TipIcon { source: IconPack.shield; colorize: IconPack.tint(self.source, Theme.muted); tip: "User can't talk in server until they change their member name"; } }
                 }
                 Middle {
                     more := IconButton {
-                        icon: @image-url("icons/ellipsis.svg"); label: "More Options"; size: 32px; glyph: 18px;
+                        icon: IconPack.ellipsis; label: "More Options"; size: 32px; glyph: 18px;
                         clicked => { root.menu(member.id, self.absolute-position.x, self.absolute-position.y + self.height); }
                     }
                 }
@@ -350,7 +351,7 @@ export component InvitesSection inherits VerticalLayout {
                 Middle { preferred-width: 0px; min-width: 0px; horizontal-stretch: 2; RoleChip { name: invite.role; color: invite.role-color; more: invite.more-roles; } }
                 Middle {
                     IconButton {
-                        icon: @image-url("icons/x.svg"); label: "Remove"; size: 32px; glyph: 18px; danger: true;
+                        icon: IconPack.x; label: "Remove"; size: 32px; glyph: 18px; danger: true;
                         opacity: hover.has-hover || self.hovered ? 1 : 0;
                         clicked => { root.act(0, invite.code, 0); }
                     }

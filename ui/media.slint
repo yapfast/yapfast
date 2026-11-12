@@ -1,0 +1,176 @@
+// A theme's icons and interface sounds (docs/themes.md, "Sounds and icons").
+//
+// Every stock icon is drawn through `IconPack`, whose properties start as the
+// files in ui/icons/; a theme sets the ones it replaces from Rust
+// (src/ui/theme_media.rs) and puts the others back. Every icon's colour goes
+// through `IconPack.tint`, which is the place's own colour until a theme
+// paints an icon another way: only then does it ask Rust, so a theme that
+// replaces nothing costs one property read per icon.
+export global IconPack {
+    /// A theme replaced an icon whose colour isn't the place's own.
+    in property <bool> active;
+    /// Changes whenever the replaced icons do, so tints are asked again.
+    in property <int> revision;
+    /// The colour to draw `source` with, where the place would use `stock`:
+    /// the stock colour, none (transparent: the SVG's own) or a theme colour.
+    pure callback paint(image, brush, int) -> brush;
+    public pure function tint(source: image, stock: brush) -> brush {
+        root.active ? root.paint(source, stock, root.revision) : stock
+    }
+    in property <image> arrow-down: @image-url("icons/arrow-down.svg");
+    in property <image> arrow-left: @image-url("icons/arrow-left.svg");
+    in property <image> arrow-right: @image-url("icons/arrow-right.svg");
+    in property <image> arrow-up: @image-url("icons/arrow-up.svg");
+    in property <image> at-sign: @image-url("icons/at-sign.svg");
+    in property <image> ban: @image-url("icons/ban.svg");
+    in property <image> bell: @image-url("icons/bell.svg");
+    in property <image> bell-off: @image-url("icons/bell-off.svg");
+    in property <image> brush: @image-url("icons/brush.svg");
+    in property <image> calendar: @image-url("icons/calendar.svg");
+    in property <image> chart-bar: @image-url("icons/chart-bar.svg");
+    in property <image> check: @image-url("icons/check.svg");
+    in property <image> chevron-down: @image-url("icons/chevron-down.svg");
+    in property <image> chevron-left: @image-url("icons/chevron-left.svg");
+    in property <image> chevron-right: @image-url("icons/chevron-right.svg");
+    in property <image> chevrons-right: @image-url("icons/chevrons-right.svg");
+    in property <image> circle-plus: @image-url("icons/circle-plus.svg");
+    in property <image> circle-stop: @image-url("icons/circle-stop.svg");
+    in property <image> clipboard-paste: @image-url("icons/clipboard-paste.svg");
+    in property <image> clock: @image-url("icons/clock.svg");
+    in property <image> community: @image-url("icons/community.svg");
+    in property <image> copy: @image-url("icons/copy.svg");
+    in property <image> copy-plus: @image-url("icons/copy-plus.svg");
+    in property <image> crown: @image-url("icons/crown.svg");
+    in property <image> discord: @image-url("icons/discord.svg");
+    in property <image> download: @image-url("icons/download.svg");
+    in property <image> ellipsis: @image-url("icons/ellipsis.svg");
+    in property <image> external-link: @image-url("icons/external-link.svg");
+    in property <image> eye: @image-url("icons/eye.svg");
+    in property <image> eye-off: @image-url("icons/eye-off.svg");
+    in property <image> eyedropper: @image-url("icons/eyedropper.svg");
+    in property <image> file: @image-url("icons/file.svg");
+    in property <image> folder: @image-url("icons/folder.svg");
+    in property <image> folder-plus: @image-url("icons/folder-plus.svg");
+    in property <image> forward: @image-url("icons/forward.svg");
+    in property <image> gamepad: @image-url("icons/gamepad.svg");
+    in property <image> gavel: @image-url("icons/gavel.svg");
+    in property <image> gem: @image-url("icons/gem.svg");
+    in property <image> gif: @image-url("icons/gif.svg");
+    in property <image> hand: @image-url("icons/hand.svg");
+    in property <image> hash: @image-url("icons/hash.svg");
+    in property <image> hash-lock: @image-url("icons/hash-lock.svg");
+    in property <image> hash-warning: @image-url("icons/hash-warning.svg");
+    in property <image> headphone-off: @image-url("icons/headphone-off.svg");
+    in property <image> headphones: @image-url("icons/headphones.svg");
+    in property <image> help-circle: @image-url("icons/help-circle.svg");
+    in property <image> history: @image-url("icons/history.svg");
+    in property <image> id-filled: @image-url("icons/id-filled.svg");
+    in property <image> image: @image-url("icons/image.svg");
+    in property <image> image-lock: @image-url("icons/image-lock.svg");
+    in property <image> image-warning: @image-url("icons/image-warning.svg");
+    in property <image> inbox: @image-url("icons/inbox.svg");
+    in property <image> link: @image-url("icons/link.svg");
+    in property <image> lock: @image-url("icons/lock.svg");
+    in property <image> log-out: @image-url("icons/log-out.svg");
+    in property <image> logo: @image-url("icons/logo.svg");
+    in property <image> maximize: @image-url("icons/maximize.svg");
+    in property <image> megaphone: @image-url("icons/megaphone.svg");
+    in property <image> megaphone-lock: @image-url("icons/megaphone-lock.svg");
+    in property <image> megaphone-warning: @image-url("icons/megaphone-warning.svg");
+    in property <image> message-circle: @image-url("icons/message-circle.svg");
+    in property <image> message-square-text: @image-url("icons/message-square-text.svg");
+    in property <image> message-square-text-lock: @image-url("icons/message-square-text-lock.svg");
+    in property <image> message-square-text-warning: @image-url("icons/message-square-text-warning.svg");
+    in property <image> mic: @image-url("icons/mic.svg");
+    in property <image> mic-off: @image-url("icons/mic-off.svg");
+    in property <image> minimize: @image-url("icons/minimize.svg");
+    in property <image> minus: @image-url("icons/minus.svg");
+    in property <image> moon: @image-url("icons/moon.svg");
+    in property <image> music: @image-url("icons/music.svg");
+    in property <image> noise-bars: @image-url("icons/noise-bars.svg");
+    in property <image> noise-bars-off: @image-url("icons/noise-bars-off.svg");
+    in property <image> palette: @image-url("icons/palette.svg");
+    in property <image> pause: @image-url("icons/pause.svg");
+    in property <image> pen: @image-url("icons/pen.svg");
+    in property <image> pencil: @image-url("icons/pencil.svg");
+    in property <image> phone: @image-url("icons/phone.svg");
+    in property <image> phone-off: @image-url("icons/phone-off.svg");
+    in property <image> pin: @image-url("icons/pin.svg");
+    in property <image> pin-off: @image-url("icons/pin-off.svg");
+    in property <image> play: @image-url("icons/play.svg");
+    in property <image> plugins: @image-url("icons/plugins.svg");
+    in property <image> plus: @image-url("icons/plus.svg");
+    in property <image> refresh-cw: @image-url("icons/refresh-cw.svg");
+    in property <image> reply: @image-url("icons/reply.svg");
+    in property <image> restore: @image-url("icons/restore.svg");
+    in property <image> rules: @image-url("icons/rules.svg");
+    in property <image> scissors: @image-url("icons/scissors.svg");
+    in property <image> screen-share: @image-url("icons/screen-share.svg");
+    in property <image> screen-share-off: @image-url("icons/screen-share-off.svg");
+    in property <image> scroll-down: @image-url("icons/scroll-down.svg");
+    in property <image> scroll-left: @image-url("icons/scroll-left.svg");
+    in property <image> scroll-right: @image-url("icons/scroll-right.svg");
+    in property <image> scroll-up: @image-url("icons/scroll-up.svg");
+    in property <image> search: @image-url("icons/search.svg");
+    in property <image> send-horizontal: @image-url("icons/send-horizontal.svg");
+    in property <image> settings: @image-url("icons/settings.svg");
+    in property <image> shield: @image-url("icons/shield.svg");
+    in property <image> shop: @image-url("icons/shop.svg");
+    in property <image> signal-high: @image-url("icons/signal-high.svg");
+    in property <image> signal-low: @image-url("icons/signal-low.svg");
+    in property <image> signal-medium: @image-url("icons/signal-medium.svg");
+    in property <image> slash: @image-url("icons/slash.svg");
+    in property <image> smile: @image-url("icons/smile.svg");
+    in property <image> smile-plus: @image-url("icons/smile-plus.svg");
+    in property <image> soundboard: @image-url("icons/soundboard.svg");
+    in property <image> square: @image-url("icons/square.svg");
+    in property <image> square-pen: @image-url("icons/square-pen.svg");
+    in property <image> stage: @image-url("icons/stage.svg");
+    in property <image> stage-lock: @image-url("icons/stage-lock.svg");
+    in property <image> star: @image-url("icons/star.svg");
+    in property <image> star-filled: @image-url("icons/star-filled.svg");
+    in property <image> sticker: @image-url("icons/sticker.svg");
+    in property <image> sticky-note: @image-url("icons/sticky-note.svg");
+    in property <image> sun: @image-url("icons/sun.svg");
+    in property <image> text-select: @image-url("icons/text-select.svg");
+    in property <image> thread: @image-url("icons/thread.svg");
+    in property <image> trash-2: @image-url("icons/trash-2.svg");
+    in property <image> trending-up: @image-url("icons/trending-up.svg");
+    in property <image> triangle-alert: @image-url("icons/triangle-alert.svg");
+    in property <image> trophy: @image-url("icons/trophy.svg");
+    in property <image> tv: @image-url("icons/tv.svg");
+    in property <image> user: @image-url("icons/user.svg");
+    in property <image> user-minus: @image-url("icons/user-minus.svg");
+    in property <image> user-pen: @image-url("icons/user-pen.svg");
+    in property <image> user-plus: @image-url("icons/user-plus.svg");
+    in property <image> user-x: @image-url("icons/user-x.svg");
+    in property <image> users: @image-url("icons/users.svg");
+    in property <image> verified: @image-url("icons/verified.svg");
+    in property <image> video: @image-url("icons/video.svg");
+    in property <image> video-off: @image-url("icons/video-off.svg");
+    in property <image> volume-2: @image-url("icons/volume-2.svg");
+    in property <image> volume-2-bold: @image-url("icons/volume-2-bold.svg");
+    in property <image> volume-2-lock: @image-url("icons/volume-2-lock.svg");
+    in property <image> volume-2-warning: @image-url("icons/volume-2-warning.svg");
+    in property <image> volume-x: @image-url("icons/volume-x.svg");
+    in property <image> x: @image-url("icons/x.svg");
+}
+
+// Interface sounds a theme gives: which events have one, so a control asks
+// Rust to play only when it does. Rust plays it only while the window is in
+// front and the person isn't in Do Not Disturb, at the theme's own volume.
+export global Cue {
+    in property <bool> hover;
+    in property <bool> press;
+    in property <bool> menu;
+    in property <bool> popup;
+    in property <bool> toggle;
+    /// One of the events, by its index in yapfast_core::themes::media::SoundSlot.
+    callback play(int);
+    public function hovered() { if root.hover { root.play(14); } }
+    public function pressed() { if root.press { root.play(15); } }
+    public function menu-opened() { if root.menu { root.play(16); } }
+    public function menu-closed() { if root.menu { root.play(17); } }
+    public function popped(open: bool) { if root.popup { root.play(open ? 18 : 19); } }
+    public function toggled(on: bool) { if root.toggle { root.play(on ? 20 : 21); } }
+}

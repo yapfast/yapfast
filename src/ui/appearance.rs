@@ -1,6 +1,7 @@
 //! Appearance: choosing a theme, and making and editing the person's own.
 
 use super::*;
+use yapfast_core::themes::media::SoundSlot;
 
 impl Adapter {
     /// Shows the window in a theme, built in or the person's own, and keeps
@@ -27,6 +28,9 @@ impl Adapter {
         }
         window.set_theme_id(id.as_str().into());
         self.set_theme(window, &chosen);
+        if id.starts_with(theme_look::INSTALLED) {
+            theme_media::cue(SoundSlot::ThemeApplied, FOCUSED.get());
+        }
         if self.layout.theme.as_deref() != Some(id.as_str()) {
             self.layout.previous_theme = self.layout.theme.take();
         }
@@ -124,9 +128,90 @@ impl Adapter {
         // is the one place that knows which one is on.
         #[cfg(feature = "plugins")]
         self.app.plugins_theme(theme.dark);
-        if theme.apply(window) {
+        let icons = self.show_theme_media(window);
+        if theme.apply(window) || icons {
             self.restyle_mentions();
             self.refresh(window);
+        }
+    }
+
+    /// The shown theme's sounds as the person chose them, and Settings →
+    /// Themes' Sounds; the icons Rust hands the interface again if the
+    /// theme's changed them. True if they did.
+    pub(super) fn show_theme_media(&mut self, window: &YapfastWindow) -> bool {
+        let id = theme_look::applied_id().unwrap_or_default();
+        let prefs = self
+            .layout
+            .theme_sounds
+            .get(&id)
+            .copied()
+            .unwrap_or_default();
+        theme_media::set_prefs(window, prefs);
+        self.sound_context();
+        let (sounds, interface) = theme_media::has_sounds();
+        let page = window.global::<yapfast_ui::ThemesPage>();
+        page.set_has_sounds(sounds);
+        page.set_has_notify_sounds(theme_media::has_notification_sounds());
+        page.set_has_ui_sounds(interface);
+        page.set_sounds_theme(theme_look::applied_name().unwrap_or_default().into());
+        page.set_sounds_on(prefs.on);
+        page.set_ui_sounds_on(prefs.interface);
+        page.set_sounds_volume(prefs.volume.into());
+        let generation = theme_media::generation();
+        if generation == self.icons_generation {
+            return false;
+        }
+        match load_icons() {
+            Ok(icons) => {
+                self.icons = icons;
+                self.icons_generation = generation;
+                // Built again with them: the channel list, threads and posts.
+                self.sidebar = None;
+                self.threads_shown = None;
+                self.forum_shown = None;
+                true
+            }
+            Err(error) => {
+                tracing::warn!(%error, "could not load the theme's icons");
+                false
+            }
+        }
+    }
+
+    /// Keeps what the review's sound switches say for the reviewed theme, and
+    /// for its trial.
+    fn keep_review_sounds(&mut self, window: &YapfastWindow, trial: bool) {
+        let Some(id) = theme_look::review_id() else {
+            return;
+        };
+        let page = window.global::<ThemesPage>();
+        let prefs = theme_media::Prefs {
+            on: page.get_review_notify_on(),
+            interface: page.get_review_ui_on(),
+            ..theme_media::Prefs::default()
+        };
+        let mut ids = vec![format!("{}{id}", theme_look::INSTALLED)];
+        if trial {
+            ids.push("trial".to_owned());
+        }
+        for id in ids {
+            if prefs == theme_media::Prefs::default() {
+                self.layout.theme_sounds.remove(&id);
+            } else {
+                self.layout.theme_sounds.insert(id, prefs);
+            }
+        }
+        self.layout.write(&self.root);
+    }
+
+    /// Tells the theme's sounds what the window plays on, while it has any.
+    pub(super) fn sound_context(&self) {
+        if theme_media::has_sounds().0 {
+            theme_media::set_context(theme_media::Context {
+                quiet: self.app.state.do_not_disturb(),
+                speaker: self.app.state.voice.speaker.clone(),
+                gain: sounds::gain(self.layout.sound_volume.unwrap_or(DEFAULT_SOUND_VOLUME)),
+            });
         }
     }
 
@@ -346,6 +431,19 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
         }
         adapter.refresh(&window);
     });
+    // A theme's interface sounds and painted icons ask here; neither needs
+    // the adapter, so they answer even while it's busy.
+    window.global::<Cue>().on_play(|index| {
+        if let Some(slot) = usize::try_from(index)
+            .ok()
+            .and_then(|index| SoundSlot::ALL.get(index))
+        {
+            theme_media::cue(*slot, FOCUSED.get());
+        }
+    });
+    window
+        .global::<IconPack>()
+        .on_paint(|source, stock, _| theme_media::paint(&source, stock));
     let page = window.global::<ThemesPage>();
     on!(page, on_opened() => |adapter, window| {
         adapter.show_previous_theme(&window);
@@ -380,6 +478,24 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
         window.global::<ThemesPage>().set_performance(index);
         theme_look::set_motion(&window, adapter.layout.theme_performance, adapter.layout.reduce_motion);
     });
+    on!(page, on_sounds_changed() => |adapter, window| {
+        let Some(id) = theme_look::applied_id() else { return };
+        let page = window.global::<ThemesPage>();
+        let prefs = theme_media::Prefs {
+            on: page.get_sounds_on(),
+            interface: page.get_ui_sounds_on(),
+            volume: page.get_sounds_volume().clamp(0, 100) as u8,
+        };
+        if prefs == theme_media::Prefs::default() {
+            adapter.layout.theme_sounds.remove(&id);
+        } else {
+            adapter.layout.theme_sounds.insert(id, prefs);
+        }
+        adapter.layout.write(&adapter.root);
+        theme_media::set_prefs(&window, prefs);
+        // Hearing the new volume is how it's judged.
+        theme_media::cue(SoundSlot::Press, FOCUSED.get());
+    });
     on!(page, on_reduce_motion_toggled(on) => |adapter, window| {
         adapter.layout.reduce_motion = on;
         adapter.layout.write(&adapter.root);
@@ -392,7 +508,10 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
     on!(page, on_try(id) => |adapter, window| {
         let back = adapter.layout.theme.clone();
         match theme_look::try_installed(&window, &id, back) {
-            Ok(colours) => adapter.set_theme(&window, &colours),
+            Ok(colours) => {
+                adapter.set_theme(&window, &colours);
+                theme_media::cue(SoundSlot::ThemeApplied, FOCUSED.get());
+            }
             Err(reason) => window.global::<ThemesPage>().set_error(reason.into()),
         }
     });
@@ -433,6 +552,7 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
         theme_look::find(&window, url.to_string());
     });
     on!(page, on_install_review() => |adapter, window| {
+        adapter.keep_review_sounds(&window, false);
         match theme_look::install_review(&window) {
             Ok(id) => {
                 adapter.choose_theme(&window, &id);
@@ -447,9 +567,13 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
         theme_look::close_review(&window);
     });
     on!(page, on_try_review() => |adapter, window| {
+        adapter.keep_review_sounds(&window, true);
         let back = adapter.layout.theme.clone();
         match theme_look::try_review(&window, back) {
-            Ok(colours) => adapter.set_theme(&window, &colours),
+            Ok(colours) => {
+                adapter.set_theme(&window, &colours);
+                theme_media::cue(SoundSlot::ThemeApplied, FOCUSED.get());
+            }
             Err(reason) => window.global::<ThemesPage>().set_error(reason.into()),
         }
     });

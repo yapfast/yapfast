@@ -1,3 +1,4 @@
+import { IconPack, Cue } from "media.slint";
 import { ScrollView } from "scrollview.slint";
 import { Theme, Tip, Middle, Label, Look } from "theme.slint";
 import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
@@ -59,7 +60,7 @@ export component ActionButton inherits Rectangle {
             spacing: 8px; alignment: center;
             if root.icon.width > 0: Image {
                 source: root.icon; width: root.small ? 16px : 18px; image-fit: contain;
-                colorize: root.ink;
+                colorize: IconPack.tint(self.source, root.ink);
             }
             if root.text != "": Text {
                 text: root.text; color: root.ink; font-size: root.small ? 14px : 15px; font-weight: 700;
@@ -83,7 +84,8 @@ export component ActionButton inherits Rectangle {
         pointer := TouchArea {
             enabled: root.enabled;
             mouse-cursor: MouseCursor.pointer;
-            clicked => { root.clicked(); }
+            clicked => { Cue.pressed(); root.clicked(); }
+            changed has-hover => { if self.has-hover { Cue.hovered(); } }
         }
     }
 }
@@ -145,9 +147,9 @@ export component IconButton inherits Rectangle {
         border-color: Theme.accent;
         Image {
             source: root.icon; width: root.glyph; height: root.glyph;
-            colorize: !root.enabled ? Theme.faint : root.emphasis ? Theme.on-accent
+            colorize: IconPack.tint(self.source, !root.enabled ? Theme.faint : root.emphasis ? Theme.on-accent
                 : root.alert || (root.danger && pointer.has-hover) ? Theme.danger
-                : pointer.has-hover ? Theme.text : root.tint;
+                : pointer.has-hover ? Theme.text : root.tint);
         }
     }
     focus := FocusScope {
@@ -161,9 +163,10 @@ export component IconButton inherits Rectangle {
         pointer := TouchArea {
             enabled: root.enabled;
             mouse-cursor: MouseCursor.pointer;
-            clicked => { Tip.text = ""; root.clicked(); }
+            clicked => { Tip.text = ""; Cue.pressed(); root.clicked(); }
             changed has-hover => {
                 if self.has-hover {
+                    Cue.hovered();
                     Tip.text = root.label;
                     Tip.side = root.tip-side;
                     Tip.x = root.tip-side == 1 ? face.absolute-position.x + root.size : face.absolute-position.x + root.size / 2;
@@ -217,8 +220,8 @@ export component DeviceToggle inherits Rectangle {
                 border-width: caret-focus.has-focus ? 2px : 0px;
                 border-color: Theme.accent;
                 Image {
-                    source: @image-url("icons/chevron-down.svg"); width: 16px; height: 16px;
-                    colorize: caret.has-hover || root.open ? Theme.text : Theme.secondary;
+                    source: IconPack.chevron-down; width: 16px; height: 16px;
+                    colorize: IconPack.tint(self.source, caret.has-hover || root.open ? Theme.text : Theme.secondary);
                     transform-rotation: root.open ? 180deg : 0deg;
                     animate transform-rotation { duration: Theme.quick; }
                 }
@@ -860,11 +863,11 @@ export component StatusText inherits HorizontalLayout {
     if root.icon > 0: VerticalLayout {
         alignment: center;
         Image {
-            source: root.icon == 1 ? @image-url("icons/gamepad.svg") : root.icon == 2 ? @image-url("icons/music.svg") : root.icon == 3 ? @image-url("icons/tv.svg") : root.icon == 4 ? @image-url("icons/video.svg") : @image-url("icons/trophy.svg");
+            source: root.icon == 1 ? IconPack.gamepad : root.icon == 2 ? IconPack.music : root.icon == 3 ? IconPack.tv : root.icon == 4 ? IconPack.video : IconPack.trophy;
             width: root.font-size * 1.25; height: root.font-size * 1.25;
             image-fit: contain; accessible-role: none;
             // Discord draws the game controller in its online green.
-            colorize: root.icon == 1 && ClientStyle.enabled ? Theme.live : root.color;
+            colorize: IconPack.tint(self.source, root.icon == 1 && ClientStyle.enabled ? Theme.live : root.color);
         }
     }
     if root.icon > 0 && root.bullet: VerticalLayout {
@@ -902,8 +905,8 @@ export component VoiceSpot inherits Rectangle {
     HorizontalLayout {
         spacing: 4px;
         speaker := Image {
-            source: @image-url("icons/volume-2.svg"); width: root.font-size + 1px; height: self.width;
-            y: (parent.height - self.height) / 2; colorize: Theme.live;
+            source: IconPack.volume-2; width: root.font-size + 1px; height: self.width;
+            y: (parent.height - self.height) / 2; colorize: IconPack.tint(self.source, Theme.live);
         }
         if !root.compact: Text {
             text: root.place; color: pointer.has-hover ? Theme.text : Theme.muted;
@@ -994,7 +997,7 @@ export component TextField inherits Rectangle {
     }
     if root.trailing-icon.width > 0: Image {
         x: root.width - root.pad - 20px + 4px; y: (root.height - 20px) / 2; width: 20px; height: 20px;
-        source: root.trailing-icon; colorize: root.trailing-tint;
+        source: root.trailing-icon; colorize: IconPack.tint(self.source, root.trailing-tint);
     }
 }
 
@@ -1015,7 +1018,7 @@ export component CallButton inherits VerticalLayout {
             background: touch.has-hover ? root.fill.darker(0.15) : root.fill;
             accessible-role: button; accessible-label: root.label; accessible-enabled: root.enabled;
             accessible-action-default => { if root.enabled { root.clicked(); } }
-            Image { source: root.icon; width: 22px; height: 22px; colorize: Theme.on-danger; }
+            Image { source: root.icon; width: 22px; height: 22px; colorize: IconPack.tint(self.source, Theme.on-danger); }
             touch := TouchArea { enabled: root.enabled; mouse-cursor: MouseCursor.pointer; clicked => { root.clicked(); } }
         }
     }
@@ -1116,9 +1119,9 @@ export component MenuItem inherits Rectangle {
         padding-left: 8px; padding-right: 8px; spacing: 8px;
         opacity: root.disabled ? 0.45 : 1;
         if !root.plain || root.current || root.icon.width > 0: Image {
-            source: root.current ? @image-url("icons/check.svg") : root.icon;
+            source: root.current ? IconPack.check : root.icon;
             width: 16px; image-fit: contain;
-            colorize: root.current ? Theme.accent-text : root.danger ? (root.highlighted ? Theme.on-danger : Theme.danger-text) : root.highlighted ? Theme.text : Theme.secondary;
+            colorize: IconPack.tint(self.source, root.current ? Theme.accent-text : root.danger ? (root.highlighted ? Theme.on-danger : Theme.danger-text) : root.highlighted ? Theme.text : Theme.secondary);
         }
         VerticalLayout {
             alignment: center; horizontal-stretch: 1;
@@ -1139,13 +1142,13 @@ export component MenuItem inherits Rectangle {
                 border-width: root.checked ? 0px : 1.5px; border-color: root.highlighted ? Theme.text : Theme.muted;
                 if root.checked: Image {
                     width: 12px; height: 12px; image-fit: contain;
-                    source: @image-url("icons/check.svg"); colorize: Theme.on-accent;
+                    source: IconPack.check; colorize: IconPack.tint(self.source, Theme.on-accent);
                 }
             }
         }
         if root.submenu: Image {
             width: 24px; image-fit: contain;
-            source: @image-url("icons/chevron-right.svg"); colorize: root.danger && root.highlighted ? Theme.on-danger : Theme.text;
+            source: IconPack.chevron-right; colorize: IconPack.tint(self.source, root.danger && root.highlighted ? Theme.on-danger : Theme.text);
         }
     }
     focus := FocusScope {
@@ -1303,6 +1306,7 @@ export component ContextMenu inherits Rectangle {
     }
     function pick(row: MenuRow) {
         if row.disabled { return; }
+        Cue.menu-closed();
         if row.checkbox { root.toggled(row.id); } else { root.chose(row.click-id == "" ? row.id : row.click-id); }
     }
     // Where a menu that scrolls goes to show the row lit `y` down it and
@@ -1314,9 +1318,9 @@ export component ContextMenu inherits Rectangle {
         return max(min(0px, shown - content), min(0px, moved));
     }
     // Clicks between the menu and the submenu close it, as clicks outside do.
-    TouchArea { clicked => { root.close(); } }
+    TouchArea { clicked => { Cue.menu-closed(); root.close(); } }
     keys := FocusScope {
-        init => { self.focus(); }
+        init => { self.focus(); Cue.menu-opened(); }
         key-pressed(event) => {
             if event.text == Key.DownArrow || (event.text == Key.Tab && !event.modifiers.shift) {
                 root.step(1);
@@ -1341,6 +1345,7 @@ export component ContextMenu inherits Rectangle {
                 root.sub-open = false;
                 root.sub-current = -1;
             } else if event.text == Key.Escape {
+                Cue.menu-closed();
                 root.close();
             } else {
                 return reject;
@@ -1560,7 +1565,7 @@ export component QuickDeviceMenu inherits Rectangle {
         }
         @children
         Rectangle { height: 1px; background: Theme.line; }
-        MenuItem { text: "Voice Settings"; icon: @image-url("icons/settings.svg"); clicked => { root.settings(); } }
+        MenuItem { text: "Voice Settings"; icon: IconPack.settings; clicked => { root.settings(); } }
     }
 }
 
@@ -1584,7 +1589,7 @@ export component HeaderToggle inherits Rectangle {
     property <color> ink: root.open || pointer.has-hover ? Theme.text : Theme.muted;
     content := HorizontalLayout {
         padding-left: 8px; padding-right: 8px; spacing: 6px;
-        Image { source: root.icon; width: 18px; image-fit: contain; colorize: root.ink; }
+        Image { source: root.icon; width: 18px; image-fit: contain; colorize: IconPack.tint(self.source, root.ink); }
         Text { text: root.text; color: root.ink; font-size: 14px; font-weight: 500; vertical-alignment: center; }
     }
     focus := FocusScope {
@@ -1596,9 +1601,10 @@ export component HeaderToggle inherits Rectangle {
         }
         pointer := TouchArea {
             mouse-cursor: MouseCursor.pointer;
-            clicked => { Tip.text = ""; root.clicked(); }
+            clicked => { Tip.text = ""; Cue.pressed(); root.clicked(); }
             changed has-hover => {
                 if self.has-hover {
+                    Cue.hovered();
                     Tip.text = root.label;
                     Tip.side = 2;
                     Tip.x = root.absolute-position.x + root.width / 2;
@@ -1618,7 +1624,7 @@ export component Banner inherits Rectangle {
     min-height: banner-content.preferred-height; vertical-stretch: 0; background: Theme.raised-fill;
     banner-content := HorizontalLayout {
         padding-left: 16px; padding-right: 8px; padding-top: 6px; padding-bottom: 6px; spacing: 12px;
-        Image { source: @image-url("icons/triangle-alert.svg"); width: 18px; image-fit: contain; colorize: Theme.accent-text; }
+        Image { source: IconPack.triangle-alert; width: 18px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.accent-text); }
         Text { text: root.text; color: Theme.text; font-size: 15px; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
         Middle { ActionButton { text: "Dismiss"; ghost: true; small: true; clicked => { root.dismissed(); } } }
     }

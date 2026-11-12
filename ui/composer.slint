@@ -1,3 +1,4 @@
+import { IconPack } from "media.slint";
 import { Theme, Middle, Look } from "theme.slint";
 import { ActionButton, IconButton, Avatar, SpoilerCover, ContextMenu, MenuRow } from "controls.slint";
 import { EmojiCell, EmojiFace } from "messages.slint";
@@ -24,7 +25,7 @@ export component StagedTile inherits Rectangle {
             if root.file.has-picture: Image { width: parent.width; height: parent.height; source: root.file.picture; image-fit: cover; }
             if !root.file.has-picture: Image {
                 x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
-                width: 32px; height: 32px; source: @image-url("icons/file.svg"); colorize: Theme.muted;
+                width: 32px; height: 32px; source: IconPack.file; colorize: IconPack.tint(self.source, Theme.muted);
             }
             if root.file.spoiler: SpoilerCover { width: parent.width; height: parent.height; }
         }
@@ -35,7 +36,7 @@ export component StagedTile inherits Rectangle {
         x: parent.width - 2 * self.width - 8px; y: 4px; width: 28px; height: 28px; border-radius: Look.radius(14px);
         background: Theme.scrim(#000000b3);
         IconButton {
-            icon: root.file.spoiler ? @image-url("icons/eye-off.svg") : @image-url("icons/eye.svg");
+            icon: root.file.spoiler ? IconPack.eye-off : IconPack.eye;
             label: root.file.spoiler ? "Stop covering " + root.file.name : "Mark " + root.file.name + " as a spoiler";
             size: 28px; glyph: 16px; radius: 14px; tint: #ffffff;
             clicked => { root.toggle-spoiler(); }
@@ -45,7 +46,7 @@ export component StagedTile inherits Rectangle {
         x: parent.width - self.width - 4px; y: 4px; width: 28px; height: 28px; border-radius: Look.radius(14px);
         background: Theme.scrim(#000000b3);
         IconButton {
-            icon: @image-url("icons/x.svg"); label: "Remove " + root.file.name;
+            icon: IconPack.x; label: "Remove " + root.file.name;
             size: 28px; glyph: 16px; radius: 14px; tint: #ffffff;
             clicked => { root.remove(); }
         }
@@ -123,12 +124,12 @@ export component Composer inherits Rectangle {
     property <length> menu-x;
     property <length> menu-y;
     property <bool> has-selection: input.anchor-position-byte-offset != input.cursor-position-byte-offset;
-    property <MenuRow> paste-row: { id: "paste", text: "Paste", icon: @image-url("icons/clipboard-paste.svg") };
-    property <MenuRow> select-all-row: { id: "select-all", text: "Select All", icon: @image-url("icons/text-select.svg") };
+    property <MenuRow> paste-row: { id: "paste", text: "Paste", icon: IconPack.clipboard-paste };
+    property <MenuRow> select-all-row: { id: "select-all", text: "Select All", icon: IconPack.text-select };
     property <[MenuRow]> menu-rows: root.has-selection
         ? [
-            { id: "cut", text: "Cut", icon: @image-url("icons/scissors.svg") },
-            { id: "copy", text: "Copy", icon: @image-url("icons/copy.svg") },
+            { id: "cut", text: "Cut", icon: IconPack.scissors },
+            { id: "copy", text: "Copy", icon: IconPack.copy },
             root.paste-row, root.select-all-row,
         ]
         : [root.paste-row, root.select-all-row];
@@ -318,7 +319,7 @@ export component MentionList inherits SuggestionFrame {
                             width: 24px; height: 24px; border-radius: Look.radius(12px);
                             background: (mention.has-color ? mention.color : Theme.muted).with-alpha(0.2);
                             if !mention.voice: Text { text: mention.sigil; color: mention.has-color ? mention.color : Theme.secondary; font-size: 13px; font-weight: 700; }
-                            if mention.voice: Image { source: @image-url("icons/volume-2.svg"); width: 14px; height: 14px; colorize: Theme.secondary; }
+                            if mention.voice: Image { source: IconPack.volume-2; width: 14px; height: 14px; colorize: IconPack.tint(self.source, Theme.secondary); }
                         }
                     }
                     Text {

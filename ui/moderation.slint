@@ -1,3 +1,4 @@
+import { IconPack } from "media.slint";
 import { Theme, Middle, Label, Tip, Look } from "theme.slint";
 import { ActionButton, Avatar, TextField } from "controls.slint";
 import { Picker, SettingsTitle, SettingsHeading, SettingsSwitch } from "settings.slint";
@@ -378,8 +379,8 @@ export component AuditLogSection inherits VerticalLayout {
                             }
                             if row.expandable: Middle {
                                 Image {
-                                    source: open ? @image-url("icons/chevron-down.svg") : @image-url("icons/chevron-right.svg");
-                                    width: 18px; height: 18px; colorize: Theme.muted;
+                                    source: open ? IconPack.chevron-down : IconPack.chevron-right;
+                                    width: 18px; height: 18px; colorize: IconPack.tint(self.source, Theme.muted);
                                 }
                             }
                         }

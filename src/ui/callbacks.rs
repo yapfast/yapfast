@@ -1,6 +1,7 @@
 //! What the window's callbacks do: most dispatch an action to the application.
 
 use super::*;
+use yapfast_core::themes::media::SoundSlot;
 
 use super::emoji_grid::{FETCH_ROWS, GRID_ROWS};
 
@@ -912,6 +913,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             // From a window of older messages, that's once the newest replace it:
             // following its end before then would load earlier pages as they go in.
             if window.get_can_send() {
+                theme_media::cue(SoundSlot::Send, FOCUSED.get());
                 if window.get_detached() {
                     adapter.borrow_mut().latest_due = true;
                 } else {
@@ -2021,6 +2023,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 &window,
                 yapfast_core::themes::package::art::Trigger::ReactionAdded,
             );
+            theme_media::cue(SoundSlot::ReactionAdd, FOCUSED.get());
             state.borrow_mut().action(
                 &window,
                 Action::React {

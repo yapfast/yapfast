@@ -78,11 +78,13 @@ const THEME_ASSET_CAP: Cap = Cap {
 
 /// The most a theme holds altogether, and the most files.
 const THEME_TOTAL: u64 = 24 << 20;
-const THEME_FILES: usize = 64;
+const THEME_FILES: usize = 256;
 
 /// The kinds of file a theme may name; anything else in `theme.json` is text,
 /// not a file to fetch. The parent checks each file by its kind.
-const THEME_EXTENSIONS: [&str; 7] = ["ttf", "otf", "png", "jpg", "jpeg", "webp", "svg"];
+const THEME_EXTENSIONS: [&str; 11] = [
+    "ttf", "otf", "png", "jpg", "jpeg", "webp", "svg", "wav", "ogg", "opus", "mp3",
+];
 
 /// Licence files a theme's folder may hold.
 const LICENCE_FILES: [&str; 6] = [

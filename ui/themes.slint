@@ -2,8 +2,9 @@
 // one from its GitHub repository, as the Plugins page has them; a theme's
 // review before it's installed, and the banner a theme on trial shows.
 // src/ui/theme_look.rs fills ThemesPage while the page is open.
+import { IconPack } from "media.slint";
 import { Theme, Middle, Label, Look } from "theme.slint";
-import { ActionButton, TextField } from "controls.slint";
+import { ActionButton, TextField, VolumeSlider } from "controls.slint";
 import { ScrollView } from "scrollview.slint";
 import { SettingsTitle, SettingsHeading, SettingsSwitch, Choices } from "settings.slint";
 
@@ -52,6 +53,9 @@ export struct ThemeReview {
     notes: string,
     based-on: string,
     previews: [image],
+    /// It replaces Yapfast's sounds, and gives interface events sounds.
+    notification-sounds: bool,
+    interface-sounds: bool,
 }
 
 export global ThemesPage {
@@ -96,6 +100,19 @@ export global ThemesPage {
     callback keep();
     callback revert();
     callback open-link(string);
+    /// The shown theme's sounds: its name, whether it has any, and whether it
+    /// has interface sounds; then the person's choices for it.
+    in property <string> sounds-theme;
+    in property <bool> has-sounds;
+    in property <bool> has-notify-sounds;
+    in property <bool> has-ui-sounds;
+    in-out property <bool> sounds-on: true;
+    in-out property <bool> ui-sounds-on;
+    in-out property <int> sounds-volume: 50;
+    callback sounds-changed();
+    /// What the person picks in the review for the theme's sounds.
+    in-out property <bool> review-notify-on: true;
+    in-out property <bool> review-ui-on: false;
 }
 
 // A theme's colours as a small window, when it has no preview picture.
@@ -252,7 +269,7 @@ component EmptyState inherits VerticalLayout {
         alignment: center;
         Rectangle {
             width: 64px; height: 64px; border-radius: Look.radius(32px); background: Theme.raised-fill;
-            Image { source: root.icon; width: 28px; height: 28px; colorize: Theme.muted; }
+            Image { source: root.icon; width: 28px; height: 28px; colorize: IconPack.tint(self.source, Theme.muted); }
         }
     }
     Text { text: root.title; color: Theme.text; font-size: 16px; font-weight: 600; horizontal-alignment: center; wrap: word-wrap; }
@@ -282,7 +299,7 @@ export component ThemesSettings inherits Rectangle {
                 height: 40px; padding-right: 12px;
                 TextField {
                     text <=> ThemesPage.query; label: "Search themes"; placeholder: "Search themes"; text-size: 14px;
-                    trailing-icon: @image-url("icons/search.svg");
+                    trailing-icon: IconPack.search;
                     edited(text) => { ThemesPage.search(text); }
                 }
             }
@@ -296,7 +313,7 @@ export component ThemesSettings inherits Rectangle {
             }
             if ThemesPage.listed.length == 0: VerticalLayout {
                 vertical-stretch: 1;
-                EmptyState { icon: @image-url("icons/search.svg"); title: "No themes match."; }
+                EmptyState { icon: IconPack.search; title: "No themes match."; }
             }
         }
 
@@ -307,7 +324,7 @@ export component ThemesSettings inherits Rectangle {
                 width: installed-scroll.visible-width;
                 spacing: 8px; alignment: start; padding-right: 12px;
                 if ThemesPage.installed.length == 0: EmptyState {
-                    icon: @image-url("icons/brush.svg");
+                    icon: IconPack.brush;
                     title: "No themes yet";
                     text: "Find one in the Marketplace, or add one from its GitHub repository. Themes change how Yapfast looks and never what it does.";
                     ActionButton { text: "Browse the Marketplace"; primary: true; clicked => { ThemesPage.tab-chosen(0); } }
@@ -317,7 +334,7 @@ export component ThemesSettings inherits Rectangle {
                     vertical-stretch: 0; spacing: 8px;
                     if ThemesPage.previous-name != "": Middle {
                         ActionButton {
-                            text: "Back to " + ThemesPage.previous-name; small: true; icon: @image-url("icons/arrow-left.svg");
+                            text: "Back to " + ThemesPage.previous-name; small: true; icon: IconPack.arrow-left;
                             clicked => { ThemesPage.revert-theme(); }
                         }
                     }
@@ -356,6 +373,27 @@ export component ThemesSettings inherits Rectangle {
                         toggled(on) => { ThemesPage.reduce-motion-toggled(on); }
                     }
                 }
+                if ThemesPage.has-sounds: VerticalLayout {
+                    spacing: 8px; padding-top: 12px;
+                    SettingsHeading { text: "SOUNDS"; }
+                    if ThemesPage.has-notify-sounds: SettingsSwitch {
+                        text: "Notification sounds";
+                        description: ThemesPage.sounds-theme + "'s sounds for messages, mentions, calls and the rest, in place of Yapfast's. Your sound volumes and Do Not Disturb still apply.";
+                        checked <=> ThemesPage.sounds-on;
+                        toggled => { ThemesPage.sounds-changed(); }
+                    }
+                    if ThemesPage.has-ui-sounds: SettingsSwitch {
+                        text: "Interface sounds — clicks, hovers, menus, send";
+                        description: "Only while Yapfast is in front, and never in Do Not Disturb.";
+                        checked <=> ThemesPage.ui-sounds-on;
+                        toggled => { ThemesPage.sounds-changed(); }
+                    }
+                    if ThemesPage.has-ui-sounds: VolumeSlider {
+                        label: "Interface sound volume"; maximum: 100;
+                        value <=> ThemesPage.sounds-volume;
+                        committed => { ThemesPage.sounds-changed(); }
+                    }
+                }
             }
         }
 
@@ -386,7 +424,7 @@ export component ThemesSettings inherits Rectangle {
             accessible-role: AccessibleRole.text; accessible-label: ThemesPage.error;
             HorizontalLayout {
                 padding: 10px; spacing: 10px;
-                Image { source: @image-url("icons/triangle-alert.svg"); width: 18px; height: 18px; colorize: Theme.danger-text; }
+                Image { source: IconPack.triangle-alert; width: 18px; height: 18px; colorize: IconPack.tint(self.source, Theme.danger-text); }
                 Text { text: ThemesPage.error; color: Theme.danger-text; font-size: 14px; wrap: word-wrap; horizontal-stretch: 1; vertical-alignment: center; }
             }
         }
@@ -441,6 +479,20 @@ export component ThemeReviewDialog inherits Rectangle {
             if ThemesPage.review.based-on != "": Text { text: "Remixes " + ThemesPage.review.based-on; color: Theme.muted; font-size: 13px; wrap: word-wrap; }
             Text { text: "Cost: " + ThemesPage.review.cost; color: Theme.secondary; font-size: 13px; wrap: word-wrap; }
             if ThemesPage.review.notes != "": Text { text: ThemesPage.review.notes; color: Theme.loud; font-size: 13px; wrap: word-wrap; }
+            if ThemesPage.review.notification-sounds || ThemesPage.review.interface-sounds: VerticalLayout {
+                spacing: 8px;
+                SettingsHeading { text: "SOUNDS"; }
+                if ThemesPage.review.notification-sounds: SettingsSwitch {
+                    text: "Notification sounds";
+                    description: "Its sounds for messages, mentions, calls and the rest, in place of Yapfast's.";
+                    checked <=> ThemesPage.review-notify-on;
+                }
+                if ThemesPage.review.interface-sounds: SettingsSwitch {
+                    text: "Interface sounds — clicks, hovers, menus, send";
+                    description: "Only while Yapfast is in front. You can change both later in Settings → Themes.";
+                    checked <=> ThemesPage.review-ui-on;
+                }
+            }
             HorizontalLayout {
                 spacing: 8px; alignment: end;
                 ActionButton { text: "Cancel"; ghost: true; clicked => { ThemesPage.cancel-review(); } }

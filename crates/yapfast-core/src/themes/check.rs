@@ -14,8 +14,8 @@ use std::sync::OnceLock;
 
 pub mod art;
 
-use super::MANIFEST;
 use super::package::{Mode, Package, Paint, READABLE, Resolved, TEXT_ON, follows};
+use super::{MANIFEST, media};
 
 /// The largest font file.
 pub const MAX_FONT_BYTES: u64 = 4 << 20;
@@ -227,6 +227,9 @@ pub struct Cost {
     pub layers: usize,
     pub overlays: usize,
     pub particles: usize,
+    /// Sound files and replaced icons.
+    pub sounds: usize,
+    pub icons: usize,
 }
 
 impl Cost {
@@ -278,14 +281,54 @@ impl Cost {
                 if self.effects == 1 { "" } else { "s" }
             ));
         }
+        if self.sounds > 0 {
+            parts.push(format!(
+                "{} sound{}",
+                self.sounds,
+                if self.sounds == 1 { "" } else { "s" }
+            ));
+        }
+        if self.icons > 0 {
+            parts.push(format!(
+                "{} icon{}",
+                self.icons,
+                if self.icons == 1 { "" } else { "s" }
+            ));
+        }
         parts.join(" · ")
     }
 
-    fn of(resolved: &[Resolved], files: &Files) -> Cost {
+    fn of(resolved: &[Resolved], files: &Files, sound_seconds: &BTreeMap<PathBuf, f32>) -> Cost {
         let mut fonts: Vec<&Path> = Vec::new();
         let mut cost = Cost::default();
         let mut art_memory = 0;
+        let mut media: Vec<&Path> = Vec::new();
         for variant in resolved {
+            // A sound is held decoded, 48 kHz stereo 16-bit, once; an icon as
+            // its file, and drawn at the size it shows.
+            for file in variant
+                .sounds
+                .values()
+                .flat_map(|choice| choice.files.iter())
+            {
+                if !media.contains(&file.as_path()) {
+                    media.push(file);
+                    cost.sounds += 1;
+                    cost.memory += sound_seconds
+                        .get(file)
+                        .map_or(0, |seconds| (seconds * 48_000.0 * 4.0) as u64);
+                }
+            }
+            for icon in variant.icons.values() {
+                if !media.contains(&icon.file.as_path()) {
+                    media.push(&icon.file);
+                    cost.icons += 1;
+                    cost.memory += files
+                        .files
+                        .get(&icon.file)
+                        .map_or(0, |bytes| bytes.len() as u64);
+                }
+            }
             for font in variant.fonts() {
                 if !fonts.contains(&font) {
                     fonts.push(font);
@@ -374,6 +417,9 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
             Err(error) => report.errors.push(error.0),
         }
     }
+    // Each sound is decoded once, here, and its length kept for the slots
+    // that name it.
+    let mut sound_seconds: BTreeMap<PathBuf, f32> = BTreeMap::new();
     for relative in package.files() {
         let Some(bytes) = files.files.get(&relative) else {
             report.errors.push(format!(
@@ -382,10 +428,36 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
             ));
             continue;
         };
-        if let Err(error) = check_file(&relative, bytes) {
+        let checked = if media::is_sound(&relative) {
+            media::decode_sound(&relative, bytes).map(|samples| {
+                sound_seconds.insert(relative.clone(), media::seconds(&samples));
+            })
+        } else {
+            check_file(&relative, bytes)
+        };
+        if let Err(error) = checked {
             report
                 .errors
                 .push(format!("{}: {error}", relative.display()));
+        }
+    }
+    for variant in &resolved {
+        for (slot, choice) in &variant.sounds {
+            for file in &choice.files {
+                if let Some(seconds) = sound_seconds.get(file)
+                    && *seconds > slot.longest() + 0.005
+                {
+                    let sentence = format!(
+                        "{}: lasts {seconds:.1} s, and a {} sound lasts at most {} s",
+                        file.display(),
+                        slot.name(),
+                        slot.longest()
+                    );
+                    if !report.errors.contains(&sentence) {
+                        report.errors.push(sentence);
+                    }
+                }
+            }
         }
     }
     if files.bytes() > MAX_THEME_BYTES {
@@ -435,7 +507,7 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
             .warnings
             .push("\"based_on\" names a repository that isn't on GitHub".into());
     }
-    report.cost = Cost::of(&resolved, files);
+    report.cost = Cost::of(&resolved, files, &sound_seconds);
     report.package = Some(package);
     report
 }
@@ -555,7 +627,8 @@ pub fn check_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
         "ttf" | "otf" => check_font(bytes),
         "png" | "jpg" | "jpeg" | "webp" => check_image(bytes),
         "svg" => check_svg(bytes),
-        _ => Err("isn't a kind of file a theme holds: fonts are .ttf or .otf, pictures .png, .jpg, .webp or .svg".into()),
+        "wav" | "ogg" | "opus" | "mp3" => media::decode_sound(path, bytes).map(|_| ()),
+        _ => Err("isn't a kind of file a theme holds: fonts are .ttf or .otf, pictures .png, .jpg, .webp or .svg, sounds .wav, .ogg, .opus or .mp3".into()),
     }
 }
 
@@ -968,6 +1041,78 @@ mod tests {
             report.cost.text().contains("2 animations (1 heavy)"),
             "{}",
             report.cost.text()
+        );
+    }
+
+    /// A mono 16-bit 48 kHz WAV of `seconds` of a tone.
+    fn tone(seconds: f32) -> Vec<u8> {
+        let data: Vec<u8> = (0..(seconds * 48_000.0) as usize)
+            .flat_map(|index| {
+                let value = (std::f32::consts::TAU * 440.0 * index as f32 / 48_000.0).sin();
+                ((value * 9_000.0) as i16).to_le_bytes()
+            })
+            .collect();
+        let mut file = b"RIFF".to_vec();
+        file.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+        file.extend_from_slice(b"WAVEfmt \x10\0\0\0\x01\0\x01\0");
+        file.extend_from_slice(&48_000u32.to_le_bytes());
+        file.extend_from_slice(&96_000u32.to_le_bytes());
+        file.extend_from_slice(b"\x02\0\x10\0data");
+        file.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        file.extend_from_slice(&data);
+        file
+    }
+
+    #[test]
+    fn sounds_are_decoded_and_held_to_their_slots_length() {
+        let manifest = r##"{ "theme_api": 1, "id": "com.example.pops", "name": "Pops", "version": "1.0.0",
+            "sounds": { "hover": "sounds/short.wav", "join": "sounds/long.wav" },
+            "icons": { "hash": "icons/hash.svg" },
+            "variants": { "dark": { "base": "yap" } } }"##;
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/></svg>"#;
+        let mut theme = files(manifest);
+        theme.files.insert("sounds/short.wav".into(), tone(0.1));
+        theme.files.insert("sounds/long.wav".into(), tone(2.0));
+        theme.files.insert("icons/hash.svg".into(), svg.to_vec());
+        let report = check(&theme, Strictness::Install);
+        assert!(report.passed(), "{:?}", report.errors);
+        assert_eq!((report.cost.sounds, report.cost.icons), (2, 1));
+        // Decoded, 48 kHz stereo 16-bit: 2.1 s is about 0.4 MB.
+        assert!(
+            (380_000..420_000).contains(&report.cost.memory),
+            "{}",
+            report.cost.memory
+        );
+        assert!(
+            report.cost.text().contains("2 sounds · 1 icon"),
+            "{}",
+            report.cost.text()
+        );
+
+        // A blip slot takes no long sound, and a broken file is refused.
+        let mut theme = files(&manifest.replace(
+            "\"hover\": \"sounds/short.wav\"",
+            "\"hover\": \"sounds/long.wav\"",
+        ));
+        theme.files.insert("sounds/long.wav".into(), tone(2.0));
+        theme.files.insert("icons/hash.svg".into(), svg.to_vec());
+        let report = check(&theme, Strictness::Install);
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("a hover sound lasts at most 1.5 s")),
+            "{:?}",
+            report.errors
+        );
+        theme
+            .files
+            .insert("sounds/long.wav".into(), b"RIFF nonsense".to_vec());
+        let report = check(&theme, Strictness::Install);
+        assert!(
+            report.errors.iter().any(|error| error.contains("WAV")),
+            "{:?}",
+            report.errors
         );
     }
 }

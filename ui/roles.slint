@@ -1,3 +1,4 @@
+import { IconPack } from "media.slint";
 import { Theme, Middle, Label, Tip, Look } from "theme.slint";
 import { ActionButton, Avatar, IconButton, TextField, PictureStore } from "controls.slint";
 import { SettingsTitle, SettingsHeading, SettingsSwitch } from "settings.slint";
@@ -192,7 +193,7 @@ component RoleListRow inherits Rectangle {
             Middle { RoleMark { role: root.role; } }
             if root.role.locked: Middle {
                 Image {
-                    width: 14px; height: 14px; source: @image-url("icons/lock.svg"); colorize: Theme.muted;
+                    width: 14px; height: 14px; source: IconPack.lock; colorize: IconPack.tint(self.source, Theme.muted);
                     accessible-role: image; accessible-label: root.role.lock-text;
                     TouchArea {
                         changed has-hover => {
@@ -226,19 +227,19 @@ component RoleListRow inherits Rectangle {
                 HorizontalLayout {
                     spacing: 4px; alignment: start;
                     Text { text: root.role.members; color: Theme.secondary; font-size: 14px; vertical-alignment: center; }
-                    Middle { Image { width: 16px; height: 16px; source: @image-url("icons/user.svg"); colorize: Theme.secondary; } }
+                    Middle { Image { width: 16px; height: 16px; source: IconPack.user; colorize: IconPack.tint(self.source, Theme.secondary); } }
                 }
             }
             Middle {
                 IconButton {
-                    icon: root.role.locked ? @image-url("icons/eye.svg") : @image-url("icons/pencil.svg");
+                    icon: root.role.locked ? IconPack.eye : IconPack.pencil;
                     label: root.role.locked ? "View" : "Edit"; fill: Theme.raised; radius: 16px;
                     clicked => { root.open(); }
                 }
             }
             Middle {
                 IconButton {
-                    icon: @image-url("icons/ellipsis.svg"); label: "More"; fill: Theme.raised; radius: 16px;
+                    icon: IconPack.ellipsis; label: "More"; fill: Theme.raised; radius: 16px;
                     enabled: root.role.may-copy;
                     opacity: self.enabled ? 1 : 0.4;
                     clicked => { more.show(); }
@@ -317,7 +318,7 @@ component RoleMemberLine inherits Rectangle {
         }
         Middle {
             IconButton {
-                icon: @image-url("icons/x.svg"); label: root.removable ? "Remove member" : "Members cannot be manually added or removed from this role";
+                icon: IconPack.x; label: root.removable ? "Remove member" : "Members cannot be manually added or removed from this role";
                 enabled: root.removable; opacity: self.enabled ? 1 : 0.4;
                 clicked => { root.remove(); }
             }
@@ -369,7 +370,7 @@ export component RolesSection inherits VerticalLayout {
                 Middle {
                     Rectangle {
                         width: 36px; height: 36px; border-radius: Look.radius(18px); background: Theme.field;
-                        Image { width: 20px; height: 20px; source: @image-url("icons/users.svg"); colorize: Theme.secondary; }
+                        Image { width: 20px; height: 20px; source: IconPack.users; colorize: IconPack.tint(self.source, Theme.secondary); }
                     }
                 }
                 Middle {
@@ -380,7 +381,7 @@ export component RolesSection inherits VerticalLayout {
                         Text { text: root.page.everyone-name + " • applies to all server members"; color: Theme.secondary; font-size: 13px; }
                     }
                 }
-                Middle { Image { width: 18px; height: 18px; source: @image-url("icons/chevron-right.svg"); colorize: Theme.secondary; } }
+                Middle { Image { width: 18px; height: 18px; source: IconPack.chevron-right; colorize: IconPack.tint(self.source, Theme.secondary); } }
             }
         }
         HorizontalLayout {
@@ -424,7 +425,7 @@ export component RolesSection inherits VerticalLayout {
                 accessible-role: button; accessible-label: "Back";
                 HorizontalLayout {
                     spacing: 4px;
-                    Middle { Image { width: 16px; height: 16px; source: @image-url("icons/chevron-left.svg"); colorize: back-area.has-hover ? Theme.text : Theme.secondary; } }
+                    Middle { Image { width: 16px; height: 16px; source: IconPack.chevron-left; colorize: IconPack.tint(self.source, back-area.has-hover ? Theme.text : Theme.secondary); } }
                     back := Text { text: "Back"; font-size: 14px; font-weight: 600; vertical-alignment: center; color: back-area.has-hover ? Theme.text : Theme.secondary; }
                 }
                 back-area := TouchArea { clicked => { root.open(""); } }
@@ -462,7 +463,7 @@ export component RolesSection inherits VerticalLayout {
                     Rectangle {
                         width: 66px; height: 50px; border-radius: Look.radius(4px); background: #99aab5;
                         accessible-role: button; accessible-label: "Default";
-                        if root.page.default-color: Image { width: 20px; height: 20px; source: @image-url("icons/check.svg"); colorize: #ffffff; }
+                        if root.page.default-color: Image { width: 20px; height: 20px; source: IconPack.check; colorize: IconPack.tint(self.source, #ffffff); }
                         TouchArea { enabled: root.editable; clicked => { root.color(-1); } }
                     }
                     VerticalLayout {
@@ -472,7 +473,7 @@ export component RolesSection inherits VerticalLayout {
                             for swatch[index] in root.page.bright: Rectangle {
                                 width: 20px; height: 20px; border-radius: Look.radius(4px); background: swatch.color;
                                 accessible-role: button; accessible-label: "Color " + (index + 1);
-                                if swatch.chosen: Image { width: 14px; height: 14px; source: @image-url("icons/check.svg"); colorize: #ffffff; }
+                                if swatch.chosen: Image { width: 14px; height: 14px; source: IconPack.check; colorize: IconPack.tint(self.source, #ffffff); }
                                 TouchArea { enabled: root.editable; clicked => { root.color(index); } }
                             }
                         }
@@ -481,7 +482,7 @@ export component RolesSection inherits VerticalLayout {
                             for swatch[index] in root.page.dark: Rectangle {
                                 width: 20px; height: 20px; border-radius: Look.radius(4px); background: swatch.color;
                                 accessible-role: button; accessible-label: "Color " + (index + 11);
-                                if swatch.chosen: Image { width: 14px; height: 14px; source: @image-url("icons/check.svg"); colorize: #ffffff; }
+                                if swatch.chosen: Image { width: 14px; height: 14px; source: IconPack.check; colorize: IconPack.tint(self.source, #ffffff); }
                                 TouchArea { enabled: root.editable; clicked => { root.color(index + 10); } }
                             }
                         }
@@ -490,7 +491,7 @@ export component RolesSection inherits VerticalLayout {
                     Rectangle {
                         width: 50px; height: 50px; border-radius: Look.radius(4px); background: root.page.color;
                         accessible-role: image; accessible-label: "Custom color";
-                        if root.page.custom-color: Image { width: 20px; height: 20px; source: @image-url("icons/check.svg"); colorize: #ffffff; }
+                        if root.page.custom-color: Image { width: 20px; height: 20px; source: IconPack.check; colorize: IconPack.tint(self.source, #ffffff); }
                     }
                     VerticalLayout {
                         alignment: center;
@@ -517,7 +518,7 @@ export component RolesSection inherits VerticalLayout {
                         init => { if root.page.icon-url != "" && self.shown.width == 0 { PictureStore.request(root.page.icon-url); } }
                         if self.shown.width > 0: Image { width: 48px; height: 48px; source: parent.shown; image-fit: contain; }
                         if self.shown.width == 0 && root.page.emoji != "": Text { text: root.page.emoji; font-size: 36px; }
-                        if self.shown.width == 0 && root.page.emoji == "": Image { width: 24px; height: 24px; source: @image-url("icons/image.svg"); colorize: Theme.muted; }
+                        if self.shown.width == 0 && root.page.emoji == "": Image { width: 24px; height: 24px; source: IconPack.image; colorize: IconPack.tint(self.source, Theme.muted); }
                     }
                     VerticalLayout {
                         spacing: 8px; alignment: center;
@@ -729,7 +730,7 @@ export component AddMembersDialog inherits Rectangle {
                                         width: 18px; height: 18px; border-radius: Look.radius(4px);
                                         border-width: 1px; border-color: Theme.line;
                                         background: member.chosen ? Theme.accent-fill : transparent;
-                                        if member.chosen: Image { width: 14px; height: 14px; source: @image-url("icons/check.svg"); colorize: #ffffff; }
+                                        if member.chosen: Image { width: 14px; height: 14px; source: IconPack.check; colorize: IconPack.tint(self.source, #ffffff); }
                                     }
                                 }
                                 Middle { Avatar { size: 28px; initial: member.initial; picture-url: member.avatar-url; } }

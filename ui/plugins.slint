@@ -3,6 +3,7 @@
 // turns a checked tree from crates/yapfast-core/src/plugins/ui.rs into these
 // structs. Everything a plugin draws carries its name, so it can't pass for
 // Yapfast's own interface.
+import { IconPack } from "media.slint";
 import { ComboBox } from "std-widgets.slint";
 import { Theme, Middle, Look } from "theme.slint";
 import { ActionButton, IconButton, TextField, VolumeSlider } from "controls.slint";
@@ -178,7 +179,7 @@ component PluginCellView inherits HorizontalLayout {
     if root.cell.kind == PluginKind.icon: Middle {
         Image {
             width: 18px; height: 18px; source: root.cell.picture; image-fit: contain;
-            colorize: root.cell.tone == PluginTone.normal ? transparent : root.ink;
+            colorize: IconPack.tint(self.source, root.cell.tone == PluginTone.normal ? transparent : root.ink);
             accessible-role: image; accessible-label: root.cell.text;
         }
     }
@@ -369,7 +370,7 @@ export component PluginToast inherits Rectangle {
         VerticalLayout {
             alignment: start;
             IconButton {
-                icon: @image-url("icons/x.svg"); label: "Close " + root.part.name + "'s toast"; size: 28px; glyph: 16px;
+                icon: IconPack.x; label: "Close " + root.part.name + "'s toast"; size: 28px; glyph: 16px;
                 clicked => { root.dismissed(root.part.plugin, root.part.slot); }
             }
         }

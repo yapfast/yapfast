@@ -13,6 +13,7 @@
 // that has `content-y`, `content-height`, `content-width`, `visible-height` and
 // `visible-width` lengths, so this ListView is virtualized as the std-widgets
 // one is.
+import { IconPack } from "media.slint";
 import { Theme, Look } from "theme.slint";
 
 component ScrollBarButton inherits TouchArea {
@@ -27,7 +28,7 @@ component ScrollBarButton inherits TouchArea {
         y: (parent.height - self.height) / 2;
         width: parent.width;
         source: root.icon;
-        colorize: Theme.scrollbar;
+        colorize: IconPack.tint(self.source, Theme.scrollbar);
         accessible-role: none;
 
         animate colorize, opacity { duration: 150ms; }
@@ -140,7 +141,7 @@ component ScrollBar inherits Rectangle {
         opacity: 0;
         x: !root.horizontal ? (parent.width - self.width) / 2 : 4px;
         y: root.horizontal ? (parent.height - self.height) / 2 : 4px;
-        icon: root.horizontal ? @image-url("icons/scroll-left.svg") : @image-url("icons/scroll-up.svg");
+        icon: root.horizontal ? IconPack.scroll-left : IconPack.scroll-up;
         horizontal: root.horizontal;
 
         clicked => {
@@ -152,7 +153,7 @@ component ScrollBar inherits Rectangle {
         opacity: 0;
         x: !root.horizontal ? (parent.width - self.width) / 2 : root.width - self.width - 4px;
         y: root.horizontal ? (parent.height - self.height) / 2 : root.height - self.height - 4px;
-        icon: root.horizontal ? @image-url("icons/scroll-right.svg") : @image-url("icons/scroll-down.svg");
+        icon: root.horizontal ? IconPack.scroll-right : IconPack.scroll-down;
         horizontal: root.horizontal;
 
         clicked => {

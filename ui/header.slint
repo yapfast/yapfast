@@ -1,3 +1,4 @@
+import { IconPack } from "media.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Look } from "theme.slint";
@@ -114,11 +115,11 @@ export component HeaderSearch inherits Rectangle {
     if root.text == "": Image {
         x: root.width - (ClientStyle.enabled ? 28px : 24px); y: (root.height - self.height) / 2;
         width: ClientStyle.enabled ? 20px : 16px; height: ClientStyle.enabled ? 20px : 16px;
-        source: @image-url("icons/search.svg"); colorize: ClientStyle.enabled ? Theme.secondary : Theme.muted;
+        source: IconPack.search; colorize: IconPack.tint(self.source, ClientStyle.enabled ? Theme.secondary : Theme.muted);
     }
     if root.text != "": IconButton {
         x: root.width - 26px; size: 24px; glyph: 14px; tip-side: 2;
-        icon: @image-url("icons/x.svg"); label: "Clear search";
+        icon: IconPack.x; label: "Clear search";
         clicked => { root.clear(); }
     }
 }
@@ -183,7 +184,7 @@ export component FoundCard inherits Rectangle {
                             if cell.spoiler: SpoilerCover { }
                             if cell.video && !cell.spoiler && !cell.loading: Rectangle {
                                 width: 40px; height: 40px; border-radius: Look.radius(20px); background: #000000b3;
-                                Image { source: @image-url("icons/play.svg"); width: 20px; height: 20px; colorize: #ffffff; }
+                                Image { source: IconPack.play; width: 20px; height: 20px; colorize: IconPack.tint(self.source, #ffffff); }
                             }
                         }
                     }
@@ -193,7 +194,7 @@ export component FoundCard inherits Rectangle {
                 if root.found.has-poll: PollView { poll: root.found.poll; item: root.found.item; }
                 if root.found.files != "": HorizontalLayout {
                     spacing: 6px;
-                    Middle { Image { source: @image-url("icons/file.svg"); width: 14px; height: 14px; colorize: Theme.muted; } }
+                    Middle { Image { source: IconPack.file; width: 14px; height: 14px; colorize: IconPack.tint(self.source, Theme.muted); } }
                     Text { text: root.found.files; color: Theme.muted; font-size: 13px; overflow: elide; horizontal-stretch: 1; }
                 }
             }
@@ -226,13 +227,13 @@ component Popover inherits Rectangle {
             height: root.detail != "" ? 64px : 48px; background: Theme.panel-fill;
             HorizontalLayout {
                 padding-left: 16px; padding-right: 10px; spacing: 10px;
-                Middle { Image { source: root.icon; width: 20px; height: 20px; colorize: Theme.secondary; } }
+                Middle { Image { source: root.icon; width: 20px; height: 20px; colorize: IconPack.tint(self.source, Theme.secondary); } }
                 VerticalLayout {
                     alignment: center; horizontal-stretch: 1; spacing: 2px;
                     Text { text: root.heading; color: Theme.text; font-size: 16px; font-weight: 700; overflow: elide; }
                     if root.detail != "": Text { text: root.detail; color: Theme.muted; font-size: 13px; overflow: elide; }
                 }
-                Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
+                Middle { IconButton { icon: IconPack.x; label: "Close"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
             }
             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.edge; }
         }
@@ -253,12 +254,12 @@ export component PinsPopover inherits Rectangle {
     out property <length> fit: 49px + (root.note != "" ? 172px : list.preferred-height);
     width: 420px;
     Popover {
-        icon: @image-url("icons/pin.svg");
+        icon: IconPack.pin;
         heading: "Pinned Messages";
         close => { root.close(); }
         if root.note != "": VerticalLayout {
             padding: 24px; spacing: 12px; alignment: center;
-            Image { source: @image-url("icons/pin.svg"); height: 40px; image-fit: contain; colorize: Theme.faint; }
+            Image { source: IconPack.pin; height: 40px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.faint); }
             Text { text: root.note; color: Theme.muted; font-size: 14px; wrap: word-wrap; horizontal-alignment: center; }
         }
         // Always there, so its height can be read; empty while a note shows.
@@ -317,13 +318,13 @@ component ThreadEntry inherits Rectangle {
                 alignment: center; spacing: 6px; horizontal-stretch: 1;
                 HorizontalLayout {
                     spacing: 6px;
-                    if root.entry.private: Middle { Image { source: @image-url("icons/lock.svg"); width: 14px; height: 14px; colorize: Theme.muted; } }
+                    if root.entry.private: Middle { Image { source: IconPack.lock; width: 14px; height: 14px; colorize: IconPack.tint(self.source, Theme.muted); } }
                     Text { text: root.entry.name; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; horizontal-stretch: 1; }
                 }
                 HorizontalLayout {
                     spacing: 0px;
                     if root.entry.person != "": Middle { Avatar { size: 16px; initial: root.entry.initial; tint: root.entry.tint; picture-url: root.entry.picture-url; } }
-                    if root.entry.person == "" && root.entry.archived: Middle { Image { source: @image-url("icons/thread.svg"); width: 14px; height: 14px; colorize: Theme.muted; } }
+                    if root.entry.person == "" && root.entry.archived: Middle { Image { source: IconPack.thread; width: 14px; height: 14px; colorize: IconPack.tint(self.source, Theme.muted); } }
                     if root.entry.person != "" || root.entry.archived: Rectangle { width: 6px; }
                     if root.entry.lead != "": Text { text: root.entry.lead; color: Theme.muted; font-size: 13px; vertical-alignment: center; horizontal-stretch: 0; }
                     if root.entry.person != "": Text {
@@ -409,7 +410,7 @@ export component ThreadsPopover inherits Rectangle {
             height: 48px; background: Theme.panel-fill;
             HorizontalLayout {
                 padding-left: 16px; padding-right: 10px; spacing: 10px;
-                Middle { Image { source: @image-url("icons/thread.svg"); width: 20px; height: 20px; colorize: Theme.secondary; } }
+                Middle { Image { source: IconPack.thread; width: 20px; height: 20px; colorize: IconPack.tint(self.source, Theme.secondary); } }
                 Middle { Text { text: "Threads"; color: Theme.text; font-size: 16px; font-weight: 700; } }
                 if root.searchable: Middle { Rectangle { width: 1px; height: 24px; background: Theme.line; } }
                 if root.searchable: Middle {
@@ -424,7 +425,7 @@ export component ThreadsPopover inherits Rectangle {
                 if root.can-create: Middle {
                     ActionButton { text: "Create"; small: true; primary: true; clicked => { root.create("list"); } }
                 }
-                Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
+                Middle { IconButton { icon: IconPack.x; label: "Close"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
             }
             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.edge; }
         }
@@ -434,7 +435,7 @@ export component ThreadsPopover inherits Rectangle {
         }
         if root.note == "" && root.empty: VerticalLayout {
             padding: 32px; spacing: 8px; vertical-stretch: 1; alignment: center;
-            Image { source: @image-url("icons/thread.svg"); height: 48px; image-fit: contain; colorize: Theme.faint; }
+            Image { source: IconPack.thread; height: 48px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.faint); }
             Text { text: "There are no threads."; color: Theme.text; font-size: 17px; font-weight: 700; horizontal-alignment: center; }
             Text {
                 text: "Stay focused on a conversation with a thread - a temporary text channel.";
@@ -484,7 +485,7 @@ export component TopicPopover inherits Rectangle {
     width: 440px;
     height: min(49px + body.preferred-height, root.most);
     Popover {
-        icon: @image-url("icons/hash.svg");
+        icon: IconPack.hash;
         heading: root.name;
         close => { root.close(); }
         ScrollView {
@@ -519,7 +520,7 @@ export component AddPeoplePopover inherits Rectangle {
     callback close;
     width: 440px;
     Popover {
-        icon: @image-url("icons/user-plus.svg");
+        icon: IconPack.user-plus;
         heading: "Select Friends";
         detail: root.room - root.chosen > 0
             ? "You can add " + (root.room - root.chosen) + " more " + (root.room - root.chosen == 1 ? "friend." : "friends.")
@@ -583,7 +584,7 @@ export component AddPeoplePopover inherits Rectangle {
                                         width: 22px; height: 22px; border-radius: Look.radius(6px);
                                         background: person.chosen ? Theme.accent-fill : transparent;
                                         border-width: person.chosen ? 0px : 2px; border-color: Theme.faint;
-                                        if person.chosen: Image { source: @image-url("icons/check.svg"); width: 16px; height: 16px; colorize: Theme.on-accent; }
+                                        if person.chosen: Image { source: IconPack.check; width: 16px; height: 16px; colorize: IconPack.tint(self.source, Theme.on-accent); }
                                     }
                                 }
                             }
@@ -629,7 +630,7 @@ export component SearchPanel inherits Rectangle {
             HorizontalLayout {
                 padding-left: 16px; padding-right: 10px; spacing: 10px;
                 Text { text: root.heading; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
-                Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close search"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
+                Middle { IconButton { icon: IconPack.x; label: "Close search"; size: 28px; glyph: 18px; tip-side: 2; clicked => { root.close(); } } }
             }
             Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
         }
@@ -643,7 +644,7 @@ export component SearchPanel inherits Rectangle {
                     // The channel a run of results is in, as Discord heads them.
                     if found.heading != "": HorizontalLayout {
                         padding-top: 6px; spacing: 4px;
-                        Middle { Image { source: @image-url("icons/hash.svg"); width: 14px; height: 14px; colorize: Theme.muted; } }
+                        Middle { Image { source: IconPack.hash; width: 14px; height: 14px; colorize: IconPack.tint(self.source, Theme.muted); } }
                         Text { text: found.heading; color: Theme.secondary; font-size: 13px; font-weight: 700; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
                     }
                     FoundCard {

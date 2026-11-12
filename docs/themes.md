@@ -129,8 +129,8 @@ installed theme shows, and has *Browse themes*, which opens the page.
 
 A theme installs the way a plugin does (`PLAN.md` §8): *Add from URL* asks the `yapfast-plugins fetch` helper to read the
 repository with gix at one commit. The helper reads `theme.json` and only the
-files it names (fonts and pictures by their extension) plus a licence file,
-each at most 4 MiB and 24 MiB together, with no checkout, symlink or LFS
+files it names (fonts, pictures and sounds by their extension) plus a licence
+file, at most 256 files, each at most 4 MiB and 24 MiB together, with no checkout, symlink or LFS
 pointer. Yapfast then checks them (below), shows the review — name, source,
 short commit, *Unreviewed source*, what it ships (dark, light or both), its
 cost and anything this Yapfast ignores — and on Install writes them to
@@ -164,7 +164,8 @@ repository.
   checked at every stop. A pair the base theme already draws lower only has to
   keep the base's contrast.
 - **Bundled, checked files.** Paths are relative, inside the folder, with `/`;
-  a URL, `..` or an absolute path is refused. Fonts are `.ttf` or `.otf`,
+  a URL, `..` or an absolute path is refused. Sounds are decoded whole, under
+  limits (see Sounds). Fonts are `.ttf` or `.otf`,
   parsed whole (inside a guard that refuses a file that panics the parser)
   before anything draws with them. Pictures are PNG, JPEG or WebP, at most
   3840 pixels a side and 2 MiB, and decode whole. SVGs are refused if they hold
@@ -193,9 +194,10 @@ Settings → Themes → Installed → *Performance*:
 
 *Reduce motion* keeps every theme animation, text effect and hover motion still
 whatever the setting. A theme's cost is shown before it's installed, measured
-from its files: the memory its fonts hold once registered, how many
-animations it declares and how many are heavy, the most redraws a second
-they ask for, and its text effects. A clock runs only while an animation may
+from its files: the memory its fonts hold once registered and its sounds
+once decoded (with its icons' files), how many animations it declares and
+how many are heavy, the most redraws a second they ask for, its text
+effects, and how many sounds and icons it ships. A clock runs only while an animation may
 move; text effects tick only while one plays.
 
 ### `theme.json`
@@ -215,6 +217,7 @@ move; text effects tick only while one plays.
   "icon": "icon.png",
   "colours": { … }, "shape": { … }, "type": { … }, "spacing": { … },
   "motion": { … }, "animations": [ … ], "effects": { … }, "art": { … },
+  "sounds": { … }, "icons": { … },
   "variants": {
     "dark": { "base": "yap", "colours": { … } },
     "light": { "base": "sakura", "colours": { … } }
@@ -527,6 +530,96 @@ on each surface with art or glass is refused under 4.5:1 (`secondary` and
 about when a tenth of it reads under 3:1. The cost adds the pictures'
 decoded memory, art layers, overlays and particle sets, and counts moving
 art among the animations.
+
+**Sounds** (`sounds`): a theme replaces any of Yapfast's own sounds by
+name, and gives a sound to any of a closed list of interface events. Each is
+a file in the folder, a list of up to eight that take turns at random, or
+`{ "file": …, "volume": 0.6 }` (`files` for a list; volume 0 to 1, against
+the file as it is). `null` in a variant takes a shared slot's sound away.
+
+```json
+"sounds": {
+  "message": "sounds/drop.ogg",
+  "mention": "sounds/chime.wav",
+  "send": ["sounds/bubble-1.wav", "sounds/bubble-2.wav", "sounds/bubble-3.wav"],
+  "hover": { "file": "sounds/tick.wav", "volume": 0.5 },
+  "toggle-on": "sounds/pop-high.wav", "toggle-off": "sounds/pop-low.wav"
+}
+```
+
+| Slot | Plays | At most |
+| --- | --- | --- |
+| `join`, `leave`, `mute`, `unmute`, `deafen`, `undeafen`, `message`, `mention`, `viewer-join`, `viewer-leave`, `stream-start`, `stream-stop` | In place of Yapfast's sound of that name (Settings → Voice → Sounds), at its volume there | 4 s |
+| `ring`, `ringback` | In place of a DM call's ring, and the ringback heard while ringing someone; repeated, so a theme's own pause is part of the file | 6 s |
+| `hover`, `press` | The pointer comes onto a button, a button is clicked (labelled and icon buttons) | 1.5 s |
+| `menu-open`, `menu-close` | A context menu opens; it closes on a choice or Escape. A message's menu plays only its opening | 1.5 s |
+| `popup-open`, `popup-close` | A popup, card or dialog opens and closes | 1.5 s |
+| `toggle-on`, `toggle-off` | A switch in settings turns on or off | 1.5 s |
+| `send`, `reaction-add` | This account sends a message; clicks a reaction | 1.5 s |
+| `theme-applied` | The theme is applied, or its trial starts | 1.5 s |
+
+Files are `.wav` (PCM 8–32-bit or 32-bit float, mono or stereo, 8–96 kHz),
+`.ogg` (Vorbis or Opus), `.opus` or `.mp3`, at most 1 MiB each. Each is
+decoded whole when the theme is checked, inside a guard that refuses a file
+the decoder panics on, and refused if it doesn't decode, is silent or lasts
+longer than its slot allows. Showing the theme decodes each file once, to 48
+kHz stereo, and every play shares those samples; one louder than Yapfast's
+own sounds (12 dB under full scale) is lowered to them.
+
+What the person chose always wins. A replaced sound plays at that sound's own
+volume and the Sounds volume, so one turned down to 0 stays silent, and
+deafening still silences all but deafening's; a message's sound still doesn't
+play in Do Not Disturb, or for the conversation in front. Interface sounds
+play only while Yapfast is the focused window and never in Do Not Disturb,
+at the Sounds volume times the theme's own; hovers at most every 70 ms, and
+no more than four of a theme's sounds at once. The person picks which of a
+theme's sounds play: its review, before Install or Try, shows *Notification
+sounds* (the replaced ones; on) and *Interface sounds — clicks, hovers,
+menus, send* (off) for a theme that ships them, and Settings → Themes →
+Installed → *Sounds* has the same two switches for the theme shown, with the
+interface sounds' volume (50%). They're kept per theme in `layout.json`'s
+`theme_sounds`; a theme that was never reviewed in this Yapfast, such as one
+under `--theme-dev`, starts with the same defaults. A protected screen plays
+none of a theme's sounds. Sounds run in every Performance
+setting: they cost nothing until something plays.
+
+**Icons** (`icons`): a theme replaces any of the window's icons, the files
+in `ui/icons/`, by name without `.svg` — `hash` for text channels, `logo`
+for the home button at the top of the rail, `send-horizontal`, `settings`,
+`moon` and so on — with an SVG in its folder. An icon it doesn't name stays
+stock. Each is a file, or `{ "file": …, "colour": … }`:
+
+| `colour` | Drawn |
+| --- | --- |
+| `tint` (the default) | In one colour, the one its place draws the stock icon in, as hover and selection change it |
+| `keep` | In the SVG's own colours |
+| a colour's name, such as `accent-text` | In that colour of the theme, wherever it shows |
+| `#rrggbb` | In that colour |
+
+```json
+"icons": {
+  "hash": "icons/hash.svg",
+  "logo": { "file": "icons/home.svg", "colour": "keep" },
+  "pin": { "file": "icons/pin.svg", "colour": "accent-text" }
+}
+```
+
+An icon is checked as every SVG in a theme is (see Safety) and drawn at the
+size it shows, so it should be square and read at 16 pixels. A theme's icons
+show everywhere Yapfast draws that icon, channel lists and menus included,
+and go back to stock while a protected screen is open. Status dots are drawn
+shapes, not icons, except Idle's `moon`. Pointer cursors stay the system's:
+Slint offers only the standard named cursors, the same on Windows and Linux,
+and no picture of a theme's own.
+
+The window draws every icon through the Slint global `IconPack`
+(`ui/media.slint`), one image property per icon that starts as the stock
+file, and every icon's colour through `IconPack.tint`, which returns the
+place's colour without asking Rust until a theme paints an icon its own
+way. `src/ui/theme_media.rs` sets them, and the interface events' sounds
+come from the `Cue` global. A new icon in `ui/icons/` needs a property in
+`IconPack`, a line in `theme_media.rs`'s list and its name in
+`yapfast_core::themes::media::ICONS`; a test checks the three agree.
 
 **Parts.** A later Yapfast lets a theme rebuild a few named parts —
 `message-row`, `member-row`, `account-panel`, `server-header`,

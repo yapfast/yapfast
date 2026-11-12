@@ -1,3 +1,4 @@
+import { Cue } from "media.slint";
 // Layered graphite: the rail is darkest, the conversation lightest. Marigold marks
 // selection, primary actions and messages that mention you, red mention counts and
 // destructive actions, green live voice;
@@ -420,6 +421,6 @@ export component PopupMotion {
     out property <float> amount;
     out property <bool> shown: self.open || self.amount > 0;
     init => { if self.open { self.amount = 1; } }
-    changed open => { self.amount = self.open ? 1 : 0; }
+    changed open => { self.amount = self.open ? 1 : 0; Cue.popped(self.open); }
     animate amount { duration: !self.open && Look.close-instant ? 0ms : Popup.duration; easing: Look.open == 4 ? ease-out-back : Look.curve-easing; }
 }

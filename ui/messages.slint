@@ -1,3 +1,4 @@
+import { IconPack, Cue } from "media.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ListView, ScrollView } from "scrollview.slint";
 import { Theme, Tip, ReactionHover, Middle, Label, Twemoji, Look } from "theme.slint";
@@ -140,8 +141,8 @@ export component PickerRail inherits Rectangle {
                 if section.glyph != SectionGlyph.none: Image {
                     x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
                     width: 32px; height: 32px;
-                    source: section.glyph == SectionGlyph.clock ? @image-url("icons/clock.svg") : @image-url("icons/star-filled.svg");
-                    colorize: section.glyph == SectionGlyph.clock ? Theme.secondary : #f0b232;
+                    source: section.glyph == SectionGlyph.clock ? IconPack.clock : IconPack.star-filled;
+                    colorize: IconPack.tint(self.source, section.glyph == SectionGlyph.clock ? Theme.secondary : #f0b232);
                 }
                 if section.glyph == SectionGlyph.none: EmojiFace {
                     emoji: section.icon; font: root.font; side: 32px;
@@ -199,9 +200,9 @@ export component EmojiButton inherits Rectangle {
     forward-focus: focus;
     EmojiFace { emoji: root.emoji; font: root.font; side: root.glyph; animation-key: root.animation-key; }
     if !root.usable: Image {
-        source: @image-url("icons/lock.svg"); width: 14px; height: 14px;
+        source: IconPack.lock; width: 14px; height: 14px;
         x: root.width - self.width - 4px; y: root.height - self.height - 4px;
-        colorize: Theme.text;
+        colorize: IconPack.tint(self.source, Theme.text);
     }
     focus := FocusScope {
         key-pressed(event) => {
@@ -242,8 +243,8 @@ export component EmojiButton inherits Rectangle {
         Image {
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
             width: 12px; height: 12px;
-            source: root.favorite ? @image-url("icons/star-filled.svg") : @image-url("icons/star.svg");
-            colorize: root.favorite ? #f0b232 : Theme.text;
+            source: root.favorite ? IconPack.star-filled : IconPack.star;
+            colorize: IconPack.tint(self.source, root.favorite ? #f0b232 : Theme.text);
         }
         TouchArea {
             mouse-cursor: MouseCursor.pointer;
@@ -408,7 +409,7 @@ component VideoControls inherits Rectangle {
         Middle {
             IconButton {
                 size: 28px; glyph: 16px; tint: #ffffff; tip-side: 0;
-                icon: VideoPlayer.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg");
+                icon: VideoPlayer.playing ? IconPack.pause : IconPack.play;
                 label: VideoPlayer.playing ? "Pause" : "Play";
                 clicked => { VideoPlayer.toggle(); }
             }
@@ -488,7 +489,7 @@ component VideoControls inherits Rectangle {
                 IconButton {
                     y: parent.height - 28px; height: 28px;
                     size: 28px; glyph: 16px; tint: #ffffff; tip-side: 2;
-                    icon: VideoPlayer.muted ? @image-url("icons/volume-x.svg") : @image-url("icons/volume-2.svg");
+                    icon: VideoPlayer.muted ? IconPack.volume-x : IconPack.volume-2;
                     label: VideoPlayer.muted ? "Unmute" : "Mute";
                     clicked => { VideoPlayer.mute(!VideoPlayer.muted); }
                 }
@@ -497,7 +498,7 @@ component VideoControls inherits Rectangle {
         Middle {
             IconButton {
                 size: 28px; glyph: 16px; tint: #ffffff; tip-side: 0;
-                icon: VideoPlayer.expanded ? @image-url("icons/minimize.svg") : @image-url("icons/maximize.svg");
+                icon: VideoPlayer.expanded ? IconPack.minimize : IconPack.maximize;
                 label: VideoPlayer.expanded ? "Exit full screen" : "Full screen";
                 clicked => { VideoPlayer.expand(!VideoPlayer.expanded); }
             }
@@ -708,7 +709,7 @@ export component PollView inherits HorizontalLayout {
                     if answer.emoji != "": Text { text: Twemoji.text(answer.emoji); font-family: root.emoji-font; font-size: 20px; vertical-alignment: center; }
                     answer-text := Text { text: answer.text; color: Theme.text; font-size: 15px; font-weight: 600; vertical-alignment: center; wrap: word-wrap; horizontal-stretch: 1; }
                     if root.poll.results && answer.picked: Middle {
-                        Image { source: @image-url("icons/check.svg"); width: 16px; height: 16px; colorize: Theme.accent-text; accessible-label: "You voted for this answer"; }
+                        Image { source: IconPack.check; width: 16px; height: 16px; colorize: IconPack.tint(self.source, Theme.accent-text); accessible-label: "You voted for this answer"; }
                     }
                     if root.poll.results: Text { text: answer.votes; color: Theme.secondary; font-size: 13px; vertical-alignment: center; }
                     if root.poll.results: Text { text: answer.percent + "%"; color: Theme.text; font-size: 15px; font-weight: 700; min-width: 44px; horizontal-alignment: right; vertical-alignment: center; }
@@ -718,7 +719,7 @@ export component PollView inherits HorizontalLayout {
                             width: 20px; height: 20px; border-radius: root.poll.multiselect ? 5px : 10px;
                             border-width: answer.picked ? 0px : 2px; border-color: Theme.muted;
                             background: answer.picked ? Theme.accent-fill : transparent;
-                            if answer.picked && root.poll.multiselect: Image { source: @image-url("icons/check.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; }
+                            if answer.picked && root.poll.multiselect: Image { source: IconPack.check; width: 14px; height: 14px; colorize: IconPack.tint(self.source, Theme.on-accent); }
                             if answer.picked && !root.poll.multiselect: Rectangle { width: 8px; height: 8px; border-radius: Look.radius(4px); background: Theme.on-accent; }
                         }
                     }
@@ -1298,8 +1299,8 @@ export component EmojiPicker inherits Rectangle {
                                 padding-left: 2px; padding-bottom: 2px; spacing: 6px; alignment: start;
                                 if row.glyph != SectionGlyph.none: Image {
                                     width: 16px; height: 16px;
-                                    source: row.glyph == SectionGlyph.clock ? @image-url("icons/clock.svg") : @image-url("icons/star-filled.svg");
-                                    colorize: row.glyph == SectionGlyph.clock ? Theme.secondary : #f0b232;
+                                    source: row.glyph == SectionGlyph.clock ? IconPack.clock : IconPack.star-filled;
+                                    colorize: IconPack.tint(self.source, row.glyph == SectionGlyph.clock ? Theme.secondary : #f0b232);
                                 }
                                 if row.glyph == SectionGlyph.none && row.icon.width > 0: Image {
                                     width: 16px; height: 16px; image-fit: contain; source: row.icon;
@@ -1357,6 +1358,8 @@ export component EmojiPicker inherits Rectangle {
 // picture, video or link adds what can be done with that. "Apps" opens a
 // submenu of the apps' message commands beside it, which run on the message.
 export component MessageMenu inherits Rectangle {
+    // Made each time the menu opens.
+    init => { Cue.menu-opened(); }
     in property <MessageRow> menu-message;
     /// Text selected in the message, as copied; empty for none.
     in property <string> selection;
@@ -1438,95 +1441,95 @@ export component MessageMenu inherits Rectangle {
                 }
             }
             if root.menu-can-react: MenuItem {
-                text: "Add reaction"; icon: @image-url("icons/smile-plus.svg");
+                text: "Add reaction"; icon: IconPack.smile-plus;
                 hovered => { root.apps-open = false; }
                 clicked => { root.open-picker(root.menu-message.item); }
             }
             if root.menu-message.reactions.length > 0: MenuItem {
-                text: "View Reactions"; icon: @image-url("icons/smile.svg");
+                text: "View Reactions"; icon: IconPack.smile;
                 hovered => { root.apps-open = false; }
                 clicked => { root.view-reactions(root.menu-message.item); }
             }
             if root.menu-message.can-edit && root.composer-enabled: MenuItem {
-                text: "Edit message"; icon: @image-url("icons/pencil.svg");
+                text: "Edit message"; icon: IconPack.pencil;
                 hovered => { root.apps-open = false; }
                 clicked => { root.edit(root.menu-message.item); }
             }
             if root.menu-message.can-reply && root.composer-enabled: MenuItem {
-                text: "Reply"; icon: @image-url("icons/reply.svg");
+                text: "Reply"; icon: IconPack.reply;
                 hovered => { root.apps-open = false; }
                 clicked => { root.reply(root.menu-message.item); }
             }
             if root.menu-message.can-forward && root.forward-allowed: MenuItem {
-                text: "Forward"; icon: @image-url("icons/forward.svg");
+                text: "Forward"; icon: IconPack.forward;
                 hovered => { root.apps-open = false; }
                 clicked => { root.start-forward(root.menu-message.item); }
             }
             // A message someone wrote starts a thread, or leads to its own.
             if root.can-start-thread && root.menu-message.can-reply && root.menu-message.delivery == ""
                 && root.menu-message.thread-room == "": MenuItem {
-                text: "Create Thread"; icon: @image-url("icons/thread.svg");
+                text: "Create Thread"; icon: IconPack.thread;
                 hovered => { root.apps-open = false; }
                 clicked => { root.start-thread(root.menu-message.item); }
             }
             if root.menu-message.can-reply && root.menu-message.thread-room != "": MenuItem {
-                text: "View Thread"; icon: @image-url("icons/thread.svg");
+                text: "View Thread"; icon: IconPack.thread;
                 hovered => { root.apps-open = false; }
                 clicked => { root.view-thread(root.menu-message.thread-room); }
             }
             if root.menu-message.body != "": MenuItem {
-                text: "Copy text"; icon: @image-url("icons/copy.svg");
+                text: "Copy text"; icon: IconPack.copy;
                 hovered => { root.apps-open = false; }
                 clicked => { root.copy-text(root.menu-message.body); }
             }
             if root.selection != "": MenuItem {
-                text: "Copy selection"; icon: @image-url("icons/text-select.svg");
+                text: "Copy selection"; icon: IconPack.text-select;
                 hovered => { root.apps-open = false; }
                 clicked => { root.copy-text(root.selection); }
             }
             if root.menu-message.has-poll && root.menu-message.poll.can-end: MenuItem {
-                text: "End Poll Now"; icon: @image-url("icons/circle-stop.svg");
+                text: "End Poll Now"; icon: IconPack.circle-stop;
                 hovered => { root.apps-open = false; }
                 clicked => { root.end-poll(root.menu-message.item); }
             }
             if root.menu-message.can-pin && root.menu-message.delivery == "": MenuItem {
                 text: root.menu-message.pinned ? "Unpin message" : "Pin message";
-                icon: root.menu-message.pinned ? @image-url("icons/pin-off.svg") : @image-url("icons/pin.svg");
+                icon: root.menu-message.pinned ? IconPack.pin-off : IconPack.pin;
                 hovered => { root.apps-open = false; }
                 clicked => { root.pin-message(root.menu-message.item); }
             }
             // Opens on hover or a click, beside the menu, as Discord's does.
             if root.has-apps: MenuItem {
-                text: "Apps"; icon: @image-url("icons/slash.svg"); submenu: true;
+                text: "Apps"; icon: IconPack.slash; submenu: true;
                 highlighted: root.apps-open;
                 hovered => { root.apps-y = self.absolute-position.y - panel.absolute-position.y; root.apps-open = true; }
                 clicked => { root.apps-y = self.absolute-position.y - panel.absolute-position.y; root.apps-open = true; }
             }
             if root.link != "" || (root.media-index >= 0 && !root.preview): Rectangle { height: 1px; background: Theme.line; }
             if root.media-index >= 0 && root.link != "" && !root.media-video && !root.preview: MenuItem {
-                text: "Copy Image"; icon: @image-url("icons/image.svg");
+                text: "Copy Image"; icon: IconPack.image;
                 hovered => { root.apps-open = false; }
                 clicked => { root.copy-image(root.menu-message.item, root.media-index); }
             }
             if root.media-index >= 0 && !root.preview: MenuItem {
-                text: root.media-video ? "Save Video" : "Save Image"; icon: @image-url("icons/download.svg");
+                text: root.media-video ? "Save Video" : "Save Image"; icon: IconPack.download;
                 hovered => { root.apps-open = false; }
                 clicked => { root.save-attachment(root.menu-message.item, root.media-index); }
             }
             if root.link != "": MenuItem {
-                text: "Copy Link"; icon: @image-url("icons/link.svg");
+                text: "Copy Link"; icon: IconPack.link;
                 hovered => { root.apps-open = false; }
                 clicked => { root.copy-text(root.link); }
             }
             // A link in the text opens with a click.
             if root.media-index >= 0 && root.link != "": MenuItem {
-                text: "Open Link"; icon: @image-url("icons/external-link.svg");
+                text: "Open Link"; icon: IconPack.external-link;
                 hovered => { root.apps-open = false; }
                 clicked => { root.open-link(root.link); }
             }
             if root.menu-message.can-delete && root.composer-enabled: Rectangle { height: 1px; background: Theme.line; }
             if root.menu-message.can-delete && root.composer-enabled: MenuItem {
-                text: "Delete message"; icon: @image-url("icons/trash-2.svg"); danger: true;
+                text: "Delete message"; icon: IconPack.trash-2; danger: true;
                 hovered => { root.apps-open = false; }
                 clicked => { root.request-delete(root.menu-message.item); }
             }
@@ -1613,7 +1616,7 @@ export component MessageGallery inherits HorizontalLayout {
             if root.active-item == root.item && !root.preview && root.delivery == "" && !cell.spoiler: Rectangle {
                 x: parent.width - self.width - 8px; y: 8px; width: 32px; height: 32px; border-radius: Look.radius(6px); background: #000000b3;
                 IconButton {
-                    icon: @image-url("icons/download.svg"); label: "Save " + cell.name; tint: #ffffff;
+                    icon: IconPack.download; label: "Save " + cell.name; tint: #ffffff;
                     clicked => { root.save-attachment(root.item, cell.index); }
                 }
             }
@@ -1663,8 +1666,8 @@ component VoicePlayButton inherits Rectangle {
     accessible-enabled: root.enabled;
     accessible-action-default => { if root.enabled { root.clicked(); } }
     Image {
-        source: root.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg");
-        width: 17px; height: 17px; colorize: #ffffff;
+        source: root.playing ? IconPack.pause : IconPack.play;
+        width: 17px; height: 17px; colorize: IconPack.tint(self.source, #ffffff);
     }
     focus := FocusScope {
         enabled: root.enabled;
@@ -1811,7 +1814,7 @@ export component FileCard inherits HorizontalLayout {
                         Middle {
                             volume := IconButton {
                                 size: 28px; glyph: 18px; tint: Theme.muted;
-                                icon: VoicePlayer.muted ? @image-url("icons/volume-x.svg") : @image-url("icons/volume-2.svg");
+                                icon: VoicePlayer.muted ? IconPack.volume-x : IconPack.volume-2;
                                 label: VoicePlayer.muted ? "Unmute" : "Mute";
                                 clicked => { VoicePlayer.mute(!VoicePlayer.muted); }
                                 changed hovered => {
@@ -1888,8 +1891,8 @@ export component FileCard inherits HorizontalLayout {
                         accessible-action-default => { VoicePlayer.mute(!VoicePlayer.muted); }
                         Image {
                             width: 18px; height: 18px;
-                            source: VoicePlayer.muted ? @image-url("icons/volume-x.svg") : @image-url("icons/volume-2.svg");
-                            colorize: mute-touch.has-hover ? Theme.text : Theme.muted;
+                            source: VoicePlayer.muted ? IconPack.volume-x : IconPack.volume-2;
+                            colorize: IconPack.tint(self.source, mute-touch.has-hover ? Theme.text : Theme.muted);
                         }
                         mute-touch := TouchArea {
                             mouse-cursor: MouseCursor.pointer;
@@ -1905,14 +1908,14 @@ export component FileCard inherits HorizontalLayout {
         background: Theme.sidebar-fill; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
         file-card := HorizontalLayout {
             padding: 12px; padding-right: 8px; spacing: 12px;
-            Image { source: @image-url("icons/file.svg"); width: 30px; image-fit: contain; colorize: Theme.accent-text; }
+            Image { source: IconPack.file; width: 30px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.accent-text); }
             VerticalLayout {
                 alignment: center; horizontal-stretch: 1;
                 Text { text: root.file.name; color: Theme.text; font-weight: 500; overflow: elide; }
                 if root.file.detail != "": Label { text: root.file.detail; }
             }
             IconButton {
-                icon: @image-url("icons/download.svg"); label: "Save " + root.file.name;
+                icon: IconPack.download; label: "Save " + root.file.name;
                 enabled: !root.preview && root.delivery == "";
                 clicked => { root.save(); }
             }
@@ -1939,13 +1942,13 @@ export component ThreadChip inherits HorizontalLayout {
         accessible-action-default => { root.clicked(); }
         chip := HorizontalLayout {
             padding: 8px; padding-left: 12px; padding-right: 12px; spacing: 10px;
-            Image { source: @image-url("icons/thread.svg"); width: 18px; image-fit: contain; colorize: Theme.muted; }
+            Image { source: IconPack.thread; width: 18px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
             Text { text: root.name; color: Theme.text; font-weight: 700; overflow: elide; vertical-alignment: center; }
             if root.detail != "": Text {
                 text: root.detail; color: Theme.link; font-size: 14px; vertical-alignment: center;
                 horizontal-stretch: 1;
             }
-            Image { source: @image-url("icons/chevron-right.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
+            Image { source: IconPack.chevron-right; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
         }
         focus := FocusScope {
             key-pressed(event) => {
@@ -2172,8 +2175,8 @@ component CardButtonView inherits ActionButton {
     property <bool> busy: root.button.custom-id != "" && root.message-busy;
     // A purchase is made in Discord, which its store page opens.
     text: root.button.style == CardButtonStyle.premium ? "Open in Discord" : root.button.label;
-    icon: root.button.style == CardButtonStyle.link ? @image-url("icons/external-link.svg")
-        : root.button.style == CardButtonStyle.premium ? @image-url("icons/shop.svg") : root.no-icon;
+    icon: root.button.style == CardButtonStyle.link ? IconPack.external-link
+        : root.button.style == CardButtonStyle.premium ? IconPack.shop : root.no-icon;
     primary: root.button.style == CardButtonStyle.primary;
     success: root.button.style == CardButtonStyle.success;
     danger: root.button.style == CardButtonStyle.danger;
@@ -2311,7 +2314,7 @@ export component NoConversation inherits VerticalLayout {
         alignment: center;
         Rectangle {
             width: 80px; height: 80px; border-radius: Look.radius(40px); background: Theme.raised-fill;
-            Image { source: @image-url("icons/message-circle.svg"); width: 36px; height: 36px; colorize: Theme.secondary; }
+            Image { source: IconPack.message-circle; width: 36px; height: 36px; colorize: IconPack.tint(self.source, Theme.secondary); }
         }
     }
     Text { text: "Pick a conversation"; color: Theme.text; font-size: 22px; font-weight: 700; horizontal-alignment: center; }
@@ -2353,7 +2356,7 @@ export component HistoryEdge inherits HorizontalLayout {
             alignment: center; height: 68px;
             Rectangle {
                 width: 68px; height: 68px; border-radius: Look.radius(34px); background: Theme.field;
-                Image { source: @image-url("icons/hash.svg"); width: 40px; height: 40px; colorize: Theme.text; }
+                Image { source: IconPack.hash; width: 40px; height: 40px; colorize: IconPack.tint(self.source, Theme.text); }
             }
         }
         if root.intro == "channel": Rectangle { height: 8px; }
@@ -2383,8 +2386,8 @@ export component HistoryEdge inherits HorizontalLayout {
         content := HorizontalLayout {
             padding-left: 12px; padding-right: 14px; spacing: 6px;
             Image {
-                source: root.failed ? @image-url("icons/triangle-alert.svg") : @image-url("icons/history.svg");
-                width: 16px; image-fit: contain; colorize: root.failed ? Theme.danger : Theme.secondary;
+                source: root.failed ? IconPack.triangle-alert : IconPack.history;
+                width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, root.failed ? Theme.danger : Theme.secondary);
             }
             Text {
                 text: root.loading ? "Loading " + root.which + " messages..." : root.failed ? "Couldn't load " + root.which + " messages. Retry" : root.newer ? "Newer messages" : "Earlier messages";
@@ -2412,8 +2415,8 @@ export component UnreadBar inherits Rectangle {
         padding-left: 14px; padding-right: 10px; spacing: 8px;
         Text { text: root.label; color: Theme.on-accent; font-size: 14px; font-weight: 700; vertical-alignment: center; }
         Image {
-            source: @image-url("icons/chevron-down.svg"); width: 16px; image-fit: contain;
-            colorize: Theme.on-accent; transform-rotation: root.above ? 180deg : 0deg;
+            source: IconPack.chevron-down; width: 16px; image-fit: contain;
+            colorize: IconPack.tint(self.source, Theme.on-accent); transform-rotation: root.above ? 180deg : 0deg;
         }
     }
     touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.jump(); } }
@@ -2440,8 +2443,8 @@ export component PresentBar inherits Rectangle {
             font-size: 14px; font-weight: 700; vertical-alignment: center;
         }
         Image {
-            source: @image-url("icons/chevron-down.svg"); width: 16px; image-fit: contain;
-            colorize: touch.has-hover ? Theme.accent-hover : Theme.accent-text;
+            source: IconPack.chevron-down; width: 16px; image-fit: contain;
+            colorize: IconPack.tint(self.source, touch.has-hover ? Theme.accent-hover : Theme.accent-text);
         }
     }
     touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.jump(); } }
@@ -2462,7 +2465,7 @@ export component ConversationStart inherits VerticalLayout {
     if root.room-selected && root.room-ready && root.room-direct: Avatar { size: 72px; initial: root.room-initial; tint: root.room-tint; picture: root.room-picture; }
     if root.room-selected && root.room-ready && !root.room-direct: Rectangle {
         width: 68px; height: 68px; border-radius: Look.radius(34px); background: Theme.raised-fill;
-        Image { source: root.room-icon; width: 36px; height: 36px; colorize: Theme.text; }
+        Image { source: root.room-icon; width: 36px; height: 36px; colorize: IconPack.tint(self.source, Theme.text); }
     }
     Text {
         text: !root.room-ready ? "Loading conversation..." : root.room-direct || root.room-thread ? root.room-name : "Welcome to #" + root.room-name;
@@ -2500,14 +2503,14 @@ component ViewerMenu inherits PopupWindow {
     /// The menu closed, by a choice or a key, for the viewer's keys to go on.
     callback done;
     property <MenuRow> save-row: {
-        id: "save", text: root.video ? "Save Video" : "Save Image", icon: @image-url("icons/download.svg")
+        id: "save", text: root.video ? "Save Video" : "Save Image", icon: IconPack.download
     };
-    property <MenuRow> copy-link-row: { id: "copy-link", text: "Copy Link", icon: @image-url("icons/link.svg") };
-    property <MenuRow> open-link-row: { id: "open-link", text: "Open Link", icon: @image-url("icons/external-link.svg") };
+    property <MenuRow> copy-link-row: { id: "copy-link", text: "Copy Link", icon: IconPack.link };
+    property <MenuRow> open-link-row: { id: "open-link", text: "Open Link", icon: IconPack.external-link };
     property <[MenuRow]> rows: root.link == "" ? [root.save-row]
         : root.preview ? [root.copy-link-row, root.open-link-row]
         : root.video ? [root.save-row, root.copy-link-row, root.open-link-row]
-        : [{ id: "copy-image", text: "Copy Image", icon: @image-url("icons/image.svg") }, root.save-row, root.copy-link-row, root.open-link-row];
+        : [{ id: "copy-image", text: "Copy Image", icon: IconPack.image }, root.save-row, root.copy-link-row, root.open-link-row];
     x: max(8px, min(root.room-width - content.menu-width - 8px, root.at-x));
     y: root.at-y + content.main-height <= root.room-height - 8px
         ? root.at-y : max(8px, root.at-y - content.main-height);
@@ -2596,16 +2599,16 @@ export component ImageViewer inherits Rectangle {
             }
             if !root.preview: Middle {
                 IconButton {
-                    icon: @image-url("icons/download.svg"); label: "Save " + root.viewer-name; tint: #ffffff;
+                    icon: IconPack.download; label: "Save " + root.viewer-name; tint: #ffffff;
                     clicked => { root.save-attachment(root.viewer-item, root.viewer-index); }
                 }
             }
-            Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close"; tint: #ffffff; clicked => { root.close-image(); } } }
+            Middle { IconButton { icon: IconPack.x; label: "Close"; tint: #ffffff; clicked => { root.close-image(); } } }
         }
         if root.viewer-position != "": Rectangle {
             x: 20px; y: (parent.height - self.height) / 2; width: 48px; height: 48px; border-radius: Look.radius(24px);
             background: previous-touch.has-hover ? #ffffff33 : #ffffff1a;
-            Image { source: @image-url("icons/chevron-left.svg"); width: 28px; height: 28px; colorize: #ffffff; }
+            Image { source: IconPack.chevron-left; width: 28px; height: 28px; colorize: IconPack.tint(self.source, #ffffff); }
             previous-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.step-image(-1); } }
             accessible-role: button; accessible-label: "Previous image";
             accessible-action-default => { root.step-image(-1); }
@@ -2613,7 +2616,7 @@ export component ImageViewer inherits Rectangle {
         if root.viewer-position != "": Rectangle {
             x: parent.width - self.width - 20px; y: (parent.height - self.height) / 2; width: 48px; height: 48px; border-radius: Look.radius(24px);
             background: next-touch.has-hover ? #ffffff33 : #ffffff1a;
-            Image { source: @image-url("icons/chevron-right.svg"); width: 28px; height: 28px; colorize: #ffffff; }
+            Image { source: IconPack.chevron-right; width: 28px; height: 28px; colorize: IconPack.tint(self.source, #ffffff); }
             next-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.step-image(1); } }
             accessible-role: button; accessible-label: "Next image";
             accessible-action-default => { root.step-image(1); }
@@ -2718,11 +2721,11 @@ export component VideoViewer inherits Rectangle {
             }
             if !root.preview: Middle {
                 IconButton {
-                    icon: @image-url("icons/download.svg"); label: "Save " + VideoPlayer.name; tint: #ffffff;
+                    icon: IconPack.download; label: "Save " + VideoPlayer.name; tint: #ffffff;
                     clicked => { root.save-attachment(VideoPlayer.item, VideoPlayer.index); }
                 }
             }
-            Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Exit full screen"; tint: #ffffff; clicked => { VideoPlayer.expand(false); } } }
+            Middle { IconButton { icon: IconPack.x; label: "Exit full screen"; tint: #ffffff; clicked => { VideoPlayer.expand(false); } } }
         }
     }
     video-menu := ViewerMenu {
@@ -2810,12 +2813,12 @@ export component MessageContent inherits VerticalLayout {
             // As Discord's client marks a notice, in place of the avatar.
             if message.notice != "": Image {
                 x: 12px; y: (root.message-font-size * 1.375 - 16px) / 2 + 1px; width: 16px; height: 16px;
-                source: message.notice == "pin" ? @image-url("icons/pin.svg")
-                    : message.notice == "join" ? @image-url("icons/user-plus.svg")
-                    : message.notice == "thread" ? @image-url("icons/thread.svg")
-                    : message.notice == "call" ? @image-url("icons/phone.svg")
-                    : @image-url("icons/chart-bar.svg");
-                colorize: message.notice == "join" || message.notice == "call" ? Theme.live : Theme.muted;
+                source: message.notice == "pin" ? IconPack.pin
+                    : message.notice == "join" ? IconPack.user-plus
+                    : message.notice == "thread" ? IconPack.thread
+                    : message.notice == "call" ? IconPack.phone
+                    : IconPack.chart-bar;
+                colorize: IconPack.tint(self.source, message.notice == "join" || message.notice == "call" ? Theme.live : Theme.muted);
             }
             if message.first && message.notice == "": Avatar {
                 x: 0px; y: root.header ? 24px : 2px; size: root.avatar;
@@ -2961,7 +2964,7 @@ export component MessageContent inherits VerticalLayout {
             // As Discord's client marks a forward, above what it carries.
             if message.forwarded: HorizontalLayout {
                 spacing: 4px; alignment: start;
-                Image { source: @image-url("icons/forward.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
+                Image { source: IconPack.forward; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
                 Text { text: "Forwarded"; color: Theme.muted; font-size: 14px; font-italic: true; vertical-alignment: center; }
             }
             // The body, cut off at its folded height while it folds, with
@@ -3066,7 +3069,7 @@ export component MessageContent inherits VerticalLayout {
             // Under the controls, why the last one used failed, as Discord's client.
             if root.bot-failed-item != "" && root.bot-failed-item == message.item: HorizontalLayout {
                 padding-top: 4px; spacing: 6px;
-                Image { source: @image-url("icons/triangle-alert.svg"); width: 16px; colorize: Theme.danger; image-fit: contain; }
+                Image { source: IconPack.triangle-alert; width: 16px; colorize: IconPack.tint(self.source, Theme.danger); image-fit: contain; }
                 Text { text: root.bot-failed-text; color: Theme.danger; font-size: 14px; wrap: word-wrap; horizontal-stretch: 1; }
             }
             for part in message.plugin: PluginWidgets {
@@ -3096,7 +3099,7 @@ export component MessageContent inherits VerticalLayout {
             // As Discord's client marks an answer only this account sees.
             if message.ephemeral: HorizontalLayout {
                 spacing: 4px; alignment: start;
-                Image { source: @image-url("icons/eye.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
+                Image { source: IconPack.eye; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
                 Text { text: "Only you can see this ·"; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
                 Text {
                     text: "Dismiss message"; font-size: 12px; vertical-alignment: center;

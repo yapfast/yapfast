@@ -1,3 +1,4 @@
+import { IconPack } from "media.slint";
 import { ScrollView } from "scrollview.slint";
 import { Theme, Label, Look } from "theme.slint";
 import { ActionButton, TextField, Banner } from "controls.slint";
@@ -91,7 +92,7 @@ export component SignInScreen inherits Rectangle {
                                 alignment: center;
                                 Rectangle {
                                     width: 72px; height: 72px; border-radius: Look.radius(24px); background: Theme.raised-fill;
-                                    Image { source: @image-url("icons/logo.svg"); width: 44px; height: 44px; colorize: Theme.accent-text; }
+                                    Image { source: IconPack.logo; width: 44px; height: 44px; colorize: IconPack.tint(self.source, Theme.accent-text); }
                                 }
                             }
                             Text { text: "Just looking?"; color: Theme.text; font-size: 20px; font-weight: 700; horizontal-alignment: center; }
@@ -117,7 +118,7 @@ export component VerifyBanner inherits Rectangle {
         padding: 16px; spacing: 14px;
         Rectangle {
             width: 36px; height: 36px; border-radius: Look.radius(18px); background: Theme.accent-soft;
-            Image { source: @image-url("icons/lock.svg"); width: 18px; height: 18px; colorize: Theme.accent-text; }
+            Image { source: IconPack.lock; width: 18px; height: 18px; colorize: IconPack.tint(self.source, Theme.accent-text); }
         }
         VerticalLayout {
             spacing: 8px;

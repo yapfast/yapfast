@@ -1,3 +1,4 @@
+import { IconPack } from "media.slint";
 import { AccountPopover } from "yapfast/account-popover.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { UiParts } from "yapfast/parts.slint";
@@ -94,6 +95,7 @@ export { FoundRow, PickRow } from "header.slint";
 export { GifTile, GifFavorites } from "gifs.slint";
 export { SelectChoice, ModalField } from "interactions.slint";
 export { ThemesPage, ThemeListing, ThemeReview } from "themes.slint";
+export { IconPack, Cue } from "media.slint";
 export { PluginPage, PluginLine, InstalledRow, PluginControl, PluginFormRow, PluginLogRow, PluginDetail, ListingRow, PluginReview } from "plugin_settings.slint";
 export { CommandChoice, CommandOptionPill } from "app_commands.slint";
 
@@ -2190,16 +2192,16 @@ export component YapfastWindow inherits Window {
             plus-content := VerticalLayout {
                 padding: 6px; spacing: 2px;
                 MenuItem {
-                    text: "Upload a File"; icon: @image-url("icons/file.svg"); disabled: !root.can-attach;
+                    text: "Upload a File"; icon: IconPack.file; disabled: !root.can-attach;
                     clicked => { if root.can-attach { plus-menu.close(); root.attach(); } }
                 }
                 // Closing the menu takes these away, so they act first.
                 if root.can-start-threads: MenuItem {
-                    text: "Create Thread"; icon: @image-url("icons/thread.svg");
+                    text: "Create Thread"; icon: IconPack.thread;
                     clicked => { root.new-thread("", "plus"); plus-menu.close(); }
                 }
                 if root.can-create-polls: MenuItem {
-                    text: "Create Poll"; icon: @image-url("icons/chart-bar.svg");
+                    text: "Create Poll"; icon: IconPack.chart-bar;
                     clicked => { root.open-poll(); plus-menu.close(); }
                 }
             }
@@ -2631,17 +2633,17 @@ export component YapfastWindow inherits Window {
                                 }
                                 if root.header-server != "" && root.header-invite: IconButton {
                                     x: parent.width - self.width - 8px; y: 8px;
-                                    icon: @image-url("icons/user-plus.svg"); label: "Invite people"; size: 32px; glyph: 20px; tip-side: 2;
+                                    icon: IconPack.user-plus; label: "Invite people"; size: 32px; glyph: 20px; tip-side: 2;
                                     clicked => { root.open-invite(root.header-server); }
                                 }
                                 if !ClientStyle.enabled && root.dms-selected && !root.preview && root.discord-linked: IconButton {
                                     x: parent.width - 2 * self.width - 14px;
-                                    icon: @image-url("icons/user-plus.svg"); label: "Add a friend"; size: 28px; glyph: 18px; tip-side: 2;
+                                    icon: IconPack.user-plus; label: "Add a friend"; size: 28px; glyph: 18px; tip-side: 2;
                                     clicked => { root.open-add-friend(); }
                                 }
                                 if !ClientStyle.enabled && root.dms-selected && !root.preview: IconButton {
                                     x: parent.width - self.width - 10px;
-                                    icon: @image-url("icons/square-pen.svg"); label: "New message"; size: 28px; glyph: 18px; tip-side: 2;
+                                    icon: IconPack.square-pen; label: "New message"; size: 28px; glyph: 18px; tip-side: 2;
                                     clicked => { root.open-new-dm(); }
                                 }
                                 if ClientStyle.enabled && root.dms-selected: TextField {
@@ -2680,7 +2682,7 @@ export component YapfastWindow inherits Window {
                                     }
                                     Image {
                                         x: parent.width - 8px - self.width; y: (parent.height - self.height) / 2; width: 16px; height: 16px;
-                                        source: @image-url("icons/chevron-right.svg"); colorize: Theme.muted; accessible-role: none;
+                                        source: IconPack.chevron-right; colorize: IconPack.tint(self.source, Theme.muted); accessible-role: none;
                                     }
                                 }
                                 Rectangle { x: 8px; y: parent.height - 1px; width: parent.width - 8px; height: 1px; background: Theme.outline; }
@@ -2690,7 +2692,7 @@ export component YapfastWindow inherits Window {
                             // Discord's "N Events" row under the server's name.
                             if ClientStyle.enabled && root.header-server != "" && root.header-events-row: events-row := Rectangle {
                                 height: 60px;
-                                Image { x: 16px; y: (parent.height - self.height) / 2; width: 20px; height: 20px; source: @image-url("icons/calendar.svg"); colorize: Theme.muted; accessible-role: none; }
+                                Image { x: 16px; y: (parent.height - self.height) / 2; width: 20px; height: 20px; source: IconPack.calendar; colorize: IconPack.tint(self.source, Theme.muted); accessible-role: none; }
                                 Text {
                                     x: 44px; width: parent.width - 60px; height: parent.height;
                                     text: root.header-events == 0 ? "Events" : root.header-events == 1 ? "1 Event" : root.header-events + " Events";
@@ -2854,7 +2856,7 @@ export component YapfastWindow inherits Window {
                                 }
                             }
                             mic := DeviceToggle {
-                                icon: root.shown-muted ? @image-url("icons/mic-off.svg") : @image-url("icons/mic.svg");
+                                icon: root.shown-muted ? IconPack.mic-off : IconPack.mic;
                                 label: root.voice-active ? (root.muted ? "Unmute" : "Mute") : root.shown-muted ? "Join calls unmuted" : "Join calls muted";
                                 alert: root.shown-muted;
                                 // Discord's glyphs are white and a little larger than the default.
@@ -2868,7 +2870,7 @@ export component YapfastWindow inherits Window {
                                 }
                             }
                             ear := DeviceToggle {
-                                icon: root.shown-deafened ? @image-url("icons/headphone-off.svg") : @image-url("icons/headphones.svg");
+                                icon: root.shown-deafened ? IconPack.headphone-off : IconPack.headphones;
                                 label: root.voice-active ? (root.deafened ? "Undeafen" : "Deafen") : root.deafen-on-join ? "Join calls undeafened" : "Join calls deafened";
                                 alert: root.shown-deafened;
                                 glyph: ClientStyle.enabled ? 21px : 20px;
@@ -2882,11 +2884,11 @@ export component YapfastWindow inherits Window {
                                 }
                             }
                             if !root.preview && !root.online: IconButton {
-                                icon: @image-url("icons/refresh-cw.svg"); label: "Reconnect"; enabled: !root.busy;
+                                icon: IconPack.refresh-cw; label: "Reconnect"; enabled: !root.busy;
                                 clicked => { root.retry-sync(); }
                             }
                             cog := IconButton {
-                                icon: @image-url("icons/settings.svg"); label: "Settings"; radius: 4px;
+                                icon: IconPack.settings; label: "Settings"; radius: 4px;
                                 glyph: ClientStyle.enabled ? 24px : 20px;
                                 tint: ClientStyle.enabled ? Theme.text : Theme.secondary;
                                 clicked => { root.settings-open = true; root.refresh-devices(); }
@@ -2925,8 +2927,8 @@ export component YapfastWindow inherits Window {
                         }
                         // A thread follows its channel, which leads back to it.
                         if root.room-parent != "" && root.room-selected: Image {
-                            source: root.room-parent-forum ? @image-url("icons/message-square-text.svg") : @image-url("icons/hash.svg");
-                            width: 22px; image-fit: contain; colorize: Theme.muted;
+                            source: root.room-parent-forum ? IconPack.message-square-text : IconPack.hash;
+                            width: 22px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted);
                         }
                         if root.room-parent != "" && root.room-selected: parent-name := Text {
                             text: root.room-parent; font-size: 16px; font-weight: 700; vertical-alignment: center;
@@ -2938,11 +2940,11 @@ export component YapfastWindow inherits Window {
                                 clicked => { root.select-room(root.room-parent-id); }
                             }
                         }
-                        if root.room-parent != "" && root.room-selected: Image { source: @image-url("icons/chevron-right.svg"); width: 16px; image-fit: contain; colorize: Theme.faint; }
-                        if !root.room-direct && root.room-selected: Image { source: root.room-icon; width: 22px; image-fit: contain; colorize: Theme.muted; }
-                        if root.requests-open: Image { source: @image-url("icons/inbox.svg"); width: 22px; image-fit: contain; colorize: Theme.muted; }
-                        if root.friends-open: Image { source: @image-url("icons/users.svg"); width: 22px; image-fit: contain; colorize: Theme.muted; }
-                        if root.browse-open: Image { source: @image-url("icons/hash.svg"); width: 22px; image-fit: contain; colorize: Theme.muted; }
+                        if root.room-parent != "" && root.room-selected: Image { source: IconPack.chevron-right; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.faint); }
+                        if !root.room-direct && root.room-selected: Image { source: root.room-icon; width: 22px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
+                        if root.requests-open: Image { source: IconPack.inbox; width: 22px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
+                        if root.friends-open: Image { source: IconPack.users; width: 22px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
+                        if root.browse-open: Image { source: IconPack.hash; width: 22px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
                         // The channel.name slot: the theme's heading face, its text
                         // effect and its declared animation, moved inside a box the
                         // layout measures as the name.
@@ -3028,7 +3030,7 @@ export component YapfastWindow inherits Window {
                         if root.friends-open: Rectangle { horizontal-stretch: 1; }
                         if root.dm-friend == 1 || root.dm-friend == 3: Middle {
                             ActionButton {
-                                icon: @image-url("icons/user-plus.svg");
+                                icon: IconPack.user-plus;
                                 text: root.dm-friend == 1 ? "Add Friend" : "Accept Friend Request";
                                 label: root.dm-friend == 1 ? "Send friend request" : "Accept friend request";
                                 small: true; primary: root.dm-friend == 3;
@@ -3037,7 +3039,7 @@ export component YapfastWindow inherits Window {
                         }
                         if root.has-voice-chat: Middle {
                             IconButton {
-                                icon: root.voice-chat ? @image-url("icons/volume-2.svg") : @image-url("icons/message-square-text.svg");
+                                icon: root.voice-chat ? IconPack.volume-2 : IconPack.message-square-text;
                                 label: root.voice-chat ? "Show voice channel" : "Open chat";
                                 tip-side: 2;
                                 clicked => { root.show-voice-chat(!root.voice-chat); }
@@ -3045,21 +3047,21 @@ export component YapfastWindow inherits Window {
                         }
                         if root.can-call: Middle {
                             IconButton {
-                                icon: @image-url("icons/phone.svg"); label: root.call-going ? "Join Voice Call" : "Start Voice Call";
+                                icon: IconPack.phone; label: root.call-going ? "Join Voice Call" : "Start Voice Call";
                                 size: 32px; glyph: 20px; enabled: root.can-join; tip-side: 2;
                                 clicked => { root.start-call(); }
                             }
                         }
                         if root.can-call && !root.call-going: Middle {
                             IconButton {
-                                icon: @image-url("icons/video.svg"); label: "Start Video Call";
+                                icon: IconPack.video; label: "Start Video Call";
                                 size: 32px; glyph: 20px; enabled: root.can-join; tip-side: 2;
                                 clicked => { root.start-video-call(); }
                             }
                         }
                         if root.can-list-threads: Middle {
                             IconButton {
-                                icon: @image-url("icons/thread.svg"); label: "Threads";
+                                icon: IconPack.thread; label: "Threads";
                                 size: 32px; glyph: 20px; tip-side: 2;
                                 tint: root.threads-open ? Theme.text : Theme.secondary;
                                 clicked => {
@@ -3071,7 +3073,7 @@ export component YapfastWindow inherits Window {
                         }
                         if root.can-notify: Middle {
                             IconButton {
-                                icon: root.room-muted ? @image-url("icons/bell-off.svg") : @image-url("icons/bell.svg");
+                                icon: root.room-muted ? IconPack.bell-off : IconPack.bell;
                                 label: root.room-muted ? "Notification settings, muted" : "Notification settings";
                                 size: 32px; glyph: 20px; tip-side: 2;
                                 clicked => {
@@ -3082,7 +3084,7 @@ export component YapfastWindow inherits Window {
                         }
                         if root.can-pin: Middle {
                             IconButton {
-                                icon: @image-url("icons/pin.svg"); label: "Pinned messages";
+                                icon: IconPack.pin; label: "Pinned messages";
                                 size: 32px; glyph: 20px; tip-side: 2;
                                 tint: root.pins-open ? Theme.text : Theme.secondary;
                                 // Where the pins open from elsewhere, such as a pin's notice.
@@ -3100,7 +3102,7 @@ export component YapfastWindow inherits Window {
                         }
                         if root.can-add-people: Middle {
                             IconButton {
-                                icon: @image-url("icons/user-plus.svg");
+                                icon: IconPack.user-plus;
                                 label: root.add-people-one-to-one ? "Add friends to DM" : "Add friends to the group";
                                 size: 32px; glyph: 20px; tip-side: 2;
                                 tint: root.add-people-open ? Theme.text : Theme.secondary;
@@ -3126,7 +3128,7 @@ export component YapfastWindow inherits Window {
                         }
                         if root.members-available && root.room-direct: Middle {
                             HeaderToggle {
-                                icon: @image-url("icons/users.svg"); text: root.members; open: root.member-list;
+                                icon: IconPack.users; text: root.members; open: root.member-list;
                                 label: root.member-list ? "Hide member list" : "Show member list";
                                 clicked => { root.toggle-members(); }
                             }
@@ -3135,7 +3137,7 @@ export component YapfastWindow inherits Window {
                         // the list shows.
                         if root.members-available && !root.room-direct: Middle {
                             IconButton {
-                                icon: @image-url("icons/users.svg");
+                                icon: IconPack.users;
                                 label: root.member-list ? "Hide member list" : "Show member list";
                                 size: 32px; glyph: 20px; tip-side: 2;
                                 tint: root.member-list ? Theme.text : Theme.secondary;
@@ -3145,7 +3147,7 @@ export component YapfastWindow inherits Window {
                         // A thread's, after its member list, as in Discord's toolbar.
                         if root.room-parent != "" && root.room-selected: Middle {
                             IconButton {
-                                icon: @image-url("icons/ellipsis.svg"); label: "More";
+                                icon: IconPack.ellipsis; label: "More";
                                 size: 32px; glyph: 20px; tip-side: 2;
                                 clicked => {
                                     root.open-context-menu("thread-toolbar:" + root.room-id, false,
@@ -3155,7 +3157,7 @@ export component YapfastWindow inherits Window {
                         }
                         if root.profile-available: Middle {
                             IconButton {
-                                icon: @image-url("icons/user.svg"); label: root.profile-panel ? "Hide profile" : "Show profile";
+                                icon: IconPack.user; label: root.profile-panel ? "Hide profile" : "Show profile";
                                 size: 32px; glyph: 20px; tip-side: 2;
                                 tint: root.profile-panel ? Theme.text : Theme.secondary;
                                 clicked => { root.toggle-profile-panel(); }
@@ -3174,7 +3176,7 @@ export component YapfastWindow inherits Window {
                         if PluginSurfaces.header-buttons.length > 0: Middle { PluginHeaderButtons { } }
                         if !root.members-available && !root.profile-available && root.members != "": HorizontalLayout {
                             spacing: 6px;
-                            Image { source: @image-url("icons/users.svg"); width: 18px; image-fit: contain; colorize: Theme.muted; }
+                            Image { source: IconPack.users; width: 18px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
                             Text { text: root.members; color: Theme.muted; font-size: 14px; font-weight: 500; vertical-alignment: center; }
                         }
                     }
@@ -3188,7 +3190,7 @@ export component YapfastWindow inherits Window {
                             min-height: preview-content.preferred-height; background: Theme.raised-fill; vertical-stretch: 0;
                             preview-content := HorizontalLayout {
                                 padding-left: 16px; padding-right: 16px; padding-top: 7px; padding-bottom: 7px; spacing: 10px;
-                                Image { source: @image-url("icons/triangle-alert.svg"); width: 16px; image-fit: contain; colorize: Theme.accent-text; }
+                                Image { source: IconPack.triangle-alert; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.accent-text); }
                                 Text {
                                     text: "Local preview: sample data. Nothing leaves this computer.";
                                     color: Theme.secondary; font-size: 14px; font-weight: 500; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1;
@@ -3277,7 +3279,7 @@ export component YapfastWindow inherits Window {
                                 background: react-touch.has-hover ? Theme.field : Theme.raised-fill;
                                 react-row := HorizontalLayout {
                                     x: 12px; spacing: 8px; alignment: start;
-                                    Middle { Image { source: @image-url("icons/smile.svg"); width: 18px; height: 18px; colorize: Theme.text; accessible-role: none; } }
+                                    Middle { Image { source: IconPack.smile; width: 18px; height: 18px; colorize: IconPack.tint(self.source, Theme.text); accessible-role: none; } }
                                     Text { text: "React to post"; font-size: 14px; font-weight: 600; color: Theme.text; vertical-alignment: center; }
                                 }
                                 react-touch := TouchArea {
@@ -3301,8 +3303,8 @@ export component YapfastWindow inherits Window {
                                     background: follow-touch.has-hover ? Theme.field : Theme.raised-fill;
                                     follow-row := HorizontalLayout {
                                         x: 12px; spacing: 6px; alignment: start;
-                                        if root.forum-post-follow == 2: Middle { Image { source: @image-url("icons/check.svg"); width: 18px; height: 18px; colorize: Theme.text; accessible-role: none; } }
-                                        if root.forum-post-follow == 1: Middle { Image { source: @image-url("icons/plus.svg"); width: 18px; height: 18px; colorize: Theme.text; accessible-role: none; } }
+                                        if root.forum-post-follow == 2: Middle { Image { source: IconPack.check; width: 18px; height: 18px; colorize: IconPack.tint(self.source, Theme.text); accessible-role: none; } }
+                                        if root.forum-post-follow == 1: Middle { Image { source: IconPack.plus; width: 18px; height: 18px; colorize: IconPack.tint(self.source, Theme.text); accessible-role: none; } }
                                         Text { text: root.forum-post-follow == 2 ? "Following" : "Follow"; font-size: 14px; font-weight: 600; color: Theme.text; vertical-alignment: center; }
                                     }
                                     follow-touch := TouchArea {
@@ -3315,7 +3317,7 @@ export component YapfastWindow inherits Window {
                                 Rectangle {
                                     width: 32px; border-radius: Look.radius(8px);
                                     background: link-touch.has-hover ? Theme.field : Theme.raised-fill;
-                                    Image { source: @image-url("icons/link.svg"); width: 18px; height: 18px; colorize: Theme.text; accessible-role: none; }
+                                    Image { source: IconPack.link; width: 18px; height: 18px; colorize: IconPack.tint(self.source, Theme.text); accessible-role: none; }
                                     link-touch := TouchArea {
                                         mouse-cursor: MouseCursor.pointer;
                                         clicked => { root.choose-menu(root.room-id, false, "copy-link"); }
@@ -3652,16 +3654,16 @@ export component YapfastWindow inherits Window {
                                                     if root.confirm-delete != message.item: HorizontalLayout {
                                                         spacing: 0px;
                                                         if message-bar.quick && message.can-pin: IconButton {
-                                                            icon: message.pinned ? @image-url("icons/pin-off.svg") : @image-url("icons/pin.svg");
+                                                            icon: message.pinned ? IconPack.pin-off : IconPack.pin;
                                                             label: message.pinned ? "Unpin" : "Pin";
                                                             clicked => { root.pin-message(message.item); }
                                                         }
                                                         if message-bar.quick && root.can-start-threads && message.can-reply && message.thread-room == "": IconButton {
-                                                            icon: @image-url("icons/thread.svg"); label: "Create Thread";
+                                                            icon: IconPack.thread; label: "Create Thread";
                                                             clicked => { root.new-thread(message.item, "message"); }
                                                         }
                                                         if message-bar.quick && message.own && message.can-edit && message.can-reply && root.composer-enabled && UiParts.message-reply: IconButton {
-                                                            icon: @image-url("icons/reply.svg"); label: "Reply";
+                                                            icon: IconPack.reply; label: "Reply";
                                                             clicked => { root.reply(message.item); root.focus-composer(); }
                                                         }
                                                         if message.can-react && root.new-reactions-enabled && UiParts.message-react: HorizontalLayout {
@@ -3679,22 +3681,22 @@ export component YapfastWindow inherits Window {
                                                                 }
                                                             }
                                                             IconButton {
-                                                                icon: @image-url("icons/smile-plus.svg"); label: "Add reaction";
+                                                                icon: IconPack.smile-plus; label: "Add reaction";
                                                                 clicked => {
                                                                     root.anchor(self.absolute-position.x, self.absolute-position.y, self.width, self.height, false);
                                                                     root.open-picker(message.item);
                                                                 }
                                                             }
                                                         }
-                                                        if message.own && message.can-edit && root.composer-enabled: IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; clicked => { root.edit(message.item); root.focus-composer(); } }
-                                                        if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled && UiParts.message-reply: IconButton { icon: @image-url("icons/reply.svg"); label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
+                                                        if message.own && message.can-edit && root.composer-enabled: IconButton { icon: IconPack.pencil; label: "Edit"; clicked => { root.edit(message.item); root.focus-composer(); } }
+                                                        if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled && UiParts.message-reply: IconButton { icon: IconPack.reply; label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
                                                         // Beside Reply, as in Discord, whether or not Shift is held.
                                                         if message.can-forward && root.forward-allowed: IconButton {
-                                                            icon: @image-url("icons/forward.svg"); label: "Forward";
+                                                            icon: IconPack.forward; label: "Forward";
                                                             clicked => { root.start-forward(message.item); }
                                                         }
                                                         if message-bar.deletes: IconButton {
-                                                            icon: @image-url("icons/trash-2.svg"); label: "Delete"; danger: true;
+                                                            icon: IconPack.trash-2; label: "Delete"; danger: true;
                                                             clicked => { root.delete-now(message.item); }
                                                         }
                                                         if root.plugin-hover.length > 0: PluginButtons {
@@ -3702,7 +3704,7 @@ export component YapfastWindow inherits Window {
                                                             acted(plugin, slot, id, value, subject) => { root.plugin-acted(plugin, slot, id, value, subject); }
                                                         }
                                                         if !message-bar.deletes && UiParts.message-more: IconButton {
-                                                            icon: @image-url("icons/ellipsis.svg"); label: "More";
+                                                            icon: IconPack.ellipsis; label: "More";
                                                             clicked => {
                                                                 root.anchor(self.absolute-position.x, self.absolute-position.y, self.width, self.height, false);
                                                                 root.open-menu(message);
@@ -3820,10 +3822,10 @@ export component YapfastWindow inherits Window {
                                 border-top-left-radius: Look.radius(10px); border-top-right-radius: Look.radius(10px);
                                 HorizontalLayout {
                                     padding-left: 14px; padding-right: 4px; spacing: 8px;
-                                    Image { source: root.is-editing ? @image-url("icons/pencil.svg") : @image-url("icons/reply.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
+                                    Image { source: root.is-editing ? IconPack.pencil : IconPack.reply; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
                                     Text { text: root.compose-label; color: Theme.secondary; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                                     if !root.is-editing: VerticalLayout { alignment: center; PingToggle { on: root.reply-ping; toggled => { root.toggle-reply-ping(); } } }
-                                    IconButton { icon: @image-url("icons/x.svg"); label: root.is-editing ? "Cancel editing" : "Cancel reply"; size: 28px; glyph: 16px; clicked => { root.cancel-compose(); } }
+                                    IconButton { icon: IconPack.x; label: root.is-editing ? "Cancel editing" : "Cancel reply"; size: 28px; glyph: 16px; clicked => { root.cancel-compose(); } }
                                 }
                             }
                             if root.composer-locked && !root.room-request: Rectangle {
@@ -3877,7 +3879,7 @@ export component YapfastWindow inherits Window {
                                             // of uploading a file or starting a thread.
                                             IconButton {
                                                 // Discord's is a plain 18px plus, not a circled one.
-                                                icon: ClientStyle.enabled ? @image-url("icons/plus.svg") : @image-url("icons/circle-plus.svg");
+                                                icon: ClientStyle.enabled ? IconPack.plus : IconPack.circle-plus;
                                                 label: root.can-start-threads || root.can-create-polls ? "More options" : "Attach files";
                                                 glyph: ClientStyle.enabled ? 27px : 22px;
                                                 enabled: root.can-attach || root.can-start-threads || root.can-create-polls;
@@ -3951,7 +3953,7 @@ export component YapfastWindow inherits Window {
                                         if root.can-pick-gifs: VerticalLayout {
                                             alignment: end; padding-bottom: ClientStyle.composer-button-inset;
                                             gif-button := IconButton {
-                                                icon: @image-url("icons/gif.svg"); label: "Open GIF picker";
+                                                icon: IconPack.gif; label: "Open GIF picker";
                                                 glyph: 22px; enabled: root.composer-enabled;
                                                 tint: root.expressions-open && root.expression-tab == 0 ? Theme.text : Theme.secondary;
                                                 clicked => {
@@ -3963,7 +3965,7 @@ export component YapfastWindow inherits Window {
                                         if root.can-pick-stickers: VerticalLayout {
                                             alignment: end; padding-bottom: ClientStyle.composer-button-inset;
                                             sticker-button := IconButton {
-                                                icon: @image-url("icons/sticker.svg"); label: "Open sticker picker";
+                                                icon: IconPack.sticker; label: "Open sticker picker";
                                                 glyph: 22px; enabled: root.composer-enabled;
                                                 tint: root.expressions-open && root.expression-tab == 2 ? Theme.text : Theme.secondary;
                                                 clicked => {
@@ -3975,7 +3977,7 @@ export component YapfastWindow inherits Window {
                                         VerticalLayout {
                                             alignment: end; padding-bottom: ClientStyle.composer-button-inset;
                                             emoji-button := IconButton {
-                                                icon: @image-url("icons/smile.svg"); label: "Add an emoji";
+                                                icon: IconPack.smile; label: "Add an emoji";
                                                 glyph: 22px; enabled: root.composer-enabled;
                                                 tint: root.react-item == "yapfast:composer" && (!root.expressions-open || root.expression-tab == 1) ? Theme.text : Theme.secondary;
                                                 clicked => {
@@ -3991,7 +3993,7 @@ export component YapfastWindow inherits Window {
                                         if !ClientStyle.enabled: VerticalLayout {
                                             alignment: end; padding-bottom: ClientStyle.composer-button-inset;
                                             IconButton {
-                                                icon: @image-url("icons/send-horizontal.svg");
+                                                icon: IconPack.send-horizontal;
                                                 label: root.sending ? "Sending..." : root.is-editing ? "Save" : "Send";
                                                 enabled: root.can-send; emphasis: root.can-send;
                                                 clicked => { root.send(); }
@@ -4004,7 +4006,7 @@ export component YapfastWindow inherits Window {
                             // room below it as beside it.
                             if root.composer-hint != "": HorizontalLayout {
                                 height: 22px; spacing: 6px; padding-left: 4px;
-                                if root.room-encrypted || root.preview: Image { source: @image-url("icons/lock.svg"); width: 12px; image-fit: contain; colorize: Theme.muted; }
+                                if root.room-encrypted || root.preview: Image { source: IconPack.lock; width: 12px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
                                 Text { text: root.composer-hint; color: Theme.muted; font-size: 13px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                             }
                             if root.composer-hint == "": Rectangle { height: ClientStyle.composer-gutter; }
@@ -4253,7 +4255,7 @@ export component YapfastWindow inherits Window {
         status: root.pip-kind == 1 ? root.watch-status : root.pip-kind == 2 ? root.share-status : "";
         frame: root.pip-kind == 1 ? root.watch-frame : root.pip-kind == 2 ? root.share-frame : root.participant-frames[root.pip-person];
         live: root.pip-kind == 2 && root.share-live;
-        stop-icon: root.pip-kind == 1 ? @image-url("icons/x.svg") : @image-url("icons/screen-share-off.svg");
+        stop-icon: root.pip-kind == 1 ? IconPack.x : IconPack.screen-share-off;
         stop-label: root.pip-kind == 1 ? "Stop watching" : root.pip-kind == 2 ? "Stop sharing" : "";
         viewers: root.pip-kind == 1 ? root.watch-viewers : root.pip-kind == 2 ? root.share-viewers : [];
         viewer-names: root.pip-kind == 1 ? root.watch-viewer-names : root.pip-kind == 2 ? root.share-viewer-names : "";
@@ -5092,7 +5094,7 @@ export component YapfastWindow inherits Window {
                 padding: 20px; padding-top: 24px; spacing: 8px;
                 HorizontalLayout {
                     alignment: center;
-                    Image { source: @image-url("icons/file.svg"); width: 40px; height: 40px; colorize: Theme.on-accent; }
+                    Image { source: IconPack.file; width: 40px; height: 40px; colorize: IconPack.tint(self.source, Theme.on-accent); }
                 }
                 if root.dragging: HorizontalLayout {
                     alignment: center;

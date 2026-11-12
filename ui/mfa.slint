@@ -1,3 +1,4 @@
+import { IconPack } from "media.slint";
 import { Theme, Label, Popup, Look } from "theme.slint";
 import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
 import { ActionButton, IconButton, MenuItem, TextField } from "controls.slint";
@@ -76,7 +77,7 @@ export component MfaDialog inherits Rectangle {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
                     Text { text: "Multi-Factor Authentication"; color: Theme.text; font-size: Look.title-size(18px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Cancel"; size: 28px; glyph: 18px; clicked => { root.cancel(); } }
+                    IconButton { icon: IconPack.x; label: "Cancel"; size: 28px; glyph: 18px; clicked => { root.cancel(); } }
                 }
                 if root.prompt.listing: VerticalLayout {
                     spacing: 2px;

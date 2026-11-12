@@ -1,3 +1,4 @@
+import { IconPack } from "media.slint";
 import { Theme, Middle, Label, Look } from "theme.slint";
 import { ActionButton, Avatar, IconButton, TextField, PictureStore } from "controls.slint";
 import { SettingsTitle, SettingsHeading } from "settings.slint";
@@ -158,7 +159,7 @@ export component EmojiSection inherits VerticalLayout {
                 }
                 Middle {
                     IconButton {
-                        icon: @image-url("icons/x.svg"); label: "Delete"; size: 32px; glyph: 18px; danger: true;
+                        icon: IconPack.x; label: "Delete"; size: 32px; glyph: 18px; danger: true;
                         enabled: row.may-change;
                         opacity: row.may-change && (hover.has-hover || self.hovered) ? 1 : 0;
                         clicked => { root.act(1, row.id, ""); }
@@ -248,8 +249,8 @@ component StickerTileView inherits Rectangle {
         x: parent.width - self.preferred-width - 4px; y: 4px; width: self.preferred-width; height: 28px;
         spacing: 2px;
         opacity: hover.has-hover || edit.hovered || delete.hovered ? 1 : 0;
-        edit := IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; size: 28px; glyph: 16px; fill: Theme.raised; clicked => { root.edit(); } }
-        delete := IconButton { icon: @image-url("icons/x.svg"); label: "Delete"; size: 28px; glyph: 16px; danger: true; fill: Theme.raised; clicked => { root.delete(); } }
+        edit := IconButton { icon: IconPack.pencil; label: "Edit"; size: 28px; glyph: 16px; fill: Theme.raised; clicked => { root.edit(); } }
+        delete := IconButton { icon: IconPack.x; label: "Delete"; size: 28px; glyph: 16px; danger: true; fill: Theme.raised; clicked => { root.delete(); } }
     }
 }
 
@@ -271,7 +272,7 @@ export component StickersSection inherits VerticalLayout {
             padding: 16px; spacing: 12px;
             HorizontalLayout {
                 spacing: 8px;
-                if !card.unlocked: Middle { Image { source: @image-url("icons/lock.svg"); width: 16px; height: 16px; colorize: Theme.secondary; } }
+                if !card.unlocked: Middle { Image { source: IconPack.lock; width: 16px; height: 16px; colorize: IconPack.tint(self.source, Theme.secondary); } }
                 Text { text: card.title; color: Theme.text; font-size: 16px; font-weight: 700; vertical-alignment: center; }
                 Rectangle { horizontal-stretch: 1; }
                 Text { text: card.status; color: Theme.secondary; font-size: 14px; vertical-alignment: center; }
@@ -297,7 +298,7 @@ export component StickersSection inherits VerticalLayout {
                     add := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.act(0, ""); } }
                     VerticalLayout {
                         alignment: center; spacing: 8px;
-                        HorizontalLayout { alignment: center; Image { source: @image-url("icons/circle-plus.svg"); width: 32px; height: 32px; colorize: Theme.secondary; } }
+                        HorizontalLayout { alignment: center; Image { source: IconPack.circle-plus; width: 32px; height: 32px; colorize: IconPack.tint(self.source, Theme.secondary); } }
                         Text { text: "Upload Sticker"; color: Theme.secondary; font-size: 14px; font-weight: 600; horizontal-alignment: center; }
                     }
                 }

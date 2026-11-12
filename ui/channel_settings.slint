@@ -2,6 +2,7 @@
 // do: Overview, its name and a text channel's topic, slowmode and age
 // restriction; and Permissions, its overwrites, each permission allowed,
 // denied or left to the roles for a role or member.
+import { IconPack } from "media.slint";
 import { Theme, Middle, Label, Tip, Look } from "theme.slint";
 import { ActionButton, Avatar, IconButton, TextField } from "controls.slint";
 import { SettingsCard, SettingsFrame, SettingsRow, SettingsTitle, SettingsHeading, SettingsSwitch, UnsavedBar } from "settings.slint";
@@ -85,9 +86,9 @@ component ThreeState inherits Rectangle {
     border-width: 1px; border-color: Theme.line;
     HorizontalLayout {
         for choice[index] in [
-            { icon: @image-url("icons/x.svg"), label: "Deny", fill: Theme.danger },
-            { icon: @image-url("icons/slash.svg"), label: "Passthrough", fill: Theme.faint },
-            { icon: @image-url("icons/check.svg"), label: "Allow", fill: Theme.live },
+            { icon: IconPack.x, label: "Deny", fill: Theme.danger },
+            { icon: IconPack.slash, label: "Passthrough", fill: Theme.faint },
+            { icon: IconPack.check, label: "Allow", fill: Theme.live },
         ]: Rectangle {
             border-radius: Look.radius(5px);
             background: root.state == index ? choice.fill : area.has-hover && root.enabled ? Theme.hover : transparent;
@@ -95,7 +96,7 @@ component ThreeState inherits Rectangle {
             accessible-checked: root.state == index;
             Image {
                 width: 16px; height: 16px; source: choice.icon;
-                colorize: root.state == index ? #ffffff : root.enabled ? Theme.secondary : Theme.faint;
+                colorize: IconPack.tint(self.source, root.state == index ? #ffffff : root.enabled ? Theme.secondary : Theme.faint);
             }
             area := TouchArea {
                 enabled: root.enabled;
@@ -122,7 +123,7 @@ component ThreeStateLine inherits VerticalLayout {
             }
             if root.permission.lock-text != "": Middle {
                 Image {
-                    width: 14px; height: 14px; source: @image-url("icons/lock.svg"); colorize: Theme.muted;
+                    width: 14px; height: 14px; source: IconPack.lock; colorize: IconPack.tint(self.source, Theme.muted);
                     accessible-role: image; accessible-label: root.permission.lock-text;
                     TouchArea {
                         changed has-hover => {
@@ -187,7 +188,7 @@ component OverviewSection inherits VerticalLayout {
         HorizontalLayout {
             spacing: 8px; alignment: start;
             IconButton {
-                icon: @image-url("icons/chevron-left.svg"); label: "Shorter slowmode"; size: 32px; glyph: 18px;
+                icon: IconPack.chevron-left; label: "Shorter slowmode"; size: 32px; glyph: 18px;
                 clicked => { root.slowmode(max(0, root.prompt.slowmode - 1)); }
             }
             Text {
@@ -196,7 +197,7 @@ component OverviewSection inherits VerticalLayout {
                 accessible-role: text; accessible-label: "Slowmode " + self.text;
             }
             IconButton {
-                icon: @image-url("icons/chevron-right.svg"); label: "Longer slowmode"; size: 32px; glyph: 18px;
+                icon: IconPack.chevron-right; label: "Longer slowmode"; size: 32px; glyph: 18px;
                 clicked => { root.slowmode(min(root.slowmodes.length - 1, root.prompt.slowmode + 1)); }
             }
         }
@@ -255,7 +256,7 @@ component PermissionsSection inherits VerticalLayout {
                 height: 28px;
                 Text { text: "ROLES/MEMBERS"; color: Theme.muted; font-size: 12px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
                 IconButton {
-                    icon: @image-url("icons/circle-plus.svg"); label: "Add a role or member"; size: 28px; glyph: 16px;
+                    icon: IconPack.circle-plus; label: "Add a role or member"; size: 28px; glyph: 16px;
                     enabled: root.prompt.may-edit && !root.prompt.saving;
                     clicked => { root.input(20, "", 0); }
                 }
@@ -273,7 +274,7 @@ component PermissionsSection inherits VerticalLayout {
                             Rectangle { width: 10px; height: 10px; border-radius: Look.radius(5px); background: row.color; }
                         }
                         if row.member: Middle {
-                            Image { width: 14px; height: 14px; source: @image-url("icons/user.svg"); colorize: Theme.muted; }
+                            Image { width: 14px; height: 14px; source: IconPack.user; colorize: IconPack.tint(self.source, Theme.muted); }
                         }
                         Text {
                             text: row.name; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1;

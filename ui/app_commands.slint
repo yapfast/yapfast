@@ -4,6 +4,7 @@
 // lists its "Apps" from CommandChoice rows too (see MessageMenu in
 // messages.slint). See docs/discord/messages.md, "Apps' commands".
 
+import { IconPack } from "media.slint";
 import { Theme, Look } from "theme.slint";
 
 /// A row of the list over the composer: a command the picker offers, with
@@ -140,7 +141,7 @@ export component CommandPills inherits FlexboxLayout {
             padding-left: 6px; padding-right: 6px; spacing: 4px;
             if pill.file: VerticalLayout {
                 alignment: center;
-                Image { source: @image-url("icons/file.svg"); width: 14px; height: 14px; colorize: Theme.muted; }
+                Image { source: IconPack.file; width: 14px; height: 14px; colorize: IconPack.tint(self.source, Theme.muted); }
             }
             Text { text: pill.name + ":"; color: Theme.muted; font-size: 13px; font-weight: 600; vertical-alignment: center; }
             if pill.value != "": Text { text: pill.value; color: Theme.text; font-size: 13px; vertical-alignment: center; overflow: elide; }

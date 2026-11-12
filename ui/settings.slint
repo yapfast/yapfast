@@ -1,3 +1,4 @@
+import { IconPack, Cue } from "media.slint";
 import { SettingsToggle } from "yapfast/settings-toggle.slint";
 import { SettingsNavigation } from "yapfast/settings-nav.slint";
 import { ClientStyle } from "yapfast/style.slint";
@@ -46,6 +47,7 @@ export component SettingsSwitch inherits Rectangle {
     height: column.preferred-height;
     function toggle() {
         if root.enabled {
+            Cue.toggled(!root.checked);
             if root.controlled {
                 root.toggled(!root.checked);
                 return;
@@ -70,7 +72,7 @@ export component SettingsSwitch inherits Rectangle {
                 // Discord's lock after the title, with why on hover.
                 if !root.enabled && root.locked-tip != "": Middle {
                     Image {
-                        width: 14px; height: 14px; source: @image-url("icons/lock.svg"); colorize: Theme.muted;
+                        width: 14px; height: 14px; source: IconPack.lock; colorize: IconPack.tint(self.source, Theme.muted);
                         accessible-role: image; accessible-label: root.locked-tip;
                         TouchArea {
                             changed has-hover => {
@@ -308,7 +310,7 @@ export component SettingsFrame inherits Rectangle {
                     HorizontalLayout {
                         padding-left: 16px; padding-right: 8px;
                         Text { text: root.page-title; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
-                        Middle { IconButton { icon: @image-url("icons/x.svg"); label: "Close " + root.label; size: 32px; glyph: 18px; clicked => { root.close(); } } }
+                        Middle { IconButton { icon: IconPack.x; label: "Close " + root.label; size: 32px; glyph: 18px; clicked => { root.close(); } } }
                     }
                     Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
                 }
@@ -333,7 +335,7 @@ export component SettingsFrame inherits Rectangle {
                     HorizontalLayout {
                         alignment: center;
                         IconButton {
-                            icon: @image-url("icons/x.svg"); label: "Close " + root.label; size: 36px; glyph: 18px; radius: 18px;
+                            icon: IconPack.x; label: "Close " + root.label; size: 36px; glyph: 18px; radius: 18px;
                             fill: Theme.raised; clicked => { root.close(); }
                         }
                     }
@@ -394,29 +396,29 @@ export component SettingsScreen inherits Rectangle {
     changed settings-section => { if self.settings-section != 9 { root.plugins-closed(); } }
     property <[SettingsRow]> with-discord: [
         { heading: true, text: "SETTINGS" },
-        { text: "My account", icon: @image-url("icons/user.svg"), id: 0 },
-        { text: "Appearance", icon: @image-url("icons/palette.svg"), id: 7 },
-        { text: "Voice & video", icon: @image-url("icons/headphones.svg"), id: 1 },
-        { text: "Messages", icon: @image-url("icons/message-circle.svg"), id: 2 },
-        { text: "Notifications", icon: @image-url("icons/bell.svg"), id: 3 },
-        { text: "Sounds", icon: @image-url("icons/volume-2.svg"), id: 5 },
-        { text: "Discord", icon: @image-url("icons/discord.svg"), id: 4 },
-        { text: "Game activity", icon: @image-url("icons/play.svg"), id: 8 },
-        { text: "Plugins", icon: @image-url("icons/plugins.svg"), id: 9 },
-        { text: "Themes", icon: @image-url("icons/brush.svg"), id: 10 },
-        { text: "Advanced", icon: @image-url("icons/settings.svg"), id: 6 },
+        { text: "My account", icon: IconPack.user, id: 0 },
+        { text: "Appearance", icon: IconPack.palette, id: 7 },
+        { text: "Voice & video", icon: IconPack.headphones, id: 1 },
+        { text: "Messages", icon: IconPack.message-circle, id: 2 },
+        { text: "Notifications", icon: IconPack.bell, id: 3 },
+        { text: "Sounds", icon: IconPack.volume-2, id: 5 },
+        { text: "Discord", icon: IconPack.discord, id: 4 },
+        { text: "Game activity", icon: IconPack.play, id: 8 },
+        { text: "Plugins", icon: IconPack.plugins, id: 9 },
+        { text: "Themes", icon: IconPack.brush, id: 10 },
+        { text: "Advanced", icon: IconPack.settings, id: 6 },
     ];
     property <[SettingsRow]> without-discord: [
         { heading: true, text: "SETTINGS" },
-        { text: "My account", icon: @image-url("icons/user.svg"), id: 0 },
-        { text: "Appearance", icon: @image-url("icons/palette.svg"), id: 7 },
-        { text: "Voice & video", icon: @image-url("icons/headphones.svg"), id: 1 },
-        { text: "Messages", icon: @image-url("icons/message-circle.svg"), id: 2 },
-        { text: "Notifications", icon: @image-url("icons/bell.svg"), id: 3 },
-        { text: "Sounds", icon: @image-url("icons/volume-2.svg"), id: 5 },
-        { text: "Plugins", icon: @image-url("icons/plugins.svg"), id: 9 },
-        { text: "Themes", icon: @image-url("icons/brush.svg"), id: 10 },
-        { text: "Advanced", icon: @image-url("icons/settings.svg"), id: 6 },
+        { text: "My account", icon: IconPack.user, id: 0 },
+        { text: "Appearance", icon: IconPack.palette, id: 7 },
+        { text: "Voice & video", icon: IconPack.headphones, id: 1 },
+        { text: "Messages", icon: IconPack.message-circle, id: 2 },
+        { text: "Notifications", icon: IconPack.bell, id: 3 },
+        { text: "Sounds", icon: IconPack.volume-2, id: 5 },
+        { text: "Plugins", icon: IconPack.plugins, id: 9 },
+        { text: "Themes", icon: IconPack.brush, id: 10 },
+        { text: "Advanced", icon: IconPack.settings, id: 6 },
     ];
     SettingsCard {
         motion: root.motion;
@@ -487,19 +489,19 @@ export component AccountSettings inherits VerticalLayout {
     HorizontalLayout {
         spacing: 8px;
         if !root.preview && !root.online: ActionButton {
-            text: "Reconnect"; icon: @image-url("icons/refresh-cw.svg"); enabled: !root.busy;
+            text: "Reconnect"; icon: IconPack.refresh-cw; enabled: !root.busy;
             clicked => { root.retry-sync(); }
         }
         if root.discord-linked: ActionButton {
-            text: "Edit profile"; icon: @image-url("icons/user-pen.svg");
+            text: "Edit profile"; icon: IconPack.user-pen;
             clicked => { root.edit-profile(); }
         }
         if root.discord-linked: ActionButton {
-            text: root.has-custom-status ? "Change custom status" : "Set a custom status"; icon: @image-url("icons/smile-plus.svg");
+            text: root.has-custom-status ? "Change custom status" : "Set a custom status"; icon: IconPack.smile-plus;
             clicked => { root.set-custom-status(); }
         }
         ActionButton {
-            text: root.preview ? "Back to sign in" : "Sign out"; icon: @image-url("icons/log-out.svg");
+            text: root.preview ? "Back to sign in" : "Sign out"; icon: IconPack.log-out;
             danger: !root.preview; enabled: !root.busy && !root.sending;
             clicked => { root.sign-out(); }
         }
@@ -632,7 +634,7 @@ export component VoiceSettings inherits VerticalLayout {
                 // Black in every theme, as a camera's picture.
                 if !root.camera-testing || root.camera-preview.width == 0: VerticalLayout {
                     alignment: center; spacing: 10px; padding: 12px;
-                    Image { height: 30px; source: @image-url("icons/video.svg"); image-fit: contain; colorize: #b5b8c1; }
+                    Image { height: 30px; source: IconPack.video; image-fit: contain; colorize: IconPack.tint(self.source, #b5b8c1); }
                     Text {
                         text: root.camera-note != "" ? root.camera-note : root.camera-testing ? "Starting your camera..." : "Your camera is off.";
                         color: #b5b8c1; font-size: 14px; horizontal-alignment: center; wrap: word-wrap;
@@ -649,7 +651,7 @@ export component VoiceSettings inherits VerticalLayout {
         }
     }
     HorizontalLayout {
-        ActionButton { text: "Refresh devices"; icon: @image-url("icons/refresh-cw.svg"); ghost: true; small: true; clicked => { root.refresh-devices(); } }
+        ActionButton { text: "Refresh devices"; icon: IconPack.refresh-cw; ghost: true; small: true; clicked => { root.refresh-devices(); } }
         Rectangle { horizontal-stretch: 1; }
     }
     Rectangle { height: 1px; background: Theme.line; }
@@ -897,7 +899,7 @@ component ThemeTile inherits Rectangle {
             font-weight: root.current ? 700 : 500; vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
         }
         if root.current: Image {
-            width: 16px; source: @image-url("icons/check.svg"); colorize: Theme.accent-text; image-fit: contain;
+            width: 16px; source: IconPack.check; colorize: IconPack.tint(self.source, Theme.accent-text); image-fit: contain;
         }
     }
     if Art.foil-tile: Rectangle {
@@ -919,7 +921,7 @@ component ThemeTile inherits Rectangle {
     }
     if root.card.custom: IconButton {
         x: parent.width - 8px - self.width; y: preview.y + preview.height + 6px; height: 24px;
-        icon: @image-url("icons/pencil.svg"); label: "Edit " + root.card.name; size: 24px; glyph: 14px;
+        icon: IconPack.pencil; label: "Edit " + root.card.name; size: 24px; glyph: 14px;
         clicked => { root.edit(); }
     }
 }
@@ -996,11 +998,11 @@ export component AppearanceSettings inherits VerticalLayout {
         HorizontalLayout {
             SettingsHeading { text: "THEME"; vertical-alignment: center; horizontal-stretch: 1; }
             ActionButton {
-                text: "Browse themes"; small: true; ghost: true; icon: @image-url("icons/brush.svg");
+                text: "Browse themes"; small: true; ghost: true; icon: IconPack.brush;
                 clicked => { root.browse-themes(); }
             }
             ActionButton {
-                text: "New theme"; small: true; icon: @image-url("icons/circle-plus.svg");
+                text: "New theme"; small: true; icon: IconPack.circle-plus;
                 clicked => { root.new-theme(); }
             }
         }
@@ -1126,12 +1128,12 @@ export component AppearanceSettings inherits VerticalLayout {
             // A theme package folder, ready to put in a GitHub repository
             // and share in Settings → Themes.
             ActionButton {
-                text: "Export as a package"; small: true; icon: @image-url("icons/download.svg");
+                text: "Export as a package"; small: true; icon: IconPack.download;
                 clicked => { root.export-theme(); }
             }
             ActionButton {
                 text: form.confirming ? "Delete it for good" : "Delete theme"; danger: true; small: true;
-                icon: @image-url("icons/trash-2.svg");
+                icon: IconPack.trash-2;
                 clicked => {
                     if form.confirming { root.delete-theme(); } else { form.confirming = true; }
                 }
@@ -1343,7 +1345,7 @@ export component SoundSettings inherits VerticalLayout {
                 label: name; maximum: 100; value: root.each[index]; horizontal-stretch: 1;
                 committed(value) => { root.each-changed(index, value); root.play(index); }
             }
-            Middle { IconButton { icon: @image-url("icons/play.svg"); label: "Play " + name; clicked => { root.play(index); } } }
+            Middle { IconButton { icon: IconPack.play; label: "Play " + name; clicked => { root.play(index); } } }
         }
     }
 }
@@ -1408,7 +1410,7 @@ export component AdvancedSettings inherits VerticalLayout {
             vertical-alignment: center; horizontal-stretch: 1;
         }
         ActionButton {
-            text: "Restart Yapfast"; icon: @image-url("icons/refresh-cw.svg");
+            text: "Restart Yapfast"; icon: IconPack.refresh-cw;
             clicked => { root.restart(); }
         }
     }
@@ -1533,7 +1535,7 @@ export component DiscordSettings inherits VerticalLayout {
         spacing: 12px;
         Label { text: "Unlinking signs Yapfast out of Discord on this computer."; vertical-alignment: center; horizontal-stretch: 1; }
         ActionButton {
-            text: "Unlink Discord"; icon: @image-url("icons/log-out.svg"); danger: true;
+            text: "Unlink Discord"; icon: IconPack.log-out; danger: true;
             clicked => { root.unlink-discord(); }
         }
     }
@@ -1569,7 +1571,7 @@ export component DiscordSettings inherits VerticalLayout {
             Middle {
                 Rectangle {
                     width: 40px; height: 40px; border-radius: Look.radius(20px); background: Theme.raised-fill;
-                    Image { source: @image-url("icons/ban.svg"); width: 20px; height: 20px; colorize: Theme.secondary; }
+                    Image { source: IconPack.ban; width: 20px; height: 20px; colorize: IconPack.tint(self.source, Theme.secondary); }
                 }
             }
             VerticalLayout {

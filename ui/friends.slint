@@ -1,3 +1,4 @@
+import { IconPack } from "media.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Popup, Look } from "theme.slint";
 import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
@@ -50,8 +51,8 @@ component RequestMessage inherits Rectangle {
     content := HorizontalLayout {
         padding: 10px; padding-left: 12px; spacing: 10px;
         Image {
-            source: @image-url("icons/message-circle.svg"); width: 16px; height: 16px; y: 12px;
-            colorize: root.unread ? Theme.accent-text : Theme.muted;
+            source: IconPack.message-circle; width: 16px; height: 16px; y: 12px;
+            colorize: IconPack.tint(self.source, root.unread ? Theme.accent-text : Theme.muted);
         }
         Text {
             text: root.text != "" ? root.text : "Open to read their message";
@@ -69,8 +70,8 @@ component RequestMessage inherits Rectangle {
                 }
                 if root.time != "": Text { text: root.time; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
                 Image {
-                    source: @image-url("icons/chevron-right.svg"); width: 16px; height: 16px;
-                    colorize: pointer.has-hover ? Theme.text : Theme.muted;
+                    source: IconPack.chevron-right; width: 16px; height: 16px;
+                    colorize: IconPack.tint(self.source, pointer.has-hover ? Theme.text : Theme.muted);
                 }
             }
         }
@@ -122,7 +123,7 @@ export component RequestItem inherits Rectangle {
                 if root.request.friend == 1: Middle {
                     ActionButton {
                         text: "Accept"; label: "Accept " + root.request.name + "'s friend request";
-                        icon: @image-url("icons/check.svg"); small: true; primary: true;
+                        icon: IconPack.check; small: true; primary: true;
                         clicked => { root.accept(); }
                     }
                 }
@@ -130,7 +131,7 @@ export component RequestItem inherits Rectangle {
                     ActionButton {
                         text: root.request.friend == 1 ? "Ignore" : "Cancel";
                         label: root.request.friend == 1 ? "Ignore " + root.request.name + "'s friend request" : "Cancel the friend request to " + root.request.name;
-                        icon: @image-url("icons/x.svg"); small: true;
+                        icon: IconPack.x; small: true;
                         clicked => { root.remove(); }
                     }
                 }
@@ -224,7 +225,7 @@ export component FriendItem inherits Rectangle {
             }
             Middle {
                 IconButton {
-                    icon: @image-url("icons/message-circle.svg"); label: "Message"; size: 36px; glyph: 20px; radius: 18px;
+                    icon: IconPack.message-circle; label: "Message"; size: 36px; glyph: 20px; radius: 18px;
                     fill: Theme.raised; tip-side: 2;
                     clicked => { root.message(); }
                 }
@@ -253,7 +254,7 @@ export component FriendsScreen inherits Rectangle {
             alignment: center;
             Rectangle {
                 width: 80px; height: 80px; border-radius: Look.radius(40px); background: Theme.raised-fill;
-                Image { source: @image-url("icons/users.svg"); width: 36px; height: 36px; colorize: Theme.secondary; }
+                Image { source: IconPack.users; width: 36px; height: 36px; colorize: IconPack.tint(self.source, Theme.secondary); }
             }
         }
         Text { text: "No friends yet"; color: Theme.text; font-size: 22px; font-weight: 700; horizontal-alignment: center; }
@@ -340,7 +341,7 @@ export component RequestsScreen inherits Rectangle {
             alignment: center;
             Rectangle {
                 width: 80px; height: 80px; border-radius: Look.radius(40px); background: Theme.raised-fill;
-                Image { source: @image-url("icons/inbox.svg"); width: 36px; height: 36px; colorize: Theme.secondary; }
+                Image { source: IconPack.inbox; width: 36px; height: 36px; colorize: IconPack.tint(self.source, Theme.secondary); }
             }
         }
         Text { text: "No requests"; color: Theme.text; font-size: 22px; font-weight: 700; horizontal-alignment: center; }
@@ -376,8 +377,8 @@ export component RequestsScreen inherits Rectangle {
                         color: spam-touch.has-hover ? Theme.secondary : Theme.muted;
                     }
                     Image {
-                        source: @image-url("icons/chevron-down.svg"); width: 14px; height: 14px; y: (parent.height - self.height) / 2;
-                        colorize: spam-touch.has-hover ? Theme.secondary : Theme.muted;
+                        source: IconPack.chevron-down; width: 14px; height: 14px; y: (parent.height - self.height) / 2;
+                        colorize: IconPack.tint(self.source, spam-touch.has-hover ? Theme.secondary : Theme.muted);
                         transform-rotation: root.spam-open ? 0deg : -90deg;
                         animate transform-rotation { duration: Theme.quick; easing: ease-out; }
                     }
@@ -430,7 +431,7 @@ export component AddFriendDialog inherits Rectangle {
                 padding: 20px; spacing: 12px;
                 HorizontalLayout {
                     Text { text: "Add a friend"; color: Theme.text; font-size: Look.title-size(18px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); vertical-alignment: center; horizontal-stretch: 1; }
-                    IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-add-friend(); } }
+                    IconButton { icon: IconPack.x; label: "Close"; size: 28px; glyph: 18px; clicked => { root.close-add-friend(); } }
                 }
                 Label { text: "Send someone a friend request on Discord with their username."; }
                 HorizontalLayout {

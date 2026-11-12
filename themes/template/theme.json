@@ -68,6 +68,14 @@
     "foil": { "surfaces": ["card"], "opacity": 0.12 },
     "transition": { "kind": "fade", "duration": 260 }
   },
+  "sounds": {
+    "send": "sounds/send.wav",
+    "hover": { "file": "sounds/tick.wav", "volume": 0.6 }
+  },
+  "icons": {
+    "hash": "icons/hash.svg",
+    "send-horizontal": { "file": "icons/send.svg", "colour": "accent-text" }
+  },
 
   "variants": {
     "dark": {

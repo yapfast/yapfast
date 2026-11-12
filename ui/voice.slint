@@ -1,3 +1,4 @@
+import { IconPack } from "media.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, Popup, Look } from "theme.slint";
 import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
@@ -64,7 +65,7 @@ export component ViewerStack inherits Rectangle {
     width: 8px + 16px + 4px + count.preferred-width + 6px + root.pictures + (root.viewers.length > 3 ? 4px + more.preferred-width : 0px) + 6px;
     height: 30px; border-radius: Look.radius(15px); background: #000000a6;
     accessible-role: text; accessible-label: root.names;
-    Image { x: 8px; width: 16px; height: 16px; source: @image-url("icons/eye.svg"); colorize: #ffffff; }
+    Image { x: 8px; width: 16px; height: 16px; source: IconPack.eye; colorize: IconPack.tint(self.source, #ffffff); }
     count := Text {
         x: 28px; text: root.viewers.length; color: #ffffff; font-size: 13px; font-weight: 700;
     }
@@ -132,10 +133,10 @@ export global CallLink {
 // good the connection is, grey while it's unknown.
 export component SignalIcon inherits Image {
     in property <int> quality;
-    source: root.quality == 3 ? @image-url("icons/signal-low.svg")
-        : root.quality == 2 ? @image-url("icons/signal-medium.svg") : @image-url("icons/signal-high.svg");
-    colorize: root.quality == 1 ? Theme.live : root.quality == 2 ? Theme.accent-text
-        : root.quality == 3 ? Theme.danger : Theme.muted;
+    source: root.quality == 3 ? IconPack.signal-low
+        : root.quality == 2 ? IconPack.signal-medium : IconPack.signal-high;
+    colorize: IconPack.tint(self.source, root.quality == 1 ? Theme.live : root.quality == 2 ? Theme.accent-text
+        : root.quality == 3 ? Theme.danger : Theme.muted);
     image-fit: contain;
 }
 
@@ -280,7 +281,7 @@ export component CallLinkCard inherits Rectangle {
                 alignment: center;
                 ActionButton {
                     text: root.copied ? "Copied" : "Copy"; small: true;
-                    icon: @image-url("icons/copy.svg");
+                    icon: IconPack.copy;
                     clicked => {
                         root.copy(CallLink.code[0] + " " + CallLink.code[1] + " " + CallLink.code[2] + " "
                             + CallLink.code[3] + " " + CallLink.code[4] + " " + CallLink.code[5]);
@@ -298,7 +299,7 @@ export component CallLinkCard inherits Rectangle {
             height: notice.preferred-height; border-radius: Look.radius(6px); background: Theme.live.with-alpha(0.12);
             notice := HorizontalLayout {
                 padding: 8px; spacing: 8px;
-                Image { source: @image-url("icons/lock.svg"); width: 16px; colorize: Theme.live; image-fit: contain; }
+                Image { source: IconPack.lock; width: 16px; colorize: IconPack.tint(self.source, Theme.live); image-fit: contain; }
                 Text {
                     text: CallLink.end-to-end ? "End-to-end encrypted" : "Secure connection";
                     color: Theme.live; font-size: 13px; font-weight: 700; vertical-alignment: center;
@@ -324,7 +325,7 @@ component DockButton inherits Rectangle {
     accessible-action-default => { if root.enabled { root.clicked(); } }
     Image {
         source: root.icon; width: 20px; height: 20px;
-        colorize: !root.enabled ? Theme.faint : root.on || touch.has-hover ? Theme.text : Theme.secondary;
+        colorize: IconPack.tint(self.source, !root.enabled ? Theme.faint : root.on || touch.has-hover ? Theme.text : Theme.secondary);
     }
     touch := TouchArea {
         enabled: root.enabled; mouse-cursor: MouseCursor.pointer;
@@ -393,8 +394,8 @@ export component VoiceDock inherits Rectangle {
             Rectangle {
                 width: 64px;
                 if !CallLink.measured || !root.voice-ready: Image {
-                    x: 24px; width: 24px; height: 24px; source: @image-url("icons/volume-2.svg");
-                    image-fit: contain; colorize: root.voice-color;
+                    x: 24px; width: 24px; height: 24px; source: IconPack.volume-2;
+                    image-fit: contain; colorize: IconPack.tint(self.source, root.voice-color);
                 }
                 if CallLink.measured && root.voice-ready: SignalIcon {
                     x: 24px; width: 24px; height: 24px; quality: CallLink.quality;
@@ -454,13 +455,13 @@ export component VoiceDock inherits Rectangle {
             }
             // Beside leaving, as in Vesktop. Off shows red, so it isn't forgotten.
             if root.voice-active && root.can-noise: IconButton {
-                icon: root.noise-on ? @image-url("icons/noise-bars.svg") : @image-url("icons/noise-bars-off.svg");
+                icon: root.noise-on ? IconPack.noise-bars : IconPack.noise-bars-off;
                 label: root.noise-on ? "Turn off noise suppression" : "Turn on noise suppression";
                 alert: !root.noise-on;
                 clicked => { root.toggle-noise(); }
             }
             if root.voice-active: IconButton {
-                icon: @image-url("icons/phone-off.svg"); label: "Leave voice"; danger: true;
+                icon: IconPack.phone-off; label: "Leave voice"; danger: true;
                 enabled: !root.voice-leaving;
                 clicked => { root.leave-voice(); }
             }
@@ -471,8 +472,8 @@ export component VoiceDock inherits Rectangle {
                 width: 64px;
                 if root.share-live: LivePill { x: 36px - self.width / 2; }
                 if !root.share-live: Image {
-                    x: 26px; width: 20px; height: 20px; source: @image-url("icons/screen-share.svg");
-                    image-fit: contain; colorize: Theme.accent-text;
+                    x: 26px; width: 20px; height: 20px; source: IconPack.screen-share;
+                    image-fit: contain; colorize: IconPack.tint(self.source, Theme.accent-text);
                 }
             }
             VerticalLayout {
@@ -486,7 +487,7 @@ export component VoiceDock inherits Rectangle {
                 }
             }
             IconButton {
-                icon: @image-url("icons/screen-share-off.svg"); label: "Stop sharing"; danger: true;
+                icon: IconPack.screen-share-off; label: "Stop sharing"; danger: true;
                 clicked => { root.toggle-share(); }
             }
         }
@@ -494,12 +495,12 @@ export component VoiceDock inherits Rectangle {
             padding-left: 8px; spacing: 8px;
             if root.can-soundboard: DockButton {
                 horizontal-stretch: 1; enabled: root.voice-ready;
-                icon: @image-url("icons/soundboard.svg"); label: "Open Soundboard";
+                icon: IconPack.soundboard; label: "Open Soundboard";
                 clicked => { root.open-soundboard(self.absolute-position.x, self.absolute-position.y); }
             }
             if root.can-film: DockButton {
                 horizontal-stretch: 1; enabled: root.voice-ready; on: root.camera-on;
-                icon: root.camera-on ? @image-url("icons/video.svg") : @image-url("icons/video-off.svg");
+                icon: root.camera-on ? IconPack.video : IconPack.video-off;
                 label: root.camera-starting ? "Starting camera..." : root.camera-on ? "Turn off camera" : "Turn on camera";
                 opacity: root.camera-starting ? (0.6 + 0.4 * sin(animation-tick() / 1ms * 0.36deg)) : 1;
                 clicked => { root.toggle-camera(); }
@@ -508,7 +509,7 @@ export component VoiceDock inherits Rectangle {
             // first picks what to share, there's nothing to switch yet.
             if root.can-share || root.sharing: DockButton {
                 horizontal-stretch: 1; enabled: root.voice-ready && (!root.sharing || root.share-live); on: root.sharing;
-                icon: @image-url("icons/screen-share.svg");
+                icon: IconPack.screen-share;
                 label: root.sharing ? "Switch screen or window" : "Share your screen";
                 clicked => { root.open-share-menu(self.absolute-position.x, self.absolute-position.y); }
             }
@@ -551,11 +552,11 @@ export component CallInvite inherits VerticalLayout {
     HorizontalLayout {
         alignment: center; spacing: 16px;
         if root.call-incoming: CallButton {
-            icon: @image-url("icons/phone-off.svg"); label: "Decline"; fill: Theme.danger;
+            icon: IconPack.phone-off; label: "Decline"; fill: Theme.danger;
             clicked => { root.answer-call(root.call-room, false); }
         }
         CallButton {
-            icon: @image-url("icons/phone.svg"); label: root.call-incoming ? "Accept" : "Join the call";
+            icon: IconPack.phone; label: root.call-incoming ? "Accept" : "Join the call";
             fill: Theme.live; enabled: root.can-join;
             clicked => { root.answer-call(root.call-room, true); }
         }
@@ -576,7 +577,7 @@ export component JoinVoice inherits VerticalLayout {
         alignment: center;
         Rectangle {
             width: 80px; height: 80px; border-radius: Look.radius(40px); background: Theme.raised-fill;
-            Image { source: @image-url("icons/volume-2.svg"); width: 38px; height: 38px; colorize: Theme.secondary; }
+            Image { source: IconPack.volume-2; width: 38px; height: 38px; colorize: IconPack.tint(self.source, Theme.secondary); }
         }
     }
     Text { text: root.room-name; color: Theme.text; font-size: 26px; font-weight: 900; horizontal-alignment: center; overflow: elide; }
@@ -702,13 +703,13 @@ component StageTile inherits Rectangle {
         }
         if root.stop-shown: IconButton {
             x: parent.width - self.width - 10px; y: 10px; height: self.size;
-            icon: @image-url("icons/x.svg"); label: root.stop-label; tint: #ffffff;
+            icon: IconPack.x; label: root.stop-label; tint: #ffffff;
             fill: #000000a6; radius: 16px;
             clicked => { root.stop(); }
         }
         if root.focused && self.has-hover: IconButton {
             x: parent.width - self.width - 10px; y: parent.height - self.size - 10px; height: self.size;
-            icon: root.full ? @image-url("icons/minimize.svg") : @image-url("icons/maximize.svg");
+            icon: root.full ? IconPack.minimize : IconPack.maximize;
             label: root.full ? "Exit full screen" : "Full screen"; tint: #ffffff;
             fill: #000000a6; radius: 16px;
             clicked => { root.full-screen(!root.full); }
@@ -886,7 +887,7 @@ export component ParticipantGrid inherits Flickable {
         if root.share-frame.width == 0: VerticalLayout {
             alignment: center; spacing: 10px;
             // Black in every theme, as a stream's stage.
-            Image { height: 34px; source: @image-url("icons/screen-share.svg"); image-fit: contain; colorize: #b5b8c1; }
+            Image { height: 34px; source: IconPack.screen-share; image-fit: contain; colorize: IconPack.tint(self.source, #b5b8c1); }
             Text { text: root.share-status; color: #b5b8c1; font-size: 14px; horizontal-alignment: center; wrap: word-wrap; }
         }
         TileChip { tile-width: parent.width; tile-height: parent.height; name: "Your screen"; live: root.share-live; note: !root.share-live && root.share-frame.width > 0 ? root.share-status : ""; }
@@ -918,7 +919,7 @@ export component ParticipantGrid inherits Flickable {
         if stream.watched: StreamPicture { frame: root.watch-frame; status: root.watch-status; }
         if !stream.watched: VerticalLayout {
             alignment: center; spacing: 10px;
-            Image { height: 30px; source: @image-url("icons/screen-share.svg"); image-fit: contain; colorize: #b5b8c1; }
+            Image { height: 30px; source: IconPack.screen-share; image-fit: contain; colorize: IconPack.tint(self.source, #b5b8c1); }
             HorizontalLayout {
                 alignment: center;
                 Rectangle {
@@ -930,7 +931,7 @@ export component ParticipantGrid inherits Flickable {
         }
         TileChip {
             tile-width: parent.width; tile-height: parent.height; name: stream.person.name; live: true;
-            Image { source: @image-url("icons/screen-share.svg"); width: 14px; image-fit: contain; colorize: #ffffff; }
+            Image { source: IconPack.screen-share; width: 14px; image-fit: contain; colorize: IconPack.tint(self.source, #ffffff); }
         }
     }
     for person[position] in root.participants: tile := StageTile {
@@ -991,8 +992,8 @@ export component ParticipantGrid inherits Flickable {
             // A stream with a tile of its own is LIVE there.
             name: person.name; live: person.live && (person.local || !person.video);
             note: person.status != "Muted" && person.status != "Deafened" && person.status != "Speaking" && person.status != "Listening" ? person.status : "";
-            if person.muted && !person.deafened: Image { source: @image-url("icons/mic-off.svg"); width: 14px; image-fit: contain; colorize: Theme.danger; }
-            if person.deafened: Image { source: @image-url("icons/headphone-off.svg"); width: 14px; image-fit: contain; colorize: Theme.danger; }
+            if person.muted && !person.deafened: Image { source: IconPack.mic-off; width: 14px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.danger); }
+            if person.deafened: Image { source: IconPack.headphone-off; width: 14px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.danger); }
         }
     }
 }
@@ -1025,7 +1026,7 @@ export component CallControls inherits HorizontalLayout {
     alignment: center; spacing: 12px; padding: 16px; padding-top: 8px;
     IconButton {
         size: 52px; glyph: 22px; radius: 26px;
-        icon: root.muted ? @image-url("icons/mic-off.svg") : @image-url("icons/mic.svg");
+        icon: root.muted ? IconPack.mic-off : IconPack.mic;
         label: root.muted ? "Unmute" : "Mute"; alert: root.muted; tint: Theme.text;
         enabled: root.voice-ready;
         fill: self.alert ? Theme.danger.with-alpha(0.18) : Theme.raised;
@@ -1033,7 +1034,7 @@ export component CallControls inherits HorizontalLayout {
     }
     IconButton {
         size: 52px; glyph: 22px; radius: 26px;
-        icon: root.deafened ? @image-url("icons/headphone-off.svg") : @image-url("icons/headphones.svg");
+        icon: root.deafened ? IconPack.headphone-off : IconPack.headphones;
         label: root.deafened ? "Undeafen" : "Deafen"; alert: root.deafened; tint: Theme.text;
         enabled: root.voice-ready;
         fill: self.alert ? Theme.danger.with-alpha(0.18) : Theme.raised;
@@ -1041,13 +1042,13 @@ export component CallControls inherits HorizontalLayout {
     }
     if root.can-soundboard: IconButton {
         size: 52px; glyph: 22px; radius: 26px;
-        icon: @image-url("icons/soundboard.svg"); label: "Open Soundboard"; tint: Theme.text;
+        icon: IconPack.soundboard; label: "Open Soundboard"; tint: Theme.text;
         enabled: root.voice-ready; fill: Theme.raised;
         clicked => { root.open-soundboard(self.absolute-position.x, self.absolute-position.y); }
     }
     if root.can-film: IconButton {
         size: 52px; glyph: 22px; radius: 26px;
-        icon: root.camera-on ? @image-url("icons/video.svg") : @image-url("icons/video-off.svg");
+        icon: root.camera-on ? IconPack.video : IconPack.video-off;
         label: root.camera-starting ? "Starting camera..." : root.camera-on ? "Turn off camera" : "Turn on camera"; tint: Theme.text;
         enabled: root.voice-ready; opacity: root.camera-starting ? (0.6 + 0.4 * sin(animation-tick() / 1ms * 0.36deg)) : 1;
         fill: root.camera-on ? Theme.live.with-alpha(0.22) : Theme.raised;
@@ -1055,7 +1056,7 @@ export component CallControls inherits HorizontalLayout {
     }
     if root.can-share || root.sharing: IconButton {
         size: 52px; glyph: 22px; radius: 26px;
-        icon: root.sharing ? @image-url("icons/screen-share-off.svg") : @image-url("icons/screen-share.svg");
+        icon: root.sharing ? IconPack.screen-share-off : IconPack.screen-share;
         label: root.sharing ? "Stop sharing" : "Share your screen"; tint: Theme.text;
         enabled: root.voice-ready;
         fill: root.sharing ? Theme.live.with-alpha(0.22) : Theme.raised;
@@ -1073,7 +1074,7 @@ export component CallControls inherits HorizontalLayout {
         opacity: root.voice-leaving ? 0.5 : 1;
         accessible-role: button; accessible-label: "Leave voice"; accessible-enabled: !root.voice-leaving;
         accessible-action-default => { if !root.voice-leaving { root.leave-voice(); } }
-        Image { source: @image-url("icons/phone-off.svg"); width: 22px; height: 22px; colorize: Theme.on-danger; }
+        Image { source: IconPack.phone-off; width: 22px; height: 22px; colorize: IconPack.tint(self.source, Theme.on-danger); }
         leave-touch := TouchArea { enabled: !root.voice-leaving; mouse-cursor: MouseCursor.pointer; clicked => { root.leave-voice(); } }
     }
 }
@@ -1120,11 +1121,11 @@ export component IncomingCall inherits Rectangle {
         HorizontalLayout {
             alignment: center; spacing: 20px; padding-top: 6px;
             CallButton {
-                icon: @image-url("icons/phone-off.svg"); label: "Decline"; fill: Theme.danger;
+                icon: IconPack.phone-off; label: "Decline"; fill: Theme.danger;
                 clicked => { root.answer-call(root.incoming-room, false); }
             }
             CallButton {
-                icon: @image-url("icons/phone.svg"); label: "Accept"; fill: Theme.live;
+                icon: IconPack.phone; label: "Accept"; fill: Theme.live;
                 clicked => { root.answer-call(root.incoming-room, true); }
             }
         }
@@ -1180,7 +1181,7 @@ export component SwitchDialog inherits Rectangle {
                         alignment: start;
                         Rectangle {
                             width: 40px; height: 40px; border-radius: Look.radius(20px); background: Theme.accent-soft;
-                            Image { source: @image-url("icons/volume-2.svg"); width: 20px; height: 20px; colorize: Theme.accent-text; }
+                            Image { source: IconPack.volume-2; width: 20px; height: 20px; colorize: IconPack.tint(self.source, Theme.accent-text); }
                         }
                     }
                     VerticalLayout {
@@ -1249,7 +1250,7 @@ component ScreenCard inherits Rectangle {
             border-radius: Look.radius(4px); background: Theme.sunken; clip: true;
             // Until its picture comes.
             if root.picture.width == 0: Image {
-                height: 24px; source: @image-url("icons/screen-share.svg"); image-fit: contain; colorize: Theme.faint;
+                height: 24px; source: IconPack.screen-share; image-fit: contain; colorize: IconPack.tint(self.source, Theme.faint);
             }
             Image { width: parent.width; height: parent.height; source: root.picture; image-fit: contain; }
             Rectangle {
@@ -1399,7 +1400,7 @@ export component ShareMenu inherits Rectangle {
         start := HorizontalLayout {
             padding: 4px; padding-top: 10px;
             ActionButton {
-                text: root.switching ? "Switch" : "Go Live"; icon: @image-url("icons/screen-share.svg"); primary: true; horizontal-stretch: 1;
+                text: root.switching ? "Switch" : "Go Live"; icon: IconPack.screen-share; primary: true; horizontal-stretch: 1;
                 clicked => { root.go-live(root.pick-source, root.pick-resolution, root.pick-fps, root.pick-high-quality); }
             }
         }
@@ -1482,14 +1483,14 @@ component SoundButton inherits Rectangle {
         x: parent.width - 2 * (self.width + 4px); y: (parent.height - self.height) / 2;
         size: 26px; glyph: 15px; radius: 6px; fill: Theme.button-default-hover;
         visible: root.extras && root.hovered;
-        icon: @image-url("icons/volume-2.svg"); label: "Preview " + root.sound.name;
+        icon: IconPack.volume-2; label: "Preview " + root.sound.name;
         clicked => { root.preview(); }
     }
     star := IconButton {
         x: parent.width - self.width - 4px; y: (parent.height - self.height) / 2;
         size: 26px; glyph: 15px; radius: 6px; fill: root.hovered ? Theme.button-default-hover : Theme.button-default;
         visible: root.extras && (root.hovered || root.sound.favorite);
-        icon: root.sound.favorite ? @image-url("icons/star-filled.svg") : @image-url("icons/star.svg");
+        icon: root.sound.favorite ? IconPack.star-filled : IconPack.star;
         tint: root.sound.favorite ? #f0b232 : Theme.secondary;
         label: root.sound.favorite ? "Remove from Favorites" : "Add to Favorites";
         clicked => { root.favorite(!root.sound.favorite); }

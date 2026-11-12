@@ -1,3 +1,4 @@
+import { IconPack } from "media.slint";
 import { Theme, Look } from "theme.slint";
 
 // Where the bot's select menu that was opened last sits in the window,
@@ -38,7 +39,7 @@ export component BotSelectBox inherits Rectangle {
             text: root.text; color: root.picked ? Theme.text : Theme.secondary; font-weight: 500;
             vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
         }
-        Image { source: @image-url("icons/chevron-down.svg"); width: 18px; image-fit: contain; colorize: Theme.secondary; }
+        Image { source: IconPack.chevron-down; width: 18px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.secondary); }
     }
     touch := TouchArea {
         enabled: root.enabled && !root.busy; mouse-cursor: MouseCursor.pointer;

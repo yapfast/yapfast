@@ -1,3 +1,4 @@
+import { IconPack } from "media.slint";
 import { Theme, Look } from "theme.slint";
 import { ActionButton, Avatar, TextField } from "controls.slint";
 import { SettingsHeading } from "settings.slint";
@@ -110,7 +111,7 @@ export component TransferOwnershipDialog inherits Rectangle {
             Avatar { size: 80px; initial: root.page.owner-initial; picture-url: root.page.owner-avatar; }
             VerticalLayout {
                 alignment: center;
-                Image { source: @image-url("icons/chevron-right.svg"); width: 24px; height: 24px; colorize: Theme.muted; }
+                Image { source: IconPack.chevron-right; width: 24px; height: 24px; colorize: IconPack.tint(self.source, Theme.muted); }
             }
             Avatar { size: 80px; initial: root.page.new-initial; picture-url: root.page.new-avatar; }
         }
@@ -137,7 +138,7 @@ export component TransferOwnershipDialog inherits Rectangle {
                         width: 18px; height: 18px; border-radius: Look.radius(4px);
                         background: root.page.agreed ? Theme.accent-fill : transparent;
                         border-width: root.page.agreed ? 0px : 1.5px; border-color: Theme.muted;
-                        if root.page.agreed: Image { width: 12px; height: 12px; image-fit: contain; source: @image-url("icons/check.svg"); colorize: Theme.on-accent; }
+                        if root.page.agreed: Image { width: 12px; height: 12px; image-fit: contain; source: IconPack.check; colorize: IconPack.tint(self.source, Theme.on-accent); }
                     }
                 }
                 StyledText { horizontal-stretch: 1; text: root.page.acknowledge; default-color: Theme.secondary; default-font-size: 14px; }

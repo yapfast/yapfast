@@ -528,6 +528,13 @@ impl Adapter {
     }
 
     pub(super) fn refresh(&mut self, window: &YapfastWindow) {
+        // A theme shown without `set_theme`, as at start, gets its sounds'
+        // choices and Rust's icons here.
+        if self.media_changes != theme_media::changes() {
+            self.media_changes = theme_media::changes();
+            self.show_theme_media(window);
+        }
+        self.sound_context();
         if self.pictures_sourced != Some(self.app.state.picture_changes) {
             self.pictures_sourced = Some(self.app.state.picture_changes);
             bump_picture_slots(window, refresh_avatar_sources(&self.app.state));

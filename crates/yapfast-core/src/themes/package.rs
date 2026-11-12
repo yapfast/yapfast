@@ -888,6 +888,10 @@ pub struct Resolved {
     pub effects: Vec<TextEffect>,
     /// Pictures, overlays, glass, text light, particles and event effects.
     pub art: art::Art,
+    /// Sounds by the slot they play in: [`super::media`].
+    pub sounds: BTreeMap<super::media::SoundSlot, super::media::SoundChoice>,
+    /// Replaced icons by their name in `ui/icons/`.
+    pub icons: BTreeMap<&'static str, super::media::IconChoice>,
 }
 
 impl Resolved {
@@ -993,7 +997,7 @@ const TOP_KEYS: [&str; 15] = [
 ];
 
 /// The layers, at the top level or in a variant.
-const LAYER_KEYS: [&str; 8] = [
+const LAYER_KEYS: [&str; 10] = [
     "art",
     "colours",
     "shape",
@@ -1002,6 +1006,8 @@ const LAYER_KEYS: [&str; 8] = [
     "motion",
     "animations",
     "effects",
+    "sounds",
+    "icons",
 ];
 
 /// The most previews a theme lists.
@@ -1233,6 +1239,12 @@ impl Package {
             if let Some(value) = layers.get("art") {
                 art::read_art(value, &place("art"), &mut resolved.art, notes)?;
             }
+            if let Some(sounds) = layers.get("sounds") {
+                super::media::read_sounds(sounds, &place("sounds"), &mut resolved.sounds, notes)?;
+            }
+            if let Some(icons) = layers.get("icons") {
+                super::media::read_icons(icons, &place("icons"), &mut resolved.icons, notes)?;
+            }
         }
         Ok(resolved)
     }
@@ -1244,9 +1256,18 @@ impl Package {
         files.extend(self.icon.clone());
         for mode in self.modes() {
             if let Ok(resolved) = self.resolve(mode) {
-                for font in resolved.fonts() {
-                    if !files.iter().any(|file| file == font) {
-                        files.push(font.to_owned());
+                let media = resolved
+                    .sounds
+                    .values()
+                    .flat_map(|choice| choice.files.iter())
+                    .chain(resolved.icons.values().map(|icon| &icon.file));
+                for file in resolved
+                    .fonts()
+                    .into_iter()
+                    .chain(media.map(PathBuf::as_path))
+                {
+                    if !files.iter().any(|known| known == file) {
+                        files.push(file.to_owned());
                     }
                 }
                 for picture in resolved.art.files() {
@@ -2093,7 +2114,7 @@ mod tests {
         let package = Package::parse(
             r##"{
             "theme_api": 1, "id": "com.example.later", "name": "Later", "version": "1.0.0",
-            "sounds": { "message": "ping.ogg" },
+            "cursors": { "pointer": "hand.png" },
             "parts": { "message-row": { "contract": "1.0" }, "whole-window": {} },
             "variants": { "dark": { "base": "yap",
                 "colours": { "sparkle": "#ffffff", "danger": "#00ff00" },
@@ -2104,7 +2125,7 @@ mod tests {
         .unwrap();
         let notes = package.notes.join("\n");
         for expected in [
-            "\"sounds\"",
+            "\"cursors\"",
             "parts.message-row\" needs a later Yapfast",
             "parts.whole-window",
             "sparkle",

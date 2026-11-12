@@ -1,3 +1,4 @@
+import { IconPack } from "media.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, BadgeTip, Look } from "theme.slint";
@@ -181,8 +182,8 @@ export component MemberPanel inherits Rectangle {
                                 root.activity-hidden-toggled(root.activity-hidden);
                             }
                             Image {
-                                source: root.activity-hidden ? @image-url("icons/eye-off.svg") : @image-url("icons/eye.svg");
-                                width: 16px; height: 16px; colorize: hide-touch.has-hover ? Theme.text : Theme.muted;
+                                source: root.activity-hidden ? IconPack.eye-off : IconPack.eye;
+                                width: 16px; height: 16px; colorize: IconPack.tint(self.source, hide-touch.has-hover ? Theme.text : Theme.muted);
                             }
                             hide-touch := TouchArea {
                                 mouse-cursor: MouseCursor.pointer;
@@ -195,7 +196,7 @@ export component MemberPanel inherits Rectangle {
                     }
                     if activity-header.opens: Middle {
                         Image {
-                            source: @image-url("icons/chevron-right.svg"); width: 16px; height: 16px; colorize: Theme.muted;
+                            source: IconPack.chevron-right; width: 16px; height: 16px; colorize: IconPack.tint(self.source, Theme.muted);
                             transform-rotation: root.activity-open && !root.activity-hidden ? 90deg : 0deg;
                         }
                     }
@@ -229,8 +230,8 @@ export component MemberPanel inherits Rectangle {
                                 spacing: 4px; alignment: start;
                                 Middle {
                                     Image {
-                                        source: row.icon == 2 ? @image-url("icons/music.svg") : row.icon == 3 ? @image-url("icons/tv.svg") : row.icon == 4 ? @image-url("icons/video.svg") : row.icon == 5 ? @image-url("icons/trophy.svg") : @image-url("icons/gamepad.svg");
-                                        width: 16px; height: 16px; image-fit: contain; colorize: row.live ? Theme.live : Theme.muted;
+                                        source: row.icon == 2 ? IconPack.music : row.icon == 3 ? IconPack.tv : row.icon == 4 ? IconPack.video : row.icon == 5 ? IconPack.trophy : IconPack.gamepad;
+                                        width: 16px; height: 16px; image-fit: contain; colorize: IconPack.tint(self.source, row.live ? Theme.live : Theme.muted);
                                     }
                                 }
                                 Text { text: row.since; color: row.live ? Theme.live : Theme.muted; font-size: 12px; overflow: elide; vertical-alignment: center; }
@@ -337,8 +338,8 @@ export component MemberPanel inherits Rectangle {
                             if member.bot: Middle { BotTag { opacity: member.presence == "offline" ? 0.5 : 1; } }
                             if member.owner: Middle {
                                 Image {
-                                    source: @image-url("icons/crown.svg"); width: 14px; height: 14px; image-fit: contain;
-                                    colorize: #f0b232; opacity: member.presence == "offline" ? 0.5 : 1;
+                                    source: IconPack.crown; width: 14px; height: 14px; image-fit: contain;
+                                    colorize: IconPack.tint(self.source, #f0b232); opacity: member.presence == "offline" ? 0.5 : 1;
                                     accessible-role: image; accessible-label: "Server Owner";
                                 }
                             }
@@ -346,8 +347,8 @@ export component MemberPanel inherits Rectangle {
                             // Discord's client.
                             if root.boost-gems && member.boosting != "": Middle {
                                 TipIcon {
-                                    source: @image-url("icons/gem.svg"); width: 14px; height: 14px;
-                                    colorize: #ff73fa; tip: member.boosting;
+                                    source: IconPack.gem; width: 14px; height: 14px;
+                                    colorize: IconPack.tint(self.source, #ff73fa); tip: member.boosting;
                                 }
                             }
                             // What plugins badge them with, each saying whose it is
@@ -356,8 +357,8 @@ export component MemberPanel inherits Rectangle {
                                 PluginBadgeView { badge: badge; opacity: member.presence == "offline" ? 0.5 : 1; }
                             }
                             if member.timed-out: Image {
-                                source: @image-url("icons/clock.svg"); width: 14px; image-fit: contain;
-                                colorize: Theme.danger;
+                                source: IconPack.clock; width: 14px; image-fit: contain;
+                                colorize: IconPack.tint(self.source, Theme.danger);
                                 accessible-role: image; accessible-label: "Timed out";
                             }
                         }
@@ -1190,7 +1191,7 @@ export component ProfileCard inherits Rectangle {
                         // One's own, as Discord's, has Edit Profile in their place.
                         if root.large && !root.preview && root.data.own: HorizontalLayout {
                             alignment: start; height: 32px;
-                            ActionButton { text: "Edit Profile"; icon: @image-url("icons/pencil.svg"); primary: true; small: true; clicked => { root.edit-profile(); } }
+                            ActionButton { text: "Edit Profile"; icon: IconPack.pencil; primary: true; small: true; clicked => { root.edit-profile(); } }
                         }
                         if root.large && !root.preview && !root.data.own && (root.data.friend > 0 || root.data.can-message || root.data.id != ""): HorizontalLayout {
                             spacing: 8px; alignment: start; height: 32px;
@@ -1204,7 +1205,7 @@ export component ProfileCard inherits Rectangle {
                                 accessible-action-default => { if root.data.friend == 4 { root.more(self.absolute-position.x, self.absolute-position.y + self.height); } else { root.befriend(); } }
                                 friend-row := HorizontalLayout {
                                     x: 12px; spacing: 6px; alignment: center;
-                                    Middle { Image { source: root.data.friend == 4 ? @image-url("icons/check.svg") : @image-url("icons/user-plus.svg"); width: 16px; height: 16px; colorize: root.data.friend == 3 ? #ffffff : root.ink; } }
+                                    Middle { Image { source: root.data.friend == 4 ? IconPack.check : IconPack.user-plus; width: 16px; height: 16px; colorize: IconPack.tint(self.source, root.data.friend == 3 ? #ffffff : root.ink); } }
                                     Text {
                                         text: root.data.friend == 1 ? "Add Friend" : root.data.friend == 2 ? "Friend Request Sent" : root.data.friend == 4 ? "Friends" : "Accept Friend Request";
                                         color: root.data.friend == 3 ? #ffffff : root.ink; font-size: 14px; font-weight: 500; vertical-alignment: center;
@@ -1221,7 +1222,7 @@ export component ProfileCard inherits Rectangle {
                                 accessible-role: button;
                                 accessible-label: "Message " + root.data.name;
                                 accessible-action-default => { root.message-person(root.data.id); }
-                                Image { source: @image-url("icons/message-circle.svg"); width: 18px; height: 18px; x: 7px; y: 7px; colorize: root.ink; }
+                                Image { source: IconPack.message-circle; width: 18px; height: 18px; x: 7px; y: 7px; colorize: IconPack.tint(self.source, root.ink); }
                                 action-message := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.message-person(root.data.id); } }
                             }
                             if root.data.id != "": Rectangle {
@@ -1230,7 +1231,7 @@ export component ProfileCard inherits Rectangle {
                                 accessible-role: button;
                                 accessible-label: "More actions";
                                 accessible-action-default => { root.more(self.absolute-position.x, self.absolute-position.y + self.height); }
-                                Image { source: @image-url("icons/ellipsis.svg"); width: 18px; height: 18px; x: 7px; y: 7px; colorize: root.ink; }
+                                Image { source: IconPack.ellipsis; width: 18px; height: 18px; x: 7px; y: 7px; colorize: IconPack.tint(self.source, root.ink); }
                                 action-more := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.more(self.absolute-position.x, self.absolute-position.y + self.height); } }
                             }
                         }
@@ -1367,14 +1368,14 @@ export component ProfileCard inherits Rectangle {
                                 accessible-action-default => { if connection.url != "" { root.open-link(connection.url); } }
                                 connection-body := HorizontalLayout {
                                     spacing: 8px;
-                                    Middle { Image { source: @image-url("icons/link.svg"); width: 24px; height: 24px; colorize: root.ink2; } }
+                                    Middle { Image { source: IconPack.link; width: 24px; height: 24px; colorize: IconPack.tint(self.source, root.ink2); } }
                                     VerticalLayout {
                                         alignment: center;
                                         HorizontalLayout {
                                             spacing: 4px; alignment: start;
                                             Text { text: connection.name; color: root.ink; font-size: 14px; font-weight: 500; overflow: elide; vertical-alignment: center; }
-                                            if connection.verified: Middle { Image { source: @image-url("icons/check.svg"); width: 14px; height: 14px; colorize: root.ink2; } }
-                                            if connection.url != "": Middle { Image { source: @image-url("icons/external-link.svg"); width: 14px; height: 14px; colorize: root.ink2; } }
+                                            if connection.verified: Middle { Image { source: IconPack.check; width: 14px; height: 14px; colorize: IconPack.tint(self.source, root.ink2); } }
+                                            if connection.url != "": Middle { Image { source: IconPack.external-link; width: 14px; height: 14px; colorize: IconPack.tint(self.source, root.ink2); } }
                                         }
                                         if connection.since != "": Text { text: "Member since" + " " + connection.since; color: root.ink3; font-size: 12px; }
                                     }
@@ -1444,7 +1445,7 @@ export component ProfileCard inherits Rectangle {
                             acted(plugin, slot, id, value, subject) => { root.plugin-acted(plugin, slot, id, value, subject); }
                         }
                         if !root.large && !root.preview && root.data.own: ActionButton {
-                            text: "Edit Profile"; icon: @image-url("icons/pencil.svg"); primary: true;
+                            text: "Edit Profile"; icon: IconPack.pencil; primary: true;
                             clicked => { root.edit-profile(); }
                         }
                         // Escape in the box closes the card, as it does elsewhere.
@@ -1458,7 +1459,7 @@ export component ProfileCard inherits Rectangle {
                             }
                             message-field := TextField {
                                 placeholder: root.data.message-hint; label: root.data.message-hint;
-                                placeholder-color: root.ink2; trailing-icon: @image-url("icons/smile.svg");
+                                placeholder-color: root.ink2; trailing-icon: IconPack.smile;
                                 text-size: 14px; border-radius: Look.radius(8px); fill: !root.themed ? Theme.text.transparentize(0.92) : root.light ? #ffffff3d : #ffffff1f; ink: root.ink; trailing-tint: root.ink2;
                                 accepted => {
                                     if self.text != "" {
@@ -1483,7 +1484,7 @@ export component ProfileCard inherits Rectangle {
                     accessible-enabled: root.data.friend != 2;
                     accessible-label: root.data.friend == 1 ? "Add Friend" : root.data.friend == 2 ? "Friend Request Sent" : root.data.friend == 4 ? "Friends" : "Accept Friend Request";
                     accessible-action-default => { if root.data.friend == 4 { root.more(self.absolute-position.x, self.absolute-position.y + self.height); } else { root.befriend(); } }
-                    Image { source: root.data.friend == 4 ? @image-url("icons/check.svg") : @image-url("icons/user-plus.svg"); width: 18px; height: 18px; x: 7px; y: 7px; colorize: #ffffff; opacity: root.data.friend == 2 ? 0.5 : 1; }
+                    Image { source: root.data.friend == 4 ? IconPack.check : IconPack.user-plus; width: 18px; height: 18px; x: 7px; y: 7px; colorize: IconPack.tint(self.source, #ffffff); opacity: root.data.friend == 2 ? 0.5 : 1; }
                     friend-touch := TouchArea {
                         enabled: root.data.friend != 2; mouse-cursor: MouseCursor.pointer;
                         clicked => { if root.data.friend == 4 { root.more(self.absolute-position.x, self.absolute-position.y + self.height); } else { root.befriend(); } }
@@ -1495,7 +1496,7 @@ export component ProfileCard inherits Rectangle {
                     accessible-role: button;
                     accessible-label: "More actions";
                     accessible-action-default => { root.more(self.absolute-position.x, self.absolute-position.y + self.height); }
-                    Image { source: @image-url("icons/ellipsis.svg"); width: 18px; height: 18px; x: 7px; y: 7px; colorize: #ffffff; }
+                    Image { source: IconPack.ellipsis; width: 18px; height: 18px; x: 7px; y: 7px; colorize: IconPack.tint(self.source, #ffffff); }
                     more-touch := TouchArea {
                         mouse-cursor: MouseCursor.pointer;
                         clicked => { root.more(self.absolute-position.x, self.absolute-position.y + self.height); }
@@ -1513,7 +1514,7 @@ export component ProfileCard inherits Rectangle {
     }
     if root.large && !root.side: Rectangle {
         x: parent.width - 44px; y: 10px; width: 34px; height: 34px; border-radius: Look.radius(17px); background: #00000080;
-        IconButton { icon: @image-url("icons/x.svg"); label: "Close profile"; tint: #ffffff; clicked => { root.close(); } }
+        IconButton { icon: IconPack.x; label: "Close profile"; tint: #ffffff; clicked => { root.close(); } }
     }
     if root.docked && ClientStyle.enabled: Rectangle {
         x: 16px; y: parent.height - 48px; width: parent.width - 32px; height: 36px;
@@ -1620,7 +1621,7 @@ export component ProfileModal inherits Rectangle {
                     accessible-role: button;
                     accessible-label: "Close profile";
                     accessible-action-default => { root.close(); }
-                    Image { source: @image-url("icons/x.svg"); width: 18px; height: 18px; x: 7px; y: 7px; colorize: root.ink2; }
+                    Image { source: IconPack.x; width: 18px; height: 18px; x: 7px; y: 7px; colorize: IconPack.tint(self.source, root.ink2); }
                     close-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.close(); } }
                 }
             }
