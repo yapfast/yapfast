@@ -5286,15 +5286,24 @@ struct Scratch {
     shared: Option<I420Buffer>,
 }
 
-/// The tone a capture of `source` comes through: HDR's when the screen it's of
-/// shows HDR, and SDR's otherwise, which is every frame as it came. A camera
-/// and a test pattern have no screen to ask about.
-fn tone_of(source: &Source) -> Tone {
-    match source {
-        Source::Display(monitor) => picture::tone_of_screen(*monitor),
-        Source::Window(window) => picture::tone_of_window(*window),
-        _ => Tone::SDR,
-    }
+/// The tone a capture of `source` comes through: none, because no capturer here
+/// hands over HDR's codes. Windows Graphics Capture is asked for
+/// `B8G8R8A8UIntNormalized` — `native/wgc.cc` on the card's rung, and
+/// libwebrtc's capturer on the processor's, which asks for the same format — and
+/// the system maps an HDR screen's composition into that 8-bit SDR picture
+/// itself, as measured on this desktop (`docs/measurements/README.md`: "WGC
+/// hands back BGRA8, already tonemapped, and encodes correctly"). Putting a
+/// curve over those frames maps SDR twice, which is a share darker than the
+/// screen it came from.
+///
+/// `Tone` is what a capturer that *does* hand HDR's codes over would need, and
+/// Desktop Duplication is the one that can (`R16G16B16A16_FLOAT`, scRGB); it is
+/// also the rung documented as broken on HDR frames, which is why a share on
+/// Windows 11 uses Graphics Capture. Reading a tone would take the picture's
+/// format from the capture rather than the display's setting, which is the
+/// question `picture::tone_of_screen` asks and the wrong one to ask it of.
+fn tone_of(_source: &Source) -> Tone {
+    Tone::SDR
 }
 
 /// A captured frame on its way to the sink: converted and scaled in the

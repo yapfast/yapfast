@@ -1411,8 +1411,16 @@ mod tests {
         // SAFETY: as above, with a name no row has.
         let refused = unsafe {
             (
-                yapfast_d3d11enc_tuning_settings(c"p9".as_ptr(), none.as_mut_ptr().cast(), none.len()),
-                yapfast_hwenc_nvenc_settings(c"p9".as_ptr(), nothing.as_mut_ptr().cast(), nothing.len()),
+                yapfast_d3d11enc_tuning_settings(
+                    c"p9".as_ptr(),
+                    none.as_mut_ptr().cast(),
+                    none.len(),
+                ),
+                yapfast_hwenc_nvenc_settings(
+                    c"p9".as_ptr(),
+                    nothing.as_mut_ptr().cast(),
+                    nothing.len(),
+                ),
             )
         };
         assert_eq!(refused, (-1, -1));
