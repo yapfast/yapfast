@@ -255,7 +255,7 @@ impl Decoration {
 }
 
 #[cfg(test)]
-mod tests {
+mod decoration_tests {
     use super::*;
 
     #[test]
