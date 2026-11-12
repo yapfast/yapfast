@@ -1,6 +1,7 @@
 import { IconPack } from "media.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, Popup, Look } from "theme.slint";
+import { ThemeContent } from "theme_content.slint";
 import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
 import { ActionButton, IconButton, Avatar, CallButton, VolumeSlider, MenuItem } from "controls.slint";
 import { EmojiCell, EmojiFace } from "messages.slint";
@@ -42,10 +43,11 @@ export component LivePill inherits Rectangle {
     in property <string> label: "Watch stream";
     callback clicked;
     width: live-text.preferred-width + 10px; height: 16px; border-radius: Look.radius(8px);
-    background: root.clickable && live-touch.has-hover ? Theme.danger-hover : Theme.danger;
+    background: ThemeContent.activity ? (root.clickable && live-touch.has-hover ? Theme.accent-hover : Theme.accent)
+        : root.clickable && live-touch.has-hover ? Theme.danger-hover : Theme.danger;
     accessible-role: button; accessible-enabled: root.clickable; accessible-label: root.clickable ? root.label : "Live";
     accessible-action-default => { if root.clickable { root.clicked(); } }
-    live-text := Text { text: "LIVE"; color: Theme.on-danger; font-size: 10px; font-weight: 800; letter-spacing: 0.4px; }
+    live-text := Text { text: "LIVE"; color: ThemeContent.activity ? Theme.on-accent : Theme.on-danger; font-size: 10px; font-weight: 800; letter-spacing: 0.4px; }
     live-touch := TouchArea {
         enabled: root.clickable; mouse-cursor: root.clickable ? MouseCursor.pointer : MouseCursor.default;
         clicked => { root.clicked(); }

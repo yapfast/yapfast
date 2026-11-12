@@ -129,7 +129,8 @@ impl Adapter {
         #[cfg(feature = "plugins")]
         self.app.plugins_theme(theme.dark);
         let icons = self.show_theme_media(window);
-        if theme.apply(window) || icons {
+        let content = self.show_theme_content(window);
+        if theme.apply(window) || icons || content {
             self.restyle_mentions();
             self.refresh(window);
         }
@@ -178,6 +179,39 @@ impl Adapter {
         }
     }
 
+    /// The shown theme's `content`, if the person lets it style people's
+    /// profiles and media, and Settings → Themes' switch for it. True if
+    /// what rows are built with changed; they're built again at the next
+    /// refresh, and pictures converted again as they next show.
+    pub(super) fn show_theme_content(&mut self, window: &YapfastWindow) -> bool {
+        let id = theme_look::applied_id().unwrap_or_default();
+        let applied = theme_look::applied_content();
+        let on = self.layout.theme_content.contains(&id);
+        let page = window.global::<ThemesPage>();
+        page.set_content(
+            applied
+                .and_then(|(content, _)| content.phrase())
+                .unwrap_or_default()
+                .into(),
+        );
+        page.set_content_on(on);
+        let change = theme_content::show(window, applied.filter(|_| on));
+        if change.media {
+            pictures::media_changed();
+            self.pictures.clear();
+            crate::custom_emoji::forget_images();
+            bump_picture_slots(window, u32::MAX);
+        }
+        if change.rows || change.media {
+            self.restyle_mentions();
+            self.aside_restyle = true;
+            self.roster_shown = None;
+            self.sidebar = None;
+            self.account_profile_shown = None;
+        }
+        change.rows || change.media
+    }
+
     /// Keeps what the review's sound switches say for the reviewed theme, and
     /// for its trial.
     fn keep_review_sounds(&mut self, window: &YapfastWindow, trial: bool) {
@@ -194,7 +228,13 @@ impl Adapter {
         if trial {
             ids.push("trial".to_owned());
         }
+        let content = page.get_review_content_on();
         for id in ids {
+            if content {
+                self.layout.theme_content.insert(id.clone());
+            } else {
+                self.layout.theme_content.remove(&id);
+            }
             if prefs == theme_media::Prefs::default() {
                 self.layout.theme_sounds.remove(&id);
             } else {
@@ -496,6 +536,18 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
         theme_media::set_prefs(&window, prefs);
         // Hearing the new volume is how it's judged.
         theme_media::cue(SoundSlot::Press, FOCUSED.get());
+    });
+    on!(page, on_content_changed() => |adapter, window| {
+        let Some(id) = theme_look::applied_id() else { return };
+        if window.global::<ThemesPage>().get_content_on() {
+            adapter.layout.theme_content.insert(id);
+        } else {
+            adapter.layout.theme_content.remove(&id);
+        }
+        adapter.layout.write(&adapter.root);
+        if adapter.show_theme_content(&window) {
+            adapter.refresh(&window);
+        }
     });
     on!(page, on_reduce_motion_toggled(on) => |adapter, window| {
         adapter.layout.reduce_motion = on;

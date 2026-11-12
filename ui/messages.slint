@@ -4,6 +4,7 @@ import { ListView, ScrollView } from "scrollview.slint";
 import { Theme, Tip, ReactionHover, Middle, Label, Twemoji, Look } from "theme.slint";
 import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
 import { Arrange, DashedOutline, RansomName } from "theme_layout.slint";
+import { ThemeContent } from "theme_content.slint";
 import { ActionButton, IconButton, Avatar, Motion, Picture, UprightVolumeSlider, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField, ContextMenu, MenuRow, StyledName, NameStyleRow, ServerTagChip } from "controls.slint";
 import { FavoriteStar, GifFavorites } from "gifs.slint";
 import { PluginPart, PluginWidgets } from "plugins.slint";
@@ -2072,14 +2073,14 @@ export component EmbedView inherits HorizontalLayout {
             padding: 12px; padding-left: 16px; padding-right: 16px; spacing: 16px;
             VerticalLayout {
                 spacing: 8px; horizontal-stretch: 1; alignment: start;
-                if root.embed.has-provider: StyledText { text: root.embed.provider; link-color: Theme.link; default-color: Theme.muted; default-font-size: 12px; max-lines: 1; }
-                if root.embed.has-author: StyledText { text: root.embed.author; link-color: Theme.link; default-color: Theme.text; default-font-size: 14px; }
+                if root.embed.has-provider: StyledText { text: root.embed.provider; link-color: ThemeContent.embed-link; default-color: Theme.muted; default-font-size: 12px; max-lines: 1; }
+                if root.embed.has-author: StyledText { text: root.embed.author; link-color: ThemeContent.embed-link; default-color: Theme.text; default-font-size: 14px; }
                 if root.embed.has-title: StyledText {
-                    text: root.embed.title; default-color: Theme.text; link-color: Theme.link; default-font-size: 16px;
+                    text: root.embed.title; default-color: Theme.text; link-color: ThemeContent.embed-link; default-font-size: 16px;
                     link-clicked(link) => { root.open-link(link); }
                 }
                 if root.embed.has-description && root.embed.description-blocks.length == 0: StyledText {
-                    text: root.embed.description; default-color: Theme.secondary; link-color: Theme.link; default-font-size: 14px;
+                    text: root.embed.description; default-color: Theme.secondary; link-color: ThemeContent.embed-link; default-font-size: 14px;
                     link-clicked(link) => { root.open-link(link); }
                 }
                 if root.embed.description-blocks.length > 0: TextBlocks {
@@ -2090,9 +2091,9 @@ export component EmbedView inherits HorizontalLayout {
                     spacing: 8px;
                     for field in row.fields: VerticalLayout {
                         spacing: 2px; horizontal-stretch: 1;
-                        StyledText { text: field.name; link-color: Theme.link; default-color: Theme.text; default-font-size: 14px; }
+                        StyledText { text: field.name; link-color: ThemeContent.embed-link; default-color: Theme.text; default-font-size: 14px; }
                         if field.value-blocks.length == 0: StyledText {
-                            text: field.value; default-color: Theme.secondary; link-color: Theme.link; default-font-size: 14px;
+                            text: field.value; default-color: Theme.secondary; link-color: ThemeContent.embed-link; default-font-size: 14px;
                             link-clicked(link) => { root.open-link(link); }
                         }
                         if field.value-blocks.length > 0: TextBlocks {
@@ -2143,7 +2144,7 @@ export component EmbedView inherits HorizontalLayout {
                     }
                     Rectangle { horizontal-stretch: 1; }
                 }
-                if root.embed.has-footer: StyledText { text: root.embed.footer; link-color: Theme.link; default-color: Theme.muted; default-font-size: 12px; }
+                if root.embed.has-footer: StyledText { text: root.embed.footer; link-color: ThemeContent.embed-link; default-color: Theme.muted; default-font-size: 12px; }
             }
             if root.embed.has-thumbnail: VerticalLayout {
                 alignment: start;

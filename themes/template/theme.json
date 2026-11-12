@@ -91,6 +91,14 @@
     "bubbles": { "max_width": 72, "radius": 18 },
     "cards": { "tilt": 0, "gap": 8, "padding": 12 }
   },
+  "content": {
+    "media": { "tint": { "colour": "#7aa2ff", "amount": 0.2 } },
+    "avatars": { "shape": { "rounded": 10 }, "decorations": "keep", "ring": { "colour": "#7aa2ff", "width": 2 } },
+    "names": { "colours": "clamp", "styles": "keep", "nameplates": "tint" },
+    "profiles": { "themes": "theme", "effects": "keep" },
+    "embeds": "theme",
+    "activity": "theme"
+  },
 
   "variants": {
     "dark": {

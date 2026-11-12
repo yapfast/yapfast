@@ -56,6 +56,8 @@ export struct ThemeReview {
     /// It replaces Yapfast's sounds, and gives interface events sounds.
     notification-sounds: bool,
     interface-sounds: bool,
+    /// It can style people's profiles and media, and what it would change.
+    content: string,
 }
 
 export global ThemesPage {
@@ -113,6 +115,13 @@ export global ThemesPage {
     /// What the person picks in the review for the theme's sounds.
     in-out property <bool> review-notify-on: true;
     in-out property <bool> review-ui-on: false;
+    /// What the shown theme would do to people's profiles and media, empty
+    /// when it has no `content`; whether the person lets it, which is off
+    /// until they do; and the same in the review.
+    in property <string> content;
+    in-out property <bool> content-on;
+    callback content-changed();
+    in-out property <bool> review-content-on;
 }
 
 // A theme's colours as a small window, when it has no preview picture.
@@ -373,6 +382,16 @@ export component ThemesSettings inherits Rectangle {
                         toggled(on) => { ThemesPage.reduce-motion-toggled(on); }
                     }
                 }
+                if ThemesPage.content != "": VerticalLayout {
+                    spacing: 8px; padding-top: 12px;
+                    SettingsHeading { text: "PEOPLE'S CONTENT"; }
+                    SettingsSwitch {
+                        text: "Let the theme style people's profiles and media";
+                        description: ThemesPage.sounds-theme + " can draw " + ThemesPage.content + ". Off, everyone's pictures, colours and profiles show as they made them.";
+                        checked <=> ThemesPage.content-on;
+                        toggled => { ThemesPage.content-changed(); }
+                    }
+                }
                 if ThemesPage.has-sounds: VerticalLayout {
                     spacing: 8px; padding-top: 12px;
                     SettingsHeading { text: "SOUNDS"; }
@@ -491,6 +510,15 @@ export component ThemeReviewDialog inherits Rectangle {
                     text: "Interface sounds — clicks, hovers, menus, send";
                     description: "Only while Yapfast is in front. You can change both later in Settings → Themes.";
                     checked <=> ThemesPage.review-ui-on;
+                }
+            }
+            if ThemesPage.review.content != "": VerticalLayout {
+                spacing: 8px;
+                SettingsHeading { text: "PEOPLE'S CONTENT"; }
+                SettingsSwitch {
+                    text: "Let the theme style people's profiles and media";
+                    description: "It can draw " + ThemesPage.review.content + ". Off, everyone's own looks show. You can change it later in Settings → Themes.";
+                    checked <=> ThemesPage.review-content-on;
                 }
             }
             HorizontalLayout {

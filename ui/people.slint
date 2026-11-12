@@ -8,6 +8,7 @@ import { StatusDot } from "rail.slint";
 import { BotTag } from "messages.slint";
 import { PluginBadge, PluginBadgeView, PluginPart, PluginWidgets } from "plugins.slint";
 import { Arrange, DashedOutline, RansomName } from "theme_layout.slint";
+import { ThemeContent } from "theme_content.slint";
 
 /// A member of the open room, or the heading, with no id, that starts a group.
 export struct MemberRow {
@@ -81,8 +82,11 @@ component ActivityPicture inherits Rectangle {
     changed url => { root.request(); }
     changed picture => { root.request(); }
     width: root.size; height: root.size;
-    border-radius: root.size / 6; clip: true;
+    border-radius: ThemeContent.activity ? Look.r(Look.card, root.size / 6) : root.size / 6; clip: true;
     background: Theme.raised-fill;
+    // A theme's tile is framed as its cards are.
+    border-width: ThemeContent.activity ? Look.bw(Look.card, 0px) : 0px;
+    border-color: Look.bc(Look.card, Theme.edge);
     accessible-role: image;
     accessible-label: root.label;
     Image { source: root.picture; width: root.size; height: root.size; image-fit: cover; }
@@ -809,7 +813,7 @@ export component ActivityCard inherits VerticalLayout {
             height: 4px; border-radius: Look.radius(2px); background: root.track;
             Rectangle {
                 x: 0px; width: parent.width * root.played / max(1, root.length);
-                border-radius: Look.radius(2px); background: root.ink;
+                border-radius: Look.radius(2px); background: ThemeContent.activity ? Theme.accent : root.ink;
             }
         }
         HorizontalLayout {

@@ -545,12 +545,19 @@ pub(super) fn profile_data(
         .filter(|line| !names_an_activity(line, &profile.activities))
         .map_or((None, ""), yapfast_core::discord::status_parts);
     let cosmetics = state.cosmetics;
-    let effect = cosmetics.effect(profile.effect.as_deref()).and_then(|sku| {
-        state
-            .profile_effects
-            .iter()
-            .find(|effect| effect.sku == sku)
-    });
+    let effect = cosmetics
+        .effect(profile.effect.as_deref())
+        .filter(|_| !theme_content::no_profile_effects())
+        .and_then(|sku| {
+            state
+                .profile_effects
+                .iter()
+                .find(|effect| effect.sku == sku)
+        });
+    // A theme's `content` may put every card on its own card surface: the
+    // profile's theme and banner colours give way, its banner picture stays.
+    let plain = theme_content::plain_profiles();
+    let profile_theme = profile.theme.filter(|_| !plain);
     let avatar = cached_picture(pictures, state, profile.avatar.as_deref());
     let banner = cached_picture(pictures, state, profile.banner.as_deref());
     // Matrix IDs start with `@`; Discord user ids are numbers.
@@ -561,8 +568,8 @@ pub(super) fn profile_data(
     let (wishlist, wishlist_note) = wishlist_rows(profile);
     // With no banner, accent colour or theme, Discord tints the banner area
     // with the avatar's dominant colour.
-    let accent = profile.accent.or_else(|| {
-        (profile.banner.is_none() && profile.theme.is_none())
+    let accent = profile.accent.filter(|_| !plain).or_else(|| {
+        (!plain && profile.banner.is_none() && profile.theme.is_none())
             .then(|| avatar_color(profile.avatar.as_deref(), &avatar))
             .flatten()
     });
@@ -583,9 +590,9 @@ pub(super) fn profile_data(
                 .map_or(0, |end| i32::try_from(end).unwrap_or(i32::MAX))
         }),
         effect_loops: effect.is_some_and(|effect| effect.layers.iter().any(|layer| layer.looped)),
-        theme_primary: role_color(profile.theme.map(|theme| theme[0])),
-        theme_secondary: role_color(profile.theme.map(|theme| theme[1])),
-        has_theme: profile.theme.is_some(),
+        theme_primary: role_color(profile_theme.map(|theme| theme[0])),
+        theme_secondary: role_color(profile_theme.map(|theme| theme[1])),
+        has_theme: profile_theme.is_some(),
         id: profile.id.clone().into(),
         name: profile.name.clone().into(),
         initial: initial(&profile.name),
