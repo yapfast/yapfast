@@ -6547,6 +6547,18 @@ async fn edits_the_main_profile_as_discords_client_does() {
     assert_eq!(own.bio, "Hi, I'm **Ally**");
     assert_eq!(own.pronouns, "she/her");
     assert_eq!(own.accent, Some(0x5865f2));
+    // The editor's answer is kept for the account's card: it comes fresh,
+    // with no second request and nothing older shown first.
+    let me = discord.snapshots().borrow().user_id.clone().unwrap();
+    let (_, card) = discord.own_profile_and_card(None).await.unwrap();
+    assert_eq!(card.map(|card| card.name), Some("Ally".into()));
+    let card = discord
+        .profile(yapfast_discord::ready::PRIVATE, &me, |_| {
+            panic!("a fresh profile shows nothing kept from before")
+        })
+        .await
+        .unwrap();
+    assert_eq!(card.bio.as_deref(), Some("Hi, I'm **Ally**"));
     assert!(
         discord
             .save_main_profile(

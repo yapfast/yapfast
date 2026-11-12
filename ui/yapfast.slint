@@ -4526,6 +4526,11 @@ export component YapfastWindow inherits Window {
         TouchArea { clicked => { root.close-profile(); } }
         FocusScope {
             init => { self.focus(); }
+            // A dialog from its menu, such as the note's, takes the keyboard
+            // and leaves the card open; as it closes, Escape closes the card
+            // again.
+            property <bool> covered: root.person-open || root.leaving-link != "";
+            changed covered => { if !self.covered { self.focus(); } }
             key-pressed(event) => {
                 if event.text == Key.Escape { root.close-profile(); return accept; }
                 return reject;
@@ -4559,6 +4564,12 @@ export component YapfastWindow inherits Window {
         TouchArea { clicked => { root.close-profile(); } }
         FocusScope {
             init => { self.focus(); }
+            // What opens over it takes the keyboard: the note dialog or
+            // another about the person, a mutual server's card, a masked
+            // link's question. As the last goes, the keyboard comes back, so
+            // Escape closes the profile again.
+            property <bool> covered: root.person-open || root.server-card-open || root.leaving-link != "";
+            changed covered => { if !self.covered { self.focus(); } }
             key-pressed(event) => {
                 if event.text == Key.Escape { root.close-profile(); return accept; }
                 return reject;
