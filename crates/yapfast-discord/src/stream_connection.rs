@@ -183,6 +183,12 @@ const SOUNDSHARE: u8 = 2;
 /// first.
 pub const SEND_CODEC: Codec = Codec::H264;
 
+/// How often Discord may switch the stream away from a codec before the stream
+/// stops offering it: a viewer that can't decode one is switched away from when
+/// it arrives and back to it when it leaves, so one switch is a viewer coming or
+/// going, and two is a codec the viewers being sent it can't decode.
+const SWITCHES_AWAY: u32 = 2;
+
 /// One encoded frame to send, in `codec`, with its time in the 90 kHz clock.
 /// Its bytes are its own until it's dropped, and go back to the encoder's
 /// [`Pool`] then, so nothing copies them between the encoder and the
@@ -1055,6 +1061,10 @@ async fn send(
     *lock(&shared.chosen) = Some(chosen);
     tracing::info!(codec = ?chosen, ?offered, "Discord chose the stream's codec");
     let mut withdrawn: Vec<Codec> = vec![];
+    // How often Discord switched the stream away from each codec: two of those
+    // is a viewer that can't decode it, which the stream stops offering rather
+    // than flapping back and forth.
+    let mut switched_away: HashMap<Codec, u32> = HashMap::new();
     let mut packetizer = Packetizer::new(video, chosen);
     let mut history = rtp::History::default();
     let interval = connection.interval;
@@ -1148,6 +1158,34 @@ async fn send(
                     {
                         if offered.contains(&codec) && !withdrawn.contains(&codec) {
                             tracing::info!(?codec, "Discord switched the stream's codec");
+                            // A codec is switched away from when a viewer can't
+                            // decode it, and back to when that viewer leaves, so
+                            // one switch says nothing. Two in a row says someone
+                            // watching can't decode it, and going on offering it
+                            // makes the stream flap between two encoders: every
+                            // switch opens another session and needs a whole
+                            // frame, and a viewer whose codec changes under it
+                            // asks for one after another and never settles on a
+                            // picture. H264 is the last codec offered and stays.
+                            let previous = *lock(&shared.chosen);
+                            if let Some(previous) = previous
+                                && previous != codec
+                                && previous != SEND_CODEC
+                            {
+                                let count = switched_away.entry(previous).or_insert(0);
+                                *count += 1;
+                                if *count >= SWITCHES_AWAY {
+                                    let mut offers = lock(&shared.offers);
+                                    if offers.len() > 1 && offers.contains(&previous) {
+                                        offers.retain(|&offered| offered != previous);
+                                        shared.offers_changed.store(true, Ordering::Relaxed);
+                                        tracing::info!(
+                                            ?previous,
+                                            "a viewer couldn't decode it: the stream stops offering it"
+                                        );
+                                    }
+                                }
+                            }
                             *lock(&shared.chosen) = Some(codec);
                             shared.keyframe.store(true, Ordering::Relaxed);
                         } else {

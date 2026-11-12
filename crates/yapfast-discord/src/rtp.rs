@@ -21,7 +21,7 @@ pub const AV1: u8 = 107;
 pub const AV1_RTX: u8 = 108;
 
 /// The video codecs Yapfast sends or receives.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Codec {
     Vp8,
     H264,
