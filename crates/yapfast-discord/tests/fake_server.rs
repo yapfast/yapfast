@@ -15,7 +15,7 @@ use yapfast_discord::{
     remote_auth::{self, Step},
     rtp::Codec,
     service::{Discord, Live, Snapshot, Status},
-    settings::CustomStatus,
+    settings::{self, CustomStatus},
     stream,
     stream_connection::{Frame, Link, SEND_CODEC, Sound, StreamReceiver, StreamSender},
     token,
@@ -4155,6 +4155,108 @@ async fn shows_status_and_games() {
     presence_where(server, |presence| presence["status"] == "dnd").await;
     discord.set_status("online").await.unwrap();
     presence_where(server, |presence| presence["status"] == "online").await;
+}
+
+/// What Alice's settings on the fake say of her status.
+fn status_settings(server: &str) -> settings::StatusSettings {
+    let answer: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/settings", "")).unwrap();
+    settings::read(answer["settings"].as_str().unwrap())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn status_custom_status_and_game_sharing_keep_each_other() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        ..
+    } = Fixture::start("status_custom_status_and_game_sharing_keep_each_other").await;
+    snapshot_where(&discord, |snapshot| snapshot.custom_status.is_some()).await;
+    // A new custom status keeps the status: Discord resets what a write of
+    // the settings' status leaves out.
+    discord.set_status("dnd").await.unwrap();
+    let away = CustomStatus {
+        text: "Fixing the bridge".into(),
+        emoji_name: Some("🔧".into()),
+        ..Default::default()
+    };
+    discord.set_custom_status(Some(away.clone())).await.unwrap();
+    let settings = status_settings(server);
+    assert_eq!(settings.status.as_deref(), Some("dnd"));
+    assert_eq!(settings.custom, Some(Some(away.clone())));
+    presence_where(server, |presence| {
+        presence["status"] == "dnd" && presence["activities"][0]["emoji"]["name"] == "🔧"
+    })
+    .await;
+    // Sharing games or not keeps both.
+    discord.set_show_game(false).await.unwrap();
+    let settings = status_settings(server);
+    assert_eq!(
+        (
+            settings.status.as_deref(),
+            settings.custom,
+            settings.show_game
+        ),
+        (Some("dnd"), Some(Some(away.clone())), Some(false))
+    );
+    // A new status keeps the custom status and the game sharing.
+    discord.set_status("idle").await.unwrap();
+    let settings = status_settings(server);
+    assert_eq!(
+        (
+            settings.status.as_deref(),
+            settings.custom,
+            settings.show_game
+        ),
+        (Some("idle"), Some(Some(away.clone())), Some(false))
+    );
+    presence_where(server, |presence| {
+        presence["status"] == "idle" && presence["activities"][0]["state"] == "Fixing the bridge"
+    })
+    .await;
+    // Two saves at once each keep what the other changed.
+    let lunch = CustomStatus {
+        text: "Lunch".into(),
+        ..Default::default()
+    };
+    let (status, custom) = tokio::join!(
+        discord.set_status("dnd"),
+        discord.set_custom_status(Some(lunch.clone()))
+    );
+    status.unwrap();
+    custom.unwrap();
+    let settings = status_settings(server);
+    assert_eq!(
+        (
+            settings.status.as_deref(),
+            settings.custom,
+            settings.show_game
+        ),
+        (Some("dnd"), Some(Some(lunch)), Some(false))
+    );
+    presence_where(server, |presence| {
+        presence["status"] == "dnd" && presence["activities"][0]["state"] == "Lunch"
+    })
+    .await;
+    // Two changes to the same field keep the order they were asked in,
+    // however their requests end up going.
+    let idle_later = discord.set_status("idle");
+    let invisible = discord.set_status("invisible");
+    invisible.await.unwrap();
+    idle_later.await.unwrap();
+    assert_eq!(
+        status_settings(server).status.as_deref(),
+        Some("invisible"),
+        "the last asked for wins"
+    );
+    presence_where(server, |presence| presence["status"] == "invisible").await;
+    // As in Discord's client, each change starts from the settings Discord
+    // sent, never from asking for them.
+    let answer: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/settings", "")).unwrap();
+    assert_eq!(answer["reads"], 0, "no GET /users/@me/settings-proto/1");
 }
 
 #[tokio::test(flavor = "multi_thread")]

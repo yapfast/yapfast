@@ -199,7 +199,9 @@
 // file into an image embed.
 // Alice's custom status, "Testing Yapfast", is in her settings; PATCH
 // /users/@me/settings-proto/1 replaces each top-level field it sends, and GET
-// /_control/presence shows the presence her session last sent with op 3. POST /users/@me/relationships sends
+// /_control/presence shows the presence her session last sent with op 3, GET
+// /_control/settings her settings as GET /users/@me/settings-proto/1 gives them,
+// and how many times that was asked. POST /users/@me/relationships sends
 // a friend request by username: Frank takes none, and unknown names fail.
 // Erin's request is a stranger's (`stranger_request`), which PUT accepts only
 // with `confirm_stranger_request`, as Discord's client confirms one; without it
@@ -669,6 +671,8 @@ function joinSound(guild: string | null): [string, bigint] | undefined {
   }
   return (guild ? found.get(guild) : undefined) ?? found.get("0");
 }
+// How many times GET /users/@me/settings-proto/1 was asked.
+let settingsReads = 0;
 let settings = Buffer.from(
   protoBytes(11, protoBytes(2, new Uint8Array([...protoBytes(1, text("Testing Yapfast")), ...protoBytes(3, text("🧪"))]))),
 ).toString("base64");
@@ -6910,7 +6914,10 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       entries: env ? [] : feedEntries(url.origin).map((content) => ({ content })),
     });
   }
-  if (method === "GET" && path === "/users/@me/settings-proto/1") return json({ settings });
+  if (method === "GET" && path === "/users/@me/settings-proto/1") {
+    settingsReads++;
+    return json({ settings });
+  }
   if (method === "PATCH" && path === "/users/@me/settings-proto/1") {
     const body: any = await req.json().catch(() => ({}));
     if (typeof body.settings !== "string") return json({ message: "Invalid Form Body", code: 50035 }, 400);
@@ -8810,6 +8817,7 @@ const server = Bun.serve<SocketData>({
     }
     if (path === "/_control/health") return new Response("ok\n");
     if (path === "/_control/presence") return Response.json(alicePresence);
+    if (path === "/_control/settings") return Response.json({ settings, reads: settingsReads });
     if (req.method === "POST" && path === "/_control/bob-away") {
       // Bob goes idle with a custom status, as his friends hear it.
       presences[users.bob.id] = {

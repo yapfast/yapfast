@@ -12,7 +12,6 @@ use crate::{
     client,
     limits::{self, Limits, Refusals, Stopped},
     mfa, scheduled_event,
-    settings::{self, CustomStatus},
 };
 
 const API: &str = "https://discord.com/api/v9";
@@ -1162,17 +1161,6 @@ impl Api {
             .await
     }
 
-    /// Sets the custom status, or clears it with `None`, in the account's settings.
-    pub async fn set_custom_status(&self, custom: Option<&CustomStatus>) -> Result<()> {
-        let body = json!({"settings": settings::write_custom(custom)});
-        self.json(with_json(
-            self.request(Method::PATCH, "/users/@me/settings-proto/1"),
-            &body,
-        ))
-        .await
-        .map(drop)
-    }
-
     /// The GIF picker's home: trending terms, each with a GIF, and trending GIFs.
     pub async fn gifs_trending(&self) -> Result<Value> {
         let path = format!(
@@ -1254,29 +1242,6 @@ impl Api {
         let body = json!({"settings": settings});
         self.json(with_json(
             self.request(Method::PATCH, "/users/@me/settings-proto/2"),
-            &body,
-        ))
-        .await
-        .map(drop)
-    }
-
-    /// Sets the status: `online`, `idle`, `dnd` or `invisible`.
-    pub async fn set_status(&self, status: &str) -> Result<()> {
-        let body = json!({"settings": settings::write_status(status)});
-        self.json(with_json(
-            self.request(Method::PATCH, "/users/@me/settings-proto/1"),
-            &body,
-        ))
-        .await
-        .map(drop)
-    }
-
-    /// Shares the game this account plays, everywhere it's signed in, or
-    /// stops sharing it.
-    pub async fn set_show_game(&self, shown: bool) -> Result<()> {
-        let body = json!({"settings": settings::write_show_game(shown)});
-        self.json(with_json(
-            self.request(Method::PATCH, "/users/@me/settings-proto/1"),
             &body,
         ))
         .await
