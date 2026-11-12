@@ -1,6 +1,6 @@
 import { ClientStyle } from "yapfast/style.slint";
 import { ScrollView, ListView } from "scrollview.slint";
-import { Theme, Middle, Label } from "theme.slint";
+import { Theme, Middle, Label, Look } from "theme.slint";
 import { ActionButton, IconButton, Avatar, Picture, Skeleton, SpoilerCover } from "controls.slint";
 import { StatusDot } from "rail.slint";
 import { PluginSurfaces } from "plugins.slint";
@@ -94,7 +94,7 @@ export component HeaderSearch inherits Rectangle {
             text <=> root.text;
             single-line: true; vertical-alignment: center;
             font-size: 14px; color: Theme.text;
-            selection-background-color: Theme.accent.with-alpha(0.35);
+            selection-background-color: Theme.selection;
             selection-foreground-color: Theme.text;
             accessible-label: root.placeholder;
             accepted => { root.search(self.text); }
@@ -130,7 +130,7 @@ export component FoundCard inherits Rectangle {
     callback jump;
     callback open-link(string);
     min-height: content.preferred-height;
-    border-radius: 8px;
+    border-radius: Look.radius(8px);
     background: pointer.has-hover ? Theme.hover : Theme.chat;
     border-width: 1px; border-color: Theme.line;
     accessible-role: button;
@@ -173,7 +173,7 @@ export component FoundCard inherits Rectangle {
                         width: root.found.gallery-width * 1px; height: root.found.gallery-height * 1px;
                         for cell in root.found.images: Rectangle {
                             x: cell.x * 1px; y: cell.y * 1px; width: cell.width * 1px; height: cell.height * 1px;
-                            border-radius: 8px; clip: true; background: Theme.sunken;
+                            border-radius: Look.radius(8px); clip: true; background: Theme.sunken;
                             if cell.loading: Skeleton { width: parent.width; height: parent.height; }
                             if !cell.loading: Picture {
                                 still: cell.image; frames: cell.frames; delays: cell.delays;
@@ -182,7 +182,7 @@ export component FoundCard inherits Rectangle {
                             }
                             if cell.spoiler: SpoilerCover { }
                             if cell.video && !cell.spoiler && !cell.loading: Rectangle {
-                                width: 40px; height: 40px; border-radius: 20px; background: #000000b3;
+                                width: 40px; height: 40px; border-radius: Look.radius(20px); background: #000000b3;
                                 Image { source: @image-url("icons/play.svg"); width: 20px; height: 20px; colorize: #ffffff; }
                             }
                         }
@@ -215,8 +215,8 @@ component Popover inherits Rectangle {
     in property <string> detail;
     callback close;
     background: Theme.sidebar;
-    border-color: Theme.edge; border-width: 1px; border-radius: 10px;
-    drop-shadow-blur: 24px; drop-shadow-color: #00000066; drop-shadow-offset-y: 8px;
+    border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(10px);
+    drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066); drop-shadow-offset-y: Look.shadow-y(8px);
     clip: true;
     accessible-role: groupbox;
     accessible-label: root.heading;
@@ -298,7 +298,7 @@ component ThreadEntry inherits Rectangle {
     }
     if root.entry.room != "": Rectangle {
         y: root.height - 80px; height: 72px; x: 16px; width: root.width - 32px;
-        border-radius: 8px; border-width: 1px;
+        border-radius: Look.radius(8px); border-width: 1px;
         background: pointer.has-hover ? Theme.raised : Theme.hover;
         border-color: pointer.has-hover ? Theme.active : Theme.line;
         accessible-role: button;
@@ -350,7 +350,7 @@ component ThreadEntry inherits Rectangle {
                         width: root.entry.member-pictures.length == 0 ? 0px : 12px * root.entry.member-pictures.length + 8px;
                         height: 20px;
                         for picture[index] in root.entry.member-pictures: Rectangle {
-                            x: index * 12px; width: 20px; height: 20px; border-radius: 10px;
+                            x: index * 12px; width: 20px; height: 20px; border-radius: Look.radius(10px);
                             background: pointer.has-hover ? Theme.raised : Theme.hover;
                             Avatar { x: 1px; y: 1px; size: 18px; picture-url: picture; }
                         }
@@ -396,8 +396,8 @@ export component ThreadsPopover inherits Rectangle {
     /// list's Create Thread ("list-empty").
     callback create(string);
     background: Theme.sidebar;
-    border-color: Theme.edge; border-width: 1px; border-radius: 10px;
-    drop-shadow-blur: 24px; drop-shadow-color: #00000066; drop-shadow-offset-y: 8px;
+    border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(10px);
+    drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066); drop-shadow-offset-y: Look.shadow-y(8px);
     clip: true;
     accessible-role: groupbox;
     accessible-label: "Threads";
@@ -533,7 +533,7 @@ export component AddPeoplePopover inherits Rectangle {
             VerticalLayout {
                 padding: 12px; spacing: 8px;
                 Rectangle {
-                    height: 36px; border-radius: 6px; background: Theme.sunken;
+                    height: 36px; border-radius: Look.radius(6px); background: Theme.sunken;
                     border-width: field.has-focus ? 1px : 0px; border-color: Theme.accent.with-alpha(0.8);
                     Text {
                         x: 10px; width: parent.width - 20px; visible: root.query == "";
@@ -544,7 +544,7 @@ export component AddPeoplePopover inherits Rectangle {
                         init => { self.focus(); }
                         text <=> root.query; single-line: true; vertical-alignment: center;
                         font-size: 15px; color: Theme.text;
-                        selection-background-color: Theme.accent.with-alpha(0.35);
+                        selection-background-color: Theme.selection;
                         selection-foreground-color: Theme.text;
                         accessible-label: "Find a friend";
                         edited => { root.query-edited(); }
@@ -557,7 +557,7 @@ export component AddPeoplePopover inherits Rectangle {
                         spacing: 2px; alignment: start;
                         for person in root.people: Rectangle {
                             property <bool> can-choose: !root.adding && (person.chosen || root.chosen < root.room);
-                            height: 44px; border-radius: 6px;
+                            height: 44px; border-radius: Look.radius(6px);
                             background: pick-touch.has-hover && self.can-choose ? Theme.hover : transparent;
                             opacity: self.can-choose || person.chosen ? 1 : 0.5;
                             accessible-role: checkbox;
@@ -580,7 +580,7 @@ export component AddPeoplePopover inherits Rectangle {
                                 Text { text: person.name; color: Theme.text; font-size: 16px; font-weight: 500; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
                                 Middle {
                                     Rectangle {
-                                        width: 22px; height: 22px; border-radius: 6px;
+                                        width: 22px; height: 22px; border-radius: Look.radius(6px);
                                         background: person.chosen ? Theme.accent : transparent;
                                         border-width: person.chosen ? 0px : 2px; border-color: Theme.faint;
                                         if person.chosen: Image { source: @image-url("icons/check.svg"); width: 16px; height: 16px; colorize: Theme.on-accent; }

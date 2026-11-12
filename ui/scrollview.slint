@@ -13,7 +13,7 @@
 // that has `content-y`, `content-height`, `content-width`, `visible-height` and
 // `visible-width` lengths, so this ListView is virtualized as the std-widgets
 // one is.
-import { Theme } from "theme.slint";
+import { Theme, Look } from "theme.slint";
 
 component ScrollBarButton inherits TouchArea {
     in property <image> icon;
@@ -27,7 +27,7 @@ component ScrollBarButton inherits TouchArea {
         y: (parent.height - self.height) / 2;
         width: parent.width;
         source: root.icon;
-        colorize: Theme.dark ? #FFFFFF14 : #00000073;
+        colorize: Theme.scrollbar;
         accessible-role: none;
 
         animate colorize, opacity { duration: 150ms; }
@@ -67,14 +67,14 @@ component ScrollBar inherits Rectangle {
     property <float> share: root.maximum <= 0phx ? 0 : -root.value / root.maximum;
 
     border-width: 1px;
-    border-radius: 7px;
+    border-radius: Look.radius(7px);
     // Under a pixel is a fractional width's rounding, not something to scroll.
     visible: (self.policy == ScrollBarPolicy.always-on) || (self.policy == ScrollBarPolicy.as-needed && self.maximum > 1px);
     clip: true;
 
     states [
         hover when touch-area.has-hover || down-scroll-button.has-hover || up-scroll-button.has-hover : {
-            root.background: Theme.dark ? #2C2C2C : #f0f0f0;
+            root.background: Theme.scrollbar-track;
             root.size: 6px;
             up-scroll-button.opacity: 1;
             down-scroll-button.opacity: 1;
@@ -93,7 +93,7 @@ component ScrollBar inherits Rectangle {
         x: !root.horizontal ? parent.width - 4px - self.width : root.offset + root.travel * root.share;
         y: root.horizontal ? parent.height - 4px - self.height : root.offset + root.travel * root.share;
         border-radius: (root.horizontal ? self.height : self.width) / 2;
-        background: Theme.dark ? #FFFFFF14 : #00000073;
+        background: Theme.scrollbar;
 
         animate width, height { duration: 150ms; easing: ease-out; }
     }
@@ -255,14 +255,14 @@ export component AutoscrollMarker inherits Rectangle {
     background: Theme.raised;
     border-width: 1px;
     border-color: Theme.line;
-    drop-shadow-blur: 8px;
-    drop-shadow-color: #00000060;
-    drop-shadow-offset-y: 2px;
+    drop-shadow-blur: Look.shadow-blur(8px); drop-shadow-offset-x: Look.shadow-x(0px);
+    drop-shadow-color: Look.shadow-color(#00000060);
+    drop-shadow-offset-y: Look.shadow-y(2px);
 
     Rectangle {
         width: 4px;
         height: 4px;
-        border-radius: 2px;
+        border-radius: Look.radius(2px);
         background: Theme.secondary;
     }
 

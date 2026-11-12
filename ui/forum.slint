@@ -1,5 +1,5 @@
 import { ListView } from "scrollview.slint";
-import { Theme, Middle } from "theme.slint";
+import { Theme, Middle, Look } from "theme.slint";
 import { PictureStore, IconButton, ActionButton, TextField } from "controls.slint";
 import { HeaderSearch } from "header.slint";
 import { Composer, StagedTile, StagedFile } from "composer.slint";
@@ -71,7 +71,7 @@ component PostEmoji inherits HorizontalLayout {
 // A tag on a post's card, as a pill.
 component TagPill inherits Rectangle {
     in property <PostTag> tag;
-    height: 20px; border-radius: 10px;
+    height: 20px; border-radius: Look.radius(10px);
     background: Theme.raised;
     width: row.preferred-width;
     row := HorizontalLayout {
@@ -101,7 +101,7 @@ component PostCard inherits Rectangle {
     }
     if root.entry.room != "": Rectangle {
         y: root.height - root.card - 8px; height: root.card; x: 16px; width: root.width - 32px;
-        border-radius: 8px; border-width: 1px;
+        border-radius: Look.radius(8px); border-width: 1px;
         background: pointer.has-hover ? Theme.raised : Theme.hover;
         border-color: pointer.has-hover ? Theme.active : Theme.line;
         accessible-role: button;
@@ -139,7 +139,7 @@ component PostCard inherits Rectangle {
                     }
                     if root.entry.new: Middle {
                         Rectangle {
-                            width: badge.preferred-width + 10px; height: 16px; border-radius: 8px; background: Theme.accent;
+                            width: badge.preferred-width + 10px; height: 16px; border-radius: Look.radius(8px); background: Theme.accent;
                             badge := Text { text: "NEW"; color: #ffffff; font-size: 10px; font-weight: 800; letter-spacing: 0.3px; }
                         }
                     }
@@ -160,7 +160,7 @@ component PostCard inherits Rectangle {
                     spacing: 8px; height: 22px;
                     if root.entry.has-reaction: Middle {
                         Rectangle {
-                            height: 22px; width: reaction.preferred-width; border-radius: 6px;
+                            height: 22px; width: reaction.preferred-width; border-radius: Look.radius(6px);
                             background: Theme.raised; border-width: 1px; border-color: Theme.line;
                             reaction := HorizontalLayout {
                                 padding-left: 6px; padding-right: 6px; spacing: 4px;
@@ -182,7 +182,7 @@ component PostCard inherits Rectangle {
             }
             if root.entry.picture-url != "": Middle {
                 Rectangle {
-                    width: 72px; height: 72px; border-radius: 8px; clip: true; background: Theme.raised;
+                    width: 72px; height: 72px; border-radius: Look.radius(8px); clip: true; background: Theme.raised;
                     StoredImage { url: root.entry.picture-url; width: 72px; height: 72px; image-fit: cover; }
                     if root.entry.spoiler: Rectangle {
                         background: Theme.raised;
@@ -273,7 +273,7 @@ component NewPostForm inherits Rectangle {
                     HorizontalLayout {
                         spacing: 6px; alignment: start;
                         for choice in root.chosen-tags: Rectangle {
-                            height: 28px; border-radius: 14px; background: Theme.raised;
+                            height: 28px; border-radius: Look.radius(14px); background: Theme.raised;
                             width: chip.preferred-width;
                             accessible-role: button;
                             accessible-label: "Remove tag " + choice.tag.name;
@@ -302,7 +302,7 @@ component NewPostForm inherits Rectangle {
                     }
                 }
                 if root.has-guidelines: Rectangle {
-                    border-radius: 8px; background: Theme.sidebar; border-width: 1px; border-color: Theme.line;
+                    border-radius: Look.radius(8px); background: Theme.sidebar; border-width: 1px; border-color: Theme.line;
                     VerticalLayout {
                         padding: 12px; spacing: 8px;
                         HorizontalLayout {
@@ -329,7 +329,7 @@ component NewPostForm inherits Rectangle {
                     }
                 }
                 Rectangle {
-                    min-height: 48px; background: Theme.field; border-radius: 10px;
+                    min-height: 48px; background: Theme.field; border-radius: Look.radius(10px);
                     VerticalLayout {
                         // Files to go with the post, in a row that scrolls sideways.
                         if root.staged.length > 0: Flickable {
@@ -382,8 +382,8 @@ component NewPostForm inherits Rectangle {
         y: max(8px, min(root.height - self.height - 8px, root.menu-y));
         close-policy: PopupClosePolicy.close-on-click-outside;
         Rectangle {
-            background: Theme.sidebar; border-radius: 8px; border-width: 1px; border-color: Theme.edge;
-            drop-shadow-blur: 16px; drop-shadow-color: #00000060;
+            background: Theme.sidebar; border-radius: Look.radius(8px); border-width: 1px; border-color: Theme.edge;
+            drop-shadow-blur: Look.shadow-blur(16px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000060);
             VerticalLayout {
                 padding: 6px;
                 HorizontalLayout {
@@ -392,7 +392,7 @@ component NewPostForm inherits Rectangle {
                 }
                 for choice in root.tag-choices: tag-row := Rectangle {
                     property <bool> enabled: choice.chosen || root.more-tags;
-                    height: 36px; border-radius: 4px;
+                    height: 36px; border-radius: Look.radius(4px);
                     background: row-touch.has-hover && self.enabled ? Theme.hover : transparent;
                     accessible-role: checkbox;
                     accessible-label: choice.tag.name;
@@ -408,7 +408,7 @@ component NewPostForm inherits Rectangle {
                         }
                         Middle {
                             Rectangle {
-                                width: 18px; height: 18px; border-radius: 4px;
+                                width: 18px; height: 18px; border-radius: Look.radius(4px);
                                 border-width: choice.chosen ? 0px : 2px; border-color: Theme.muted;
                                 background: choice.chosen ? Theme.accent : transparent;
                                 if choice.chosen: Image { source: @image-url("icons/check.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; }
@@ -431,7 +431,7 @@ component NewPostForm inherits Rectangle {
         Rectangle {
             width: min(parent.width - 32px, 440px); x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
             height: ask.preferred-height;
-            background: Theme.sidebar; border-radius: 10px; border-width: 1px; border-color: Theme.edge;
+            background: Theme.sidebar; border-radius: Look.radius(10px); border-width: 1px; border-color: Theme.edge;
             ask := VerticalLayout {
                 padding: 16px; spacing: 10px;
                 Text { text: "Are you sure you want to go?"; color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }

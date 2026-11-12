@@ -1,5 +1,5 @@
 import { ListView } from "scrollview.slint";
-import { Theme, Tip, Middle, Label } from "theme.slint";
+import { Theme, Tip, Middle, Label, Look } from "theme.slint";
 import { ActionButton, TextField } from "controls.slint";
 import { SettingsSwitch } from "settings.slint";
 
@@ -29,7 +29,7 @@ component BrowseItem inherits Rectangle {
     callback view;
     property <string> locked-tip: "You must unfollow this category to add or remove specific channels.";
     height: 56px;
-    border-radius: 8px;
+    border-radius: Look.radius(8px);
     background: pointer.has-hover && !root.channel.by-category ? Theme.raised : transparent;
     accessible-role: checkbox;
     accessible-label: root.channel.name;
@@ -80,7 +80,7 @@ component BrowseItem inherits Rectangle {
         }
         Middle {
             Rectangle {
-                width: 20px; height: 20px; border-radius: 4px;
+                width: 20px; height: 20px; border-radius: Look.radius(4px);
                 opacity: root.channel.by-category ? 0.5 : 1;
                 background: root.channel.followed ? Theme.accent : transparent;
                 border-width: root.channel.followed ? 0px : 1.5px; border-color: Theme.muted;

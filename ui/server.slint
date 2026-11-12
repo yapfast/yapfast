@@ -1,7 +1,7 @@
 // Dialogs a Discord server's, category's or channel's menu opens.
 import { StatusDot } from "rail.slint";
 import { ScrollView } from "scrollview.slint";
-import { Theme, Label, Middle, Popup } from "theme.slint";
+import { Theme, Label, Middle, Popup, Look } from "theme.slint";
 import { ActionButton, Avatar, IconButton, MenuItem, TextField, Motion, StatusText, ServerTagChip, PictureStore, StyledName, NameStyleRow } from "controls.slint";
 import { Choices, Picker, UnsavedBar } from "settings.slint";
 import { NameStyles } from "controls.slint";
@@ -42,8 +42,8 @@ export component InviteDialog inherits Rectangle {
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(460px, root.width - 48px); height: invite-content.preferred-height;
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Theme.raised; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
         accessible-role: groupbox;
         accessible-label: root.prompt.title;
         TouchArea { }
@@ -62,7 +62,7 @@ export component InviteDialog inherits Rectangle {
                 if root.prompt.detail != "": Label { text: root.prompt.detail; }
                 Text { text: "INVITE LINK"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                 Rectangle {
-                    height: 44px; border-radius: 8px; background: Theme.sunken;
+                    height: 44px; border-radius: Look.radius(8px); background: Theme.sunken;
                     HorizontalLayout {
                         padding-left: 12px; padding-right: 4px; spacing: 8px;
                         Text {
@@ -147,8 +147,8 @@ export component JoinDialog inherits Rectangle {
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(440px, root.width - 48px); height: join-content.preferred-height;
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Theme.raised; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
         accessible-role: groupbox;
         accessible-label: root.prompt.title;
         TouchArea { }
@@ -174,7 +174,7 @@ export component JoinDialog inherits Rectangle {
                     accepted => { if !root.prompt.busy { root.find(root.link); } }
                 }
                 if root.prompt.found: Rectangle {
-                    border-radius: 8px; background: Theme.sunken;
+                    border-radius: Look.radius(8px); background: Theme.sunken;
                     height: found-row.preferred-height;
                     found-row := HorizontalLayout {
                         padding: 12px; spacing: 12px;
@@ -238,8 +238,8 @@ export component EventDialog inherits Rectangle {
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(440px, root.width - 48px); height: event-content.preferred-height;
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Theme.raised; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
         accessible-role: groupbox;
         accessible-label: root.prompt.title;
         TouchArea { }
@@ -256,7 +256,7 @@ export component EventDialog inherits Rectangle {
                     IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
                 if root.prompt.found: Rectangle {
-                    border-radius: 8px; background: Theme.sunken;
+                    border-radius: Look.radius(8px); background: Theme.sunken;
                     height: found-row.preferred-height;
                     found-row := VerticalLayout {
                         padding: 12px; spacing: 2px;
@@ -313,8 +313,8 @@ export component GiftDialog inherits Rectangle {
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(440px, root.width - 48px); height: gift-content.preferred-height;
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Theme.raised; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
         accessible-role: groupbox;
         accessible-label: root.prompt.title;
         TouchArea { }
@@ -331,7 +331,7 @@ export component GiftDialog inherits Rectangle {
                     IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
                 if root.prompt.found: Rectangle {
-                    border-radius: 8px; background: Theme.sunken;
+                    border-radius: Look.radius(8px); background: Theme.sunken;
                     height: found-row.preferred-height;
                     found-row := VerticalLayout {
                         padding: 12px; spacing: 2px;
@@ -402,8 +402,8 @@ export component OAuthDialog inherits Rectangle {
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(440px, root.width - 48px); height: oauth-content.preferred-height;
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Theme.raised; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
         accessible-role: groupbox;
         accessible-label: root.prompt.title;
         TouchArea { }
@@ -420,7 +420,7 @@ export component OAuthDialog inherits Rectangle {
                     IconButton { icon: @image-url("icons/x.svg"); label: "Close"; size: 28px; glyph: 18px; clicked => { root.close(); } }
                 }
                 if root.prompt.found: Rectangle {
-                    border-radius: 8px; background: Theme.sunken;
+                    border-radius: Look.radius(8px); background: Theme.sunken;
                     height: found-row.preferred-height;
                     found-row := HorizontalLayout {
                         padding: 12px; spacing: 12px;
@@ -441,7 +441,7 @@ export component OAuthDialog inherits Rectangle {
                     selected => { root.choose-guild(self.current-index); }
                 }
                 if !root.prompt.guild-picker && root.prompt.guild-name != "": Rectangle {
-                    height: 44px; border-radius: 8px; background: Theme.sunken;
+                    height: 44px; border-radius: Look.radius(8px); background: Theme.sunken;
                     HorizontalLayout {
                         padding-left: 12px; padding-right: 12px;
                         Text { text: root.prompt.guild-name; color: Theme.text; font-size: 15px; vertical-alignment: center; overflow: elide; }
@@ -449,7 +449,7 @@ export component OAuthDialog inherits Rectangle {
                 }
                 if root.prompt.status != "": Label { text: root.prompt.status; }
                 if root.prompt.address != "": Rectangle {
-                    height: 44px; border-radius: 8px; background: Theme.sunken;
+                    height: 44px; border-radius: Look.radius(8px); background: Theme.sunken;
                     HorizontalLayout {
                         padding-left: 12px; padding-right: 4px; spacing: 8px;
                         Text { text: root.prompt.address; color: Theme.text; font-size: 15px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
@@ -523,8 +523,8 @@ export component ChannelDialog inherits Rectangle {
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(460px, root.width - 48px); height: channel-content.preferred-height;
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Theme.raised; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
         accessible-role: groupbox;
         accessible-label: root.prompt.title;
         TouchArea { }
@@ -565,7 +565,7 @@ export component ChannelDialog inherits Rectangle {
                         VerticalLayout {
                             alignment: start; padding-top: 1px;
                             Rectangle {
-                                width: 18px; height: 18px; border-radius: 4px;
+                                width: 18px; height: 18px; border-radius: Look.radius(4px);
                                 background: root.prompt.ticked ? Theme.accent : transparent;
                                 border-width: root.prompt.ticked ? 0px : 1.5px; border-color: Theme.muted;
                                 if root.prompt.ticked: Image { width: 12px; height: 12px; image-fit: contain; source: @image-url("icons/check.svg"); colorize: Theme.on-accent; }
@@ -676,8 +676,8 @@ export struct ProfileEditorPrompt {
 // the profile editor shows over a picture that can be changed.
 component EditBadge inherits Rectangle {
     in property <bool> locked;
-    width: 32px; height: 32px; border-radius: 16px;
-    background: #000000b3;
+    width: 32px; height: 32px; border-radius: Look.radius(16px);
+    background: Theme.scrim(#000000b3);
     Image {
         width: 16px; height: 16px; colorize: #ffffff;
         source: root.locked ? @image-url("icons/lock.svg") : @image-url("icons/pencil.svg");
@@ -694,7 +694,7 @@ component HoverEdit inherits Rectangle {
     in property <MouseCursor> cursor: MouseCursor.pointer;
     callback clicked;
     // As measured from Discord's: a 1px line of 17% white, 7px round, in 100ms.
-    border-radius: 7px; border-width: 1px;
+    border-radius: Look.radius(7px); border-width: 1px;
     border-color: touch.has-hover && root.enabled ? #ffffff2c : #ffffff00;
     animate border-color { duration: 100ms; }
     accessible-role: button;
@@ -730,7 +730,7 @@ component CustomizeGroup inherits VerticalLayout {
 component CustomizeCell inherits Rectangle {
     in property <bool> enabled;
     callback clicked;
-    height: 100px; border-radius: 12px; clip: true;
+    height: 100px; border-radius: Look.radius(12px); clip: true;
     // Tiles side by side share their row evenly, whatever they hold.
     horizontal-stretch: 1; min-width: 0px; preferred-width: 100px;
     background: touch.has-hover && root.enabled ? Theme.hover : Theme.raised;
@@ -755,7 +755,7 @@ component ThemeHandle inherits Rectangle {
     in property <color> fill;
     in property <bool> open;
     callback clicked;
-    width: 24px; height: 24px; border-radius: 7px; background: root.fill;
+    width: 24px; height: 24px; border-radius: Look.radius(7px); background: root.fill;
     border-width: root.open ? 3px : 2px; border-color: #ffffff;
     accessible-role: button;
     TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.clicked(); } }
@@ -802,7 +802,7 @@ component ProfileCustomize inherits Rectangle {
                         HorizontalLayout {
                             padding-left: 8px; padding-right: 8px; spacing: 8px;
                             Middle { Avatar { size: 26px; initial: root.data.initial; tint: root.data.tint; picture: root.data.picture; } }
-                            Middle { Rectangle { height: 12px; border-radius: 6px; background: Theme.hover; horizontal-stretch: 1; } }
+                            Middle { Rectangle { height: 12px; border-radius: Look.radius(6px); background: Theme.hover; horizontal-stretch: 1; } }
                             Middle { SlotPlus { width: 22px; height: 22px; } }
                         }
                     }
@@ -906,17 +906,17 @@ component ColourPopover inherits Rectangle {
         field.text = hex;
     }
     init => { root.load(root.parse-hex(root.start)); field.text = root.start; }
-    width: 240px; height: 250px; border-radius: 12px; background: Theme.raised;
+    width: 240px; height: 250px; border-radius: Look.radius(12px); background: Theme.raised;
     border-color: Theme.edge; border-width: 1px;
-    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 6px;
+    drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(6px);
     TouchArea { }
     Rectangle {
-        x: 10px; y: 10px; width: parent.width - 20px; height: 150px; border-radius: 8px; clip: true;
+        x: 10px; y: 10px; width: parent.width - 20px; height: 150px; border-radius: Look.radius(8px); clip: true;
         background: @linear-gradient(90deg, #ffffff 0%, Colors.hsv(root.hue, 1, 1) 100%);
         Rectangle { background: @linear-gradient(180deg, #00000000 0%, #000000 100%); }
         Rectangle {
             x: root.sat * parent.width - self.width / 2; y: (1 - root.val) * parent.height - self.height / 2;
-            width: 12px; height: 12px; border-radius: 6px; border-width: 2px; border-color: #ffffff;
+            width: 12px; height: 12px; border-radius: Look.radius(6px); border-width: 2px; border-color: #ffffff;
         }
         TouchArea {
             function place() {
@@ -929,11 +929,11 @@ component ColourPopover inherits Rectangle {
         }
     }
     Rectangle {
-        x: 10px; y: 170px; width: parent.width - 20px; height: 10px; border-radius: 5px;
+        x: 10px; y: 170px; width: parent.width - 20px; height: 10px; border-radius: Look.radius(5px);
         background: @linear-gradient(90deg, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%);
         Rectangle {
             x: root.hue / 360 * parent.width - self.width / 2; y: -3px;
-            width: 8px; height: 16px; border-radius: 4px; background: #ffffff;
+            width: 8px; height: 16px; border-radius: Look.radius(4px); background: #ffffff;
         }
         TouchArea {
             function place() {
@@ -946,7 +946,7 @@ component ColourPopover inherits Rectangle {
     }
     field := TextField {
         x: 10px; y: 194px; width: parent.width - 20px; height: 42px;
-        placeholder: "#rrggbb"; label: "Colour code"; text-size: 14px; border-radius: 10px;
+        placeholder: "#rrggbb"; label: "Colour code"; text-size: 14px; border-radius: Look.radius(10px);
         edited(text) => { root.load(root.parse-hex(text)); root.chosen(text); }
     }
 }
@@ -1209,12 +1209,12 @@ component NameStyleWindow inherits Rectangle {
             }
         }
     }
-    background: Theme.sidebar; border-radius: 16px;
-    drop-shadow-blur: 48px; drop-shadow-color: #000000b3; drop-shadow-offset-y: 16px;
+    background: Theme.sidebar; border-radius: Look.radius(16px);
+    drop-shadow-blur: Look.shadow-blur(48px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#000000b3); drop-shadow-offset-y: Look.shadow-y(16px);
     accessible-role: groupbox;
     accessible-label: "Change Display Name Style";
     TouchArea { }
-    Rectangle { border-radius: 16px; clip: true;
+    Rectangle { border-radius: Look.radius(16px); clip: true;
     VerticalLayout {
         HorizontalLayout {
             vertical-stretch: 1;
@@ -1228,7 +1228,7 @@ component NameStyleWindow inherits Rectangle {
                         height: 3 * 68px + 2 * 8px;
                         for face[index] in root.faces: Rectangle {
                             x: mod(index, 4) * (parent.width + 8px) / 4; y: floor(index / 4) * 76px;
-                            width: (parent.width - 24px) / 4; height: 68px; border-radius: 12px;
+                            width: (parent.width - 24px) / 4; height: 68px; border-radius: Look.radius(12px);
                             background: root.font == face.id ? Theme.accent.with-alpha(0.16) : face-touch.has-hover ? Theme.hover : Theme.raised;
                             animate background { duration: 120ms; }
                             border-width: root.font == face.id ? 2px : 0px; border-color: Theme.accent;
@@ -1240,7 +1240,7 @@ component NameStyleWindow inherits Rectangle {
                             // Its name, over it while pointed at.
                             z: face-touch.has-hover ? 10 : 0;
                             if face-touch.has-hover: Rectangle {
-                                y: -30px; width: face-tip.preferred-width + 16px; height: 24px; border-radius: 8px;
+                                y: -30px; width: face-tip.preferred-width + 16px; height: 24px; border-radius: Look.radius(8px);
                                 background: #000000e6;
                                 face-tip := Text { text: face.label; color: #ffffff; font-size: 12px; font-weight: 600; }
                             }
@@ -1251,7 +1251,7 @@ component NameStyleWindow inherits Rectangle {
                         height: 2 * 68px + 8px;
                         for item[index] in root.effects: Rectangle {
                             x: mod(index, 4) * (parent.width + 8px) / 4; y: floor(index / 4) * 76px;
-                            width: (parent.width - 24px) / 4; height: 68px; border-radius: 12px;
+                            width: (parent.width - 24px) / 4; height: 68px; border-radius: Look.radius(12px);
                             background: root.effect == item.id ? Theme.accent.with-alpha(0.16) : effect-touch.has-hover ? Theme.hover : Theme.raised;
                             animate background { duration: 120ms; }
                             border-width: root.effect == item.id ? 2px : 0px; border-color: Theme.accent;
@@ -1266,7 +1266,7 @@ component NameStyleWindow inherits Rectangle {
                     colour-row := HorizontalLayout {
                         spacing: 8px; alignment: start; height: 40px;
                         if !root.bar-shown: Rectangle {
-                            width: 40px; border-radius: 12px;
+                            width: 40px; border-radius: Look.radius(12px);
                             background: hex-touch.has-hover || root.hex-open ? Theme.hover : Theme.raised;
                             animate background { duration: 120ms; }
                             accessible-role: button; accessible-label: "Your own colour";
@@ -1275,7 +1275,7 @@ component NameStyleWindow inherits Rectangle {
                         }
                         // Your own gradient or prism: a bar with a handle for each colour.
                         if root.bar-shown: Rectangle {
-                            width: 136px; border-radius: 12px;
+                            width: 136px; border-radius: Look.radius(12px);
                             background: root.effect == 2
                                 ? @linear-gradient(90deg, root.parse-hex(root.hex1) 0%, root.parse-hex(root.hex2) 100%)
                                 : @linear-gradient(90deg, root.parse-hex(root.prism1) 0%, root.parse-hex(root.prism2) 25%, root.parse-hex(root.prism3) 50%, root.parse-hex(root.prism4) 75%, root.parse-hex(root.prism5) 100%);
@@ -1284,10 +1284,10 @@ component NameStyleWindow inherits Rectangle {
                                 property <int> count: root.effect == 2 ? 2 : 5;
                                 x: 5px + index * (parent.width - 10px - self.width) / (self.count - 1);
                                 y: (parent.height - self.height) / 2;
-                                width: root.effect == 2 ? 24px : 20px; height: 24px; border-radius: 7px;
+                                width: root.effect == 2 ? 24px : 20px; height: 24px; border-radius: Look.radius(7px);
                                 background: root.parse-hex(root.slot-hex(self.number));
                                 border-width: root.open-handle == self.number ? 3px : 2px; border-color: #ffffff;
-                                drop-shadow-blur: 4px; drop-shadow-color: #00000080;
+                                drop-shadow-blur: Look.shadow-blur(4px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080);
                                 accessible-role: button; accessible-label: "Colour " + self.number;
                                 TouchArea {
                                     mouse-cursor: MouseCursor.pointer;
@@ -1301,7 +1301,7 @@ component NameStyleWindow inherits Rectangle {
                             }
                         }
                         for preset in root.presets: Rectangle {
-                            width: 40px; border-radius: 12px;
+                            width: 40px; border-radius: Look.radius(12px);
                             // Gummy's colours are stripes, as each letter takes one whole.
                             background: root.effect == 8
                                 ? @linear-gradient(90deg, NameStyles.stripe(preset.key, 0) 0%, NameStyles.stripe(preset.key, 0) 25%, NameStyles.stripe(preset.key, 1) 25%, NameStyles.stripe(preset.key, 1) 50%, NameStyles.stripe(preset.key, 2) 50%, NameStyles.stripe(preset.key, 2) 75%, NameStyles.stripe(preset.key, 3) 75%, NameStyles.stripe(preset.key, 3) 100%)
@@ -1319,10 +1319,10 @@ component NameStyleWindow inherits Rectangle {
             Rectangle {
                 background: @linear-gradient(160deg, Theme.sunken 0%, Theme.accent.with-alpha(0.10).mix(Theme.sunken, 0.5) 100%); clip: true;
                 Rectangle {
-                    x: 40px; y: 132px; width: 305px; height: 216px; border-radius: 14px;
+                    x: 40px; y: 132px; width: 305px; height: 216px; border-radius: Look.radius(14px);
                     background: @linear-gradient(180deg, root.card-top, root.card-bottom);
                     border-color: Theme.edge; border-width: 1px;
-                    drop-shadow-blur: 24px; drop-shadow-color: #00000066; drop-shadow-offset-y: 8px;
+                    drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066); drop-shadow-offset-y: Look.shadow-y(8px);
                     Rectangle {
                         x: 16px; y: 56px; width: 80px; height: 80px;
                         Avatar { size: 80px; initial: root.initial; tint: root.tint; picture: root.picture; }
@@ -1339,10 +1339,10 @@ component NameStyleWindow inherits Rectangle {
                     }
                 }
                 Rectangle {
-                    x: 65px; y: 338px; width: 320px; height: 85px; border-radius: 12px;
+                    x: 65px; y: 338px; width: 320px; height: 85px; border-radius: Look.radius(12px);
                     background: root.sample-fill; border-color: root.sample-edge; border-width: 1px;
                     animate background { duration: 180ms; }
-                    drop-shadow-blur: 18px; drop-shadow-color: #00000055; drop-shadow-offset-y: 6px;
+                    drop-shadow-blur: Look.shadow-blur(18px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000055); drop-shadow-offset-y: Look.shadow-y(6px);
                     Avatar { x: 20px; y: 22px; size: 40px; initial: root.initial; tint: root.tint; picture: root.picture; }
                     // A message's name stays plain here, as Discord's preview has it.
                     Text {
@@ -1352,19 +1352,19 @@ component NameStyleWindow inherits Rectangle {
                     Text { x: 72px; y: 46px; text: "does anyone read this?"; color: root.sample-ink; font-size: 15px; }
                 }
                 Rectangle {
-                    x: 40px; y: 418px; width: 282px; height: 50px; border-radius: 10px;
+                    x: 40px; y: 418px; width: 282px; height: 50px; border-radius: Look.radius(10px);
                     background: root.sample-fill; border-color: root.sample-edge; border-width: 1px;
                     animate background { duration: 180ms; }
-                    drop-shadow-blur: 14px; drop-shadow-color: #00000055; drop-shadow-offset-y: 4px;
+                    drop-shadow-blur: Look.shadow-blur(14px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000055); drop-shadow-offset-y: Look.shadow-y(4px);
                     Avatar { x: 10px; y: 9px; size: 32px; initial: root.initial; tint: root.tint; picture: root.picture; }
                     StyledName { x: 52px; y: 14px; height: self.preferred-height; text: root.name; styles: root.style; font-size: 17px; font-weight: 600; }
                 }
                 // Light or dark, for the message and member row.
                 Rectangle {
-                    x: parent.width - self.width - 24px; y: parent.height - 64px; width: 76px; height: 40px; border-radius: 12px;
+                    x: parent.width - self.width - 24px; y: parent.height - 64px; width: 76px; height: 40px; border-radius: Look.radius(12px);
                     background: #00000059;
                     for mode[index] in [{ light: false, icon: @image-url("icons/moon.svg"), label: "Dark" }, { light: true, icon: @image-url("icons/sun.svg"), label: "Light" }]: Rectangle {
-                        x: 4px + index * 36px; y: 4px; width: 32px; height: 32px; border-radius: 9px;
+                        x: 4px + index * 36px; y: 4px; width: 32px; height: 32px; border-radius: Look.radius(9px);
                         background: root.light-preview == mode.light ? #ffffff26 : mode-touch.has-hover ? #ffffff14 : transparent;
                         animate background { duration: 120ms; }
                         accessible-role: button; accessible-label: mode.label + " preview";
@@ -1405,18 +1405,18 @@ component NameStyleWindow inherits Rectangle {
     Rectangle {
         visible: root.picker-open;
         x: 24px; y: colour-row.absolute-position.y - root.absolute-position.y - self.height - 8px;
-        width: 240px; height: 250px; border-radius: 12px; background: Theme.raised;
+        width: 240px; height: 250px; border-radius: Look.radius(12px); background: Theme.raised;
         border-color: Theme.edge; border-width: 1px;
-        drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 6px;
+        drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(6px);
         TouchArea { }
         // Saturation across and brightness down, for the hue below.
         square := Rectangle {
-            x: 10px; y: 10px; width: parent.width - 20px; height: 150px; border-radius: 8px; clip: true;
+            x: 10px; y: 10px; width: parent.width - 20px; height: 150px; border-radius: Look.radius(8px); clip: true;
             background: @linear-gradient(90deg, #ffffff 0%, Colors.hsv(root.pick-hue, 1, 1) 100%);
             Rectangle { background: @linear-gradient(180deg, #00000000 0%, #000000 100%); }
             Rectangle {
                 x: root.pick-sat * parent.width - self.width / 2; y: (1 - root.pick-val) * parent.height - self.height / 2;
-                width: 12px; height: 12px; border-radius: 6px; border-width: 2px; border-color: #ffffff; background: root.pick-colour;
+                width: 12px; height: 12px; border-radius: Look.radius(6px); border-width: 2px; border-color: #ffffff; background: root.pick-colour;
             }
             TouchArea {
                 function place() {
@@ -1430,12 +1430,12 @@ component NameStyleWindow inherits Rectangle {
         }
         // The hue.
         Rectangle {
-            x: 10px; y: 170px; width: parent.width - 20px; height: 10px; border-radius: 5px;
+            x: 10px; y: 170px; width: parent.width - 20px; height: 10px; border-radius: Look.radius(5px);
             background: @linear-gradient(90deg, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%);
             Rectangle {
                 x: root.pick-hue / 360 * parent.width - self.width / 2; y: -3px;
-                width: 8px; height: 16px; border-radius: 4px; background: #ffffff;
-                drop-shadow-blur: 3px; drop-shadow-color: #00000080;
+                width: 8px; height: 16px; border-radius: Look.radius(4px); background: #ffffff;
+                drop-shadow-blur: Look.shadow-blur(3px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080);
             }
             TouchArea {
                 function place() {
@@ -1448,7 +1448,7 @@ component NameStyleWindow inherits Rectangle {
         }
         pick-field := TextField {
             x: 10px; y: 194px; width: parent.width - 20px; height: 42px;
-            placeholder: "#rrggbb"; label: "Colour code"; text-size: 14px; border-radius: 10px;
+            placeholder: "#rrggbb"; label: "Colour code"; text-size: 14px; border-radius: Look.radius(10px);
             edited(text) => {
                 let c = root.parse-hex(text);
                 let hsv = c.to-hsv();
@@ -1564,14 +1564,14 @@ export component ProfileEditorDialog inherits Rectangle {
     if root.prompt.main && !root.side-open: Rectangle {
         x: card.x - 30px; y: card.y + 40px; width: 42px; height: 36px;
         opacity: 1 - root.side-out;
-        border-radius: 10px; background: #000000; border-color: Theme.edge; border-width: 1px;
+        border-radius: Look.radius(10px); background: #000000; border-color: Theme.edge; border-width: 1px;
         accessible-role: button; accessible-label: "Show Styles";
         accessible-action-default => { root.side-open = true; }
         Image { x: 7px; y: 9px; width: 18px; height: 18px; source: @image-url("icons/brush.svg"); colorize: #ffffff; }
         show-styles := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.side-open = true; } }
         if show-styles.has-hover: Rectangle {
             x: -8px; y: -40px; width: tip-text.preferred-width + 20px; height: 32px;
-            border-radius: 8px; background: Theme.raised;
+            border-radius: Look.radius(8px); background: Theme.raised;
             tip-text := Text { text: "Show Styles"; color: Theme.text; font-size: 14px; font-weight: 600; }
         }
     }
@@ -1583,8 +1583,8 @@ export component ProfileEditorDialog inherits Rectangle {
         width: root.prompt.main ? min(958px, root.width - 96px) + (min(1199px, root.width - 8px) - min(958px, root.width - 96px)) * root.side-out : min(600px, root.width - 48px); height: min(max(card-content.preferred-height, root.prompt.main ? 798px : 620px), root.height - 48px);
         y: max(24px, min((root.height - (root.prompt.main ? 798px : 600px)) / 2, root.height - 24px - self.height));
         background: root.themed ? @linear-gradient(180deg, root.card-top, root.card-bottom) : Theme.sidebar;
-        border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
         accessible-role: groupbox;
         accessible-label: root.prompt.title;
         // A click on the card, outside what's being edited, ends the editing.
@@ -1604,7 +1604,7 @@ export component ProfileEditorDialog inherits Rectangle {
                 return reject;
             }
             Rectangle {
-                border-radius: 12px; clip: true;
+                border-radius: Look.radius(12px); clip: true;
                 HorizontalLayout {
                     if root.prompt.main: Rectangle {
                         width: 241px * root.side-out; clip: true;
@@ -1660,8 +1660,8 @@ export component ProfileEditorDialog inherits Rectangle {
                                     banner-menu := PopupWindow {
                                         x: parent.width - 236px; y: 56px; width: 180px;
                                         Rectangle {
-                                            background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
-                                            drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+                                            background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+                                            drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
                                             VerticalLayout {
                                                 padding: 6px; spacing: 2px;
                                                 MenuItem { text: "Change Banner"; icon: @image-url("icons/image.svg"); clicked => { banner-menu.close(); root.pick(1); } }
@@ -1672,8 +1672,8 @@ export component ProfileEditorDialog inherits Rectangle {
                                 }
                                 // What it edits, over the banner's corner; the main profile's column says.
                                 if !root.prompt.main: Rectangle {
-                                    x: 16px; y: 16px; width: detail-text.preferred-width + 20px; height: 28px; border-radius: 14px;
-                                    background: #000000b3;
+                                    x: 16px; y: 16px; width: detail-text.preferred-width + 20px; height: 28px; border-radius: Look.radius(14px);
+                                    background: Theme.scrim(#000000b3);
                                     detail-text := Text { text: root.prompt.detail; color: #ffffff; font-size: 13px; font-weight: 600; }
                                 }
                                 if !root.prompt.main: Rectangle {
@@ -1695,18 +1695,18 @@ export component ProfileEditorDialog inherits Rectangle {
                                     }
                                     // What you're up to, a thought beside the picture.
                                     if root.prompt.main: Rectangle {
-                                        x: root.avatar-size + 14px; y: 38px; width: 10px; height: 10px; border-radius: 5px;
+                                        x: root.avatar-size + 14px; y: 38px; width: 10px; height: 10px; border-radius: Look.radius(5px);
                                         background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
                                     }
                                     if root.prompt.main: Rectangle {
-                                        x: root.avatar-size + 28px; y: 45px; width: 20px; height: 20px; border-radius: 10px;
+                                        x: root.avatar-size + 28px; y: 45px; width: 20px; height: 20px; border-radius: Look.radius(10px);
                                         background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
                                     }
                                     if root.prompt.main: Rectangle {
                                         x: root.avatar-size + 18px; y: 53px;
                                         width: min(180px, thought.preferred-width + 26px);
                                         height: thought.preferred-width > 154px ? 54px : 36px;
-                                        border-radius: 16px; background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
+                                        border-radius: Look.radius(16px); background: root.bubble; border-color: root.bubble-edge; border-width: 1px;
                                         accessible-role: button;
                                         accessible-label: root.has-status ? "Change custom status" : "Set a custom status";
                                         // The bump joins the bubble with no line between them.
@@ -1729,7 +1729,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                     }
                                     if root.prompt.reading == "avatar": Rectangle {
                                         width: root.avatar-size; height: root.avatar-size; border-radius: root.avatar-size / 2;
-                                        background: #00000099;
+                                        background: Theme.scrim(#00000099);
                                         Text { text: "Reading..."; color: #ffffff; font-size: 13px; font-weight: 700; }
                                     }
                                     avatar-touch := TouchArea {
@@ -1740,8 +1740,8 @@ export component ProfileEditorDialog inherits Rectangle {
                                     avatar-menu := PopupWindow {
                                         x: 12px; y: parent.height - 4px; width: 180px;
                                         Rectangle {
-                                            background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
-                                            drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+                                            background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+                                            drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
                                             VerticalLayout {
                                                 padding: 6px; spacing: 2px;
                                                 MenuItem { text: "Change Avatar"; icon: @image-url("icons/image.svg"); clicked => { avatar-menu.close(); root.pick(0); } }
@@ -1755,7 +1755,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                 padding-left: root.pad; padding-right: root.prompt.main ? 8px : root.pad; spacing: root.prompt.main ? 28px : 16px;
                                 // The banner colour, opened by clicking the banner.
                                 if root.colour-open: Rectangle {
-                                    border-radius: 8px; background: Theme.sunken;
+                                    border-radius: Look.radius(8px); background: Theme.sunken;
                                     height: colour-box.preferred-height;
                                     colour-box := VerticalLayout {
                                     padding: 10px; spacing: 10px;
@@ -1764,7 +1764,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                         Middle { Text { text: "Banner color"; color: Theme.text; font-size: 14px; font-weight: 600; } }
                                         Middle {
                                             Rectangle {
-                                                width: 28px; height: 28px; border-radius: 6px;
+                                                width: 28px; height: 28px; border-radius: Look.radius(6px);
                                                 background: root.prompt.has-colour ? root.prompt.colour : Theme.raised;
                                                 border-width: 1px; border-color: Theme.line;
                                             }
@@ -1799,7 +1799,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                             { hex: "#9b59b6", colour: #9b59b6 }, { hex: "#607d8b", colour: #607d8b },
                                             { hex: "#2c2f33", colour: #2c2f33 },
                                         ]: Rectangle {
-                                            width: 26px; height: 26px; border-radius: 6px; background: swatch.colour;
+                                            width: 26px; height: 26px; border-radius: Look.radius(6px); background: swatch.colour;
                                             border-width: root.colour == swatch.hex ? 2px : swatch-touch.has-hover ? 1px : 0px;
                                             border-color: Theme.text;
                                             accessible-role: button;
@@ -1867,7 +1867,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                         // The server tag worn, and where another's chosen.
                                         if root.prompt.main && root.editing != 2: Middle {
                                             tag-chip := Rectangle {
-                                                height: 24px; width: tag-row.preferred-width; border-radius: 7px;
+                                                height: 24px; width: tag-row.preferred-width; border-radius: Look.radius(7px);
                                                 background: tag-touch.has-hover ? root.ink.with-alpha(0.12) : root.ink.with-alpha(0.07);
                                                 animate background { duration: 120ms; }
                                                 accessible-role: button; accessible-label: "Change server tag";
@@ -1882,24 +1882,24 @@ export component ProfileEditorDialog inherits Rectangle {
                                                     x: 0px; y: 28px; width: 270px; height: min(290px, 56px + 36px * (root.prompt.server-tags.length + 1));
                                                     close-policy: PopupClosePolicy.close-on-click-outside;
                                                     Rectangle {
-                                                        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 10px; clip: true;
+                                                        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(10px); clip: true;
                                                         VerticalLayout {
                                                             padding: 8px; spacing: 6px;
-                                                            tag-search := TextField { placeholder: "Search"; label: "Search server tags"; text-size: 13px; min-height: 32px; border-radius: 8px; }
+                                                            tag-search := TextField { placeholder: "Search"; label: "Search server tags"; text-size: 13px; min-height: 32px; border-radius: Look.radius(8px); }
                                                             ScrollView {
                                                                 vertical-stretch: 1;
                                                                 content-height: tag-list.preferred-height;
                                                                 tag-list := VerticalLayout {
                                                                     alignment: start;
                                                                     Rectangle {
-                                                                        height: 36px; border-radius: 6px;
+                                                                        height: 36px; border-radius: Look.radius(6px);
                                                                         background: none-touch.has-hover ? Theme.hover : transparent;
                                                                         Text { x: 8px; height: 100%; text: "No Server Tag"; color: Theme.muted; font-size: 13px; font-italic: true; vertical-alignment: center; }
                                                                         none-touch := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.choose-tag(""); tag-menu.close(); } }
                                                                     }
                                                                     for row in root.prompt.server-tags: Rectangle {
                                                                         property <bool> found: NameStyles.contains(row.name, tag-search.text) || NameStyles.contains(row.tag, tag-search.text);
-                                                                        height: self.found ? 36px : 0px; visible: self.found; border-radius: 6px;
+                                                                        height: self.found ? 36px : 0px; visible: self.found; border-radius: Look.radius(6px);
                                                                         background: row-touch.has-hover ? Theme.hover : row.id == root.prompt.tag-chosen-id ? Theme.active : transparent;
                                                                         accessible-role: button; accessible-label: row.name + ", " + row.tag;
                                                                         HorizontalLayout {
@@ -1920,7 +1920,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                         // Their badges, in a pill after the tag.
                                         if root.prompt.main && root.editing != 2 && root.prompt.preview.badges.length > 0: Middle {
                                             Rectangle {
-                                                height: 26px; border-radius: 8px; background: #00000059;
+                                                height: 26px; border-radius: Look.radius(8px); background: #00000059;
                                                 HorizontalLayout {
                                                     padding-left: 4px; padding-right: 4px;
                                                     for badge in root.prompt.preview.badges: Rectangle {
@@ -1948,7 +1948,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                     more-menu := PopupWindow {
                                         x: more-button.x; y: 38px; width: 170px;
                                         Rectangle {
-                                            background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
+                                            background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
                                             VerticalLayout {
                                                 padding: 6px;
                                                 MenuItem { text: "Copy User ID"; icon: @image-url("icons/copy.svg"); clicked => { root.copy-id(); more-menu.close(); } }
@@ -1958,11 +1958,11 @@ export component ProfileEditorDialog inherits Rectangle {
                                 }
                                 // Discord's offer, over what Nitro unlocks in a server.
                                 if root.prompt.offer: Rectangle {
-                                    border-radius: 8px; background: Theme.sunken;
+                                    border-radius: Look.radius(8px); background: Theme.sunken;
                                     height: offer.preferred-height;
                                     offer := HorizontalLayout {
                                         padding: 12px; spacing: 12px;
-                                        Middle { Image { source: @image-url("icons/lock.svg"); width: 20px; height: 20px; colorize: Theme.accent; } }
+                                        Middle { Image { source: @image-url("icons/lock.svg"); width: 20px; height: 20px; colorize: Theme.accent-text; } }
                                         VerticalLayout {
                                             horizontal-stretch: 1; spacing: 2px; alignment: center;
                                             Text { text: "Make unique profiles for each server"; color: Theme.text; font-size: 14px; font-weight: 700; wrap: word-wrap; }
@@ -2006,7 +2006,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                     if root.editing == 3: VerticalLayout {
                                         spacing: 4px;
                                         Rectangle {
-                                            height: 110px; border-radius: 6px; background: Theme.sunken;
+                                            height: 110px; border-radius: Look.radius(6px); background: Theme.sunken;
                                             border-width: 1px; border-color: Theme.accent.with-alpha(0.8);
                                             Text {
                                                 x: 10px; y: 8px; width: parent.width - 20px;
@@ -2020,7 +2020,7 @@ export component ProfileEditorDialog inherits Rectangle {
                                                 text <=> root.bio;
                                                 single-line: false; wrap: word-wrap;
                                                 font-size: 14px; color: Theme.text;
-                                                selection-background-color: Theme.accent.with-alpha(0.35);
+                                                selection-background-color: Theme.selection;
                                                 selection-foreground-color: Theme.text;
                                                 accessible-label: "Bio";
                                                 edited => { root.write(2, self.text); }

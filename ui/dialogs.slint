@@ -1,5 +1,5 @@
 import { ScrollView } from "scrollview.slint";
-import { Theme, Middle, Label, Popup, Twemoji } from "theme.slint";
+import { Theme, Middle, Label, Popup, Twemoji, Look } from "theme.slint";
 import { ActionButton, IconButton, Avatar, TextField, MenuItem } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { StatusDot } from "rail.slint";
@@ -47,8 +47,8 @@ export component StatusDialog inherits Rectangle {
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(460px, root.width - 48px); height: status-content.preferred-height;
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Theme.raised; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
         accessible-role: groupbox;
         accessible-label: "Set a custom status";
         TouchArea { }
@@ -66,7 +66,7 @@ export component StatusDialog inherits Rectangle {
                 HorizontalLayout {
                     spacing: 8px;
                     Rectangle {
-                        width: 40px; height: 40px; border-radius: 6px;
+                        width: 40px; height: 40px; border-radius: Look.radius(6px);
                         background: status-emoji-touch.has-hover ? Theme.hover : Theme.sunken;
                         accessible-role: button;
                         accessible-label: root.status-emoji.glyph != "" ? "Emoji, " + root.status-emoji.name + ". Change it" : "Pick an emoji";
@@ -81,7 +81,7 @@ export component StatusDialog inherits Rectangle {
                         }
                         // Taking the emoji off: a small badge on its corner.
                         if root.status-emoji.glyph != "": Rectangle {
-                            x: parent.width - 12px; y: -6px; width: 18px; height: 18px; border-radius: 9px;
+                            x: parent.width - 12px; y: -6px; width: 18px; height: 18px; border-radius: Look.radius(9px);
                             background: remove-touch.has-hover ? Theme.danger : Theme.faint;
                             border-width: 2px; border-color: Theme.raised;
                             accessible-role: button;
@@ -145,8 +145,8 @@ export component NewDmDialog inherits Rectangle {
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(440px, root.width - 48px); height: min(520px, root.height - 48px);
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Theme.raised; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
         accessible-role: groupbox;
         accessible-label: "New message";
         TouchArea { }
@@ -172,7 +172,7 @@ export component NewDmDialog inherits Rectangle {
                     VerticalLayout {
                         spacing: 2px; alignment: start;
                         for person[index] in root.new-dm-people: Rectangle {
-                            height: 48px; border-radius: 6px;
+                            height: 48px; border-radius: Look.radius(6px);
                             background: person-touch.has-hover && !root.new-dm-starting ? Theme.hover : transparent;
                             accessible-role: button;
                             accessible-label: "Message " + person.name + ", " + person.detail;
@@ -240,8 +240,8 @@ export component ForwardDialog inherits Rectangle {
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(440px, root.width - 48px); height: min(600px, root.height - 48px);
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Theme.raised; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
         accessible-role: groupbox;
         accessible-label: "Forward To";
         TouchArea { }
@@ -275,7 +275,7 @@ export component ForwardDialog inherits Rectangle {
                         spacing: 2px; alignment: start;
                         for target in root.forward-targets: Rectangle {
                             property <bool> can-choose: target.chosen || root.forward-chosen < root.forward-limit;
-                            height: 48px; border-radius: 6px;
+                            height: 48px; border-radius: Look.radius(6px);
                             background: target-touch.has-hover && self.can-choose ? Theme.hover : transparent;
                             opacity: self.can-choose ? 1 : 0.5;
                             accessible-role: checkbox;
@@ -291,7 +291,7 @@ export component ForwardDialog inherits Rectangle {
                                 if target.avatar: Middle { Avatar { size: 32px; initial: target.initial; tint: target.tint; picture-url: target.picture-url; } }
                                 if !target.avatar: Middle {
                                     Rectangle {
-                                        width: 32px; height: 32px; border-radius: 16px; background: Theme.field;
+                                        width: 32px; height: 32px; border-radius: Look.radius(16px); background: Theme.field;
                                         Image { source: target.icon; width: 18px; height: 18px; colorize: Theme.secondary; }
                                     }
                                 }
@@ -302,7 +302,7 @@ export component ForwardDialog inherits Rectangle {
                                 }
                                 Middle {
                                     Rectangle {
-                                        width: 22px; height: 22px; border-radius: 6px;
+                                        width: 22px; height: 22px; border-radius: Look.radius(6px);
                                         background: target.chosen ? Theme.accent : transparent;
                                         border-width: target.chosen ? 0px : 2px; border-color: Theme.faint;
                                         if target.chosen: Image { source: @image-url("icons/check.svg"); width: 16px; height: 16px; colorize: Theme.on-accent; }
@@ -319,7 +319,7 @@ export component ForwardDialog inherits Rectangle {
                 // The message, as a quote.
                 HorizontalLayout {
                     spacing: 10px;
-                    Rectangle { width: 3px; border-radius: 1.5px; background: Theme.line; }
+                    Rectangle { width: 3px; border-radius: Look.radius(1.5px); background: Theme.line; }
                     Text { text: root.forward-preview; color: Theme.secondary; font-size: 15px; overflow: elide; vertical-alignment: center; horizontal-stretch: 1; }
                 }
                 TextField {
@@ -370,8 +370,8 @@ export component QuickSwitcher inherits Rectangle {
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(570px, root.width - 48px); height: min(440px, root.height - 48px);
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Theme.raised; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
         accessible-role: groupbox;
         accessible-label: "Quick switcher";
         TouchArea { }
@@ -419,7 +419,7 @@ export component QuickSwitcher inherits Rectangle {
                     VerticalLayout {
                         alignment: start;
                         for place[index] in root.switcher-places: Rectangle {
-                            height: root.pitch; border-radius: 6px;
+                            height: root.pitch; border-radius: Look.radius(6px);
                             background: index == root.current ? Theme.active : place-touch.has-hover ? Theme.hover : transparent;
                             accessible-role: button;
                             accessible-label: place.name + ", " + place.place
@@ -446,7 +446,7 @@ export component QuickSwitcher inherits Rectangle {
                                 }
                                 if place.badge != "": Middle {
                                     Rectangle {
-                                        width: max(18px, badge-text.preferred-width + 10px); height: 18px; border-radius: 9px; background: Theme.danger;
+                                        width: max(18px, badge-text.preferred-width + 10px); height: 18px; border-radius: Look.radius(9px); background: Theme.danger;
                                         badge-text := Text { text: place.badge; color: Theme.on-danger; font-size: 11px; font-weight: 700; }
                                     }
                                 }
@@ -481,8 +481,8 @@ export component LeavingDialog inherits Rectangle {
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(440px, root.width - 48px); height: content.preferred-height;
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Theme.raised; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
         accessible-role: groupbox;
         accessible-label: "Leaving Yapfast";
         TouchArea { }
@@ -499,7 +499,7 @@ export component LeavingDialog inherits Rectangle {
                 Text { text: "This link goes to"; color: Theme.secondary; font-size: 15px; }
                 Text { text: root.site; color: Theme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }
                 Rectangle {
-                    background: Theme.sunken; border-radius: 6px;
+                    background: Theme.sunken; border-radius: Look.radius(6px);
                     height: link-text.preferred-height + 16px;
                     link-text := Text {
                         x: 10px; width: parent.width - 20px;
@@ -578,7 +578,7 @@ export component StatusOption inherits Rectangle {
     in property <bool> checked;
     callback clicked;
     height: max(36px, content.preferred-height);
-    border-radius: 4px;
+    border-radius: Look.radius(4px);
     background: pointer.has-hover ? Theme.active : transparent;
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
@@ -605,7 +605,7 @@ export component StatusOption inherits Rectangle {
             if root.note != "": Text { text: root.note; color: Theme.muted; font-size: 12px; wrap: word-wrap; }
         }
         if root.checked: Middle {
-            Image { source: @image-url("icons/check.svg"); width: 16px; image-fit: contain; colorize: Theme.accent; }
+            Image { source: @image-url("icons/check.svg"); width: 16px; image-fit: contain; colorize: Theme.accent-text; }
         }
     }
     focus := FocusScope {
@@ -632,8 +632,8 @@ export component StatusMenu inherits Rectangle {
     callback choose(string);
     callback custom-status;
     callback edit-profile;
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
-    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+    drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     accessible-role: groupbox;
     accessible-label: "Status";
     VerticalLayout {
@@ -712,8 +712,8 @@ export component PersonDialog inherits Rectangle {
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(440px, root.width - 48px); height: person-content.preferred-height;
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Theme.raised; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
         accessible-role: groupbox;
         accessible-label: root.prompt.title;
         TouchArea { }
@@ -809,8 +809,8 @@ export component ReactionsDialog inherits Rectangle {
     Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(600px, root.width - 48px); height: min(720px, root.height - 96px);
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Theme.raised; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
         accessible-role: groupbox;
         accessible-label: root.voters ? "Votes" : "Reactions";
         TouchArea { }
@@ -841,7 +841,7 @@ export component ReactionsDialog inherits Rectangle {
                                     property <bool> chosen: pill.key == root.reactions-key;
                                     height: 40px;
                                     Rectangle {
-                                        y: 0px; height: 32px; border-radius: 8px;
+                                        y: 0px; height: 32px; border-radius: Look.radius(8px);
                                         background: parent.chosen ? Theme.active : pill-touch.has-hover ? Theme.hover : transparent;
                                         accessible-role: button;
                                         accessible-label: pill.name + " " + pill.count + (root.voters ? (pill.count == 1 ? " vote" : " votes") : (pill.count == 1 ? " reaction" : " reactions"));
@@ -956,8 +956,8 @@ export component PollDialog inherits Rectangle {
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
         width: min(500px, root.width - 48px);
         height: min(root.height - 48px, head.preferred-height + form.preferred-height + foot.preferred-height + 40px);
-        background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 12px;
-        drop-shadow-blur: 32px; drop-shadow-color: #00000066; drop-shadow-offset-y: 12px;
+        background: Theme.raised; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
         accessible-role: groupbox;
         accessible-label: "Create a Poll";
         TouchArea { }
@@ -991,7 +991,7 @@ export component PollDialog inherits Rectangle {
                         for answer[index] in root.answers: HorizontalLayout {
                             spacing: 8px;
                             Rectangle {
-                                width: 40px; height: 40px; border-radius: 6px;
+                                width: 40px; height: 40px; border-radius: Look.radius(6px);
                                 background: emoji-touch.has-hover ? Theme.hover : Theme.sunken;
                                 accessible-role: button;
                                 accessible-label: answer.emoji.glyph != "" ? "Emoji, " + answer.emoji.name + ". Change it" : "Add emoji, answer " + (index + 1);
@@ -1006,7 +1006,7 @@ export component PollDialog inherits Rectangle {
                                 }
                                 // Taking the emoji off: a small badge on its corner.
                                 if answer.emoji.glyph != "": Rectangle {
-                                    x: parent.width - 12px; y: -6px; width: 18px; height: 18px; border-radius: 9px;
+                                    x: parent.width - 12px; y: -6px; width: 18px; height: 18px; border-radius: Look.radius(9px);
                                     background: remove-emoji-touch.has-hover ? Theme.danger : Theme.faint;
                                     border-width: 2px; border-color: Theme.raised;
                                     accessible-role: button;
@@ -1055,7 +1055,7 @@ export component PollDialog inherits Rectangle {
                                 spacing: 10px; padding-top: 4px;
                                 Middle {
                                     Rectangle {
-                                        width: 20px; height: 20px; border-radius: 5px;
+                                        width: 20px; height: 20px; border-radius: Look.radius(5px);
                                         background: root.multiselect ? Theme.accent : transparent;
                                         border-width: root.multiselect ? 0px : 2px; border-color: Theme.faint;
                                         if root.multiselect: Image { source: @image-url("icons/check.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; }

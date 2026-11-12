@@ -1,4 +1,4 @@
-import { Theme, Tip, Middle } from "../theme.slint";
+import { Theme, Tip, Middle, Look } from "../theme.slint";
 
 // Use the existing move/resize/close callbacks, including close-to-tray.
 component CaptionButton inherits Rectangle {
@@ -32,7 +32,7 @@ component BarButton inherits Rectangle {
     in property <bool> enabled: true;
     in property <bool> active;
     callback clicked;
-    width: 28px; height: 24px; border-radius: 4px;
+    width: 28px; height: 24px; border-radius: Look.radius(4px);
     background: !root.enabled ? transparent : root.active ? Theme.overlay.with-alpha(0.12) : pointer.has-hover || focus.has-focus ? Theme.overlay.with-alpha(0.08) : transparent;
     accessible-role: button;
     accessible-label: root.label;

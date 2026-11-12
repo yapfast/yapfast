@@ -1,4 +1,4 @@
-import { Theme, Badges } from "theme.slint";
+import { Theme, Badges, Look } from "theme.slint";
 import { ActionButton, TextField } from "controls.slint";
 
 // Marks something from Discord: its logo, white on blurple, on a ring of the
@@ -43,7 +43,7 @@ export component DiscordLinkPanel inherits VerticalLayout {
         spacing: 12px;
         Rectangle {
             min-height: warning.preferred-height;
-            background: Theme.danger.with-alpha(0.1); border-radius: 8px;
+            background: Theme.danger.with-alpha(0.1); border-radius: Look.radius(8px);
             border-width: 1px; border-color: Theme.danger.with-alpha(0.35);
             warning := HorizontalLayout {
                 padding: 12px; spacing: 10px;
@@ -103,7 +103,7 @@ export component DiscordLinkPanel inherits VerticalLayout {
     if root.phase >= 1 && root.phase <= 3: HorizontalLayout {
         spacing: 20px;
         Rectangle {
-            width: 184px; height: 184px; border-radius: 12px;
+            width: 184px; height: 184px; border-radius: Look.radius(12px);
             background: root.phase == 2 ? #ffffff : Theme.sunken;
             if root.phase == 2: Image {
                 source: root.code; width: 176px; height: 176px; image-rendering: pixelated;

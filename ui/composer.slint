@@ -1,4 +1,4 @@
-import { Theme, Middle } from "theme.slint";
+import { Theme, Middle, Look } from "theme.slint";
 import { ActionButton, IconButton, Avatar, SpoilerCover, ContextMenu, MenuRow } from "controls.slint";
 import { EmojiCell, EmojiFace } from "messages.slint";
 import { CommandOptionPill, CommandPills } from "app_commands.slint";
@@ -14,13 +14,13 @@ export component StagedTile inherits Rectangle {
     in property <bool> can-spoil;
     callback remove;
     callback toggle-spoiler;
-    width: 120px; height: 140px; border-radius: 8px; background: Theme.raised;
+    width: 120px; height: 140px; border-radius: Look.radius(8px); background: Theme.raised;
     accessible-role: groupbox;
     accessible-label: root.file.name + ", " + root.file.size + (root.file.spoiler ? ", spoiler" : "");
     VerticalLayout {
         padding: 6px; spacing: 2px;
         Rectangle {
-            height: 86px; border-radius: 6px; clip: true; background: Theme.sidebar;
+            height: 86px; border-radius: Look.radius(6px); clip: true; background: Theme.sidebar;
             if root.file.has-picture: Image { width: parent.width; height: parent.height; source: root.file.picture; image-fit: cover; }
             if !root.file.has-picture: Image {
                 x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
@@ -32,8 +32,8 @@ export component StagedTile inherits Rectangle {
         Text { text: root.file.size; color: Theme.muted; font-size: 12px; overflow: elide; }
     }
     if root.can-spoil: Rectangle {
-        x: parent.width - 2 * self.width - 8px; y: 4px; width: 28px; height: 28px; border-radius: 14px;
-        background: #000000b3;
+        x: parent.width - 2 * self.width - 8px; y: 4px; width: 28px; height: 28px; border-radius: Look.radius(14px);
+        background: Theme.scrim(#000000b3);
         IconButton {
             icon: root.file.spoiler ? @image-url("icons/eye-off.svg") : @image-url("icons/eye.svg");
             label: root.file.spoiler ? "Stop covering " + root.file.name : "Mark " + root.file.name + " as a spoiler";
@@ -42,8 +42,8 @@ export component StagedTile inherits Rectangle {
         }
     }
     Rectangle {
-        x: parent.width - self.width - 4px; y: 4px; width: 28px; height: 28px; border-radius: 14px;
-        background: #000000b3;
+        x: parent.width - self.width - 4px; y: 4px; width: 28px; height: 28px; border-radius: Look.radius(14px);
+        background: Theme.scrim(#000000b3);
         IconButton {
             icon: @image-url("icons/x.svg"); label: "Remove " + root.file.name;
             size: 28px; glyph: 16px; radius: 14px; tint: #ffffff;
@@ -223,7 +223,7 @@ export component Composer inherits Rectangle {
                 wrap: word-wrap;
                 font-size: root.text-size;
                 color: root.enabled ? Theme.text : Theme.muted;
-                selection-background-color: Theme.accent.with-alpha(0.35);
+                selection-background-color: Theme.selection;
                 selection-foreground-color: Theme.text;
                 accessible-label: root.label;
                 changed has-focus => { if self.has-focus { root.got-focus(); } }
@@ -282,8 +282,8 @@ export struct MentionRow {
 // Suggestions just above the composer, as wide as it: Up and Down choose, Tab or
 // Enter or a click takes one, Escape closes them.
 export component SuggestionFrame inherits Rectangle {
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
-    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+    drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
 }
 
 component SuggestionHeading inherits Text {
@@ -303,7 +303,7 @@ export component MentionList inherits SuggestionFrame {
         for mention[index] in root.mentions: VerticalLayout {
             if mention.heading != "": HorizontalLayout { padding-left: 6px; SuggestionHeading { text: mention.heading; } }
             Rectangle {
-                height: 36px; border-radius: 6px;
+                height: 36px; border-radius: Look.radius(6px);
                 background: index == root.mention-index ? Theme.active : pick.has-hover ? Theme.hover : transparent;
                 pick := TouchArea {
                     mouse-cursor: pointer;
@@ -315,7 +315,7 @@ export component MentionList inherits SuggestionFrame {
                         alignment: center;
                         if !mention.group: Avatar { size: 24px; initial: mention.initial; tint: mention.tint; picture: mention.picture; }
                         if mention.group: Rectangle {
-                            width: 24px; height: 24px; border-radius: 12px;
+                            width: 24px; height: 24px; border-radius: Look.radius(12px);
                             background: (mention.has-color ? mention.color : Theme.muted).with-alpha(0.2);
                             if !mention.voice: Text { text: mention.sigil; color: mention.has-color ? mention.color : Theme.secondary; font-size: 13px; font-weight: 700; }
                             if mention.voice: Image { source: @image-url("icons/volume-2.svg"); width: 14px; height: 14px; colorize: Theme.secondary; }
@@ -349,7 +349,7 @@ export component EmojiSuggestions inherits SuggestionFrame {
         padding: 6px; spacing: 0px;
         HorizontalLayout { padding-left: 6px; SuggestionHeading { text: "EMOJI MATCHING :" + root.query; } }
         for cell[index] in root.emoji: Rectangle {
-            height: 36px; border-radius: 6px;
+            height: 36px; border-radius: Look.radius(6px);
             background: index == root.emoji-index ? Theme.active : pick.has-hover ? Theme.hover : transparent;
             pick := TouchArea {
                 mouse-cursor: pointer;
@@ -374,7 +374,7 @@ export component RequestBar inherits Rectangle {
     in property <string> request-title;
     callback accept-request;
     callback ignore-request;
-    background: Theme.field; border-radius: 10px;
+    background: Theme.field; border-radius: Look.radius(10px);
     HorizontalLayout {
         padding: 12px; padding-left: 16px; spacing: 10px;
         VerticalLayout {

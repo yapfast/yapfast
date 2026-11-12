@@ -1,5 +1,5 @@
 import { ComboBox } from "std-widgets.slint";
-import { Theme, Middle, Label } from "theme.slint";
+import { Theme, Middle, Label, Look } from "theme.slint";
 import { ActionButton, Avatar, IconButton, TextField, TipIcon } from "controls.slint";
 import { SettingsTitle, SettingsHeading, SettingsSwitch } from "settings.slint";
 import { ListView } from "scrollview.slint";
@@ -100,10 +100,10 @@ component RoleChip inherits HorizontalLayout {
     in property <string> more;
     spacing: 4px; alignment: start;
     if root.name != "": Rectangle {
-        height: 24px; border-radius: 4px; background: Theme.overlay.with-alpha(0.08);
+        height: 24px; border-radius: Look.radius(4px); background: Theme.overlay.with-alpha(0.08);
         HorizontalLayout {
             padding-left: 6px; padding-right: 8px; spacing: 4px;
-            Middle { Rectangle { width: 10px; height: 10px; border-radius: 5px; background: root.color; } }
+            Middle { Rectangle { width: 10px; height: 10px; border-radius: Look.radius(5px); background: root.color; } }
             Text { text: root.name; color: Theme.text; font-size: 12px; vertical-alignment: center; overflow: elide; }
         }
     }
@@ -130,7 +130,7 @@ export component MembersSection inherits VerticalLayout {
         triggered => { root.sent = root.typed; root.act(0, root.typed, 0); }
     }
     spacing: 16px;
-    SettingsTitle { text: "Server Members"; }
+    SettingsTitle { title: "Server Members"; }
     HorizontalLayout {
         spacing: 12px;
         Middle {
@@ -177,7 +177,7 @@ export component MembersSection inherits VerticalLayout {
     if root.page.rows.length > 0: ListView {
         vertical-stretch: 1; min-height: 120px;
         for member in root.page.rows: Rectangle {
-            height: 56px; border-radius: 6px;
+            height: 56px; border-radius: Look.radius(6px);
             background: area.has-hover ? Theme.overlay.with-alpha(0.06) : transparent;
             accessible-role: button; accessible-label: member.name;
             accessible-action-default => { root.act(4, member.id, 0); }
@@ -286,7 +286,7 @@ export component InvitesSection inherits VerticalLayout {
     changed page => { root.ticks = 0; }
     Timer { interval: 1s; running: root.page.rows.length > 0; triggered => { root.ticks += 1; } }
     spacing: 16px;
-    SettingsTitle { text: "Invites"; }
+    SettingsTitle { title: "Invites"; }
     Label { text: "Create an invite link anyone can use to join, or invite friends directly."; }
     HorizontalLayout {
         spacing: 8px;
@@ -322,7 +322,7 @@ export component InvitesSection inherits VerticalLayout {
     if root.page.rows.length > 0: ListView {
         vertical-stretch: 1; min-height: 120px;
         for invite in root.page.rows: Rectangle {
-            height: 56px; border-radius: 6px;
+            height: 56px; border-radius: Look.radius(6px);
             opacity: root.page.paused ? 0.5 : 1;
             background: hover.has-hover ? Theme.overlay.with-alpha(0.06) : transparent;
             hover := TouchArea { }
@@ -367,7 +367,7 @@ export component SecurityActionsDialog inherits Rectangle {
     in property <InvitesPrompt> page;
     /// 3 the hours by place, 4 pause invites, 5 pause DMs, 6 save, 7 close.
     callback act(int, int);
-    background: #000000aa;
+    background: Theme.scrim(#000000aa);
     TouchArea { clicked => { root.act(7, 0); } }
     FocusScope {
         init => { self.focus(); }
@@ -378,7 +378,7 @@ export component SecurityActionsDialog inherits Rectangle {
         Rectangle {
             width: 480px; height: box.preferred-height;
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
-            background: Theme.chat; border-radius: 8px;
+            background: Theme.chat; border-radius: Look.radius(8px);
             accessible-role: groupbox; accessible-label: "Security Actions";
             TouchArea { }
             box := VerticalLayout {

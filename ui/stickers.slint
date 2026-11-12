@@ -1,6 +1,6 @@
 import { ScrollView } from "scrollview.slint";
 import { PickerRail, RailSection } from "messages.slint";
-import { Theme } from "theme.slint";
+import { Theme, Look } from "theme.slint";
 import { Picture, TextField } from "controls.slint";
 
 /// A tile of the sticker picker's grid, placed by the adapter: `kind` 0 is a
@@ -66,7 +66,7 @@ export component StickerPicker inherits Rectangle {
     background: root.bare ? transparent : Theme.raised;
     border-color: Theme.edge; border-width: root.bare ? 0px : 1px;
     border-radius: root.bare ? 0px : 10px;
-    drop-shadow-blur: root.bare ? 0px : 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    drop-shadow-blur: root.bare ? 0px : Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
     clip: true;
     FocusScope {
         key-pressed(event) => {
@@ -127,7 +127,7 @@ export component StickerPicker inherits Rectangle {
                         }
                         if tile.kind == 0: Rectangle {
                             width: parent.width; height: parent.height;
-                            border-radius: 8px; clip: true;
+                            border-radius: Look.radius(8px); clip: true;
                             opacity: tile.usable ? 1 : 0.4;
                             background: tile-touch.has-hover ? Theme.hover : transparent;
                             accessible-role: button;
@@ -163,7 +163,7 @@ export component StickerPicker inherits Rectangle {
                             // GIF's does in the GIFs' picker.
                             star := Rectangle {
                                 x: parent.width - self.width - 4px; y: 4px;
-                                width: 24px; height: 24px; border-radius: 5px;
+                                width: 24px; height: 24px; border-radius: Look.radius(5px);
                                 background: Theme.panel;
                                 opacity: tile-touch.has-hover ? 1 : 0;
                                 animate opacity { duration: Theme.quick; }

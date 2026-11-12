@@ -1,4 +1,4 @@
-import { Theme, Tip } from "../theme.slint";
+import { Theme, Tip, Look } from "../theme.slint";
 
 // Which build this is, set once by src/ui/yapfast.rs from src/build_info.rs.
 // An empty `headline` means it isn't known, as in the tests' windows.
@@ -36,7 +36,7 @@ export component BuildStamp inherits Rectangle {
     Timer { interval: 2s; running: root.copied; triggered => { root.copied = false; } }
     Rectangle { x: 16px; y: 0px; width: parent.width - 32px; height: 1px; background: Theme.line; }
     Rectangle {
-        x: 16px; y: 8px; width: parent.width - 32px; height: parent.height - 16px; border-radius: 4px;
+        x: 16px; y: 8px; width: parent.width - 32px; height: parent.height - 16px; border-radius: Look.radius(4px);
         border-width: stamp-focus.has-focus ? 2px : 0px; border-color: Theme.accent;
         VerticalLayout {
             padding-left: 8px; padding-right: 8px; padding-top: 4px; spacing: 4px; alignment: start;

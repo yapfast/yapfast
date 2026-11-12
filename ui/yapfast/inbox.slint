@@ -1,4 +1,4 @@
-import { Theme, Middle } from "../theme.slint";
+import { Theme, Middle, Look } from "../theme.slint";
 import { Avatar } from "../controls.slint";
 import { ListView } from "../scrollview.slint";
 
@@ -14,7 +14,7 @@ component InboxTab inherits Rectangle {
     in property <bool> selected;
     callback clicked;
     height: 32px;
-    border-radius: 4px;
+    border-radius: Look.radius(4px);
     background: root.selected ? Theme.overlay.with-alpha(0.12) : pointer.has-hover ? Theme.overlay.with-alpha(0.06) : transparent;
     accessible-role: tab;
     accessible-label: root.text;
@@ -33,7 +33,7 @@ component InboxLine inherits Rectangle {
     in property <InboxRow> entry;
     callback clicked;
     height: 56px;
-    border-radius: 4px;
+    border-radius: Look.radius(4px);
     background: pointer.has-hover ? Theme.overlay.with-alpha(0.06) : transparent;
     accessible-role: button;
     accessible-label: root.entry.name + ", " + root.entry.place;
@@ -54,7 +54,7 @@ component InboxLine inherits Rectangle {
         }
         if root.entry.mentions > 0: Middle {
             Rectangle {
-                width: max(16px, count-text.preferred-width + 10px); height: 16px; border-radius: 8px;
+                width: max(16px, count-text.preferred-width + 10px); height: 16px; border-radius: Look.radius(8px);
                 background: Theme.danger;
                 count-text := Text {
                     text: root.entry.mentions > 99 ? "99+" : "\{root.entry.mentions}"; font-size: 11px; font-weight: 700;
@@ -77,9 +77,9 @@ export component InboxPopout inherits Rectangle {
     callback close;
     // Discord's popout: 440px wide, rounded, with its own outline.
     width: 440px; height: 560px;
-    background: Theme.raised; border-radius: 8px;
+    background: Theme.raised; border-radius: Look.radius(8px);
     border-width: 1px; border-color: Theme.line;
-    drop-shadow-blur: 16px; drop-shadow-color: #00000066; drop-shadow-offset-y: 4px;
+    drop-shadow-blur: Look.shadow-blur(16px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066); drop-shadow-offset-y: Look.shadow-y(4px);
     TouchArea { }
     FocusScope {
         init => { self.focus(); }

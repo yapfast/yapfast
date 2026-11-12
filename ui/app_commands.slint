@@ -4,7 +4,7 @@
 // lists its "Apps" from CommandChoice rows too (see MessageMenu in
 // messages.slint). See docs/discord/messages.md, "Apps' commands".
 
-import { Theme } from "theme.slint";
+import { Theme, Look } from "theme.slint";
 
 /// A row of the list over the composer: a command the picker offers, with
 /// its app's name and icon and the command's name ("config set" for a
@@ -20,8 +20,8 @@ export struct CommandOptionPill { name: string, description: string, value: stri
 
 // As composer.slint's SuggestionFrame, which imports this file.
 component CommandFrame inherits Rectangle {
-    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
-    drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+    background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: Look.radius(8px);
+    drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
 }
 
 component CommandHeading inherits Text {
@@ -60,7 +60,7 @@ export component CommandList inherits CommandFrame {
             content-height: root.choices.length * root.row-height;
             for choice[index] in root.choices: Rectangle {
                 y: index * root.row-height; height: root.row-height; width: list.width;
-                border-radius: 6px;
+                border-radius: Look.radius(6px);
                 background: index == root.choice-index ? Theme.active : pick.has-hover ? Theme.hover : transparent;
                 accessible-role: list-item;
                 accessible-label: (root.commands ? "/" : "") + choice.name + (choice.description != "" ? ", " + choice.description : "");
@@ -73,15 +73,15 @@ export component CommandList inherits CommandFrame {
                     if choice.icon.width > 0: VerticalLayout {
                         alignment: center;
                         Rectangle {
-                            width: 24px; height: 24px; border-radius: 12px; clip: true;
+                            width: 24px; height: 24px; border-radius: Look.radius(12px); clip: true;
                             Image { width: parent.width; height: parent.height; source: choice.icon; image-fit: cover; }
                         }
                     }
                     if choice.icon.width == 0 && root.commands: VerticalLayout {
                         alignment: center;
                         Rectangle {
-                            width: 24px; height: 24px; border-radius: 12px; background: Theme.accent-soft;
-                            Text { text: "/"; color: Theme.accent; font-size: 13px; font-weight: 700; }
+                            width: 24px; height: 24px; border-radius: Look.radius(12px); background: Theme.accent-soft;
+                            Text { text: "/"; color: Theme.accent-text; font-size: 13px; font-weight: 700; }
                         }
                     }
                     VerticalLayout {
@@ -118,15 +118,15 @@ export component CommandPills inherits FlexboxLayout {
     spacing: 6px; alignment: start;
     Rectangle {
         height: 26px; max-width: root.width;
-        border-radius: 4px; background: Theme.accent-soft;
+        border-radius: Look.radius(4px); background: Theme.accent-soft;
         HorizontalLayout {
             padding-left: 6px; padding-right: 6px;
-            Text { text: "/" + root.name; color: Theme.accent; font-size: 14px; font-weight: 700; vertical-alignment: center; overflow: elide; }
+            Text { text: "/" + root.name; color: Theme.accent-text; font-size: 14px; font-weight: 700; vertical-alignment: center; overflow: elide; }
         }
     }
     for pill[index] in root.options: Rectangle {
         height: 26px; max-width: root.width;
-        border-radius: 4px; border-width: 1px;
+        border-radius: Look.radius(4px); border-width: 1px;
         border-color: pill.error != "" ? Theme.danger : index == root.focused-index ? Theme.accent : Theme.line;
         background: index == root.focused-index ? Theme.active : Theme.raised;
         opacity: !pill.required && pill.value == "" && index != root.focused-index ? 0.6 : 1;

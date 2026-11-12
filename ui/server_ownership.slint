@@ -1,4 +1,4 @@
-import { Theme } from "theme.slint";
+import { Theme, Look } from "theme.slint";
 import { ActionButton, Avatar, TextField } from "controls.slint";
 import { SettingsHeading } from "settings.slint";
 
@@ -36,7 +36,7 @@ export struct OwnershipPrompt {
 component OwnershipFrame inherits Rectangle {
     in property <OwnershipPrompt> page;
     callback cancel;
-    background: #000000aa;
+    background: Theme.scrim(#000000aa);
     TouchArea { clicked => { if !root.page.sending { root.cancel(); } } }
     FocusScope {
         init => { self.focus(); }
@@ -47,7 +47,7 @@ component OwnershipFrame inherits Rectangle {
         Rectangle {
             width: 440px; height: box.preferred-height;
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
-            background: Theme.chat; border-radius: 8px;
+            background: Theme.chat; border-radius: Look.radius(8px);
             accessible-role: groupbox; accessible-label: root.page.title;
             TouchArea { }
             box := VerticalLayout {
@@ -115,7 +115,7 @@ export component TransferOwnershipDialog inherits Rectangle {
             Avatar { size: 80px; initial: root.page.new-initial; picture-url: root.page.new-avatar; }
         }
         if !root.page.code && root.page.verified: Rectangle {
-            border-radius: 6px; background: Theme.danger.with-alpha(0.12);
+            border-radius: Look.radius(6px); background: Theme.danger.with-alpha(0.12);
             height: warning.preferred-height + 20px;
             warning := Text {
                 x: 10px; width: parent.width - 20px;
@@ -134,7 +134,7 @@ export component TransferOwnershipDialog inherits Rectangle {
                 VerticalLayout {
                     alignment: start; padding-top: 2px;
                     Rectangle {
-                        width: 18px; height: 18px; border-radius: 4px;
+                        width: 18px; height: 18px; border-radius: Look.radius(4px);
                         background: root.page.agreed ? Theme.accent : transparent;
                         border-width: root.page.agreed ? 0px : 1.5px; border-color: Theme.muted;
                         if root.page.agreed: Image { width: 12px; height: 12px; image-fit: contain; source: @image-url("icons/check.svg"); colorize: Theme.on-accent; }

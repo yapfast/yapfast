@@ -1,4 +1,4 @@
-import { Theme, Middle, Label } from "theme.slint";
+import { Theme, Middle, Label, Look } from "theme.slint";
 import { ActionButton, Avatar, IconButton, TextField, PictureStore } from "controls.slint";
 import { SettingsTitle, SettingsHeading } from "settings.slint";
 import { ListView } from "scrollview.slint";
@@ -92,7 +92,7 @@ export component EmojiSection inherits VerticalLayout {
     callback act(int, string, string);
     callback upload;
     spacing: 16px;
-    SettingsTitle { text: "Emoji"; }
+    SettingsTitle { title: "Emoji"; }
     Label {
         text: "Add up to " + root.page.slots + " custom emojis that anyone can use in this server. Animated GIF emojis may be used by members with Discord Nitro. Emoji names must be at least 2 characters long and can only contain alphanumeric characters and underscores. Emoji must be under 256 KB in size.";
     }
@@ -110,7 +110,7 @@ export component EmojiSection inherits VerticalLayout {
         for row in root.page.rows: Rectangle {
             height: row.heading != "" ? 72px : 52px;
             background: row.heading == "" && hover.has-hover ? Theme.overlay.with-alpha(0.06) : transparent;
-            border-radius: 6px;
+            border-radius: Look.radius(6px);
             hover := TouchArea { }
             if row.heading != "": VerticalLayout {
                 padding-top: 16px; padding-left: 8px; padding-right: 8px; spacing: 8px;
@@ -175,7 +175,7 @@ export component EmojiUploadDialog inherits Rectangle {
     in property <EmojiPrompt> page;
     /// 2 the name typed, 3 upload, 4 cancel.
     callback act(int, string);
-    background: #000000aa;
+    background: Theme.scrim(#000000aa);
     TouchArea { clicked => { if !root.page.saving { root.act(4, ""); } } }
     // The field follows the name as Discord's makes it.
     property <string> wanted: root.page.name;
@@ -188,14 +188,14 @@ export component EmojiUploadDialog inherits Rectangle {
         Rectangle {
             width: 440px; height: box.preferred-height;
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
-            background: Theme.chat; border-radius: 8px;
+            background: Theme.chat; border-radius: Look.radius(8px);
             accessible-role: groupbox; accessible-label: "Upload Emoji";
             TouchArea { }
             box := VerticalLayout {
                 padding: 16px; spacing: 14px;
                 Text { text: "Upload Emoji"; color: Theme.text; font-size: 20px; font-weight: 700; }
                 Rectangle {
-                    height: 144px; border-radius: 8px; background: Theme.sunken;
+                    height: 144px; border-radius: Look.radius(8px); background: Theme.sunken;
                     HorizontalLayout {
                         alignment: center; spacing: 24px;
                         for size in [128px, 48px, 22px]: Middle {
@@ -234,7 +234,7 @@ component StickerTileView inherits Rectangle {
     in property <StickerTile> tile;
     callback edit;
     callback delete;
-    border-radius: 8px;
+    border-radius: Look.radius(8px);
     background: hover.has-hover ? Theme.overlay.with-alpha(0.08) : Theme.overlay.with-alpha(0.03);
     accessible-role: groupbox; accessible-label: root.tile.name;
     hover := TouchArea { }
@@ -261,10 +261,10 @@ export component StickersSection inherits VerticalLayout {
     /// 0 open the form for a new sticker, 1 edit one by id, 7 delete one.
     callback act(int, string);
     spacing: 16px;
-    SettingsTitle { text: "Stickers"; }
+    SettingsTitle { title: "Stickers"; }
     Label { text: "Stickers can be static (JPG, PNG) or animated (APNG, GIF). Stickers must be exactly 320 x 320 pixels and no larger than 512 KB. We will automatically resize static JPG, PNG and animated GIF stickers for you."; }
     for card in root.page.cards: Rectangle {
-        border-radius: 8px; background: Theme.overlay.with-alpha(0.03);
+        border-radius: Look.radius(8px); background: Theme.overlay.with-alpha(0.03);
         border-width: 1px; border-color: Theme.line;
         height: inner.preferred-height;
         inner := VerticalLayout {
@@ -290,7 +290,7 @@ export component StickersSection inherits VerticalLayout {
                 }
                 if card.next && root.page.may-upload: Rectangle {
                     x: mod(card.tiles.length, inner.columns) * 152px; y: floor(card.tiles.length / inner.columns) * 172px;
-                    width: 140px; height: 160px; border-radius: 8px;
+                    width: 140px; height: 160px; border-radius: Look.radius(8px);
                     border-width: 2px; border-color: add.has-hover ? Theme.secondary : Theme.line;
                     accessible-role: button; accessible-label: "Upload Sticker";
                     accessible-action-default => { root.act(0, ""); }
@@ -314,7 +314,7 @@ export component StickerDialog inherits Rectangle {
     /// 6 cancel.
     callback act(int, string);
     callback browse;
-    background: #000000aa;
+    background: Theme.scrim(#000000aa);
     TouchArea { clicked => { if !root.page.saving { root.act(6, ""); } } }
     // The fields follow the form as the core cuts it.
     property <string> wanted-name: root.page.name;
@@ -333,14 +333,14 @@ export component StickerDialog inherits Rectangle {
         Rectangle {
             width: 520px; height: box.preferred-height;
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
-            background: Theme.chat; border-radius: 8px;
+            background: Theme.chat; border-radius: Look.radius(8px);
             accessible-role: groupbox; accessible-label: "Upload Sticker";
             TouchArea { }
             box := VerticalLayout {
                 padding: 16px; spacing: 14px;
                 Text { text: root.page.editing ? "Edit Sticker" : "Upload Sticker"; color: Theme.text; font-size: 20px; font-weight: 700; }
                 Rectangle {
-                    height: 180px; border-radius: 8px; background: Theme.sunken;
+                    height: 180px; border-radius: Look.radius(8px); background: Theme.sunken;
                     if root.page.preview-url != "": UrlPicture { width: 160px; height: 160px; url: root.page.preview-url; accessible-role: image; accessible-label: "Preview"; }
                     if root.page.preview-url == "" && root.page.has-file: Image { width: 160px; height: 160px; source: root.page.preview; image-fit: contain; accessible-role: image; accessible-label: "Preview"; }
                     if root.page.preview-url == "" && !root.page.has-file: Text { text: "Preview"; color: Theme.muted; font-size: 14px; }

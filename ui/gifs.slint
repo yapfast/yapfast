@@ -1,4 +1,4 @@
-import { Theme, Tip } from "theme.slint";
+import { Theme, Tip, Look } from "theme.slint";
 import { IconButton, TextField, Picture } from "controls.slint";
 
 /// A tile of the GIF picker's grid, placed by the adapter as Discord's
@@ -33,7 +33,7 @@ export component FavoriteStar inherits Rectangle {
     in property <bool> on;
     in property <bool> shown;
     callback clicked;
-    width: 32px; height: 32px; border-radius: 5px;
+    width: 32px; height: 32px; border-radius: Look.radius(5px);
     background: Theme.panel;
     opacity: root.shown ? 1 : 0;
     animate opacity { duration: Theme.quick; }
@@ -156,7 +156,7 @@ export component GifPicker inherits VerticalLayout {
         content-height: max(root.grid-height, root.note != "" ? 96px : 0px) + (root.suggestions.length > 0 ? footer.preferred-height + 12px : 0px);
         for tile in root.tiles: Rectangle {
             x: tile.x; y: tile.y; width: tile.w; height: tile.h;
-            border-radius: 5px; clip: true;
+            border-radius: Look.radius(5px); clip: true;
             background: tile.tint;
             accessible-role: button;
             accessible-label: tile.kind == 0 ? "GIF" : tile.label;
@@ -213,7 +213,7 @@ export component GifPicker inherits VerticalLayout {
             HorizontalLayout {
                 alignment: center; spacing: 8px;
                 for term in root.suggestions: Rectangle {
-                    height: 28px; width: term-text.preferred-width + 20px; border-radius: 4px;
+                    height: 28px; width: term-text.preferred-width + 20px; border-radius: Look.radius(4px);
                     background: term-touch.has-hover ? Theme.hover : Theme.sunken;
                     accessible-role: button; accessible-label: term;
                     accessible-action-default => { root.category(term); }
@@ -234,7 +234,7 @@ export component PickerTab inherits Rectangle {
     in property <string> text;
     in property <bool> selected;
     callback clicked;
-    width: label.preferred-width + 24px; height: 30px; border-radius: 6px;
+    width: label.preferred-width + 24px; height: 30px; border-radius: Look.radius(6px);
     background: root.selected ? Theme.active : touch.has-hover ? Theme.hover : transparent;
     accessible-role: tab; accessible-label: root.text; accessible-item-selected: root.selected;
     accessible-action-default => { root.clicked(); }

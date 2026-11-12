@@ -1,4 +1,4 @@
-import { Theme, Middle, Label, Tip } from "theme.slint";
+import { Theme, Middle, Label, Tip, Look } from "theme.slint";
 import { ActionButton, Avatar, IconButton, TextField, PictureStore } from "controls.slint";
 import { SettingsTitle, SettingsHeading, SettingsSwitch } from "settings.slint";
 import { ListView } from "scrollview.slint";
@@ -133,7 +133,7 @@ component RoleMark inherits Rectangle {
     if root.icon.width > 0: Image { width: 20px; height: 20px; source: root.icon; image-fit: contain; }
     if root.icon.width == 0 && root.role.emoji != "": Text { text: root.role.emoji; font-size: 16px; horizontal-alignment: center; vertical-alignment: center; }
     if root.icon.width == 0 && root.role.emoji == "": Rectangle {
-        width: 14px; height: 14px; border-radius: 7px; background: root.role.color;
+        width: 14px; height: 14px; border-radius: Look.radius(7px); background: root.role.color;
     }
 }
 
@@ -157,7 +157,7 @@ component RoleListRow inherits Rectangle {
     ]
     inner := Rectangle {
         y: root.offset; height: root.row-height;
-        border-radius: 6px;
+        border-radius: Look.radius(6px);
         background: pointer.has-hover ? Theme.overlay.with-alpha(0.05) : transparent;
         pointer := TouchArea { clicked => { root.open(); } }
         HorizontalLayout {
@@ -169,7 +169,7 @@ component RoleListRow inherits Rectangle {
                 opacity: self.usable ? (drag.has-hover || root.dragging ? 1 : 0.5) : 0;
                 for dot in 6: Rectangle {
                     x: 6px + mod(dot, 2) * 6px; y: parent.height / 2 - 7px + floor(dot / 2) * 6px;
-                    width: 3px; height: 3px; border-radius: 1.5px; background: Theme.muted;
+                    width: 3px; height: 3px; border-radius: Look.radius(1.5px); background: Theme.muted;
                 }
                 drag := TouchArea {
                     enabled: parent.usable;
@@ -215,7 +215,7 @@ component RoleListRow inherits Rectangle {
                     Text { text: root.role.name; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; vertical-alignment: center; }
                     if root.role.badge != "": Middle {
                         Rectangle {
-                            height: 16px; width: badge.preferred-width + 8px; border-radius: 3px; background: Theme.accent;
+                            height: 16px; width: badge.preferred-width + 8px; border-radius: Look.radius(3px); background: Theme.accent;
                             badge := Text { text: root.role.badge; color: #ffffff; font-size: 10px; font-weight: 700; }
                         }
                     }
@@ -249,7 +249,7 @@ component RoleListRow inherits Rectangle {
     more := PopupWindow {
         x: root.width - 200px; y: root.row-height - 4px; width: 180px;
         Rectangle {
-            background: Theme.raised; border-radius: 6px; drop-shadow-blur: 12px; drop-shadow-color: #00000066;
+            background: Theme.raised; border-radius: Look.radius(6px); drop-shadow-blur: Look.shadow-blur(12px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066);
             VerticalLayout {
                 padding: 6px; spacing: 2px;
                 for item[index] in [
@@ -258,7 +258,7 @@ component RoleListRow inherits Rectangle {
                     { text: "Duplicate Role", danger: false, enabled: root.role.may-copy },
                     { text: "Delete", danger: true, enabled: root.role.may-copy },
                 ]: Rectangle {
-                    height: 32px; border-radius: 4px;
+                    height: 32px; border-radius: Look.radius(4px);
                     background: area.has-hover && item.enabled ? (item.danger ? Theme.danger : Theme.accent) : transparent;
                     Text {
                         x: 8px; text: item.text; font-size: 14px; vertical-alignment: center;
@@ -356,11 +356,11 @@ export component RolesSection inherits VerticalLayout {
     spacing: 16px;
     if !root.page.open: VerticalLayout {
         spacing: 16px;
-        SettingsTitle { text: "Roles"; }
+        SettingsTitle { title: "Roles"; }
         Label { text: "Use roles to group your server members and assign permissions."; }
         // @everyone's card.
         Rectangle {
-            height: 64px; border-radius: 8px;
+            height: 64px; border-radius: Look.radius(8px);
             background: everyone.has-hover ? Theme.raised.brighter(0.1) : Theme.raised;
             accessible-role: button; accessible-label: "Default Permissions";
             everyone := TouchArea { clicked => { root.open(root.page.everyone-id); } }
@@ -368,7 +368,7 @@ export component RolesSection inherits VerticalLayout {
                 padding-left: 16px; padding-right: 16px; spacing: 12px;
                 Middle {
                     Rectangle {
-                        width: 36px; height: 36px; border-radius: 18px; background: Theme.field;
+                        width: 36px; height: 36px; border-radius: Look.radius(18px); background: Theme.field;
                         Image { width: 20px; height: 20px; source: @image-url("icons/users.svg"); colorize: Theme.secondary; }
                     }
                 }
@@ -430,9 +430,9 @@ export component RolesSection inherits VerticalLayout {
                 back-area := TouchArea { clicked => { root.open(""); } }
             }
         }
-        SettingsTitle { text: root.page.title; }
+        SettingsTitle { title: root.page.title; }
         if root.page.notice != "": Rectangle {
-            border-radius: 6px; background: Theme.raised; height: notice.preferred-height + 20px;
+            border-radius: Look.radius(6px); background: Theme.raised; height: notice.preferred-height + 20px;
             notice := Text { x: 12px; width: parent.width - 24px; text: root.page.notice; color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
         }
         HorizontalLayout {
@@ -460,7 +460,7 @@ export component RolesSection inherits VerticalLayout {
                     spacing: 10px; alignment: start;
                     // Discord's default, then its colours in two rows.
                     Rectangle {
-                        width: 66px; height: 50px; border-radius: 4px; background: #99aab5;
+                        width: 66px; height: 50px; border-radius: Look.radius(4px); background: #99aab5;
                         accessible-role: button; accessible-label: "Default";
                         if root.page.default-color: Image { width: 20px; height: 20px; source: @image-url("icons/check.svg"); colorize: #ffffff; }
                         TouchArea { enabled: root.editable; clicked => { root.color(-1); } }
@@ -470,7 +470,7 @@ export component RolesSection inherits VerticalLayout {
                         HorizontalLayout {
                             spacing: 10px;
                             for swatch[index] in root.page.bright: Rectangle {
-                                width: 20px; height: 20px; border-radius: 4px; background: swatch.color;
+                                width: 20px; height: 20px; border-radius: Look.radius(4px); background: swatch.color;
                                 accessible-role: button; accessible-label: "Color " + (index + 1);
                                 if swatch.chosen: Image { width: 14px; height: 14px; source: @image-url("icons/check.svg"); colorize: #ffffff; }
                                 TouchArea { enabled: root.editable; clicked => { root.color(index); } }
@@ -479,7 +479,7 @@ export component RolesSection inherits VerticalLayout {
                         HorizontalLayout {
                             spacing: 10px;
                             for swatch[index] in root.page.dark: Rectangle {
-                                width: 20px; height: 20px; border-radius: 4px; background: swatch.color;
+                                width: 20px; height: 20px; border-radius: Look.radius(4px); background: swatch.color;
                                 accessible-role: button; accessible-label: "Color " + (index + 11);
                                 if swatch.chosen: Image { width: 14px; height: 14px; source: @image-url("icons/check.svg"); colorize: #ffffff; }
                                 TouchArea { enabled: root.editable; clicked => { root.color(index + 10); } }
@@ -488,7 +488,7 @@ export component RolesSection inherits VerticalLayout {
                     }
                     // Any other colour, as hex, in place of Discord's picker.
                     Rectangle {
-                        width: 50px; height: 50px; border-radius: 4px; background: root.page.color;
+                        width: 50px; height: 50px; border-radius: Look.radius(4px); background: root.page.color;
                         accessible-role: image; accessible-label: "Custom color";
                         if root.page.custom-color: Image { width: 20px; height: 20px; source: @image-url("icons/check.svg"); colorize: #ffffff; }
                     }
@@ -512,7 +512,7 @@ export component RolesSection inherits VerticalLayout {
                 HorizontalLayout {
                     spacing: 16px; alignment: start;
                     Rectangle {
-                        width: 64px; height: 64px; border-radius: 8px; background: Theme.sunken;
+                        width: 64px; height: 64px; border-radius: Look.radius(8px); background: Theme.sunken;
                         property <image> shown: root.page.icon-url != "" ? PictureStore.picture(root.page.icon-url, PictureStore.revision(root.page.icon-url)) : root.page.icon-new;
                         init => { if root.page.icon-url != "" && self.shown.width == 0 { PictureStore.request(root.page.icon-url); } }
                         if self.shown.width > 0: Image { width: 48px; height: 48px; source: parent.shown; image-fit: contain; }
@@ -644,7 +644,7 @@ export component RoleConfirmDialog inherits Rectangle {
     in property <RolesPrompt> page;
     callback confirm;
     callback cancel;
-    background: #000000aa;
+    background: Theme.scrim(#000000aa);
     TouchArea { clicked => { root.cancel(); } }
     FocusScope {
         init => { self.focus(); }
@@ -655,7 +655,7 @@ export component RoleConfirmDialog inherits Rectangle {
         Rectangle {
             width: 440px; height: box.preferred-height;
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
-            background: Theme.chat; border-radius: 8px;
+            background: Theme.chat; border-radius: Look.radius(8px);
             TouchArea { }
             box := VerticalLayout {
                 padding: 16px; spacing: 12px;
@@ -691,7 +691,7 @@ export component AddMembersDialog inherits Rectangle {
     callback pick(string);
     callback add;
     callback close;
-    background: #000000aa;
+    background: Theme.scrim(#000000aa);
     TouchArea { clicked => { root.close(); } }
     FocusScope {
         key-pressed(event) => {
@@ -701,7 +701,7 @@ export component AddMembersDialog inherits Rectangle {
         Rectangle {
             width: 440px; height: min(520px, root.height - 80px);
             x: (root.width - self.width) / 2; y: (root.height - self.height) / 2;
-            background: Theme.chat; border-radius: 8px;
+            background: Theme.chat; border-radius: Look.radius(8px);
             TouchArea { }
             VerticalLayout {
                 padding: 16px; spacing: 12px;
@@ -718,7 +718,7 @@ export component AddMembersDialog inherits Rectangle {
                     list := VerticalLayout {
                         alignment: start;
                         for member in root.page.candidates: Rectangle {
-                            height: 44px; border-radius: 4px;
+                            height: 44px; border-radius: Look.radius(4px);
                             background: area.has-hover ? Theme.overlay.with-alpha(0.06) : transparent;
                             accessible-role: checkbox; accessible-label: member.name; accessible-checked: member.chosen;
                             area := TouchArea { clicked => { root.pick(member.id); } }
@@ -726,7 +726,7 @@ export component AddMembersDialog inherits Rectangle {
                                 padding-left: 6px; padding-right: 6px; spacing: 10px;
                                 Middle {
                                     Rectangle {
-                                        width: 18px; height: 18px; border-radius: 4px;
+                                        width: 18px; height: 18px; border-radius: Look.radius(4px);
                                         border-width: 1px; border-color: Theme.line;
                                         background: member.chosen ? Theme.accent : transparent;
                                         if member.chosen: Image { width: 14px; height: 14px; source: @image-url("icons/check.svg"); colorize: #ffffff; }

@@ -3,7 +3,7 @@ import { SettingsNavigation } from "yapfast/settings-nav.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ComboBox } from "std-widgets.slint";
 import { ScrollView } from "scrollview.slint";
-import { Theme, Middle, Label, Tip, Popup, Looks } from "theme.slint";
+import { Theme, Middle, Label, Tip, Popup, Looks, Look } from "theme.slint";
 import { ActionButton, IconButton, Avatar, SensitivitySlider, VolumeSlider, TextField, StatusText, AccountLook } from "controls.slint";
 import { DiscordLinkPanel } from "discord.slint";
 import { ChannelRow } from "rail.slint";
@@ -11,12 +11,18 @@ import { Soundboard, SoundRow } from "voice.slint";
 
 // Settings: a section's title, a group's heading, a switch with what it does, and
 // a row of exclusive choices with the current one raised.
+// A title's text goes through the theme's heading face and its text effect.
 export component SettingsTitle inherits Text {
-    color: Theme.text; font-size: ClientStyle.enabled ? 24px : 20px; font-weight: 700;
+    in property <string> title;
+    text: Look.settings-text(Look.heading(self.title));
+    accessible-label: self.title;
+    color: Theme.text; font-size: Look.heading-size(ClientStyle.enabled ? 24px : 20px); font-weight: Look.heading-weight(700);
+    font-family: Look.heading-font(""); letter-spacing: Look.spacing-headings;
 }
 
 export component SettingsHeading inherits Text {
-    color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
+    color: Theme.muted; font-size: Look.label-size(12px); font-weight: Look.label-weight(700); letter-spacing: 0.6px + Look.spacing-labels;
+    font-family: Look.label-font("");
 }
 
 // A marigold switch, with its label beside it and what it does below. A click on
@@ -129,13 +135,13 @@ export component Choices inherits Rectangle {
     in property <bool> controlled;
     callback chosen(int);
     height: 36px; max-width: 360px;
-    border-radius: 8px; background: Theme.sunken;
+    border-radius: Look.radius(8px); background: Theme.sunken;
     accessible-role: groupbox;
     accessible-label: root.label;
     HorizontalLayout {
         padding: 3px; spacing: 3px;
         for option[index] in root.options: Rectangle {
-            border-radius: 6px;
+            border-radius: Look.radius(6px);
             background: index == root.current ? Theme.active : choice.has-hover ? Theme.hover : transparent;
             animate background { duration: Theme.quick; }
             accessible-role: button;
@@ -342,18 +348,18 @@ export component SettingsCard inherits Rectangle {
     in property <float> motion: 1;
     in property <length> margin: ClientStyle.settings-margin;
     callback close;
-    Rectangle { background: #000000b3; opacity: root.motion; }
+    Rectangle { background: Theme.scrim(#000000b3); opacity: root.motion; }
     TouchArea { clicked => { root.close(); } }
     Rectangle {
         width: min(ClientStyle.settings-width, root.width - root.margin);
         height: min(ClientStyle.settings-height, root.height - root.margin);
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
-        border-radius: 12px; border-width: 1px; border-color: Theme.edge;
+        border-radius: Look.radius(12px); border-width: 1px; border-color: Theme.edge;
         // The shadow shows once the card is open: a card this large costs
         // a blurred image as large to draw again each frame it grows.
-        drop-shadow-blur: 24px; drop-shadow-color: root.motion == 1 ? #00000080 : transparent; drop-shadow-offset-y: 8px;
+        drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: root.motion == 1 ? Look.shadow-color(#00000080) : transparent; drop-shadow-offset-y: Look.shadow-y(8px);
         Rectangle {
-            border-radius: 12px; clip: true;
+            border-radius: Look.radius(12px); clip: true;
             @children
         }
     }
@@ -459,9 +465,9 @@ export component AccountSettings inherits VerticalLayout {
     callback edit-profile;
     callback sign-out;
     spacing: 16px;
-    SettingsTitle { text: "My account"; }
+    SettingsTitle { title: "My account"; }
     Rectangle {
-        background: Theme.sidebar; border-radius: 8px;
+        background: Theme.sidebar; border-radius: Look.radius(8px);
         HorizontalLayout {
             padding: 16px; spacing: 16px;
             Middle { Avatar { size: 64px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; decoration-url: AccountLook.decoration-url; } }
@@ -575,7 +581,7 @@ export component VoiceSettings inherits VerticalLayout {
     /// Starts or stops recording the push-to-talk key.
     callback record-talk-key(bool);
     spacing: 16px;
-    SettingsTitle { text: "Voice & video"; }
+    SettingsTitle { title: "Voice & video"; }
     // Each row's two columns take half the width each, whatever is in them:
     // a column starts at its least width and stretches from there, so none
     // has one.
@@ -615,7 +621,7 @@ export component VoiceSettings inherits VerticalLayout {
             spacing: 8px; horizontal-stretch: 1; min-width: 0; preferred-width: 0;
             SettingsHeading { text: "PREVIEW"; }
             Rectangle {
-                height: self.width * 9 / 16; border-radius: 8px; background: #000000; clip: true;
+                height: self.width * 9 / 16; border-radius: Look.radius(8px); background: #000000; clip: true;
                 accessible-role: image; accessible-label: root.camera-testing ? "Your camera" : "Camera preview, off";
                 if root.camera-testing: Image { width: parent.width; height: parent.height; source: root.camera-preview; image-fit: contain; }
                 // Black in every theme, as a camera's picture.
@@ -695,7 +701,7 @@ export component VoiceSettings inherits VerticalLayout {
                 selected => { root.entrance-server = self.current-index; root.entrance-server-chosen(self.current-index); }
             }
             Rectangle {
-                horizontal-stretch: 1; min-width: 0; height: 36px; border-radius: 8px; background: Theme.sunken;
+                horizontal-stretch: 1; min-width: 0; height: 36px; border-radius: Look.radius(8px); background: Theme.sunken;
                 accessible-role: text; accessible-label: "Entrance sound";
                 accessible-value: root.entrance-sound != "" ? root.entrance-sound : "None";
                 Text {
@@ -760,7 +766,7 @@ export component VoiceSettings inherits VerticalLayout {
         HorizontalLayout {
             spacing: 8px; alignment: start;
             Rectangle {
-                width: 200px; height: 36px; border-radius: 8px; background: Theme.sunken;
+                width: 200px; height: 36px; border-radius: Look.radius(8px); background: Theme.sunken;
                 border-width: root.talk-recording ? 2px : 0px; border-color: Theme.accent;
                 accessible-role: text;
                 accessible-label: "Push to talk keybind";
@@ -841,14 +847,14 @@ component ThemeTile inherits Rectangle {
     in property <bool> current;
     callback choose();
     callback edit();
-    border-radius: 10px;
+    border-radius: Look.r(Look.tile, 10px);
     border-width: root.current || focus.has-focus ? 2px : 1px;
     border-color: root.current || focus.has-focus ? Theme.accent : pointer.has-hover ? Theme.faint : Theme.line;
     background: pointer.has-hover ? Theme.hover : transparent;
     animate background, border-color { duration: Theme.quick; }
     preview := Rectangle {
         x: 8px; y: 8px; width: parent.width - 16px; height: 78px;
-        border-radius: 6px; clip: true; background: root.card.chat;
+        border-radius: Look.radius(6px); clip: true; background: root.card.chat;
         // The rail with three servers, the first selected.
         Rectangle {
             x: 0px; width: 16px; background: root.card.rail;
@@ -861,7 +867,7 @@ component ThemeTile inherits Rectangle {
         Rectangle {
             x: 16px; width: 38px; background: root.card.sidebar;
             for index in 4: Rectangle {
-                x: 6px; y: 8px + index * 11px; height: 4px; border-radius: 2px;
+                x: 6px; y: 8px + index * 11px; height: 4px; border-radius: Look.radius(2px);
                 width: index == 1 ? 24px : 18px + mod(index, 2) * 4px;
                 background: index == 1 ? root.card.text : root.card.muted;
             }
@@ -869,14 +875,14 @@ component ThemeTile inherits Rectangle {
         // Two messages and the composer.
         for index in 2: Rectangle {
             x: 60px; y: 8px + index * 22px; width: parent.width - 66px; height: 16px;
-            Rectangle { x: 0px; y: 0px; width: 10px; height: 10px; border-radius: 5px; background: index == 0 ? root.card.accent : root.card.muted; }
-            Rectangle { x: 14px; y: 1px; width: index == 0 ? 22px : 16px; height: 4px; border-radius: 2px; background: root.card.text; }
-            Rectangle { x: 14px; y: 8px; width: min(parent.width - 14px, index == 0 ? 52px : 40px); height: 3px; border-radius: 1.5px; background: root.card.muted; }
+            Rectangle { x: 0px; y: 0px; width: 10px; height: 10px; border-radius: Look.radius(5px); background: index == 0 ? root.card.accent : root.card.muted; }
+            Rectangle { x: 14px; y: 1px; width: index == 0 ? 22px : 16px; height: 4px; border-radius: Look.radius(2px); background: root.card.text; }
+            Rectangle { x: 14px; y: 8px; width: min(parent.width - 14px, index == 0 ? 52px : 40px); height: 3px; border-radius: Look.radius(1.5px); background: root.card.muted; }
         }
         Rectangle {
             x: 60px; y: parent.height - 18px; width: parent.width - 66px; height: 12px;
-            border-radius: 4px; background: root.card.raised;
-            Rectangle { x: parent.width - 10px; width: 6px; height: 6px; border-radius: 3px; background: root.card.accent; }
+            border-radius: Look.radius(4px); background: root.card.raised;
+            Rectangle { x: parent.width - 10px; width: 6px; height: 6px; border-radius: Look.radius(3px); background: root.card.accent; }
         }
     }
     HorizontalLayout {
@@ -886,7 +892,7 @@ component ThemeTile inherits Rectangle {
             font-weight: root.current ? 700 : 500; vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
         }
         if root.current: Image {
-            width: 16px; source: @image-url("icons/check.svg"); colorize: Theme.accent; image-fit: contain;
+            width: 16px; source: @image-url("icons/check.svg"); colorize: Theme.accent-text; image-fit: contain;
         }
     }
     focus := FocusScope {
@@ -917,7 +923,7 @@ component ThemeColourRow inherits HorizontalLayout {
     spacing: 10px;
     Middle {
         Rectangle {
-            width: 28px; height: 28px; border-radius: 6px; background: root.colour.colour;
+            width: 28px; height: 28px; border-radius: Look.radius(6px); background: root.colour.colour;
             border-width: 1px; border-color: Theme.line;
         }
     }
@@ -957,6 +963,15 @@ export component AppearanceSettings inherits VerticalLayout {
     in property <int> start-index;
     in property <bool> can-save;
     callback choose-theme(string);
+    /// The theme shown before the last one chosen, one click back; empty for
+    /// none.
+    in property <string> previous-name;
+    callback revert-theme();
+    /// How much of an installed theme runs: 0 Full, 1 Balanced, 2 Light.
+    in property <int> performance;
+    callback performance-chosen(int);
+    in-out property <bool> reduce-motion;
+    callback reduce-motion-toggled(bool);
     callback new-theme();
     callback edit-theme(string);
     callback start-chosen(int);
@@ -971,7 +986,7 @@ export component AppearanceSettings inherits VerticalLayout {
     in property <bool> title-bar-choice;
     callback title-bar-toggled();
     spacing: 16px;
-    SettingsTitle { text: "Appearance"; }
+    SettingsTitle { title: "Appearance"; }
     if !root.editor: VerticalLayout {
         spacing: 8px;
         HorizontalLayout {
@@ -997,6 +1012,33 @@ export component AppearanceSettings inherits VerticalLayout {
                 choose => { root.choose-theme(card.id); }
                 edit => { root.edit-theme(card.id); }
             }
+        }
+    }
+    if !root.editor && root.previous-name != "": HorizontalLayout {
+        alignment: start;
+        ActionButton {
+            text: "Back to " + root.previous-name; small: true; icon: @image-url("icons/arrow-left.svg");
+            clicked => { root.revert-theme(); }
+        }
+    }
+    if !root.editor: VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "THEME PERFORMANCE"; }
+        Choices {
+            label: "Theme performance"; options: ["Full", "Balanced", "Light"];
+            current: root.performance; controlled: true;
+            chosen(index) => { root.performance-chosen(index); }
+        }
+        Label {
+            text: root.performance == 0 ? "Everything an installed theme has: every animation, at the rate it asks for."
+                : root.performance == 1 ? "Heavy animations stay still, the rest run at up to 30 frames a second and pause while Yapfast isn't focused."
+                : "Colours, fonts, shapes and spacing only: no theme animation, effect or motion.";
+        }
+        SettingsSwitch {
+            text: "Reduce motion";
+            description: "Themes' animations, text effects and hover motion stay still, whatever the setting above.";
+            checked <=> root.reduce-motion;
+            toggled(on) => { root.reduce-motion-toggled(on); }
         }
     }
     if !root.editor && root.title-bar-choice: SettingsSwitch {
@@ -1130,10 +1172,10 @@ export component MessageSettings inherits VerticalLayout {
     in property <bool> discord;
     callback preferences-changed;
     spacing: 16px;
-    SettingsTitle { text: "Messages"; }
+    SettingsTitle { title: "Messages"; }
     // A message as the chosen text size and clock show it.
     Rectangle {
-        border-radius: 8px; border-width: 1px; border-color: Theme.line;
+        border-radius: Look.radius(8px); border-width: 1px; border-color: Theme.line;
         accessible-role: groupbox; accessible-label: "Preview";
         HorizontalLayout {
             padding: 16px; spacing: 16px;
@@ -1239,7 +1281,7 @@ export component NotificationSettings inherits VerticalLayout {
     in property <bool> discord;
     callback preferences-changed;
     spacing: 16px;
-    SettingsTitle { text: "Notifications"; }
+    SettingsTitle { title: "Notifications"; }
     SettingsSwitch {
         text: "Show desktop notifications";
         description: "For new messages while Yapfast isn't in front. "
@@ -1280,7 +1322,7 @@ export component SoundSettings inherits VerticalLayout {
     callback play(int);
     property <[string]> names: ["Someone joins the call", "Someone leaves the call", "Muting", "Unmuting", "Deafening", "Undeafening", "A message", "A mention", "Someone starts watching a stream", "Someone stops watching a stream", "Someone starts streaming", "Someone stops streaming"];
     spacing: 16px;
-    SettingsTitle { text: "Sounds"; }
+    SettingsTitle { title: "Sounds"; }
     Label { text: "Yapfast plays these as you and others join and leave a call, as you mute and deafen, as others start and stop streaming, as they start and stop watching your stream or the one you watch, and for messages that notify, except in the conversation in front of you. They play on the speakers chosen for calls."; }
     VerticalLayout {
         spacing: 8px;
@@ -1335,7 +1377,7 @@ export component AdvancedSettings inherits VerticalLayout {
     callback preferences-changed;
     callback restart;
     spacing: 16px;
-    SettingsTitle { text: "Advanced"; }
+    SettingsTitle { title: "Advanced"; }
 
     if root.autostart-available: SettingsSwitch {
         text: "Start when you sign in";
@@ -1409,7 +1451,7 @@ export component DiscordLinkSettings inherits VerticalLayout {
     callback link-discord-token(string);
     callback open-discord-captcha;
     spacing: 16px;
-    SettingsTitle { text: "Discord"; }
+    SettingsTitle { title: "Discord"; }
     Label { text: "Link your Discord account to see its servers and DMs in Yapfast, and join its calls. The login stays on this computer, in the system's credential store."; }
     DiscordLinkPanel {
         phase: root.link-phase; code: root.link-code; name: root.link-name; note: root.link-note;
@@ -1436,7 +1478,7 @@ export component GameActivitySettings inherits VerticalLayout {
     private property <bool> invalid-game;
     private property <int> editing-game: -1;
     spacing: 16px;
-    SettingsTitle { text: "Game activity"; }
+    SettingsTitle { title: "Game activity"; }
     SettingsSwitch {
         text: "Share the game you play";
         description: "Yapfast looks for games among the programs running, and on Linux takes the Rich Presence games send. Your Discord account keeps this setting, so it's the same in Discord's apps.";
@@ -1496,7 +1538,7 @@ export component DiscordSettings inherits VerticalLayout {
     callback sync-discord-reads-toggled(bool);
     callback show-idle-toggled(bool);
     spacing: 16px;
-    SettingsTitle { text: "Discord"; }
+    SettingsTitle { title: "Discord"; }
     if root.matrix-build: HorizontalLayout {
         spacing: 12px;
         Label { text: "Unlinking signs Yapfast out of Discord on this computer."; vertical-alignment: center; horizontal-stretch: 1; }
@@ -1536,7 +1578,7 @@ export component DiscordSettings inherits VerticalLayout {
             spacing: 12px; padding-top: 8px;
             Middle {
                 Rectangle {
-                    width: 40px; height: 40px; border-radius: 20px; background: Theme.raised;
+                    width: 40px; height: 40px; border-radius: Look.radius(20px); background: Theme.raised;
                     Image { source: @image-url("icons/ban.svg"); width: 20px; height: 20px; colorize: Theme.secondary; }
                 }
             }

@@ -1,5 +1,6 @@
 import { ScrollView, ListView } from "scrollview.slint";
-import { Theme, Middle, Label } from "theme.slint";
+import { ThemesTab } from "themes.slint";
+import { Theme, Middle, Label, Look } from "theme.slint";
 import { ActionButton, Avatar, IconButton, TextField, VolumeSlider } from "controls.slint";
 import { SettingsTitle, SettingsHeading, SettingsSwitch, Choices, Picker } from "settings.slint";
 import { PluginPart, PluginWidgets } from "plugins.slint";
@@ -167,7 +168,7 @@ export global PluginPage {
     /// The installed plugins as cards, in pairs, so a grid of them needs no
     /// wrapping layout.
     in property <[[InstalledRow]]> card-rows;
-    /// 0 Marketplace, 1 Installed, 2 Add from URL.
+    /// 0 Marketplace, 1 Installed, 2 Add from URL, 3 Themes.
     in property <int> tab: 1;
     in property <[InstalledRow]> installed;
     /// What's wrong with the helper, in words, and its tone; empty while
@@ -296,7 +297,7 @@ component Badge inherits Rectangle {
     in property <color> ink: Theme.live;
     in property <image> icon;
     height: 22px; width: badge.preferred-width;
-    border-radius: 11px; background: root.ink.with-alpha(0.14);
+    border-radius: Look.radius(11px); background: root.ink.with-alpha(0.14);
     accessible-role: AccessibleRole.text; accessible-label: root.text;
     badge := HorizontalLayout {
         padding-left: 8px; padding-right: 8px; spacing: 4px;
@@ -315,7 +316,7 @@ component EmptyState inherits VerticalLayout {
     HorizontalLayout {
         alignment: center;
         Rectangle {
-            width: 64px; height: 64px; border-radius: 32px; background: Theme.raised;
+            width: 64px; height: 64px; border-radius: Look.radius(32px); background: Theme.raised;
             Image { source: root.icon; width: 28px; height: 28px; colorize: Theme.muted; }
         }
     }
@@ -376,7 +377,7 @@ component PageDialog inherits Rectangle {
     callback cancel;
     shade := Rectangle {
         x: -1000px; y: -1000px; width: root.width + 2000px; height: root.height + 2000px;
-        background: #00000099;
+        background: Theme.scrim(#00000099);
         TouchArea { clicked => { root.cancel(); } }
     }
     keys := FocusScope {
@@ -389,8 +390,8 @@ component PageDialog inherits Rectangle {
     card := Rectangle {
         width: min(root.width - 32px, 480px);
         height: min(root.height - 32px, body.preferred-height);
-        border-radius: 12px; background: Theme.chat; border-width: 1px; border-color: Theme.edge;
-        drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
+        border-radius: Look.r(Look.dialog, 12px); background: Theme.chat; border-width: Look.bw(Look.dialog, 1px); border-color: Look.bc(Look.dialog, Theme.edge);
+        drop-shadow-blur: Look.sb(Look.dialog, 24px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000080); drop-shadow-offset-y: Look.sy(Look.dialog, 8px);
         clip: true;
         accessible-role: groupbox; accessible-label: root.label;
         TouchArea { }
@@ -422,7 +423,7 @@ component ReviewDialog inherits PageDialog {
     }
     if PluginPage.review.reviewed: Badge { text: "Reviewed"; icon: @image-url("icons/check.svg"); }
     if !PluginPage.review.reviewed: Rectangle {
-        border-radius: 8px; background: Theme.loud.with-alpha(0.12);
+        border-radius: Look.radius(8px); background: Theme.loud.with-alpha(0.12);
         HorizontalLayout {
             padding: 10px; spacing: 10px;
             Image { source: @image-url("icons/triangle-alert.svg"); width: 18px; height: 18px; colorize: Theme.loud; }
@@ -446,9 +447,9 @@ component ReviewDialog inherits PageDialog {
                 if PluginPage.review.source-link != "": FactLink { text: PluginPage.review.source; url: PluginPage.review.source-link; font-size: 13px; }
                 HorizontalLayout {
                     spacing: 7px;
-                    Text { text: "Commit"; color: Theme.muted; font-size: 12px; font-family: "monospace"; vertical-alignment: center; }
+                    Text { text: "Commit"; color: Theme.muted; font-size: 12px; font-family: Look.mono; vertical-alignment: center; }
                     if PluginPage.review.commit-link == "": Text {
-                        text: PluginPage.review.commit; color: Theme.muted; font-size: 12px; font-family: "monospace";
+                        text: PluginPage.review.commit; color: Theme.muted; font-size: 12px; font-family: Look.mono;
                         horizontal-stretch: 1;
                     }
                     if PluginPage.review.commit-link != "": FactLink {
@@ -508,7 +509,7 @@ component UninstallDialog inherits PageDialog {
 // status, and Update when there is one. A click opens its page.
 component InstalledRow inherits Rectangle {
     in property <InstalledRow> plugin;
-    min-height: 64px; border-radius: 8px;
+    min-height: 64px; border-radius: Look.radius(8px);
     background: open.has-hover || focus.has-focus ? Theme.hover : Theme.sidebar;
     border-width: focus.has-focus ? 2px : 0px; border-color: Theme.accent;
     focus := FocusScope {
@@ -551,7 +552,7 @@ component InstalledRow inherits Rectangle {
 // line it logged last, laid out to be scanned in a grid.
 component InstalledCard inherits Rectangle {
     in property <InstalledRow> plugin;
-    min-height: 124px; border-radius: 12px;
+    min-height: 124px; border-radius: Look.radius(12px);
     background: open.has-hover || focus.has-focus ? Theme.hover : Theme.sidebar;
     border-width: focus.has-focus ? 2px : 0px; border-color: Theme.accent;
     focus := FocusScope {
@@ -588,7 +589,7 @@ component InstalledCard inherits Rectangle {
         if root.plugin.log != "": Text {
             text: root.plugin.log;
             color: root.plugin.log-error ? Theme.danger-text : Theme.faint;
-            font-size: 12px; font-family: "monospace"; overflow: elide;
+            font-size: 12px; font-family: Look.mono; overflow: elide;
         }
         if root.plugin.update != "": HorizontalLayout {
             alignment: start;
@@ -737,7 +738,7 @@ component FormRow inherits VerticalLayout {
         acted(plugin, slot, id, value, subject) => { PluginPage.setting-widget(root.item.key, id, value); }
     }
     if root.item.shape == 4 && root.item.widget.rows.length == 0: Rectangle {
-        border-radius: 8px; border-width: 1px; border-color: Theme.edge; min-height: 48px;
+        border-radius: Look.radius(8px); border-width: 1px; border-color: Theme.edge; min-height: 48px;
         Label { text: "The plugin draws this while it runs."; }
     }
 }
@@ -850,14 +851,14 @@ component PluginDetailView inherits VerticalLayout {
     }
     if PluginPage.detail.log.length == 0: Label { text: "Nothing logged this session."; }
     if PluginPage.detail.log.length > 0: Rectangle {
-        border-radius: 8px; background: Theme.sunken;
+        border-radius: Look.radius(8px); background: Theme.sunken;
         VerticalLayout {
             padding: 10px; spacing: 2px;
             for line in PluginPage.detail.log: HorizontalLayout {
                 spacing: 10px;
-                Text { text: line.at; color: Theme.faint; font-size: 12px; font-family: "monospace"; }
+                Text { text: line.at; color: Theme.faint; font-size: 12px; font-family: Look.mono; }
                 Text {
-                    text: line.text; wrap: word-wrap; horizontal-stretch: 1; font-size: 12px; font-family: "monospace";
+                    text: line.text; wrap: word-wrap; horizontal-stretch: 1; font-size: 12px; font-family: Look.mono;
                     color: line.error ? Theme.danger-text : Theme.secondary;
                 }
             }
@@ -986,9 +987,9 @@ export component PluginSettings inherits Rectangle {
     vertical-stretch: 1;
     page := VerticalLayout {
         spacing: 16px;
-        SettingsTitle { text: "Plugins"; }
+        SettingsTitle { title: "Plugins"; }
         Choices {
-            label: "Plugins"; options: ["Marketplace", "Installed", "Add from URL"];
+            label: "Plugins"; options: ["Marketplace", "Installed", "Add from URL", "Themes"];
             current: PluginPage.tab; controlled: true;
             chosen(index) => { PluginPage.tab-chosen(index); }
         }
@@ -1108,7 +1109,7 @@ export component PluginSettings inherits Rectangle {
             }
             if PluginPage.find-progress != "": Label { text: PluginPage.find-progress; font-size: 14px; color: Theme.secondary; }
             if PluginPage.find-error != "": Rectangle {
-                border-radius: 8px; background: Theme.danger.with-alpha(0.12);
+                border-radius: Look.radius(8px); background: Theme.danger.with-alpha(0.12);
                 accessible-role: AccessibleRole.text; accessible-label: PluginPage.find-error;
                 HorizontalLayout {
                     padding: 10px; spacing: 10px;
@@ -1118,7 +1119,9 @@ export component PluginSettings inherits Rectangle {
             }
         }
 
-        AdvancedFooter { open => { root.advanced = true; } }
+        if PluginPage.tab == 3: ThemesTab { vertical-stretch: 1; }
+
+        if PluginPage.tab != 3: AdvancedFooter { open => { root.advanced = true; } }
     }
     if root.advanced: AdvancedDialog { done => { root.advanced = false; } }
     if root.resetting && PluginPage.detail-open: ResetDialog { done => { root.resetting = false; } }

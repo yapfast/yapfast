@@ -4,7 +4,7 @@
 // structs. Everything a plugin draws carries its name, so it can't pass for
 // Yapfast's own interface.
 import { ComboBox } from "std-widgets.slint";
-import { Theme, Middle } from "theme.slint";
+import { Theme, Middle, Look } from "theme.slint";
 import { ActionButton, IconButton, TextField, VolumeSlider } from "controls.slint";
 import { SettingsToggle } from "yapfast/settings-toggle.slint";
 
@@ -160,16 +160,16 @@ component PluginCellView inherits HorizontalLayout {
         accessible-role: text;
     }
     if root.cell.kind == PluginKind.code: Rectangle {
-        horizontal-stretch: 1; background: Theme.sunken; border-radius: 4px;
+        horizontal-stretch: 1; background: Theme.sunken; border-radius: Look.radius(4px);
         min-height: code-text.preferred-height + 8px;
         code-text := Text {
-            x: 6px; width: parent.width - 12px; text: root.cell.text; color: root.ink; font-family: "monospace"; font-size: 13px; wrap: word-wrap;
+            x: 6px; width: parent.width - 12px; text: root.cell.text; color: root.ink; font-family: Look.mono; font-size: 13px; wrap: word-wrap;
             accessible-role: text;
         }
     }
     if root.cell.kind == PluginKind.badge: Middle {
         Rectangle {
-            height: 18px; width: badge-text.preferred-width + 12px; border-radius: 9px;
+            height: 18px; width: badge-text.preferred-width + 12px; border-radius: Look.radius(9px);
             background: root.ink.with-alpha(0.18);
             accessible-role: text; accessible-label: root.cell.text;
             badge-text := Text { text: root.cell.text; color: root.ink; font-size: 12px; font-weight: 700; }
@@ -222,10 +222,10 @@ component PluginCellView inherits HorizontalLayout {
     }
     if root.cell.kind == PluginKind.progress: Middle {
         Rectangle {
-            horizontal-stretch: 1; height: 6px; border-radius: 3px; background: Theme.field;
+            horizontal-stretch: 1; height: 6px; border-radius: Look.radius(3px); background: Theme.field;
             accessible-role: progress-indicator; accessible-label: root.cell.text; accessible-value: root.cell.value;
             Rectangle {
-                x: 0px; width: parent.width * max(0, min(1, root.cell.amount)); border-radius: 3px;
+                x: 0px; width: parent.width * max(0, min(1, root.cell.amount)); border-radius: Look.radius(3px);
                 background: root.cell.tone == PluginTone.normal ? Theme.accent : root.ink;
             }
         }
@@ -351,8 +351,8 @@ export component PluginToast inherits Rectangle {
     callback acted(string, string, string, string, string);
     callback dismissed(string, string);
     width: 340px; height: toast-content.preferred-height;
-    background: Theme.raised; border-radius: 8px; border-width: 1px; border-color: Theme.edge;
-    drop-shadow-blur: 16px; drop-shadow-color: #00000066; drop-shadow-offset-y: 4px;
+    background: Theme.raised; border-radius: Look.radius(8px); border-width: 1px; border-color: Theme.edge;
+    drop-shadow-blur: Look.shadow-blur(16px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066); drop-shadow-offset-y: Look.shadow-y(4px);
     accessible-role: groupbox;
     accessible-label: root.part.name;
     hover := TouchArea {}
