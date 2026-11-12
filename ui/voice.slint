@@ -1383,14 +1383,13 @@ export component ShareMenu inherits Rectangle {
     in-out property <int> pick-source;
     in-out property <int> pick-resolution;
     in-out property <int> pick-fps;
-    /// The encoder's slower preset: a sharper picture for more of the
-    /// machine. Which machine works harder is the encoder's: the processor's
-    /// for twice the CPU, the card's for its slowest preset; see
-    /// `card-encoding`.
+    /// The processor's encoder's slower preset: a sharper picture for about
+    /// twice the CPU. Presets are the processor's encoder's to choose between;
+    /// see `card-encoding`.
     in-out property <bool> pick-high-quality;
-    /// Whether the graphics card's encoder takes this share. It changes what
-    /// the row above costs: NVENC's p7 rather than p4, which is the card's
-    /// time rather than the processor's, so the row says which it is.
+    /// Whether the graphics card's encoder takes this share. It has one tuning —
+    /// the slower presets measure the same for half again the encode time — so
+    /// the row above says that here and can't be ticked.
     in property <bool> card-encoding;
     callback go-live(int, int, int, bool);
     /// The menu's height with every choice showing. In a window too short for
@@ -1484,9 +1483,10 @@ export component ShareMenu inherits Rectangle {
                 if !root.switching: MenuItem {
                     text: "Higher quality";
                     subtitle: root.card-encoding
-                        ? "Sharper, at a slower setting on the card"
+                        ? "The card's encoder has one tuning"
                         : "Sharper, at twice the CPU";
                     checkbox: true; checked: root.pick-high-quality;
+                    disabled: root.card-encoding;
                     clicked => { root.pick-high-quality = !root.pick-high-quality; }
                 }
             }

@@ -170,11 +170,13 @@ switched to, is made at once, since nothing sent can be repaired without it.
 Before sharing, the share button's menu picks a resolution and a frame rate, as
 Discord's client asks for them: 720p, 1080p or the screen's own size (up to
 4K), at 15, 30 or 60 fps. Its "Higher quality" checkbox, which Discord's client
-doesn't have, has the encoder work harder on each frame, for a sharper picture
-at the same bitrate: x264's or libvpx's slower preset on the processor, which
-costs about twice the CPU, or NVENC's slowest preset, p7 in place of p4, on the
-card, which costs it time the game's frames would have had. The row says which
-of the two it asks for. Yapfast remembers the choice
+doesn't have, has the processor's encoder work harder on each frame: x264's or
+libvpx's slower preset, for a sharper picture at the same bitrate and about
+twice the CPU. The graphics card's encoders run the one tuning the measurements
+leave standing (`native/hwenc.c`), so with "Encode streams with the GPU" on the
+row says that and can't be ticked: a slower preset there buys 0.18 dB for half
+again the encode time, and adaptive quantization is worse than none on a screen
+(`docs/measurements/README.md`). Yapfast remembers the choice
 beside the chosen audio devices (`devices.json`), and starts at 1080p30 without
 it. Larger screens are scaled down to fit, and one of another shape keeps its
 shape: the box a share fits in is named landscape, and it turns with the
@@ -707,11 +709,14 @@ against x264's defaults. The bitrate peaks at the target over half a second's
 buffer; a second's buffer let a second reach twice the cap, and a two-frame
 buffer starved keyframes. Capped CRF ran past Discord's cap.
 
-NVENC takes the same choice from the same box: `NVENC_TUNINGS` in
-`native/hwenc.c` has a row per effort, p4 for a share as it comes and p7 for
-"Higher quality", with every other setting the same. p7 is the slowest preset
-and the card's time is the game's, so it is a choice rather than the default;
-nothing in either row holds a frame back, so the picture's delay is the same.
+NVENC is not asked to do more, and the measurements are why: `NVENC_TUNINGS` in
+`native/hwenc.c` and in `native/d3d11enc.c` has one row, p4 with every setting
+around it measured, and the slower presets, adaptive quantization, `multipass`
+and more reference frames were each tried against it at a fixed bitrate — screen
+content and synthetic — and none of them bought a picture worth a setting
+(`docs/measurements/README.md`). So the card's picture is its bitrate and its
+codec, and what a share is worth at a resolution is the ceiling's question, not
+the preset's.
 
 ## Encoding on the GPU
 
@@ -921,9 +926,15 @@ its own to ask, so a machine with no NVIDIA card is told that rather than left
 with FFmpeg's driver error, while AMF and VA-API reach their own runtime and
 render node and say what those answered. The colour the stream declares is the
 colour its frames are: capture
-converts to limited-range I420, and the declaration says that. A screen showing HDR hands its frames over as codes of its own scale,
-so capture tonemaps them to SDR's brightness on the way — one pass, in the same
-buffer — while a screen showing SDR is converted exactly as it was. The format it writes is the one the encoder reports it took, NV12
+converts to limited-range I420, and the declaration says that. No curve is put
+over a screen's frames, whatever the screen shows: Windows Graphics Capture is
+asked for `B8G8R8A8UIntNormalized` and the system maps an HDR composition into
+that 8-bit SDR picture itself — measured, a WGC picture of an HDR desktop is the
+desktop's own SDR composition to 1.95 luma levels on average
+(`docs/measurements/README.md`) — so a curve here mapped SDR twice, and a share
+of an HDR screen carries what an SDR screen would show it as. Highlights above
+SDR white are the system's conversion to clip; a tone map of Yapfast's own would
+start with capturing the card's FP16 picture. The format it writes is the one the encoder reports it took, NV12
 or planar I420, and an open that gets neither fails by name rather than
 scrambling the picture. Its frames carry the caller's 90 kHz time rescaled into
 the encoder's own time base, so every engine, and a fallback between them, runs
@@ -937,19 +948,20 @@ time base and rate it settled on are reported at open.
 NVENC's tuning lives in one table in `native/hwenc.c` — preset, tune, rate
 control, zerolatency, frame delay and forced-IDR in a row — so choosing a
 different one is adding a row rather than editing the open path, and what a
-stream actually got is logged at open. Its two rows are the two efforts: p4
-unless the share asked for "Higher quality", and p7 when it did. A row beyond
-those has to earn its place with a measured comparison, not a guess.
+stream actually got is logged at open. There is one row, because the others were
+measured and bought nothing: p7 is 0.18 dB of PSNR-Y for 46 % more wall time on
+screen content, adaptive quantization is worse than none on it, four reference
+frames are within noise and `multipass` underspends the cap
+(`docs/measurements/README.md`). A row beyond it has to earn its place with such
+a comparison, not a guess.
 NVENC, AMF and VA-API change their bitrate as they run, without the IDR frame
 FFmpeg would insert, with a patch to FFmpeg for each (AMF's sets the target,
 peak and buffer on the running encoder). Quick Sync needs no patch: FFmpeg
 applies a new target, cap and buffer to its running session itself, and
 `native/hwenc.c` hands it the same cap-and-target pair it opened with. "Higher
-quality" is the same choice on the GPU as on the processor: NVENC's p7 preset
-in place of p4, which is the card's time rather than the CPU. What the preset
-buys a stream is not measured yet — p7's picture against p4's at the same
-bitrate is the comparison that would say whether it earns its place as a
-default.
+quality" is the processor's box: the card's picture is its bitrate and its
+codec, and the share menu says so when the card encodes rather than offering a
+preset that measures the same.
 
 Where the GPU's encoder encodes AV1 or H265, the stream offers them too,
 first, AV1 before H265, as Discord's client orders them: each looks better

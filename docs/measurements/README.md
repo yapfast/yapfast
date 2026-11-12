@@ -362,6 +362,36 @@ except the preset, three runs each:
 not rank presets at all — two sessions inverted the order, because synchronous
 NVENC spins while the GPU works — so wall time is the cost to read.
 
+**And no card knob buys a sharper picture.** "Higher quality" was carried to the
+card as p7 for a while, so the other levers were measured the same way before it
+there: AV1 NVENC at a fixed bitrate, 480 frames of 1920x1080 at 60 fps against a
+lossless (`ffv1`) reference, once of `testsrc2` and once of this desktop panning
+through a window — screen content's text and UI edges. PSNR-Y and SSIM-Y read the
+whole frame.
+
+| lever, screen content at 6000 kbit/s | wall s | kbit/s | PSNR-Y | SSIM-Y |
+| --- | --- | --- | --- | --- |
+| shipped row: p4, vbr, no AQ | **1.22** | 5991 | **56.692** | **0.99825** |
+| p7 | 1.78 | 5974 | 56.869 | 0.99832 |
+| `refs 4` | 1.25 | 5992 | 56.775 | 0.99828 |
+| `spatial-aq 1 -aq-strength 8` | 1.32 | 6127 | 55.004 | 0.99797 |
+| `spatial-aq 15` | 1.32 | 6209 | 53.283 | 0.99764 |
+| `temporal-aq` | 1.35 | 6140 | 55.548 | 0.99804 |
+| `multipass fullres` | 1.91 | 5305 | 54.616 | 0.99781 |
+
+Nothing there is worth a setting. p7 is **0.18 dB and 0.00007 of SSIM for 46 %
+more wall time**; at 2000 kbit/s the same rows are 53.277 dB for the shipped row
+and 53.240 for p7, so the lever doesn't buy more where the picture is starved
+either. Adaptive quantization is *worse* than nothing on screen content at every
+bitrate tried (at 2000: 52.123 against 53.277, and it overspends the cap by 9 %),
+while on `testsrc2` it trades 0.20 dB of PSNR for 0.0003 of SSIM. Four reference
+frames is within noise (+0.08 dB at 6000, +0.04 at 2000). `multipass` costs half
+again the time and underspends the cap by 12 %, which puts its picture lower, not
+higher.
+
+So the card's picture is its bitrate and its codec, and the box that asks for a
+sharper one stays the processor's: the card's encoder has one tuning.
+
 **The colour claim.** The question assumed BT.709; `hwenc.c` and `d3d11enc.c`
 declare **SMPTE 170M (BT.601) limited**, and that is what the pixels are:
 measured mean absolute error 0.33/0.33/0.41 codes through NVENC's own BGRA→NV12

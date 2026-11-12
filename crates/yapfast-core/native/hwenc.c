@@ -253,13 +253,12 @@ static void set_qsv_rate(AVCodecContext *codec, unsigned kbps) {
  * the slowest, and every step down that ladder is GPU time the same card
  * isn't spending on the game, so the price is paid in the game's frames as
  * well as the encoder's. p4 is where screen recordings and games landed
- * (docs/discord/go-live.md): slower presets looked no better at the bitrates
- * a Discord stream carried. That comparison has not been run again, so p4 is
- * what a share gets unless it asks for more, and p7 is the row the share
- * menu's "Higher quality" box asks for: the slower preset on the same
- * tuning, for a picture worth the card's time. Neither row moves `tune`,
- * `rc`, `zerolatency`, `delay` or `forced_idr`: what a viewer waits for is
- * the same either way.
+ * (docs/discord/go-live.md), and the slower rungs have been measured since:
+ * p7 buys 0.009 dB of PSNR-Y at 1080p30 and 0.18 on screen content at
+ * 1080p60, for a third to a half more wall time, and adaptive quantization is
+ * worse than none on a screen (docs/measurements/README.md). So p4 is the
+ * row, and a row that isn't p4 is a hypothesis about the picture, not a
+ * measured setting.
  *
  * `tune` weights the pictures the encoder spends bits on; `ll` is the
  * low-latency one, and a stream that is a picture someone is waiting for is
@@ -287,11 +286,10 @@ struct nvenc_tuning {
 };
 
 /* The tunings the stream may ask for; the first is the one it asks for when
- * it names none. Rust names one from its `Effort`: p4 for a share as it
- * comes, p7 for one whose menu box asked for the sharper picture. */
+ * it names none. One row, because the others were measured and bought
+ * nothing; see the comment above. */
 static const struct nvenc_tuning NVENC_TUNINGS[] = {
     {"p4", "p4", "ll", "vbr", "1", "0", "1"},
-    {"p7", "p7", "ll", "vbr", "1", "0", "1"},
 };
 
 /* The tuning Rust asked for by name, or the first row when it named none:
