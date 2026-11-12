@@ -4,16 +4,19 @@ A proposal built on `SKELETON_PLUGIN_DRAFT.md`. It answers each question the
 draft raises, and backs the memory and speed decisions with numbers measured
 against Extism 1.41.0 (wasmtime 49.0.5) and against this repository's code.
 
-**Status:** M1 wired and M2's install path in place. The runtime starts with the
-session, the Plugins page draws it (`plugins_page` and `attach`), a plugin
+**Status:** M1 and M2 wired, M3–M7 in place, M9 started. The runtime starts with
+the session, the Plugins page draws it (`plugins_page` and `attach`), a plugin
 installed in a store receives `message_create` and disabling it ends the helper
 (`crates/yapfast-core/tests/plugins_runtime.rs`), and a `#path=` URL is fetched
 by the helper, reviewed, installed, rolled back and removed
-(`crates/yapfast-core/tests/plugins_install.rs`). M0 still has not exited: its
-latency budget is not met by the current Windows measurements, and Linux and
-Go/Rust checks remain. Exact-commit fetch against the four hosts, the
-marketplace, a plugin's own settings form and the memory budgets are still to
-come.
+(`crates/yapfast-core/tests/plugins_install.rs`). The consent dialog holds a
+request until the person answers it, a hook chain runs inside a budget for each
+plugin and for the whole, a plugin draws in the interface's slots and dialogs,
+the marketplace is read while its page is open, and a plugin can call another,
+publish to whoever subscribed, and be reloaded from a folder
+(`docs/plugins/`). M0 still has not exited: its latency budget is not met by the
+current Windows measurements, and Linux and Go/Rust checks remain. What each of
+M3–M9 still wants is listed at its milestone below.
 
 ---
 
@@ -1476,6 +1479,14 @@ Capabilities enforced, consent and host dialogs, the network gate, grants UI.
 
 **Exit:** every test in [§14](#14-testing) under *Security* passes.
 
+What is in place: the gate with its transport, the consent dialog that holds the
+request until it is answered (one dialog per plugin, same-host requests merged,
+three refusals silencing the rest), grants stored or for the session, revoking
+from a plugin's page, and the §14 security tests in
+`crates/yapfast-core/tests/plugins_gate.rs`. Still to come: the test for the
+unmodified theme while a consent dialog is open, and the four-host exact-commit
+fetch M2 lists.
+
 ### M4: Core hooks
 
 `pre_send` and `pre_edit` with chains and budgets, commands and `/` UI,
@@ -1483,6 +1494,14 @@ storage, generated settings form, timers. JSON cost measured.
 
 **Exit:** a filter plugin edits outgoing text within budget; a hung plugin
 can't delay a send by more than 100 ms.
+
+What is in place: the chain runs one plugin at a time inside 25 ms each and
+100 ms for the chain, enforced in the helper, and a plugin that misses its own
+is discarded while the chain carries the subject on
+(`crates/yapfast-plugin-host/tests/e2e.rs`, `plugins_runtime.rs`); commands and
+the composer's `/` list; the generated settings form and `settings.on_change`
+without a restart; and a hook's JSON cost measured
+(`docs/measurements/README.md#a-hooks-json`).
 
 ### M5: UI slots
 
@@ -1492,12 +1511,32 @@ visible-only flow, banners, toasts, dialogs.
 **Exit:** scrolling a decorated channel shows no measurable frame-time
 regression; a11y reviewed; light and dark screenshots from `scripts/ui-session`.
 
+What is in place: `ui.set_slot`, `ui.clear_slot`, `ui.notice`, `ui.toast` and
+`ui.open_dialog` answered by the bridge, coalesced to one drawing per slot each
+frame and ten frames a second; the widget renderer, banners, toasts, composer
+buttons, hover-bar buttons, the dialog slot, and a plugin's trees going with it
+when it is turned off. Still to come: `message.decorate` (the `yf_decorate`
+export no call path reaches), the hover bar in the thread beside a channel, rail
+items, header buttons, member badges and profile sections; the a11y pass, the
+light and dark screenshots, and the frame-time measurement.
+
 ### M6: Marketplace
 
 Registry repository and CI, catalog fetch, browsing, icons, reviewed badges,
 update flow.
 
 **Exit:** close the page and `malloc_stats` returns to its prior level.
+
+What is in place: `plugins/marketplace.rs` reads a registry repository through
+the helper's `catalog` subcommand, refuses a tampered pin, a hash that doesn't
+match, an entry without a licence or a source, a bare `*` host and an oversized
+icon; listings carry the icon's bytes and *Reviewed*; an install is checked
+against the entry it came from; an update that adds a capability shows its
+review; and the catalog and its icons are dropped when the page closes
+(`crates/yapfast-core/tests/plugins_marketplace.rs`,
+`docs/plugins/marketplace.md`). Still to come: a `HEAD`-only catalog fetch, the
+daily remote-refs check that offers an update, auto-update for marketplace
+plugins, and the registry repository's own CI calling `verify-entry`.
 
 ### M7: Dependencies and dev tools
 
@@ -1506,6 +1545,14 @@ hand-off.
 
 **Exit:** updating a depended-on plugin leaves no moment with a dependent
 running against nothing.
+
+What is in place: `plugin.call` along declared edges with a loop refused by name,
+`plugin.publish`/`subscribe` delivered in the subscriber's next event batch, an
+update that stops dependents outermost first and starts them again after with
+the state handed across (`an_update_stops_dependents_first_and_no_dependent_runs_against_nothing`),
+and a folder plugin that reloads when its files change, polled on the session's
+own clock. Still to come: a major-version update reactivating dependents after
+re-checking their requirement (§4), and the poll running while no instance does.
 
 ### M8: Hardening, packaging, default on
 
@@ -1520,6 +1567,17 @@ written and documented as untested, with [§9.5](#95-sandbox-of-the-helper-m8)'s
 checklist waiting for a real MacBook.
 
 ### M9: API breadth
+
+What is in place: the reads (`app.version|locale|theme_mode`, `account.me`,
+`rooms.selected|get|list`, `messages.get|history`, `people.get|member`) answered
+from published state (`plugins/world.rs`), and two of the outbound gates,
+`typing.pre_send` and `attachment.pre_upload`. Still to come: items 1's extra
+events (`presence`, `speaking` have no tap), item 2 (`identity.decorate`,
+`code_block.render`, providers), item 3 (`messages.send|edit|delete|react|jump_to`,
+the `composer` calls, `notify.send`, `clipboard.write`, `open.url`, `media.get`,
+retention, `activity.pre_publish`, and the curated actions), item 4 (audio and
+the microphone), and item 5 (§11.7's changes to built-in UI beyond the part
+hides and the colour and size overlay `plugins/ui.rs` already derives).
 
 The rest of [§17.2](#172-additions-to-the-api), in this order:
 
