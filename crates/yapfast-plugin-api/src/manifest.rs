@@ -234,6 +234,12 @@ impl Activation {
         self.on.iter().any(|trigger| trigger == "code")
     }
 
+    /// The plugin asks to badge people in the member list, as
+    /// `yf_member_decorate`.
+    pub fn decorates_members(&self) -> bool {
+        self.on.iter().any(|trigger| trigger == "member.decorate")
+    }
+
     /// The event names this activation subscribes to, without the prefix.
     pub fn events(&self) -> impl Iterator<Item = &str> {
         self.on

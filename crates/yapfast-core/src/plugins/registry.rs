@@ -133,6 +133,9 @@ pub struct Summary {
     /// Whether an enabled plugin keeps deleted messages visible, which is the
     /// only reason the timeline merges what a backend dropped.
     pub retains: bool,
+    /// Whether an enabled plugin badges people in the member list, which is the
+    /// only reason a member row asks anyone anything.
+    pub decorates_members: bool,
 }
 
 /// One installed plugin, copied out of the registry for the settings page
@@ -544,6 +547,38 @@ impl Registry {
             .collect()
     }
 
+    /// The plugins that badge people in the member list, in the order the chain
+    /// would run them.
+    pub fn member_decorators(&self) -> Vec<PluginId> {
+        self.order
+            .iter()
+            .filter(|id| self.member_decorates(id))
+            .cloned()
+            .collect()
+    }
+
+    /// How many plugins badge people in the member list, which the list compares
+    /// against what it has already been told about a person.
+    pub fn member_decorator_count(&self) -> usize {
+        self.order
+            .iter()
+            .filter(|id| self.member_decorates(id))
+            .count()
+    }
+
+    /// Whether one plugin badges people in the member list.
+    fn member_decorates(&self, id: &PluginId) -> bool {
+        self.entries.get(id).is_some_and(|entry| {
+            entry.module.is_some()
+                && entry.enabled
+                && entry
+                    .manifest
+                    .activation
+                    .as_ref()
+                    .is_some_and(|activation| activation.decorates_members())
+        })
+    }
+
     /// Every plugin's state, for the page that lists them.
     /// Every command the enabled plugins with a module declare, in the order
     /// the plugins run.
@@ -604,6 +639,12 @@ impl Registry {
             // parent serialize every message for nothing.
             summary.wanted |=
                 entry.subscriptions.mask() & permitted_mask(&entry.manifest.permissions);
+            summary.decorates_members |= entry.module.is_some()
+                && entry
+                    .manifest
+                    .activation
+                    .as_ref()
+                    .is_some_and(|activation| activation.decorates_members());
             summary.intercepts |= entry
                 .manifest
                 .permissions

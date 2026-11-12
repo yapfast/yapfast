@@ -531,6 +531,11 @@ impl Slots {
                 tree,
                 hide,
             } => self.decorate(&plugin, &message, tree, hide),
+            Output::MemberBadge {
+                plugin,
+                member,
+                badge,
+            } => self.badge(&plugin, &member, badge),
         }
     }
 }

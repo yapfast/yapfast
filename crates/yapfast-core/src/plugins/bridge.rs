@@ -130,6 +130,7 @@ impl Bridge {
             wanted: AtomicU64::new(0),
             intercepts: AtomicBool::new(false),
             decorates: AtomicBool::new(false),
+            decorates_members: AtomicBool::new(false),
             identifies: AtomicBool::new(false),
             retains: AtomicBool::new(false),
             colours_code: AtomicBool::new(false),
@@ -264,6 +265,29 @@ impl Bridge {
                 self.send(Request::CodeBlock {
                     plugin: plugin.clone(),
                     request: request.clone(),
+                });
+            }
+        }
+    }
+
+    /// Asks every plugin that badges people what it badges the members on
+    /// screen with.
+    ///
+    /// As with a message's decoration, only the rows in sight are asked about,
+    /// so a large server costs what its list shows and not its whole roster.
+    pub fn decorate_members(
+        &mut self,
+        rows: &[yapfast_plugin_api::message::DecorateMemberRequest],
+    ) {
+        let plugins = self.shared.registry().member_decorators();
+        if plugins.is_empty() || rows.is_empty() {
+            return;
+        }
+        for row in rows.iter().take(MAX_DECORATE_ROWS) {
+            for plugin in &plugins {
+                self.send(Request::DecorateMember {
+                    plugin: plugin.clone(),
+                    request: row.clone(),
                 });
             }
         }
@@ -1120,6 +1144,9 @@ pub(crate) struct Shared {
     /// Whether an enabled plugin draws under messages, which a row asks before
     /// it costs one call per message on screen.
     decorates: AtomicBool,
+    /// Whether an enabled plugin badges people in the member list, which the
+    /// list asks before it costs one call per row.
+    decorates_members: AtomicBool,
     /// Whether an enabled plugin says how people look, which a profile asks
     /// before it costs one answer per person.
     identifies: AtomicBool,
@@ -1166,6 +1193,8 @@ impl Shared {
         self.wanted.store(summary.wanted, Ordering::Relaxed);
         self.intercepts.store(summary.intercepts, Ordering::Relaxed);
         self.decorates.store(summary.decorates, Ordering::Relaxed);
+        self.decorates_members
+            .store(summary.decorates_members, Ordering::Relaxed);
         self.identifies.store(summary.identifies, Ordering::Relaxed);
         self.retains.store(summary.retains, Ordering::Relaxed);
         self.colours_code
@@ -1410,6 +1439,7 @@ impl Shared {
         self.wanted.store(0, Ordering::Relaxed);
         self.intercepts.store(false, Ordering::Relaxed);
         self.decorates.store(false, Ordering::Relaxed);
+        self.decorates_members.store(false, Ordering::Relaxed);
     }
 }
 
@@ -1558,6 +1588,12 @@ enum Request {
     Identity {
         plugin: PluginId,
         request: yapfast_plugin_api::identity::IdentityRequest,
+    },
+    /// What a plugin badges one person in the member list with: the answer
+    /// comes back as [`FromHelper::MemberDecorated`].
+    DecorateMember {
+        plugin: PluginId,
+        request: yapfast_plugin_api::message::DecorateMemberRequest,
     },
     /// What a plugin makes of one code block on screen: the answer comes back as
     /// [`FromHelper::CodeBlock`].
@@ -2357,6 +2393,10 @@ impl Session {
                 self.decorate(shared, &plugin, request);
                 None
             }
+            Request::DecorateMember { plugin, request } => {
+                self.decorate_member(shared, &plugin, request);
+                None
+            }
             Request::Identity { plugin, request } => {
                 self.identity(shared, &plugin, request);
                 None
@@ -2687,6 +2727,32 @@ impl Session {
         );
     }
 
+    /// Asks one plugin what it badges one person in the member list with.
+    ///
+    /// The row shows without a badge until the answer comes: a list scrolls
+    /// whether or not a plugin has answered, and a badge is worth a frame.
+    fn decorate_member(
+        &mut self,
+        shared: &Shared,
+        plugin: &PluginId,
+        request: yapfast_plugin_api::message::DecorateMemberRequest,
+    ) {
+        self.activate(shared, plugin);
+        let message = ToHelper::DecorateMember {
+            plugin: plugin.clone(),
+            request,
+        };
+        self.request(
+            &message,
+            DECORATE_TIMEOUT,
+            Purpose::Agent {
+                what: "a member badge",
+                plugin: plugin.clone(),
+                budget: DECORATE_TIMEOUT,
+            },
+        );
+    }
+
     /// Asks one plugin for the colours of one code block.
     ///
     /// Only the blocks of the messages on screen are asked about, and the answer
@@ -2947,6 +3013,7 @@ impl Session {
             // A row that comes back after a swap is decorated again by the
             // interface's next report of what is on screen.
             Request::Decorate { plugin, .. } => self.in_swap(plugin),
+            Request::DecorateMember { plugin, .. } => self.in_swap(plugin),
             // A person's answer is asked for again when the surfaces that show
             // them ask the cache, which forgets every answer at a swap.
             Request::Identity { plugin, .. } => self.in_swap(plugin),
@@ -4385,6 +4452,34 @@ impl Session {
         });
     }
 
+    /// Reports the badge a plugin puts beside one person's name in the member
+    /// list, or that it answered with none.
+    fn on_member_decorated(
+        &mut self,
+        shared: &Shared,
+        plugin: &PluginId,
+        member: &str,
+        badge: Option<serde_json::Value>,
+    ) {
+        let badge = match badge {
+            Some(value) => match crate::plugins::slots::Badge::parse(&value) {
+                Ok(badge) => Some(badge),
+                Err(refusal) => {
+                    tracing::warn!(%plugin, %refusal, "a plugin answered with a member badge Yapfast refused");
+                    return;
+                }
+            },
+            // An answer of none is kept as such: the person was asked, and
+            // scrolling back to them asks nothing again.
+            None => None,
+        };
+        shared.announce(Notice::Slot(crate::plugins::slots::Output::MemberBadge {
+            plugin: plugin.to_string(),
+            member: member.to_owned(),
+            badge,
+        }));
+    }
+
     /// Reports a command's answer: a line for the person, or the reason it
     /// failed, on the application's own event path.
     fn on_command_done(
@@ -5175,6 +5270,7 @@ mod tests {
             wanted: AtomicU64::new(0),
             intercepts: AtomicBool::new(false),
             decorates: AtomicBool::new(false),
+            decorates_members: AtomicBool::new(false),
             identifies: AtomicBool::new(false),
             retains: AtomicBool::new(false),
             colours_code: AtomicBool::new(false),

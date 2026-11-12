@@ -201,6 +201,12 @@ pub enum Message {
         plugin: PluginId,
         request: yapfast_plugin_api::code::CodeBlockRequest,
     },
+    DecorateMember {
+        id: u64,
+        plugin: PluginId,
+        member: String,
+        request: yapfast_plugin_api::message::DecorateMemberRequest,
+    },
     /// The parent's answer to a guest's host call.
     Return {
         plugin: PluginId,
@@ -570,6 +576,23 @@ impl<B: Backend + 'static> Shared<B> {
                     },
                 );
             }
+            Message::DecorateMember {
+                id,
+                plugin,
+                member,
+                request,
+            } => {
+                let slot = state.slot_for(&plugin);
+                let request = serde_json::to_value(request).unwrap_or(serde_json::Value::Null);
+                // A badge is a nicety over a list that scrolls regardless, so it
+                // waits in the background lane like a message's decoration.
+                state.push(
+                    slot,
+                    Lane::Background,
+                    id,
+                    Job::DecorateMember { member, request },
+                );
+            }
             Message::Return {
                 plugin,
                 call,
@@ -623,6 +646,9 @@ impl<B: Backend + 'static> Shared<B> {
                 args_base64,
             } => self.invoke(task, function, args_base64),
             Job::Decorate { message, request } => self.decorate(task, message, request),
+            Job::DecorateMember { member, request } => {
+                self.decorate_member(task, member, request)
+            }
             Job::Identity {
                 person,
                 server,
@@ -1064,6 +1090,49 @@ impl<B: Backend + 'static> Shared<B> {
         );
         match result {
             Ok(_) if late => self.discard(slot, deadline_fault("a code block's colours"), None),
+            Ok(_) => {}
+            Err(fault) => self.discard(slot, fault, None),
+        }
+    }
+
+    fn decorate_member(&self, task: &Task, member: &str, request: &serde_json::Value) {
+        let slot = task.owner();
+        let plugin = self.id(slot);
+        let nothing = || FromHelper::MemberDecorated {
+            plugin: plugin.as_ref().clone(),
+            member: member.to_owned(),
+            badge: None,
+        };
+        if self.ensure_active(slot).is_none() {
+            let _ = self.reply(task.id, &nothing());
+            return;
+        }
+        let Ok(bytes) = serde_json::to_vec(request) else {
+            let _ = self.reply(task.id, &nothing());
+            return;
+        };
+        let (result, late) = self.call(&[slot], DECORATE_BUDGET, |backend| {
+            backend.invoke(&plugin, "yf_member_decorate", &bytes)
+        });
+        let badge = match &result {
+            // An export that answered nothing draws no badge, which is what a
+            // plugin that doesn't badge this person answers.
+            Ok(Some(answer)) => serde_json::from_slice::<serde_json::Value>(answer)
+                .ok()
+                .filter(|badge| !badge.is_null()),
+            Ok(None) => None,
+            Err(_) => None,
+        };
+        let _ = self.reply(
+            task.id,
+            &FromHelper::MemberDecorated {
+                plugin: plugin.as_ref().clone(),
+                member: member.to_owned(),
+                badge,
+            },
+        );
+        match result {
+            Ok(_) if late => self.discard(slot, deadline_fault("a member badge"), None),
             Ok(_) => {}
             Err(fault) => self.discard(slot, fault, None),
         }
@@ -1655,6 +1724,10 @@ enum Job {
     Invoke {
         function: String,
         args_base64: String,
+    },
+    DecorateMember {
+        member: String,
+        request: serde_json::Value,
     },
     Decorate {
         message: String,

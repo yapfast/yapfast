@@ -190,6 +190,10 @@ pub enum ToHelper {
         plugin: PluginId,
         request: CodeBlockRequest,
     },
+    DecorateMember {
+        plugin: PluginId,
+        request: DecorateMemberRequest,
+    },
     /// The answer to a guest's host call.
     Return {
         plugin: PluginId,
