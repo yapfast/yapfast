@@ -145,8 +145,9 @@ their own, and a keyframe's first packet marked as starting a coded video
 sequence (N). A frame with a malformed OBU isn't sent. DAVE leaves an AV1
 frame's last OBU without its size, its trailer after it, and receivers keep
 it so, since DAVE's decryptor reads the frame as it was sealed. Past a
-frame's first 8 packets, 4 go out
-each millisecond: a 1080p keyframe of 200 sent at once can overflow buffers on
+frame's first 8 packets, a batch goes out
+each turn of the send loop — what the rate carries in the time the turn took: a
+1080p keyframe of 200 sent at once can overflow buffers on
 the way, and it goes out over as many turns of the send loop as it has batches:
 between batches the loop is back to poll the stream's sound, the gateway's
 heartbeats and session updates, and viewers' feedback, so a keyframe that takes
@@ -1127,12 +1128,18 @@ could not be decrypted makes the receiver wait for a keyframe and ask for one.
 Once a frame is damaged, its remaining packets are not copied into the assembly
 buffer; discarded frames reuse that buffer on the next timestamp.
 
-After the initial eight packets, the sender paces each frame in batches of four
-to 32 packets. The batch follows the congestion controller's current target,
-with room for a two-millisecond timer wake-up: at 35 Mbit/s it is nine packets.
-The one-millisecond requested pause remains, and audio and feedback are polled
-between batches. The controller still limits the encoded bitrate; a larger
-batch does not raise the encoder's target or promise that an uplink can carry it.
+After the initial eight packets, the sender paces each frame in batches, and the
+batch is paid for over the time the turn before it took: the packets the
+controller's target carries in that time, between four and 64. The requested
+pause between turns is a millisecond, and Linux serves it as one: at 35 Mbit/s a
+turn then writes nine packets. Windows serves a 1 ms sleep in 15.6 ms — measured,
+`tokio::time::sleep(1ms)` there takes 15.56 ms — so a batch sized by the rate
+alone would put a 20 Mbit stream out at under four; sized by the time the turn
+took, Windows' turn carries the 32 packets that rate pays for. The batch stays
+bounded, so sound, the gateway and viewers' feedback are polled between turns,
+and 64 a turn of 15.6 ms is 41 Mbit/s. The controller still limits the encoded
+bitrate; a larger batch does not raise the encoder's target or promise that an
+uplink can carry it.
 
 For high-resolution testing, enable **Raise the stream's bitrate cap
 (experimental)** in Settings. This retains the resolution-based ceiling up to

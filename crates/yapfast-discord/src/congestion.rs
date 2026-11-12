@@ -78,11 +78,15 @@ pub fn start(cap: u64) -> u64 {
     cap.max(FLOOR)
 }
 
-/// Packets per one-millisecond pacing turn after a frame's initial burst.
+/// The least packets one pacing turn writes at `target`, after a frame's first
+/// burst. A turn's batch is paid for over the time the turn before it took —
+/// see `stream_connection::Sending::batch` — and this is its floor, so a low
+/// rate keeps the four packets a turn the send loop has always given it.
 /// Allow two milliseconds of timer/scheduler granularity, using a conservative
-/// 1000-byte payload. Four preserves the existing low-rate pacing; 32 bounds
-/// each turn so feedback and audio remain responsive even with an override.
-/// This is pacing headroom, not permission to encode above the controller.
+/// 1000-byte payload: four preserves the existing low-rate pacing, and 32 is as
+/// far as a prompt turn goes, so feedback and audio remain responsive even with
+/// an override. This is pacing headroom, not permission to encode above the
+/// controller.
 pub fn packet_batch(target: u64) -> usize {
     target.saturating_mul(2).div_ceil(8_000_000).clamp(4, 32) as usize
 }

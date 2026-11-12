@@ -49,7 +49,7 @@ const MAX_SSRCS: usize = 4;
 /// than one report can wait unanswered, and fewer than a report a second over
 /// a few seconds.
 const ECHOED: usize = 4;
-/// A frame starts with `BURST` packets, then bitrate-aware batches every
+/// A frame starts with `BURST` packets, then a batch the target pays for every
 /// `STEP`: large keyframes must not overflow the path's buffers, but a fixed
 /// four-packet batch also throttles high-bitrate streams on coarse timers.
 const BURST: usize = 8;
@@ -57,6 +57,13 @@ const BURST: usize = 8;
 /// a turn of the send loop, so sound, the gateway and viewers' feedback are
 /// polled between them rather than after the whole frame.
 const STEP: Duration = Duration::from_millis(1);
+/// The bytes a packet's datagram takes, its payload and headers, which a
+/// batch's size is paid for in.
+const PACE_PACKET: usize = 1_250;
+/// The most packets a turn writes however long it waited, so the loop still
+/// polls sound, the gateway and feedback: 64 a turn of Windows' 15.6 ms is
+/// 41 Mbit/s.
+const MAX_BATCH: usize = 64;
 
 /// The most bit/s a stream of `width` by `height` at `fps` may take: what the
 /// picture needs, which is bits per pixel per frame, measured here.
@@ -1231,7 +1238,7 @@ async fn send(
                 // when its packets went out; a packet's age is a coarse thing
                 // beside the window it is kept for.
                 let now = std::time::Instant::now();
-                for _ in 0..frame.batch(pacing.target()) {
+                for _ in 0..frame.batch(pacing.target(), now) {
                     let Some(last) = packetizer.write(&mut plan, &frame.payload, &mut out) else {
                         done = true;
                         break;
@@ -1434,9 +1441,9 @@ fn retarget(
 /// A keyframe is hundreds of packets. Written in one turn it holds the loop for
 /// tens of milliseconds, and the sound queued meanwhile is dropped when its
 /// bounded channel fills. So a frame goes out a batch a turn: `BURST` in the
-/// turn it starts, then a bitrate-aware batch with `STEP` between batches.
-/// The batch stays bounded so the sender polls sound, the gateway and feedback
-/// between turns.
+/// turn it starts, then a batch the target pays for in the time the turn took,
+/// with `STEP` between batches. The batch stays bounded so the sender polls
+/// sound, the gateway and feedback between turns.
 ///
 /// Nothing is kept between turns that the frame didn't already have: the plan
 /// it was planned into, which the next frame reuses, and the encrypted bytes
@@ -1451,6 +1458,9 @@ struct Sending {
     /// When the next batch may go: at once for the first, `STEP` after the
     /// batch before for the rest.
     due: Instant,
+    /// When the batch before the next one went, which the next one's size is
+    /// paid for over.
+    last: std::time::Instant,
     /// The frame's time in the 90 kHz clock, which the sender report that
     /// follows its last packet names.
     timestamp: u32,
@@ -1464,18 +1474,28 @@ impl Sending {
             payload,
             sent: 0,
             due: Instant::now(),
+            last: std::time::Instant::now(),
             timestamp,
         }
     }
 
     /// How many of the frame's packets this turn writes: what's left of its
-    /// first `BURST`, then a bounded batch sized for the current target.
-    fn batch(&self, target: u64) -> usize {
+    /// first `BURST`, then the packets the target pays for in the `waited` time
+    /// since the batch before.
+    ///
+    /// Sized by the constant alone the pace would be a trickle wherever a timer
+    /// is coarse: Windows serves a 1 ms sleep in 15.6 ms, so
+    /// [`congestion::packet_batch`]'s six packets a turn would put a 20 Mbit
+    /// stream out at under four, and the frame queue behind it would drop
+    /// pictures there was time to send.
+    fn batch(&self, target: u64, now: std::time::Instant) -> usize {
         if self.sent < BURST {
-            BURST - self.sent
-        } else {
-            congestion::packet_batch(target)
+            return BURST - self.sent;
         }
+        let waited = now.duration_since(self.last).max(STEP);
+        let paid =
+            target.saturating_mul(waited.as_micros() as u64) / (8 * PACE_PACKET as u64 * 1_000_000);
+        paid.clamp(congestion::packet_batch(target) as u64, MAX_BATCH as u64) as usize
     }
 
     /// Notes that one of the frame's packets went out.
@@ -1486,7 +1506,9 @@ impl Sending {
     /// Holds the rest of the frame for `STEP`, so the loop polls everything
     /// else before the batch after this one.
     fn wait(&mut self) {
-        self.due = Instant::now() + STEP;
+        let now = Instant::now();
+        self.last = std::time::Instant::now();
+        self.due = now + STEP;
     }
 }
 
@@ -1918,17 +1940,23 @@ mod tests {
         let mut left = 250;
         let mut sizes = vec![];
         let mut heard = 0;
+        // Each turn of the loop is `STEP` on a timer that keeps it.
+        let mut at = frame.last;
         while left > 0 {
             // Sound is polled before video, so every turn starts by hearing
             // whatever sound is waiting, then writes a batch.
             heard += 1;
-            let batch = frame.batch(9_000_000).min(left);
+            at += STEP;
+            let batch = frame.batch(9_000_000, at).min(left);
             assert!(batch > 0, "a turn always writes a packet, or spins");
             for _ in 0..batch {
                 frame.sent_one();
             }
             left -= batch;
             sizes.push(batch);
+            // What the real loop's `wait` does: the batch just written is what
+            // the next one is paid for after.
+            frame.last = at;
         }
         assert_eq!(sizes[0], BURST, "a frame starts at once");
         let (last, paced) = sizes.split_last().expect("250 packets, in batches");
@@ -2028,6 +2056,37 @@ mod tests {
             "the newest went, not the ones before it"
         );
         assert!(!sender.backlogged(), "and room came back");
+    }
+
+    #[test]
+    fn a_slow_turn_sends_what_the_target_pays_for() {
+        // Windows serves a 1 ms sleep in 15.6 ms, measured, so a batch sized by
+        // the constant alone would put a 20 Mbit stream out at under four
+        // Mbit. The batch is paid for over the time the turn took.
+        let mut frame = Sending::new(Vec::new(), 0);
+        frame.sent = BURST;
+        let windows = frame.last + Duration::from_micros(15_600);
+        assert!(
+            frame.batch(20_805_000, windows) >= 32,
+            "a 20.8 Mbit turn carries the packets that rate pays for"
+        );
+        assert!(frame.batch(9_000_000, windows) >= 14);
+        assert_eq!(
+            frame.batch(2_500_000, windows),
+            4,
+            "the floor a screen is given"
+        );
+        assert_eq!(
+            frame.batch(120_000_000, windows),
+            MAX_BATCH,
+            "still bounded"
+        );
+        // A timer that keeps its 1 ms promise gets what it always did.
+        let prompt = frame.last + STEP;
+        assert_eq!(
+            frame.batch(9_000_000, prompt),
+            congestion::packet_batch(9_000_000)
+        );
     }
 
     #[test]
