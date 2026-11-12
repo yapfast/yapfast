@@ -31,10 +31,10 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use yapfast_plugin_api::call::{
     self, ClearSlot, CommandInvocation, CommandOutcome, CopyText, DraftRequest, EditMessage,
-    HostCall, HostReturn, HttpRequest, InsertText, Line, MessageGet, MessageHistory, MessageRef,
-    NotifySend, OpenDialog, OpenUrl, PeopleGet, PeopleMember, PluginCall, PluginSubscribe,
-    ReactMessage, RoomGet, RoomsList, SendMessage, SetSlot, SettingsNews, SlotDrawn, StorageGet,
-    StorageList, StorageSet, TimerCancel, TimerRequest,
+    HostCall, HostReturn, HttpRequest, InsertText, Line, MediaGet, MessageGet, MessageHistory,
+    MessageRef, NotifySend, OpenDialog, OpenUrl, PeopleGet, PeopleMember, PluginCall,
+    PluginSubscribe, ReactMessage, RoomGet, RoomsList, SendMessage, SetSlot, SettingsNews,
+    SlotDrawn, StorageGet, StorageList, StorageSet, TimerCancel, TimerRequest,
 };
 use yapfast_plugin_api::capability::{Capability, HostPattern};
 use yapfast_plugin_api::event::{EventEnvelope, EventKind, TopicEvent};
@@ -135,6 +135,7 @@ impl Bridge {
             sends: Mutex::new(BTreeMap::new()),
             off: Mutex::new(None),
             gate: Mutex::new(None),
+            pictures: Mutex::new(None),
             held: Mutex::new(BTreeMap::new()),
             // Asked once: a file beside the app doesn't appear while it runs.
             helper_installed: spawn::program().is_ok(),
@@ -302,6 +303,20 @@ impl Bridge {
         for plugin in plugins {
             self.shared.declare(&plugin);
         }
+    }
+
+    /// Hands the bridge the picture store `media.get` reads, which is the
+    /// application's because the store is the Discord client's disk cache.
+    ///
+    /// The parent never fetches a picture for a plugin: bytes come from what a
+    /// conversation, a member list or a profile has already shown, which is what
+    /// keeps `media.get` from being a request the network gate never saw.
+    pub fn install_pictures(&mut self, pictures: Arc<dyn crate::plugins::media::Pictures>) {
+        *self
+            .shared
+            .pictures
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(pictures);
     }
 
     /// Activates what must run at startup: plugins whose manifest asks for it,
@@ -1091,6 +1106,10 @@ pub(crate) struct Shared {
     /// Whether an enabled plugin colours code blocks, which a row asks before
     /// it reads its own markdown for fences.
     colours_code: AtomicBool,
+    /// The picture store `media.get` reads, once the application has installed
+    /// it: the parent never fetches a picture for a plugin, so a build without
+    /// it answers `unsupported`.
+    pictures: Mutex<Option<Arc<dyn crate::plugins::media::Pictures>>>,
     /// When the person last did something a plugin's send can stand behind.
     gesture: Mutex<Option<Instant>>,
     /// When each plugin last sent a message, for the 5-per-10-s the plan puts
@@ -1099,6 +1118,7 @@ pub(crate) struct Shared {
     /// Why plugins are off, when they are.
     off: Mutex<Option<String>>,
     /// The one place a plugin's HTTP request can be made, once the application
+    /// has installed it; nothing here can reach the network without it.
     /// has installed one with a transport.
     gate: Mutex<Option<Arc<crate::plugins::network::NetworkGate>>>,
     /// The `http.fetch` calls kept waiting on a consent dialog, per plugin and
@@ -3446,6 +3466,7 @@ impl Session {
                 Some(Capability::MessagesRead)
             }
             call::method::PEOPLE_GET | call::method::PEOPLE_MEMBER => Some(Capability::PeopleRead),
+            call::method::MEDIA_GET => Some(Capability::MediaRead),
             _ => None,
         };
         if let Some(capability) = capability
@@ -3646,6 +3667,27 @@ impl Session {
                         tree: request.tree,
                     },
                 )
+            }
+            call::method::MEDIA_GET => {
+                let request: MediaGet = match call.parse() {
+                    Ok(request) => request,
+                    Err(error) => return wrong_payload(method, error),
+                };
+                // The store is the application's, and a build without one
+                // answers `unsupported` rather than pretending it has no
+                // pictures: the difference matters to a plugin telling the two
+                // builds apart.
+                let pictures = shared
+                    .pictures
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .clone();
+                match pictures {
+                    Some(pictures) => {
+                        crate::plugins::media::answer(pictures.as_ref(), &request.url)
+                    }
+                    None => HostReturn::Unsupported,
+                }
             }
             // Everything else is named in the contract so a plugin can
             // feature-detect it, and answers so rather than failing to link.
@@ -4880,6 +4922,7 @@ mod tests {
             sends: Mutex::new(BTreeMap::new()),
             off: Mutex::new(None),
             gate: Mutex::new(None),
+            pictures: Mutex::new(None),
             held: Mutex::new(BTreeMap::new()),
             helper_installed: false,
             helper: AtomicU32::new(0),
@@ -5394,6 +5437,98 @@ mod tests {
         };
         assert_eq!(history[0]["body"], "hello");
         assert_eq!(history[0]["at"], 1_700_000_000_000_u64);
+    }
+
+    /// A plugin that may read pictures, and nothing else.
+    const READER_MANIFEST: &str = r#"{"api":1,"id":"com.example.reader","name":"Reader",
+        "version":"1.0.0","wasm":"plugin.wasm",
+        "permissions":{"capabilities":["media.read"]}}"#;
+
+    /// A picture store with one picture in it, which is what `media.get` reads.
+    struct HeldPicture;
+
+    impl crate::plugins::media::Pictures for HeldPicture {
+        fn bytes(&self, url: &str) -> Option<Vec<u8>> {
+            (url == "https://cdn.example.test/a.png").then(|| b"hello".to_vec())
+        }
+    }
+
+    #[test]
+    fn a_kept_picture_comes_back_to_the_plugin_that_may_read_it() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let ids = install_all(directory.path(), &[READER_MANIFEST, HOOK_MANIFEST]);
+        let (plugin, readerless) = (ids[0].clone(), ids[1].clone());
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        *shared.pictures.lock().expect("the store lock") = Some(Arc::new(HeldPicture));
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        let kept = ask(
+            &mut session,
+            &written,
+            &shared,
+            &plugin,
+            HostCall::new(
+                call::method::MEDIA_GET,
+                MediaGet {
+                    url: "https://cdn.example.test/a.png".to_owned(),
+                },
+            )
+            .expect("a call"),
+        );
+        let HostReturn::Ok(value) = kept else {
+            panic!("a kept picture is an answer: {kept:?}");
+        };
+        assert_eq!(value["bytes"], 5);
+        assert_eq!(value["bytes_base64"], "aGVsbG8=");
+
+        // The same call without `media.read` is denied by the name of what it
+        // needs, and the store is never asked.
+        let denied = ask(
+            &mut session,
+            &written,
+            &shared,
+            &readerless,
+            HostCall::new(
+                call::method::MEDIA_GET,
+                MediaGet {
+                    url: "https://cdn.example.test/a.png".to_owned(),
+                },
+            )
+            .expect("a call"),
+        );
+        let HostReturn::Denied { reason } = denied else {
+            panic!("a picture without its capability is denied: {denied:?}");
+        };
+        assert!(reason.contains("media.read"), "{reason}");
+    }
+
+    #[test]
+    fn a_picture_nobody_keeps_says_so_rather_than_being_fetched() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), READER_MANIFEST, b"not a real module");
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        *shared.pictures.lock().expect("the store lock") = Some(Arc::new(HeldPicture));
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        let missing = ask(
+            &mut session,
+            &written,
+            &shared,
+            &plugin,
+            HostCall::new(
+                call::method::MEDIA_GET,
+                MediaGet {
+                    url: "https://cdn.example.test/b.png".to_owned(),
+                },
+            )
+            .expect("a call"),
+        );
+        let HostReturn::Error { message } = missing else {
+            panic!("a picture nobody keeps says why: {missing:?}");
+        };
+        assert!(message.contains("never asks the network"), "{message}");
     }
 
     #[test]

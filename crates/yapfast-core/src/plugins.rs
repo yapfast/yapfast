@@ -29,6 +29,7 @@ pub mod grants;
 pub mod identity;
 pub mod installing;
 pub mod marketplace;
+pub mod media;
 pub mod network;
 pub mod page;
 pub mod permissions;

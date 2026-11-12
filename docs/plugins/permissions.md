@@ -82,8 +82,16 @@ A read is the same: what it answers is what the capability names.
 | `rooms.selected`, `rooms.get`, `rooms.list` | `servers.read` |
 | `messages.get`, `messages.history` | `messages.read` |
 | `people.get`, `people.member` | `people.read` |
+| `media.get` | `media.read` |
 | `identity.decorate`, the `identity` activation trigger | `people.read` |
 | `code_block.render`, the `code` activation trigger | `messages.read`: a block is message content |
+
+`media.get` answers bytes of what the picture store already keeps: an
+attachment, an avatar or an emoji a conversation, a member list or a profile has
+shown. It never fetches anything, because a fetch on a plugin's behalf would be a
+request the network gate never saw and the manifest never declared, and it takes
+no token. A picture the store doesn't hold is an error saying so, and one larger
+than a frame carries is `denied` with its size and the cap in the sentence.
 
 A subscription's own filter, which room and whether the account's own messages
 count, applies in the parent before the helper is woken, so an event nobody wants

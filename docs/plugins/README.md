@@ -176,7 +176,7 @@ answers `unsupported`, which is what a plugin feature-detects on. What the API
 still doesn't have is [§17.2](../../PLAN.md#172-additions-to-the-api)'s
 additions: the curated actions (`presence`, `mark_read`, `set_mute`,
 `open_room`, `start_reply`, `start_edit`, `reactors`, `pause_invites`,
-`add_emoji`, `add_sticker`), `media.get`, retention, providers, audio and the
+`add_emoji`, `add_sticker`), retention, providers, audio and the
 microphone, and the changes to
 built-in UI beyond the part hides and the colour and size overlay. The hooks are
 `message.pre_send`, `message.pre_edit`, `typing.pre_send` and
@@ -185,6 +185,7 @@ built-in UI beyond the part hides and the colour and size overlay. The hooks are
 `code_block.render` through `yf_code_block` once per block; a plugin's colours
 for a block are kept and nothing draws them yet.
 `activity.pre_publish` exists in the ABI and Yapfast publishes no activity to run
-it on.
+it on. `media.get` reads the picture store — what a conversation has already
+shown — and never fetches anything.
 `docs/plugins/manifest.md` lists the fields; a manifest may declare `menus`,
 `settings` and `tweaks` that nothing draws yet.

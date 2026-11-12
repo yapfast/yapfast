@@ -300,6 +300,7 @@ so nothing waits on a person:
 | `notify.send` | `{ text }` | One OS notification, titled with the plugin |
 | `clipboard.write` | `{ text }` | Puts text on the clipboard |
 | `open.url` | `{ url }` | Opens a page the way a message's link does |
+| `media.get` | `{ url }` | The bytes of an attachment, an avatar or an emoji the picture store already keeps; `{ "bytes": 1234, "bytes_base64": "…" }`, and never a fetch |
 
 A send a plugin asks for isn't run through `message.pre_send`: that chain is for
 what the person wrote, and a plugin that both intercepts and sends would meet
@@ -307,9 +308,9 @@ itself.
 
 The methods are names, so adding one never changes the link surface. `storage`,
 `settings`, `http`, `timers`, `app`, `account`, the `rooms`, `messages` and
-`people` reads, the `ui` calls and the `plugin` group have typed payloads in
-the contract crate, because they are the calls the runtime answers. Every
-other name the ABI lists —
+`people` reads, the `ui` calls, `media.get` and the `plugin` group have typed
+payloads in the contract crate, because they are the calls the runtime answers.
+Every other name the ABI lists —
 `messages.send`, `edit`, `delete`, `react` and `jump_to`, the `composer` calls,
 `notify.send`, `clipboard.write` and `open.url` — is named from the first version
 so a plugin can feature-detect it, and answers `unsupported` until the runtime
