@@ -79,10 +79,11 @@ row's action (`src/ui/plugins.rs`).
 
 The last step is the application's: the click is turned into a request the
 helper answers with `yf_input`, which is how every interactive surface reaches a
-plugin — a menu row, a widget's toggle, a dismissed notice. This plugin doesn't
-export it, so it hears nothing; that is the choice the optional export exists
-for, and the helper reads the export section before calling it rather than
-discarding a plugin that chose not to listen.
+plugin — a menu row, a widget's toggle, a dismissed notice. The PDK exports it
+for every plugin, and this one keeps the default `Plugin::input`, which does
+nothing, so the click arrives and is ignored. The export stays optional in the
+ABI: the helper reads the export section before calling it, so a module built
+without a PDK can leave it out rather than be discarded for not listening.
 
 This plugin declares the row anyway on purpose: the first plugin is a good place
 to have the thing that doesn't work yet written down in the form it will work in,

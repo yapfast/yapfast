@@ -10,9 +10,10 @@
 //! `yapfast-plugin.json`), and it is the declaration that a plugin's presence
 //! in a menu is meant to be: the interface can list it without loading any
 //! WebAssembly. The row is drawn, and a click on it is dispatched as
-//! `Input::Menu`, which the application delivers with `yf_input`. This plugin
-//! doesn't export that, so it hears nothing about its row; the handler below
-//! answers the command, which is what this plugin is for.
+//! `Input::Menu`, which the application delivers with `yf_input`. The PDK
+//! exports that for every plugin, and this one keeps the default `input`, which
+//! does nothing, so the click is heard and ignored; the handler below answers
+//! the command, which is what this plugin is for.
 
 use yapfast_pdk::prelude::*;
 
