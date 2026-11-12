@@ -476,6 +476,22 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
     message_row_within(message, revealed, None)
 }
 
+/// A row with its pictures and files kept out of view, which is what a plugin
+/// that declared `messages.filter` asked for: the row keeps its text, and the
+/// galleries, stickers and file cards go. A link preview's pictures stay with
+/// its card, which is the page's and not the message's. Called where the row
+/// is built, so a row built for a message whose media a plugin hid never shows
+/// them, and the models it holds are left empty rather than filled.
+#[cfg(feature = "plugins")]
+pub(super) fn hide_media(row: &mut MessageRow) {
+    if row.images.row_count() == 0 && row.stickers.row_count() == 0 && row.files.row_count() == 0 {
+        return;
+    }
+    row.images = ModelRc::default();
+    row.stickers = ModelRc::default();
+    row.files = ModelRc::default();
+}
+
 /// [`message_row`] with its pictures, and its link previews', shrunk to fit
 /// `fit` pixels beside the avatar, as the narrow thread beside a channel has.
 pub(super) fn message_row_within(

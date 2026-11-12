@@ -54,10 +54,42 @@ struct FormModel {
 
 thread_local! {
     static PAGE: RefCell<Option<Page>> = const { RefCell::new(None) };
-    /// Decoded plugin icons, by plugin and by the length of the bytes: reading
-    /// and decoding a picture on every redraw would spend the page's time on
-    /// something that changes only when a plugin is installed.
-    static ICONS: RefCell<HashMap<(String, usize), slint::Image>> = RefCell::new(HashMap::new());
+    /// Decoded plugin icons, by plugin and by a hash of the bytes they were
+    /// decoded from: reading and decoding a picture on every redraw would spend
+    /// the page's time on something that changes only when a plugin is
+    /// installed, and a picture is kept by what is in it rather than by its
+    /// length, so an update that wrote as many bytes as the one before still
+    /// draws the new one. Nothing here outlives the page: [`forget_icons`] empties
+    /// it when the page closes, so a plugin uninstalled while it was shut leaves
+    /// nothing behind.
+    static ICONS: RefCell<HashMap<(String, u64), slint::Image>> = RefCell::new(HashMap::new());
+}
+
+/// A picture's bytes as one number, which is the same for the same picture and
+/// different for another one of the same length.
+fn icon_key(bytes: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Drops every decoded icon, which closing the page asks for: its rows are gone,
+/// and a picture for a plugin that is no longer listed has no one to draw it.
+fn forget_icons() {
+    ICONS.with_borrow_mut(|icons| icons.clear());
+}
+
+/// Drops one plugin's decoded icon, which uninstalling it asks for: the store's
+/// copy of the picture goes with the plugin.
+fn forget_icon(plugin: &str) {
+    ICONS.with_borrow_mut(|icons| icons.retain(|(id, _), _| id.as_str() != plugin));
+}
+
+/// Whether the page is on screen, which is the one thing a view built for it is
+/// for: a closed page drops the view unread instead.
+pub(super) fn is_open() -> bool {
+    PAGE.with_borrow(|page| page.as_ref().is_some_and(|page| page.open))
 }
 
 /// A plugin's icon, or the empty image that draws its initial instead.
@@ -65,7 +97,7 @@ fn icon_image(plugin: &Installed) -> slint::Image {
     let Some(bytes) = plugin.icon.as_deref() else {
         return slint::Image::default();
     };
-    let key = (plugin.id.clone(), bytes.len());
+    let key = (plugin.id.clone(), icon_key(bytes));
     if let Some(image) = ICONS.with_borrow(|icons| icons.get(&key).cloned()) {
         return image;
     }
@@ -115,6 +147,16 @@ fn attach(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
 pub(super) fn set_view(window: &YapfastWindow, view: View) {
     PAGE.with_borrow_mut(|page| {
         let Some(page) = page.as_mut() else { return };
+        // A picture lives as long as its plugin is in the view: an update
+        // replaces the bytes but not the plugin, and an uninstall that happened
+        // somewhere else would otherwise leave a decoded image behind for the
+        // life of the process.
+        let present: std::collections::HashSet<&str> = view
+            .installed
+            .iter()
+            .map(|installed| installed.id.as_str())
+            .collect();
+        ICONS.with_borrow_mut(|icons| icons.retain(|(id, _), _| present.contains(id.as_str())));
         page.source.set_view(view);
         if page.open {
             show(window, page);
@@ -323,6 +365,8 @@ fn bind_page(window: &YapfastWindow) {
                     page.form = None;
                     page.source.request(Request::Close);
                     clear(&window);
+                    // The pictures went with the rows.
+                    forget_icons();
                 }
             });
         });
@@ -369,6 +413,7 @@ fn bind_page(window: &YapfastWindow) {
         if page.plugin.as_deref() == Some(plugin.as_str()) {
             page.plugin = None;
         }
+        forget_icon(plugin.as_str());
         page.source.request(Request::Uninstall { plugin: plugin.into(), delete_data });
     });
     on!(on_revoke(plugin, permission) => |page| {

@@ -41,6 +41,44 @@ pub const MAX_ROOMS: usize = 200;
 /// The most messages one `messages.history` answers with.
 pub const MAX_MESSAGES: usize = 100;
 
+/// The size of one item of an answer, as JSON, plus the comma after it.
+///
+/// The answer is serialized once, where it is written to the guest, so measuring
+/// it here must not build a copy of every item to throw away.
+fn json_len(value: &impl serde::Serialize) -> usize {
+    // A value that can't be serialized can't be written either, and measures as
+    // nothing, which only makes the cap optimistic by one item's worth.
+    json_bytes(value).map_or(0, |bytes| bytes as usize + 1)
+}
+
+/// The number of bytes a value takes as JSON, counted as it would be written
+/// into a sink that keeps the count and nothing else.
+///
+/// `None` when the value can't be serialized, which means it can't be written
+/// either. A plugin's storage measures its values this way too, so the two
+/// sides of one store agree on what a value costs.
+pub(crate) fn json_bytes(value: &impl serde::Serialize) -> Option<u64> {
+    let mut counted = Counted::default();
+    serde_json::to_writer(&mut counted, value).ok()?;
+    Some(counted.0)
+}
+
+/// What [`json_bytes`] writes into: the length of the bytes, kept, and the
+/// bytes themselves dropped as they arrive.
+#[derive(Default)]
+struct Counted(u64);
+
+impl std::io::Write for Counted {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 += bytes.len() as u64;
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 /// The account, as `account.me` answers it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Me {
@@ -269,7 +307,7 @@ impl World {
         let mut out = Vec::new();
         let mut bytes = 2;
         for room in held.rooms.iter().take(most) {
-            let size = serde_json::to_string(room).map_or(0, |json| json.len() + 1);
+            let size = json_len(room);
             if bytes + size > ANSWER_BYTES {
                 break;
             }
@@ -317,7 +355,7 @@ impl World {
         let mut bytes = 2;
         for message in timeline.items[..end].iter().rev().take(most) {
             let message = message_view(message, room);
-            let size = serde_json::to_string(&message).map_or(0, |json| json.len() + 1);
+            let size = json_len(&message);
             if bytes + size > ANSWER_BYTES {
                 break;
             }

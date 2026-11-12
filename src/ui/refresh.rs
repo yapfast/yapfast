@@ -479,6 +479,18 @@ impl Adapter {
         #[cfg(feature = "plugins")]
         if reach.plugins {
             self.show_plugin_slots(window);
+            // A row a plugin hid takes its place away, and only a list built
+            // again shows that: the slots were shown above, and the messages
+            // are laid out once more here, only when what's hidden moved.
+            let hidden = self
+                .app
+                .state
+                .plugin_slots
+                .as_deref()
+                .is_some_and(|slots| slots.hidden_changed());
+            if hidden {
+                self.refresh(window);
+            }
         }
     }
 
@@ -4176,6 +4188,24 @@ impl Adapter {
         );
     }
 
+    /// The timeline the list shows: the messages a plugin hid are not in it.
+    /// `None` while no plugin hides a row, so a timeline nobody filters is
+    /// passed as it is rather than copied, and one costs a compare.
+    #[cfg(feature = "plugins")]
+    fn unhidden(&self, messages: &[Arc<ChatMessage>]) -> Option<Vec<Arc<ChatMessage>>> {
+        let slots = self.app.state.plugin_slots.as_deref()?;
+        if !slots.hides_rows() {
+            return None;
+        }
+        Some(
+            messages
+                .iter()
+                .filter(|message| !slots.hidden(&message.id).row)
+                .cloned()
+                .collect(),
+        )
+    }
+
     /// The messages, built again only where they changed, and where the list
     /// scrolls.
     fn show_messages(&mut self, window: &YapfastWindow, changes: &Changes) {
@@ -4236,6 +4266,18 @@ impl Adapter {
                 super::callbacks::fill_picker_icons(self);
             }
         }
+        // What plugins hide changed, which builds the rows again: a row that's
+        // hidden is no row, and one whose pictures were hidden keeps them
+        // until it's built anew.
+        #[cfg(feature = "plugins")]
+        let hidden_changed = self
+            .app
+            .state
+            .plugin_slots
+            .as_mut()
+            .is_some_and(|slots| slots.take_hidden_changed());
+        #[cfg(not(feature = "plugins"))]
+        let hidden_changed = false;
         let state = &self.app.state;
         // A poll's time left counts down by the minute, and at midnight
         // today's times become yesterday's.
@@ -4250,14 +4292,52 @@ impl Adapter {
         let restyle = std::mem::take(&mut self.restyle);
         // The thread beside builds its rows again with the timeline's.
         self.aside_restyle |= restyle;
-        if messages_changed || selection_changed || reset || pictures_arrived || restyle {
+        if messages_changed
+            || selection_changed
+            || reset
+            || pictures_arrived
+            || restyle
+            || hidden_changed
+        {
             if selection_changed || reset {
                 window.set_react_item(SharedString::default());
                 window.set_active_item(SharedString::default());
                 window.set_jump_item(SharedString::default());
             }
+            // A message a plugin hid is no row: the timeline the list shows
+            // leaves it out, and the rows a row was built beside keep their
+            // own, since the list they're compared with is filtered the same
+            // way. Nothing is copied while no plugin hides one.
+            #[cfg(feature = "plugins")]
+            let (hidden_shown, hidden_timeline) = (
+                self.unhidden(&self.messages),
+                self.unhidden(&state.messages),
+            );
+            #[cfg(not(feature = "plugins"))]
+            let (hidden_shown, hidden_timeline): (
+                Option<Vec<Arc<ChatMessage>>>,
+                Option<Vec<Arc<ChatMessage>>>,
+            ) = (None, None);
+            let built_for = hidden_shown.as_ref().map_or(self.messages.len(), Vec::len);
+            if hidden_changed || built_for != self.rows.len() {
+                // The list the rows were built for is another one now, so they
+                // go and the model with them: a row that's hidden takes its
+                // place away rather than leaving one. A plugin turned on or off
+                // under them leaves them for another list too.
+                self.rows.clear();
+                self.models.messages.clear();
+            }
+            let shown: &[Arc<ChatMessage>] = if self.rows.is_empty() {
+                &[]
+            } else {
+                hidden_shown.as_deref().unwrap_or(self.messages.as_slice())
+            };
+            let timeline: &[Arc<ChatMessage>] = hidden_timeline
+                .as_deref()
+                .unwrap_or(state.messages.as_slice());
             let marks = Marks {
-                first_new: yapfast_core::chat::first_new(&state.messages, state.seen.as_deref()),
+                // Among the rows the list shows, which are not every message.
+                first_new: yapfast_core::chat::first_new(timeline, state.seen.as_deref()),
                 first_unread: state.first_unread.as_deref(),
                 revealed: &self.revealed,
                 restyle,
@@ -4268,8 +4348,8 @@ impl Adapter {
             show_timeline(
                 &self.models.messages,
                 &mut self.rows,
-                &self.messages,
-                &state.messages,
+                shown,
+                timeline,
                 &marks,
                 |message| {
                     let mut row = layout.restyle(message, message_row(message, marks.revealed));
@@ -4277,6 +4357,11 @@ impl Adapter {
                     row.name_style = name_style::font_only_in(in_server, row.name_style);
                     #[cfg(feature = "plugins")]
                     if let Some(slots) = &state.plugin_slots {
+                        // A row whose pictures and files a plugin hid keeps its
+                        // text and none of its media; see `messages::hide_media`.
+                        if slots.hidden(&message.id).media {
+                            hide_media(&mut row);
+                        }
                         row.plugin = super::plugins::decorations(slots, &message.id);
                     }
                     row

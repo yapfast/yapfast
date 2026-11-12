@@ -489,7 +489,10 @@ impl Application {
     /// The enabled plugins' commands that answer `query`, with the plugin each
     /// belongs to and its name.
     ///
-    /// Empty in a build without plugins, and while none is enabled.
+    /// Empty in a build without plugins, whose `plugins` state the feature
+    /// leaves out, and while none is enabled. The types are the ones
+    /// `yapfast-plugin-api` declares either way, so the signature is the same
+    /// in both builds and only the state behind the feature is gated.
     fn plugin_commands(
         &self,
         query: &str,
@@ -706,12 +709,15 @@ impl Application {
         ) else {
             return vec![];
         };
+        let commands = self.slash_commands(&room, &query);
         // The plugins' rows come after the apps' in `command_rows`, so an index
-        // past the apps' count is one of theirs to run.
-        let apps = self.slash_commands(&room, &query).len();
-        if index >= apps {
-            let commands = self.plugin_commands(&query);
-            let Some((plugin, _, command)) = commands.into_iter().nth(index - apps) else {
+        // past the apps' count is one of theirs to run. Without the feature
+        // there are none, and the apps' rows are the only ones to pick.
+        #[cfg(feature = "plugins")]
+        if index >= commands.len() {
+            let plugins = self.plugin_commands(&query);
+            let row = index - commands.len();
+            let Some((plugin, _, command)) = plugins.into_iter().nth(row) else {
                 return vec![];
             };
             // A command isn't a message: its text leaves the composer.
@@ -727,7 +733,7 @@ impl Application {
             )));
             return effects;
         }
-        let Some(picked) = self.slash_commands(&room, &query).into_iter().nth(index) else {
+        let Some(picked) = commands.into_iter().nth(index) else {
             return vec![];
         };
         self.write_command(room, picked)

@@ -2835,11 +2835,18 @@ impl Adapter {
                     }
                 }
                 // The Plugins page holds a copy of the runtime's view: hand it a
-                // fresh one, which redraws the page if it's open.
+                // fresh one, which redraws the page if it's open. A closed page
+                // drops the view unread, so none is built for it: the registry's
+                // rows, the open plugin's form and its log ring stay where they
+                // are, and opening the page reads them again.
                 #[cfg(feature = "plugins")]
                 Effect::Plugin(_) => {
+                    if !plugin_settings::is_open() {
+                        continue;
+                    }
+                    let window = self.window.upgrade();
                     let view = self.app.plugins_page();
-                    if let Some(window) = self.window.upgrade() {
+                    if let Some(window) = window {
                         plugin_settings::set_view(&window, view);
                     }
                 }

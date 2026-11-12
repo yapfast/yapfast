@@ -4,7 +4,10 @@
 //! of changes moved; and what they draw under messages, kept for the
 //! [`DECORATIONS`] messages decorated last.
 
-use std::{collections::VecDeque, sync::Arc};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::Arc,
+};
 
 use super::ui::{PluginName, Tone, Tree};
 
@@ -200,6 +203,14 @@ pub struct Slots {
     changes: [u64; Slot::ALL.len()],
     /// The oldest first.
     decorations: VecDeque<Decoration>,
+    /// What is hidden for each message a decoration is kept for, summed over
+    /// the plugins that answered about it, so the timeline asks once per row
+    /// and does not walk the decorations kept. A message nothing is hidden for
+    /// isn't here, so a timeline no plugin filters holds none of it.
+    hidden: HashMap<String, Hidden>,
+    /// What plugins hide changed since the timeline built its rows, which it
+    /// takes when it builds them again; see [`Slots::take_hidden_changed`].
+    hidden_changed: bool,
     /// The messages whose decorations changed since the UI last took them.
     decorated: Vec<String>,
     /// What plugins badge people in the member list with, the least recently
@@ -310,6 +321,11 @@ impl Slots {
                 .map(|kept| kept.message.clone())
                 .collect();
             self.decorations = kept;
+            // What it hid goes with it: a row it alone hid comes back, and a
+            // row another plugin still filters keeps what that one asked.
+            for message in &gone {
+                self.note_hidden(message);
+            }
             self.decorated.extend(gone);
             self.changes[Slot::Message as usize] += 1;
             changed = true;
@@ -341,6 +357,10 @@ impl Slots {
             return false;
         }
         self.drawn.clear();
+        if !self.hidden.is_empty() {
+            self.hidden.clear();
+            self.hidden_changed = true;
+        }
         self.badged
             .extend(self.badges.drain(..).map(|gone| gone.member));
         self.decorated
@@ -393,13 +413,41 @@ impl Slots {
                 hide_media: hide.media,
             });
             if self.decorations.len() > DECORATIONS {
-                let gone = self.decorations.pop_front();
-                self.decorated.extend(gone.map(|gone| gone.message));
+                // The least recent one goes, and what it hid with it: the row
+                // it filters is one the timeline draws again.
+                if let Some(gone) = self.decorations.pop_front() {
+                    self.note_hidden(&gone.message);
+                    self.decorated.push(gone.message);
+                }
             }
             if unchanged {
                 return false;
             }
         }
+        // The row's share of what's hidden is summed again from the kept
+        // decorations, so the timeline's lookup for it stays one map read.
+        self.note_hidden(message);
+        self.decorated.push(message.to_owned());
+        self.changes[Slot::Message as usize] += 1;
+        true
+    }
+
+    /// Takes away what plugins answered about one message, which is what an
+    /// edit does: the decoration was made for the message's old text, so it
+    /// goes and the row is drawn plain until the plugins are asked again. The
+    /// message is reported as changed, so the UI draws its row again; asking
+    /// again is the caller's, which is what makes a decoration follow an edit
+    /// while the row stays on screen.
+    pub fn forget_message(&mut self, message: &str) -> bool {
+        let before = self.decorations.len();
+        self.decorations.retain(|kept| kept.message != message);
+        if self.decorations.len() == before {
+            return false;
+        }
+        // What they hid goes with what they drew: the message is another one
+        // now, and the row it filtered is drawn as it is until it's answered
+        // for again.
+        self.note_hidden(message);
         self.decorated.push(message.to_owned());
         self.changes[Slot::Message as usize] += 1;
         true
@@ -413,10 +461,38 @@ impl Slots {
     }
 
     /// What is hidden for one message, across every plugin that asked: a row
-    /// any of them hides is hidden, and so is one's media. The interface asks
-    /// per row, so a row nobody filtered costs one scan of the decorations kept
-    /// for it and nothing else.
+    /// any of them hides is hidden, and so is one's media. The timeline asks
+    /// this for each message it shows, so it is one lookup in the map kept
+    /// beside the decorations, and a row nobody filtered costs that and
+    /// nothing else.
     pub fn hidden(&self, message: &str) -> Hidden {
+        self.hidden.get(message).copied().unwrap_or_default()
+    }
+
+    /// Whether any plugin hides a row: while none does, the timeline builds
+    /// its rows as they are and copies nothing.
+    pub fn hides_rows(&self) -> bool {
+        self.hidden.values().any(|hidden| hidden.row)
+    }
+
+    /// Whether what plugins hide changed since the timeline built its rows,
+    /// which is what builds them again; see [`Slots::take_hidden_changed`].
+    pub fn hidden_changed(&self) -> bool {
+        self.hidden_changed
+    }
+
+    /// Whether what plugins hide changed since this was last called, which is
+    /// what builds the timeline's rows again: a row that's hidden goes, and one
+    /// whose pictures were hidden keeps them until it's built again.
+    pub fn take_hidden_changed(&mut self) -> bool {
+        std::mem::take(&mut self.hidden_changed)
+    }
+
+    /// Sums what the decorations kept for one message hide, after one of them
+    /// changed or went. The map the timeline asks of is kept in step here and
+    /// not rebuilt per row, and a call that leaves it as it was costs one
+    /// comparison and says nothing changed.
+    fn note_hidden(&mut self, message: &str) {
         let mut hidden = Hidden::default();
         for kept in self
             .decorations
@@ -426,7 +502,23 @@ impl Slots {
             hidden.row |= kept.hide;
             hidden.media |= kept.hide_media;
         }
-        hidden
+        let was = self.hidden.get(message).copied().unwrap_or_default();
+        if hidden == was {
+            return;
+        }
+        if hidden.none() {
+            self.hidden.remove(message);
+        } else {
+            match self.hidden.get_mut(message) {
+                Some(kept) => *kept = hidden,
+                // The id is written down once, when an answer first hides
+                // something, and read for each row the timeline shows.
+                None => {
+                    self.hidden.insert(message.to_owned(), hidden);
+                }
+            }
+        }
+        self.hidden_changed = true;
     }
 
     /// The messages whose decorations changed since this was last called.
@@ -621,6 +713,8 @@ mod tests {
         let mut slots = slots();
         let badge = tree(r#"{ "rows": [{ "cells": [{ "kind": "badge", "text": "Link" }] }] }"#);
         assert!(slots.hidden("m1").none(), "nothing is hidden to begin with");
+        assert!(!slots.hides_rows(), "and no row is hidden");
+        assert!(!slots.take_hidden_changed(), "which builds nothing again");
         slots.decorate(
             "a.one",
             "m1",
@@ -637,6 +731,12 @@ mod tests {
                 media: true
             }
         );
+        assert!(!slots.hides_rows(), "the row stays and its media goes");
+        assert!(
+            slots.take_hidden_changed(),
+            "what's hidden moved, so the rows are built again"
+        );
+        assert!(!slots.take_hidden_changed(), "and only once");
         slots.decorate(
             "a.two",
             "m1",
@@ -654,7 +754,96 @@ mod tests {
             },
             "one plugin's row and another's media"
         );
+        assert!(slots.hides_rows(), "now the row goes too");
         assert!(slots.hidden("m2").none(), "another row is untouched");
+        // A plugin turned off takes the hide it asked for with it.
+        assert!(slots.forget("a.two"));
+        assert_eq!(
+            slots.hidden("m1"),
+            Hidden {
+                row: false,
+                media: true
+            },
+            "the other plugin still filters its media"
+        );
+        assert!(!slots.hides_rows());
+        assert!(slots.forget("a.one"));
+        assert!(
+            slots.hidden("m1").none(),
+            "and with the last of them the row is as it was"
+        );
+    }
+
+    #[test]
+    fn an_edited_message_drops_what_was_answered_for_it() {
+        let mut slots = slots();
+        let badge = tree(r#"{ "rows": [{ "cells": [{ "kind": "badge", "text": "Link" }] }] }"#);
+        slots.decorate("a.one", "m1", Some(badge.clone()), Hidden::default());
+        slots.decorate("a.two", "m2", Some(badge.clone()), Hidden::default());
+        let _ = slots.take_decorated();
+        // The message was edited: what was drawn for its old text goes, and its
+        // row is drawn again without it.
+        assert!(slots.forget_message("m1"));
+        assert_eq!(slots.decorations("m1").count(), 0);
+        assert_eq!(
+            slots.decorations("m2").count(),
+            1,
+            "another row keeps its own"
+        );
+        assert_eq!(slots.take_decorated(), ["m1"]);
+        // The answer for the new text is one the message keeps until it's
+        // edited again.
+        assert!(slots.decorate("a.one", "m1", Some(badge), Hidden::default()));
+        assert_eq!(slots.decorations("m1").count(), 1);
+        assert!(
+            !slots.forget_message("m3"),
+            "a message nothing answered for changed nothing"
+        );
+    }
+
+    #[test]
+    fn a_decoration_that_goes_leaves_nothing_hidden_behind() {
+        let mut slots = slots();
+        slots.decorate(
+            "a.one",
+            "m1",
+            None,
+            Hidden {
+                row: true,
+                media: true,
+            },
+        );
+        assert!(slots.hides_rows());
+        // The plugin answers again with nothing: what it hid goes with what it
+        // drew, and the row comes back.
+        assert!(!slots.decorate("a.two", "m2", None, Hidden::default()));
+        assert!(slots.decorate("a.one", "m1", None, Hidden::default()));
+        assert!(slots.hidden("m1").none());
+        assert!(!slots.hides_rows());
+        // And the decorations the least recent ones dropped hide nothing either.
+        slots.decorate(
+            "a.one",
+            "m1",
+            None,
+            Hidden {
+                row: true,
+                media: false,
+            },
+        );
+        let badge = tree(r#"{ "rows": [{ "cells": [{ "kind": "badge", "text": "Link" }] }] }"#);
+        for index in 0..DECORATIONS {
+            slots.decorate(
+                "a.one",
+                &format!("x{index}"),
+                Some(badge.clone()),
+                Hidden::default(),
+            );
+        }
+        assert!(
+            slots.hidden("m1").none(),
+            "the message whose decoration went is not hidden any more"
+        );
+        assert!(!slots.hides_rows());
     }
 
     #[test]

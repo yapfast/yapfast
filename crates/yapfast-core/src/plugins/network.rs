@@ -223,7 +223,9 @@ pub enum Asking {
 pub struct Answer {
     pub response: HttpResponse,
     /// Where the body was streamed, when it was too large to travel in one
-    /// answer. The file is Yapfast's to delete once the helper has read it.
+    /// answer. Nothing deletes it today: the answer carries the byte count but
+    /// not the path, so the plugin reads `body_base64: null` and the file stays
+    /// behind. Removing it is the gate's job, not the guest's.
     pub body: Option<PathBuf>,
 }
 
@@ -454,7 +456,7 @@ pub fn address_problem(address: IpAddr) -> Option<&'static str> {
             } else if v4.is_unspecified() {
                 Some("is the unspecified address")
             } else if v4.is_link_local() {
-                if octets[..2] == [169, 254] && octets[2..] == [169, 254] {
+                if octets == [169, 254, 169, 254] {
                     Some("is a cloud metadata address")
                 } else {
                     Some("is link-local")

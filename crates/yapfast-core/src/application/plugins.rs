@@ -165,18 +165,39 @@ impl Application {
             .is_some_and(|plugins| plugins.enabled())
     }
 
-    /// Tells the Discord gateway's tap whether a plugin may be watching.
+    /// Tells the Discord gateway's tap whether a plugin may be watching, and
+    /// which kinds one subscribed to.
     ///
     /// The gateway reports every message and reaction the account may read,
     /// whether or not a conversation shows it, so that tap is the only place
     /// a plugin hears of a conversation that isn't on screen. It is off
     /// unless the plugin system says otherwise, which keeps that path at one
-    /// relaxed load.
+    /// relaxed load, and the mask it sends along keeps an event nobody
+    /// subscribed to at one more.
     fn watch_gateway(&self, watching: bool) {
         #[cfg(feature = "discord")]
-        crate::discord_text::watch_messages(watching);
+        crate::discord_text::watch_messages(watching, self.plugin_kinds());
         #[cfg(not(feature = "discord"))]
         let _ = watching;
+    }
+
+    /// The kinds of event the plugins that run subscribed to, as the bridge's
+    /// own one-bit-per-kind mask.
+    ///
+    /// It is read from the same number the bridge reads before it writes an
+    /// event, so the gateway builds a payload for exactly the kinds that would
+    /// be handed on. The enabled set is the only thing that changes it, and the
+    /// two places that change that call [`Self::watch_gateway`].
+    #[cfg(feature = "discord")]
+    fn plugin_kinds(&self) -> u64 {
+        let Some(plugins) = self.state.plugins.as_deref() else {
+            return 0;
+        };
+        EventKind::ALL
+            .into_iter()
+            .filter(|kind| plugins.subscribes(*kind))
+            .map(crate::plugins::registry::Subscriptions::bit)
+            .fold(0, |mask, bit| mask | bit)
     }
 
     /// Carries out what the interface asked of the plugin system.
@@ -681,6 +702,11 @@ impl Application {
             return;
         };
         let world = plugins.world();
+        // Presence is opt-in and coalesced, so it is asked once here: while no
+        // plugin wants it there is nothing to compare, nothing kept, and the
+        // room, the member list and the account stay where they are rather than
+        // being cloned out of the borrow below.
+        let wants_presence = plugins.subscribes(EventKind::Presence);
         let state = &self.state;
         world.publish_account(
             state.account.as_deref(),
@@ -707,15 +733,25 @@ impl Application {
                 world.publish_members(room, members);
             }
         }
+        if !wants_presence {
+            // Nobody wants presence: nothing is compared, nothing is kept, and
+            // the room, the member list and the account stay where they are
+            // rather than being cloned out of the borrow below. What the last
+            // list said is still there, and a plugin that subscribes now is
+            // told the difference against the list in front of it, which is
+            // what it would have been told had it been listening all along.
+            return;
+        }
         // The room and its members, out of the borrow above: the tap below has
         // to ask the plugin system, which the borrow holds.
-        let members = state
+        let members = self
+            .state
             .members
             .as_ref()
             .and_then(|members| members.as_ref().ok())
             .cloned();
-        let room = state.selected.clone();
-        let account = state.account.clone();
+        let room = self.state.selected.clone();
+        let account = self.state.account.clone();
         self.plugins_presence(room, members, account);
     }
 
@@ -738,8 +774,14 @@ impl Application {
         let Some(plugins) = self.state.plugins.as_mut() else {
             return;
         };
+        // Asked before anything is compared: the member list is a `BTreeMap` of
+        // every person in the server, and nobody paying for it is nobody to
+        // tell.
+        if !plugins.subscribes(EventKind::Presence) {
+            return;
+        }
         let changes = plugins.presence_changes(&members);
-        if changes.is_empty() || !plugins.subscribes(EventKind::Presence) {
+        if changes.is_empty() {
             return;
         }
         let network = plugin_network(Network::of(&room));

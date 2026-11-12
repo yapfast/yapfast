@@ -611,12 +611,35 @@ pub(crate) const NOT_LINKED: &str = "Discord isn't linked on this device.";
 #[cfg(feature = "plugins")]
 static PLUGIN_WATCH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Says whether the gateway's events are handed to the plugin system. The
-/// application sets it once the store says a plugin is enabled, and clears it
-/// when the last one is turned off.
+/// The kinds of gateway event a plugin subscribed to, one bit per
+/// [`EventKind`](yapfast_plugin_api::event::EventKind), in the layout
+/// [`Subscriptions::bit`](crate::plugins::registry::Subscriptions::bit) gives
+/// them: the same number the bridge reads before it writes an event, so a kind
+/// it would drop is one the gateway never builds.
+///
+/// The flag above says a plugin is on; this says which of the gateway's events
+/// one wants, so an event nobody subscribed to costs one relaxed load here
+/// instead of a room lookup and a serialized payload.
 #[cfg(feature = "plugins")]
-pub fn watch_messages(watching: bool) {
+static PLUGIN_WANTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Says whether the gateway's events are handed to the plugin system, and
+/// which kinds a plugin subscribed to. The application sets both once the
+/// store says a plugin is enabled, and clears them when the last one is turned
+/// off.
+#[cfg(feature = "plugins")]
+pub fn watch_messages(watching: bool, wanted: u64) {
+    PLUGIN_WANTS.store(wanted, std::sync::atomic::Ordering::Relaxed);
     PLUGIN_WATCH.store(watching, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether a plugin wants this kind of gateway event: one relaxed load, and
+/// nothing built while it says no.
+#[cfg(feature = "plugins")]
+fn wants(kind: yapfast_plugin_api::event::EventKind) -> bool {
+    PLUGIN_WANTS.load(std::sync::atomic::Ordering::Relaxed)
+        & crate::plugins::registry::Subscriptions::bit(kind)
+        != 0
 }
 
 /// The account connected and Discord's own lists came with it, which is when a
@@ -660,14 +683,18 @@ pub fn plugins_observed(
     let Ok(event) = event else {
         return;
     };
+    // Each arm asks for its own kind first: an event nobody subscribed to is
+    // dropped before the room is looked up and the payload built, which is what
+    // makes a busy account cost nothing when the one plugin watching only reads
+    // messages.
     match event {
-        Live::Created(message) => {
+        Live::Created(message) if wants(EventKind::MessageCreate) => {
             plugin_message(discord, channels, events, EventKind::MessageCreate, message)
         }
-        Live::Updated(message) => {
+        Live::Updated(message) if wants(EventKind::MessageUpdate) => {
             plugin_message(discord, channels, events, EventKind::MessageUpdate, message)
         }
-        Live::Deleted { channel, id } => plugin_said(
+        Live::Deleted { channel, id } if wants(EventKind::MessageDelete) => plugin_said(
             events,
             EventKind::MessageDelete,
             plugin_room(discord, channels, channel),
@@ -682,24 +709,29 @@ pub fn plugins_observed(
             emoji,
             me,
             added,
-        } => plugin_said(
-            events,
-            if *added {
+        } => {
+            let kind = if *added {
                 EventKind::ReactionAdd
             } else {
                 EventKind::ReactionRemove
-            },
-            plugin_room(discord, channels, channel),
-            None,
-            *me,
-            serde_json::json!({ "message": message, "key": key, "emoji": emoji }),
-        ),
+            };
+            if wants(kind) {
+                plugin_said(
+                    events,
+                    kind,
+                    plugin_room(discord, channels, channel),
+                    None,
+                    *me,
+                    serde_json::json!({ "message": message, "key": key, "emoji": emoji }),
+                );
+            }
+        }
         Live::Typing {
             guild,
             channel,
             user,
             name,
-        } => plugin_said(
+        } if wants(EventKind::Typing) => plugin_said(
             events,
             EventKind::Typing,
             crate::discord::room_id(

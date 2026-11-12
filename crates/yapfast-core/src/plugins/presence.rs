@@ -39,18 +39,37 @@ impl Presences {
     ///
     /// The first call reports nobody: a tap that spoke about everybody the
     /// first time a room opened would say nothing a plugin couldn't read.
+    ///
+    /// The map is updated where it stands rather than rebuilt: a list that
+    /// arrives again with the same presences allocates nothing at all, and one
+    /// that moved copies only the people it moved.
     pub fn changes(&mut self, people: &[ChatMember], first: bool) -> Vec<(String, &'static str)> {
         let mut changed = Vec::new();
-        let mut known = BTreeMap::new();
         for person in people {
             let presence = name(person.presence.unwrap_or(Presence::Offline));
-            let was = self.known.get(&person.id).copied();
-            if !first && was != Some(presence) {
+            let was = self.known.get(person.id.as_str()).copied();
+            if was == Some(presence) {
+                continue;
+            }
+            if !first {
                 changed.push((person.id.clone(), presence));
             }
-            known.insert(person.id.clone(), presence);
+            if was.is_none() {
+                self.known.insert(person.id.clone(), presence);
+            } else {
+                // Somebody who moved is already a key: only the value changes.
+                if let Some(held) = self.known.get_mut(person.id.as_str()) {
+                    *held = presence;
+                }
+            }
         }
-        self.known = known;
+        if self.known.len() != people.len() {
+            // Somebody left the list. One set of borrowed ids answers for all
+            // of them, rather than a copy of every id that is still there.
+            let present: std::collections::HashSet<&str> =
+                people.iter().map(|person| person.id.as_str()).collect();
+            self.known.retain(|id, _| present.contains(id.as_str()));
+        }
         changed
     }
 
