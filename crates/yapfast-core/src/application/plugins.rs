@@ -282,8 +282,9 @@ impl Application {
     /// without changing anything all do.
     pub(super) fn plugins_send(&mut self, room: &str) -> Option<Vec<AppEffect>> {
         // A preview has no account and no helper to ask, and a plugin system
-        // with nothing intercepting has nothing to ask either.
-        if self.state.preview || !self.plugins_on() {
+        // with nothing intercepting has nothing to ask either. A send a plugin
+        // asked for isn't intercepted: the chain is for what the person wrote.
+        if self.state.preview || !self.plugins_on() || self.plugin_sending {
             return None;
         }
         if !self
@@ -530,6 +531,20 @@ impl Application {
                 self.dispatch(AppAction::Plugin(Action::SendHeld(draft)))
             }
             News::Notice(Notice::SendBlocked { reason, .. }) => self.plugins_send_blocked(reason),
+            // A call only the application can carry out: it is done here, and
+            // the answer goes back under the guest's own number, so the plugin's
+            // instance never waited on the interface.
+            News::Notice(Notice::Call {
+                plugin,
+                call,
+                request,
+            }) => {
+                let (effects, answer) = self.plugins_call(&plugin, request);
+                if let Some(plugins) = self.state.plugins.as_mut() {
+                    plugins.answer_call(&plugin, call, answer);
+                }
+                effects
+            }
             News::Notice(Notice::Typing { room, .. }) => {
                 vec![AppEffect::Backend(Command::Typing { room, typing: true })]
             }
@@ -656,6 +671,120 @@ impl Application {
         if let Some(plugins) = self.state.plugins.as_ref() {
             plugins.world().publish_theme(dark);
         }
+    }
+
+    /// Carries out a call only the application can, and says what it answered.
+    ///
+    /// Each one wraps something Yapfast already does: the token, the rate
+    /// limiter and the confirmation of a link stay where they are, and the
+    /// plugin only names what it wants.
+    fn plugins_call(
+        &mut self,
+        plugin: &yapfast_plugin_api::PluginId,
+        request: crate::plugins::state::AppCall,
+    ) -> (Vec<AppEffect>, yapfast_plugin_api::call::HostReturn) {
+        use crate::plugins::state::AppCall;
+        let done = yapfast_plugin_api::call::HostReturn::Ok(serde_json::Value::Bool(true));
+        match request {
+            AppCall::Send { room, body } => {
+                if !self.state.rooms.iter().any(|listed| listed.id == room) {
+                    return (
+                        Vec::new(),
+                        yapfast_plugin_api::call::HostReturn::Error {
+                            message: format!("{room} isn't a conversation this account can see"),
+                        },
+                    );
+                }
+                let effects = self.plugins_send_a_message(&room, body);
+                (effects, done)
+            }
+            AppCall::Edit {
+                room,
+                message,
+                body,
+            } => (
+                vec![AppEffect::Backend(Command::Edit {
+                    room,
+                    item: message,
+                    body,
+                })],
+                done,
+            ),
+            AppCall::Delete { room, message } => (
+                vec![AppEffect::Backend(Command::Delete {
+                    room,
+                    item: message,
+                })],
+                done,
+            ),
+            AppCall::React {
+                room,
+                message,
+                emoji,
+            } => (
+                vec![AppEffect::Backend(Command::React {
+                    room,
+                    item: message,
+                    key: emoji,
+                })],
+                done,
+            ),
+            AppCall::JumpTo { room, message } => (
+                self.dispatch(AppAction::JumpInRoom {
+                    room,
+                    item: message,
+                }),
+                done,
+            ),
+            AppCall::GetDraft { room } => (
+                Vec::new(),
+                yapfast_plugin_api::call::HostReturn::Ok(serde_json::Value::String(
+                    self.state.drafts.get(&room).cloned().unwrap_or_default(),
+                )),
+            ),
+            AppCall::SetDraft { room, body } => (self.set_draft_in(room, body), done),
+            AppCall::Insert { room, text } => {
+                // Insert is what a widget does to the composer: after whatever
+                // the person has already written, never in place of it.
+                let mut draft = self.state.drafts.get(&room).cloned().unwrap_or_default();
+                draft.push_str(&text);
+                (self.set_draft_in(room, draft), done)
+            }
+            AppCall::Notify { text } => (
+                vec![AppEffect::Notify(crate::chat::Alert {
+                    room: self.state.selected.clone().unwrap_or_default(),
+                    title: plugin.to_string(),
+                    body: text,
+                    picture: None,
+                    call: false,
+                    mention: false,
+                })],
+                done,
+            ),
+            AppCall::Copy { text } => (vec![AppEffect::CopyText(text)], done),
+            // The link goes through the same confirmation a message's does: a
+            // plugin asks, and the person still sees where it goes.
+            AppCall::Open { url } => (vec![AppEffect::OpenPage(url)], done),
+        }
+    }
+
+    /// Sends a plugin's text in a room, leaving the person's own draft where it
+    /// was.
+    fn plugins_send_a_message(&mut self, room: &str, body: String) -> Vec<AppEffect> {
+        let saved = self.state.drafts.get(room).cloned();
+        self.state.drafts.insert(room.to_owned(), body);
+        self.plugin_sending = true;
+        let effects = self.send_composed_in(room.to_owned());
+        self.plugin_sending = false;
+        match saved {
+            Some(draft) => {
+                self.state.drafts.insert(room.to_owned(), draft);
+            }
+            None => {
+                self.state.drafts.remove(room);
+            }
+        }
+        effects
     }
 
     /// Asks the plugins that draw under messages what they draw under the rows
@@ -1104,6 +1233,94 @@ mod tests {
             messages: vec![],
         });
         app
+    }
+
+    /// A call the application carries out, answered with what it did.
+    #[test]
+    fn a_plugin_sends_a_message_and_keeps_the_persons_draft() {
+        let mut app = connected();
+        app.state.drafts.insert("dm".into(), "mine".into());
+        let plugin = yapfast_plugin_api::PluginId::parse("dev.local.sender").expect("an id");
+        let (effects, answer) = app.plugins_call(
+            &plugin,
+            crate::plugins::state::AppCall::Send {
+                room: "dm".into(),
+                body: "from the plugin".into(),
+            },
+        );
+        assert_eq!(sent(&effects).as_deref(), Some("from the plugin"));
+        assert!(
+            matches!(answer, yapfast_plugin_api::call::HostReturn::Ok(_)),
+            "the plugin is told it went"
+        );
+        assert_eq!(
+            app.state.drafts.get("dm").map(String::as_str),
+            Some("mine"),
+            "what the person was writing is still there"
+        );
+    }
+
+    /// A call the application carries out, answered with what it did.
+    #[test]
+    fn a_plugin_reads_and_writes_the_composer_and_opens_a_page() {
+        let mut app = connected();
+        app.state.drafts.insert("dm".into(), "hello".into());
+        let plugin = yapfast_plugin_api::PluginId::parse("dev.local.sender").expect("an id");
+
+        let (_, answer) = app.plugins_call(
+            &plugin,
+            crate::plugins::state::AppCall::GetDraft { room: "dm".into() },
+        );
+        assert_eq!(
+            answer,
+            yapfast_plugin_api::call::HostReturn::Ok(serde_json::Value::String("hello".into())),
+            "the draft as the person left it"
+        );
+
+        app.plugins_call(
+            &plugin,
+            crate::plugins::state::AppCall::Insert {
+                room: "dm".into(),
+                text: " there".into(),
+            },
+        );
+        assert_eq!(
+            app.state.drafts.get("dm").map(String::as_str),
+            Some("hello there")
+        );
+
+        app.plugins_call(
+            &plugin,
+            crate::plugins::state::AppCall::SetDraft {
+                room: "dm".into(),
+                body: "replaced".into(),
+            },
+        );
+        assert_eq!(
+            app.state.drafts.get("dm").map(String::as_str),
+            Some("replaced")
+        );
+
+        let (effects, _) = app.plugins_call(
+            &plugin,
+            crate::plugins::state::AppCall::Copy {
+                text: "copied".into(),
+            },
+        );
+        assert!(
+            matches!(effects.as_slice(), [AppEffect::CopyText(text)] if text == "copied"),
+            "the clipboard is the application's to write"
+        );
+        let (effects, _) = app.plugins_call(
+            &plugin,
+            crate::plugins::state::AppCall::Open {
+                url: "https://example.com/".into(),
+            },
+        );
+        assert!(
+            matches!(effects.as_slice(), [AppEffect::OpenPage(url)] if url.ends_with("example.com/")),
+            "the page opens the way a message's link does"
+        );
     }
 
     /// The text of the message an effect sends, if one does.

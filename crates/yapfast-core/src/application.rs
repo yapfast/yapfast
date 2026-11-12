@@ -2365,6 +2365,10 @@ pub enum Effect {
     OpenPage(String),
     /// Put this picture, a file as it was downloaded, on the clipboard.
     CopyPicture(Vec<u8>),
+    /// Put this text on the clipboard, for a plugin that asked with
+    /// `clipboard.write`.
+    #[cfg(feature = "plugins")]
+    CopyText(String),
     /// Film for a preview call with the camera with this id, or the first,
     /// into this feed; or stop filming.
     PreviewCamera(Option<(Option<String>, crate::picture::Feed)>),
@@ -2435,6 +2439,11 @@ pub struct Application {
     /// answered under, each with the room it was going to.
     #[cfg(feature = "plugins")]
     pending_uploads: std::collections::BTreeMap<u64, (String, crate::chat::Staged)>,
+    /// Set while a plugin's own `messages.send` is going out, so the
+    /// interception chain doesn't see it: that chain is for what the person
+    /// wrote, and a plugin that both intercepts and sends would meet itself.
+    #[cfg(feature = "plugins")]
+    plugin_sending: bool,
     /// How many pictures other than custom emoji were kept the last time
     /// those off screen went.
     pictures_kept: usize,
@@ -2929,9 +2938,18 @@ impl Application {
     pub fn dispatch(&mut self, action: Action) -> Vec<Effect> {
         // A keystroke in the composer shows no picture that wasn't on screen.
         let composing = matches!(action, Action::SetDraft(_) | Action::MentionQuery(_));
+        // Somebody is typing, which is the person doing something: a plugin's
+        // `messages.send` may stand behind it, and a peek at the composer's own
+        // buffer costs nothing.
+        #[cfg(feature = "plugins")]
+        let gesture = composing || matches!(action, Action::PluginInput(_) | Action::Send);
         let mut effects = self.dispatch_action(action);
         #[cfg(feature = "plugins")]
         self.plugins_sync_world();
+        #[cfg(feature = "plugins")]
+        if gesture && let Some(plugins) = self.state.plugins.as_ref() {
+            plugins.note_gesture();
+        }
         effects.extend(self.send_pending_message());
         effects.extend(self.show_panel_profile());
         if !composing {

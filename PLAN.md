@@ -1570,14 +1570,18 @@ checklist waiting for a real MacBook.
 
 What is in place: the reads (`app.version|locale|theme_mode`, `account.me`,
 `rooms.selected|get|list`, `messages.get|history`, `people.get|member`) answered
-from published state (`plugins/world.rs`), and two of the outbound gates,
-`typing.pre_send` and `attachment.pre_upload`. Still to come: items 1's extra
-events (`presence`, `speaking` have no tap), item 2 (`identity.decorate`,
-`code_block.render`, providers), item 3 (`messages.send|edit|delete|react|jump_to`,
-the `composer` calls, `notify.send`, `clipboard.write`, `open.url`, `media.get`,
-retention, `activity.pre_publish`, and the curated actions), item 4 (audio and
-the microphone), and item 5 (§11.7's changes to built-in UI beyond the part
-hides and the colour and size overlay `plugins/ui.rs` already derives).
+from published state (`plugins/world.rs`); the outbound gates
+`typing.pre_send` and `attachment.pre_upload`; and the calls only the
+application can carry out — `messages.send|edit|delete|react|jump_to`, the
+`composer` calls, `notify.send`, `clipboard.write` and `open.url`, each behind
+its capability, with a send's gesture rule and the 5-per-10-s cap. Every method
+the first version of the API names is answered, and `message.decorate` draws
+through `yf_decorate`. Still to come: items 1's extra events (`presence`,
+`speaking` have no tap), item 2 (`identity.decorate`, `code_block.render`,
+providers), the rest of item 3 (`media.get`, retention, `activity.pre_publish`,
+and the curated actions of §17.2's table), item 4 (audio and the microphone), and
+item 5 (§11.7's changes to built-in UI beyond the part hides and the colour and
+size overlay `plugins/ui.rs` already derives).
 
 The rest of [§17.2](#172-additions-to-the-api), in this order:
 

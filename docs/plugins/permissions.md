@@ -103,6 +103,16 @@ person asked the plugin for something, and for five seconds after that
 gesture at all, the send is the plugin acting on its own and needs
 `messages.send.background`.
 
+## What each call needs
+
+| Call | Capability |
+| --- | --- |
+| `messages.send`, `edit`, `delete`, `react` | `messages.send`; a send without a recent gesture also needs `messages.send.background` |
+| `messages.jump_to`, `composer.*` | none: navigation and the person's own composer |
+| `notify.send` | `notifications` |
+| `clipboard.write` | `clipboard.write` |
+| `open.url` | `open.app` |
+
 ## The network gate
 
 A guest never opens a socket. `http.fetch` crosses the pipe, and the parent's own

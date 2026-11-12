@@ -168,21 +168,20 @@ Two things are deliberately not there yet:
   Discord's gateway feeds `message_create`, `message_update` and
   `message_delete`.
 
-Beyond those, the API is a first slice rather than the surface a plugin author
-would want: of the method groups a manifest can name, `storage`, `settings`,
-`timers`, `log`, `http` and `ui` are answered, the reads `app`, `account`,
-`rooms`, `messages.get`/`history` and `people` are answered from what the
-application already knows, and of `plugin`, the `call`, `publish` and
-`subscribe` calls are; `messages.send` and the rest of that group, `composer`,
-`notify`, `clipboard` and `open` answer `unsupported`. `message.pre_send` and
-`message.pre_edit` exist, run as a chain with a deadline per plugin and for the
-whole thing, and fail open unless a plugin's manifest asks for
-`on_failure: "block"`; `typing.pre_send` and `attachment.pre_upload` do too, and
-`activity.pre_publish` doesn't. A plugin draws in its slots, in a dialog, and
-under the messages it is on screen for, through `yf_decorate`. The
-OS sandbox under the helper is not started, and the marketplace is read while
-its page is open but not yet checked by a remote-refs query, so an update is
-fetched when asked for rather than offered
-([`marketplace.md`](marketplace.md)).
+Beyond those, every method the first version of the API names is answered:
+`storage`, `settings`, `http`, `timers`, `ui`, `notify`, `clipboard`, `open`, the
+`app`, `account`, `rooms`, `messages` and `people` groups, and the `plugin`
+group's `call`, `publish` and `subscribe`. A method this build doesn't have
+answers `unsupported`, which is what a plugin feature-detects on. What the API
+still doesn't have is [§17.2](../../PLAN.md#172-additions-to-the-api)'s
+additions: the curated actions (`presence`, `mark_read`, `set_mute`,
+`open_room`, `start_reply`, `start_edit`, `reactors`, `pause_invites`,
+`add_emoji`, `add_sticker`), `media.get`, retention, `identity.decorate`,
+`code_block.render`, providers, audio and the microphone, and the changes to
+built-in UI beyond the part hides and the colour and size overlay. The hooks are
+`message.pre_send`, `message.pre_edit`, `typing.pre_send` and
+`attachment.pre_upload`, with `message.decorate` drawn through `yf_decorate`;
+`activity.pre_publish` exists in the ABI and Yapfast publishes no activity to run
+it on.
 `docs/plugins/manifest.md` lists the fields; a manifest may declare `menus`,
 `settings` and `tweaks` that nothing draws yet.

@@ -233,6 +233,28 @@ input of a widget one of its settings draws when that was what the person used.
 | `{ "pending": { "tag": … } }` | The answer is coming as a later event tagged with that value |
 | `{ "error": { "message": … } }` | The call was understood and failed |
 
+The calls the application carries out answer `true` when they did, and a
+`denied` or `error` when they didn't. They reach the application's own actions,
+so nothing waits on a person:
+
+| Call | Payload | What it does |
+| --- | --- | --- |
+| `messages.send` | `{ room, body }` | Sends, within the 5-per-10-s cap, with a gesture behind it or `messages.send.background` |
+| `messages.edit` | `{ room, message, body }` | Edits one message |
+| `messages.delete` | `{ room, message }` | Deletes one message |
+| `messages.react` | `{ room, message, emoji }` | Reacts with the emoji as Discord writes it |
+| `messages.jump_to` | `{ room, message }` | Shows that message in its room |
+| `composer.get_draft` | `{ room }` | The person's draft there, as a string |
+| `composer.set_draft` | `{ room, body }` | Replaces it, which the composer shows at once |
+| `composer.insert` | `{ room, text }` | Writes after it, never over it |
+| `notify.send` | `{ text }` | One OS notification, titled with the plugin |
+| `clipboard.write` | `{ text }` | Puts text on the clipboard |
+| `open.url` | `{ url }` | Opens a page the way a message's link does |
+
+A send a plugin asks for isn't run through `message.pre_send`: that chain is for
+what the person wrote, and a plugin that both intercepts and sends would meet
+itself.
+
 The methods are names, so adding one never changes the link surface. `storage`,
 `settings`, `http`, `timers`, `app`, `account`, the `rooms`, `messages` and
 `people` reads, the `ui` calls and the `plugin` group have typed payloads in

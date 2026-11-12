@@ -2879,6 +2879,8 @@ impl Adapter {
                 }
                 Effect::OpenPage(page) => browser::open(&page),
                 Effect::CopyPicture(picture) => crate::copy::picture(picture),
+                #[cfg(feature = "plugins")]
+                Effect::CopyText(text) => crate::copy::text(text),
                 Effect::StopDiscordLink => {
                     #[cfg(feature = "discord")]
                     {

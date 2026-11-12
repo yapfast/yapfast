@@ -30,10 +30,11 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use yapfast_plugin_api::call::{
-    self, ClearSlot, CommandInvocation, CommandOutcome, HostCall, HostReturn, HttpRequest, Line,
-    MessageGet, MessageHistory, OpenDialog, PeopleGet, PeopleMember, PluginCall, PluginSubscribe,
-    RoomGet, RoomsList, SetSlot, SettingsNews, SlotDrawn, StorageGet, StorageList, StorageSet,
-    TimerCancel, TimerRequest,
+    self, ClearSlot, CommandInvocation, CommandOutcome, CopyText, DraftRequest, EditMessage,
+    HostCall, HostReturn, HttpRequest, InsertText, Line, MessageGet, MessageHistory, MessageRef,
+    NotifySend, OpenDialog, OpenUrl, PeopleGet, PeopleMember, PluginCall, PluginSubscribe,
+    ReactMessage, RoomGet, RoomsList, SendMessage, SetSlot, SettingsNews, SlotDrawn, StorageGet,
+    StorageList, StorageSet, TimerCancel, TimerRequest,
 };
 use yapfast_plugin_api::capability::{Capability, HostPattern};
 use yapfast_plugin_api::event::{EventEnvelope, EventKind, TopicEvent};
@@ -52,7 +53,7 @@ use crate::plugins::registry::{Registry, Subscriptions};
 use crate::plugins::settings;
 use crate::plugins::slots::{self, Slot};
 use crate::plugins::spawn::{self, Helper, Restarts};
-use crate::plugins::state::{Notice, PreSend};
+use crate::plugins::state::{AppCall, Notice, PreSend};
 use crate::plugins::store::{Module, Store};
 
 /// How long coalesced events wait for company.
@@ -128,6 +129,8 @@ impl Bridge {
             wanted: AtomicU64::new(0),
             intercepts: AtomicBool::new(false),
             decorates: AtomicBool::new(false),
+            gesture: Mutex::new(None),
+            sends: Mutex::new(BTreeMap::new()),
             off: Mutex::new(None),
             gate: Mutex::new(None),
             held: Mutex::new(BTreeMap::new()),
@@ -187,6 +190,22 @@ impl Bridge {
                 });
             }
         }
+    }
+
+    /// Answers a call the application carried out, under the number the guest
+    /// asked with, so the runtime hands it to the call that is waiting.
+    pub fn answer_call(&mut self, plugin: &PluginId, call: u64, answer: HostReturn) {
+        self.send(Request::CallAnswer {
+            plugin: plugin.clone(),
+            call,
+            answer,
+        });
+    }
+
+    /// Records that the person just did something: a plugin's send needs one
+    /// behind it unless its manifest asks for `messages.send.background`.
+    pub fn note_gesture(&self) {
+        self.shared.gesture();
     }
 
     /// Whether anything subscribed to this kind of event.
@@ -1010,6 +1029,11 @@ pub(crate) struct Shared {
     /// Whether an enabled plugin draws under messages, which a row asks before
     /// it costs one call per message on screen.
     decorates: AtomicBool,
+    /// When the person last did something a plugin's send can stand behind.
+    gesture: Mutex<Option<Instant>>,
+    /// When each plugin last sent a message, for the 5-per-10-s the plan puts
+    /// on `messages.send`.
+    sends: Mutex<BTreeMap<PluginId, Vec<Instant>>>,
     /// Why plugins are off, when they are.
     off: Mutex<Option<String>>,
     /// The one place a plugin's HTTP request can be made, once the application
@@ -1037,6 +1061,34 @@ impl Shared {
         self.wanted.store(summary.wanted, Ordering::Relaxed);
         self.intercepts.store(summary.intercepts, Ordering::Relaxed);
         self.decorates.store(summary.decorates, Ordering::Relaxed);
+    }
+
+    /// Records that the person just did something, which is what a plugin's
+    /// send needs behind it.
+    fn gesture(&self) {
+        *self.gesture.lock().unwrap_or_else(PoisonError::into_inner) = Some(Instant::now());
+    }
+
+    /// Whether `plugin` may send now: five in any ten seconds, as §9.1 caps it.
+    fn may_send(&self, plugin: &PluginId) -> bool {
+        let mut sends = self.sends.lock().unwrap_or_else(PoisonError::into_inner);
+        let held = sends.entry(plugin.clone()).or_default();
+        let since = Instant::now() - SEND_WINDOW;
+        held.retain(|at| *at > since);
+        if held.len() >= SEND_LIMIT {
+            return false;
+        }
+        held.push(Instant::now());
+        true
+    }
+
+    /// Whether a person did something recently enough for a plugin's send to
+    /// stand behind it.
+    fn has_gesture(&self) -> bool {
+        self.gesture
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_some_and(|at| at.elapsed() < GESTURE_WINDOW)
     }
 
     /// The registry for reading.
@@ -1411,6 +1463,13 @@ enum Request {
         plugin: PluginId,
         news: SettingsNews,
     },
+    /// What the application did with a call it answered, handed back to the
+    /// guest under its own number.
+    CallAnswer {
+        plugin: PluginId,
+        call: u64,
+        answer: HostReturn,
+    },
     /// The application is going away.
     Shutdown,
 }
@@ -1752,6 +1811,15 @@ struct DevWatch {
     /// When to look again.
     due: Instant,
 }
+
+/// How long a plugin's send stands behind the person's last action: §9.1 makes
+/// sending without one a capability of its own, and this is what "a recent
+/// gesture" means in practice.
+const GESTURE_WINDOW: Duration = Duration::from_secs(30);
+
+/// `messages.send`'s guard rail: at most this many sends in this window.
+const SEND_LIMIT: usize = 5;
+const SEND_WINDOW: Duration = Duration::from_secs(10);
 
 /// How long the parent waits for one plugin's decoration: the helper's own
 /// budget is 16 ms, and the rest is the frame it takes to get there.
@@ -2139,6 +2207,14 @@ impl Session {
             }
             Request::Decorate { plugin, request } => {
                 self.decorate(shared, &plugin, request);
+                None
+            }
+            Request::CallAnswer {
+                plugin,
+                call,
+                answer,
+            } => {
+                self.reply(&plugin, call, answer);
                 None
             }
             Request::Swap {
@@ -2661,6 +2737,9 @@ impl Session {
             // A row that comes back after a swap is decorated again by the
             // interface's next report of what is on screen.
             Request::Decorate { plugin, .. } => self.in_swap(plugin),
+            // An answer to a guest's call is about a guest that may be shut
+            // down with the swap, so it goes as it comes.
+            Request::CallAnswer { .. } => false,
             // An eviction is the application asking for memory back, and one
             // that raced a swap would be undoing it; it waits the 100 ms. A
             // second swap waits for the one running for the same reason: the
@@ -2961,6 +3040,15 @@ impl Session {
             self.fetch(shared, call, plugin, request);
             return;
         }
+        // The calls only the application can answer go to it and are answered
+        // later through `PluginState::answer_call`, so the interface thread is
+        // never waited on and the guest is never left thinking nothing happened.
+        if let Some(answer) = self.forward_call(shared, call, &plugin, &request) {
+            self.reply(&plugin, call, answer);
+        }
+        if is_app_call(request.method.as_str()) {
+            return;
+        }
         // Being told of a change is the one call whose answer only exists
         // later: the guest is answered `pending` now, and every change after it
         // travels under this id.
@@ -3029,6 +3117,129 @@ impl Session {
     }
 
     /// Answers a host call that needs no waiting.
+    /// Hands a call only the application can carry out to it, or answers why it
+    /// can't.
+    ///
+    /// `None` means the call was passed on: the application answers it with
+    /// [`Bridge::answer_call`]. `Some` is the refusal or the bad payload, which
+    /// is answered here and now, because neither can change by waiting.
+    fn forward_call(
+        &mut self,
+        shared: &Shared,
+        call: u64,
+        plugin: &PluginId,
+        request: &HostCall,
+    ) -> Option<HostReturn> {
+        let method = request.method.as_str();
+        let parsed: Result<AppCall, serde_json::Error> = match method {
+            call::method::MESSAGES_SEND => {
+                request.parse::<SendMessage>().map(|sent| AppCall::Send {
+                    room: sent.room,
+                    body: sent.body,
+                })
+            }
+            call::method::MESSAGES_EDIT => {
+                request.parse::<EditMessage>().map(|edit| AppCall::Edit {
+                    room: edit.room,
+                    message: edit.message,
+                    body: edit.body,
+                })
+            }
+            call::method::MESSAGES_DELETE => {
+                request
+                    .parse::<MessageRef>()
+                    .map(|deleted| AppCall::Delete {
+                        room: deleted.room,
+                        message: deleted.message,
+                    })
+            }
+            call::method::MESSAGES_REACT => {
+                request.parse::<ReactMessage>().map(|react| AppCall::React {
+                    room: react.room,
+                    message: react.message,
+                    emoji: react.emoji,
+                })
+            }
+            call::method::MESSAGES_JUMP_TO => {
+                request.parse::<MessageRef>().map(|jump| AppCall::JumpTo {
+                    room: jump.room,
+                    message: jump.message,
+                })
+            }
+            call::method::COMPOSER_GET_DRAFT => request
+                .parse::<DraftRequest>()
+                .map(|draft| AppCall::GetDraft { room: draft.room }),
+            call::method::COMPOSER_SET_DRAFT => {
+                request
+                    .parse::<DraftRequest>()
+                    .map(|draft| AppCall::SetDraft {
+                        room: draft.room,
+                        body: draft.body.unwrap_or_default(),
+                    })
+            }
+            call::method::COMPOSER_INSERT => {
+                request.parse::<InsertText>().map(|insert| AppCall::Insert {
+                    room: insert.room,
+                    text: insert.text,
+                })
+            }
+            call::method::NOTIFY_SEND => request
+                .parse::<NotifySend>()
+                .map(|notify| AppCall::Notify { text: notify.text }),
+            call::method::CLIPBOARD_WRITE => request
+                .parse::<CopyText>()
+                .map(|copy| AppCall::Copy { text: copy.text }),
+            call::method::OPEN_URL => request
+                .parse::<OpenUrl>()
+                .map(|open| AppCall::Open { url: open.url }),
+            _ => return None,
+        };
+        let app = match parsed {
+            Ok(app) => app,
+            Err(error) => return Some(wrong_payload(method, error)),
+        };
+        let registry = shared.registry();
+        let Some(entry) = registry.entry(plugin) else {
+            return Some(HostReturn::Error {
+                message: format!("{plugin} isn't installed"),
+            });
+        };
+        let permissions = entry.manifest.permissions.clone();
+        if let Some(capability) = app_capability(&app)
+            && let Err(denial) = crate::plugins::permissions::check(&permissions, capability)
+        {
+            return Some(HostReturn::Denied {
+                reason: denial.reason().to_owned(),
+            });
+        }
+        // §9.1's guard rails for sending: a person's action behind it, or the
+        // capability that says the plugin sends on its own, and five sends in
+        // any ten seconds either way.
+        if matches!(app, AppCall::Send { .. }) {
+            if !shared.has_gesture() && !permissions.allows(Capability::MessagesSendBackground) {
+                return Some(HostReturn::Denied {
+                    reason: format!(
+                        "{plugin} wants to send without you doing anything: that needs                          `messages.send.background`, and automated sending can get a Discord                          account banned"
+                    ),
+                });
+            }
+            if !shared.may_send(plugin) {
+                return Some(HostReturn::Denied {
+                    reason: format!(
+                        "{plugin} is sending more than {SEND_LIMIT} messages in {window} seconds",
+                        window = SEND_WINDOW.as_secs()
+                    ),
+                });
+            }
+        }
+        shared.announce(Notice::Call {
+            plugin: plugin.clone(),
+            call,
+            request: app,
+        });
+        None
+    }
+
     fn answer(&mut self, shared: &Shared, plugin: &PluginId, call: HostCall) -> HostReturn {
         let registry = shared.registry();
         let Some(entry) = registry.entry(plugin) else {
@@ -4069,6 +4280,43 @@ async fn sleep_until(deadline: Option<Instant>) {
 }
 
 /// The answer to a payload that wasn't the shape its method defines.
+/// Whether a method is one the application answers rather than this thread.
+fn is_app_call(method: &str) -> bool {
+    matches!(
+        method,
+        call::method::MESSAGES_SEND
+            | call::method::MESSAGES_EDIT
+            | call::method::MESSAGES_DELETE
+            | call::method::MESSAGES_REACT
+            | call::method::MESSAGES_JUMP_TO
+            | call::method::COMPOSER_GET_DRAFT
+            | call::method::COMPOSER_SET_DRAFT
+            | call::method::COMPOSER_INSERT
+            | call::method::NOTIFY_SEND
+            | call::method::CLIPBOARD_WRITE
+            | call::method::OPEN_URL
+    )
+}
+
+/// The capability a call the application carries out needs, when it needs one.
+fn app_capability(call: &AppCall) -> Option<Capability> {
+    match call {
+        AppCall::Send { .. }
+        | AppCall::Edit { .. }
+        | AppCall::Delete { .. }
+        | AppCall::React { .. } => Some(Capability::MessagesSend),
+        AppCall::Notify { .. } => Some(Capability::Notifications),
+        AppCall::Copy { .. } => Some(Capability::ClipboardWrite),
+        AppCall::Open { .. } => Some(Capability::OpenApp),
+        // Navigation and the composer need no capability; the plan gives them
+        // a recent gesture instead, and the composer is the person's own text.
+        AppCall::JumpTo { .. }
+        | AppCall::GetDraft { .. }
+        | AppCall::SetDraft { .. }
+        | AppCall::Insert { .. } => None,
+    }
+}
+
 fn wrong_payload(method: &str, error: serde_json::Error) -> HostReturn {
     HostReturn::Error {
         message: format!("`{method}` was given a payload it can't read: {error}"),
@@ -4388,6 +4636,8 @@ mod tests {
             wanted: AtomicU64::new(0),
             intercepts: AtomicBool::new(false),
             decorates: AtomicBool::new(false),
+            gesture: Mutex::new(None),
+            sends: Mutex::new(BTreeMap::new()),
             off: Mutex::new(None),
             gate: Mutex::new(None),
             held: Mutex::new(BTreeMap::new()),
@@ -6316,6 +6566,11 @@ mod tests {
         "activation":{"on":["decorate"]},
         "permissions":{"capabilities":[]}}"#;
 
+    /// A plugin that may send messages, and may write the composer.
+    const SENDER_MANIFEST: &str = r#"{"api":1,"id":"com.example.sender","name":"Sender",
+        "version":"1.0.0","wasm":"plugin.wasm",
+        "permissions":{"capabilities":["messages.send"]}}"#;
+
     /// The reply a chain sends for the request it was handed: the helper's own
     /// frame id is the one the parent is waiting under.
     fn hook_done(id: u64, outcome: HookOutcome, by: Option<PluginId>) -> Frame {
@@ -6615,6 +6870,108 @@ mod tests {
             notices.recv_timeout(Duration::from_millis(100)).is_err(),
             "a tree Yapfast refuses draws nothing at all"
         );
+    }
+
+    #[test]
+    fn a_send_without_a_gesture_names_the_capability_it_needs() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), SENDER_MANIFEST, b"not a real module");
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        let call = HostCall::new(
+            call::method::MESSAGES_SEND,
+            SendMessage {
+                room: "room-1".to_owned(),
+                body: "hi".to_owned(),
+            },
+        )
+        .expect("a call payload");
+        runtime().block_on(async { session.on_call(&shared, 7, plugin, call) });
+
+        let (id, answer) = returned(&next_frame(&written));
+        assert_eq!(id, 7);
+        let HostReturn::Denied { reason } = answer else {
+            panic!("a send nobody asked for is refused");
+        };
+        assert!(reason.contains("messages.send.background"), "{reason}");
+    }
+
+    #[test]
+    fn a_send_the_person_just_acted_for_goes_to_the_application() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), SENDER_MANIFEST, b"not a real module");
+        let (wake, notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        // The person typed a moment ago, which is the gesture a send stands
+        // behind.
+        shared.gesture();
+        let call = HostCall::new(
+            call::method::MESSAGES_SEND,
+            SendMessage {
+                room: "room-1".to_owned(),
+                body: "hi".to_owned(),
+            },
+        )
+        .expect("a call payload");
+        runtime().block_on(async { session.on_call(&shared, 8, plugin.clone(), call) });
+
+        let notice = notices
+            .recv_timeout(Duration::from_secs(2))
+            .expect("a notice");
+        let Notice::Call {
+            plugin: asked_by,
+            call: answered_under,
+            request,
+        } = notice
+        else {
+            panic!("a send is the application's to do: {notice:?}");
+        };
+        assert_eq!(asked_by, plugin);
+        assert_eq!(answered_under, 8);
+        assert_eq!(
+            request,
+            AppCall::Send {
+                room: "room-1".to_owned(),
+                body: "hi".to_owned()
+            }
+        );
+        assert!(
+            written.recv_timeout(Duration::from_millis(50)).is_err(),
+            "the guest waits for the application's answer, not this thread's"
+        );
+    }
+
+    #[test]
+    fn six_sends_in_ten_seconds_are_one_too_many() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), SENDER_MANIFEST, b"not a real module");
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+        shared.gesture();
+        for call in 1..=6u64 {
+            let request = HostCall::new(
+                call::method::MESSAGES_SEND,
+                SendMessage {
+                    room: "room-1".to_owned(),
+                    body: format!("{call}"),
+                },
+            )
+            .expect("a call payload");
+            runtime().block_on(async { session.on_call(&shared, call, plugin.clone(), request) });
+        }
+        // The first five went to the application and wrote nothing; the sixth
+        // is refused here, which is the frame this sees.
+        let (id, answer) = returned(&next_frame(&written));
+        assert_eq!(id, 6);
+        let HostReturn::Denied { reason } = answer else {
+            panic!("the sixth send in ten seconds is refused");
+        };
+        assert!(reason.contains("5 messages"), "{reason}");
     }
 
     #[test]

@@ -291,6 +291,71 @@ pub struct WidgetInput {
 
 /// `app.version`, `app.locale` and `app.theme_mode`'s answer: each gives the
 /// whole of what Yapfast is, so a plugin asks once and keeps it.
+/// `messages.send`: a message the plugin wants sent.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SendMessage {
+    pub room: String,
+    pub body: String,
+}
+
+/// `messages.edit`: a message of the open room, with what it should say.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EditMessage {
+    pub room: String,
+    pub message: String,
+    pub body: String,
+}
+
+/// `messages.get`'s and the other single-message calls' subject.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageRef {
+    pub room: String,
+    pub message: String,
+}
+
+/// `messages.react`: the emoji to react with, as Discord writes it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReactMessage {
+    pub room: String,
+    pub message: String,
+    pub emoji: String,
+}
+
+/// `composer.get_draft` and `composer.set_draft`'s room.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DraftRequest {
+    pub room: String,
+    /// What the draft should say, for `composer.set_draft`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+}
+
+/// `composer.insert`: text to put after what the person has written.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InsertText {
+    pub room: String,
+    pub text: String,
+}
+
+/// `notify.send`: a line for the person, as the OS notification shows it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotifySend {
+    pub text: String,
+}
+
+/// `clipboard.write`: text for the clipboard.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CopyText {
+    pub text: String,
+}
+
+/// `open.url`: a page for the browser, which Yapfast confirms as it does a
+/// link in a message.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenUrl {
+    pub url: String,
+}
+
 /// `ui.set_slot`: a widget tree to draw in one of the interface's slots.
 ///
 /// `slot` is one of `banner`, `toast`, `composer`, `message.actions` or

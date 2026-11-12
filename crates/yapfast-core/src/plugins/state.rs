@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use yapfast_plugin_api::PluginId;
-use yapfast_plugin_api::call::{CommandInvocation, SettingsNews, WidgetInput};
+use yapfast_plugin_api::call::{CommandInvocation, HostReturn, SettingsNews, WidgetInput};
 use yapfast_plugin_api::event::{EventEnvelope, EventKind};
 use yapfast_plugin_api::hook::{AttachmentPending, Draft};
 use yapfast_plugin_api::manifest::CommandDecl;
@@ -83,6 +83,15 @@ pub enum Notice {
         source: String,
         result: Result<Box<crate::plugins::marketplace::Catalog>, String>,
     },
+    /// A guest asked Yapfast to do something only the application can: send a
+    /// message, write the composer, notify, copy or open a page. The answer goes
+    /// back through [`PluginState::answer_call`], so nothing waits on the
+    /// interface thread.
+    Call {
+        plugin: PluginId,
+        call: u64,
+        request: AppCall,
+    },
     /// A plugin wants a host the person hasn't allowed, so a page can ask.
     ///
     /// The gate asks rather than holding the request open, and the plugin asks
@@ -99,6 +108,53 @@ pub enum Notice {
     /// Take away everything every plugin drew, because the store changed under
     /// them: an install, an uninstall or a roll back.
     SlotsReset,
+}
+
+/// A guest call the application itself has to carry out.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AppCall {
+    Send {
+        room: String,
+        body: String,
+    },
+    Edit {
+        room: String,
+        message: String,
+        body: String,
+    },
+    Delete {
+        room: String,
+        message: String,
+    },
+    React {
+        room: String,
+        message: String,
+        emoji: String,
+    },
+    JumpTo {
+        room: String,
+        message: String,
+    },
+    GetDraft {
+        room: String,
+    },
+    SetDraft {
+        room: String,
+        body: String,
+    },
+    Insert {
+        room: String,
+        text: String,
+    },
+    Notify {
+        text: String,
+    },
+    Copy {
+        text: String,
+    },
+    Open {
+        url: String,
+    },
 }
 
 /// What `pre_send` decided about an outgoing message.
@@ -315,6 +371,18 @@ impl PluginState {
     /// is applied here rather than in the helper.
     pub fn observe(&mut self, event: EventEnvelope) {
         self.bridge.observe(event);
+    }
+
+    /// Answers a call the application carried out, under the number the guest
+    /// asked with.
+    pub fn answer_call(&mut self, plugin: &PluginId, call: u64, answer: HostReturn) {
+        self.bridge.answer_call(plugin, call, answer);
+    }
+
+    /// Records that the person just did something, which is what a plugin's
+    /// send without `messages.send.background` needs behind it.
+    pub fn note_gesture(&self) {
+        self.bridge.note_gesture();
     }
 
     /// Whether an enabled plugin draws under messages, which a visible row
