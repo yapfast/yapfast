@@ -165,6 +165,9 @@ pub(super) struct Tracker {
     /// Whether the account shares the game it plays, from the settings, and
     /// the game it shows.
     pub(super) show_game: bool,
+    /// The settings' `status`, as Discord last sent it: what a change to the
+    /// status, custom status or game sharing starts from.
+    status_settings: Option<Arc<[u8]>>,
     /// Whether Discord lets the account see age-restricted content, and
     /// whether its settings offer age-restricted commands in DMs.
     nsfw_allowed: bool,
@@ -245,6 +248,7 @@ impl Tracker {
             afk_timeout: settings::AFK_TIMEOUT,
             // As in Discord's apps, until the settings say otherwise.
             show_game: true,
+            status_settings: None,
             playing: None,
             soundboard_volume: None,
             join_sounds: Arc::from([]),
@@ -1307,6 +1311,10 @@ impl Tracker {
 
     /// Learns the status from settings, all or some of them, in base64.
     fn settings(&mut self, encoded: &str) {
+        // Each change to the status settings starts from these, whole.
+        if let Some(status) = settings::status_field(encoded) {
+            self.status_settings = Some(status.into());
+        }
         let read = settings::read(encoded);
         if let Some(status) = read.status.filter(|status| !status.is_empty()) {
             self.status = status;
@@ -1991,6 +1999,7 @@ impl Tracker {
                 .clone()
                 .filter(|custom| !custom.expired(now_ms())),
             show_game: self.show_game,
+            status_settings: self.status_settings.clone(),
             soundboard_volume: self.soundboard_volume,
             join_sounds: self.join_sounds.clone(),
             playing: self.playing.clone(),
@@ -2515,7 +2524,7 @@ mod tests {
         // Changing only the status leaves the order alone.
         tracker.apply(
             &Event::UserSettingsProtoUpdate,
-            &json!({"settings": {"type": 1, "proto": settings::write_custom("", None)}, "partial": true}),
+            &json!({"settings": {"type": 1, "proto": settings::encode_status(&settings::write_custom(&[], None, 1))}, "partial": true}),
         );
         assert_eq!(
             order(&tracker),
@@ -2554,10 +2563,12 @@ mod tests {
         };
         let ready = json!({
             "user": {"id": "1", "username": "me"},
-            "user_settings_proto": settings::write_custom("", Some(&away)),
+            "user_settings_proto": settings::encode_status(&settings::write_custom(&[], Some(&away), 1)),
         });
         let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
         assert_eq!(tracker.snapshot().custom_status, Some(away));
+        // Kept whole, for the next change to start from.
+        assert!(tracker.snapshot().status_settings.is_some());
         assert_eq!(tracker.snapshot().presence, "online");
         assert_eq!(
             tracker.own_presence(settings::Away::default())["activities"][0]["state"],
@@ -2565,7 +2576,7 @@ mod tests {
         );
 
         // Settings of another type say nothing of it; clearing it does.
-        let cleared = settings::write_custom("", None);
+        let cleared = settings::encode_status(&settings::write_custom(&[], None, 1));
         assert!(!tracker.apply(
             &Event::UserSettingsProtoUpdate,
             &json!({"settings": {"type": 2, "proto": cleared}, "partial": true}),

@@ -29,7 +29,7 @@ const TEXT_AND_IMAGES: u64 = 6;
 const VIEW_NSFW_COMMANDS: u64 = 23;
 /// `StatusSettings.status_expires_at_ms`, a `fixed64`, and
 /// `status_created_at_ms`, a `UInt64Value`: when a status set for a while
-/// ends, and when it was set. Yapfast doesn't read them.
+/// ends, and when it was set.
 const STATUS_EXPIRES: u64 = 4;
 const STATUS_CREATED: u64 = 5;
 /// `CustomStatus`'s fields.
@@ -37,6 +37,8 @@ const CUSTOM_TEXT: u64 = 1;
 const CUSTOM_EMOJI_ID: u64 = 2;
 const CUSTOM_EMOJI_NAME: u64 = 3;
 const CUSTOM_EXPIRES: u64 = 4;
+/// `CustomStatus.created_at_ms`, a `fixed64`: when it was set.
+const CUSTOM_CREATED: u64 = 5;
 /// `PreloadedUserSettings.guild_folders`, a `GuildFolders`: its `folders`, in
 /// the order the server list shows them, and `guild_positions`, the order
 /// older clients kept.
@@ -124,6 +126,9 @@ pub fn read(encoded: &str) -> StatusSettings {
     let Some(status) = message(&data, STATUS) else {
         return settings;
     };
+    // `status` comes whole: one without a custom status has none, as
+    // when another device clears it or it runs out there.
+    settings.custom = Some(None);
     for (number, value) in fields(status) {
         match (number, value) {
             (STATUS_STATUS, Field::Bytes(wrapper)) => {
@@ -333,33 +338,46 @@ fn fixed64s(value: Field<'_>) -> Vec<u64> {
     }
 }
 
-/// Base64 settings holding the whole of `status` from `current`, the
-/// account's settings, with its field `number` set to `value`, a message, and
-/// the fields in `stale` taken out; the rest as it was. A PATCH puts each
-/// top-level field it carries in place of the old one, and Discord resets
-/// what it leaves out, so a custom status sent alone would set the status
-/// back to online.
-fn write_status_field(current: &str, number: u64, value: &[u8], stale: &[u64]) -> String {
+/// The settings' `status` as they hold it, its bytes, when they have one:
+/// what a write of it starts from.
+pub fn status_field(encoded: &str) -> Option<Vec<u8>> {
     let data = base64::engine::general_purpose::STANDARD
-        .decode(current)
-        .unwrap_or_default();
+        .decode(encoded)
+        .ok()?;
+    message(&data, STATUS).map(<[u8]>::to_vec)
+}
+
+/// Base64 settings holding `status` alone, as a PATCH sends them: Discord
+/// puts each top-level field it carries in place of the old one, and resets
+/// what that field leaves out, so `status` always goes whole.
+pub fn encode_status(status: &[u8]) -> String {
+    let mut settings = Vec::new();
+    put_bytes(&mut settings, STATUS, status);
+    base64::engine::general_purpose::STANDARD.encode(settings)
+}
+
+/// `current`, the settings' `status`, with its field `number` set to
+/// `value`, or left out with `None`, and the fields in `stale` taken out;
+/// the rest as it was, unknown fields too, as Discord's client keeps them.
+fn with_status_field(current: &[u8], number: u64, value: Option<&[u8]>, stale: &[u64]) -> Vec<u8> {
     let mut status = Vec::new();
-    for (field, kept) in fields(message(&data, STATUS).unwrap_or_default()) {
+    for (field, kept) in fields(current) {
         if field != number && !stale.contains(&field) {
             put_field(&mut status, field, &kept);
         }
     }
-    put_bytes(&mut status, number, value);
-    let mut settings = Vec::new();
-    put_bytes(&mut settings, STATUS, &status);
-    base64::engine::general_purpose::STANDARD.encode(settings)
+    if let Some(value) = value {
+        put_bytes(&mut status, number, value);
+    }
+    status
 }
 
-/// Base64 settings that set the custom status, or clear it with `None`, and
-/// keep the rest of `current`'s `status`.
-pub fn write_custom(current: &str, custom: Option<&CustomStatus>) -> String {
-    let mut message = Vec::new();
-    if let Some(custom) = custom {
+/// `current`, the settings' `status`, with the custom status set, or left
+/// out to clear it with `None`, as Discord's client clears it. A new one
+/// says when it was set, `now_ms`, as the client's does.
+pub fn write_custom(current: &[u8], custom: Option<&CustomStatus>, now_ms: u64) -> Vec<u8> {
+    let message = custom.map(|custom| {
+        let mut message = Vec::new();
         put_bytes(&mut message, CUSTOM_TEXT, custom.text.as_bytes());
         if let Some(id) = custom
             .emoji_id
@@ -374,33 +392,66 @@ pub fn write_custom(current: &str, custom: Option<&CustomStatus>) -> String {
         if let Some(at) = custom.expires_at_ms {
             put_fixed64(&mut message, CUSTOM_EXPIRES, at);
         }
-    }
-    write_status_field(current, STATUS_CUSTOM, &message, &[])
+        put_fixed64(&mut message, CUSTOM_CREATED, now_ms);
+        message
+    });
+    with_status_field(current, STATUS_CUSTOM, message.as_deref(), &[])
 }
 
-/// Base64 settings that set the status, `online`, `idle`, `dnd` or
-/// `invisible`, and keep the rest of `current`'s `status`. It stays until
-/// changed: the old status's end and start go with it.
-pub fn write_status(current: &str, status: &str) -> String {
+/// `current`, the settings' `status`, with the status set: `online`,
+/// `idle`, `dnd` or `invisible`. As in Discord's client it stays until
+/// changed, the old one's end going with it, and says when it was set,
+/// `now_ms`, or keeps when the same status was.
+pub fn write_status(current: &[u8], status: &str, now_ms: u64) -> Vec<u8> {
     let mut wrapper = Vec::new();
     put_bytes(&mut wrapper, 1, status.as_bytes());
-    write_status_field(
+    let created = fields(current).find_map(|(number, value)| match value {
+        Field::Bytes(created) if number == STATUS_CREATED => Some(created.to_vec()),
+        _ => None,
+    });
+    let same = status_of(current).as_deref() == Some(status);
+    let created = match created.filter(|_| same) {
+        Some(created) => created,
+        None => {
+            let mut created = Vec::new();
+            put_varint(&mut created, 1 << 3 | VARINT);
+            put_varint(&mut created, now_ms);
+            created
+        }
+    };
+    let status = with_status_field(
         current,
         STATUS_STATUS,
-        &wrapper,
+        Some(&wrapper),
         &[STATUS_EXPIRES, STATUS_CREATED],
-    )
+    );
+    with_status_field(&status, STATUS_CREATED, Some(&created), &[])
 }
 
-/// Base64 settings that share the game the account plays, or stop sharing
-/// it, and keep the rest of `current`'s `status`.
-pub fn write_show_game(current: &str, shown: bool) -> String {
+/// The status `status`, the settings' field, holds, if any.
+fn status_of(status: &[u8]) -> Option<String> {
+    fields(status).find_map(|(number, value)| match value {
+        Field::Bytes(wrapper) if number == STATUS_STATUS => {
+            fields(wrapper).find_map(|(number, value)| match value {
+                Field::Bytes(text) if number == 1 => {
+                    Some(String::from_utf8_lossy(text).into_owned())
+                }
+                _ => None,
+            })
+        }
+        _ => None,
+    })
+}
+
+/// `current`, the settings' `status`, sharing the game the account plays,
+/// or not.
+pub fn write_show_game(current: &[u8], shown: bool) -> Vec<u8> {
     let mut wrapper = Vec::new();
     if shown {
         put_varint(&mut wrapper, 1 << 3 | VARINT);
         put_varint(&mut wrapper, 1);
     }
-    write_status_field(current, STATUS_SHOW_GAME, &wrapper, &[])
+    with_status_field(current, STATUS_SHOW_GAME, Some(&wrapper), &[])
 }
 
 /// The presence a session sends the gateway, in IDENTIFY or opcode 3: the
@@ -598,7 +649,16 @@ mod tests {
             ]
         );
         // Settings that leave the list out don't empty it.
-        assert_eq!(server_list(&write_status("", "idle")), None);
+        assert_eq!(server_list(&status_only("idle")), None);
+    }
+
+    /// Settings holding a status written over none.
+    fn status_only(status: &str) -> String {
+        encode_status(&write_status(&[], status, 1))
+    }
+
+    fn custom_only(custom: Option<&CustomStatus>) -> String {
+        encode_status(&write_custom(&[], custom, 1))
     }
 
     #[test]
@@ -609,7 +669,7 @@ mod tests {
             emoji_id: Some("1400000000000000300".into()),
             expires_at_ms: Some(1_791_300_000_000),
         };
-        let written = write_custom("", Some(&status));
+        let written = custom_only(Some(&status));
         assert_eq!(
             read(&written),
             StatusSettings {
@@ -620,17 +680,17 @@ mod tests {
                 nsfw_commands_in_dms: None,
             }
         );
-        assert_eq!(read(&write_custom("", None)).custom, Some(None));
+        assert_eq!(read(&custom_only(None)).custom, Some(None));
         assert_eq!(
-            read(&write_status("", "idle")),
+            read(&status_only("idle")),
             StatusSettings {
                 status: Some("idle".into()),
-                custom: None,
+                custom: Some(None),
                 afk_timeout: None,
                 show_game: None,
                 nsfw_commands_in_dms: None,
             },
-            "setting the status leaves the custom status as it was"
+            "the status comes whole: none in it is none"
         );
         // Other settings around it, and a status, are read past and read.
         let mut settings = Vec::new();
@@ -645,15 +705,20 @@ mod tests {
         put_bytes(&mut settings, STATUS, &inner);
         let read = read(&base64::engine::general_purpose::STANDARD.encode(settings));
         assert_eq!(read.status.as_deref(), Some("dnd"));
-        assert_eq!(read.custom, None, "a partial update leaves it as it was");
+        assert_eq!(
+            read.custom,
+            Some(None),
+            "a status without a custom status clears it, as another device's clearing does"
+        );
         assert_eq!(super::read("not base64!"), StatusSettings::default());
     }
 
     #[test]
     fn reads_and_writes_whether_the_game_shows() {
-        assert_eq!(read(&write_show_game("", false)).show_game, Some(false));
-        assert_eq!(read(&write_show_game("", true)).show_game, Some(true));
-        assert_eq!(read(&write_status("", "idle")).show_game, None);
+        let game = |shown| encode_status(&write_show_game(&[], shown));
+        assert_eq!(read(&game(false)).show_game, Some(false));
+        assert_eq!(read(&game(true)).show_game, Some(true));
+        assert_eq!(read(&status_only("idle")).show_game, None);
     }
 
     #[test]
@@ -662,16 +727,16 @@ mod tests {
             text: "away for lunch".into(),
             ..CustomStatus::default()
         };
-        // The account's settings: other fields, then a status set for a while.
-        let mut settings = Vec::new();
-        put_bytes(&mut settings, 1, b"\x08\x01");
-        let mut status = Vec::new();
-        put_bytes(&mut status, STATUS_STATUS, b"\x0a\x03dnd");
-        put_fixed64(&mut status, STATUS_EXPIRES, 9);
-        put_bytes(&mut settings, STATUS, &status);
-        let current = base64::engine::general_purpose::STANDARD.encode(settings);
+        // The account's status: Do Not Disturb, set at 5 for a while, and a
+        // field Yapfast doesn't know.
+        let mut current = Vec::new();
+        put_bytes(&mut current, STATUS_STATUS, b"\x0a\x03dnd");
+        put_fixed64(&mut current, STATUS_EXPIRES, 9);
+        put_bytes(&mut current, STATUS_CREATED, b"\x08\x05");
+        put_bytes(&mut current, 9, b"kept");
+        let has = |status: &[u8], number: u64| fields(status).any(|(field, _)| field == number);
 
-        let written = write_custom(&current, Some(&custom));
+        let written = write_custom(&current, Some(&custom), 100);
         let expected = StatusSettings {
             status: Some("dnd".into()),
             custom: Some(Some(custom.clone())),
@@ -679,9 +744,9 @@ mod tests {
             show_game: None,
             nsfw_commands_in_dms: None,
         };
-        assert_eq!(read(&written), expected);
+        assert_eq!(read(&encode_status(&written)), expected);
         let data = base64::engine::general_purpose::STANDARD
-            .decode(&written)
+            .decode(encode_status(&written))
             .unwrap();
         assert_eq!(
             fields(&data).map(|(number, _)| number).collect::<Vec<_>>(),
@@ -689,37 +754,58 @@ mod tests {
             "only the status goes, the rest stay as they are"
         );
         assert!(
-            fields(message(&data, STATUS).unwrap())
+            fields(&written)
                 .any(|(number, value)| number == STATUS_EXPIRES
                     && matches!(value, Field::Fixed64(9))),
             "the status still ends when it would"
         );
+        assert!(
+            has(&written, 9),
+            "unknown fields stay, as the client keeps them"
+        );
+        assert!(
+            fields(message(&written, STATUS_CUSTOM).unwrap())
+                .any(|(number, value)| number == CUSTOM_CREATED
+                    && matches!(value, Field::Fixed64(100))),
+            "a custom status says when it was set"
+        );
 
         let written = write_show_game(&written, false);
         assert_eq!(
-            read(&written),
+            read(&encode_status(&written)),
             StatusSettings {
                 show_game: Some(false),
                 ..expected.clone()
             }
         );
 
-        let written = write_status(&written, "idle");
+        // The same status again keeps when it was set; another is set now
+        // and stays until changed.
+        let same = write_status(&written, "dnd", 200);
+        assert_eq!(message(&same, STATUS_CREATED), Some(&b"\x08\x05"[..]));
+        let written = write_status(&written, "idle", 200);
         assert_eq!(
-            read(&written),
+            read(&encode_status(&written)),
             StatusSettings {
                 status: Some("idle".into()),
                 show_game: Some(false),
                 ..expected
             }
         );
-        let data = base64::engine::general_purpose::STANDARD
-            .decode(&written)
-            .unwrap();
         assert!(
-            !fields(message(&data, STATUS).unwrap()).any(|(number, _)| number == STATUS_EXPIRES),
+            !has(&written, STATUS_EXPIRES),
             "a new status stays until changed"
         );
+        assert_eq!(
+            message(&written, STATUS_CREATED),
+            Some(&b"\x08\xc8\x01"[..]),
+            "and says when it was set"
+        );
+
+        // A cleared custom status is left out, as the client clears it.
+        let cleared = write_custom(&written, None, 300);
+        assert!(!has(&cleared, STATUS_CUSTOM));
+        assert_eq!(read(&encode_status(&cleared)).custom, Some(None));
     }
 
     #[test]
@@ -738,7 +824,7 @@ mod tests {
         };
         assert_eq!(read(&encoded(true)).nsfw_commands_in_dms, Some(true));
         assert_eq!(read(&encoded(false)).nsfw_commands_in_dms, Some(false));
-        assert_eq!(read(&write_status("", "idle")).nsfw_commands_in_dms, None);
+        assert_eq!(read(&status_only("idle")).nsfw_commands_in_dms, None);
     }
 
     #[test]
@@ -777,7 +863,7 @@ mod tests {
         put_bytes(&mut settings, GUILD_FOLDERS, &folders);
         let encoded = base64::engine::general_purpose::STANDARD.encode(&settings);
         assert_eq!(server_list(&encoded).unwrap().order, ["2", "1"]);
-        assert_eq!(server_list(&write_custom("", None)), None);
+        assert_eq!(server_list(&custom_only(None)), None);
     }
 
     #[test]
@@ -851,6 +937,6 @@ mod tests {
         put_bytes(&mut settings, VOICE_AND_VIDEO, &voice);
         let encoded = base64::engine::general_purpose::STANDARD.encode(settings);
         assert_eq!(read(&encoded).afk_timeout, Some(300));
-        assert_eq!(read(&write_status("", "dnd")).afk_timeout, None);
+        assert_eq!(read(&status_only("dnd")).afk_timeout, None);
     }
 }

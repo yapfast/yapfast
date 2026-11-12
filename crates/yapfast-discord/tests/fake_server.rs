@@ -4240,6 +4240,23 @@ async fn status_custom_status_and_game_sharing_keep_each_other() {
         presence["status"] == "dnd" && presence["activities"][0]["state"] == "Lunch"
     })
     .await;
+    // Two changes to the same field keep the order they were asked in,
+    // however their requests end up going.
+    let idle_later = discord.set_status("idle");
+    let invisible = discord.set_status("invisible");
+    invisible.await.unwrap();
+    idle_later.await.unwrap();
+    assert_eq!(
+        status_settings(server).status.as_deref(),
+        Some("invisible"),
+        "the last asked for wins"
+    );
+    presence_where(server, |presence| presence["status"] == "invisible").await;
+    // As in Discord's client, each change starts from the settings Discord
+    // sent, never from asking for them.
+    let answer: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/settings", "")).unwrap();
+    assert_eq!(answer["reads"], 0, "no GET /users/@me/settings-proto/1");
 }
 
 #[tokio::test(flavor = "multi_thread")]

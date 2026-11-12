@@ -347,15 +347,17 @@ pub(super) fn command(
     if let Command::Discord(DiscordCommand::SetCustomStatus(custom)) = command {
         match discord {
             Ok(discord) => {
-                let (discord, events) = (discord.clone(), events.clone());
+                let events = events.clone();
                 let custom = custom.map(|custom| yapfast_discord::settings::CustomStatus {
                     text: custom.text,
                     emoji_name: custom.emoji,
                     emoji_id: custom.emoji_id,
                     expires_at_ms: custom.expires_at_ms,
                 });
+                // Made now, so changes keep the order they were asked in.
+                let change = discord.set_custom_status(custom);
                 tokio::spawn(async move {
-                    let result = discord.set_custom_status(custom).await.map_err(|error| {
+                    let result = change.await.map_err(|error| {
                         tracing::warn!(
                             error = format!("{error:#}"),
                             "could not set the custom status"
@@ -455,9 +457,10 @@ pub(super) fn command(
     if let Command::Discord(DiscordCommand::ShowGame(shown)) = command {
         match discord {
             Ok(discord) => {
-                let (discord, events) = (discord.clone(), events.clone());
+                let events = events.clone();
+                let change = discord.set_show_game(shown);
                 tokio::spawn(async move {
-                    let result = discord.set_show_game(shown).await.map_err(|error| {
+                    let result = change.await.map_err(|error| {
                         tracing::warn!(
                             error = format!("{error:#}"),
                             "could not change sharing the game played"
@@ -476,9 +479,10 @@ pub(super) fn command(
     if let Command::Discord(DiscordCommand::SetStatus(status)) = command {
         match discord {
             Ok(discord) => {
-                let (discord, events) = (discord.clone(), events.clone());
+                let events = events.clone();
+                let change = discord.set_status(&status);
                 tokio::spawn(async move {
-                    let result = discord.set_status(&status).await.map_err(|error| {
+                    let result = change.await.map_err(|error| {
                         tracing::warn!(error = format!("{error:#}"), "could not set the status");
                         error.to_string()
                     });
