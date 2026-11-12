@@ -8,6 +8,7 @@ your PATH.
 | File | Is |
 | --- | --- |
 | `src/yapfast.zig` | The PDK: the kernel's imports, marshalling, host calls, and the five exports |
+| `template` | **Start here:** the plugin to copy — a manifest, one handler and a build script |
 | `examples/shout` | A whole plugin: one command, one host call, no state |
 
 ```sh

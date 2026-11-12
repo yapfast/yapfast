@@ -36,6 +36,8 @@ wasm-opt -Oz --strip-debug plugin.wasm -o plugin.wasm
 Run it on the copied `plugin.wasm`, after `cargo build`: `cargo` overwrites its
 own output, not this one.
 
+On Windows, `build.cmd` does the three lines above (it copies whatever `.wasm` cargo wrote).
+
 ## Try it
 
 While a plugin is being written, Yapfast can load it from a folder rather than

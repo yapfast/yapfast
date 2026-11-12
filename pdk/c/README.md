@@ -12,7 +12,7 @@ clang that can target `wasm32`.
 | `json.c` | Scanning JSON as it arrives, and writing small answers back |
 | `freestanding.c` | The four memory functions a module with no C library has to bring itself |
 | `examples/shout` | A whole plugin: one command, one host call, no state |
-| `template` | A copy of the above with nothing in it yet |
+| `template` | **Start here:** the plugin to copy — a manifest, one handler and a build script |
 
 ```sh
 cd examples/shout && ./build.sh && ls -l plugin.wasm

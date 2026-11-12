@@ -36,8 +36,20 @@ the installer refuses it), and Haskell (74–142 pages, and it retries a refused
 
 ## Starting here
 
-[`pdk/assemblyscript/template`](../../pdk/assemblyscript/template) is the
-plugin to copy: a manifest and one file, `/hello`, which builds in a second.
+Every PDK has a `template` folder to copy: a manifest, one handler and a build
+script, all four of them the same `/hello` command, so the difference you see
+is the language's.
+
+| Template | Builds in | Produces |
+| --- | --- | --- |
+| [`pdk/assemblyscript/template`](../../pdk/assemblyscript/template) | a second | 11.4 KiB, 1 page |
+| [`pdk/rust/template`](../../pdk/rust/template) | a cargo build | 160.8 KiB, 17 pages |
+| [`pdk/c/template`](../../pdk/c/template) | a second | 10.7 KiB, 5 pages |
+| [`pdk/zig/template`](../../pdk/zig/template) | a second | 55.1 KiB, 19 pages |
+
+Each has `build.sh` for a Unix shell and `build.cmd` for Windows, so a plugin
+builds the same way on either.
+
 Everything below about Rust applies to the PDK that has a published crate; the
 advice about memory applies to all of them.
 

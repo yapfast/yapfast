@@ -4,20 +4,31 @@
   "name": "Template",
   "version": "1.0.0",
   "description": "A plugin in C, ready to be something",
-  "authors": ["Your Name"],
+  "authors": [
+    "Your Name"
+  ],
   "license": "GPL-3.0-or-later",
   "wasm": "plugin.wasm",
   "activation": {
-    "on": ["command"]
+    "on": [
+      "command"
+    ]
   },
   "permissions": {
     "capabilities": []
   },
   "commands": [
     {
-      "name": "template",
-      "description": "Say what the template says",
-      "options": []
+      "name": "hello",
+      "description": "Say hello",
+      "options": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": false,
+          "description": "Who to greet"
+        }
+      ]
     }
   ]
 }

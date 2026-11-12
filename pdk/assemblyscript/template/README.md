@@ -34,6 +34,8 @@ my-plugin/
   yapfast-plugin.json
 ```
 
+On Windows, `build.cmd` is the same build, run through `node`.
+
 ## Try it
 
 Install the folder (Plugins → Add → from a folder, or copy it into the store's
