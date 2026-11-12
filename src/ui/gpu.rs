@@ -632,10 +632,21 @@ impl Present {
     /// Lets go of what no stream is using any more: a stream the UI let go of,
     /// and one whose pictures it refused. A stopped stream keeps the UI's
     /// textures, its fence handle and the worker's slots for as long as a
-    /// window keeps the entry, which nothing else would ever revisit.
+    /// window keeps the entry, which nothing else would ever revisit. And it
+    /// gives the worker back the slots this window's queue has finished with,
+    /// every tick rather than only when another picture replaces one: a worker
+    /// whose slot the window still holds has no picture to hand it, so an answer
+    /// that came only with a take would wait for the picture it is needed for.
     fn housekeeping(&mut self) {
-        self.streams
-            .retain(|_, stream| !stream.refused && stream.frames.strong_count() > 0);
+        let Present {
+            device, streams, ..
+        } = self;
+        streams.retain(|_, stream| !stream.refused && stream.frames.strong_count() > 0);
+        for stream in streams.values_mut() {
+            if let Some(frames) = stream.frames.upgrade() {
+                stream.retire_drawn(device, &frames);
+            }
+        }
     }
 }
 
@@ -2388,8 +2399,23 @@ mod present {
         }
 
         fn housekeeping(&mut self) {
-            self.streams
-                .retain(|_, stream| !stream.refused && stream.frames.strong_count() > 0);
+            let Present {
+                device, streams, ..
+            } = self;
+            streams.retain(|_, stream| !stream.refused && stream.frames.strong_count() > 0);
+            // The window's queue finishing with a picture is the worker's to hear
+            // whether or not another picture came: a slot the reader took is the
+            // worker's again only once the queue has drawn a frame without it, and
+            // a worker whose slot this window still holds has no picture to hand
+            // it — so retiring on a take alone would wait for the very picture it
+            // is needed for. A second of that and the share gives the picture path
+            // up, writing its pixels from then on. This runs every tick, on a
+            // stream that has nothing new as much as on one that has.
+            for stream in streams.values_mut() {
+                if let Some(frames) = stream.frames.upgrade() {
+                    stream.retire_drawn(device, &frames);
+                }
+            }
         }
     }
 

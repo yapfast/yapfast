@@ -285,7 +285,13 @@ share the card's picture path: the frames after that are written as pixels,
 which still reach the window, and the share stays on them for the rest of the
 stream. That is the way out of a ring that has stopped turning; it is one way on
 purpose, since the thing that would have to come back is the window's answer,
-which is what stopped. A picture crosses to the window as a shared texture it opens once, shown
+which is what stopped. The window says it has finished with a picture on every
+`stream-tick`, not only when another picture replaces it: a slot the reader took
+is the worker's again once the queue has drawn a frame without it, and a worker
+whose slot the window still holds has nothing to hand it, so an answer that only
+came with a take would wait for the picture it is needed for. The queue drawing
+a frame with nothing in it is the gate (`gpu::housekeeping` on Linux,
+`Present::housekeeping` on Windows). A picture crosses to the window as a shared texture it opens once, shown
 where the card drew it every frame, with a fence saying when the drawing
 finished. A shared texture's handle is a number that names the same object in
 both processes, so it goes in the frames file's slot; on Linux a picture is a
