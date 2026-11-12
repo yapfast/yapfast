@@ -426,7 +426,7 @@ component NewPostForm inherits Rectangle {
     }
     // Leaving what was written, as Discord's client asks.
     if root.leaving: Rectangle {
-        background: #000000a0;
+        background: Theme.scrim(#000000a0);
         TouchArea { }
         Rectangle {
             width: min(parent.width - 32px, 440px); x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;

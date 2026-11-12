@@ -42,6 +42,7 @@ import "fonts/DisplayName-Journal.ttf";
 // settings.slint, people.slint, friends.slint, dialogs.slint and sign-in.slint.
 import { Theme, Tip, BadgeTip, ReactionHover, Middle, Popup, PopupMotion, Twemoji, Look } from "theme.slint";
 import { TitleBar, ResizeEdges } from "title_bar.slint";
+import { Art, ArtLayer, ArtOverlays, ArtParticles, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil, ArtTransition } from "theme_art.slint";
 import { InboxRow, InboxPopout } from "yapfast/inbox.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { StickerPicker, StickerGridTile } from "stickers.slint";
@@ -78,6 +79,7 @@ export { PluginKind, PluginTone, PluginCell, PluginRow, PluginPart, PluginButton
 export { InboxRow } from "yapfast/inbox.slint";
 export { Theme, Badges, Popup, Twemoji, Looks, Look, Shape, SlotMotion } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
+export { Art, ArtImage, ArtOverlay, ArtText, ArtParticle } from "theme_art.slint";
 export { PersonRow, CallLink, ShareScreen, VoiceCard } from "voice.slint";
 export { ServerRow, RoomRow, FolderServer } from "rail.slint";
 export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer, NameStyles, ActivityClock } from "controls.slint";
@@ -2561,13 +2563,26 @@ export component YapfastWindow inherits Window {
         open-discord-captcha => { root.open-discord-captcha(); }
     }
 
+    // A theme's window art, under everything; glass panes line their blurred
+    // copy of it up with the window's size.
+    changed width => { Art.window-width = self.width; }
+    changed height => { Art.window-height = self.height; }
+    if Art.window.length > 0: ArtLayer {
+        x: 0px; y: 0px; width: root.width; height: root.height; layers: Art.window;
+        init => { Art.window-width = root.width; Art.window-height = root.height; }
+    }
     HorizontalLayout {
         y: root.title-height; height: root.height - root.title-height;
         visible: root.workspace;
-        spacing: 0px;
+        // A theme's glass may float the panes apart over its window art.
+        spacing: Art.gap; padding: Art.gap;
         // Navigation: the rail and the sidebar, with the voice and account dock across both.
         Rectangle {
-            width: 72px + root.sidebar-shown; background: Theme.rail-fill;
+            width: 72px + root.sidebar-shown; background: Art.glass-rail ? transparent : Theme.rail-fill;
+            border-radius: Art.pane-radius; clip: Art.pane-radius > 0px;
+            if Art.rail.length > 0 || Art.glass-rail: ArtLayer {
+                x: 0px; y: 0px; width: 72px; height: parent.height; layers: Art.rail; glass: Art.glass-rail; ground: Theme.rail-fill;
+            }
             VerticalLayout {
                 spacing: 0px;
                 HorizontalLayout {
@@ -2586,9 +2601,12 @@ export component YapfastWindow inherits Window {
                     }
                     // Channel sidebar: a lighter sheet held by the rail and the dock.
                     Rectangle {
-                        width: root.sidebar-shown; background: Theme.sidebar-fill;
+                        width: root.sidebar-shown; background: Art.glass-sidebar ? transparent : Theme.sidebar-fill;
                         border-top-left-radius: ClientStyle.enabled ? 12px : 10px; border-bottom-left-radius: ClientStyle.enabled ? 0px : 10px;
                         clip: true;
+                        if Art.sidebar.length > 0 || Art.glass-sidebar: ArtLayer {
+                            x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.sidebar; glass: Art.glass-sidebar; ground: Theme.sidebar-fill;
+                        }
                         VerticalLayout {
                             spacing: 0px;
                             header-box := Rectangle {
@@ -2777,8 +2795,12 @@ export component YapfastWindow inherits Window {
                     account-panel := Rectangle {
                         // Anywhere on the card brightens its nameplate; each part lights only itself.
                         property <bool> hot: account-touch.has-hover || avatar-touch.has-hover || mic.hovered || ear.hovered || cog.hovered;
-                        height: ClientStyle.account-height; background: Theme.panel-fill;
+                        height: ClientStyle.account-height; background: Art.glass-panel ? transparent : Theme.panel-fill;
                         border-radius: ClientStyle.enabled ? 8px : 0px;
+                        if Art.panel.length > 0 || Art.glass-panel: ArtLayer {
+                            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: parent.border-radius;
+                            layers: Art.panel; glass: Art.glass-panel; ground: Theme.panel-fill;
+                        }
                         // The nameplate fills the card, a pixel beyond it above and below.
                         if AccountLook.nameplate-url != "": Nameplate {
                             x: 0px; y: -1px; width: parent.width + 1px; height: parent.height + 2px;
@@ -2880,8 +2902,12 @@ export component YapfastWindow inherits Window {
             }
         }
         // Conversation.
-        Rectangle {
-            background: Theme.chat-fill;
+        conversation := Rectangle {
+            background: Art.glass-chat ? transparent : Theme.chat-fill;
+            border-radius: Art.pane-radius; clip: Art.pane-radius > 0px;
+            if Art.chat.length > 0 || Art.glass-chat: ArtLayer {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.chat; glass: Art.glass-chat; ground: Theme.chat-fill;
+            }
             VerticalLayout {
                 spacing: 0px;
                 Rectangle {
@@ -2926,7 +2952,14 @@ export component YapfastWindow inherits Window {
                             // The name gives way to what follows it, and fills the bar when nothing does.
                             horizontal-stretch: (root.room-has-activity && root.room-direct) || root.friends-open || root.has-topic ? 0 : 1;
                             accessible-role: text; accessible-label: self.title;
+                            if Art.headings.on: ArtTextBehind {
+                                x: channel-name.x; y: channel-name.y; width: parent.width; height: parent.height; art: Art.headings;
+                                text: channel-name.text; font-size: channel-name.font-size; font-weight: channel-name.font-weight;
+                                font-family: channel-name.font-family; letter-spacing: channel-name.letter-spacing; overflow: elide; vertical-alignment: center;
+                                opacity: channel-name.opacity; transform-scale: channel-name.transform-scale; transform-rotation: channel-name.transform-rotation;
+                            }
                             channel-name := Text {
+                                stroke: Art.outline(Art.headings); stroke-width: Art.headings.outline; stroke-style: outside;
                                 x: Look.channel-name.x; y: Look.channel-name.y; width: parent.width; height: parent.height;
                                 text: Look.channel-text(Look.heading(parent.title));
                                 accessible-role: none;
@@ -3806,7 +3839,7 @@ export component YapfastWindow inherits Window {
                             composer-box := Rectangle {
                                 visible: !root.room-request && !root.composer-locked;
                                 min-height: root.room-request || root.composer-locked ? 0px : ClientStyle.composer-height; max-height: root.room-request || root.composer-locked ? 0px : 100000px;
-                                background: ClientStyle.enabled ? Theme.composer : Theme.field;
+                                background: Art.glass-composer ? transparent : ClientStyle.enabled ? Theme.composer : Theme.field;
                                 // Discord's outline: faint, and a notch lighter with the keys.
                                 border-width: Look.bw(Look.composer, 1px);
                                 border-color: composer.focused ? Theme.composer-focus : Look.bc(Look.composer, ClientStyle.enabled ? Theme.outline-field : Theme.line);
@@ -3816,6 +3849,10 @@ export component YapfastWindow inherits Window {
                                 drop-shadow-offset-y: Look.sy(Look.composer, 0px); drop-shadow-color: Look.sc(Look.composer, transparent);
                                 border-top-left-radius: root.compose-label != "" ? 0px : Look.r(Look.composer, 10px);
                                 border-top-right-radius: root.compose-label != "" ? 0px : Look.r(Look.composer, 10px);
+                                if Art.composer.length > 0 || Art.glass-composer: ArtLayer {
+                                    x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.composer, 10px);
+                                    layers: Art.composer; glass: Art.glass-composer; ground: ClientStyle.enabled ? Theme.composer : Theme.field;
+                                }
                                 VerticalLayout {
                                     spacing: 0px;
                                     // Files waiting to go with the message, in a row that scrolls sideways.
@@ -5033,7 +5070,7 @@ export component YapfastWindow inherits Window {
     // dimmed window saying where they'll go. A drop it refuses says why
     // until Got It, a click, or the next drag.
     if root.dragging || root.drop-refusal != "": Rectangle {
-        background: #000000a6;
+        background: Theme.scrim(#000000a6);
         accessible-role: groupbox;
         accessible-label: root.dragging ? "Upload to " + root.drop-destination : root.drop-refusal;
         TouchArea { clicked => { root.drop-refusal = ""; } }
@@ -5207,6 +5244,17 @@ export component YapfastWindow inherits Window {
     // A theme's window slot: a tint over everything that takes no input, for
     // a flicker or a glow. Nothing is built while no theme sets one.
     if Look.window-tint != transparent: Rectangle { background: Look.window-tint; }
+    // A theme's channel change, its overlays and its particles, over
+    // everything, taking no input.
+    if Art.shot-left > 0: ArtTransition {
+        x: conversation.absolute-position.x; y: conversation.absolute-position.y; width: conversation.width; height: conversation.height;
+    }
+    if Art.chat-overlays: ArtOverlays {
+        chat: true; border-radius: Art.pane-radius;
+        x: conversation.absolute-position.x; y: conversation.absolute-position.y; width: conversation.width; height: conversation.height;
+    }
+    if Art.overlays.length > 0: ArtOverlays { x: 0px; y: 0px; width: root.width; height: root.height; }
+    if Art.particles.length > 0: ArtParticles { x: 0px; y: 0px; width: root.width; height: root.height; }
     // A theme's review, and a theme on trial's banner, over everything.
     if ThemesPage.review.shown: ThemeReviewDialog { }
     if ThemesPage.trying != "": TryBanner { x: (root.width - self.width) / 2; y: 12px; }

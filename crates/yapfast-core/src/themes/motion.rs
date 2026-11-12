@@ -92,7 +92,12 @@ pub fn value_at(animation: &Animation, elapsed: f32) -> Value {
         None => {
             let position = progress * (count - 1) as f32;
             let index = (position.floor() as usize).min(count.saturating_sub(2));
-            (index, ease(animation.easing, position - index as f32))
+            let within = position - index as f32;
+            let eased = match animation.bezier {
+                Some([x1, y1, x2, y2]) => cubic_bezier(x1, y1, x2, y2, within.clamp(0.0, 1.0)),
+                None => ease(animation.easing, within),
+            };
+            (index, eased)
         }
     };
     let next = (index + 1).min(count - 1);
@@ -157,7 +162,7 @@ pub fn ease(curve: Curve, t: f32) -> f32 {
 }
 
 /// CSS's `cubic-bezier()` at `x`, solved for the curve's own parameter.
-fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
+pub fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
     let curve = |a: f32, b: f32, t: f32| {
         let u = 1.0 - t;
         3.0 * u * u * t * a + 3.0 * u * t * t * b + t * t * t
@@ -257,7 +262,24 @@ mod tests {
             repeat,
             delay: 0.0,
             heavy: false,
+            bezier: None,
+            phase: 0.0,
         }
+    }
+
+    #[test]
+    fn a_cubic_bezier_eases_between_values() {
+        let mut fade = animation(&[0.0, 1.0], None, Repeat::Once);
+        fade.bezier = Some([0.0, 0.0, 1.0, 1.0]);
+        let Value::Number(middle) = value_at(&fade, 500.0) else {
+            panic!()
+        };
+        assert!((middle - 0.5).abs() < 0.01);
+        fade.bezier = Some([0.9, 0.0, 1.0, 0.1]);
+        let Value::Number(slow) = value_at(&fade, 500.0) else {
+            panic!()
+        };
+        assert!(slow < 0.2);
     }
 
     #[test]

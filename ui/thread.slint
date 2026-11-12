@@ -558,7 +558,7 @@ export component NewThreadPanel inherits Rectangle {
     }
     // Leaving what was written, as Discord's client asks.
     if root.leaving: Rectangle {
-        background: #000000a0;
+        background: Theme.scrim(#000000a0);
         TouchArea { }
         Rectangle {
             x: 16px; width: parent.width - 32px; y: (parent.height - self.height) / 2;

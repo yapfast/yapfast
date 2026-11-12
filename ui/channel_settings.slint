@@ -383,7 +383,7 @@ component AddOverwriteDialog inherits Rectangle {
             TouchArea { }
             VerticalLayout {
                 padding: 16px; spacing: 12px;
-                Text { text: "Add:"; color: Theme.text; font-size: 20px; font-weight: 700; }
+                Text { text: "Add:"; color: Theme.text; font-size: Look.title-size(20px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); }
                 TextField {
                     placeholder: "Role/Member"; label: "Role or member"; text-size: 14px;
                     init => { self.focus-input(); }

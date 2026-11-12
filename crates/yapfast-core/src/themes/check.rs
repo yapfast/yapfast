@@ -12,6 +12,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+pub mod art;
+
 use super::MANIFEST;
 use super::package::{Mode, Package, Paint, READABLE, Resolved, TEXT_ON, follows};
 
@@ -220,6 +222,11 @@ pub struct Cost {
     pub redraws: u32,
     pub effects: usize,
     pub fonts: usize,
+    /// Pictures and textures on surfaces, overlays over the window, and
+    /// particle sets.
+    pub layers: usize,
+    pub overlays: usize,
+    pub particles: usize,
 }
 
 impl Cost {
@@ -249,6 +256,18 @@ impl Cost {
                 if count == 1 { "" } else { "s" }
             )),
         }
+        let plural = |count: usize, one: &str, many: &str| {
+            format!("{count} {}", if count == 1 { one } else { many })
+        };
+        if self.layers > 0 {
+            parts.push(plural(self.layers, "art layer", "art layers"));
+        }
+        if self.overlays > 0 {
+            parts.push(plural(self.overlays, "overlay", "overlays"));
+        }
+        if self.particles > 0 {
+            parts.push(plural(self.particles, "particle set", "particle sets"));
+        }
         if self.redraws > 0 {
             parts.push(format!("up to {} redraws a second", self.redraws));
         }
@@ -265,6 +284,7 @@ impl Cost {
     fn of(resolved: &[Resolved], files: &Files) -> Cost {
         let mut fonts: Vec<&Path> = Vec::new();
         let mut cost = Cost::default();
+        let mut art_memory = 0;
         for variant in resolved {
             for font in variant.fonts() {
                 if !fonts.contains(&font) {
@@ -282,12 +302,32 @@ impl Cost {
                     .count(),
             );
             cost.effects = cost.effects.max(variant.effects.len());
+            // Art: its pictures decoded, and what of it moves.
+            let art = &variant.art;
+            let (moving, heavy) = art.moving();
+            cost.animations = cost.animations.max(variant.animations.len() + moving);
+            cost.heavy = cost.heavy.max(
+                variant
+                    .animations
+                    .iter()
+                    .filter(|animation| animation.heavy)
+                    .count()
+                    + heavy,
+            );
+            if moving > 0 {
+                cost.redraws = cost.redraws.max(60);
+            }
+            art_memory = art_memory.max(art::memory(variant, files));
+            cost.layers = cost.layers.max(art.surfaces.values().map(Vec::len).sum());
+            cost.overlays = cost.overlays.max(art.overlays.len());
+            cost.particles = cost.particles.max(art.particles.len());
             for animation in &variant.animations {
                 let rate = super::motion::frame_rate(animation, super::Performance::Full);
                 cost.redraws = cost.redraws.max(rate);
             }
         }
         cost.fonts = fonts.len();
+        cost.memory += art_memory;
         cost
     }
 }
@@ -326,6 +366,9 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
                     }
                 }
                 report.errors.extend(unreadable(&variant));
+                let (errors, warnings) = art::readable(&variant, files);
+                report.errors.extend(errors);
+                report.warnings.extend(warnings);
                 resolved.push(variant);
             }
             Err(error) => report.errors.push(error.0),
@@ -844,6 +887,58 @@ mod tests {
             let error = check_svg(svg.as_bytes()).unwrap_err();
             assert!(error.contains(says), "{svg}: {error}");
         }
+    }
+
+    #[test]
+    fn text_over_art_has_to_read() {
+        let mut png = Vec::new();
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([240, 240, 240, 255]))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let theme = |opacity: f32| {
+            let manifest = PLUM.replace(
+                r##""colours": { "chat": "#2a1a3a" }"##,
+                &format!(
+                    r##""art": {{ "surfaces": {{ "chat": {{ "image": "art/white.png", "opacity": {opacity} }} }} }}"##
+                ),
+            );
+            let mut files = files(&manifest);
+            files
+                .files
+                .insert(PathBuf::from("art/white.png"), png.clone());
+            check(&files, Strictness::Install)
+        };
+        // A faint wash over the chat reads; a white picture under white text doesn't.
+        assert!(theme(0.05).passed(), "{:?}", theme(0.05).errors);
+        let refused = theme(0.9);
+        assert!(
+            refused
+                .errors
+                .iter()
+                .any(|error| error.contains("text on the chat art")),
+            "{:?}",
+            refused.errors
+        );
+        assert!(
+            theme(0.05).cost.text().contains("1 art layer"),
+            "{}",
+            theme(0.05).cost.text()
+        );
+    }
+
+    #[test]
+    fn a_named_picture_has_to_be_there() {
+        let manifest = PLUM.replace(
+            r##""colours": { "chat": "#2a1a3a" }"##,
+            r##""art": { "surfaces": { "window": { "image": "art/sky.jpg" } } }"##,
+        );
+        let report = check(&files(&manifest), Strictness::Install);
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("art/sky.jpg"))
+        );
     }
 
     #[test]

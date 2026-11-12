@@ -2,6 +2,7 @@ import { DmHeading } from "yapfast/dm-heading.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ListView } from "scrollview.slint";
 import { Theme, Tip, Middle, Label, Look, SlotMotion } from "theme.slint";
+import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
 import { Avatar, Nameplate, PictureStore, StatusText, StyledName, NameStyleRow, VoiceSpot, ServerTagChip, ActivityClock } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { PersonRow, LivePill, VoiceCard } from "voice.slint";
@@ -149,6 +150,8 @@ export component RailItem inherits Rectangle {
     in property <bool> discord;
     /// The home button, which a theme's `home` slot moves.
     in property <bool> home;
+    /// Its place among the servers, which a theme's `rail.icon` slot phases by.
+    in property <int> place: -1;
     callback clicked;
     /// A right click, or the Menu key or Shift+F10 when focused: where to open
     /// a menu in the window.
@@ -173,7 +176,7 @@ export component RailItem inherits Rectangle {
     }
     // A picture only changes shape when lit, as in Discord.
     tile := Rectangle {
-        property <SlotMotion> moved: root.home ? Look.home : { opacity: 1, scale: 1 };
+        property <SlotMotion> moved: root.home ? Look.home : Art.rail-icon(root.place);
         x: root.tile-left + self.moved.x; y: self.moved.y; width: root.tile-size; height: root.tile-size;
         border-radius: Look.rail-icon.radius >= 0px ? Look.rail-icon.radius : ClientStyle.enabled ? 12px : root.lit ? 16px : 24px;
         border-width: Look.bw(Look.rail-icon, 0px); border-color: Look.bc(Look.rail-icon, transparent);
@@ -197,6 +200,7 @@ export component RailItem inherits Rectangle {
             text: root.initial; font-size: ClientStyle.enabled ? 16px : 17px; font-weight: ClientStyle.enabled ? 500 : 700;
             color: root.lit ? Theme.on-accent : Theme.text;
         }
+        if Art.gloss: ArtGloss { width: parent.width; height: parent.height; hovered: pointer.has-hover; }
         // The focus ring, drawn over the picture.
         Rectangle {
             width: root.tile-size; height: root.tile-size; border-radius: tile.border-radius;
@@ -514,8 +518,9 @@ export component ChannelRow inherits Rectangle {
     property <bool> offers-wave: root.wave != "" && (pointer.has-hover || root.selected);
     height: root.person ? ClientStyle.dm-row-height : ClientStyle.channel-row-height;
     border-radius: Look.radius(6px);
-    background: root.selected ? Theme.row-selected : pointer.has-hover ? Theme.hover : transparent;
+    background: root.selected && !Art.highlighter ? Theme.row-selected : pointer.has-hover ? Theme.hover : transparent;
     animate background { duration: 90ms; }
+    if Art.highlighter: ArtHighlighter { x: 0px; y: 0px; width: parent.width; height: parent.height; selected: root.selected; }
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
     accessible-role: button;
@@ -981,7 +986,14 @@ export component ServerHeader inherits Rectangle {
             Rectangle {
                 min-width: 0px; preferred-width: server-name.preferred-width; horizontal-stretch: 0;
                 accessible-role: text; accessible-label: root.name;
+                if Art.headings.on: ArtTextBehind {
+                    x: server-name.x; y: server-name.y; width: parent.width; height: parent.height; art: Art.headings;
+                    text: server-name.text; font-size: server-name.font-size; font-weight: server-name.font-weight;
+                    font-family: server-name.font-family; letter-spacing: server-name.letter-spacing; overflow: elide; vertical-alignment: center;
+                    opacity: server-name.opacity; transform-scale: server-name.transform-scale; transform-rotation: server-name.transform-rotation;
+                }
                 server-name := Text {
+                    stroke: Art.outline(Art.headings); stroke-width: Art.headings.outline; stroke-style: outside;
                     x: Look.server-name.x; y: Look.server-name.y; width: parent.width; height: parent.height;
                     text: Look.server-text(Look.heading(root.name)); accessible-role: none;
                     font-size: Look.header-size(ClientStyle.text-size);
@@ -1028,7 +1040,7 @@ export component ServerRail inherits Rectangle {
     /// Whether the "+" at the foot offers to join a Discord server.
     in property <bool> can-join;
     callback join-server;
-    width: 72px; background: Theme.rail-fill;
+    width: 72px; background: Art.glass-rail ? transparent : Theme.rail-fill;
     VerticalLayout {
         padding-top: ClientStyle.enabled ? 0px : 12px; padding-bottom: 12px; spacing: 8px;
         RailItem {
@@ -1085,7 +1097,7 @@ export component ServerRail inherits Rectangle {
                     context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
                 }
                 if !server.folder && !server.dm && !server.divider: RailItem {
-                    y: 0px;
+                    y: 0px; place: index;
                     initial: server.initial; picture: server.picture; picture-url: server.picture-url;
                     label: server.name + (server.discord && root.matrix-build ? ", Discord" : "") + (server.unavailable ? ", unavailable" : "")
                         + (server.call ? ", in a call" : "")

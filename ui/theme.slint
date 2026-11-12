@@ -114,6 +114,15 @@ export global Theme {
     out property <color> code: self.code-on ? self.code-set : self.panel;
     in property <color> embed-set; in property <bool> embed-on;
     out property <color> embed: self.embed-on ? self.embed-set : self.sidebar;
+    /// Whether the theme sets `hover`, which menus' rows then take over their
+    /// stock wash.
+    in property <bool> hover-on;
+    /// The member list's ground: the conversation's, or the sidebar's
+    /// without Discord's look.
+    in property <color> members-set; in property <bool> members-on;
+    /// The APP tag after a bot's name: Discord's blurple.
+    in property <color> app-badge-set; in property <bool> app-badge-on;
+    out property <color> app-badge: self.app-badge-on ? self.app-badge-set : #5865f2;
     /// What dims the window behind a dialog.
     in property <color> scrim-set; in property <bool> scrim-on;
     /// The dim behind a dialog: a theme's own colour, or what each dialog
@@ -178,6 +187,9 @@ export global Look {
     /// An avatar's radius is a share of its size, in hundredths: 50 a circle.
     in property <Shape> avatar: { radius: -1px, border: -1px, shadow-blur: -1px };
     in property <Shape> tile: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// Code blocks and embeds: their corners and outline.
+    in property <Shape> code: { radius: -1px, border: -1px, shadow-blur: -1px };
+    in property <Shape> embed: { radius: -1px, border: -1px, shadow-blur: -1px };
     // Every other corner by its stock size: small (4px and under), medium
     // (up to 8px) and large.
     in property <length> radius-small: -1px;

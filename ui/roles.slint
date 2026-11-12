@@ -705,7 +705,7 @@ export component AddMembersDialog inherits Rectangle {
             TouchArea { }
             VerticalLayout {
                 padding: 16px; spacing: 12px;
-                Text { text: "Add members"; color: Theme.text; font-size: 20px; font-weight: 700; }
+                Text { text: "Add members"; color: Theme.text; font-size: Look.title-size(20px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); }
                 Text { text: "Select up to 30 members to add to role " + root.role-name; color: Theme.secondary; font-size: 14px; wrap: word-wrap; }
                 field := TextField {
                     placeholder: "Search members"; label: "Search members"; text-size: 14px;

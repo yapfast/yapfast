@@ -1,6 +1,7 @@
 import { ClientStyle } from "yapfast/style.slint";
 import { ListView, ScrollView } from "scrollview.slint";
 import { Theme, Tip, ReactionHover, Middle, Label, Twemoji, Look } from "theme.slint";
+import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
 import { ActionButton, IconButton, Avatar, Motion, Picture, UprightVolumeSlider, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField, ContextMenu, MenuRow, StyledName, NameStyleRow, ServerTagChip } from "controls.slint";
 import { FavoriteStar, GifFavorites } from "gifs.slint";
 import { PluginPart, PluginWidgets } from "plugins.slint";
@@ -265,6 +266,12 @@ export component ReactionToggle inherits Rectangle {
     callback clicked;
     min-width: chip.preferred-width; height: 28px; border-radius: Look.r(Look.chip, 8px);
     background: root.mine ? Theme.accent-soft : Theme.raised-fill;
+    // A theme's stamp: your reaction lands with a thunk.
+    property <bool> stamping;
+    property <float> thunk;
+    animate thunk { duration: root.stamping ? 0ms : Art.stamp-time; easing: ease-out-bounce; }
+    changed mine => { if root.mine && Art.stamp { root.stamping = true; root.thunk = 1; } }
+    Timer { interval: 30ms; running: root.stamping; triggered => { root.stamping = false; root.thunk = 0; } }
     border-width: Look.bw(Look.chip, 1px);
     border-color: root.mine ? Theme.accent.with-alpha(0.7) : pointer.has-hover && root.enabled ? Theme.overlay.with-alpha(0.15) : Look.bc(Look.chip, transparent);
     accessible-role: button;
@@ -273,7 +280,10 @@ export component ReactionToggle inherits Rectangle {
     accessible-action-default => { if root.enabled { root.clicked(); } }
     chip := HorizontalLayout {
         padding-left: 8px; padding-right: 9px; spacing: 6px;
-        Text { text: Twemoji.text(root.label); font-family: root.emoji-font; font-size: 16px; vertical-alignment: center; }
+        Text {
+            text: Twemoji.text(root.label); font-family: root.emoji-font; font-size: 16px; vertical-alignment: center;
+            transform-scale: 1 + 0.5 * root.thunk; transform-rotation: -12deg * root.thunk;
+        }
         Text { text: root.count; color: root.mine ? Theme.accent-text : Theme.secondary; font-size: 14px; font-weight: 700; vertical-alignment: center; }
     }
     property <bool> tip-shown: root.item != "" && ReactionHover.item == root.item && ReactionHover.key == root.key;
@@ -1409,8 +1419,12 @@ export component MessageMenu inherits Rectangle {
     panel := Rectangle {
         x: root.flip ? root.content-width - root.menu-width : 0px; y: 0px;
         width: root.menu-width; height: root.menu-height;
-        background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: Look.radius(8px);
+        background: Art.glass-menu ? transparent : Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: Look.radius(8px);
         drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
+        if Art.menu.length > 0 || Art.glass-menu: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.radius(8px);
+            layers: Art.menu; glass: Art.glass-menu; ground: Theme.menu;
+        }
         menu-content := VerticalLayout {
             padding: 6px; spacing: 2px;
             // Discord's quick reactions: 44px tiles, spread across the menu.
@@ -1523,8 +1537,12 @@ export component MessageMenu inherits Rectangle {
         // Level with the Apps row, kept within the component.
         y: max(0px, min(root.apps-y - 6px, root.content-height - root.apps-height));
         width: root.apps-width; height: root.apps-height;
-        background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: Look.radius(8px);
+        background: Art.glass-menu ? transparent : Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: Look.radius(8px);
         drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
+        if Art.menu.length > 0 || Art.glass-menu: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.radius(8px);
+            layers: Art.menu; glass: Art.glass-menu; ground: Theme.menu;
+        }
         TouchArea { }
         VerticalLayout {
             padding: 6px; spacing: 2px;
@@ -1948,7 +1966,7 @@ export component ThreadChip inherits HorizontalLayout {
 // Discord's tag after a bot's or app's name: white on blurple.
 export component BotTag inherits Rectangle {
     width: tag-text.preferred-width + 8px; height: 16px; border-radius: Look.radius(4px);
-    background: #5865f2;
+    background: Theme.app-badge;
     accessible-role: text; accessible-label: "App";
     tag-text := Text { text: "APP"; color: #ffffff; font-size: 10px; font-weight: 700; letter-spacing: 0.3px; }
 }
@@ -1979,7 +1997,7 @@ component TextBlockView inherits VerticalLayout {
             padding-top: root.block.padding;
             padding-left: root.block.quoted ? 12px : 0px;
             if root.block.level == 5: Rectangle {
-                background: Theme.code; border-radius: Look.radius(4px); border-width: 1px; border-color: Theme.line;
+                background: Theme.code; border-radius: Look.r(Look.code, 4px); border-width: Look.bw(Look.code, 1px); border-color: Look.bc(Look.code, Theme.line);
                 VerticalLayout {
                     padding: root.code-size / 2;
                     StyledText {
@@ -2038,7 +2056,8 @@ export component EmbedView inherits HorizontalLayout {
     // preferred height measured it at another width and cut off the end.
     Rectangle {
         max-width: 432px; horizontal-stretch: 100;
-        background: Theme.embed; border-radius: Look.radius(4px); clip: true;
+        background: Theme.embed; border-radius: Look.r(Look.embed, 4px); clip: true;
+        border-width: Look.bw(Look.embed, 0px); border-color: Look.bc(Look.embed, transparent);
         Rectangle { x: 0px; width: 4px; background: root.embed.has-color ? root.embed.color : Theme.edge; }
         embed-body := HorizontalLayout {
             padding: 12px; padding-left: 16px; padding-right: 16px; spacing: 16px;
@@ -2895,7 +2914,13 @@ export component MessageContent inherits VerticalLayout {
                     min-width: author-name.min-width; preferred-width: ClientStyle.enabled || message.name-style.length > 0 ? author-plain.preferred-width : author-name.preferred-width;
                     preferred-height: author-name.preferred-height; horizontal-stretch: 0;
                     // Discord's names are medium weight, a step under bold.
+                    if Art.names.on && ClientStyle.enabled && message.name-style.length == 0: ArtTextBehind {
+                        width: parent.width; height: parent.height; art: Art.names;
+                        text: author-plain.text; font-size: author-plain.font-size; font-weight: author-plain.font-weight;
+                        font-family: author-plain.font-family; letter-spacing: author-plain.letter-spacing; overflow: elide; vertical-alignment: center;
+                    }
                     author-plain := Text {
+                        stroke: Art.outline(Art.names); stroke-width: Art.names.outline; stroke-style: outside;
                         width: parent.width; height: parent.height; visible: ClientStyle.enabled && message.name-style.length == 0;
                         text: message.author; color: message.has-color ? message.color : Theme.text;
                         font-size: root.message-font-size; vertical-alignment: center; overflow: elide;

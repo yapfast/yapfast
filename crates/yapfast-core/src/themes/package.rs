@@ -19,6 +19,8 @@ use serde_json::Value;
 
 use super::{MANIFEST, PART_CONTRACTS, PARTS, THEME_API};
 
+pub mod art;
+
 /// The colours a theme sets, as `ui/theme.slint` names them; `src/ui/theme.rs`
 /// checks this list against its own.
 pub const COLOURS: [&str; 37] = [
@@ -63,7 +65,7 @@ pub const COLOURS: [&str; 37] = [
 
 /// Colours only a theme sets (plugins can't), each following another until a
 /// theme does: what it follows is [`follows`].
-pub const EXTRA_COLOURS: [&str; 20] = [
+pub const EXTRA_COLOURS: [&str; 22] = [
     "accent-text",
     "on-tooltip",
     "selection",
@@ -84,6 +86,8 @@ pub const EXTRA_COLOURS: [&str; 20] = [
     "knob-off",
     "code",
     "embed",
+    "members",
+    "app-badge",
 ];
 
 /// The colour an extra colour shows while a theme doesn't set it, for
@@ -102,6 +106,7 @@ pub fn follows(token: &str) -> Option<&'static str> {
         "knob-off" => "secondary",
         "code" => "panel",
         "embed" => "sidebar",
+        "members" => "chat",
         _ => return None,
     })
 }
@@ -117,7 +122,7 @@ pub const BRUSHES: [&str; 6] = ["rail", "sidebar", "chat", "panel", "raised", "a
 
 /// Each text colour and the surfaces it's drawn on, which it must stay
 /// readable against.
-pub const TEXT_ON: [(&str, &[&str]); 13] = [
+pub const TEXT_ON: [(&str, &[&str]); 14] = [
     ("text", &SURFACES),
     ("secondary", &SURFACES),
     ("muted", &SURFACES),
@@ -131,6 +136,7 @@ pub const TEXT_ON: [(&str, &[&str]); 13] = [
     ("text", &["row-selected"]),
     ("text", &["code"]),
     ("text", &["embed"]),
+    ("text", &["members"]),
 ];
 
 /// The surfaces most text sits on.
@@ -168,10 +174,14 @@ pub enum Surface {
     Avatar,
     /// Cards in settings, such as the themes in Appearance.
     Tile,
+    /// Code blocks: their outline.
+    Code,
+    /// Embeds: their outline.
+    Embed,
 }
 
 impl Surface {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 14] = [
         Self::Button,
         Self::Field,
         Self::Composer,
@@ -184,6 +194,8 @@ impl Surface {
         Self::RailIcon,
         Self::Avatar,
         Self::Tile,
+        Self::Code,
+        Self::Embed,
     ];
 
     pub fn name(self) -> &'static str {
@@ -200,6 +212,8 @@ impl Surface {
             Self::RailIcon => "rail-icon",
             Self::Avatar => "avatar",
             Self::Tile => "tile",
+            Self::Code => "code",
+            Self::Embed => "embed",
         }
     }
 
@@ -449,10 +463,13 @@ pub enum Slot {
     ProfileName,
     /// Your own avatar in the account panel.
     OwnAvatar,
+    /// Every server in the rail, each `phase` milliseconds behind the one
+    /// above it.
+    RailIcon,
 }
 
 impl Slot {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::Window,
         Self::Accent,
         Self::Home,
@@ -463,6 +480,7 @@ impl Slot {
         Self::ServerName,
         Self::ProfileName,
         Self::OwnAvatar,
+        Self::RailIcon,
     ];
 
     pub fn name(self) -> &'static str {
@@ -477,6 +495,7 @@ impl Slot {
             Self::ServerName => "server.name",
             Self::ProfileName => "profile.name",
             Self::OwnAvatar => "own.avatar",
+            Self::RailIcon => "rail.icon",
         }
     }
 
@@ -514,7 +533,7 @@ pub enum Property {
     Y,
     /// 0.5 to 1.5.
     Scale,
-    /// Degrees, -45 to 45.
+    /// Degrees, -360 to 360: a record spins with [0, 360].
     Rotation,
     /// A colour laid over the slot, alpha included.
     Tint,
@@ -561,7 +580,7 @@ impl Property {
             Self::Opacity => (0.0, 1.0),
             Self::X | Self::Y => (-24.0, 24.0),
             Self::Scale => (0.5, 1.5),
-            Self::Rotation => (-45.0, 45.0),
+            Self::Rotation => (-360.0, 360.0),
             Self::Tint | Self::Colour => (0.0, 0.0),
         }
     }
@@ -787,6 +806,10 @@ pub struct Motion {
     /// How it closes: the opening played backwards (`reverse`, stock), or at
     /// once (`none`).
     pub close: Option<Close>,
+    /// Milliseconds a hover takes to come and to go, apart; each follows
+    /// `quick` when left out.
+    pub hover_in: Option<f32>,
+    pub hover_out: Option<f32>,
 }
 
 /// How a popup closes.
@@ -827,6 +850,11 @@ pub struct Animation {
     pub delay: f32,
     /// Costly enough to stay still in Balanced, as a whole-window flicker is.
     pub heavy: bool,
+    /// A `cubic-bezier(x1, y1, x2, y2)` easing, which then stands in for
+    /// `easing`.
+    pub bezier: Option<[f32; 4]>,
+    /// `rail.icon`: milliseconds each server runs behind the one above it.
+    pub phase: f32,
 }
 
 /// One text slot's effect.
@@ -858,6 +886,8 @@ pub struct Resolved {
     pub motion: Motion,
     pub animations: Vec<Animation>,
     pub effects: Vec<TextEffect>,
+    /// Pictures, overlays, glass, text light, particles and event effects.
+    pub art: art::Art,
 }
 
 impl Resolved {
@@ -963,7 +993,8 @@ const TOP_KEYS: [&str; 15] = [
 ];
 
 /// The layers, at the top level or in a variant.
-const LAYER_KEYS: [&str; 7] = [
+const LAYER_KEYS: [&str; 8] = [
+    "art",
     "colours",
     "shape",
     "type",
@@ -1199,6 +1230,9 @@ impl Package {
             if let Some(effects) = layers.get("effects") {
                 read_effects(effects, &place("effects"), &mut resolved.effects, notes)?;
             }
+            if let Some(value) = layers.get("art") {
+                art::read_art(value, &place("art"), &mut resolved.art, notes)?;
+            }
         }
         Ok(resolved)
     }
@@ -1213,6 +1247,11 @@ impl Package {
                 for font in resolved.fonts() {
                     if !files.iter().any(|file| file == font) {
                         files.push(font.to_owned());
+                    }
+                }
+                for picture in resolved.art.files() {
+                    if !files.contains(&picture) {
+                        files.push(picture);
                     }
                 }
             }
@@ -1705,15 +1744,81 @@ fn read_motion(
         match key.as_str() {
             "quick" => motion.quick = Some(number(value, &here, (0.0, 1000.0))?),
             "popup" => motion.popup = Some(number(value, &here, (0.0, 1000.0))?),
+            // Slint's popups take a named curve: a cubic-bezier picks the
+            // nearest one.
+            "curve"
+                if value
+                    .as_str()
+                    .is_some_and(|text| text.starts_with("cubic-bezier(")) =>
+            {
+                let points = bezier(value, &here)?;
+                motion.curve = Some(nearest_curve(points));
+            }
             "curve" => motion.curve = Some(named(value, &here, &Curve::ALL, Curve::name)?),
             "hover" => motion.hover = Some(named(value, &here, &Hover::ALL, Hover::name)?),
             "press" => motion.press = Some(named(value, &here, &Press::ALL, Press::name)?),
             "open" => motion.open = Some(named(value, &here, &Transition::ALL, Transition::name)?),
             "close" => motion.close = Some(named(value, &here, &Close::ALL, Close::name)?),
+            "hover_in" => motion.hover_in = Some(number(value, &here, (0.0, 2000.0))?),
+            "hover_out" => motion.hover_out = Some(number(value, &here, (0.0, 2000.0))?),
             _ => notes.push(format!("\"{here}\" isn't something motion takes; ignored")),
         }
     }
     Ok(())
+}
+
+/// `cubic-bezier(x1, y1, x2, y2)`, as CSS writes it: x from 0 to 1, y from
+/// -1 to 2.
+fn bezier(value: &Value, place: &str) -> Result<[f32; 4], Error> {
+    let text = value.as_str().unwrap_or("");
+    let inner = text
+        .trim()
+        .strip_prefix("cubic-bezier(")
+        .and_then(|rest| rest.strip_suffix(')'));
+    let numbers: Option<Vec<f32>> = inner.map(|inner| {
+        inner
+            .split(',')
+            .filter_map(|part| part.trim().parse::<f32>().ok())
+            .collect()
+    });
+    match numbers.as_deref() {
+        Some(&[x1, y1, x2, y2])
+            if (0.0..=1.0).contains(&x1)
+                && (0.0..=1.0).contains(&x2)
+                && (-1.0..=2.0).contains(&y1)
+                && (-1.0..=2.0).contains(&y2) =>
+        {
+            Ok([x1, y1, x2, y2])
+        }
+        _ => {
+            bail!("\"{place}\" is \"{text}\", not cubic-bezier(x1, y1, x2, y2) with x from 0 to 1")
+        }
+    }
+}
+
+/// The named curve closest to a cubic-bezier, for where only named ones go.
+fn nearest_curve(points: [f32; 4]) -> Curve {
+    let at = |curve: Curve, t: f32| super::motion::ease(curve, t);
+    let wanted =
+        |t: f32| super::motion::cubic_bezier(points[0], points[1], points[2], points[3], t);
+    [
+        Curve::Linear,
+        Curve::Ease,
+        Curve::EaseIn,
+        Curve::EaseOut,
+        Curve::EaseInOut,
+        Curve::Spring,
+    ]
+    .into_iter()
+    .min_by(|one, two| {
+        let error = |curve: Curve| {
+            (1..10)
+                .map(|step| (at(curve, step as f32 / 10.0) - wanted(step as f32 / 10.0)).abs())
+                .sum::<f32>()
+        };
+        error(*one).total_cmp(&error(*two))
+    })
+    .unwrap_or_default()
 }
 
 fn read_animations(
@@ -1780,8 +1885,21 @@ fn read_animations(
                 number(value, &format!("{at}.steps"), (1.0, 120.0)).map(|steps| steps as u32)
             })
             .transpose()?;
-        let easing = fields.get("easing").map_or(Ok(Curve::Linear), |value| {
-            named(value, &format!("{at}.easing"), &Curve::ALL, Curve::name)
+        let written_bezier = fields.get("easing").filter(|value| {
+            value
+                .as_str()
+                .is_some_and(|text| text.starts_with("cubic-bezier("))
+        });
+        let bezier = written_bezier
+            .map(|value| bezier(value, &format!("{at}.easing")))
+            .transpose()?;
+        let easing = match fields.get("easing") {
+            Some(_) if bezier.is_some() => Curve::Linear,
+            Some(value) => named(value, &format!("{at}.easing"), &Curve::ALL, Curve::name)?,
+            None => Curve::Linear,
+        };
+        let phase = fields.get("phase").map_or(Ok(0.0), |value| {
+            number(value, &format!("{at}.phase"), (0.0, 5000.0))
         })?;
         let repeat = match fields.get("repeat").and_then(Value::as_str) {
             None | Some("loop") => Repeat::Loop,
@@ -1799,7 +1917,7 @@ fn read_animations(
         for key in fields.keys() {
             if ![
                 "slot", "property", "values", "period", "steps", "easing", "repeat", "delay",
-                "heavy", "name",
+                "heavy", "name", "phase",
             ]
             .contains(&key.as_str())
             {
@@ -1819,6 +1937,8 @@ fn read_animations(
             repeat,
             delay,
             heavy,
+            bezier,
+            phase,
         });
     }
     Ok(animations)

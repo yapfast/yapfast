@@ -4,6 +4,7 @@ import { ClientStyle } from "yapfast/style.slint";
 import { ComboBox } from "std-widgets.slint";
 import { ScrollView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, Popup, Looks, Look } from "theme.slint";
+import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
 import { ActionButton, IconButton, Avatar, SensitivitySlider, VolumeSlider, TextField, StatusText, AccountLook } from "controls.slint";
 import { DiscordLinkPanel } from "discord.slint";
 import { ChannelRow } from "rail.slint";
@@ -18,11 +19,13 @@ export component SettingsTitle inherits Text {
     accessible-label: self.title;
     color: Theme.text; font-size: Look.title-size(ClientStyle.enabled ? 24px : 20px); font-weight: Look.heading-weight(700);
     font-family: Look.heading-font(""); letter-spacing: Look.spacing-headings;
+    stroke: Art.outline(Art.headings); stroke-width: Art.headings.outline; stroke-style: outside;
 }
 
 export component SettingsHeading inherits Text {
     color: Theme.muted; font-size: Look.label-size(12px); font-weight: Look.label-weight(700); letter-spacing: 0.6px + Look.spacing-labels;
     font-family: Look.label-font("");
+    stroke: Art.outline(Art.labels); stroke-width: Art.labels.outline; stroke-style: outside;
 }
 
 // A marigold switch, with its label beside it and what it does below. A click on
@@ -896,6 +899,10 @@ component ThemeTile inherits Rectangle {
         if root.current: Image {
             width: 16px; source: @image-url("icons/check.svg"); colorize: Theme.accent-text; image-fit: contain;
         }
+    }
+    if Art.foil-tile: Rectangle {
+        clip: true; border-radius: root.border-radius;
+        ArtFoil { width: parent.width; height: parent.height; hovered: pointer.has-hover; pointer-x: pointer.mouse-x; pointer-y: pointer.mouse-y; }
     }
     focus := FocusScope {
         accessible-role: button;

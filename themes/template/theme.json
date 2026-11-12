@@ -47,6 +47,27 @@
   "effects": {
     "channel.name": { "effect": "decrypt", "duration": 500 }
   },
+  "art": {
+    "surfaces": {
+      "chat": { "texture": "paper", "colour": "#ffffff", "opacity": 0.05, "blend": "screen" },
+      "sidebar": [{ "texture": "noise", "colour": "#000000", "opacity": 0.12, "scale": 2 }]
+    },
+    "overlays": [
+      { "kind": "vignette", "opacity": 0.25 },
+      { "kind": "scanlines", "size": 3, "opacity": 0.04, "on": "chat" }
+    ],
+    "glass": { "surfaces": ["menu", "dialog"], "blur": 16, "opacity": 0.85, "highlight": "#ffffff26" },
+    "text": {
+      "headings": { "shadow": { "blur": 0, "x": 0, "y": 1, "colour": "#00000099" } },
+      "names": { "glow": { "colour": "#7aa2ff66", "size": 2 } }
+    },
+    "particles": [
+      { "preset": "sparkles", "on": "message.sent", "colours": ["#7aa2ff", "#ffffff"], "count": 10 }
+    ],
+    "events": { "click": "ripple", "hover": "gloss", "select": { "effect": "highlighter", "colour": "#7aa2ff" }, "reaction": "stamp" },
+    "foil": { "surfaces": ["card"], "opacity": 0.12 },
+    "transition": { "kind": "fade", "duration": 260 }
+  },
 
   "variants": {
     "dark": {

@@ -1,5 +1,6 @@
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, Popup, Look } from "theme.slint";
+import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
 import { ActionButton, IconButton, Avatar, CallButton, VolumeSlider, MenuItem } from "controls.slint";
 import { EmojiCell, EmojiFace } from "messages.slint";
 
@@ -1087,7 +1088,11 @@ export component IncomingCall inherits Rectangle {
     in property <image> incoming-picture;
     callback answer-call(string, bool);
     width: 300px; height: incoming-content.preferred-height;
-    background: Theme.raised-fill; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+    background: Art.glass-dialog ? transparent : Theme.raised-fill; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+    if Art.dialog.length > 0 || Art.glass-dialog: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 12px);
+        layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.raised-fill;
+    }
     drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
     accessible-role: groupbox;
     accessible-label: "Incoming call from " + root.incoming-name;
@@ -1145,12 +1150,16 @@ export component SwitchDialog inherits Rectangle {
     property <float> motion: root.switching ? 1 : 0;
     animate motion { duration: Popup.duration; easing: ease-out-quad; }
     visible: root.motion > 0;
-    background: rgba(0, 0, 0, 0.6 * root.motion);
+    background: Theme.scrim-on ? Theme.scrim-set.transparentize(1 - root.motion) : rgba(0, 0, 0, 0.6 * root.motion);
     TouchArea { enabled: root.switching; clicked => { root.cancel-switch(); } }
     Rectangle {
         width: min(420px, root.width - 48px); height: switch-content.preferred-height;
         opacity: Popup.opacity(root.motion); transform-scale: Popup.scale(root.motion);
-        background: Theme.raised-fill; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        background: Art.glass-dialog ? transparent : Theme.raised-fill; border-color: Look.bc(Look.dialog, Theme.edge); border-width: Look.bw(Look.dialog, 1px); border-radius: Look.r(Look.dialog, 12px);
+        if Art.dialog.length > 0 || Art.glass-dialog: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 12px);
+            layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.raised-fill;
+        }
         drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000066); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
         accessible-role: groupbox;
         accessible-label: root.joins ? "Watch stream?" : "Switch voice channel?";
@@ -1176,7 +1185,7 @@ export component SwitchDialog inherits Rectangle {
                     }
                     VerticalLayout {
                         spacing: 6px; horizontal-stretch: 1;
-                        Text { text: root.joins ? "Watch stream?" : "Switch voice channel?"; color: Theme.text; font-size: 18px; font-weight: 700; }
+                        Text { text: root.joins ? "Watch stream?" : "Switch voice channel?"; color: Theme.text; font-size: Look.title-size(18px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); }
                         Text { text: root.switch-text; color: Theme.secondary; font-size: 15px; wrap: word-wrap; }
                     }
                 }

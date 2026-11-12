@@ -1,5 +1,6 @@
 import { ScrollView } from "scrollview.slint";
 import { Theme, Tip, Middle, Label, Look } from "theme.slint";
+import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
 import { ClientStyle } from "yapfast/style.slint";
 
 // A labelled action. Primary is marigold, danger red, ghost transparent until hovered.
@@ -39,13 +40,14 @@ export component ActionButton inherits Rectangle {
         transform-scale: Look.grow(root.hot, pointer.pressed);
         animate y, transform-scale { duration: Theme.quick; easing: Look.curve-easing; }
         border-radius: Look.r(Look.button, 6px);
+        clip: Art.ripple || Art.gloss;
         background: !root.enabled ? (root.primary ? Theme.accent.with-alpha(0.3) : root.success ? Theme.live.with-alpha(0.3) : root.ghost ? transparent : Theme.raised-fill)
             : root.primary ? (pointer.has-hover ? Theme.accent-hover : Theme.accent-fill)
             : root.success ? (pointer.has-hover ? Theme.live.brighter(0.1) : Theme.live)
             : root.danger ? (pointer.has-hover ? Theme.danger-hover : Theme.danger)
             : root.ghost ? (pointer.has-hover ? Theme.overlay.with-alpha(0.08) : transparent)
             : (pointer.has-hover ? Theme.button-default-hover : Theme.button-default);
-        animate background { duration: Theme.quick; }
+        animate background { duration: Art.hover-time(pointer.has-hover); }
         border-width: focus.has-focus ? 2px : root.ghost ? 0px : Look.bw(Look.button, 0px);
         border-color: focus.has-focus ? Theme.focus-ring : Look.bc(Look.button, Theme.focus-ring);
         drop-shadow-blur: Look.halo(root.hot) > 0px ? Look.halo(true) : root.ghost ? 0px : Look.sb(Look.button, 0px);
@@ -63,6 +65,11 @@ export component ActionButton inherits Rectangle {
                 text: root.text; color: root.ink; font-size: root.small ? 14px : 15px; font-weight: 700;
                 vertical-alignment: center; overflow: elide;
             }
+        }
+        if Art.gloss && root.enabled: ArtGloss { x: 0px; y: 0px; width: parent.width; height: parent.height; hovered: root.hot; }
+        if Art.ripple && root.enabled: ArtRipple {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            pressed: pointer.pressed; at-x: pointer.pressed-x; at-y: pointer.pressed-y;
         }
     }
     focus := FocusScope {
@@ -1094,7 +1101,7 @@ export component MenuItem inherits Rectangle {
     border-radius: Look.radius(4px);
     // Discord's focused row is filled with its accent, or with the danger
     // colour for a destructive choice, whose text and icon turn white.
-    background: root.highlighted ? (root.danger ? Theme.danger : Theme.overlay.with-alpha(0.09)) : transparent;
+    background: root.highlighted ? (root.danger ? Theme.danger : Theme.hover-on ? Theme.hover : Theme.overlay.with-alpha(0.09)) : transparent;
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
     accessible-role: button;
@@ -1343,9 +1350,13 @@ export component ContextMenu inherits Rectangle {
         main-panel := Rectangle {
             x: root.flip ? root.content-width - root.menu-width : 0px; y: root.lift;
             width: root.menu-width; height: root.main-height;
-            background: Theme.menu; border-color: Look.bc(Look.menu, Theme.menu-line); border-width: Look.bw(Look.menu, 1px); border-radius: Look.r(Look.menu, 8px);
+            background: Art.glass-menu ? transparent : Theme.menu; border-color: Look.bc(Look.menu, Theme.menu-line); border-width: Look.bw(Look.menu, 1px); border-radius: Look.r(Look.menu, 8px);
             drop-shadow-blur: Look.sb(Look.menu, 24px); drop-shadow-offset-x: Look.sx(Look.menu, 0px); drop-shadow-color: Look.sc(Look.menu, #00000080); drop-shadow-offset-y: Look.sy(Look.menu, 8px);
             clip: true;
+            if Art.menu.length > 0 || Art.glass-menu: ArtLayer {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.menu, 8px);
+                layers: Art.menu; glass: Art.glass-menu; ground: Theme.menu;
+            }
             TouchArea { }
             main-flick := Flickable {
             content-height: main.preferred-height;
@@ -1385,9 +1396,13 @@ export component ContextMenu inherits Rectangle {
             x: root.flip ? root.widest - root.submenu-width : root.menu-width + 4px;
             y: root.lift + root.sub-top;
             width: root.submenu-width; height: root.sub-height;
-            background: Theme.menu; border-color: Look.bc(Look.menu, Theme.menu-line); border-width: Look.bw(Look.menu, 1px); border-radius: Look.r(Look.menu, 8px);
+            background: Art.glass-menu ? transparent : Theme.menu; border-color: Look.bc(Look.menu, Theme.menu-line); border-width: Look.bw(Look.menu, 1px); border-radius: Look.r(Look.menu, 8px);
             drop-shadow-blur: Look.sb(Look.menu, 24px); drop-shadow-offset-x: Look.sx(Look.menu, 0px); drop-shadow-color: Look.sc(Look.menu, #00000080); drop-shadow-offset-y: Look.sy(Look.menu, 8px);
             clip: true;
+            if Art.menu.length > 0 || Art.glass-menu: ArtLayer {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.menu, 8px);
+                layers: Art.menu; glass: Art.glass-menu; ground: Theme.menu;
+            }
             TouchArea { }
             sub-flick := Flickable {
             content-height: sub.preferred-height;

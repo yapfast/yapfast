@@ -115,6 +115,8 @@ struct Applied {
     id: String,
     name: String,
     resolved: Resolved,
+    /// The theme's folder, which its pictures are read from.
+    folder: PathBuf,
     /// Font families registered for each role.
     fonts: Vec<(Role, String)>,
 }
@@ -285,6 +287,7 @@ fn apply_package(
             id: id.to_owned(),
             name: package.name.clone(),
             resolved,
+            folder: folder.to_owned(),
             fonts,
         });
         state.failed = None;
@@ -332,6 +335,7 @@ pub fn clear(window: &YapfastWindow) {
         state.effects.clear();
         state.fx_timer = None;
     });
+    super::theme_art::forget();
     reset(window);
 }
 
@@ -401,6 +405,8 @@ pub fn reset(window: &YapfastWindow) {
     style.set_message_group_gap_theme(-1.);
     let tokens = window.global::<yapfast_ui::Theme>();
     tokens.set_quick(120);
+    tokens.set_hover_on(false);
+    super::theme_art::reset(window);
     for token in yapfast_core::themes::package::EXTRA_COLOURS {
         set_extra(&tokens, token, None);
     }
@@ -535,6 +541,15 @@ fn paint(window: &YapfastWindow) {
                 look.set_popup(popup as i64);
             }
         }
+        tokens.set_hover_on(resolved.paint("hover").is_some());
+        super::theme_art::apply(
+            window,
+            resolved,
+            &applied.folder,
+            state.performance,
+            state.reduced,
+            (motion.hover_in, motion.hover_out),
+        );
         let plays = motion::effects_play(state.performance, state.reduced);
         for effect in &resolved.effects {
             let on = plays;
@@ -581,6 +596,8 @@ fn set_shape(look: &Look<'_>, surface: Surface, shape: Shape) {
         Surface::RailIcon => look.set_rail_icon(shape),
         Surface::Avatar => look.set_avatar(shape),
         Surface::Tile => look.set_tile(shape),
+        Surface::Code => look.set_code(shape),
+        Surface::Embed => look.set_embed(shape),
     }
 }
 
@@ -605,7 +622,8 @@ fn set_slot(look: &Look<'_>, slot: Slot, motion: SlotMotion) {
         Slot::ServerName => look.set_server_name(motion),
         Slot::ProfileName => look.set_profile_name(motion),
         Slot::OwnAvatar => look.set_own_avatar(motion),
-        Slot::Window | Slot::Accent => {}
+        // The rail's servers each take their own phase: see `tick`.
+        Slot::Window | Slot::Accent | Slot::RailIcon => {}
     }
 }
 
@@ -686,6 +704,14 @@ fn set_extra(tokens: &yapfast_ui::Theme<'_>, token: &str, colour: Option<Color>)
         "embed" => {
             tokens.set_embed_set(colour);
             tokens.set_embed_on(on);
+        }
+        "members" => {
+            tokens.set_members_set(colour);
+            tokens.set_members_on(on);
+        }
+        "app-badge" => {
+            tokens.set_app_badge_set(colour);
+            tokens.set_app_badge_on(on);
         }
         "mentioned" => tokens.set_mentioned(if on {
             colour
@@ -790,16 +816,30 @@ fn tick(window: &YapfastWindow, started: Instant) {
             return;
         };
         let mut slots: HashMap<Slot, SlotMotion> = HashMap::new();
+        let mut rail = super::theme_art::rail_still();
+        let mut rail_moved = false;
         let mut tint = None;
         let mut accent = None;
         for animation in &applied.resolved.animations {
             if !motion::runs(animation, state.performance, state.reduced) {
                 continue;
             }
+            if animation.slot == Slot::RailIcon {
+                rail_moved = true;
+                // Each place in the rail runs `phase` behind the one above.
+                for (place, moved) in rail.iter_mut().enumerate() {
+                    let at = elapsed - animation.phase * place as f32;
+                    if let motion::Value::Number(number) = motion::value_at(animation, at) {
+                        super::theme_art::move_by(moved, animation.property, number);
+                    }
+                }
+                continue;
+            }
             let value = motion::value_at(animation, elapsed);
             match (animation.slot, animation.property, value) {
+                // Tints lay over one another, the later on top.
                 (Slot::Window, Property::Tint, motion::Value::Colour(colour)) => {
-                    tint = Some(colour)
+                    tint = Some(tint.map_or(colour, |under| super::theme_art::over(under, colour)))
                 }
                 (Slot::Window, Property::Opacity, motion::Value::Number(opacity)) => {
                     // A window's opacity dims it under a tint of the chat's colour.
@@ -808,7 +848,8 @@ fn tick(window: &YapfastWindow, started: Instant) {
                         .get_chat()
                         .as_argb_encoded();
                     let alpha = ((1.0 - opacity).clamp(0.0, 1.0) * 255.0) as u32;
-                    tint = Some((alpha << 24) | (ground & 0xff_ffff));
+                    let colour = (alpha << 24) | (ground & 0xff_ffff);
+                    tint = Some(tint.map_or(colour, |under| super::theme_art::over(under, colour)));
                 }
                 (Slot::Accent, Property::Colour, motion::Value::Colour(colour)) => {
                     accent = Some(colour)
@@ -833,6 +874,9 @@ fn tick(window: &YapfastWindow, started: Instant) {
         }
         for (slot, moved) in slots {
             set_slot(&look, slot, moved);
+        }
+        if rail_moved {
+            super::theme_art::set_rail(window, rail);
         }
         if let Some(tint) = tint {
             look.set_window_tint(Color::from_argb_encoded(tint));

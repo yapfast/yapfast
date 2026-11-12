@@ -214,7 +214,7 @@ move; text effects tick only while one plays.
   "preview": ["previews/chat.png", "previews/profile.png"],
   "icon": "icon.png",
   "colours": { … }, "shape": { … }, "type": { … }, "spacing": { … },
-  "motion": { … }, "animations": [ … ], "effects": { … },
+  "motion": { … }, "animations": [ … ], "effects": { … }, "art": { … },
   "variants": {
     "dark": { "base": "yap", "colours": { … } },
     "light": { "base": "sakura", "colours": { … } }
@@ -263,6 +263,12 @@ another until one does:
 | `pill` | The pill beside a selected or unread server | `text` |
 | `toggle-off`, `knob-off` | A switch's track and knob while it's off | `field`, `secondary` |
 | `code`, `embed` | The grounds of code blocks and of embeds | `panel`, `sidebar` |
+| `members` | The member list's ground | `chat` (`sidebar` without Discord's look) |
+| `app-badge` | The APP tag after a bot's name | Discord's blurple |
+
+A theme that sets `hover` also lights the hovered row of a context menu with
+it, instead of the stock white or black wash, and `scrim` dims the window
+behind every dialog.
 
 `rail`, `sidebar`, `chat`, `panel`, `raised` and `accent` also take a
 gradient, `linear(135deg, #ff71ce, #01cdfe 80%)`: an angle as CSS measures it
@@ -290,6 +296,8 @@ percentage of its size: 50 a circle, 0 a square.
 | `rail-icon` | Servers in the rail |
 | `avatar` | Every avatar |
 | `tile` | Cards in settings |
+| `code` | Code blocks: corners and outline (stock 1 px of `line`) |
+| `embed` | Embeds: corners and outline (stock none) |
 
 Every other corner in the window takes `radii`: `small` for stock corners of
 4 pixels or less, `medium` up to 8, `large` above. Every other shadow takes
@@ -334,7 +342,10 @@ stock 120), `popup` (milliseconds a popup takes, stock 100), `curve` (`linear`,
 `ease`, `ease-in`, `ease-out`, `ease-in-out`, `spring`, `bounce`, `elastic`),
 `hover` (`fade`, `none`, `lift`, `glow`, `scale`), `press` (`none`, `scale`,
 `sink`), `open` (`grow`, `none`, `fade`, `zoom`, `pop`) and `close`
-(`reverse`, `none`). Hover and press apply to labelled buttons and servers in
+(`reverse`, `none`), and `hover_in` and `hover_out` (milliseconds a
+labelled button's hover takes to come and to go, each following `quick`).
+`curve` also takes `cubic-bezier(x1, y1, x2, y2)`; Slint's popups take only
+named curves, so it picks the nearest of them there. Hover and press apply to labelled buttons and servers in
 the rail (a button's face moves and scales inside the space the layout gives
 it); open and close to every popup, menu and dialog.
 
@@ -356,14 +367,15 @@ runs.
 | Field | |
 | --- | --- |
 | `slot` | Where: below |
-| `property` | `opacity` (0–1), `x`, `y` (−24 to 24 px), `scale` (0.5–1.5), `rotation` (−45 to 45°), `tint`, `colour` |
+| `property` | `opacity` (0–1), `x`, `y` (−24 to 24 px), `scale` (0.5–1.5), `rotation` (−360 to 360°: `[0, 360]` spins a record), `tint`, `colour` |
 | `values` | 2 to 32 numbers, or colours for `tint` and `colour` |
 | `period` | Milliseconds for one pass, 100 to 60000 |
 | `steps` | Jumps between values in this many steps, as CSS's `steps()`, instead of moving |
-| `easing` | A curve from the list above, across each span between two values |
+| `easing` | A curve from the list above, or `cubic-bezier(x1, y1, x2, y2)` as CSS writes it, across each span between two values |
 | `repeat` | `loop`, `alternate` or `once` |
 | `delay` | Milliseconds before it starts |
 | `heavy` | Stays still in Balanced |
+| `phase` | `rail.icon` only: milliseconds each server runs behind the one above it (0–5000) |
 
 | Slot | Moves |
 | --- | --- |
@@ -375,6 +387,9 @@ runs.
 | `typing` | The dots of someone typing |
 | `channel.name`, `server.name`, `profile.name` | Those names |
 | `own.avatar` | Your avatar in the account panel |
+| `rail.icon` | Every server in the rail, each `phase` behind the last |
+
+Several `window` tints lay over one another, the later on top.
 
 Text in the `channel.name`, `server.name` and `profile.name` slots moves by
 `x` and `y` inside the space its layout gives it, so a moving name never moves
@@ -391,6 +406,127 @@ the plain text.
 "effects": { "channel.name": "decrypt",
              "profile.name": { "effect": "typewriter", "duration": 900 } }
 ```
+
+
+**Art** (`art`): pictures and textures on surfaces, overlays over the
+window, glass panes, lit text, particles, effects on fixed events, foil and a
+channel change. Each key replaces the one before it, as other layers do; a
+variant's `surfaces` and `text` replace the shared ones surface by surface.
+
+```json
+"art": {
+  "surfaces": {
+    "window": [{ "image": "art/sky.jpg" },
+               { "image": "art/clouds.png", "fit": "tile", "drift": [14, 0] }],
+    "chat": { "texture": "paper", "colour": "#5a4630", "opacity": 0.35, "blend": "multiply" }
+  },
+  "overlays": [{ "kind": "scanlines", "size": 3, "opacity": 0.12 },
+               { "kind": "lcd", "on": "chat", "ghost": true }],
+  "glass": { "surfaces": ["sidebar", "chat", "members", "menu", "dialog"],
+             "blur": 18, "opacity": 0.55, "highlight": "#ffffff66", "gap": 8, "radius": 14 },
+  "text": { "names": { "outline": { "width": 1, "colour": "#000" }, "glow": { "colour": "#ff71ce" } } },
+  "particles": [{ "preset": "bubbles", "on": "message.sent", "count": 14 }],
+  "events": { "click": "ripple", "hover": "gloss", "select": "highlighter", "reaction": "stamp" },
+  "foil": { "surfaces": ["card", "tile"], "colours": ["#ff9ad5", "#9af0ff", "#fff6a8"] },
+  "transition": { "kind": "dissolve", "duration": 420 }
+}
+```
+
+*Surfaces*: `window` (under everything, and what shows between panes with a
+gap), `rail`, `sidebar`, `chat`, `members`, `panel` (the account panel),
+`card` (a profile card the person hasn't themed themselves), `dialog`,
+`composer` and `menu`. Each takes a layer or a list of up to 4, bottom first,
+drawn over the surface's ground and under its content:
+
+| Field | |
+| --- | --- |
+| `image` | A PNG, JPEG or WebP in the folder (the checks above apply) |
+| `texture` | Or one Yapfast makes, 256 px and tiling: `grain`, `paper`, `kraft`, `noise`, `halftone`, in `colour` |
+| `fit` | `cover` (pictures' default), `contain`, `tile` (textures' default), `stretch` |
+| `position` | Where it sits when it doesn't fill: `center`, `top left`, … or `[x, y]` from 0 to 1 |
+| `opacity` | 0–1 |
+| `blend` | `normal`, `multiply`, `screen`, `overlay`, mixed with the surface's own colour (over a gradient, its first stop) |
+| `blur` | 0–64 px |
+| `dim` | 0–1, toward black |
+| `scale` | A tile's size against the picture's, 0.25–4 |
+| `colour` | A texture's colour |
+| `drift` | `[x, y]` or `{ "x", "y" }`, logical pixels a second (−200 to 200): the layer slides and loops, a tile seamlessly, any other fit as two copies end to end along x (or y when x is 0) |
+| `frames` | A sprite sheet: `{ "count", "columns", "period" }`, frames left to right then down, `period` milliseconds for all of them (not with `tile`) |
+| `heavy` | Stays still in Balanced (drift and frames run there otherwise) |
+
+Pictures are decoded once per theme, no larger than 2560 × 1600 (a tile no
+larger than 1024), with their blend, blur, dim and opacity put into their
+pixels then, so drawing them costs a plain picture. Slint has no blend modes
+of its own: a blend mixes with the surface's colour, not with what another
+layer drew beneath.
+
+*Overlays* (up to 6) lie over everything and take no input: `scanlines`
+(`size`, pixels from line to line), `grain` (`period`: milliseconds before it
+jumps, 0 still), `lcd` (a pixel grid of red, green and blue stripes, `size`
+pixels a pixel, and `ghost`: a brief faint afterimage of the conversation when
+the channel changes), `vignette`, `band` (a band of light, `size` tall,
+rolling down every `period`), `flare` (`size` across, `at` a position,
+pulsing every `period` when set), or a picture (`image` and any layer field).
+Each takes `colour`, `opacity`, and `on`: `window` (the default) or `chat`,
+over the conversation only. One that moves is heavy unless it says
+`"heavy": false`.
+
+*Glass*: Slint can't blur what's behind a pane, so a glass pane draws a
+blurred copy of the window's art (kept at a quarter of the window's size)
+lined up with where the pane sits, lays its own ground over it at `opacity`
+(0–1), and the pane's own layers above that. What shows through is the
+window's art, not other panes or messages. `surfaces` (any but `window`;
+`sidebar` and `chat` when left out), `blur` (0–64), `highlight` (a 1 px light
+on the top and left inner edge), `inset` (a shadow inside the edges, as
+`shape` writes one: `blur` is its depth), `gap` (0–24 px between the window's
+edge and its two panes, the navigation and the conversation, where the
+window's art shows) and `radius` (their corners when there's a gap).
+
+*Text*: `names` (authors, the member list, the profile card), `headings` (the
+conversation's and the server's names, settings titles) and `labels` (small
+capital headings) each take `shadow` (as `shape` writes one; its blur isn't
+drawn), `glow` (`colour` and `size` 1–12, drawn as two widening outlines at a
+third of the colour's alpha), `outline` (`width` 0.5–4 and `colour`) and
+`emboss`. Settings titles and labels take the outline only.
+
+*Particles* (up to 4 sets): `preset` `bubbles` (rise and wobble), `sparkles`
+(burst and twinkle), `dust` (drift) or `scraps` (paper that tumbles and
+falls), `on` `ambient`, `message.sent`, `reaction.added` or `theme.applied`,
+`colours` (1–8, picked in turn), `sprite` (a picture drawn instead of the
+shape), `count` (1–64: how many fly on an event, or most at once when
+ambient), `rate` (ambient, how many start a second), `size` (2–48 px), `life`
+(300–12000 ms) and `heavy` (ambient sets are heavy unless they say not).
+At most 160 fly at once.
+
+*Events*, one effect each: `click` `ripple` (labelled buttons), `hover`
+`gloss` (a sweep of light over labelled buttons and the rail's servers),
+`select` `highlighter` (a marker stroke that swipes under the chosen channel),
+`reaction` `stamp` (your reaction lands with a thunk). Each is the effect's
+name, `none`, or `{ "effect", "colour", "duration" }` (80–3000 ms).
+
+*Foil*: a holographic band of three `colours` over `card` and `tile`
+surfaces at `opacity`, following the pointer while it's on one and otherwise
+sweeping across every `period` milliseconds.
+
+*Transition*: when another channel opens, the conversation as it was
+`fade`s or `dissolve`s in blocks over `duration` (100–2000 ms). Yapfast takes
+a picture of the window for it, held only while it plays.
+
+Performance: Full runs all of it at up to 60 frames a second. Balanced runs
+art at up to 30, paused while Yapfast isn't focused, and holds heavy layers
+and overlays still, drops heavy ambient particles, and plays no transition.
+Light keeps pictures, textures, glass and lit text, drops heavy overlays,
+particles, event effects and transitions (a highlighter stays as a plain
+colour), and moves nothing. Reduce motion holds everything still at every
+setting. The art clock pauses while the window is minimised or hidden, and
+doesn't run at all while nothing moves.
+
+`yapfast theme check` checks text where it sits over art: each text colour
+on each surface with art or glass is refused under 4.5:1 (`secondary` and
+`muted` under 3:1; either keeps a lower bar its plain ground gives it) against the art's average laid over the surface, and warned
+about when a tenth of it reads under 3:1. The cost adds the pictures'
+decoded memory, art layers, overlays and particle sets, and counts moving
+art among the animations.
 
 **Parts.** A later Yapfast lets a theme rebuild a few named parts —
 `message-row`, `member-row`, `account-panel`, `server-header`,

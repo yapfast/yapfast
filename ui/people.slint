@@ -1,6 +1,7 @@
 import { ClientStyle } from "yapfast/style.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, BadgeTip, Look } from "theme.slint";
+import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
 import { ActionButton, IconButton, Avatar, Nameplate, StatusText, StyledName, NameStyleRow, EffectLayer, ProfileEffect, PictureStore, TextField, ServerTagChip, TipIcon, ActivityClock } from "controls.slint";
 import { StatusDot } from "rail.slint";
 import { BotTag } from "messages.slint";
@@ -128,9 +129,13 @@ export component MemberPanel inherits Rectangle {
     changed top-index => { root.viewport(root.top-index, root.bottom-index); }
     changed bottom-index => { root.viewport(root.top-index, root.bottom-index); }
     // Discord's member list sits on the conversation's ground, a faint line on its left.
-    background: ClientStyle.enabled ? Theme.chat-fill : Theme.sidebar-fill;
+    background: Art.glass-members ? transparent : Theme.members-on ? Theme.members-set : ClientStyle.enabled ? Theme.chat-fill : Theme.sidebar-fill;
     accessible-role: list;
     accessible-label: "Members";
+    if Art.members.length > 0 || Art.glass-members: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.members; glass: Art.glass-members;
+        ground: Theme.members-on ? Theme.members-set : ClientStyle.enabled ? Theme.chat-fill : Theme.sidebar-fill;
+    }
     if ClientStyle.enabled: Rectangle { x: 0px; width: 1px; background: Theme.outline-chat; }
     Timer {
         interval: 60s;
@@ -308,8 +313,14 @@ export component MemberPanel inherits Rectangle {
                         alignment: center; horizontal-stretch: 1;
                         HorizontalLayout {
                             alignment: start; spacing: 4px;
-                            if member.name-style.length == 0: Text {
+                            if member.name-style.length == 0 && !Art.names.on: Text {
                                 text: member.name; color: member.has-color ? member.color : Theme.secondary; font-size: Look.name-size(16px); font-weight: Look.name-weight(500); overflow: elide;
+                                font-family: Look.name-font(""); letter-spacing: Look.spacing-names;
+                                opacity: member.presence == "offline" ? 0.5 : 1;
+                            }
+                            if member.name-style.length == 0 && Art.names.on: ArtLabel {
+                                art: Art.names;
+                                text: member.name; ink: member.has-color ? member.color : Theme.secondary; font-size: Look.name-size(16px); font-weight: Look.name-weight(500); overflow: elide;
                                 font-family: Look.name-font(""); letter-spacing: Look.spacing-names;
                                 opacity: member.presence == "offline" ? 0.5 : 1;
                             }
@@ -1006,7 +1017,7 @@ export component ProfileCard inherits Rectangle {
     property <color> bubble: !root.themed ? Theme.raised : root.light ? #ffffff : #232427;
     property <color> bubble-edge: !root.themed ? Theme.edge : root.light ? #00000026 : #404044;
     height: min(body.preferred-height, root.limit);
-    background: root.themed ? @linear-gradient(180deg, root.data.theme-primary 0%, root.data.theme-secondary 100%) : root.plain-ground;
+    background: root.themed ? @linear-gradient(180deg, root.data.theme-primary 0%, root.data.theme-secondary 100%) : Art.glass-card && !root.docked ? transparent : root.plain-ground;
     property <length> corner: root.docked ? Look.radius(ClientStyle.enabled ? 8px : 0px) : Look.r(Look.card, 12px);
     border-radius: root.corner;
     border-width: root.themed ? 0px : root.docked && !ClientStyle.enabled ? 0px : Look.bw(Look.card, 1px); border-color: Look.bc(Look.card, Theme.edge);
@@ -1022,6 +1033,15 @@ export component ProfileCard inherits Rectangle {
             border-radius: (root.docked ? (ClientStyle.enabled ? 8px : 0px) : 12px) - (root.themed ? 2px : 0px); clip: true;
             if root.themed: Rectangle {
                 background: @linear-gradient(180deg, root.theme-start 0%, root.theme-start root.banner-height / parent.height * 100%, root.theme-end 100%);
+            }
+            // A theme's card art, and its foil, on a card the person hasn't
+            // themed themselves.
+            if !root.themed && !root.docked && (Art.card.length > 0 || Art.glass-card): ArtLayer {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.card; glass: Art.glass-card; ground: root.plain-ground;
+            }
+            if !root.themed && !root.docked && Art.foil-card: ArtFoil {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                hovered: card-pointer.has-hover; pointer-x: card-pointer.mouse-x; pointer-y: card-pointer.mouse-y;
             }
             // Sized by what the card wants rather than the least it can take, so a
             // long one scrolls to its end.
@@ -1131,6 +1151,12 @@ export component ProfileCard inherits Rectangle {
                             // measures as the name.
                             if root.data.name-style.length == 0: Rectangle {
                                 min-height: profile-name.preferred-height; preferred-width: profile-name.preferred-width;
+                                if Art.names.on: ArtTextBehind {
+                                    x: profile-name.x; y: profile-name.y; width: parent.width; height: parent.height; art: Art.names;
+                                    text: profile-name.text; font-size: profile-name.font-size; font-weight: profile-name.font-weight;
+                                    font-family: profile-name.font-family; letter-spacing: profile-name.letter-spacing;
+                                    opacity: profile-name.opacity; transform-scale: profile-name.transform-scale; transform-rotation: profile-name.transform-rotation;
+                                }
                                 profile-name := TextInput {
                                     x: Look.profile-name.x; y: Look.profile-name.y; width: parent.width; height: parent.height;
                                     text: Look.profile-text(root.data.name); color: root.ink; font-size: root.large ? 26px : 20px; font-weight: Look.name-weight(700);

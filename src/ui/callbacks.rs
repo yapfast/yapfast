@@ -918,6 +918,12 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                     window.invoke_scroll_to_latest();
                 }
             }
+            if window.get_can_send() {
+                super::theme_art::event(
+                    &window,
+                    yapfast_core::themes::package::art::Trigger::MessageSent,
+                );
+            }
             adapter.borrow_mut().action(&window, Action::Send);
         });
     }
@@ -2011,6 +2017,10 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     let weak = window.as_weak();
     window.on_react(move |item, key| {
         if let Some(window) = weak.upgrade() {
+            super::theme_art::event(
+                &window,
+                yapfast_core::themes::package::art::Trigger::ReactionAdded,
+            );
             state.borrow_mut().action(
                 &window,
                 Action::React {
@@ -2740,6 +2750,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     let weak = window.as_weak();
     window.on_open_conversation(move |id| {
         if let Some(window) = weak.upgrade() {
+            super::theme_art::channel_changing(&window);
             state.borrow_mut().action(&window, Action::Open(id.into()));
         }
     });
@@ -2772,6 +2783,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     let weak = window.as_weak();
     window.on_select_room(move |id| {
         if let Some(window) = weak.upgrade() {
+            super::theme_art::channel_changing(&window);
             state
                 .borrow_mut()
                 .action(&window, Action::SelectRoom(id.into()));

@@ -271,7 +271,7 @@ export component BanDialog inherits Rectangle {
             TouchArea { }
             box := VerticalLayout {
                 padding: 16px; spacing: 12px;
-                Text { text: root.page.open-name; color: Theme.text; font-size: 20px; font-weight: 700; overflow: elide; }
+                Text { text: root.page.open-name; color: Theme.text; font-size: Look.title-size(20px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); overflow: elide; }
                 VerticalLayout {
                     spacing: 4px;
                     Text { text: "Ban Reason"; color: Theme.text; font-size: 15px; font-weight: 500; }

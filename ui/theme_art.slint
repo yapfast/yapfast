@@ -1,0 +1,505 @@
+// A theme's art: pictures and textures under each surface's content,
+// overlays above it, glass panes, text light, particles and the effects on
+// the fixed event slots. src/ui/theme_art.rs sets `Art`; everything is off by
+// default, and each place draws its layer only behind an `if`, so a window
+// without a theme, or with a theme that has no art, builds nothing here.
+// Names are public API under theme_api 1; docs/themes.md, *Art*, lists them.
+
+import { Theme, Look, SlotMotion } from "theme.slint";
+
+/// One picture, decoded at display size with its blend, blur, dim and
+/// opacity already in its pixels.
+export struct ArtImage {
+    image: image,
+    /// 0 cover, 1 contain, 2 tile, 3 stretch.
+    fit: int,
+    /// Where it sits when it doesn't fill: 0 start, 1 centre, 2 end.
+    halign: int,
+    valign: int,
+    /// Logical pixels a second it slides, looping.
+    drift-x: float,
+    drift-y: float,
+    /// A sprite sheet's frames and columns, and milliseconds for all of them.
+    frames: int,
+    columns: int,
+    period: float,
+    /// Grain: milliseconds before it jumps to another place; 0 still.
+    jitter: float,
+    /// Whether it may move now, as Performance and reduced motion say.
+    moves: bool,
+}
+
+/// One overlay over the whole window. `kind`: 0 a picture, 1 scanlines,
+/// 2 grain, 3 vignette, 4 a rolling band, 5 a flare.
+export struct ArtOverlay {
+    kind: int,
+    picture: ArtImage,
+    colour: color,
+    opacity: float,
+    size: length,
+    ax: float,
+    ay: float,
+    period: float,
+    moves: bool,
+    /// Over the conversation only, not the whole window.
+    chat: bool,
+}
+
+/// How one role's text is lit: shadow, glow, outline and emboss.
+export struct ArtText {
+    on: bool,
+    shadow-color: color,
+    shadow-x: length,
+    shadow-y: length,
+    glow-color: color,
+    glow: length,
+    outline-color: color,
+    outline: length,
+    emboss: bool,
+}
+
+/// One particle where it is now. `shape`: 0 bubble, 1 sparkle, 2 dust,
+/// 3 scrap; `sprite` an index in `Art.sprites`, or -1 for the shape.
+export struct ArtParticle {
+    x: length,
+    y: length,
+    size: length,
+    color: color,
+    opacity: float,
+    rotation: float,
+    shape: int,
+    sprite: int,
+}
+
+export global Art {
+    // Layers per surface, bottom first.
+    in property <[ArtImage]> window;
+    in property <[ArtImage]> rail;
+    in property <[ArtImage]> sidebar;
+    in property <[ArtImage]> chat;
+    in property <[ArtImage]> members;
+    in property <[ArtImage]> panel;
+    in property <[ArtImage]> card;
+    in property <[ArtImage]> dialog;
+    in property <[ArtImage]> composer;
+    in property <[ArtImage]> menu;
+    in property <[ArtOverlay]> overlays;
+    /// Whether any overlay lies over the conversation only.
+    in property <bool> chat-overlays;
+    /// Seconds on the art clock, which runs only while something moves.
+    in property <float> t;
+    /// The window's size, for glass panes to line their copy of its art up.
+    in-out property <length> window-width;
+    in-out property <length> window-height;
+
+    // Glass: which panes, the blurred copy of the window's art, how much of
+    // each pane's ground covers it, the edge light and inner shadow.
+    in property <bool> glass-rail;
+    in property <bool> glass-sidebar;
+    in property <bool> glass-chat;
+    in property <bool> glass-members;
+    in property <bool> glass-panel;
+    in property <bool> glass-card;
+    in property <bool> glass-dialog;
+    in property <bool> glass-composer;
+    in property <bool> glass-menu;
+    in property <image> blurred;
+    in property <float> glass-opacity: 1;
+    in property <color> highlight;
+    in property <color> inset-color;
+    in property <length> inset-size;
+    /// Space between the window's edge and its panes, and between them.
+    in property <length> gap;
+    in property <length> pane-radius;
+
+    // Text light per role.
+    in property <ArtText> names;
+    in property <ArtText> headings;
+    in property <ArtText> labels;
+
+    // Foil: a holographic band over cards that follows the pointer, and
+    // sweeps slowly by itself otherwise.
+    in property <bool> foil-card;
+    in property <bool> foil-tile;
+    in property <color> foil-a;
+    in property <color> foil-b;
+    in property <color> foil-c;
+    in property <float> foil-opacity;
+    in property <float> foil-period: 6000;
+    // A channel change's transition over the conversation: the window as it
+    // was, going. `shot-kind` 1 crossfade, 2 pixel dissolve; `shot-left`
+    // runs from 1 to 0.
+    in property <image> shot;
+    in property <int> shot-kind;
+    in property <float> shot-left;
+    in property <float> shot-strength: 1;
+
+    in property <[ArtParticle]> particles;
+    in property <[image]> sprites;
+
+    // The fixed event slots: ripple on click, gloss on hover, highlighter on
+    // select, stamp on a reaction added.
+    in property <bool> ripple;
+    in property <color> ripple-color;
+    in property <duration> ripple-time: 450ms;
+    in property <bool> gloss;
+    in property <color> gloss-color;
+    in property <duration> gloss-time: 600ms;
+    in property <bool> highlighter;
+    in property <color> highlighter-color;
+    in property <duration> highlighter-time: 260ms;
+    in property <bool> stamp;
+    in property <duration> stamp-time: 320ms;
+
+    // Motion beyond Look's: a hover's way in and out apart (negative follows
+    // Theme.quick), and the rail's servers each a phase behind the last.
+    in property <duration> hover-in: -1ms;
+    in property <duration> hover-out: -1ms;
+    in property <[SlotMotion]> rail-icons;
+    public pure function hover-time(hovered: bool) -> duration {
+        hovered ? (self.hover-in >= 0ms ? self.hover-in : Theme.quick) : (self.hover-out >= 0ms ? self.hover-out : Theme.quick)
+    }
+    /// A server's motion by its place in the rail.
+    public pure function rail-icon(index: int) -> SlotMotion {
+        self.rail-icons.length == 0 || index < 0 ? { opacity: 1, scale: 1 } : self.rail-icons[Math.mod(index, self.rail-icons.length)]
+    }
+    /// A lit role's outline colour, transparent (no stroke at all) when it
+    /// has none.
+    public pure function outline(art: ArtText) -> brush { art.outline > 0px ? art.outline-color : transparent }
+}
+
+/// One picture, as its fit, place and motion say, filling its parent.
+export component ArtPicture inherits Rectangle {
+    in property <ArtImage> layer;
+    clip: true;
+    property <float> t: root.layer.moves ? Art.t : 0;
+    property <length> tile-w: max(1px, root.layer.image.width * 1px / max(1, root.layer.columns));
+    property <length> tile-h: max(1px, root.layer.image.height * 1px / max(1, Math.ceil(root.layer.frames / max(1, root.layer.columns))));
+    // The slide so far, wrapped into one tile (or one surface) so it loops.
+    property <length> span-x: root.layer.fit == 2 ? root.tile-w : root.width;
+    property <length> span-y: root.layer.fit == 2 ? root.tile-h : root.height;
+    property <float> jump: root.layer.jitter > 0 ? Math.floor(root.t * 1000 / root.layer.jitter) : 0;
+    property <float> raw-x: root.t * root.layer.drift-x + root.jump * 53;
+    property <float> raw-y: root.t * root.layer.drift-y + root.jump * 97;
+    property <length> off-x: (root.raw-x - Math.floor(root.raw-x / (root.span-x / 1px)) * (root.span-x / 1px)) * 1px;
+    property <length> off-y: (root.raw-y - Math.floor(root.raw-y / (root.span-y / 1px)) * (root.span-y / 1px)) * 1px;
+    property <bool> slides-x: root.layer.drift-x != 0 || root.layer.jitter > 0;
+    property <bool> slides-y: root.layer.drift-y != 0 || root.layer.jitter > 0;
+    property <int> frame: root.layer.frames > 1 ? Math.mod(Math.floor(root.t * 1000 / (root.layer.period / root.layer.frames)), root.layer.frames) : 0;
+    property <ImageFit> fit: root.layer.fit == 1 ? ImageFit.contain : root.layer.fit == 3 ? ImageFit.fill : ImageFit.cover;
+    property <ImageHorizontalAlignment> h: root.layer.halign == 0 ? ImageHorizontalAlignment.left : root.layer.halign == 2 ? ImageHorizontalAlignment.right : ImageHorizontalAlignment.center;
+    property <ImageVerticalAlignment> v: root.layer.valign == 0 ? ImageVerticalAlignment.top : root.layer.valign == 2 ? ImageVerticalAlignment.bottom : ImageVerticalAlignment.center;
+    if root.layer.fit == 2: Image {
+        source: root.layer.image;
+        horizontal-tiling: repeat; vertical-tiling: repeat;
+        horizontal-alignment: left; vertical-alignment: top;
+        x: root.slides-x ? root.off-x - root.tile-w : 0px;
+        y: root.slides-y ? root.off-y - root.tile-h : 0px;
+        width: root.width + (root.slides-x ? root.tile-w : 0px);
+        height: root.height + (root.slides-y ? root.tile-h : 0px);
+        accessible-role: none;
+    }
+    // A sprite sheet shows one frame at a time.
+    if root.layer.fit != 2 && root.layer.frames > 1: Image {
+        source: root.layer.image;
+        source-clip-x: Math.mod(root.frame, root.layer.columns) * (root.tile-w / 1px);
+        source-clip-y: Math.floor(root.frame / root.layer.columns) * (root.tile-h / 1px);
+        source-clip-width: root.tile-w / 1px;
+        source-clip-height: root.tile-h / 1px;
+        image-fit: root.fit; horizontal-alignment: root.h; vertical-alignment: root.v;
+        width: root.width; height: root.height; x: 0px; y: 0px;
+        accessible-role: none;
+    }
+    // A sliding picture is drawn twice, end to end, along one axis.
+    if root.layer.fit != 2 && root.layer.frames <= 1: Image {
+        source: root.layer.image;
+        image-fit: root.fit; horizontal-alignment: root.h; vertical-alignment: root.v;
+        x: root.slides-x ? root.off-x : 0px; y: !root.slides-x && root.slides-y ? root.off-y : 0px;
+        width: root.width; height: root.height;
+        accessible-role: none;
+    }
+    if root.layer.fit != 2 && root.layer.frames <= 1 && (root.slides-x || root.slides-y): Image {
+        source: root.layer.image;
+        image-fit: root.fit; horizontal-alignment: root.h; vertical-alignment: root.v;
+        x: root.slides-x ? root.off-x - root.width : 0px; y: !root.slides-x ? root.off-y - root.height : 0px;
+        width: root.width; height: root.height;
+        accessible-role: none;
+    }
+}
+
+/// A surface's art, under its content: for a glass pane, the window's art
+/// blurred beneath its ground; then its own layers; then the glass edge.
+/// Put it first among the surface's children, the size of the surface.
+export component ArtLayer inherits Rectangle {
+    in property <[ArtImage]> layers;
+    in property <bool> glass;
+    /// The surface's own ground, which a glass pane lays over the blur.
+    in property <brush> ground;
+    in property <length> radius;
+    border-radius: root.radius;
+    clip: true;
+    if root.glass: Image {
+        source: Art.blurred; image-fit: cover;
+        x: -root.absolute-position.x; y: -root.absolute-position.y;
+        width: Art.window-width; height: Art.window-height;
+        accessible-role: none;
+    }
+    if root.glass: Rectangle { background: root.ground; opacity: Art.glass-opacity; }
+    for layer in root.layers: ArtPicture { x: 0px; y: 0px; width: root.width; height: root.height; layer: layer; }
+    if root.glass && Art.inset-size > 0px: Rectangle {
+        Rectangle { y: 0px; height: Art.inset-size; background: @linear-gradient(180deg, Art.inset-color 0%, transparent 100%); }
+        Rectangle { x: 0px; width: Art.inset-size; background: @linear-gradient(90deg, Art.inset-color 0%, transparent 100%); }
+        Rectangle { x: parent.width - Art.inset-size; width: Art.inset-size; background: @linear-gradient(270deg, Art.inset-color 0%, transparent 100%); }
+        Rectangle { y: parent.height - Art.inset-size; height: Art.inset-size; background: @linear-gradient(0deg, Art.inset-color 0%, transparent 100%); }
+    }
+    if root.glass && Art.highlight != transparent: Rectangle {
+        border-radius: root.radius; border-width: 1px;
+        border-color: @linear-gradient(135deg, Art.highlight 0%, Art.highlight.with-alpha(0) 55%);
+    }
+}
+
+/// The overlays, over everything; none takes input.
+export component ArtOverlays inherits Rectangle {
+    /// Draws the window's overlays, or with `chat` those over the
+    /// conversation.
+    in property <bool> chat;
+    clip: root.chat;
+    for overlay in Art.overlays: Rectangle {
+        x: 0px; y: 0px; width: root.width; height: root.height;
+        visible: overlay.chat == root.chat;
+        property <float> t: overlay.moves ? Art.t : 0;
+        if overlay.kind <= 2: ArtPicture {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            layer: overlay.picture; opacity: overlay.opacity;
+        }
+        // The vignette darkens the edges, deepest in the corners.
+        if overlay.kind == 3: Rectangle {
+            opacity: overlay.opacity;
+            Rectangle { y: 0px; height: parent.height * 0.32; background: @linear-gradient(180deg, overlay.colour 0%, overlay.colour.with-alpha(0) 100%); }
+            Rectangle { y: parent.height * 0.68; height: parent.height * 0.32; background: @linear-gradient(0deg, overlay.colour 0%, overlay.colour.with-alpha(0) 100%); }
+            Rectangle { x: 0px; width: parent.width * 0.22; background: @linear-gradient(90deg, overlay.colour 0%, overlay.colour.with-alpha(0) 100%); }
+            Rectangle { x: parent.width * 0.78; width: parent.width * 0.22; background: @linear-gradient(270deg, overlay.colour 0%, overlay.colour.with-alpha(0) 100%); }
+        }
+        // A band of light rolls down the window, as on an old screen.
+        if overlay.kind == 4: Rectangle {
+            property <float> pass: overlay.period > 0 ? (parent.t * 1000 / overlay.period) - Math.floor(parent.t * 1000 / overlay.period) : 0.3;
+            y: -overlay.size + (parent.height + overlay.size) * self.pass; height: overlay.size;
+            opacity: overlay.opacity;
+            background: @linear-gradient(180deg, overlay.colour.with-alpha(0) 0%, overlay.colour 50%, overlay.colour.with-alpha(0) 100%);
+        }
+        if overlay.kind == 5: Rectangle {
+            x: parent.width * overlay.ax - overlay.size / 2; y: parent.height * overlay.ay - overlay.size / 2;
+            width: overlay.size; height: overlay.size;
+            opacity: overlay.opacity * (overlay.period > 0 ? 0.75 + 0.25 * sin(parent.t * 1000 / overlay.period * 360deg) : 1);
+            background: @radial-gradient(circle, overlay.colour 0%, overlay.colour.with-alpha(0.35) 18%, overlay.colour.with-alpha(0) 70%);
+        }
+    }
+}
+
+/// The particles in flight, over everything; none takes input.
+export component ArtParticles inherits Rectangle {
+    for particle in Art.particles: Rectangle {
+        x: particle.x - particle.size / 2; y: particle.y - particle.size / 2;
+        width: particle.size; height: particle.size;
+        opacity: particle.opacity;
+        transform-rotation: particle.rotation * 1deg;
+        if particle.sprite >= 0: Image {
+            source: Art.sprites[particle.sprite]; width: parent.width; height: parent.height; accessible-role: none;
+        }
+        // A bubble: a ring with a glint.
+        if particle.sprite < 0 && particle.shape == 0: Rectangle {
+            border-radius: self.width / 2; border-width: max(1px, particle.size / 10);
+            border-color: particle.color; background: particle.color.with-alpha(0.12);
+            Rectangle {
+                x: parent.width * 0.22; y: parent.height * 0.2; width: parent.width * 0.22; height: self.width;
+                border-radius: self.width / 2; background: particle.color.with-alpha(0.8);
+            }
+        }
+        // A sparkle: a four-pointed star.
+        if particle.sprite < 0 && particle.shape == 1: Rectangle {
+            Rectangle { width: parent.width; height: max(1px, parent.height / 5); border-radius: self.height / 2; background: particle.color; }
+            Rectangle { width: max(1px, parent.width / 5); height: parent.height; border-radius: self.width / 2; background: particle.color; }
+            Rectangle { width: parent.width / 2.4; height: self.width; transform-rotation: 45deg; background: particle.color; }
+        }
+        if particle.sprite < 0 && particle.shape == 2: Rectangle {
+            border-radius: self.width / 2;
+            background: @radial-gradient(circle, particle.color 0%, particle.color.with-alpha(0) 100%);
+        }
+        // A scrap of paper.
+        if particle.sprite < 0 && particle.shape == 3: Rectangle {
+            height: parent.height * 0.62; background: particle.color;
+            drop-shadow-blur: 2px; drop-shadow-offset-y: 1px; drop-shadow-color: #00000040;
+        }
+    }
+}
+
+/// What lies behind lit text: its glow, emboss and shadow, drawn from the
+/// same text at the same place. Put it just before the Text it lights, with
+/// that Text's geometry and type; the Text draws the outline itself, with
+/// `stroke` from `Art.outline-*` functions.
+export component ArtTextBehind inherits Rectangle {
+    in property <ArtText> art;
+    in property <string> text;
+    in property <length> font-size;
+    in property <int> font-weight;
+    in property <string> font-family;
+    in property <length> letter-spacing;
+    in property <TextOverflow> overflow;
+    in property <TextHorizontalAlignment> horizontal-alignment;
+    in property <TextVerticalAlignment> vertical-alignment;
+    in property <TextWrap> wrap: no-wrap;
+    // The glow: the letters twice, the wider one first; the theme's colour
+    // comes at a third of its alpha, so the two build up near the letters.
+    if root.art.glow > 0px: Text {
+        width: root.width; height: root.height;
+        text: root.text; font-size: root.font-size; font-weight: root.font-weight; font-family: root.font-family;
+        letter-spacing: root.letter-spacing; overflow: root.overflow; wrap: root.wrap;
+        horizontal-alignment: root.horizontal-alignment; vertical-alignment: root.vertical-alignment;
+        color: root.art.glow-color; stroke: root.art.glow-color; stroke-width: root.art.glow; stroke-style: outside;
+        accessible-role: none;
+    }
+    if root.art.glow > 0px: Text {
+        width: root.width; height: root.height;
+        text: root.text; font-size: root.font-size; font-weight: root.font-weight; font-family: root.font-family;
+        letter-spacing: root.letter-spacing; overflow: root.overflow; wrap: root.wrap;
+        horizontal-alignment: root.horizontal-alignment; vertical-alignment: root.vertical-alignment;
+        color: root.art.glow-color; stroke: root.art.glow-color; stroke-width: root.art.glow / 2; stroke-style: outside;
+        accessible-role: none;
+    }
+    if root.art.emboss: Text {
+        x: -1px; y: -1px; width: root.width; height: root.height;
+        text: root.text; font-size: root.font-size; font-weight: root.font-weight; font-family: root.font-family;
+        letter-spacing: root.letter-spacing; overflow: root.overflow; wrap: root.wrap;
+        horizontal-alignment: root.horizontal-alignment; vertical-alignment: root.vertical-alignment;
+        color: #ffffff59; accessible-role: none;
+    }
+    if root.art.shadow-color != transparent || root.art.emboss: Text {
+        x: root.art.emboss ? 1px : root.art.shadow-x; y: root.art.emboss ? 1px : root.art.shadow-y;
+        width: root.width; height: root.height;
+        text: root.text; font-size: root.font-size; font-weight: root.font-weight; font-family: root.font-family;
+        letter-spacing: root.letter-spacing; overflow: root.overflow; wrap: root.wrap;
+        horizontal-alignment: root.horizontal-alignment; vertical-alignment: root.vertical-alignment;
+        color: root.art.emboss ? #00000080 : root.art.shadow-color;
+        stroke: root.art.emboss ? transparent : root.art.shadow-color; stroke-width: root.art.outline; stroke-style: outside;
+        accessible-role: none;
+    }
+}
+
+/// Lit text that sizes as its text does, for a place in a layout.
+export component ArtLabel inherits Rectangle {
+    in property <ArtText> art;
+    in property <string> text;
+    in property <brush> ink;
+    in property <length> font-size;
+    in property <int> font-weight;
+    in property <string> font-family;
+    in property <length> letter-spacing;
+    in property <TextOverflow> overflow;
+    in property <TextHorizontalAlignment> horizontal-alignment;
+    in property <TextVerticalAlignment> vertical-alignment: center;
+    min-width: label.min-width; preferred-width: label.preferred-width;
+    min-height: label.min-height; preferred-height: label.preferred-height;
+    ArtTextBehind {
+        width: root.width; height: root.height; art: root.art;
+        text: root.text; font-size: root.font-size; font-weight: root.font-weight; font-family: root.font-family;
+        letter-spacing: root.letter-spacing; overflow: root.overflow;
+        horizontal-alignment: root.horizontal-alignment; vertical-alignment: root.vertical-alignment;
+    }
+    label := Text {
+        width: root.width; height: root.height;
+        text: root.text; color: root.ink; font-size: root.font-size; font-weight: root.font-weight; font-family: root.font-family;
+        letter-spacing: root.letter-spacing; overflow: root.overflow;
+        horizontal-alignment: root.horizontal-alignment; vertical-alignment: root.vertical-alignment;
+        stroke: Art.outline(root.art); stroke-width: root.art.outline; stroke-style: outside;
+    }
+}
+
+/// A ripple from where the pointer pressed, which grows while it's held and
+/// fades when it's let go. Put it last inside a clipping surface.
+export component ArtRipple inherits Rectangle {
+    in property <bool> pressed;
+    in property <length> at-x;
+    in property <length> at-y;
+    property <float> fade: root.pressed ? 1 : 0;
+    animate fade { duration: root.pressed ? 0ms : Art.ripple-time; easing: ease-out; }
+    property <float> grow: root.pressed || root.fade > 0 ? 1 : 0;
+    animate grow { duration: root.pressed || root.fade > 0 ? Art.ripple-time : 0ms; easing: ease-out; }
+    property <length> reach: max(root.width, root.height) * 2.2;
+    if root.grow > 0: Rectangle {
+        x: root.at-x - self.width / 2; y: root.at-y - self.height / 2;
+        width: root.reach * root.grow; height: self.width; border-radius: self.width / 2;
+        background: Art.ripple-color; opacity: root.fade;
+    }
+}
+
+/// A band of light that sweeps across once each time the pointer comes on.
+export component ArtGloss inherits Rectangle {
+    in property <bool> hovered;
+    property <float> pass: root.hovered ? 1 : 0;
+    animate pass { duration: root.hovered ? Art.gloss-time : 0ms; easing: ease-out; }
+    if root.pass > 0 && root.pass < 1: Rectangle {
+        x: -root.width * 0.6 + root.width * 1.6 * root.pass; width: root.width * 0.6;
+        background: @linear-gradient(110deg, Art.gloss-color.with-alpha(0) 0%, Art.gloss-color 50%, Art.gloss-color.with-alpha(0) 100%);
+    }
+}
+
+/// A highlighter's stroke that swipes in from the left when chosen. Put it
+/// first, as the row's ground.
+export component ArtHighlighter inherits Rectangle {
+    in property <bool> selected;
+    property <float> amount: root.selected ? 1 : 0;
+    animate amount { duration: Art.highlighter-time; easing: ease-out; }
+    Rectangle {
+        x: 2px; y: root.height * 0.18; width: (root.width - 4px) * root.amount; height: root.height * 0.64;
+        border-radius: 2px; background: Art.highlighter-color; opacity: 0.55;
+        transform-rotation: -0.6deg;
+    }
+}
+
+/// A holographic band across a card: it follows the pointer while it's on
+/// the card, and otherwise sweeps across slowly on the art clock (still,
+/// half across, when nothing may move). Put it last inside a clipping card.
+export component ArtFoil inherits Rectangle {
+    in property <bool> hovered;
+    in property <length> pointer-x;
+    in property <length> pointer-y;
+    property <float> sweep: (Art.t * 1000 / Art.foil-period) - Math.floor(Art.t * 1000 / Art.foil-period);
+    property <float> at: root.hovered ? root.pointer-x / max(1px, root.width) : (Art.t > 0 ? root.sweep : 0.5);
+    property <float> tilt: root.hovered ? (root.pointer-y / max(1px, root.height) - 0.5) * 40 : 0;
+    animate at { duration: root.hovered ? 80ms : 0ms; }
+    opacity: Art.foil-opacity;
+    Rectangle {
+        x: -root.width * 0.75 + root.width * 1.5 * root.at; width: root.width * 0.9;
+        y: -root.height * 0.25; height: root.height * 1.5;
+        transform-rotation: (12 + root.tilt) * 1deg;
+        background: @linear-gradient(90deg, Art.foil-a.with-alpha(0) 0%, Art.foil-a 25%, Art.foil-b 50%, Art.foil-c 75%, Art.foil-c.with-alpha(0) 100%);
+    }
+}
+
+/// The conversation as it was before a channel change, going: faded out
+/// whole, or block by block. Lay it over the conversation, the size of it.
+export component ArtTransition inherits Rectangle {
+    clip: true;
+    property <length> left-x: root.absolute-position.x;
+    property <length> top-y: root.absolute-position.y;
+    if Art.shot-kind == 1: Image {
+        source: Art.shot; x: -root.left-x; y: -root.top-y; width: Art.window-width; height: Art.window-height;
+        image-fit: fill; opacity: Art.shot-left * Art.shot-strength; accessible-role: none;
+    }
+    // Pixel dissolve: 12 × 8 blocks, each gone at its own moment.
+    for block in (Art.shot-kind == 2 ? 96 : 0): Rectangle {
+        property <int> across: Math.mod(block, 12);
+        property <int> down: Math.floor(block / 12);
+        // A fixed scatter of the blocks' order.
+        property <float> order: Math.mod(block * 37 + 11, 96) / 96;
+        x: root.width * self.across / 12; y: root.height * self.down / 8;
+        width: root.width / 12 + 1px; height: root.height / 8 + 1px;
+        clip: true;
+        visible: Art.shot-left > self.order;
+        Image {
+            source: Art.shot; x: -root.left-x - parent.x; y: -root.top-y - parent.y;
+            width: Art.window-width; height: Art.window-height; image-fit: fill;
+            opacity: Art.shot-strength; accessible-role: none;
+        }
+    }
+}

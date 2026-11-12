@@ -193,7 +193,7 @@ export component EmojiUploadDialog inherits Rectangle {
             TouchArea { }
             box := VerticalLayout {
                 padding: 16px; spacing: 14px;
-                Text { text: "Upload Emoji"; color: Theme.text; font-size: 20px; font-weight: 700; }
+                Text { text: "Upload Emoji"; color: Theme.text; font-size: Look.title-size(20px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); }
                 Rectangle {
                     height: 144px; border-radius: Look.radius(8px); background: Theme.sunken;
                     HorizontalLayout {
@@ -338,7 +338,7 @@ export component StickerDialog inherits Rectangle {
             TouchArea { }
             box := VerticalLayout {
                 padding: 16px; spacing: 14px;
-                Text { text: root.page.editing ? "Edit Sticker" : "Upload Sticker"; color: Theme.text; font-size: 20px; font-weight: 700; }
+                Text { text: root.page.editing ? "Edit Sticker" : "Upload Sticker"; color: Theme.text; font-size: Look.title-size(20px); font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); }
                 Rectangle {
                     height: 180px; border-radius: Look.radius(8px); background: Theme.sunken;
                     if root.page.preview-url != "": UrlPicture { width: 160px; height: 160px; url: root.page.preview-url; accessible-role: image; accessible-label: "Preview"; }

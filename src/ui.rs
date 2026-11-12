@@ -66,6 +66,7 @@ mod server_settings;
 mod shell;
 mod stickers;
 mod theme;
+mod theme_art;
 pub mod theme_look;
 mod tiles;
 mod title_bar;
