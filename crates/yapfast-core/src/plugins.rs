@@ -33,6 +33,7 @@ pub mod media;
 pub mod network;
 pub mod page;
 pub mod permissions;
+pub mod presence;
 pub mod registry;
 pub mod retention;
 pub mod settings;

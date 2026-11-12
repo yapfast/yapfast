@@ -5899,6 +5899,71 @@ mod tests {
         assert_eq!(events.len(), 1, "a message is not coalesced");
     }
 
+    /// A plugin that watches who is around and who is talking, which is what
+    /// the two coalesced taps are for.
+    const WATCHER_MANIFEST: &str = r#"{"api":1,"id":"com.example.watcher","name":"Watcher",
+        "version":"1.0.0","wasm":"plugin.wasm",
+        "permissions":{"capabilities":["people.read","voice.read"]},
+        "activation":{"on":["event:presence","event:speaking"]}}"#;
+
+    #[test]
+    fn presence_and_speaking_arrive_as_one_batch_and_not_one_call_each() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), WATCHER_MANIFEST, b"not a real module");
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        // A burst: two people came online and one of them started talking, all
+        // inside the quarter-second window the coalesced kinds wait in.
+        for (kind, body) in [
+            (EventKind::Presence, "person-1"),
+            (EventKind::Presence, "person-2"),
+            (EventKind::Speaking, "person-1"),
+        ] {
+            runtime().block_on(session.on_command(
+                &shared,
+                Request::Event {
+                    plugin: plugin.clone(),
+                    event: SharedEvent::new(event(kind, body)).expect("it serializes"),
+                },
+            ));
+        }
+        // Nothing is sent while the window is open: a burst is one call.
+        assert!(
+            written.recv_timeout(Duration::from_millis(50)).is_err(),
+            "presence and speaking are held for their window"
+        );
+        std::thread::sleep(Duration::from_millis(COALESCE_MS + 50));
+        session.on_tick(&shared);
+        let activate = next_frame(&written);
+        assert!(matches!(
+            message(&activate),
+            ToHelper::Activate { load: Some(_), .. }
+        ));
+        // One frame, once the window has gone by, with all three: a plugin that
+        // watched a busy call would otherwise be woken per frame it speaks.
+        let batch = next_frame(&written);
+        let ToHelper::Event {
+            events: sent,
+            topics,
+            ..
+        } = message(&batch)
+        else {
+            panic!("a coalesced burst is one event frame");
+        };
+        assert!(topics.is_empty());
+        let kinds: Vec<EventKind> = sent.iter().map(|event| event.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                EventKind::Presence,
+                EventKind::Presence,
+                EventKind::Speaking
+            ]
+        );
+    }
+
     /// A manifest that may reach the network and names no host, so every
     /// request it makes is a question for the person.
     const CONSENT_MANIFEST: &str = r#"{"api":1,"id":"com.example.fetcher","name":"Fetcher",

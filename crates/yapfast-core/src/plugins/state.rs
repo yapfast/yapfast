@@ -46,6 +46,9 @@ pub struct PluginState {
     /// What plugins made of the code blocks on screen, kept by each block's own
     /// content hash so the same snippet twice is one answer.
     code_blocks: crate::plugins::code_block::CodeBlocks,
+    /// The presences the open room\'s members were last said to have, so a
+    /// member list that arrives again reports only who moved.
+    presences: crate::plugins::presence::Presences,
 }
 
 /// Something the plugin system did, for the application to act on.
@@ -235,6 +238,7 @@ impl PluginState {
             refused: BTreeMap::new(),
             identities: crate::plugins::identity::Identities::default(),
             code_blocks: crate::plugins::code_block::CodeBlocks::default(),
+            presences: crate::plugins::presence::Presences::default(),
         })
     }
 
@@ -547,6 +551,26 @@ impl PluginState {
     /// redraws a block that was coloured and not every block asked about.
     pub fn code_block_changes(&self) -> u64 {
         self.code_blocks.changes()
+    }
+
+    /// The people in this member list whose presence moved, which is what a
+    /// `presence` subscriber is told. The first list of a conversation reports
+    /// nobody: a plugin can read who is there with `people.member`.
+    ///
+    /// It costs one comparison per member and nothing else, so a member list
+    /// that arrives again with the same presences makes no event at all.
+    pub fn presence_changes(
+        &mut self,
+        people: &[crate::chat::ChatMember],
+    ) -> Vec<(String, &'static str)> {
+        let first = self.presences.empty();
+        self.presences.changes(people, first)
+    }
+
+    /// Forgets every presence said, for when the people it was about are no
+    /// longer the ones on screen.
+    pub fn forget_presences(&mut self) {
+        self.presences.forget();
     }
 
     /// Runs the `message.pre_send` chain, if anything intercepts sends.

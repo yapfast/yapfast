@@ -707,6 +707,59 @@ impl Application {
                 world.publish_members(room, members);
             }
         }
+        // The room and its members, out of the borrow above: the tap below has
+        // to ask the plugin system, which the borrow holds.
+        let members = state
+            .members
+            .as_ref()
+            .and_then(|members| members.as_ref().ok())
+            .cloned();
+        let room = state.selected.clone();
+        let account = state.account.clone();
+        self.plugins_presence(room, members, account);
+    }
+
+    /// Tells the plugins subscribed to `presence` who came online, went idle or
+    /// left, one event per person whose presence moved.
+    ///
+    /// `presence` is opt-in and coalesced, so a member list that arrives with
+    /// twenty changes is one batch: the bridge gathers a burst of them into a
+    /// single call, the way it does typing. Nothing is built while nobody
+    /// subscribed.
+    fn plugins_presence(
+        &mut self,
+        room: Option<String>,
+        members: Option<Arc<Vec<crate::chat::ChatMember>>>,
+        account: Option<String>,
+    ) {
+        let (Some(room), Some(members)) = (room, members) else {
+            return;
+        };
+        let Some(plugins) = self.state.plugins.as_mut() else {
+            return;
+        };
+        let changes = plugins.presence_changes(&members);
+        if changes.is_empty() || !plugins.subscribes(EventKind::Presence) {
+            return;
+        }
+        let network = plugin_network(Network::of(&room));
+        let envelopes: Vec<EventEnvelope> = changes
+            .into_iter()
+            .map(|(person, presence)| {
+                let own = account.as_deref() == Some(person.as_str());
+                envelope(
+                    EventKind::Presence,
+                    network,
+                    Some(room.clone()),
+                    Some(person.clone()),
+                    own,
+                    serde_json::json!({ "person": person, "presence": presence }),
+                )
+            })
+            .collect();
+        for event in envelopes {
+            self.plugins_observe(event);
+        }
     }
 
     /// Tells the plugins whether the interface is dark, which `app.theme_mode`
@@ -1061,6 +1114,10 @@ impl Application {
         if !self.plugins_on() {
             return;
         }
+        // Speaking moves many times a second, so it is its own coalesced event
+        // and is compared before the early return below: a call where only the
+        // speaking changed is exactly the case this tap exists for.
+        self.plugins_speaking(before, after);
         let same_call = before.room == after.room
             && before.muted == after.muted
             && before.deafened == after.deafened
@@ -1101,6 +1158,58 @@ impl Application {
                 "people": people,
             }),
         ));
+    }
+
+    /// Tells the plugins subscribed to `speaking` who started and who stopped,
+    /// which is what `discord_audio` hears in the call's frames.
+    ///
+    /// One event per person who changed, gathered into one batch by the bridge:
+    /// a room where four people talk is four events a quarter second, not four
+    /// hundred. Nothing is built while nobody subscribed.
+    fn plugins_speaking(&mut self, before: &crate::voice::State, after: &crate::voice::State) {
+        let Some(plugins) = self.state.plugins.as_ref() else {
+            return;
+        };
+        if !plugins.subscribes(EventKind::Speaking) {
+            return;
+        }
+        let changes: Vec<(String, bool, bool)> = after
+            .participants
+            .iter()
+            .filter_map(|person| {
+                let was = before
+                    .participants
+                    .iter()
+                    .find(|was| was.person == person.person);
+                // A person who joined mid-sentence is a change: nothing said
+                // they were silent before.
+                let changed = was.is_none_or(|was| was.speaking != person.speaking);
+                changed.then(|| (person.person.clone(), person.speaking, person.local))
+            })
+            .collect();
+        if changes.is_empty() {
+            return;
+        }
+        let network = after.room.as_deref().map_or_else(
+            || self.on_screen_network(),
+            |room| plugin_network(Network::of(room)),
+        );
+        let envelopes: Vec<EventEnvelope> = changes
+            .into_iter()
+            .map(|(person, speaking, own)| {
+                envelope(
+                    EventKind::Speaking,
+                    network,
+                    after.room.clone(),
+                    Some(person.clone()),
+                    own,
+                    serde_json::json!({ "person": person, "speaking": speaking }),
+                )
+            })
+            .collect();
+        for event in envelopes {
+            self.plugins_observe(event);
+        }
     }
 
     /// The account signed in and its lists are here, so the calls that read

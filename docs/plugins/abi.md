@@ -184,6 +184,16 @@ so a plugin still sees that its message was long. Typing, presence and speaking
 are opt-in and coalesced, so a burst is one call with several events rather than
 one call each.
 
+| Event | Payload | Tapped where |
+| --- | --- | --- |
+| `typing` | `{ "name": … }` | Discord's gateway, for any channel the account may read |
+| `presence` | `{ "person": …, "presence": "online"\|"idle"\|"dnd"\|"offline" }` | The open room's member list, once per person whose presence moved; the first list of a conversation says nothing, and someone who left is not reported |
+| `speaking` | `{ "person": …, "speaking": true\|false }` | The call's own voice state, once per person whose voice started or stopped, which is what `discord_audio` hears in its frames |
+
+`presence` costs one comparison per member of a list that arrived, and `speaking`
+one per participant of a voice state that changed; neither builds an event while
+no plugin declared the capability its subscription needs.
+
 A hook's subject is a draft about to be sent, a file on its way up, a typing
 indicator about to go, or an activity about to be published — the last of which
 nothing dispatches yet: Yapfast does publish an activity, the game it detects
