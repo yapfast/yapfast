@@ -67,6 +67,7 @@ mod shell;
 mod stickers;
 mod theme;
 mod theme_art;
+mod theme_cursor;
 pub mod theme_layout;
 pub mod theme_look;
 mod theme_media;
@@ -1401,6 +1402,8 @@ struct Layout {
     /// The person's choices for installed themes' sounds, by the theme's id,
     /// where they aren't the defaults.
     theme_sounds: std::collections::BTreeMap<String, theme_media::Prefs>,
+    /// Installed themes whose cursors the person turned off, by id.
+    theme_cursors_off: std::collections::BTreeSet<String>,
     /// Closing the window leaves Yapfast in the system tray; on unless turned off.
     close_to_tray: Option<bool>,
     /// Starting Yapfast again on this folder starts another, rather than

@@ -903,6 +903,8 @@ pub struct Resolved {
     pub icons: BTreeMap<&'static str, super::media::IconChoice>,
     /// Where the panes sit and how messages are laid out.
     pub layout: super::layout::Layout,
+    /// Mouse cursors by kind: [`super::cursors`].
+    pub cursors: BTreeMap<super::cursors::Kind, super::cursors::Cursor>,
 }
 
 impl Resolved {
@@ -1013,7 +1015,7 @@ const TOP_KEYS: [&str; 15] = [
 ];
 
 /// The layers, at the top level or in a variant.
-const LAYER_KEYS: [&str; 11] = [
+const LAYER_KEYS: [&str; 12] = [
     "art",
     "layout",
     "colours",
@@ -1025,6 +1027,7 @@ const LAYER_KEYS: [&str; 11] = [
     "effects",
     "sounds",
     "icons",
+    "cursors",
 ];
 
 /// The most previews a theme lists.
@@ -1267,6 +1270,14 @@ impl Package {
             if let Some(layout) = layers.get("layout") {
                 super::layout::read_layout(layout, &place("layout"), &mut resolved.layout, notes)?;
             }
+            if let Some(cursors) = layers.get("cursors") {
+                super::cursors::read_cursors(
+                    cursors,
+                    &place("cursors"),
+                    &mut resolved.cursors,
+                    notes,
+                )?;
+            }
         }
         Ok(resolved)
     }
@@ -1282,7 +1293,13 @@ impl Package {
                     .sounds
                     .values()
                     .flat_map(|choice| choice.files.iter())
-                    .chain(resolved.icons.values().map(|icon| &icon.file));
+                    .chain(resolved.icons.values().map(|icon| &icon.file))
+                    .chain(
+                        resolved
+                            .cursors
+                            .values()
+                            .flat_map(|cursor| cursor.images.iter()),
+                    );
                 for file in resolved
                     .fonts()
                     .into_iter()
@@ -2145,7 +2162,7 @@ mod tests {
         let package = Package::parse(
             r##"{
             "theme_api": 1, "id": "com.example.later", "name": "Later", "version": "1.0.0",
-            "cursors": { "pointer": "hand.png" },
+            "haptics": { "press": "short" },
             "parts": { "message-row": { "contract": "1.0" }, "whole-window": {} },
             "variants": { "dark": { "base": "yap",
                 "colours": { "sparkle": "#ffffff", "danger": "#00ff00" },
@@ -2156,7 +2173,7 @@ mod tests {
         .unwrap();
         let notes = package.notes.join("\n");
         for expected in [
-            "\"cursors\"",
+            "\"haptics\"",
             "parts.message-row\" needs a later Yapfast",
             "parts.whole-window",
             "sparkle",

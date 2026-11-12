@@ -110,6 +110,11 @@ export global ThemesPage {
     in-out property <bool> ui-sounds-on;
     in-out property <int> sounds-volume: 50;
     callback sounds-changed();
+    /// Whether the shown theme has mouse cursors, and whether the person
+    /// shows them.
+    in property <bool> has-cursors;
+    in-out property <bool> cursors-on: true;
+    callback cursors-toggled(bool);
     /// What the person picks in the review for the theme's sounds.
     in-out property <bool> review-notify-on: true;
     in-out property <bool> review-ui-on: false;
@@ -392,6 +397,16 @@ export component ThemesSettings inherits Rectangle {
                         label: "Interface sound volume"; maximum: 100;
                         value <=> ThemesPage.sounds-volume;
                         committed => { ThemesPage.sounds-changed(); }
+                    }
+                }
+                if ThemesPage.has-cursors: VerticalLayout {
+                    spacing: 8px; padding-top: 12px;
+                    SettingsHeading { text: "CURSORS"; }
+                    SettingsSwitch {
+                        text: "Use the theme's cursors";
+                        description: ThemesPage.sounds-theme + "'s own mouse pointers over Yapfast's window. Sign-in and safety dialogs always show your system's.";
+                        checked <=> ThemesPage.cursors-on;
+                        toggled(on) => { ThemesPage.cursors-toggled(on); }
                     }
                 }
             }

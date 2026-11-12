@@ -81,6 +81,10 @@
     "hash": "icons/hash.svg",
     "send-horizontal": { "file": "icons/send.svg", "colour": "accent-text" }
   },
+  "cursors": {
+    "default": { "image": ["cursors/default.png", "cursors/default@2x.png"], "hotspot": [16, 16] },
+    "pointer": { "image": ["cursors/pointer.png", "cursors/pointer@2x.png"], "hotspot": [16, 16] }
+  },
   "layout": {
     "rail": "left",
     "members": "right",

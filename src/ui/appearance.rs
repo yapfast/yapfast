@@ -157,6 +157,10 @@ impl Adapter {
         page.set_sounds_on(prefs.on);
         page.set_ui_sounds_on(prefs.interface);
         page.set_sounds_volume(prefs.volume.into());
+        let cursors_on = !self.layout.theme_cursors_off.contains(&id);
+        theme_cursor::set_on(cursors_on);
+        page.set_has_cursors(theme_cursor::has_cursors());
+        page.set_cursors_on(cursors_on);
         let generation = theme_media::generation();
         if generation == self.icons_generation {
             return false;
@@ -496,6 +500,16 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
         theme_media::set_prefs(&window, prefs);
         // Hearing the new volume is how it's judged.
         theme_media::cue(SoundSlot::Press, FOCUSED.get());
+    });
+    on!(page, on_cursors_toggled(on) => |adapter, _window| {
+        let Some(id) = theme_look::applied_id() else { return };
+        if on {
+            adapter.layout.theme_cursors_off.remove(&id);
+        } else {
+            adapter.layout.theme_cursors_off.insert(id);
+        }
+        adapter.layout.write(&adapter.root);
+        theme_cursor::set_on(on);
     });
     on!(page, on_reduce_motion_toggled(on) => |adapter, window| {
         adapter.layout.reduce_motion = on;

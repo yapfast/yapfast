@@ -230,6 +230,8 @@ pub struct Cost {
     /// Sound files and replaced icons.
     pub sounds: usize,
     pub icons: usize,
+    /// Kinds of mouse cursor it draws, at most in one variant.
+    pub cursors: usize,
     /// What its layout changes, as a short phrase such as `layout: irc, rail
     /// top`; it costs no more than the stock window.
     pub looks: Vec<String>,
@@ -298,6 +300,13 @@ impl Cost {
                 if self.icons == 1 { "" } else { "s" }
             ));
         }
+        if self.cursors > 0 {
+            parts.push(format!(
+                "{} cursor{}",
+                self.cursors,
+                if self.cursors == 1 { "" } else { "s" }
+            ));
+        }
         parts.extend(self.looks.iter().cloned());
         parts.join(" · ")
     }
@@ -306,6 +315,7 @@ impl Cost {
         let mut fonts: Vec<&Path> = Vec::new();
         let mut cost = Cost::default();
         let mut art_memory = 0;
+        let mut cursor_memory = 0;
         let mut media: Vec<&Path> = Vec::new();
         for variant in resolved {
             // A sound is held decoded, 48 kHz stereo 16-bit, once; an icon as
@@ -365,6 +375,11 @@ impl Cost {
                 cost.redraws = cost.redraws.max(60);
             }
             art_memory = art_memory.max(art::memory(variant, files));
+            // A variant's cursors are decoded when it shows, every size.
+            cursor_memory = cursor_memory.max(super::cursors::memory(&variant.cursors, |path| {
+                files.files.get(path).map(Vec::as_slice)
+            }));
+            cost.cursors = cost.cursors.max(variant.cursors.len());
             cost.layers = cost.layers.max(art.surfaces.values().map(Vec::len).sum());
             cost.overlays = cost.overlays.max(art.overlays.len());
             cost.particles = cost.particles.max(art.particles.len());
@@ -374,7 +389,7 @@ impl Cost {
             }
         }
         cost.fonts = fonts.len();
-        cost.memory += art_memory;
+        cost.memory += art_memory + cursor_memory;
         for variant in resolved {
             for look in looks(variant) {
                 if !cost.looks.contains(&look) {
@@ -458,6 +473,16 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
         }
     }
     for variant in &resolved {
+        for (kind, cursor) in &variant.cursors {
+            let problems = super::cursors::problems(*kind, cursor, |path| {
+                files.files.get(path).map(Vec::as_slice)
+            });
+            for sentence in problems {
+                if !report.errors.contains(&sentence) {
+                    report.errors.push(sentence);
+                }
+            }
+        }
         for (slot, choice) in &variant.sounds {
             for file in &choice.files {
                 if let Some(seconds) = sound_seconds.get(file)
@@ -1313,6 +1338,60 @@ mod tests {
         file.extend_from_slice(&(data.len() as u32).to_le_bytes());
         file.extend_from_slice(&data);
         file
+    }
+
+    #[test]
+    fn cursors_are_decoded_and_counted() {
+        let manifest = r##"{ "theme_api": 1, "id": "com.example.paws", "name": "Paws", "version": "1.0.0",
+            "cursors": {
+                "default": { "image": "cursors/arrow.png", "hotspot": [1, 1] },
+                "pointer": { "image": ["cursors/paw.png", "cursors/paw@2x.png"], "hotspot": [10, 2] }
+            },
+            "variants": { "dark": { "base": "yap" } } }"##;
+        let png = |side: u32| {
+            let mut bytes = Vec::new();
+            image::RgbaImage::new(side, side)
+                .write_to(
+                    &mut std::io::Cursor::new(&mut bytes),
+                    image::ImageFormat::Png,
+                )
+                .unwrap();
+            bytes
+        };
+        let mut theme = files(manifest);
+        theme.files.insert("cursors/arrow.png".into(), png(32));
+        theme.files.insert("cursors/paw.png".into(), png(32));
+        theme.files.insert("cursors/paw@2x.png".into(), png(64));
+        let report = check(&theme, Strictness::Install);
+        assert!(report.passed(), "{:?}", report.errors);
+        assert_eq!(report.cost.cursors, 2);
+        assert_eq!(report.cost.memory, (32 * 32 * 2 + 64 * 64) * 4);
+        assert!(
+            report.cost.text().contains("2 cursors"),
+            "{}",
+            report.cost.text()
+        );
+
+        // Too large a picture is refused, and so is a missing one.
+        theme.files.insert("cursors/paw@2x.png".into(), png(256));
+        theme.files.remove(Path::new("cursors/arrow.png"));
+        let report = check(&theme, Strictness::Install);
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("128 pixels")),
+            "{:?}",
+            report.errors
+        );
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("arrow.png, which isn't in the theme")),
+            "{:?}",
+            report.errors
+        );
     }
 
     #[test]

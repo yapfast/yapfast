@@ -286,6 +286,7 @@ fn apply_package(
     super::theme_media::load(&resolved, folder, |token| {
         token_colour(&resolved, token).map(Color::from_argb_encoded)
     })?;
+    super::theme_cursor::load(&resolved, folder);
     let mut ransom = Vec::new();
     for font in resolved.layout.names.iter().flat_map(|names| &names.fonts) {
         ransom.push(register_font(&folder.join(font))?);
@@ -361,6 +362,7 @@ pub fn clear(window: &YapfastWindow) {
     super::theme_art::forget();
     reset(window);
     super::theme_media::forget();
+    super::theme_cursor::forget();
 }
 
 /// Every token a theme sets, back to stock.
@@ -439,6 +441,7 @@ pub fn reset(window: &YapfastWindow) {
         set_brush(&tokens, token, None);
     }
     super::theme_media::hide(window);
+    super::theme_cursor::hide();
 }
 
 /// Sets every token of the applied theme, as Performance and reduced motion
@@ -452,6 +455,7 @@ fn paint(window: &YapfastWindow) {
     }
     if STATE.with_borrow(|state| state.applied.is_some()) {
         super::theme_media::show(window);
+        super::theme_cursor::show();
     }
     STATE.with_borrow(|state| {
         let Some(applied) = &state.applied else {
