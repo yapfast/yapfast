@@ -149,6 +149,7 @@ unsafe extern "C" {
     /// Whether this machine has the card NVENC encodes on, which FFmpeg's own
     /// CUDA device answers: what a Linux share's DMA-BUF path asks before it
     /// opens one of FFmpeg's NVENC sessions to find out.
+    #[cfg(target_os = "linux")]
     fn yapfast_hwenc_nvidia() -> c_int;
     /// What an encoder is asked for beyond the picture: the frame's shape and
     /// rate, the bitrate to aim at, the tuning, the encoders to try and the
@@ -419,6 +420,34 @@ fn vaapi_device(report: &str) -> Option<(&str, &str)> {
     let (_, inside) = report.split_once(" (")?;
     let (path, driver) = inside.strip_suffix(')')?.split_once(", ")?;
     (!path.is_empty() && !driver.is_empty()).then_some((path, driver))
+}
+
+/// The glibc this process runs on, as libc names it: `"2.40"`.
+#[cfg(target_os = "linux")]
+fn glibc_here() -> String {
+    // SAFETY: no arguments; libc's own version string, which lives as long as
+    // the process does.
+    let version = unsafe { libc::gnu_get_libc_version() };
+    if version.is_null() {
+        return String::new();
+    }
+    // SAFETY: a string libc keeps for the life of the process, ended by a zero.
+    unsafe { std::ffi::CStr::from_ptr(version) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// The glibc symbol version a driver's `dlopen` failure asked for, where that is
+/// what the failure is: `"2.42"` out of `version \`GLIBC_2.42' not found`. A
+/// driver built against a newer glibc than this process has can't be loaded
+/// into it at all, and this is the size of the gap.
+#[cfg(target_os = "linux")]
+fn wanted_glibc(why: &str) -> Option<&str> {
+    let rest = &why[why.find("GLIBC_")? + "GLIBC_".len()..];
+    let end = rest
+        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .unwrap_or(rest.len());
+    (end > 0).then(|| &rest[..end])
 }
 
 /// RTP's video clock.
@@ -821,6 +850,26 @@ impl Encoder {
                         fallback = true,
                         "the GPU's encoder was refused; encoding on the processor"
                     );
+                    // A driver built against a newer glibc than this build was
+                    // made with can't be loaded into it, and its dlopen failure
+                    // names the symbol version and nothing to do about it. NixOS
+                    // is where this is met: the drivers in /run/opengl-driver
+                    // are built from the channel the machine runs, and a build
+                    // from a pinned flake older than that channel can't load
+                    // them. Both versions are named, since which channel to
+                    // build against is the reader's to pick.
+                    #[cfg(target_os = "linux")]
+                    if let Some(wanted) = wanted_glibc(&why) {
+                        tracing::warn!(
+                            wanted = wanted,
+                            here = glibc_here().as_str(),
+                            "a GPU driver here asks for a newer glibc than this build has, \
+                             so it can't load at all: build against the machine's own \
+                             nixpkgs (nix develop path:./nix --override-input nixpkgs \
+                             <its channel>), or use the AppImage, which runs on the \
+                             host's glibc"
+                        );
+                    }
                 }
                 open_software(codec, width, height, fps, kbps, effort)?
             }
@@ -2090,7 +2139,10 @@ fn open_hardware(
         #[cfg(not(all(target_os = "windows", hwenc)))]
         device: std::ptr::null_mut(),
     };
-    let mut report = [0u8; 512];
+    // Four encoders' reasons have to fit: one GPU's driver refusal is a dlopen
+    // failure whose text names the library and the symbol version it wanted, and
+    // a report cut short of that is one nobody can act on.
+    let mut report = [0u8; 1024];
     // SAFETY: the request's strings outlive the call, and the report is a
     // buffer of the size given, which the shim ends with a zero.
     let raw = unsafe { yapfast_hwenc_new(&request, report.as_mut_ptr().cast(), report.len()) };
@@ -3249,6 +3301,31 @@ mod tests {
         ] {
             assert_eq!(vaapi_device(report), None, "{report:?}");
         }
+    }
+
+    /// A driver refused because it was built against a newer glibc says which
+    /// one in its own words, and that version is read back out and logged
+    /// beside this build's: on NixOS, the size of the gap is what says the
+    /// machine's channel is newer than the flake's pin.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_driver_that_wants_a_newer_glibc_says_which() {
+        let refusal = "av1_vaapi (renderD128, radeonsi): libva: dlopen of \
+                       /run/opengl-driver/lib/dri/radeonsi_drv_video.so failed: \
+                       /nix/store/x-glibc-2.40-224/lib/libm.so.6: version `GLIBC_2.42' not \
+                       found (required by /run/opengl-driver/lib/dri/radeonsi_drv_video.so)";
+        assert_eq!(wanted_glibc(refusal), Some("2.42"));
+        // A refusal of any other kind has no gap to report.
+        for refusal in [
+            "av1_vaapi (renderD128, radeonsi): the driver said no",
+            "h264_nvenc: no NVIDIA GPU here",
+            "h264_vaapi: no GPU here with a VA-API driver",
+        ] {
+            assert_eq!(wanted_glibc(refusal), None, "{refusal:?}");
+        }
+        // This build's own, which is a version and not an empty string.
+        let here = glibc_here();
+        assert!(here.starts_with(char::is_numeric), "glibc {here}");
     }
 
     /// A DMA-BUF handed to an encoder on the processor is answered with a

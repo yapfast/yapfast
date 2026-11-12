@@ -304,8 +304,9 @@ pub fn forget(key: u64) {
     });
 }
 
-/// Without Direct3D there is nothing opened for a stream to let go of.
-#[cfg(not(all(target_os = "linux", feature = "skia-vulkan")))]
+/// Without Direct3D and without a Vulkan device there is nothing opened for a
+/// stream to let go of.
+#[cfg(not(any(windows, all(target_os = "linux", feature = "skia-vulkan"))))]
 pub fn forget(_key: u64) {}
 
 /// Lets go of a stream's imported pictures: the textures and the memory behind

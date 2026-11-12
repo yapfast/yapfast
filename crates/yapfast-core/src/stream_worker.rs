@@ -2026,6 +2026,7 @@ impl Sink {
         let mut offers = match &encoder {
             // The codecs the session's driver encodes, which is what the card
             // can send: nothing else is opened to ask.
+            #[cfg(nvcuda)]
             Encoding::Cuda(cuda) => cuda.encoder.driver_codecs().unwrap_or_default(),
             // What FFmpeg's encoders can send, asked by opening one for each
             // codec: a hardware encoder has no list of its own to read.
@@ -3858,9 +3859,6 @@ fn capture_textures(
     let mut saw_picture = false;
     let mut preview_pending = false;
     let mut was_wanted = false;
-    /// Whether the tile's preview is read back because the window draws on the
-    /// processor: decided once, on the first picture the window refused.
-    let mut readback = false;
     while next_frame(started, &mut slot, fps, stop).is_some() {
         // One look per stream slot, paced by `next_frame` on both rungs: a
         // duplication asked with no wait answers at once whether the desktop
@@ -4544,6 +4542,7 @@ fn showable(writer: &mut Writer) -> bool {
 /// VA-API import, or the CUDA rung NVIDIA's cards need. The question is the
 /// encoder's, not the window's — a share whose tile is drawn on the processor
 /// still sends from the card, with its preview read back instead of shown.
+#[cfg(target_os = "linux")]
 fn encodes_descriptors() -> bool {
     #[cfg(any(dmabufenc, nvcuda))]
     {

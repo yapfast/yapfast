@@ -871,11 +871,18 @@ driver its kernel driver calls for: radeonsi for amdgpu, iHD then i965 for
 Intel's. Naming it overrides `LIBVA_DRIVER_NAME`, which NixOS and others set
 to `nvidia` for browsers, and which would otherwise load NVIDIA's decoding-only
 driver for every GPU, AMD's and Intel's too. NVIDIA's nodes are skipped:
-NVENC encodes there. NixOS keeps libva itself off the library path, so the
+NVENC encodes there. An encoder whose maker has no GPU on the machine — NVENC
+without an NVIDIA card, Quick Sync without Intel's — is named in the report with
+that as its reason rather than opened to be told: NVIDIA's CUDA library writes
+its own error to the log when it is looked for on an AMD machine, and oneVPL's
+loader runs there too. NixOS keeps libva itself off the library path, so the
 Nix package's wrapper and the dev shell put it there (`runtimeLibraries` in
 `nix/native.nix`); it's no build input, or webrtc-sys would build LiveKit's
 own VA-API encoder into libwebrtc. The AppImage takes the system's libva,
-and the Arch package lists it as optional.
+and the Arch package lists it as optional. The driver libva finds has to be
+loadable in this process, so a NixOS machine whose channel is newer than the
+build's glibc refuses it on a `GLIBC_` symbol version and x264 encodes
+([media libraries](../building.md#media-libraries)).
 
 The settings match x264's where they can: low-latency tuning (NVENC's p4
 preset, `ll`; AMF's `lowlatency` usage and balanced preset; Quick Sync's medium

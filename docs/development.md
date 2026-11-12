@@ -80,7 +80,13 @@ a directory of symlinks to the host's `libEGL_nvidia.so.*`, `libGLX_nvidia.so.*`
 there, and a share encodes on the card. The Vulkan loader itself comes from the
 shell (`vulkan-loader`, on its `LD_LIBRARY_PATH`), and finds the card's driver
 through the ICD files in a share dir: `/run/opengl-driver/share` on NixOS, and
-`/usr/share` elsewhere, which the shell's `XDG_DATA_DIRS` already names.
+`/usr/share` elsewhere, which the shell's `XDG_DATA_DIRS` already names. On
+NixOS the loader itself is loaded from `/run/opengl-driver/lib` by Yapfast when
+the library path has none, so `--renderer gpu` works without the wrapper; the
+driver that loader opens has to be loadable in this process, and one built from a
+newer channel than the build's glibc is not (libva and Vulkan both say
+`GLIBC_`). Build against the system's nixpkgs on such a machine
+([media libraries](building.md#media-libraries)).
 
 ## Matrix
 

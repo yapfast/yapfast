@@ -405,10 +405,26 @@ nm $LK_CUSTOM_WEBRTC/lib/libwebrtc.a | grep ' T avformat_open_input'
 
 On NixOS, a binary run outside `nix develop` opens NVENC only with
 `LD_LIBRARY_PATH=/run/opengl-driver/lib`, which the dev shell and the Nix
-package's wrapper add. Yapfast names the libva driver for each render node
-itself, but `vainfo` or FFmpeg's command line on a host that sets
-`LIBVA_DRIVER_NAME=nvidia` needs `env -u LIBVA_DRIVER_NAME` to reach AMD's
-or Intel's driver.
+package's wrapper add; the window's Vulkan device needs nothing set, since it
+loads the machine's loader from that path itself (`src/ui/vulkan.rs`). Yapfast
+names the libva driver for each render node itself, but `vainfo` or FFmpeg's
+command line on a host that sets `LIBVA_DRIVER_NAME=nvidia` needs `env -u
+LIBVA_DRIVER_NAME` to reach AMD's or Intel's driver.
+
+The drivers in `/run/opengl-driver` are built from the channel the machine runs,
+and a driver can be loaded only into a process whose glibc is at least the one it
+was built against: libva's `dlopen` of the driver then fails on a `GLIBC_` symbol
+version, and Yapfast says beside it that the driver wants a newer glibc than the
+build has. A machine whose channel is newer than the flake's pin is that machine,
+so build against the system's nixpkgs — the pin is what a release is made from,
+not what a newer machine needs:
+
+```sh
+nix develop path:./nix --override-input nixpkgs github:NixOS/nixpkgs/nixos-26.05
+```
+
+The AppImage runs on the host's glibc, so it loads the machine's drivers as it
+is.
 
 ## Checks
 

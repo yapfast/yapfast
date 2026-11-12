@@ -172,7 +172,7 @@ static int stage(struct yapfast_hwenc *h, size_t at, const unsigned char *bytes,
 /* FFmpeg's first error on this thread since it was cleared, for saying why
  * an encoder didn't open: the cause, where later ones only say what failed
  * because of it. */
-static _Thread_local char first_error[160];
+static _Thread_local char first_error[512];
 
 static void keep_error(void *context, int level, const char *format, va_list args) {
   (void)context;
@@ -1008,6 +1008,33 @@ static int preferred(const char *preference, unsigned vendor) {
   if (!strcmp(preference, "integrated")) return die;
   return 1;
 }
+
+/* Whether this machine has a GPU of `vendor` at all, read off the render nodes
+ * it has. An encoder whose maker isn't here has no card to open: asking anyway
+ * loads that maker's runtime to be told so, and NVIDIA's CUDA library writes
+ * "cannot load libcuda.so.1" to the log when it is looked for on an AMD or
+ * Intel machine. */
+static int gpu_of_vendor(unsigned vendor) {
+  for (int n = 0; n < 8; n++)
+    if (node_vendor(n) == vendor) return 1;
+  return 0;
+}
+
+/* Why an encoder is one this machine hasn't the GPU for, or NULL when it may be
+ * tried: NVIDIA's NVENC and Intel's Quick Sync each need their maker's card,
+ * and asking for one that isn't here loads its runtime to be told so. */
+static const char *missing_gpu(const char *name) {
+  if (strstr(name, "_nvenc") && !gpu_of_vendor(0x10DE)) return "no NVIDIA GPU here";
+  if (strstr(name, "_qsv") && !gpu_of_vendor(0x8086)) return "no Intel GPU here";
+  return NULL;
+}
+#else
+/* Every encoder is that maker's on a platform with no render nodes to read: the
+ * choice is the hardware it runs on, and it says for itself what it hasn't got. */
+static const char *missing_gpu(const char *name) {
+  (void)name;
+  return NULL;
+}
 #endif
 
 struct opening {
@@ -1141,6 +1168,11 @@ struct yapfast_hwenc *yapfast_hwenc_new(const struct yapfast_hwenc_open *ask, ch
     }
     struct yapfast_hwenc *h = NULL;
     if (!strstr(*name, "_vaapi")) {
+      const char *missing = missing_gpu(*name);
+      if (missing) {
+        skipped(&o, *name, missing);
+        continue;
+      }
       h = try_open(&o, found, (struct va_device){NULL, NULL});
       if (h) return h;
       continue;

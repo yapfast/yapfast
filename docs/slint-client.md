@@ -94,6 +94,12 @@ software surface when the GPU fails, so Yapfast owns the fallback instead:
 - A GPU start that came from the setting turns the setting off, so later starts
   don't fail and restart again; the person can turn it back on. Without the
   setting or the flag, Yapfast does not try the GPU at all.
+- A Linux start that finds no Vulkan loader on the library path asks for the
+  device once more after loading the machine's own from
+  `/run/opengl-driver/lib`, where NixOS keeps it. Loading it registers it under
+  the soname wgpu asks for, so a binary run outside the package's wrapper still
+  opens a device. The machine's drivers have to be loadable in this process for
+  one to open at all ([media libraries](building.md#media-libraries)).
 
 `testing/probe_renderer_fallback.py` checks this policy on the private compositor.
 It hides every EGL vendor from libglvnd to simulate a missing OpenGL driver:
