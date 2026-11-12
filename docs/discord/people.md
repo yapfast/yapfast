@@ -258,7 +258,10 @@ and the servers and friends the account shares with them. Profiles are kept for
 five minutes, at most 32 of them. This account's own profile shares its
 friends and servers with nobody, so, as in Discord's client, its card shows
 no mutual line and its full profile no mutual tabs. Presence and activity
-come from the member list, since the profile doesn't carry them. Their
+come from the member list, since the profile doesn't carry them; one's own
+says the custom status the account has set, or none, whatever its presence,
+as Discord's client does, since the list's can be from before it changed.
+Their
 custom status, or what
 they're doing, sits in a thought bubble beside the picture, as in
 Discord's: two lines at most, and all of it while pointed at. One's
@@ -268,7 +271,10 @@ The More button of a card, a full profile and a DM's profile panel opens
 the person's menu, as a right click on them does: a member's in a server, a
 DM's in their DM, and elsewhere Message, the friend request, Block, or
 Unblock for someone blocked, and Copy ID. One's own profile has no Block, as
-in Discord. Block asks first, as from a DM's menu, and unfriending, blocking
+in Discord. What opens over a card or full profile, such as the note's
+dialog, a mutual server's card or a masked link's question, gives the
+keyboard back as it closes, so Escape closes the profile again. Block asks
+first, as from a DM's menu, and unfriending, blocking
 and unblocking from there send `{"location":"user profile overflow menu"}`,
 as Discord's client does from its profile's menu, in place of
 `{"location":"ContextMenu"}`. Blocking ends a friendship or a friend request,
@@ -296,7 +302,8 @@ large picture and the small one on its corner, its details and state, and their
 party's size as "(2 of 4)". A game with a start shows how long it has run,
 "42:10 elapsed"; one with only an end, how long is left; a song with both, a
 bar with how far it's got and how long it is. A Spotify song is titled by the
-song, then "by" the artist and "on" the album, and its title opens the song's
+song, then "by" the artist and "on" the album; a podcast's episode, which
+has no artist, by the episode, then "on" the show. Its title opens the song's
 page, `https://open.spotify.com/track/{sync_id}` (or `/episode/` when the
 activity's metadata says so); a stream has "Watch stream". The line under the
 name goes when it only names one of these. The activities come with the
@@ -748,9 +755,10 @@ to remove it. The client never sends the bio, pronouns or banner to
 
 Saving keeps the editor open, as Discord's does. Afterwards Yapfast asks for
 the profile again, once, for the editor, and drops the profiles it kept of
-this account, so the account's card, which draws the tag, name style and
-theme from it, asks again as it next opens. What was written or chosen while the save and that answer were on
-their way stays, as a change still to save; the rest takes what Discord now
+this account. The main profile's answer also fills the account's card,
+which draws the tag, name style and theme from it, so it shows what was
+saved without a second request. What was written or chosen while the save
+and that answer were on their way stays, as a change still to save; the rest takes what Discord now
 has. A save that fails part way, its first request through and a later one
 refused, shows Discord's refusal, asks for the profile in the same way and
 keeps all that's written, so what Discord took is no longer a change and

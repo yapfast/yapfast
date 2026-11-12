@@ -9034,7 +9034,7 @@ fn a_chosen_server_tag_saves_and_the_account_profile_is_fetched_again() {
                 DiscordCommand::OwnProfile { server: None }
             ))]
         ),
-        "the profile is read back once"
+        "the profile is read back once, and its answer fills the card too"
     );
     assert!(
         app.dispatch(Action::LoadOwnProfile).iter().any(|effect| matches!(
