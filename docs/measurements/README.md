@@ -515,7 +515,9 @@ they answer different questions:
 | quickjs-ng 0.18.0 reactor — the engine floor, not a PDK | 1,523.6 KiB | 34 pages | — | — | over on size alone |
 | .NET 8, `WasmSingleFileBundle`, Mono interpreter | **24,567.4 KiB** | **800 pages, 51,200 KiB** | — | — | refused: 3.0× `MAX_WASM_BYTES`, 3.1× `DEFAULT_MEMORY_PAGES` |
 | .NET 8, multi-file `AppBundle` | 3,453.8 KiB + 17,069.6 KiB of assemblies | 800 pages | — | — | needs a preopened directory the helper does not give |
-| GHC 9.12 wasm32-wasi, `-O2 -split-sections`, RTS `-A64k` | 1,460.9 KiB | 7 pages, 448 KiB | **142 pages, 9,088 KiB** | ~1.3 MiB | over on size (2.9×) and memory (2.2×) |
+| GHC 9.14 wasm32-wasi, `-O2 -split-sections --strip-all`, default RTS | 1,460.9 KiB | 7 pages, 448 KiB | **142 pages, 9,088 KiB** | ~1.3 MiB | over on size (2.9×) and memory (2.2×) |
+| the same, RTS options set through `hs_init_ghc` (`-A64k`) | 1,460.9 KiB | 7 pages | **75 pages, 4,800 KiB** | ~1.0 MiB | over on size (2.9×), memory 1.2× |
+| the same, `-A8k` | 1,460.9 KiB | 7 pages | 74 pages, 4,736 KiB | ~1.0 MiB | over on size, memory 1.16× |
 
 ### Verdicts
 
@@ -580,15 +582,25 @@ linker's export list is `malloc`/`free`/`__heap_base`/`__data_end`. AOT would
 not save it — Mono AOT adds native code to the runtime rather than removing the
 interpreter, and no shipped workload builds NativeAOT-LLVM for wasi.
 
-**Haskell** is the near miss that is nonetheless a miss. GHC's wasm32-wasi
-backend compiles the ABI shape cleanly, but an idle Haskell runtime asks for
-**142 pages (9,088 KiB) after `_initialize`** — 2.2× the steady-state bar, for a
-module that has done nothing — and the module is 1,460.9 KiB, 2.9× the size
-bar. The RTS flags barely move it: `-A8k`, `-A16k`, `-A64k` and `-G1` all land
-within 0.1 KiB of each other in the file and at the same 142 pages in use,
-because the heap in use is the RTS's own nursery and stacks rather than
-allocation the flags govern here. This is the one language where the measured
-failures are both structural: the cost is the runtime's, not a plugin's.
+**Haskell** is the nearest miss that is still a miss. GHC 9.14's wasm32-wasi
+backend compiles the ABI shape cleanly — the five Extism imports link for real,
+through a short C shim, because Haskell cannot name a wasm import module — and
+`-O2 -split-sections --strip-all` gives 1,460.9 KiB, **2.9× the size bar** and
+only 0.9 MiB under the std-Go module the section above rejected, so split
+sections and a strip together buy nothing that Go's `-ldflags="-s -w"` did not.
+An idle instance's request is the RTS's: **142 pages (9,088 KiB)** with the
+default options, 2.2× the steady-state bar before the plugin has done
+anything. The RTS options are the one knob that moves it, and they have to be
+set through `hs_init_ghc` — `-with-rtsopts` is *inert* with `-no-hs-main`, so a
+build that passes it silently measures the default. With `-A64k` the floor is
+75 pages (4,800 KiB), with `-A8k` 74 pages: still over the 64-page bar, and a
+10,000-event run of 1 KiB events settles at 78 pages, so the runtime plateaus
+rather than growing. Worst of all, at a 64-page maximum the module *never
+starts*: the RTS retries a refused `memory.grow` instead of failing, so a
+manifest that pins the default limit gets an instance that burns fuel until the
+host's own timeout instead of a clean out-of-memory. This is the one language
+whose failure is structural in every direction — the module, the idle request
+and the behaviour at the limit are all the runtime's, not a plugin's.
 
 ### What was not measured
 
@@ -604,6 +616,10 @@ failures are both structural: the cost is the runtime's, not a plugin's.
 * **The helper's RSS with each of these alive.** This host's figures are a
   comparison between modules; `MAX_HELPER_BYTES` is a helper figure.
 * **.NET NativeAOT-LLVM**, which no shipped workload builds for wasi.
+* **Haskell's warm-cache column.** The JIT of its 1.46 MiB module is 125–130 MiB
+  of anonymous memory, against 34 MiB for the Rust PDK's 140 KiB and 103–109 MiB
+  for std Go's 1,156 KiB; the helper's own cache would map it from a file, and
+  that measurement needs the helper.
 
 ### How to reproduce
 
