@@ -228,6 +228,10 @@ async fn worker(
         }})
     )?;
     writeln!(input, "{}", serde_json::json!({ "send": server }))?;
+    // The still the stream's preview is made of, which is what a measurement of
+    // the captured picture reads: the worker makes one only while a tile shows
+    // a preview, as the UI says.
+    writeln!(input, "{}", serde_json::json!({ "preview": true }))?;
     input.flush()?;
     let mut output = std::io::BufReader::new(worker.stdout.take().context("the worker's stdout")?);
     let started = std::time::Instant::now();
@@ -260,6 +264,16 @@ async fn worker(
                 number("resent"),
             );
             last = line.trim().to_owned();
+        } else if let Some(thumbnail) = report
+            .get("preview")
+            .and_then(|preview| preview.get("thumbnail"))
+        {
+            // The data URI of the still, written to the file the measurement
+            // reads rather than to the console.
+            let at = std::env::temp_dir().join("yapfast-probe-preview.txt");
+            if let Err(error) = fs::write(&at, thumbnail.as_str().unwrap_or_default()) {
+                println!("could not write {}: {error}", at.display());
+            }
         } else if report.get("ended").is_some() {
             println!("The worker ended: {}", line.trim());
         }

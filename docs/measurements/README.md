@@ -223,6 +223,21 @@ What the platform said, which matters more than the percentages:
   with a rotation, and registering that as ARGB runs clean but produces invalid
   video, so it needs a GPU conversion pass. WGC hands back BGRA8, already
   tonemapped, and encodes correctly.
+- **A WGC picture of this HDR desktop is the desktop's own SDR composition.**
+  The same frame taken twice — once through `native/wgc.cc`'s Graphics Capture,
+  read out as the stream's still (`512×212`, the pipeline's own conversion and
+  scale), and once through a GDI screen copy of the 3440×1440 screen — differs by
+  **1.95 levels of Rec.709 luma on average** (99th percentile 33.5, from motion
+  between the two captures: the mean per cell is 0.0–4.2 everywhere but the
+  scrolling terminal, at 10.7). Nothing is systematically shifted: means 27.0
+  against 27.1, medians 17.3 and 17.7, 99th percentiles 201.1 and 201.0, pixels
+  at or above 250 0.48 % against 0.41 %. So a share of an HDR screen carries what
+  an SDR screen would show it as, and a curve over it maps SDR a second time —
+  which is what the processor's capturer used to do.
+  What an SDR composition loses is everything above SDR white, and this desktop
+  had nothing there while it was measured (0.5 % of pixels clipped), so how much
+  a tone map of the card's own FP16 picture would recover is **not measured**;
+  that needs HDR content — a game or an HDR video — on the captured screen.
 
 ### What a source picker finds, on this machine
 
