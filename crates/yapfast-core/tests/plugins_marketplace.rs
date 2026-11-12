@@ -5,19 +5,23 @@
 //! Both repositories are local ones made in temporary directories and read
 //! through `file://` addresses, which is what `fetch` allows for development and
 //! for the tests: nothing here reaches the network. It needs the real
-//! `yapfast-plugins`, which `YAPFAST_PLUGINS` names; without one it says so and
-//! passes.
+//! `yapfast-plugins`, and a missing one fails the test with the command that
+//! builds it: a test that skipped would pass having browsed nothing.
 //!
 //! ```sh
-//! cargo build --profile fast -p yapfast-plugin-host
-//! YAPFAST_PLUGINS=$PWD/target/fast/yapfast-plugins \
-//!   cargo test --profile fast -p yapfast-core --features plugins --test plugins_marketplace
+//! nix develop path:./nix --command cargo build --profile fast -p yapfast-plugin-host
+//! nix develop path:./nix --command cargo test --profile fast -p yapfast-core \
+//!   --features plugins --test plugins_marketplace
 //! ```
+//!
+//! `YAPFAST_PLUGINS` names a helper built another way; without it, the helper
+//! the build made in this test binary's own profile directory is used.
 
 #![cfg(feature = "plugins")]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use yapfast_core::plugins::installing;
 use yapfast_core::plugins::marketplace;
@@ -86,12 +90,7 @@ fn icon() -> Vec<u8> {
 
 #[test]
 fn a_registry_is_browsed_installed_and_checked_against_its_entry() {
-    let Some(helper) = helper() else {
-        eprintln!("no yapfast-plugins beside the build and no YAPFAST_PLUGINS; skipped");
-        return;
-    };
-    // SAFETY: no other test in this binary changes the environment.
-    unsafe { std::env::set_var("YAPFAST_PLUGINS", &helper) };
+    let _environment = helper();
 
     // The plugin's repository: one plugin in one folder.
     let plugin = tempfile::tempdir().expect("a plugin repository");
@@ -183,7 +182,7 @@ fn a_registry_is_browsed_installed_and_checked_against_its_entry() {
     assert!(error.contains("pinned to commit"), "{error}");
 
     // What a registry's CI runs on the pull request that added the entry.
-    let checked = Command::new(&helper)
+    let checked = Command::new(locate())
         .arg("verify-entry")
         .arg(&entry_file)
         .output()
@@ -204,7 +203,7 @@ fn a_registry_is_browsed_installed_and_checked_against_its_entry() {
             .replace("\"license\": \"MIT\"", "\"license\": \"WTFPL\""),
     )
     .expect("an entry");
-    let refused = Command::new(&helper)
+    let refused = Command::new(locate())
         .arg("verify-entry")
         .arg(&bad)
         .output()
@@ -246,15 +245,86 @@ fn commit(directory: &Path) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
-fn helper() -> Option<PathBuf> {
+/// One test at a time, for the process's environment: a registry is read through
+/// the helper, which takes `YAPFAST_PLUGINS` when it starts, and `setenv` while
+/// another thread reads the environment is the data race the standard library
+/// marks it as. This binary holds one test today; the guard is what keeps the
+/// next one from racing it.
+static ENVIRONMENT: Mutex<()> = Mutex::new(());
+
+/// Points the process at the helper these tests run, and answers the guard that
+/// keeps the environment to this test until it ends: keep it, or another test
+/// may set the variable while this one's helper is being started.
+fn helper() -> MutexGuard<'static, ()> {
+    let environment = ENVIRONMENT.lock().unwrap_or_else(PoisonError::into_inner);
+    let path = locate();
+    // The helper reads this itself; the parent only has to pass the variable on.
+    // SAFETY: the guard above is what every test in this binary takes before it
+    // touches the environment, and every test writes the same path, so no test
+    // reads an environment another is changing.
+    unsafe { std::env::set_var("YAPFAST_PLUGINS", &path) };
+    environment
+}
+
+/// Where the helper is: what `YAPFAST_PLUGINS` names, or the one this build made
+/// in the test binary's own profile directory.
+///
+/// The profile is the test's own: `cargo test --profile fast` runs it from
+/// `target/fast/deps/`, so the helper a build of the workspace makes is in
+/// `target/fast/`, whatever `CARGO_TARGET_DIR` or `--target` puts in front of
+/// it. A missing helper fails the test rather than skipping it.
+fn locate() -> PathBuf {
     if let Some(named) = std::env::var_os("YAPFAST_PLUGINS") {
         let named = PathBuf::from(named);
-        if named.is_file() {
-            return Some(named);
-        }
+        assert!(
+            named.is_file(),
+            "YAPFAST_PLUGINS names {}, which isn't a file",
+            named.display()
+        );
+        return named;
     }
-    let beside = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/fast/yapfast-plugins");
-    beside.is_file().then_some(beside)
+    let name = if cfg!(windows) {
+        "yapfast-plugins.exe"
+    } else {
+        "yapfast-plugins"
+    };
+    let directory = profile();
+    let beside = directory.join(name);
+    assert!(beside.is_file(), "{}", missing(&directory));
+    beside
+}
+
+/// The directory this test binary was built into, which is its profile's.
+fn profile() -> PathBuf {
+    let exe = std::env::current_exe().expect("a test binary has a path");
+    let directory = exe
+        .parent()
+        .and_then(Path::parent)
+        .expect("a target directory above the test binary's deps");
+    directory.to_path_buf()
+}
+
+/// What to say when the helper isn't where it should be: the command that builds
+/// it, with the profile this test needs.
+fn missing(directory: &Path) -> String {
+    let named = directory
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    // Cargo calls the debug profile `debug` on disk and `dev` on the command
+    // line; every other profile has the one name.
+    let profile = match named.as_str() {
+        "debug" => "dev",
+        other => other,
+    };
+    format!(
+        "there's no yapfast-plugins helper in {}, and YAPFAST_PLUGINS names none. It is the real \
+         helper this test reads a registry through, so build it in the dev shell and run the test \
+         again:\n\
+         \x20 nix develop path:./nix --command cargo build --profile {profile} -p yapfast-plugin-host\n\
+         or set YAPFAST_PLUGINS to one you built another way. A test that ran nothing doesn't pass.",
+        directory.display()
+    )
 }
 
 fn fixture(name: &str) -> PathBuf {

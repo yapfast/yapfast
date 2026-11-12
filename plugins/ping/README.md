@@ -5,12 +5,45 @@ The first Yapfast plugin: one command, no capability, and nothing but an answer.
 ```sh
 cargo build --release --target wasm32-unknown-unknown
 cp target/wasm32-unknown-unknown/release/ping.wasm plugin.wasm
+scripts/check-plugin-fixtures --update
 ```
 
 `plugin.wasm` beside `yapfast-plugin.json` is what an install copies into the
 store. With the feature on, put this folder in the data directory's plugin store
 and enable `com.example.ping`; the helper is started by the first `/ping` and
 exits when the last instance goes.
+
+## The module, and what keeps it current
+
+Building a plugin needs a WebAssembly toolchain, and Yapfast's build has none:
+the repository builds the app, not the plugins in it. So `plugin.wasm` is
+committed beside its manifest and nothing compiles it, and what keeps it from
+silently going stale is `plugin.wasm.sha256`, a `sha256sum -c` file (from the
+recipe above) that pins the module *and the files it was built from*: `src/`,
+`Cargo.toml`, `Cargo.lock` and `.cargo/config.toml`, since the profile and the
+locked dependency versions change what comes out as much as the code does.
+
+`scripts/check-plugin-fixtures` checks it, and `scripts/check` runs that as its
+`fixtures` step, so the test that installs this plugin cannot pass against a
+module older than its source. It fails on:
+
+| Failure | What it means |
+| --- | --- |
+| A file under `src/`, `Cargo.toml`, `Cargo.lock` or `.cargo/config.toml` changed since the module was built | Rebuild it and run `scripts/check-plugin-fixtures --update` |
+| `id` is not `com.example.ping` | The test that installs this plugin expects that one |
+| `api` is not the `API_VERSION` this build speaks | The module carries the api it was compiled for, so a moved API needs it rebuilt on a machine with the wasm target; changing this number alone would lie about the module |
+| Not a version 1 module, or missing one of the five functions the PDK generates | Not a module the helper can load |
+| The executable bit | It is committed 0644: a module is read, not run |
+
+`--update` refuses to record a changed source beside an unchanged module, so
+the record cannot be talked into blessing a rebuild you forgot. `pdk/rust` is
+deliberately not in the record: it is a dependency of every plugin and editing
+it here, which needs no toolchain, must not block the repository on one that
+rebuilds this module. The `api` check above is what catches the change to the
+PDK that matters.
+
+`testing/plugins/` does the same for its nine `.wat` fixtures, whose text is the
+source; see `testing/plugins/README.md`.
 
 ## What it does
 

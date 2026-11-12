@@ -1,22 +1,26 @@
 //! The parent and the helper together: a plugin installed in a store receives
 //! an event, and turning it off ends the helper.
 //!
-//! This is M1's exit criterion from `PLAN.md`, and the only test that runs the
+//! This is the runtime's exit criterion, and the only test that runs the
 //! real `yapfast-plugins` binary: the bridge's own tests drive a fake session,
 //! and the helper's end-to-end tests drive the helper alone. It needs the
-//! binary, which `YAPFAST_PLUGINS` names; without one it says so and passes,
-//! because a test that silently tested nothing would be worse than none.
+//! binary, and a missing one fails the test with the command that builds it:
+//! a test that skipped would pass having looked at nothing, which is the one
+//! thing this file exists to rule out.
 //!
 //! ```sh
-//! cargo build --profile fast -p yapfast-plugin-host
-//! YAPFAST_PLUGINS=$PWD/target/fast/yapfast-plugins \
-//!   cargo test --profile fast -p yapfast-core --features plugins --test plugins_runtime
+//! nix develop path:./nix --command cargo build --profile fast -p yapfast-plugin-host
+//! nix develop path:./nix --command cargo test --profile fast -p yapfast-core \
+//!   --features plugins --test plugins_runtime
 //! ```
+//!
+//! `YAPFAST_PLUGINS` names a helper built another way; without it, the helper
+//! the build made in this test binary's own profile directory is used.
 
 #![cfg(feature = "plugins")]
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use yapfast_core::plugins::bridge::HelperState;
@@ -26,22 +30,23 @@ use yapfast_core::plugins::store::{Package, Store};
 use yapfast_core::plugins::{self, PluginState};
 use yapfast_plugin_api::PluginId;
 use yapfast_plugin_api::event::{EventEnvelope, EventKind, Network};
+use yapfast_plugin_api::hook::HookKind;
 
 /// How long the helper is given to start, load a plugin and answer, and how
 /// long it is given to end: an unoptimized build compiles the module first.
 const START: Duration = Duration::from_secs(30);
 const END: Duration = Duration::from_secs(30);
+/// What a cold machine may add to a hook's chain budget before the answer lands:
+/// two threads, a pipe and the answer being assembled, on an unoptimized profile
+/// with every core busy.
+const ANSWER_SLACK: Duration = Duration::from_millis(150);
+/// The same, for a chain that ran out of time: the cancel being noticed and the
+/// message going out as it was written are two more steps than an answer is.
+const CANCEL_SLACK: Duration = Duration::from_millis(400);
 
 #[test]
 fn a_message_reaches_an_installed_plugin_and_disabling_it_ends_the_helper() {
-    let Some(helper) = helper() else {
-        eprintln!("no yapfast-plugins beside the build and no YAPFAST_PLUGINS; skipped");
-        return;
-    };
-    // The helper reads this itself; the parent only has to pass the variable on.
-    // SAFETY: this is the only test in this binary, and nothing else reads the
-    // environment while it runs.
-    unsafe { std::env::set_var("YAPFAST_PLUGINS", &helper) };
+    let _environment = helper();
 
     let directory = tempfile::tempdir().expect("a temporary directory");
     let manifest = manifest();
@@ -104,6 +109,16 @@ fn a_message_reaches_an_installed_plugin_and_disabling_it_ends_the_helper() {
         state.statuses(),
         state.off()
     );
+    // And it says that what the plugin drew goes with it, which is the notice the
+    // application takes every tree, decoration and badge away on.
+    assert!(
+        statuses
+            .lock()
+            .expect("the notices lock")
+            .iter()
+            .any(|notice| matches!(notice, plugins::state::Notice::SlotsGone(off) if *off == id)),
+        "the runtime reports that its trees go with it"
+    );
     state.shutdown();
 }
 
@@ -114,11 +129,7 @@ fn a_message_reaches_an_installed_plugin_and_disabling_it_ends_the_helper() {
 /// person their plugin was off when it was still on.
 #[test]
 fn a_plugin_that_traps_says_why_in_its_status_and_its_log() {
-    let Some(helper) = helper() else {
-        eprintln!("no yapfast-plugins beside the build and no YAPFAST_PLUGINS; skipped");
-        return;
-    };
-    unsafe { std::env::set_var("YAPFAST_PLUGINS", &helper) };
+    let _environment = helper();
 
     let directory = tempfile::tempdir().expect("a temporary directory");
     let store = Store::open(directory.path()).expect("a store");
@@ -169,11 +180,7 @@ fn a_plugin_that_traps_says_why_in_its_status_and_its_log() {
 /// `yf_decorate` and answers nothing, which is the "no decoration" answer.
 #[test]
 fn a_decorator_is_asked_and_drawing_nothing_leaves_the_row_plain() {
-    let Some(helper) = helper() else {
-        eprintln!("no yapfast-plugins beside the build and no YAPFAST_PLUGINS; skipped");
-        return;
-    };
-    unsafe { std::env::set_var("YAPFAST_PLUGINS", &helper) };
+    let _environment = helper();
 
     let directory = tempfile::tempdir().expect("a temporary directory");
     let mut store = Store::open(directory.path()).expect("a store");
@@ -267,11 +274,7 @@ fn install_named(store: &mut Store, id: &str, fixture: &str) {
 /// guest, back to a command the person can type.
 #[test]
 fn the_sample_ping_plugin_loads_and_declares_its_command() {
-    let Some(helper) = helper() else {
-        eprintln!("no yapfast-plugins beside the build and no YAPFAST_PLUGINS; skipped");
-        return;
-    };
-    unsafe { std::env::set_var("YAPFAST_PLUGINS", &helper) };
+    let _environment = helper();
 
     let directory = tempfile::tempdir().expect("a temporary directory");
     let sample = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/ping/plugin.wasm");
@@ -351,11 +354,7 @@ fn the_sample_ping_plugin_loads_and_declares_its_command() {
 /// it is switched off and on again in the page is not lazy, it is stuck.
 #[test]
 fn an_enabled_plugin_answers_its_command_after_a_start() {
-    let Some(helper) = helper() else {
-        eprintln!("no yapfast-plugins beside the build and no YAPFAST_PLUGINS; skipped");
-        return;
-    };
-    unsafe { std::env::set_var("YAPFAST_PLUGINS", &helper) };
+    let _environment = helper();
 
     let directory = tempfile::tempdir().expect("a temporary directory");
     let sample = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/ping/plugin.wasm");
@@ -440,11 +439,7 @@ fn an_enabled_plugin_answers_its_command_after_a_start() {
 /// started, without the person touching it.
 #[test]
 fn a_startup_plugin_runs_when_the_app_starts() {
-    let Some(helper) = helper() else {
-        eprintln!("no yapfast-plugins beside the build and no YAPFAST_PLUGINS; skipped");
-        return;
-    };
-    unsafe { std::env::set_var("YAPFAST_PLUGINS", &helper) };
+    let _environment = helper();
 
     let directory = tempfile::tempdir().expect("a temporary directory");
     let mut store = Store::open(directory.path()).expect("a store");
@@ -609,6 +604,18 @@ fn wait_send_ready(
     );
 }
 
+/// What a send's chain may take before the runtime gives up on it, plus `slack`.
+///
+/// Written as the budget [`HookKind::MessagePreSend`] promises rather than as a
+/// number of its own, so that the promise moving moves the assertions with it.
+fn send_budget(slack: Duration) -> Duration {
+    let chain = HookKind::MessagePreSend
+        .budget()
+        .chain_ms
+        .expect("a person waits on a send, so its chain has a budget");
+    Duration::from_millis(chain) + slack
+}
+
 fn a_draft(body: &str) -> yapfast_plugin_api::hook::Draft {
     yapfast_plugin_api::hook::Draft {
         room: "room-1".to_owned(),
@@ -622,11 +629,7 @@ fn a_draft(body: &str) -> yapfast_plugin_api::hook::Draft {
 /// its budget, and the rewritten text is what the send goes out with.
 #[test]
 fn a_filter_rewrites_the_text_a_send_goes_out_with() {
-    let Some(helper) = helper() else {
-        eprintln!("no yapfast-plugins beside the build and no YAPFAST_PLUGINS; skipped");
-        return;
-    };
-    unsafe { std::env::set_var("YAPFAST_PLUGINS", &helper) };
+    let _environment = helper();
 
     let directory = tempfile::tempdir().expect("a temporary directory");
     let mut store = Store::open(directory.path()).expect("a store");
@@ -647,7 +650,7 @@ fn a_filter_rewrites_the_text_a_send_goes_out_with() {
     assert_eq!(answered.body, "filtered", "the chain's text is the send's");
     assert_eq!(answered.room, "filtered-room");
     assert!(
-        took < Duration::from_millis(100),
+        took < send_budget(ANSWER_SLACK),
         "a filter answers within the chain's budget, and this took {took:?} ({id})"
     );
     state.shutdown();
@@ -657,17 +660,13 @@ fn a_filter_rewrites_the_text_a_send_goes_out_with() {
 /// delay a send by more than the chain's 100 ms, and the message goes out as it
 /// was written.
 ///
-/// The slack past 100 ms is the machine's — two threads, a pipe and a cancel
-/// being noticed — not the promise's: a helper that waited for the plugin's
-/// own twenty-five milliseconds per plugin, or for its activation budget of
-/// thirty seconds, would be nowhere near this number.
+/// The slack past the chain's 100 ms is [`CANCEL_SLACK`], and it is the machine's
+/// — two threads, a pipe and a cancel being noticed — not the promise's: a helper
+/// that waited for the plugin's own twenty-five milliseconds per plugin, or for
+/// its activation budget of thirty seconds, would be nowhere near this number.
 #[test]
 fn a_plugin_that_hangs_in_a_hook_costs_the_chain_s_budget_and_not_the_send() {
-    let Some(helper) = helper() else {
-        eprintln!("no yapfast-plugins beside the build and no YAPFAST_PLUGINS; skipped");
-        return;
-    };
-    unsafe { std::env::set_var("YAPFAST_PLUGINS", &helper) };
+    let _environment = helper();
 
     let directory = tempfile::tempdir().expect("a temporary directory");
     let mut store = Store::open(directory.path()).expect("a store");
@@ -687,7 +686,7 @@ fn a_plugin_that_hangs_in_a_hook_costs_the_chain_s_budget_and_not_the_send() {
         "a chain that ran out of time leaves the message as the person wrote it"
     );
     assert!(
-        took < Duration::from_millis(250),
+        took < send_budget(CANCEL_SLACK),
         "a hung plugin must not hold the send past its budget: {took:?} ({id})"
     );
     state.shutdown();
@@ -750,28 +749,84 @@ fn envelope(body: &str) -> EventEnvelope {
     }
 }
 
-/// The helper's path: what `YAPFAST_PLUGINS` names, or the one this build made
-/// beside the tests.
-fn helper() -> Option<PathBuf> {
-    if let Some(named) = std::env::var_os("YAPFAST_PLUGINS") {
-        let named = PathBuf::from(named);
-        if named.is_file() {
-            return Some(named);
-        }
-    }
-    let beside = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target")
-        .join(profile())
-        .join("yapfast-plugins");
-    beside.is_file().then_some(beside)
+/// One test at a time, for the process's environment: every test here sets
+/// `YAPFAST_PLUGINS`, and `setenv` while another thread reads the environment is
+/// the data race the standard library marks it as. The path is the same for
+/// every test, so the wait is the start of a helper and nothing more.
+static ENVIRONMENT: Mutex<()> = Mutex::new(());
+
+/// Points the process at the helper these tests run, and answers the guard that
+/// keeps the environment to this test until it ends: keep it, or another test
+/// may set the variable while this one's helper is being started.
+fn helper() -> MutexGuard<'static, ()> {
+    let environment = ENVIRONMENT.lock().unwrap_or_else(PoisonError::into_inner);
+    let path = locate();
+    // The helper reads this itself; the parent only has to pass the variable on.
+    // SAFETY: the guard above is what every test in this binary takes before it
+    // touches the environment, and every test writes the same path, so no test
+    // reads an environment another is changing.
+    unsafe { std::env::set_var("YAPFAST_PLUGINS", &path) };
+    environment
 }
 
-fn profile() -> &'static str {
-    if cfg!(debug_assertions) {
-        "debug"
-    } else {
-        "fast"
+/// Where the helper is: what `YAPFAST_PLUGINS` names, or the one this build made
+/// in the test binary's own profile directory.
+///
+/// The profile is the test's own: `cargo test --profile fast` runs it from
+/// `target/fast/deps/`, so the helper a build of the workspace makes is in
+/// `target/fast/`, whatever `CARGO_TARGET_DIR` or `--target` puts in front of
+/// it. A missing helper fails the test rather than skipping it.
+fn locate() -> PathBuf {
+    if let Some(named) = std::env::var_os("YAPFAST_PLUGINS") {
+        let named = PathBuf::from(named);
+        assert!(
+            named.is_file(),
+            "YAPFAST_PLUGINS names {}, which isn't a file",
+            named.display()
+        );
+        return named;
     }
+    let name = if cfg!(windows) {
+        "yapfast-plugins.exe"
+    } else {
+        "yapfast-plugins"
+    };
+    let directory = profile();
+    let beside = directory.join(name);
+    assert!(beside.is_file(), "{}", missing(&directory));
+    beside
+}
+
+/// The directory this test binary was built into, which is its profile's.
+fn profile() -> PathBuf {
+    let exe = std::env::current_exe().expect("a test binary has a path");
+    let directory = exe
+        .parent()
+        .and_then(Path::parent)
+        .expect("a target directory above the test binary's deps");
+    directory.to_path_buf()
+}
+
+/// What to say when the helper isn't where it should be: the command that builds
+/// it, with the profile this test needs.
+fn missing(directory: &Path) -> String {
+    let named = directory
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    // Cargo calls the debug profile `debug` on disk and `dev` on the command
+    // line; every other profile has the one name.
+    let profile = match named.as_str() {
+        "debug" => "dev",
+        other => other,
+    };
+    format!(
+        "there's no yapfast-plugins helper in {}, and YAPFAST_PLUGINS names none. It is the real \
+         helper this test runs, so build it in the dev shell and run the test again:\n\
+         \x20 nix develop path:./nix --command cargo build --profile {profile} -p yapfast-plugin-host\n\
+         or set YAPFAST_PLUGINS to one you built another way. A test that ran nothing doesn't pass.",
+        directory.display()
+    )
 }
 
 fn fixture_path(name: &str) -> PathBuf {

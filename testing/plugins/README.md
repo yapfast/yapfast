@@ -4,9 +4,7 @@ Nine behaviours the plugin system has to get right, each a WebAssembly module
 written as text (`.wat`), with the compiled module beside it. The helper loads
 the `.wasm`, not the text: a loader that accepted `(module …)` would also accept
 anything else wasmtime can parse, and the magic check that refuses a text module
-outside the tests is the same one that refuses it in them. The text is what a
-person edits; regenerating its module needs a WebAssembly toolchain, so the
-compiled file is checked in with it.
+outside the tests is the same one that refuses it in them.
 
 The helper's end-to-end tests
 (`crates/yapfast-plugin-host/tests/e2e.rs`) load these through the real helper
@@ -29,6 +27,52 @@ Every fixture exports all six of the ABI's functions (`yf_activate`,
 `yf_deactivate`, `yf_event`, `yf_hook`, `yf_command`, `yf_decorate`), so one can
 be loaded by any path, not only the one it was written for. The exports a
 fixture doesn't exercise return status 0 with no answer.
+
+## The text is the source, and the module is a record it stays in step with
+
+Assembling a `.wat` needs a WebAssembly toolchain, and the dev shell has none:
+building Yapfast never produces a module, so nine fixtures are not a reason to
+put one in every build. The compiled module is therefore committed beside its
+text, and what keeps the pair from going stale is a hash record beside them,
+`fixtures.sha256`, which pins each `.wat` *and the `.wasm` assembled from it*.
+
+```sh
+wat2wasm filter.wat -o filter.wasm       # or any other text assembler
+scripts/check-plugin-fixtures --update   # record the pair you just made
+```
+
+Commit the text, the module and the record together. `scripts/check` runs
+`scripts/check-plugin-fixtures` as its `fixtures` step, and
+`.github/workflows/tests.yml` runs `scripts/check`, so nothing here depends on
+somebody remembering: a fixture edited without its module fails the check in a
+second, before the first compile.
+
+The record is a `sha256sum` file, so it can be read and checked without the
+script: `cd testing/plugins && sha256sum -c fixtures.sha256`. It is a record of
+bytes, not of a toolchain: assembling the same text with a different assembler
+produces different bytes, which is fine, as both lines of the pair change
+together.
+
+What the check fails on, and what it says:
+
+| Failure | What it means |
+| --- | --- |
+| A `.wat` or `.wasm` whose digest moved | The recorded pair is out of step: rebuild the module, then `--update` |
+| A text with no module, or a module with no text | Half a fixture; the record cannot describe it |
+| A module that is not version 1, or that doesn't export all six functions | Not a module the helper can load, or not one written to this ABI |
+| A `.wat` or `.wasm` the record doesn't list | A fixture was added or renamed without recording it |
+| A `.wasm` with the executable bit | A module is read, not run: `chmod 644` |
+
+`--update` refuses to record a `.wat` that changed beside a `.wasm` that did
+not, because that is exactly the stale pair this is for; the one edit where the
+module is right to stay byte-identical is a change a compiler discards, such as
+a comment, and `--update --artifact-unchanged` records that one.
+
+`plugins/ping/plugin.wasm` is the same bargain with a different source, and its
+record is checked by the same script; see `plugins/ping/README.md`. The three
+folders here with no module in them (`quiet/`, `widgets/`, `word-filter/`) are
+manifests the interface reads without loading any WebAssembly, so they have no
+record and no part in this check.
 
 ## Writing one
 

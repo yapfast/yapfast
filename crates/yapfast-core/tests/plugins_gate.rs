@@ -978,10 +978,17 @@ fn the_total_limit_stops_the_seventeenth_request_across_plugins() {
 /// A request to a real name, through the system's resolver and a transport that
 /// sends nothing.
 ///
-/// It is ignored because it needs DNS and the outside world; run it with
-/// `cargo test -- --ignored` when the resolver itself is in question.
+/// It is ignored because it needs DNS and the outside world, which no `cargo
+/// test` a pull request runs may depend on. `.github/workflows/tests.yml` runs it
+/// for the workflows started by hand, naming it with `--exact` so that renaming
+/// it fails that job instead of running none, and by hand it is:
+///
+/// ```sh
+/// nix develop path:./nix --command cargo test --profile fast -p yapfast-core \
+///   --features plugins --test plugins_gate -- --ignored
+/// ```
 #[test]
-#[ignore = "needs DNS"]
+#[ignore = "needs DNS and the outside world: run `cargo test -p yapfast-core --features plugins --test plugins_gate -- --ignored`, or the `matrix` job of .github/workflows/tests.yml"]
 fn a_real_name_resolves_to_addresses_the_gate_accepts() {
     let directory = tempfile::tempdir().expect("a temporary directory");
     let grants =
@@ -1001,7 +1008,15 @@ fn a_real_name_resolves_to_addresses_the_gate_accepts() {
         .block_on(gate.fetch(&plugin, HttpRequest::get("https://example.com/"), 0))
         .expect("example.com is public");
     assert!(matches!(outcome, Outcome::Done(_)));
-    for plan in recorder.plans() {
+    // A plan is what the transport was handed, so a list of none means this
+    // checked nothing: the `for` below would pass over no address at all, which
+    // is the silent pass this test exists against.
+    let plans = recorder.plans();
+    assert!(
+        !plans.is_empty(),
+        "the transport ran nothing, so no address was resolved to check"
+    );
+    for plan in plans {
         assert!(!plan.addresses.is_empty());
         for address in plan.addresses {
             assert_eq!(address_problem(address), None, "{address} is public");

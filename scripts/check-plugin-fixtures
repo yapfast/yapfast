@@ -1,0 +1,302 @@
+#!/usr/bin/env python3
+"""Fails when a committed plugin module is older than the source it was built from.
+
+`testing/plugins/` holds nine hand-written `.wat` fixtures with the module each
+compiles to beside it, and `plugins/ping/plugin.wasm` is built from
+`plugins/ping/src`. Nothing in this repository rebuilds either: there is no
+WebAssembly toolchain in the dev shell, and there should not be, since building
+Yapfast never produces a module. So both modules are committed, and what keeps
+them from silently going stale is a record of hashes beside them, written by
+`--update` after a rebuild and checked here:
+
+  testing/plugins/fixtures.sha256   each `.wat`, and the module made from it
+  plugins/ping/plugin.wasm.sha256   `plugin.wasm`, and the files it was built from
+
+Each record is in `sha256sum -c` form and holds the compiled module as well as
+its sources, so a source that moved on without it is visible. That is the
+failure this script exists for, so `--update` refuses to record a source that
+changed beside a module that did not, unless given `--artifact-unchanged`: a
+comment-only edit to a `.wat` assembles to the same bytes.
+
+Nothing here compiles anything and nothing here needs the network. Run it
+alone, or as the `fixtures` step of `scripts/check`.
+"""
+
+from pathlib import Path
+import hashlib
+import json
+import os
+import re
+import sys
+
+ROOT = Path(__file__).resolve().parent.parent
+FIXTURES = ROOT / "testing" / "plugins"
+FIXTURE_RECORD = "fixtures.sha256"
+SAMPLE = ROOT / "plugins" / "ping"
+SAMPLE_RECORD = "plugin.wasm.sha256"
+SAMPLE_MODULE = "plugin.wasm"
+# A module is built from more than `src/`: the profile in `.cargo/config.toml`
+# and the dependency versions in `Cargo.lock` both change what comes out.
+SAMPLE_SOURCES = ("Cargo.toml", "Cargo.lock", ".cargo/config.toml")
+API_VERSION = ROOT / "crates" / "yapfast-plugin-api" / "src" / "lib.rs"
+
+# Every fixture exports all six of the ABI's functions, so any of them can be
+# loaded by any path. The sample plugin is one a person wrote, so it exports what
+# the PDK generates: all five, and not the fixture-only `yf_decorate`.
+ABI = ("yf_activate", "yf_deactivate", "yf_event", "yf_hook", "yf_command", "yf_decorate")
+SAMPLE_EXPORTS = tuple(name for name in ABI if name != "yf_decorate")
+SAMPLE_ID = "com.example.ping"
+USAGE = "usage: scripts/check-plugin-fixtures [--update [--artifact-unchanged]]"
+
+
+def sha256(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def read_record(path):
+    """The digests a record holds, in a `sha256sum` file's form, or None."""
+    if not path.exists():
+        return None
+    digests = {}
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        digest, _, relative = line.partition(" ")
+        digests[relative.lstrip(" *")] = digest
+    return digests
+
+
+def write_record(path, digests):
+    path.write_text(
+        "# The committed modules here, each with the files it was compiled from, so that a\n"
+        "# stale one fails. Written by scripts/check-plugin-fixtures --update; see the\n"
+        "# README beside this file, and `sha256sum -c` reads it as it stands.\n"
+        + "".join(f"{digest}  {relative}\n" for relative, digest in sorted(digests.items()))
+    )
+
+
+def uleb(module, at):
+    value = shift = 0
+    while True:
+        byte = module[at]
+        at += 1
+        value |= (byte & 0x7F) << shift
+        shift += 7
+        if not byte & 0x80:
+            return value, at
+
+
+def exports(module):
+    """The names a module exports, read from its export section."""
+    names = []
+    at = 8
+    while at < len(module):
+        section = module[at]
+        at += 1
+        size, at = uleb(module, at)
+        body, at = module[at:at + size], at + size
+        if section != 7:
+            continue
+        count, cursor = uleb(body, 0)
+        for _ in range(count):
+            length, cursor = uleb(body, cursor)
+            names.append(body[cursor:cursor + length].decode())
+            cursor += length + 1  # the kind of the export
+            _, cursor = uleb(body, cursor)  # and its index
+    return names
+
+
+def module_problems(path, required, problems):
+    """A module a person can load: the right magic, and the exports it promises."""
+    label = path.relative_to(ROOT)
+    try:
+        module = path.read_bytes()
+        version = int.from_bytes(module[4:8], "little")
+        names = exports(module) if module[:4] == b"\0asm" else []
+    except (IndexError, UnicodeDecodeError):
+        problems.append(f"error: {label} is not a WebAssembly module this check can read")
+        return
+    if module[:4] != b"\0asm" or version != 1:
+        problems.append(f"error: {label} is not a version 1 WebAssembly module")
+        return
+    missing = [name for name in required if name not in names]
+    if missing:
+        problems.append(f"error: {label} does not export {', '.join(missing)}")
+
+
+def pairing_problems(problems):
+    """A fixture is a text and the module made from it, or it is not one."""
+    modules = {path.stem for path in FIXTURES.glob("*.wasm")}
+    texts = {path.stem for path in FIXTURES.glob("*.wat")}
+    label = FIXTURES.relative_to(ROOT)
+    for stem in sorted(texts - modules):
+        problems.append(f"error: {label / (stem + '.wat')} has no module compiled from it")
+    for stem in sorted(modules - texts):
+        problems.append(f"error: {label / (stem + '.wasm')} has no text it was compiled from")
+    return sorted(modules & texts)
+
+
+def groups(stems):
+    """Each committed module, with the files it was compiled from, as pairs."""
+    fixtures = [(f"{stem}.wasm", [f"{stem}.wat"]) for stem in stems]
+    sources = (SAMPLE / "src").rglob("*")
+    sample = [*SAMPLE_SOURCES, *(str(path.relative_to(SAMPLE)) for path in sorted(sources) if path.is_file())]
+    return [
+        (FIXTURES, FIXTURE_RECORD, fixtures),
+        (SAMPLE, SAMPLE_RECORD, [(SAMPLE_MODULE, sample)]),
+    ]
+
+
+def check(directory, record_name, pairs, problems):
+    """The record holds exactly these files, and every digest in it is true."""
+    label = directory.relative_to(ROOT)
+    record = read_record(directory / record_name)
+    expected = {relative for artifact, sources in pairs for relative in [artifact, *sources]}
+    if record is None:
+        problems.append(
+            f"error: {label / record_name} is missing, so nothing says the module matches "
+            f"its source: run scripts/check-plugin-fixtures --update"
+        )
+        return
+    for relative, digest in sorted(record.items()):
+        path = directory / relative
+        if not path.exists():
+            problems.append(
+                f"error: {label / relative} is recorded in {record_name} and is gone since: "
+                f"run scripts/check-plugin-fixtures --update"
+            )
+        elif sha256(path) != digest:
+            problems.append(
+                f"error: {label / relative} changed since {record_name} recorded it: rebuild "
+                f"the module, then run scripts/check-plugin-fixtures --update"
+            )
+    for relative in sorted(expected - record.keys()):
+        problems.append(
+            f"error: {label / relative} is not in {record_name}: "
+            f"run scripts/check-plugin-fixtures --update"
+        )
+
+
+def api_version():
+    """The plugin API this build speaks, from its one definition."""
+    found = re.search(r"pub const API_VERSION: u32 = (\d+);", API_VERSION.read_text())
+    if found is None:
+        return None
+    return int(found.group(1))
+
+
+def sample_problems(problems):
+    """The manifest beside the module still says what the module is."""
+    label = SAMPLE.relative_to(ROOT)
+    path = SAMPLE / "yapfast-plugin.json"
+    try:
+        manifest = json.loads(path.read_text())
+    except (OSError, ValueError) as error:
+        problems.append(f"error: {label / 'yapfast-plugin.json'} does not read: {error}")
+        return
+    if manifest.get("id") != SAMPLE_ID:
+        problems.append(
+            f"error: {label / 'yapfast-plugin.json'} declares id {manifest.get('id')!r}, "
+            f"and the test that installs this plugin expects {SAMPLE_ID!r}"
+        )
+    if manifest.get("wasm") != SAMPLE_MODULE:
+        problems.append(
+            f"error: {label / 'yapfast-plugin.json'} names {manifest.get('wasm')!r} as its "
+            f"module, and this folder holds {SAMPLE_MODULE}"
+        )
+    speaking = api_version()
+    if speaking is None:
+        problems.append(
+            f"error: API_VERSION is not a `pub const API_VERSION: u32 = N;` in "
+            f"{API_VERSION.relative_to(ROOT)} any more, so the manifest's api cannot be checked"
+        )
+    elif manifest.get("api") != speaking:
+        problems.append(
+            f"error: {label / 'yapfast-plugin.json'} says api {manifest.get('api')}, and this "
+            f"build speaks api {speaking}: the module carries the api it was compiled for, so "
+            f"rebuild {label / SAMPLE_MODULE} with the current pdk and set the manifest to "
+            f"{speaking}; editing the json alone would lie about the module"
+        )
+
+
+def readable_problems(problems):
+    """A module is read, not run: nothing in the repository sets its mode."""
+    if os.name != "posix":
+        return
+    paths = sorted(FIXTURES.glob("*.wasm")) + [SAMPLE / SAMPLE_MODULE]
+    for path in paths:
+        if os.stat(path).st_mode & 0o111:
+            problems.append(
+                f"error: {path.relative_to(ROOT)} is committed executable: chmod 644 {path.relative_to(ROOT)}"
+            )
+
+
+def verify():
+    problems = []
+    stems = pairing_problems(problems)
+    for stem in stems:
+        module_problems(FIXTURES / f"{stem}.wasm", ABI, problems)
+    module_problems(SAMPLE / SAMPLE_MODULE, SAMPLE_EXPORTS, problems)
+    sample_problems(problems)
+    readable_problems(problems)
+    for directory, record_name, pairs in groups(stems):
+        check(directory, record_name, pairs, problems)
+
+    if problems:
+        print("\n".join(problems))
+        return 1
+    print(f"testing/plugins: {len(stems)} fixtures, each text and module as recorded")
+    print(f"plugins/ping: as recorded, and api {api_version()} as its manifest says")
+    return 0
+
+
+def update(artifact_unchanged):
+    """Rewrites the records, refusing a source that moved on without its module."""
+    problems = []
+    stems = pairing_problems(problems)
+    records = []
+    for directory, record_name, pairs in groups(stems):
+        label = directory.relative_to(ROOT)
+        recorded = read_record(directory / record_name) or {}
+        digests = {}
+        for artifact, sources in pairs:
+            for relative in [artifact, *sources]:
+                path = directory / relative
+                if not path.exists():
+                    problems.append(f"error: {label / relative} does not exist, so it cannot be recorded")
+                else:
+                    digests[relative] = sha256(path)
+            if artifact_unchanged or artifact not in recorded or artifact not in digests:
+                continue
+            if recorded[artifact] != digests[artifact]:
+                continue
+            moved = [source for source in sources if source in recorded and recorded[source] != digests.get(source)]
+            if moved:
+                problems.append(
+                    f"error: {label / moved[0]} changed and {label / artifact} did not: a module "
+                    f"is compiled from its source, so rebuild it first, or pass "
+                    f"--artifact-unchanged for an edit that leaves the bytes alone"
+                )
+        records.append((directory / record_name, digests))
+    if problems:
+        print("\n".join(problems))
+        return 1
+    for path, digests in records:
+        write_record(path, digests)
+        print(f"recorded {len(digests)} files in {path.relative_to(ROOT)}")
+    return 0
+
+
+def main(arguments):
+    flags = set(arguments)
+    if flags - {"--update", "--artifact-unchanged"} or "--artifact-unchanged" in flags and "--update" not in flags:
+        print(USAGE, file=sys.stderr)
+        return 2
+    if "--update" in flags:
+        return update("--artifact-unchanged" in flags)
+    return verify()
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

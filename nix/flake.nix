@@ -73,6 +73,9 @@
             passt nftables iproute2
             # Runs testing/fake_discord.ts, and its tests side by side.
             bun cargo-nextest
+            # Commits, and fetches back, the repositories the plugin tests
+            # install from: those tests run it, they don't link it.
+            git
             # Assembles x264's x86-64 code (vendor/x264-src).
             nasm
           ];

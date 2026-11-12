@@ -3,19 +3,24 @@
 //!
 //! The repository is a local one, made in a temporary directory and fetched
 //! through a `file://` address, which is what `fetch::Spec` allows for
-//! development. It needs the real `yapfast-plugins`, which `YAPFAST_PLUGINS`
-//! names; without one it says so and passes.
+//! development. It needs the real `yapfast-plugins`, and a missing one fails the
+//! test with the command that builds it: a test that skipped would pass having
+//! fetched nothing.
 //!
 //! ```sh
-//! cargo build --profile fast -p yapfast-plugin-host
-//! YAPFAST_PLUGINS=$PWD/target/fast/yapfast-plugins \
-//!   cargo test --profile fast -p yapfast-core --features plugins --test plugins_install
+//! nix develop path:./nix --command cargo build --profile fast -p yapfast-plugin-host
+//! nix develop path:./nix --command cargo test --profile fast -p yapfast-core \
+//!   --features plugins --test plugins_install
 //! ```
+//!
+//! `YAPFAST_PLUGINS` names a helper built another way; without it, the helper
+//! the build made in this test binary's own profile directory is used.
 
 #![cfg(feature = "plugins")]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use yapfast_core::plugins::installing;
 use yapfast_core::plugins::registry::Registry;
@@ -72,13 +77,7 @@ fn manifest() -> String {
 
 #[test]
 fn a_plugin_is_fetched_reviewed_installed_rolled_back_and_removed() {
-    let Some(helper) = helper() else {
-        eprintln!("no yapfast-plugins beside the build and no YAPFAST_PLUGINS; skipped");
-        return;
-    };
-    // SAFETY: this is the only test in this binary, so nothing else reads the
-    // environment while it runs.
-    unsafe { std::env::set_var("YAPFAST_PLUGINS", &helper) };
+    let _environment = helper();
 
     let source = tempfile::tempdir().expect("a repository's directory");
     let url = repository(source.path());
@@ -244,11 +243,7 @@ fn a_file_that_is_not_a_module_is_refused_by_name() {
 
 #[test]
 fn the_same_id_from_two_folders_is_refused() {
-    let Some(helper) = helper() else {
-        eprintln!("no yapfast-plugins beside the build and no YAPFAST_PLUGINS; skipped");
-        return;
-    };
-    unsafe { std::env::set_var("YAPFAST_PLUGINS", &helper) };
+    let _environment = helper();
     let installed = tempfile::tempdir().expect("a data directory");
     let mut store = Store::open(installed.path()).expect("a store");
 
@@ -300,15 +295,84 @@ fn fetched_from(folder: &str) -> installing::Fetched {
     }
 }
 
-fn helper() -> Option<PathBuf> {
+/// One test at a time, for the process's environment: the two tests here fetch
+/// through the helper, which reads `YAPFAST_PLUGINS` when it starts, and `setenv`
+/// while another thread reads the environment is the data race the standard
+/// library marks it as.
+static ENVIRONMENT: Mutex<()> = Mutex::new(());
+
+/// Points the process at the helper these tests run, and answers the guard that
+/// keeps the environment to this test until it ends: keep it, or another test
+/// may set the variable while this one's fetch is starting.
+fn helper() -> MutexGuard<'static, ()> {
+    let environment = ENVIRONMENT.lock().unwrap_or_else(PoisonError::into_inner);
+    let path = locate();
+    // The helper reads this itself; the parent only has to pass the variable on.
+    // SAFETY: the guard above is what every test in this binary takes before it
+    // touches the environment, and every test writes the same path, so no test
+    // reads an environment another is changing.
+    unsafe { std::env::set_var("YAPFAST_PLUGINS", &path) };
+    environment
+}
+
+/// Where the helper is: what `YAPFAST_PLUGINS` names, or the one this build made
+/// in the test binary's own profile directory.
+///
+/// The profile is the test's own: `cargo test --profile fast` runs it from
+/// `target/fast/deps/`, so the helper a build of the workspace makes is in
+/// `target/fast/`, whatever `CARGO_TARGET_DIR` or `--target` puts in front of
+/// it. A missing helper fails the test rather than skipping it.
+fn locate() -> PathBuf {
     if let Some(named) = std::env::var_os("YAPFAST_PLUGINS") {
         let named = PathBuf::from(named);
-        if named.is_file() {
-            return Some(named);
-        }
+        assert!(
+            named.is_file(),
+            "YAPFAST_PLUGINS names {}, which isn't a file",
+            named.display()
+        );
+        return named;
     }
-    let beside = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/fast/yapfast-plugins");
-    beside.is_file().then_some(beside)
+    let name = if cfg!(windows) {
+        "yapfast-plugins.exe"
+    } else {
+        "yapfast-plugins"
+    };
+    let directory = profile();
+    let beside = directory.join(name);
+    assert!(beside.is_file(), "{}", missing(&directory));
+    beside
+}
+
+/// The directory this test binary was built into, which is its profile's.
+fn profile() -> PathBuf {
+    let exe = std::env::current_exe().expect("a test binary has a path");
+    let directory = exe
+        .parent()
+        .and_then(Path::parent)
+        .expect("a target directory above the test binary's deps");
+    directory.to_path_buf()
+}
+
+/// What to say when the helper isn't where it should be: the command that builds
+/// it, with the profile this test needs.
+fn missing(directory: &Path) -> String {
+    let named = directory
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    // Cargo calls the debug profile `debug` on disk and `dev` on the command
+    // line; every other profile has the one name.
+    let profile = match named.as_str() {
+        "debug" => "dev",
+        other => other,
+    };
+    format!(
+        "there's no yapfast-plugins helper in {}, and YAPFAST_PLUGINS names none. It is the real \
+         helper this test fetches through, so build it in the dev shell and run the test again:\n\
+         \x20 nix develop path:./nix --command cargo build --profile {profile} -p yapfast-plugin-host\n\
+         or set YAPFAST_PLUGINS to one you built another way. A test that ran nothing doesn't pass.",
+        directory.display()
+    )
 }
 
 fn fixture(name: &str) -> PathBuf {
