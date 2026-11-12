@@ -49,7 +49,7 @@ import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList, Voic
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, EmojiCardView, MessageStickerCard, MessageStickerCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, VoicePlayer, Polls } from "messages.slint";
 import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable } from "settings.slint";
-import { MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
+import { ActivityMenu, MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
 import { InvitePrompt, InviteDialog, JoinPrompt, JoinDialog, EventPrompt, EventDialog, GiftPrompt, GiftDialog, OAuthPrompt, OAuthDialog, ChannelPrompt, ChannelDialog, ProfileEditorPrompt, ProfileEditorDialog } from "server.slint";
@@ -2160,6 +2160,43 @@ export component YapfastWindow inherits Window {
             }
         }
     }
+    // An activity's more menu on a card, as Discord's: the full profile's
+    // Activity tab, and on one's own game its privacy settings.
+    property <length> activity-menu-x;
+    property <length> activity-menu-y;
+    property <bool> activity-menu-privacy;
+    activity-menu := PopupWindow {
+        x: max(8px, min(root.width - self.width - 8px, root.activity-menu-x + 4px));
+        y: root.activity-menu-y - 8px;
+        width: 170px;
+        close-policy: PopupClosePolicy.close-on-click-outside;
+        Rectangle {
+            background: Theme.raised; border-radius: 8px; border-width: 1px; border-color: Theme.edge;
+            drop-shadow-blur: 16px; drop-shadow-color: #00000060;
+            VerticalLayout {
+                padding: 6px; spacing: 2px;
+                MenuItem { text: "View All Activity"; clicked => { activity-menu.close(); ActivityMenu.action = 1; } }
+                if root.activity-menu-privacy: MenuItem { text: "Manage Privacy"; clicked => { activity-menu.close(); ActivityMenu.action = 2; } }
+            }
+        }
+    }
+    Timer {
+        interval: 1ms; running: ActivityMenu.action != 0;
+        triggered => {
+            let action = ActivityMenu.action;
+            ActivityMenu.action = 0;
+            status-menu.close();
+            if action == 1 {
+                // The card's person's full profile, on its Activity tab.
+                root.profile-start-tab = 0;
+                root.enlarge-profile();
+            } else {
+                root.close-profile();
+                root.settings-section = 8;
+                root.settings-open = true;
+            }
+        }
+    }
     status-menu := PopupWindow {
         width: ClientStyle.enabled ? 300px : 248px; height: status-menu-content.preferred-height;
         x: max(8px, min(root.width - self.width - 8px, root.menu-x));
@@ -4009,7 +4046,7 @@ export component YapfastWindow inherits Window {
                         fold(item, whole) => { root.fold-message(item, whole); }
                     }
                     if root.members-docked: MemberPanel {
-                        width: root.members-shown; rows: root.roster; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
+                        width: root.members-shown; rows: root.roster; group: root.dms-selected; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
                         activity-hidden <=> root.activity-cards-hidden;
                         activity-hidden-toggled(hidden) => { root.activity-cards-hidden-toggled(hidden); }
                         activity-clock => { root.activity-clock(); }
@@ -4552,6 +4589,7 @@ export component YapfastWindow inherits Window {
             open-link(link) => { root.open-link(link); }
             send-message(text) => { root.message-from-profile(root.profile.id, text); }
             edit-profile => { root.close-profile(); root.edit-profile(); }
+            activity-more(x, y, privacy) => { root.activity-menu-x = x; root.activity-menu-y = y; root.activity-menu-privacy = privacy; activity-menu.show(); }
         }
     }
     // A full profile over the window, as the viewer shows images.
@@ -4580,6 +4618,9 @@ export component YapfastWindow inherits Window {
             width: min(max(root.width * 0.7, 720px), root.width - 32px); height: min(max(root.height * 0.75, 520px), root.height - 32px);
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
             data: root.profile;
+            // As Discord's, a window too short to leave room above the card
+            // shows no frame.
+            show-frame: root.height > 785px;
             start-tab: root.profile-start-tab;
             close => { root.close-profile(); }
             befriend => { root.befriend(root.profile.id); }

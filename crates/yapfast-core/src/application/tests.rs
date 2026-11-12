@@ -2276,6 +2276,34 @@ fn someones_menu_blocks_and_unblocks_them_but_never_this_account() {
 
 #[test]
 #[cfg(feature = "discord")]
+fn a_group_dms_creator_is_its_owner_and_a_dm_has_none() {
+    use yapfast_discord::service::{Conversation, Snapshot, Status};
+    let mut app = connected();
+    app.apply(discord_event(Snapshot {
+        status: Status::Online,
+        conversations: vec![
+            Arc::new(Conversation {
+                id: "30".into(),
+                person: Some("2".into()),
+                people: 2,
+                ..Default::default()
+            }),
+            Arc::new(Conversation {
+                id: "31".into(),
+                group: true,
+                people: 3,
+                owner: Some("2".into()),
+                ..Default::default()
+            }),
+        ],
+        ..Default::default()
+    }));
+    assert_eq!(app.server_owner("discord:@me:31").as_deref(), Some("2"));
+    assert_eq!(app.server_owner("discord:@me:30"), None);
+}
+
+#[test]
+#[cfg(feature = "discord")]
 fn a_discord_dms_menu_manages_its_person_and_notifications() {
     use MenuChoice::*;
     use chat::{Muting, RelationshipChange};
@@ -4525,9 +4553,9 @@ fn profile_switches_that_are_off_ask_for_nothing() {
         }));
         let effects = app.dispatch(Action::ShowDmProfile("discord:@me:30".into()));
         let effect = effects.iter().find_map(|effect| match effect {
-            Effect::Backend(Command::Discord(DiscordCommand::Profile { effect, .. })) => {
-                Some(*effect)
-            }
+            Effect::Backend(Command::Discord(DiscordCommand::Profile {
+                effect, frame, ..
+            })) => Some((*effect, *frame)),
             _ => None,
         });
         (app, effect)
@@ -4538,15 +4566,24 @@ fn profile_switches_that_are_off_ask_for_nothing() {
         moving: false,
         name_styles: false,
         server_tags: false,
+        frames: false,
     };
     let (app, effect) = open(off);
-    assert_eq!(effect, Some(false), "the effect isn't asked about");
+    assert_eq!(
+        effect,
+        Some((false, false)),
+        "neither the effect nor the frame is asked about"
+    );
     for url in ["ring.png", "mine.png", "plate.png"] {
         assert!(!app.requested_pictures.contains(url), "{url} isn't fetched");
     }
     // By default everything shows, as the stack draws it.
     let (app, effect) = open(Cosmetics::default());
-    assert_eq!(effect, Some(true), "the effect is asked about");
+    assert_eq!(
+        effect,
+        Some((true, true)),
+        "the effect and frame are asked about"
+    );
     assert!(app.requested_pictures.contains("ring.png"));
     if cfg!(not(feature = "matrix")) {
         assert!(app.requested_pictures.contains("mine.png"));
@@ -4559,7 +4596,7 @@ fn profile_switches_that_are_off_ask_for_nothing() {
     });
     assert_eq!(
         effect,
-        Some(false),
+        Some((false, true)),
         "an effect that may not play isn't asked about"
     );
     assert!(app.requested_pictures.contains("ring.png"));
@@ -5931,6 +5968,47 @@ fn profile_effects_are_kept_a_few_at_a_time_and_their_pictures_go_with_the_card(
         "the window lets go too"
     );
     assert!(app.effect_pictures.is_empty());
+}
+
+#[test]
+fn a_cards_frame_and_moving_banner_go_with_it() {
+    let mut app = connected();
+    let layer = "https://cdn.discordapp.com/media/v1/collectibles-shop/9/a/static";
+    let banner = "https://cdn.discordapp.com/banners/1/a_77.png?size=600";
+    let moving = "https://cdn.discordapp.com/banners/1/a_77.gif?size=600";
+    app.state.profile = Some(ProfileView {
+        profile: Profile {
+            id: "1".into(),
+            banner: Some(banner.into()),
+            frame: Arc::from([crate::chat::ProfileFrameLayer {
+                src: layer.into(),
+                kind: "staple".into(),
+                anchor: "top".into(),
+                front: true,
+            }]),
+            theme: None,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    for url in [layer, moving].into_iter().map(String::from) {
+        app.requested_pictures.insert(url.clone());
+        app.apply(Event::Picture {
+            url,
+            picture: Arc::new(Picture::default()),
+        });
+    }
+    // They stay while the card shows, and go as it closes, though the trim
+    // is far off: each is about the card's size.
+    app.dispatch(Action::CloseAside);
+    for shown in [layer, moving] {
+        assert!(app.state.pictures.contains_key(shown), "{shown} stays");
+    }
+    app.dispatch(Action::CloseProfile);
+    for gone in [layer, moving] {
+        assert!(!app.state.pictures.contains_key(gone), "{gone} goes");
+        assert!(!app.requested_pictures.contains(gone), "{gone} goes");
+    }
 }
 
 #[test]

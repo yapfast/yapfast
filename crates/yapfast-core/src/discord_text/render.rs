@@ -636,6 +636,9 @@ pub(super) fn chat_profile(
             .style(Some(guild), &profile.user_id)
             .map(|style| Arc::new(style.into())),
         effect: profile.effect,
+        // `chat_profile`'s caller adds the frame's layers, which the shop
+        // describes.
+        frame: Default::default(),
         theme: profile.theme,
         banner: profile.banner,
         accent: profile.accent,

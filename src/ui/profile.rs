@@ -344,6 +344,9 @@ fn activity_row(activity: &yapfast_core::chat::Activity) -> ActivityRow {
         end: seconds(activity.end),
         url: text(&activity.url),
         link: text(&activity.link),
+        // Discord's Manage Privacy on one's own: a game's goes to the
+        // activity privacy settings.
+        game: activity.kind == yapfast_core::chat::ActivityKind::Playing,
     }
 }
 
@@ -419,6 +422,24 @@ pub(super) fn same_role_rows(
     same_list(old, ModelRc::new(VecModel::from(rows)))
 }
 
+/// The layers of a profile frame, the back ones first, as the card draws them.
+fn frame_rows(frame: &[yapfast_core::chat::ProfileFrameLayer]) -> ModelRc<ProfileFrameRow> {
+    if frame.is_empty() {
+        return ModelRc::default();
+    }
+    ModelRc::new(VecModel::from(
+        frame
+            .iter()
+            .map(|layer| ProfileFrameRow {
+                url: layer.src.as_str().into(),
+                kind: layer.kind.as_str().into(),
+                anchor: layer.anchor.as_str().into(),
+                front: layer.front,
+            })
+            .collect::<Vec<_>>(),
+    ))
+}
+
 /// The profile to show in place of `shown`, keeping its lists where they're
 /// the same; none when nothing changed.
 pub(super) fn changed_profile(shown: &ProfileData, mut data: ProfileData) -> Option<ProfileData> {
@@ -426,6 +447,7 @@ pub(super) fn changed_profile(shown: &ProfileData, mut data: ProfileData) -> Opt
     data.friends = same_list(&shown.friends, data.friends);
     data.activities = same_list(&shown.activities, data.activities);
     data.effect_layers = same_list(&shown.effect_layers, data.effect_layers);
+    data.frame = same_list(&shown.frame, data.frame);
     data.badges = same_list(&shown.badges, data.badges);
     data.connections = same_list(&shown.connections, data.connections);
     data.recent = same_list(&shown.recent, data.recent);
@@ -641,7 +663,17 @@ pub(super) fn profile_data(
         presence: presence_name(profile.presence).into(),
         activity: activity.into(),
         activity_emoji: activity_emoji.unwrap_or_default().into(),
-        activities: activity_rows(&profile.activities),
+        // One's own shows what one's sessions say, as Discord's client does:
+        // no presence comes for oneself.
+        activities: activity_rows(
+            if profile.activities.is_empty()
+                && state.discord_user.as_deref() == Some(profile.id.as_str())
+            {
+                &state.discord_activities
+            } else {
+                &profile.activities
+            },
+        ),
         badges: ModelRc::new(VecModel::from(
             profile
                 .badges
@@ -790,6 +822,17 @@ pub(super) fn profile_data(
                     && (state.relation(&profile.id) == Relation::Friend
                         || !profile.servers.is_empty()))),
         own,
+        frame: frame_rows(
+            cosmetics
+                .frame(Some(&profile.frame))
+                .map_or(&[][..], |frame| &frame[..]),
+        ),
+        banner_moving: profile
+            .banner
+            .as_deref()
+            .and_then(yapfast_core::chat::moving_banner)
+            .unwrap_or_default()
+            .into(),
         mutual_friends_text: mutual_count(profile.friends.len(), "Friend").into(),
         mutual_servers_text: mutual_count(profile.servers.len(), "Server").into(),
         friends_label: mutual_label(mutuals_known, profile.friends.len(), "Friend").into(),

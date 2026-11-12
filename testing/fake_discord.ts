@@ -201,7 +201,9 @@
 // /users/@me/settings-proto/1 replaces each top-level field it sends, and GET
 // /_control/presence shows the presence her session last sent with op 3, GET
 // /_control/settings her settings as GET /users/@me/settings-proto/1 gives them,
-// and how many times that was asked. POST /users/@me/relationships sends
+// and how many times that was asked.
+// POST /_control/other-session brings her phone online playing a song, with
+// SESSIONS_REPLACE. POST /users/@me/relationships sends
 // a friend request by username: Frank takes none, and unknown names fail.
 // Erin's request is a stranger's (`stranger_request`), which PUT accepts only
 // with `confirm_stranger_request`, as Discord's client confirms one; without it
@@ -452,6 +454,12 @@ const ALICE = "1400000000000000001";
 
 /** The profile effect Bob equips: an intro layer and a looping one over the card. */
 const PROFILE_EFFECT = "1500000000000000010";
+/** The profile frame Dave equips, a staple over the top and a border down
+ *  the sides, which GET /collectibles-products/{sku} describes; its layers
+ *  are served at /media/v1/collectibles-shop/{sku}/{layer}/static. Dave's
+ *  banner moves: its hash starts with `a_`, and its GIF is
+ *  testing/fixtures/gifs/hello.gif. */
+const PROFILE_FRAME = "1500000000000000011";
 // The SKUs that are nameplates, whose pictures are strips.
 const nameplateSkus = new Set<string>();
 // How many times a collectible's animated picture was asked for.
@@ -1024,15 +1032,19 @@ function wireProfile(user: User, guild: string | null, origin: string) {
   // Status Bot posts in the server, so Discord lists it as shared.
   const inServer = (Object.values(users).includes(user) && user.id !== ALICE) || user.id === statusBot.id;
   const isMember = Object.values(users).includes(user);
+  const dave = user.id === users.dave.id;
   const profile = user.id === ALICE ? aliceProfile : {
     bio: bob ? "Plays bass in a **ska** band. Ask me about https://example.com/gigs" : "",
     pronouns: bob ? "he/him" : "",
-    banner: bob ? "bob-banner" : null,
+    banner: bob ? "bob-banner" : dave ? "a_davebanner" : null,
     accent_color: carol ? 0x5865f2 : null,
   };
   return {
     user: { ...wireUser(user), banner: profile.banner, accent_color: profile.accent_color, bio: profile.bio },
-    user_profile: { ...profile, profile_effect: user.effect ? { id: user.effect, expires_at: null } : null },
+    user_profile: {
+      ...profile, profile_effect: user.effect ? { id: user.effect, expires_at: null } : null,
+      collectibles: dave ? [{ type: 3, sku_id: PROFILE_FRAME }] : [],
+    },
     ...(guild === GUILD && isMember
       ? {
           guild_member_profile: guildMemberProfile(user.id),
@@ -2909,6 +2921,7 @@ function ready(ws: Socket) {
         session_id: ws.data.session,
         status: "online",
         activities: [],
+        active: true,
         client_info: { client: "web", os: "linux", version: 0 },
       },
     ],
@@ -6207,6 +6220,19 @@ async function api(req: Request, path: string, origin: string): Promise<Response
 
   // The shop's product for a profile effect, whose layers Discord's client
   // lays over a profile card: an intro that plays once, and a loop.
+  if (method === "GET" && path === `/collectibles-products/${PROFILE_FRAME}`) {
+    return json({
+      sku_id: PROFILE_FRAME, store_listing_id: "2", type: 3, name: "Brass", summary: "A brass frame",
+      items: [{
+        type: 3, sku_id: PROFILE_FRAME, label: "A brass frame", inner_width: 1200,
+        overflow_top: 304, overflow_bottom: 212, overflow_horizontal: 56,
+        layers: [
+          { id: "1", type: "staple", order: "front", anchor: "top" },
+          { id: "2", type: "border", order: "back", anchor: "center" },
+        ],
+      }],
+    });
+  }
   if (method === "GET" && (m = path.match(/^\/collectibles-products\/(\d+)$/))) {
     const sku = m[1]!;
     if (!profileEffects.has(sku)) return notFound("Unknown Collectibles Product", 10000);
@@ -8240,7 +8266,7 @@ const ENV_IDS = 1_450_000_000_000_000_000n;
 const GENERIC_CONTROLS = new Set([
   "media-requests", "history", "forwards", "gif-selects", "nitro", "profile", "profile-reset", "server-profile", "health", "presence", "logouts",
   "voice-identifies", "voice-changes", "call-audio", "call-video", "voice-link", "voice-drop", "voice-move", "voice-kick",
-  "stream-move", "sessions", "cookies", "list-requests", "audit-log", "slow", "gateway-reconnect", "qr-scan",
+  "stream-move", "sessions", "other-session", "cookies", "list-requests", "audit-log", "slow", "gateway-reconnect", "qr-scan",
   "qr-confirm", "qr-captcha", "qr-cancel", "qr-expire", "voice-audio", "video", "stream-codec", "reactor-pages",
   "reactor-removals", "thread-searches", "thread-creates", "thread-members", "typed", "acks", "invites",
   "invite-joins", "invite-captcha", "invite-form", "event-interest", "gift-redeems", "oauth-authorizations", "mfa", "soundboard-sends", "custom-call-sounds",
@@ -8778,6 +8804,20 @@ const server = Bun.serve<SocketData>({
     if (effectLayer && profileEffects.has(effectLayer[1]!)) {
       return new Response(effectPicture(effectLayer[2]!), { headers: { "content-type": "image/png" } });
     }
+    // A frame's layers: a brass bar with a knob for the staple, and a
+    // brass edge down either side for the border.
+    const frameLayer = req.method === "GET" ? path.match(/^\/media\/v1\/collectibles-shop\/(\d+)\/([12])\/static$/) : null;
+    if (frameLayer) {
+      const brass = [196, 150, 60, 255];
+      const picture = frameLayer[2] === "1"
+        ? png(460, 110, (x, y) => (y > 70 && y < 90) || Math.hypot(x - 230, y - 60) < 40 ? brass : [0, 0, 0, 0])
+        : png(460, 200, (x) => x < 14 || x >= 446 ? brass : [0, 0, 0, 0]);
+      return new Response(picture, { headers: { "content-type": "image/png" } });
+    }
+    const movingBanner = req.method === "GET" ? path.match(/^\/banners\/\d+\/a_[a-z]+\.gif$/) : null;
+    if (movingBanner) {
+      return new Response(Bun.file(new URL("gifs/hello.gif", fixtures)), { headers: { "content-type": "image/gif" } });
+    }
     const collectible = req.method === "GET" ? path.match(COLLECTIBLES_PATH) : null;
     if (collectible) {
       if (collectible[2] === "animated") collectibleAnimations++;
@@ -8817,6 +8857,31 @@ const server = Bun.serve<SocketData>({
     }
     if (path === "/_control/health") return new Response("ok\n");
     if (path === "/_control/presence") return Response.json(alicePresence);
+    if (req.method === "POST" && path === "/_control/other-session") {
+      // Alice's phone comes online playing a song, as SESSIONS_REPLACE
+      // lists every session of hers with what each shows.
+      const own = [...sockets].filter(ws => ws.data.identified).map(ws => ({
+        session_id: ws.data.session, status: "online", activities: [], active: true,
+        client_info: { client: "web", os: "linux", version: 0 },
+      }));
+      const song = {
+        type: 2, name: "Spotify", id: "spotify:1", application_id: null, created_at: Date.now(),
+        details: "Song on the phone", state: "An artist", sync_id: "4uLU6hMCjMI75M1A2tKUQC",
+        timestamps: { start: Date.now() - 30_000, end: Date.now() + 150_000 },
+        assets: { large_image: "spotify:ab67616d0000b273", large_text: "An album" },
+      };
+      // With more than one session, Discord puts a merged one, "all", first.
+      dispatch("SESSIONS_REPLACE", [{
+        session_id: "all", status: "online", active: true,
+        client_info: { client: "unknown", os: "unknown", version: 0 },
+        activities: [song],
+      }, ...own, {
+        session_id: "fake-phone", status: "online", active: true,
+        client_info: { client: "mobile", os: "ios", version: 0 },
+        activities: [song],
+      }]);
+      return new Response("online\n");
+    }
     if (path === "/_control/settings") return Response.json({ settings, reads: settingsReads });
     if (req.method === "POST" && path === "/_control/bob-away") {
       // Bob goes idle with a custom status, as his friends hear it.

@@ -139,6 +139,8 @@ events! {
     GuildSoundboardSoundUpdate = "GUILD_SOUNDBOARD_SOUND_UPDATE",
     GuildSoundboardSoundDelete = "GUILD_SOUNDBOARD_SOUND_DELETE",
     GuildSoundboardSoundsUpdate = "GUILD_SOUNDBOARD_SOUNDS_UPDATE",
+    /// This account's sessions on every device, and what each shows it doing.
+    SessionsReplace = "SESSIONS_REPLACE",
     RelationshipAdd = "RELATIONSHIP_ADD",
     RelationshipUpdate = "RELATIONSHIP_UPDATE",
     RelationshipRemove = "RELATIONSHIP_REMOVE",
@@ -267,6 +269,7 @@ mod tests {
                 "GUILD_SOUNDBOARD_SOUNDS_UPDATE",
                 Event::GuildSoundboardSoundsUpdate,
             ),
+            ("SESSIONS_REPLACE", Event::SessionsReplace),
             ("RELATIONSHIP_ADD", Event::RelationshipAdd),
             ("RELATIONSHIP_UPDATE", Event::RelationshipUpdate),
             ("RELATIONSHIP_REMOVE", Event::RelationshipRemove),

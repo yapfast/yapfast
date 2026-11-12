@@ -1356,6 +1356,43 @@ async fn a_star_saves_the_favourite_emoji_and_leaves_the_rest() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn fetches_the_profile_frame_a_profile_names() {
+    let Fixture {
+        _fake,
+        discord,
+        guild,
+        bob,
+        ..
+    } = Fixture::start("fetches_the_profile_frame_a_profile_names").await;
+    // Dave's profile names a frame, and his banner moves; Bob's has no frame.
+    let dave = discord
+        .profile(&guild, "1400000000000000004", |_| {})
+        .await
+        .unwrap();
+    let sku = dave.frame.expect("Dave equips a frame");
+    assert!(dave.banner.unwrap().contains("/a_davebanner.png?"));
+    let bob = discord.profile(&guild, &bob, |_| {}).await.unwrap();
+    assert_eq!(bob.frame, None);
+    // The shop describes its layers, the back ones first, and they're kept.
+    assert_eq!(discord.kept_frame(&sku), None);
+    let layers = discord.profile_frame(&sku).await.unwrap().unwrap();
+    assert_eq!(
+        layers
+            .iter()
+            .map(|layer| (layer.kind.as_str(), layer.front))
+            .collect::<Vec<_>>(),
+        [("border", false), ("staple", true)]
+    );
+    assert!(
+        layers[1]
+            .src
+            .ends_with(&format!("/collectibles-shop/{sku}/1/static"))
+    );
+    assert_eq!(discord.kept_frame(&sku), Some(Some(layers)));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn fetches_the_profile_effect_a_profile_names() {
     let Fixture {
         _fake,
@@ -4257,6 +4294,28 @@ async fn status_custom_status_and_game_sharing_keep_each_other() {
     let answer: serde_json::Value =
         serde_json::from_str(&control(server, "GET", "/_control/settings", "")).unwrap();
     assert_eq!(answer["reads"], 0, "no GET /users/@me/settings-proto/1");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn shows_the_accounts_own_activities_from_its_other_sessions() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        ..
+    } = Fixture::start("shows_the_accounts_own_activities_from_its_other_sessions").await;
+    // A custom status has its own line, so this session shows nothing yet.
+    let snapshot = snapshot_where(&discord, |snapshot| snapshot.custom_status.is_some()).await;
+    assert!(snapshot.own_activities.is_empty());
+    // Her phone plays a song, which her own profile shows, as Discord's
+    // client shows another session's activities.
+    post_control(server, "/_control/other-session", "");
+    let snapshot = snapshot_where(&discord, |snapshot| !snapshot.own_activities.is_empty()).await;
+    let song = &snapshot.own_activities[0];
+    assert_eq!(song.kind, yapfast_discord::activity::Kind::Listening);
+    assert_eq!(song.details.as_deref(), Some("Song on the phone"));
+    assert!(song.start.is_some() && song.end.is_some());
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -1281,6 +1281,7 @@ struct Layout {
     moving_cosmetics: Option<bool>,
     name_styles: Option<bool>,
     server_tags: Option<bool>,
+    profile_frames: Option<bool>,
     /// Joining a call turns the microphone on; on unless turned off.
     unmute_on_join: Option<bool>,
     /// Joining a call deafens.
@@ -1500,6 +1501,7 @@ impl Layout {
             moving: self.moving_cosmetics.unwrap_or(default.moving),
             name_styles: self.name_styles.unwrap_or(default.name_styles),
             server_tags: self.server_tags.unwrap_or(default.server_tags),
+            frames: self.profile_frames.unwrap_or(default.frames),
         }
     }
 
@@ -1513,6 +1515,7 @@ impl Layout {
         looks.set_moving(cosmetics.moving);
         looks.set_name_styles(cosmetics.name_styles);
         looks.set_server_tags(cosmetics.server_tags);
+        looks.set_profile_frames(cosmetics.frames);
         pictures::set_moving_collectibles(cosmetics.moving);
     }
 
@@ -1524,6 +1527,7 @@ impl Layout {
         self.moving_cosmetics = Some(looks.get_moving());
         self.name_styles = Some(looks.get_name_styles());
         self.server_tags = Some(looks.get_server_tags());
+        self.profile_frames = Some(looks.get_profile_frames());
         pictures::set_moving_collectibles(self.cosmetics().moving);
     }
 
