@@ -486,7 +486,7 @@ pub enum Effort {
 /// picture gets the slower preset on whichever encoder runs, and one that
 /// doesn't spends the card's time on the game instead.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum Tuning {
+pub(crate) enum Tuning {
     /// p4 at low-latency tuning, capped VBR, no frame delay and an IDR on
     /// demand: where screen recordings and games landed.
     #[default]
@@ -498,6 +498,13 @@ enum Tuning {
 }
 
 impl Tuning {
+    /// Every tuning a stream may ask for, which is [`Effort`]'s two: a test
+    /// holds native/hwenc.c's table and native/d3d11enc.c's to each of their
+    /// names and settings, since both backends open NVENC and only one of them
+    /// usually runs.
+    #[cfg(all(hwenc, test))]
+    pub(crate) const ALL: [Self; 2] = [Self::LowLatency, Self::High];
+
     /// The row an encoder of this [`Effort`] is opened with: the card's encoder
     /// follows the same setting x264's does.
     fn for_effort(effort: Effort) -> Self {
@@ -507,9 +514,9 @@ impl Tuning {
         }
     }
 
-    /// The row's name, as native/hwenc.c reads it.
+    /// The row's name, as native/hwenc.c and native/d3d11enc.c read it.
     #[cfg(hwenc)]
-    fn name(self) -> &'static std::ffi::CStr {
+    pub(crate) fn name(self) -> &'static std::ffi::CStr {
         match self {
             Self::LowLatency => c"p4",
             Self::High => c"p7",

@@ -1366,46 +1366,56 @@ mod tests {
         ) -> c_int;
     }
 
-    /// The two GPU backends ask NVENC for the same thing: p4 at low-latency
-    /// tuning, capped VBR, no frame allowed to wait and an IDR on demand, with the
-    /// same settings marked as the ones the stream can't do without. A tuning that
-    /// changed on one side and not the other would encode a picture nobody
-    /// measured, and neither a stream nor a comparison would say which it got.
+    /// The two GPU backends ask NVENC for the same thing, for every tuning a
+    /// stream may ask for: low-latency tuning, capped VBR, no frame allowed to
+    /// wait and an IDR on demand, with the same settings marked as the ones the
+    /// stream can't do without. A tuning that changed on one side and not the
+    /// other would encode a picture nobody measured, and neither a stream nor a
+    /// comparison would say which it got — and one the in-place session's table
+    /// lacked is refused, which silently left the share to the upload path.
     #[cfg(hwenc)]
     #[test]
     fn both_gpu_backends_ask_nvenc_for_the_same_thing() {
-        let mut d3d11 = [0u8; 192];
-        let mut ffmpeg = [0u8; 192];
-        // SAFETY: a name the row has, or none at all for the shipped one, and a
-        // buffer of the size given on each side.
-        let (ours, theirs) = unsafe {
-            (
-                yapfast_d3d11enc_tuning_settings(
-                    std::ptr::null(),
-                    d3d11.as_mut_ptr().cast(),
-                    d3d11.len(),
-                ),
-                yapfast_hwenc_nvenc_settings(
-                    std::ptr::null(),
-                    ffmpeg.as_mut_ptr().cast(),
-                    ffmpeg.len(),
-                ),
-            )
-        };
-        assert_eq!((ours, theirs), (0, 0));
-        assert_eq!(
-            c_text(&d3d11),
-            c_text(&ffmpeg),
-            "the two backends' settings"
-        );
-        // A tuning nobody has is refused rather than quietly replaced by this
-        // one, on both sides of the comparison.
+        for tuning in crate::encode::Tuning::ALL {
+            let mut d3d11 = [0u8; 192];
+            let mut ffmpeg = [0u8; 192];
+            // SAFETY: a name this backend's rows have, and a buffer of the size
+            // given on each side.
+            let (ours, theirs) = unsafe {
+                (
+                    yapfast_d3d11enc_tuning_settings(
+                        tuning.name().as_ptr(),
+                        d3d11.as_mut_ptr().cast(),
+                        d3d11.len(),
+                    ),
+                    yapfast_hwenc_nvenc_settings(
+                        tuning.name().as_ptr(),
+                        ffmpeg.as_mut_ptr().cast(),
+                        ffmpeg.len(),
+                    ),
+                )
+            };
+            assert_eq!((ours, theirs), (0, 0), "{:?}", tuning.name());
+            assert_eq!(
+                c_text(&d3d11),
+                c_text(&ffmpeg),
+                "the two backends' settings, {:?}",
+                tuning.name()
+            );
+        }
+        // A name whose row isn't there — none at all for the shipped tuning — is
+        // the shipped one, and one no row has is refused rather than quietly
+        // replaced by it, on both sides of the comparison.
         let mut none = [0u8; 192];
+        let mut nothing = [0u8; 192];
         // SAFETY: as above, with a name no row has.
         let refused = unsafe {
-            yapfast_d3d11enc_tuning_settings(c"p7".as_ptr(), none.as_mut_ptr().cast(), none.len())
+            (
+                yapfast_d3d11enc_tuning_settings(c"p9".as_ptr(), none.as_mut_ptr().cast(), none.len()),
+                yapfast_hwenc_nvenc_settings(c"p9".as_ptr(), nothing.as_mut_ptr().cast(), nothing.len()),
+            )
         };
-        assert_eq!(refused, -1);
+        assert_eq!(refused, (-1, -1));
     }
 
     /// The setting chooses between the adapters this machine really presents,

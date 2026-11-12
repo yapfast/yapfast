@@ -85,7 +85,10 @@ enum { CODEC_H264, CODEC_HEVC, CODEC_AV1, CODEC_COUNT };
 
 /* The tuning the stream asks a GPU's encoder for, in NVENC's terms. One row per
  * tuning, the same rows native/hwenc.c names, so what the stream asks for reads
- * the same whichever side encodes it.
+ * the same whichever side encodes it: a share with "Higher quality" ticked asks
+ * for p7 here as it does there, and the in-place session it was already using
+ * keeps encoding it rather than being refused and leaving the stream to the
+ * upload path.
  *
  * `preset` is how much work NVENC does per frame, `p4` where screen recordings
  * and games landed; `tune` is the low-latency one, since the picture is one
@@ -104,6 +107,7 @@ struct nvenc_tuning {
 
 static const struct nvenc_tuning NVENC_TUNINGS[] = {
     {"p4", "p4", "vbr", &NV_ENC_PRESET_P4_GUID, NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY, 1, 0, 1},
+    {"p7", "p7", "vbr", &NV_ENC_PRESET_P7_GUID, NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY, 1, 0, 1},
 };
 
 /* The tuning Rust asked for by name, or the first row when it named none. A
