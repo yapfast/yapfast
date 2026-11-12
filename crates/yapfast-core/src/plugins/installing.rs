@@ -366,9 +366,10 @@ fn theme_files(
         read.insert(relative, bytes);
     }
     let licence = match licence {
-        Some(name) if crate::themes::check::LICENCE_FILES.contains(&name) => {
-            Some((name.into(), read_and_remove(&folder.join(name).to_string_lossy())?))
-        }
+        Some(name) if crate::themes::check::LICENCE_FILES.contains(&name) => Some((
+            name.into(),
+            read_and_remove(&folder.join(name).to_string_lossy())?,
+        )),
         _ => None,
     };
     Ok(crate::themes::check::Files {

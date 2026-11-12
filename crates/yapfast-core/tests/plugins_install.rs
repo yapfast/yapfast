@@ -292,10 +292,52 @@ fn fetched_from(folder: &str) -> installing::Fetched {
     match installing::fetch(&url).expect("the repository reads") {
         installing::Outcome::Plugin(fetched) => fetched,
         installing::Outcome::Index { .. } => panic!("one plugin, not an index"),
+        installing::Outcome::Theme(_) => panic!("a plugin, not a theme"),
     }
 }
 
-/// One test at a time, for the process's environment: the two tests here fetch
+/// A theme's repository is read by the same helper, which hands back
+/// theme.json and the files it names; a source that isn't on GitHub is then
+/// refused, whatever it holds.
+#[test]
+fn a_theme_is_read_by_the_helper_and_only_github_is_accepted() {
+    let _environment = helper();
+    let source = tempfile::tempdir().expect("a repository's directory");
+    std::fs::write(
+        source.path().join("theme.json"),
+        r##"{ "theme_api": 1, "id": "dev.local.plum", "name": "Plum", "version": "1.0.0",
+            "variants": { "dark": { "base": "yap", "colours": { "chat": "#2a1a3a" } } } }"##,
+    )
+    .expect("its theme.json");
+    for arguments in [
+        vec!["init", "--quiet", "--initial-branch", "main"],
+        vec!["add", "-A"],
+        vec![
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.org",
+            "commit",
+            "--quiet",
+            "-m",
+            "A theme",
+        ],
+    ] {
+        assert!(
+            Command::new("git")
+                .args(&arguments)
+                .current_dir(source.path())
+                .status()
+                .expect("git")
+                .success()
+        );
+    }
+    let url = format!("file://{}", source.path().display());
+    let refused = installing::fetch(&url).expect_err("only GitHub themes install");
+    assert!(refused.contains("GitHub"), "{refused}");
+}
+
+/// One test at a time, for the process's environment: the tests here fetch
 /// through the helper, which reads `YAPFAST_PLUGINS` when it starts, and `setenv`
 /// while another thread reads the environment is the data race the standard
 /// library marks it as.

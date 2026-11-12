@@ -386,7 +386,9 @@ fn theme_files(value: &serde_json::Value, found: &mut Vec<String>) {
             }
         }
         serde_json::Value::Array(items) => items.iter().for_each(|item| theme_files(item, found)),
-        serde_json::Value::Object(fields) => fields.values().for_each(|item| theme_files(item, found)),
+        serde_json::Value::Object(fields) => {
+            fields.values().for_each(|item| theme_files(item, found))
+        }
         _ => {}
     }
 }

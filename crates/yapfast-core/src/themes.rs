@@ -15,7 +15,6 @@
 //! a theme written for a later Yapfast still opens.
 
 pub mod check;
-#[cfg(feature = "plugins")]
 pub mod install;
 pub mod motion;
 pub mod package;

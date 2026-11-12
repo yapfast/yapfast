@@ -57,7 +57,9 @@ pub fn base_colour(base: &str, token: &str) -> Option<u32> {
 
 /// Whether a base is one Yapfast has, when the interface registered them.
 fn known_base(base: &str) -> bool {
-    BASES.get().is_none_or(|colours| colours(base, "text").is_some())
+    BASES
+        .get()
+        .is_none_or(|colours| colours(base, "text").is_some())
 }
 
 /// How strict to be.
@@ -137,7 +139,12 @@ impl Files {
 
     /// Bytes on disk the theme takes.
     pub fn bytes(&self) -> u64 {
-        self.manifest.len() as u64 + self.files.values().map(|bytes| bytes.len() as u64).sum::<u64>()
+        self.manifest.len() as u64
+            + self
+                .files
+                .values()
+                .map(|bytes| bytes.len() as u64)
+                .sum::<u64>()
     }
 }
 
@@ -191,7 +198,11 @@ impl Report {
             out.push_str(&format!("note: {note}\n"));
         }
         out.push_str(&format!("cost: {}\n", self.cost.text()));
-        out.push_str(if self.passed() { "passed\n" } else { "failed\n" });
+        out.push_str(if self.passed() {
+            "passed\n"
+        } else {
+            "failed\n"
+        });
         out
     }
 }
@@ -263,9 +274,13 @@ impl Cost {
                 }
             }
             cost.animations = cost.animations.max(variant.animations.len());
-            cost.heavy = cost
-                .heavy
-                .max(variant.animations.iter().filter(|animation| animation.heavy).count());
+            cost.heavy = cost.heavy.max(
+                variant
+                    .animations
+                    .iter()
+                    .filter(|animation| animation.heavy)
+                    .count(),
+            );
             cost.effects = cost.effects.max(variant.effects.len());
             for animation in &variant.animations {
                 let rate = super::motion::frame_rate(animation, super::Performance::Full);
@@ -325,14 +340,20 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
             continue;
         };
         if let Err(error) = check_file(&relative, bytes) {
-            report.errors.push(format!("{}: {error}", relative.display()));
+            report
+                .errors
+                .push(format!("{}: {error}", relative.display()));
         }
     }
     if files.bytes() > MAX_THEME_BYTES {
         report.errors.push("a theme holds at most 24 MiB".into());
     }
     if strictness == Strictness::Marketplace {
-        if package.license.as_deref().is_none_or(|license| license.trim().is_empty()) {
+        if package
+            .license
+            .as_deref()
+            .is_none_or(|license| license.trim().is_empty())
+        {
             report
                 .errors
                 .push("a listed theme names its licence in \"license\", such as OFL-1.1".into());
@@ -345,9 +366,9 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
         }
         match package.source.as_deref() {
             Some(source) if github(source) => {}
-            _ => report.errors.push(
-                "a listed theme names its public GitHub repository in \"source\"".into(),
-            ),
+            _ => report
+                .errors
+                .push("a listed theme names its public GitHub repository in \"source\"".into()),
         }
         if package.description.trim().is_empty() {
             report
@@ -503,7 +524,8 @@ pub fn check_font(bytes: &[u8]) -> Result<(), String> {
         return Err("a font is at most 4 MiB".into());
     }
     let parsed = std::panic::catch_unwind(|| {
-        let face = ttf_parser::Face::parse(bytes, 0).map_err(|error| format!("isn't a font Yapfast reads ({error})"))?;
+        let face = ttf_parser::Face::parse(bytes, 0)
+            .map_err(|error| format!("isn't a font Yapfast reads ({error})"))?;
         if face.number_of_glyphs() == 0 {
             return Err("holds no glyphs".to_owned());
         }
@@ -532,7 +554,8 @@ pub fn check_image(bytes: &[u8]) -> Result<(), String> {
     if bytes.len() as u64 > MAX_IMAGE_BYTES {
         return Err("a picture is at most 2 MiB".into());
     }
-    let format = image::guess_format(bytes).map_err(|_| "isn't a picture Yapfast reads".to_owned())?;
+    let format =
+        image::guess_format(bytes).map_err(|_| "isn't a picture Yapfast reads".to_owned())?;
     if !matches!(
         format,
         image::ImageFormat::Png | image::ImageFormat::Jpeg | image::ImageFormat::WebP
@@ -591,7 +614,9 @@ pub fn check_svg(bytes: &[u8]) -> Result<(), String> {
             let key = attribute.name();
             let value = attribute.value().trim();
             if key.to_ascii_lowercase().starts_with("on") {
-                return Err(format!("has an event handler ({key}), which an SVG in a theme can't"));
+                return Err(format!(
+                    "has an event handler ({key}), which an SVG in a theme can't"
+                ));
             }
             if key == "href" && !value.starts_with('#') {
                 return Err(format!(
@@ -626,7 +651,9 @@ fn outside_reference(text: &str) -> bool {
     }
     let mut rest = text;
     while let Some(start) = rest.find("url(") {
-        let after = rest[start + 4..].trim_start().trim_start_matches(['"', '\'']);
+        let after = rest[start + 4..]
+            .trim_start()
+            .trim_start_matches(['"', '\'']);
         if !after.starts_with('#') {
             return true;
         }
@@ -677,7 +704,12 @@ mod tests {
     fn a_readable_theme_passes() {
         let report = check(&files(PLUM), Strictness::Install);
         assert!(report.passed(), "{:?}", report.errors);
-        assert!(report.warnings.iter().any(|warning| warning.contains("preview")));
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("preview"))
+        );
     }
 
     #[test]
@@ -703,14 +735,28 @@ mod tests {
 
     #[test]
     fn a_dark_variant_needs_a_dark_base() {
-        let report = check(&files(&PLUM.replace("\"yap\"", "\"sakura\"")), Strictness::Install);
+        let report = check(
+            &files(&PLUM.replace("\"yap\"", "\"sakura\"")),
+            Strictness::Install,
+        );
         assert!(
-            report.errors.iter().any(|error| error.contains("is a light theme")),
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("is a light theme")),
             "{:?}",
             report.errors
         );
-        let report = check(&files(&PLUM.replace("\"yap\"", "\"neon\"")), Strictness::Install);
-        assert!(report.errors.iter().any(|error| error.contains("isn't a theme Yapfast comes with")));
+        let report = check(
+            &files(&PLUM.replace("\"yap\"", "\"neon\"")),
+            Strictness::Install,
+        );
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("isn't a theme Yapfast comes with"))
+        );
     }
 
     #[test]
@@ -720,11 +766,24 @@ mod tests {
             r#""type": { "body": { "font": "fonts/Body.ttf" } }"#,
         );
         let report = check(&files(&manifest), Strictness::Install);
-        assert!(report.errors.iter().any(|error| error.contains("isn't in the theme")));
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("isn't in the theme"))
+        );
         let mut with = files(&manifest);
-        with.files.insert("fonts/Body.ttf".into(), b"not a font".to_vec());
+        with.files
+            .insert("fonts/Body.ttf".into(), b"not a font".to_vec());
         let report = check(&with, Strictness::Install);
-        assert!(report.errors.iter().any(|error| error.contains("isn't a font")), "{:?}", report.errors);
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("isn't a font")),
+            "{:?}",
+            report.errors
+        );
     }
 
     #[test]
@@ -753,13 +812,34 @@ mod tests {
         let fine = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs><linearGradient id="g"><stop offset="0" stop-color="red"/></linearGradient></defs><rect width="10" height="10" fill="url(#g)"/></svg>"##;
         assert_eq!(check_svg(fine), Ok(()));
         for (svg, says) in [
-            (r#"<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>"#, "<script>"),
-            (r#"<svg xmlns="http://www.w3.org/2000/svg" onload="x()"><rect width="1" height="1"/></svg>"#, "event handler"),
-            (r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="https://example.com/a.png"/></svg>"#, "links to"),
-            (r#"<svg xmlns="http://www.w3.org/2000/svg"><rect fill="url(https://example.com/x#g)" width="1" height="1"/></svg>"#, "outside"),
-            (r#"<svg xmlns="http://www.w3.org/2000/svg"><style>@import url(x.css);</style></svg>"#, "outside"),
-            (r#"<!DOCTYPE svg [<!ENTITY x "y">]><svg xmlns="http://www.w3.org/2000/svg"/>"#, "entities"),
-            (r#"<svg xmlns="http://www.w3.org/2000/svg"><foreignObject/></svg>"#, "foreignObject"),
+            (
+                r#"<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>"#,
+                "<script>",
+            ),
+            (
+                r#"<svg xmlns="http://www.w3.org/2000/svg" onload="x()"><rect width="1" height="1"/></svg>"#,
+                "event handler",
+            ),
+            (
+                r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="https://example.com/a.png"/></svg>"#,
+                "links to",
+            ),
+            (
+                r#"<svg xmlns="http://www.w3.org/2000/svg"><rect fill="url(https://example.com/x#g)" width="1" height="1"/></svg>"#,
+                "outside",
+            ),
+            (
+                r#"<svg xmlns="http://www.w3.org/2000/svg"><style>@import url(x.css);</style></svg>"#,
+                "outside",
+            ),
+            (
+                r#"<!DOCTYPE svg [<!ENTITY x "y">]><svg xmlns="http://www.w3.org/2000/svg"/>"#,
+                "entities",
+            ),
+            (
+                r#"<svg xmlns="http://www.w3.org/2000/svg"><foreignObject/></svg>"#,
+                "foreignObject",
+            ),
         ] {
             let error = check_svg(svg.as_bytes()).unwrap_err();
             assert!(error.contains(says), "{svg}: {error}");
@@ -789,6 +869,10 @@ mod tests {
         let report = check(&files(&manifest), Strictness::Install);
         assert_eq!(report.cost.animations, 2);
         assert_eq!(report.cost.heavy, 1);
-        assert!(report.cost.text().contains("2 animations (1 heavy)"), "{}", report.cost.text());
+        assert!(
+            report.cost.text().contains("2 animations (1 heavy)"),
+            "{}",
+            report.cost.text()
+        );
     }
 }

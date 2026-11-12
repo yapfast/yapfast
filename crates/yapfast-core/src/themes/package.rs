@@ -63,7 +63,7 @@ pub const COLOURS: [&str; 37] = [
 
 /// Colours only a theme sets (plugins can't), each following another until a
 /// theme does: what it follows is [`follows`].
-pub const EXTRA_COLOURS: [&str; 13] = [
+pub const EXTRA_COLOURS: [&str; 20] = [
     "accent-text",
     "on-tooltip",
     "selection",
@@ -77,6 +77,13 @@ pub const EXTRA_COLOURS: [&str; 13] = [
     "placeholder",
     "mentioned",
     "mentioned-hover",
+    "composer-focus",
+    "row-selected",
+    "pill",
+    "toggle-off",
+    "knob-off",
+    "code",
+    "embed",
 ];
 
 /// The colour an extra colour shows while a theme doesn't set it, for
@@ -89,6 +96,12 @@ pub fn follows(token: &str) -> Option<&'static str> {
         "composer" => "field",
         "menu-line" => "line",
         "placeholder" => "muted",
+        "row-selected" => "active",
+        "pill" => "text",
+        "toggle-off" => "field",
+        "knob-off" => "secondary",
+        "code" => "panel",
+        "embed" => "sidebar",
         _ => return None,
     })
 }
@@ -104,7 +117,7 @@ pub const BRUSHES: [&str; 6] = ["rail", "sidebar", "chat", "panel", "raised", "a
 
 /// Each text colour and the surfaces it's drawn on, which it must stay
 /// readable against.
-pub const TEXT_ON: [(&str, &[&str]); 10] = [
+pub const TEXT_ON: [(&str, &[&str]); 13] = [
     ("text", &SURFACES),
     ("secondary", &SURFACES),
     ("muted", &SURFACES),
@@ -115,6 +128,9 @@ pub const TEXT_ON: [(&str, &[&str]); 10] = [
     ("text", &["menu"]),
     ("text", &["composer"]),
     ("on-tooltip", &["tooltip"]),
+    ("text", &["row-selected"]),
+    ("text", &["code"]),
+    ("text", &["embed"]),
 ];
 
 /// The surfaces most text sits on.
@@ -217,7 +233,13 @@ pub enum Role {
 }
 
 impl Role {
-    pub const ALL: [Self; 5] = [Self::Body, Self::Headings, Self::Names, Self::Code, Self::Labels];
+    pub const ALL: [Self; 5] = [
+        Self::Body,
+        Self::Headings,
+        Self::Names,
+        Self::Code,
+        Self::Labels,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -292,7 +314,10 @@ impl Curve {
     /// Its index in [`Self::ALL`], which `ui/theme.slint`'s `Motion` maps
     /// back to Slint's easing.
     pub fn index(self) -> i32 {
-        Self::ALL.iter().position(|curve| *curve == self).unwrap_or(0) as i32
+        Self::ALL
+            .iter()
+            .position(|curve| *curve == self)
+            .unwrap_or(0) as i32
     }
 }
 
@@ -325,7 +350,10 @@ impl Hover {
     }
 
     pub fn index(self) -> i32 {
-        Self::ALL.iter().position(|hover| *hover == self).unwrap_or(0) as i32
+        Self::ALL
+            .iter()
+            .position(|hover| *hover == self)
+            .unwrap_or(0) as i32
     }
 }
 
@@ -352,7 +380,10 @@ impl Press {
     }
 
     pub fn index(self) -> i32 {
-        Self::ALL.iter().position(|press| *press == self).unwrap_or(0) as i32
+        Self::ALL
+            .iter()
+            .position(|press| *press == self)
+            .unwrap_or(0) as i32
     }
 }
 
@@ -386,7 +417,10 @@ impl Transition {
     }
 
     pub fn index(self) -> i32 {
-        Self::ALL.iter().position(|transition| *transition == self).unwrap_or(0) as i32
+        Self::ALL
+            .iter()
+            .position(|transition| *transition == self)
+            .unwrap_or(0) as i32
     }
 }
 
@@ -512,7 +546,9 @@ impl Property {
     }
 
     pub fn named(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|property| property.name() == name)
+        Self::ALL
+            .into_iter()
+            .find(|property| property.name() == name)
     }
 
     pub fn is_colour(self) -> bool {
@@ -663,6 +699,10 @@ pub struct Type {
     pub letter_spacing: Option<f32>,
     /// Headings only: drawn in capitals.
     pub uppercase: Option<bool>,
+    /// Headings only: the open conversation's and the server's names, and
+    /// page and dialog titles, apart from other headings.
+    pub header_size: Option<f32>,
+    pub title_size: Option<f32>,
 }
 
 /// Gaps, paddings and sizes, each in logical pixels and in its range.
@@ -1001,7 +1041,9 @@ impl Package {
             .transpose()?;
         for key in top.keys() {
             if !TOP_KEYS.contains(&key.as_str()) && !LAYER_KEYS.contains(&key.as_str()) {
-                notes.push(format!("\"{key}\" isn't something this Yapfast reads; ignored"));
+                notes.push(format!(
+                    "\"{key}\" isn't something this Yapfast reads; ignored"
+                ));
             }
         }
         if let Some(parts) = top.get("parts") {
@@ -1152,8 +1194,7 @@ impl Package {
                 read_motion(motion, &place("motion"), &mut resolved.motion, notes)?;
             }
             if let Some(animations) = layers.get("animations") {
-                resolved.animations =
-                    read_animations(animations, &place("animations"), notes)?;
+                resolved.animations = read_animations(animations, &place("animations"), notes)?;
             }
             if let Some(effects) = layers.get("effects") {
                 read_effects(effects, &place("effects"), &mut resolved.effects, notes)?;
@@ -1180,6 +1221,64 @@ impl Package {
     }
 }
 
+/// A theme.json for one of the person's own colour themes, so it can be
+/// shared as a package: every colour it has, over the built-in theme it
+/// began as. `colours` are by their name in `ui/theme.slint`, as ARGB.
+pub fn export(name: &str, base: &str, dark: bool, colours: &[(&str, u32)]) -> String {
+    let slug: String = name
+        .to_lowercase()
+        .chars()
+        .map(|letter| {
+            if letter.is_ascii_alphanumeric() {
+                letter
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let slug = if slug.is_empty() {
+        "my-theme".to_owned()
+    } else {
+        slug
+    };
+    let colours: serde_json::Map<String, Value> = colours
+        .iter()
+        .filter(|(token, _)| !LOCKED_COLOURS.contains(token))
+        .map(|(token, colour)| ((*token).to_owned(), Value::String(hex(*colour))))
+        .collect();
+    let mode = if dark { "dark" } else { "light" };
+    let value = serde_json::json!({
+        "theme_api": THEME_API,
+        "id": format!("local.{slug}"),
+        "name": name,
+        "version": "1.0.0",
+        "description": "",
+        "authors": [],
+        "license": "CC0-1.0",
+        "source": "",
+        "preview": [],
+        "variants": { mode: { "base": base, "colours": colours } },
+    });
+    let mut text = serde_json::to_string_pretty(&value).expect("JSON values serialise");
+    text.push('\n');
+    text
+}
+
+/// A folder name for an exported theme.
+pub fn folder_name(name: &str) -> String {
+    let text = export(name, "yap", true, &[]);
+    let value: Value = serde_json::from_str(&text).expect("just written");
+    value["id"]
+        .as_str()
+        .and_then(|id| id.strip_prefix("local."))
+        .unwrap_or("my-theme")
+        .to_owned()
+}
+
 /// A text field of an object, if it's there.
 fn string(object: &serde_json::Map<String, Value>, key: &str) -> Result<Option<String>, Error> {
     match object.get(key) {
@@ -1197,9 +1296,12 @@ fn check_id(id: &str) -> Result<(), Error> {
         && parts.len() >= 2
         && parts.iter().all(|part| {
             !part.is_empty()
-                && part
-                    .bytes()
-                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-' || byte == b'_')
+                && part.bytes().all(|byte| {
+                    byte.is_ascii_lowercase()
+                        || byte.is_ascii_digit()
+                        || byte == b'-'
+                        || byte == b'_'
+                })
         });
     if fine {
         Ok(())
@@ -1311,10 +1413,7 @@ fn parse_linear(text: &str) -> Option<Paint> {
     })
 }
 
-fn object<'a>(
-    value: &'a Value,
-    place: &str,
-) -> Result<&'a serde_json::Map<String, Value>, Error> {
+fn object<'a>(value: &'a Value, place: &str) -> Result<&'a serde_json::Map<String, Value>, Error> {
     value
         .as_object()
         .ok_or_else(|| Error(format!("\"{place}\" has to be an object")))
@@ -1350,7 +1449,9 @@ fn read_colours(
             .copied()
             .find(|token| token == name)
         else {
-            notes.push(format!("\"{place}.{name}\" isn't a colour Yapfast has; ignored"));
+            notes.push(format!(
+                "\"{place}.{name}\" isn't a colour Yapfast has; ignored"
+            ));
             continue;
         };
         if LOCKED_COLOURS.contains(&token) {
@@ -1404,7 +1505,9 @@ fn read_shapes(
                     "medium" => 1,
                     "large" => 2,
                     _ => {
-                        notes.push(format!("\"{at}.{key}\" isn't small, medium or large; ignored"));
+                        notes.push(format!(
+                            "\"{at}.{key}\" isn't small, medium or large; ignored"
+                        ));
                         continue;
                     }
                 };
@@ -1422,7 +1525,9 @@ fn read_shapes(
             continue;
         }
         let Some(surface) = Surface::named(name) else {
-            notes.push(format!("\"{place}.{name}\" isn't a surface Yapfast has; ignored"));
+            notes.push(format!(
+                "\"{place}.{name}\" isn't a surface Yapfast has; ignored"
+            ));
             continue;
         };
         let at = format!("{place}.{name}");
@@ -1435,12 +1540,19 @@ fn read_shapes(
                 "border_colour" => shape.border_colour = Some(colour_at(value, &here)?),
                 "shadow" => {
                     shape.shadow = if value.as_str() == Some("none") {
-                        Some(Shadow { blur: 0.0, x: 0.0, y: 0.0, colour: 0 })
+                        Some(Shadow {
+                            blur: 0.0,
+                            x: 0.0,
+                            y: 0.0,
+                            colour: 0,
+                        })
                     } else {
                         Some(read_shadow(value, &here)?)
                     };
                 }
-                _ => notes.push(format!("\"{here}\" isn't something a surface takes; ignored")),
+                _ => notes.push(format!(
+                    "\"{here}\" isn't something a surface takes; ignored"
+                )),
             }
         }
     }
@@ -1450,17 +1562,17 @@ fn read_shapes(
 fn read_shadow(value: &Value, here: &str) -> Result<Shadow, Error> {
     let fields = object(value, here)?;
     let get = |key: &str, range: (f32, f32), default: f32| {
-        fields
-            .get(key)
-            .map_or(Ok(default), |value| number(value, &format!("{here}.{key}"), range))
+        fields.get(key).map_or(Ok(default), |value| {
+            number(value, &format!("{here}.{key}"), range)
+        })
     };
     Ok(Shadow {
         blur: get("blur", (0.0, 48.0), 12.0)?,
         x: get("x", (-16.0, 16.0), 0.0)?,
         y: get("y", (-16.0, 32.0), 4.0)?,
-        colour: fields
-            .get("colour")
-            .map_or(Ok(0x6600_0000), |value| colour_at(value, &format!("{here}.colour")))?,
+        colour: fields.get("colour").map_or(Ok(0x6600_0000), |value| {
+            colour_at(value, &format!("{here}.colour"))
+        })?,
     })
 }
 
@@ -1472,7 +1584,9 @@ fn read_types(
 ) -> Result<(), Error> {
     for (name, written) in object(value, place)? {
         let Some(role) = Role::named(name) else {
-            notes.push(format!("\"{place}.{name}\" isn't a kind of text Yapfast has; ignored"));
+            notes.push(format!(
+                "\"{place}.{name}\" isn't a kind of text Yapfast has; ignored"
+            ));
             continue;
         };
         let at = format!("{place}.{name}");
@@ -1481,9 +1595,9 @@ fn read_types(
             let here = format!("{at}.{key}");
             match key.as_str() {
                 "font" => {
-                    let text = value
-                        .as_str()
-                        .ok_or_else(|| Error(format!("\"{here}\" names a font file in the theme")))?;
+                    let text = value.as_str().ok_or_else(|| {
+                        Error(format!("\"{here}\" names a font file in the theme"))
+                    })?;
                     let path = relative(text, &here)?;
                     let extension = path
                         .extension()
@@ -1500,6 +1614,12 @@ fn read_types(
                     kind.weight = Some(weight.round() as i32);
                 }
                 "letter_spacing" => kind.letter_spacing = Some(number(value, &here, (-2.0, 4.0))?),
+                "header_size" if role == Role::Headings => {
+                    kind.header_size = Some(number(value, &here, (12.0, 32.0))?);
+                }
+                "title_size" if role == Role::Headings => {
+                    kind.title_size = Some(number(value, &here, (12.0, 40.0))?);
+                }
                 "uppercase" if role == Role::Headings => {
                     kind.uppercase = Some(
                         value
@@ -1623,7 +1743,11 @@ fn read_animations(
             bail!("\"{at}.property\" is \"{property_name}\", which isn't one Yapfast animates");
         };
         if !slot.properties().contains(&property) {
-            let names: Vec<&str> = slot.properties().iter().map(|property| property.name()).collect();
+            let names: Vec<&str> = slot
+                .properties()
+                .iter()
+                .map(|property| property.name())
+                .collect();
             bail!(
                 "\"{at}\" moves {} of {}, which only moves {}",
                 property.name(),
@@ -1647,27 +1771,27 @@ fn read_animations(
                 numbers.push(number(value, &here, property.range())?);
             }
         }
-        let period = fields
-            .get("period")
-            .map_or(Ok(1000.0), |value| number(value, &format!("{at}.period"), (100.0, 60_000.0)))?;
+        let period = fields.get("period").map_or(Ok(1000.0), |value| {
+            number(value, &format!("{at}.period"), (100.0, 60_000.0))
+        })?;
         let steps = fields
             .get("steps")
-            .map(|value| number(value, &format!("{at}.steps"), (1.0, 120.0)).map(|steps| steps as u32))
+            .map(|value| {
+                number(value, &format!("{at}.steps"), (1.0, 120.0)).map(|steps| steps as u32)
+            })
             .transpose()?;
-        let easing = fields
-            .get("easing")
-            .map_or(Ok(Curve::Linear), |value| {
-                named(value, &format!("{at}.easing"), &Curve::ALL, Curve::name)
-            })?;
+        let easing = fields.get("easing").map_or(Ok(Curve::Linear), |value| {
+            named(value, &format!("{at}.easing"), &Curve::ALL, Curve::name)
+        })?;
         let repeat = match fields.get("repeat").and_then(Value::as_str) {
             None | Some("loop") => Repeat::Loop,
             Some("alternate") => Repeat::Alternate,
             Some("once") => Repeat::Once,
             Some(other) => bail!("\"{at}.repeat\" is loop, alternate or once, not \"{other}\""),
         };
-        let delay = fields
-            .get("delay")
-            .map_or(Ok(0.0), |value| number(value, &format!("{at}.delay"), (0.0, 60_000.0)))?;
+        let delay = fields.get("delay").map_or(Ok(0.0), |value| {
+            number(value, &format!("{at}.delay"), (0.0, 60_000.0))
+        })?;
         let heavy = fields.get("heavy").and_then(Value::as_bool).unwrap_or(false)
             // The whole window moving is heavy whatever the theme says.
             || slot == Slot::Window
@@ -1679,7 +1803,9 @@ fn read_animations(
             ]
             .contains(&key.as_str())
             {
-                notes.push(format!("\"{at}.{key}\" isn't something an animation takes; ignored"));
+                notes.push(format!(
+                    "\"{at}.{key}\" isn't something an animation takes; ignored"
+                ));
             }
         }
         animations.push(Animation {
@@ -1750,7 +1876,9 @@ fn parts_notes(parts: &Value, notes: &mut Vec<String>) {
     };
     for (name, part) in parts {
         if !PARTS.contains(&name.as_str()) {
-            notes.push(format!("\"parts.{name}\" isn't a part Yapfast has; ignored"));
+            notes.push(format!(
+                "\"parts.{name}\" isn't a part Yapfast has; ignored"
+            ));
             continue;
         }
         let contract = part.get("contract").and_then(Value::as_str).unwrap_or("");
@@ -1758,16 +1886,14 @@ fn parts_notes(parts: &Value, notes: &mut Vec<String>) {
             .iter()
             .find(|(part, ..)| part == name)
             .map(|(_, major, minor)| (*major, *minor));
-        let wanted = contract
-            .split_once('.')
-            .and_then(|(major, minor)| Some((major.parse::<u32>().ok()?, minor.parse::<u32>().ok()?)));
+        let wanted = contract.split_once('.').and_then(|(major, minor)| {
+            Some((major.parse::<u32>().ok()?, minor.parse::<u32>().ok()?))
+        });
         let note = match (offered, wanted) {
-            (None, _) => format!(
-                "\"parts.{name}\" needs a later Yapfast; the stock {name} shows"
-            ),
-            (Some(_), None) => format!(
-                "\"parts.{name}.contract\" is written as 1.0; the stock {name} shows"
-            ),
+            (None, _) => format!("\"parts.{name}\" needs a later Yapfast; the stock {name} shows"),
+            (Some(_), None) => {
+                format!("\"parts.{name}.contract\" is written as 1.0; the stock {name} shows")
+            }
             (Some((major, minor)), Some((wanted_major, wanted_minor)))
                 if wanted_major != major || wanted_minor > minor =>
             {
@@ -1868,7 +1994,13 @@ mod tests {
         ] {
             assert!(notes.contains(expected), "{expected} in {notes}");
         }
-        assert!(package.resolve(Mode::Dark).unwrap().paint("danger").is_none());
+        assert!(
+            package
+                .resolve(Mode::Dark)
+                .unwrap()
+                .paint("danger")
+                .is_none()
+        );
     }
 
     #[test]
@@ -1878,14 +2010,22 @@ mod tests {
             "variants": { "dark": { "base": "yap", "spacing": { "avatar_size": 400 } } } }"##,
         )
         .unwrap_err();
-        assert!(error.0.contains("variants.dark.spacing.avatar_size"), "{error}");
+        assert!(
+            error.0.contains("variants.dark.spacing.avatar_size"),
+            "{error}"
+        );
         assert!(error.0.contains("24 to 56"), "{error}");
     }
 
     #[test]
     fn refuses_another_api_and_a_bad_id() {
         let later = SMALL.replace("\"theme_api\": 1", "\"theme_api\": 2");
-        assert!(Package::parse(&later).unwrap_err().0.contains("theme API 2"));
+        assert!(
+            Package::parse(&later)
+                .unwrap_err()
+                .0
+                .contains("theme API 2")
+        );
         let id = SMALL.replace("com.example.plum", "Plum Theme");
         assert!(Package::parse(&id).unwrap_err().0.contains("reverse-DNS"));
     }
@@ -1929,7 +2069,12 @@ mod tests {
             r##""chat": "#2a1a3a""##,
             r##""text": "linear(#ffffff, #000000)""##,
         );
-        assert!(Package::parse(&text).unwrap_err().0.contains("can't be a gradient"));
+        assert!(
+            Package::parse(&text)
+                .unwrap_err()
+                .0
+                .contains("can't be a gradient")
+        );
     }
 
     #[test]
@@ -1944,7 +2089,10 @@ mod tests {
         );
         let resolved = Package::parse(&text).unwrap().resolve(Mode::Dark).unwrap();
         assert_eq!(resolved.animations.len(), 2);
-        assert!(resolved.animations[0].heavy, "the whole window is always heavy");
+        assert!(
+            resolved.animations[0].heavy,
+            "the whole window is always heavy"
+        );
         assert_eq!(resolved.animations[1].repeat, Repeat::Alternate);
         assert_eq!(resolved.effects.len(), 2);
         let wrong = text.replace("\"property\": \"scale\"", "\"property\": \"tint\"");
@@ -1957,9 +2105,47 @@ mod tests {
             r##""colours": { "chat": "#2a1a3a" }"##,
             r#""spacing": { "density": "compact", "avatar_size": 28 }"#,
         );
-        let spacing = Package::parse(&text).unwrap().resolve(Mode::Dark).unwrap().spacing;
+        let spacing = Package::parse(&text)
+            .unwrap()
+            .resolve(Mode::Dark)
+            .unwrap()
+            .spacing;
         assert_eq!(spacing.avatar_size, Some(28.0));
         assert_eq!(spacing.message_group_gap, Some(6.0));
+    }
+
+    #[test]
+    fn reads_header_and_title_sizes_and_the_newer_colours() {
+        let text = SMALL.replace(
+            r##""colours": { "chat": "#2a1a3a" }"##,
+            r##""colours": { "pill": "#3fd6b8", "row-selected": "#2a4c5c", "code": "#101010", "composer-focus": "#ffffff80" },
+                "type": { "headings": { "header_size": 18, "title_size": 28 }, "body": { "weight": 300 } }"##,
+        );
+        let resolved = Package::parse(&text).unwrap().resolve(Mode::Dark).unwrap();
+        assert_eq!(resolved.paint("pill"), Some(&Paint::Colour(0xff3f_d6b8)));
+        assert_eq!(resolved.types[&Role::Headings].header_size, Some(18.0));
+        assert_eq!(resolved.types[&Role::Headings].title_size, Some(28.0));
+        assert_eq!(resolved.types[&Role::Body].weight, Some(300));
+    }
+
+    #[test]
+    fn a_custom_theme_exports_as_a_package_that_reads_back() {
+        let text = export(
+            "Plum Night!",
+            "yap",
+            true,
+            &[("chat", 0xff2a_1a3a), ("danger", 0xff00_ff00)],
+        );
+        let package = Package::parse(&text).unwrap();
+        assert_eq!(package.id, "local.plum-night");
+        assert_eq!(package.name, "Plum Night!");
+        let resolved = package.resolve(Mode::Dark).unwrap();
+        assert_eq!(resolved.paint("chat"), Some(&Paint::Colour(0xff2a_1a3a)));
+        assert!(
+            resolved.paint("danger").is_none(),
+            "the danger colours stay Yapfast's"
+        );
+        assert_eq!(folder_name("Plum Night!"), "plum-night");
     }
 
     #[test]

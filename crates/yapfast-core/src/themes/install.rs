@@ -57,10 +57,17 @@ pub struct Fetched {
 impl Fetched {
     /// Checks what the helper read, refusing a source that isn't a public
     /// GitHub repository.
-    pub fn new(source: String, path: String, reference: String, rev: String, files: Files) -> Result<Self, String> {
+    pub fn new(
+        source: String,
+        path: String,
+        reference: String,
+        rev: String,
+        files: Files,
+    ) -> Result<Self, String> {
         if !check::github(&source) {
             return Err(
-                "Themes come from public GitHub repositories for now; that address isn't one".into(),
+                "Themes come from public GitHub repositories for now; that address isn't one"
+                    .into(),
             );
         }
         let report = check::check(&files, Strictness::Install);
@@ -78,7 +85,10 @@ impl Fetched {
     }
 
     pub fn package(&self) -> &Package {
-        self.report.package.as_ref().expect("a passed check has its package")
+        self.report
+            .package
+            .as_ref()
+            .expect("a passed check has its package")
     }
 }
 
@@ -224,20 +234,24 @@ impl Themes {
             "store": address,
             "manifest_sha256": manifest_sha256,
         });
-        if let Some(mut previous) = installed {
-            if previous.get("store").and_then(Value::as_str) != Some(address.as_str()) {
-                if let Some(object) = previous.as_object_mut() {
-                    object.remove("previous");
-                }
-                entry
-                    .as_object_mut()
-                    .expect("built as an object")
-                    .insert("previous".into(), previous);
+        // The version replaced is kept to roll back to, unless this install
+        // is the same files again.
+        if let Some(mut previous) = installed
+            && previous.get("store").and_then(Value::as_str) != Some(address.as_str())
+        {
+            if let Some(object) = previous.as_object_mut() {
+                object.remove("previous");
             }
+            entry
+                .as_object_mut()
+                .expect("built as an object")
+                .insert("previous".into(), previous);
         }
         let before = self.store_dirs(&lock);
         self.write_folder(&fetched.files, &address)?;
-        let object = lock.as_object_mut().context("the lock file isn't an object")?;
+        let object = lock
+            .as_object_mut()
+            .context("the lock file isn't an object")?;
         object
             .entry("themes")
             .or_insert_with(|| Value::Object(Default::default()))
@@ -287,10 +301,12 @@ impl Themes {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(serde_json::json!({ "version": LOCK_VERSION, "plugins": {} }));
             }
-            Err(error) => return Err(error).with_context(|| format!("could not read {}", path.display())),
+            Err(error) => {
+                return Err(error).with_context(|| format!("could not read {}", path.display()));
+            }
         };
-        let lock: Value =
-            serde_json::from_str(&text).with_context(|| format!("{} isn't a lock file", path.display()))?;
+        let lock: Value = serde_json::from_str(&text)
+            .with_context(|| format!("{} isn't a lock file", path.display()))?;
         let version = lock.get("version").and_then(Value::as_u64).unwrap_or(0);
         if version > LOCK_VERSION {
             anyhow::bail!(
@@ -372,7 +388,10 @@ impl Themes {
 /// A store directory's name: 64 lowercase hex digits, so a lock file can't
 /// name a directory outside `store/`.
 fn is_address(text: &str) -> bool {
-    text.len() == 64 && text.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    text.len() == 64
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -380,7 +399,8 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 fn write_file(path: &Path, bytes: &[u8]) -> Result<()> {
-    let mut file = fs::File::create(path).with_context(|| format!("could not write {}", path.display()))?;
+    let mut file =
+        fs::File::create(path).with_context(|| format!("could not write {}", path.display()))?;
     file.write_all(bytes)
         .with_context(|| format!("could not write {}", path.display()))?;
     file.sync_all()
@@ -389,10 +409,12 @@ fn write_file(path: &Path, bytes: &[u8]) -> Result<()> {
 
 fn write_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).with_context(|| format!("could not create {}", parent.display()))?;
+        fs::create_dir_all(parent)
+            .with_context(|| format!("could not create {}", parent.display()))?;
     }
     let temporary = path.with_extension("tmp");
-    fs::write(&temporary, bytes).with_context(|| format!("could not write {}", temporary.display()))?;
+    fs::write(&temporary, bytes)
+        .with_context(|| format!("could not write {}", temporary.display()))?;
     fs::rename(&temporary, path).with_context(|| format!("could not replace {}", path.display()))
 }
 
@@ -451,10 +473,16 @@ mod tests {
         assert_eq!(installed.len(), 1);
         assert_eq!(installed[0].package.version, "1.1.0");
         assert_eq!(installed[0].entry.rev, "1.1.0-commit");
-        assert_eq!(installed[0].entry.previous.as_ref().unwrap().rev, "1.0.0-commit");
+        assert_eq!(
+            installed[0].entry.previous.as_ref().unwrap().rev,
+            "1.0.0-commit"
+        );
         let lock: Value =
             serde_json::from_str(&fs::read_to_string(themes.root().join(LOCK)).unwrap()).unwrap();
-        assert!(lock["plugins"]["com.example.filter"].is_object(), "the plugin stays");
+        assert!(
+            lock["plugins"]["com.example.filter"].is_object(),
+            "the plugin stays"
+        );
 
         themes.roll_back("com.example.plum").unwrap();
         assert_eq!(themes.installed()[0].package.version, "1.0.0");

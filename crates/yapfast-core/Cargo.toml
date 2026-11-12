@@ -36,7 +36,7 @@ test-fixtures = []
 # plugin reaches — a message, a member, a sticker, a sound — is a Discord type,
 # so a build with plugins and without Discord is not a build this repository
 # checks or ships.
-plugins = ["discord", "dep:regex", "dep:reqwest", "dep:sha2"]
+plugins = ["discord", "dep:regex", "dep:reqwest"]
 
 [dependencies]
 anyhow.workspace = true
@@ -91,8 +91,9 @@ serde.workspace = true
 # in every build, so that the code outside `plugins` needn't be gated to name
 # them.
 yapfast-plugin-api = { path = "../yapfast-plugin-api" }
-# The SHA-256 the lock file records, checked before a module is loaded.
-sha2 = { workspace = true, optional = true }
+# The SHA-256 the lock file records, checked before a module is loaded, and
+# the digests that name an installed theme's files.
+sha2 = { workspace = true }
 serde_json.workspace = true
 yapfast-discord = { path = "../yapfast-discord", optional = true }
 # Go Live's and the camera's H264 encoder, built from source; see native/h264.c.

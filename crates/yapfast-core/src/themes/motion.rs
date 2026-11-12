@@ -97,7 +97,11 @@ pub fn value_at(animation: &Animation, elapsed: f32) -> Value {
     };
     let next = (index + 1).min(count - 1);
     if animation.property.is_colour() {
-        Value::Colour(mix(animation.colours[index], animation.colours[next], within))
+        Value::Colour(mix(
+            animation.colours[index],
+            animation.colours[next],
+            within,
+        ))
     } else {
         let (from, to) = (animation.values[index], animation.values[next]);
         Value::Number(from + (to - from) * within)
@@ -174,7 +178,10 @@ fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
 pub fn mix(from: u32, to: u32, amount: f32) -> u32 {
     let amount = amount.clamp(0.0, 1.0);
     let channel = |shift: u32| {
-        let (a, b) = (((from >> shift) & 0xff) as f32, ((to >> shift) & 0xff) as f32);
+        let (a, b) = (
+            ((from >> shift) & 0xff) as f32,
+            ((to >> shift) & 0xff) as f32,
+        );
         ((a + (b - a) * amount).round() as u32) << shift
     };
     channel(24) | channel(16) | channel(8) | channel(0)
@@ -187,7 +194,13 @@ const SCRAMBLE: &[char] = &[
 
 /// A text effect's text at `elapsed` milliseconds after the text changed, and
 /// whether it's still playing. `seed` varies the scramble between texts.
-pub fn effect_text(effect: Effect, text: &str, elapsed: f32, duration: f32, seed: u64) -> (String, bool) {
+pub fn effect_text(
+    effect: Effect,
+    text: &str,
+    elapsed: f32,
+    duration: f32,
+    seed: u64,
+) -> (String, bool) {
     let letters: Vec<char> = text.chars().collect();
     if letters.is_empty() || elapsed >= duration {
         return (text.to_owned(), false);
@@ -214,7 +227,9 @@ pub fn effect_text(effect: Effect, text: &str, elapsed: f32, duration: f32, seed
                     } else {
                         let mixed = seed
                             .wrapping_mul(6_364_136_223_846_793_005)
-                            .wrapping_add((index as u64 + 1).wrapping_mul(1_442_695_040_888_963_407))
+                            .wrapping_add(
+                                (index as u64 + 1).wrapping_mul(1_442_695_040_888_963_407),
+                            )
                             .wrapping_add(frame.wrapping_mul(2_862_933_555_777_941_757));
                         SCRAMBLE[((mixed >> 33) % SCRAMBLE.len() as u64) as usize]
                     }
