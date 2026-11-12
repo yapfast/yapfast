@@ -1414,6 +1414,17 @@ impl<B: Backend + 'static> Shared<B> {
                     },
                 );
             }
+            // A badge that never runs leaves the name as it was drawn.
+            Job::DecorateMember { member, .. } => {
+                let _ = self.reply(
+                    task.id,
+                    &FromHelper::MemberDecorated {
+                        plugin,
+                        member: member.clone(),
+                        badge: None,
+                    },
+                );
+            }
             Job::Load(_) | Job::Unload | Job::Evict | Job::Kick | Job::Return { .. } => {}
         }
     }

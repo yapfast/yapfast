@@ -981,6 +981,13 @@ impl Application {
         self.state.notice = None;
         self.state.messages = Arc::new(vec![]);
         self.visible_messages.clear();
+        // The member list is another room's now: what a plugin badged its
+        // people with goes with it.
+        #[cfg(feature = "plugins")]
+        {
+            self.visible_members.clear();
+            self.badges_rooms = None;
+        }
         self.state.members = None;
         // A voice channel's call leaves its chat's messages for later.
         if !self.state.preview
@@ -1105,6 +1112,11 @@ impl Application {
         self.state.notice = None;
         self.state.messages = Arc::new(vec![]);
         self.visible_messages.clear();
+        #[cfg(feature = "plugins")]
+        {
+            self.visible_members.clear();
+            self.badges_rooms = None;
+        }
         self.state.members = None;
         self.state.topic = None;
         self.state.selection_version = self.state.selection_version.wrapping_add(1);

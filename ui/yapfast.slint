@@ -1,7 +1,7 @@
 import { AccountPopover } from "yapfast/account-popover.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { UiParts } from "yapfast/parts.slint";
-import { PluginPart, PluginBanner, PluginToast, PluginButtons, PluginDialog } from "plugins.slint";
+import { PluginPart, PluginBanner, PluginToast, PluginButtons, PluginDialog, PluginSurfaces } from "plugins.slint";
 import { WindowBar } from "yapfast/window-bar.slint";
 import { Palette } from "std-widgets.slint";
 import { ListView, Autoscroll, AutoscrollMarker } from "scrollview.slint";
@@ -62,7 +62,7 @@ import { PermissionRow, RoleMemberRow, RoleRow, RoleSwatch, RolesPrompt } from "
 import { BansPrompt, SafetyOption, SafetyPrompt } from "moderation.slint";
 import { ChannelSettingsPrompt, ChannelSettingsScreen, OverwriteRow, ThreeStateRow } from "channel_settings.slint";
 import { MfaChoice, MfaPrompt, MfaDialog } from "mfa.slint";
-import { FoundRow, PickRow, ThreadRow, HeaderSearch, PinsPopover, ThreadsPopover, AddPeoplePopover, SearchPanel, TopicPopover } from "header.slint";
+import { FoundRow, PickRow, ThreadRow, HeaderSearch, PluginHeaderButtons, PinsPopover, ThreadsPopover, AddPeoplePopover, SearchPanel, TopicPopover } from "header.slint";
 import { ThreadPanel, NewThreadPanel } from "thread.slint";
 import { BotSelectDropdown, BotModalDialog, SelectChoice, ModalField } from "interactions.slint";
 import { CommandChoice, CommandOptionPill, CommandList } from "app_commands.slint";
@@ -73,7 +73,7 @@ import { BrowseRow, BrowseScreen } from "browse.slint";
 export { ClientStyle } from "yapfast/style.slint";
 export { BuildInfo } from "yapfast/build-info.slint";
 export { UiParts } from "yapfast/parts.slint";
-export { PluginKind, PluginTone, PluginCell, PluginRow, PluginPart } from "plugins.slint";
+export { PluginKind, PluginTone, PluginCell, PluginRow, PluginPart, PluginButton, PluginBadge, PluginSurfaces } from "plugins.slint";
 export { InboxRow } from "yapfast/inbox.slint";
 export { Theme, Badges, Popup, Twemoji, Looks } from "theme.slint";
 export { Autoscroll } from "scrollview.slint";
@@ -376,9 +376,14 @@ export component YapfastWindow inherits Window {
     in property <[PluginPart]> plugin-dialogs;
     in property <[PluginPart]> plugin-composer;
     in property <[PluginPart]> plugin-hover;
+    /// What plugins add to the open person's card, from the `profile.badges`
+    /// slot. Empty without plugins.
+    in property <[PluginPart]> plugin-profile;
     /// The person used a plugin's widget: the plugin, its slot, the
     /// widget's id, its value, and what it's drawn on, such as a message.
     callback plugin-acted(string, string, string, string, string);
+    /// The member rows in or near the list's view, as first and last index.
+    callback roster-viewport(int, int);
     /// The person closed a plugin's notice or toast: the plugin and slot.
     callback plugin-dismissed(string, string);
     in-out property <string> graphics-notice;
@@ -3105,6 +3110,9 @@ export component YapfastWindow inherits Window {
                                 clear => { root.search-text = ""; root.search(""); }
                             }
                         }
+                        // The buttons plugins put here, from their manifests, as
+                        // the conversation's own are.
+                        if PluginSurfaces.header-buttons.length > 0: Middle { PluginHeaderButtons { } }
                         if !root.members-available && !root.profile-available && root.members != "": HorizontalLayout {
                             spacing: 6px;
                             Image { source: @image-url("icons/users.svg"); width: 18px; image-fit: contain; colorize: Theme.muted; }
@@ -3987,6 +3995,8 @@ export component YapfastWindow inherits Window {
                         active-item <=> root.active-item; react-item: root.react-item; menu-item: root.menu-item; confirm-delete: root.confirm-delete;
                         shift-held: root.shift-held;
                         forward-allowed: root.forward-allowed;
+                        plugin-hover: root.plugin-hover;
+                        plugin-acted(plugin, slot, id, value, subject) => { root.plugin-acted(plugin, slot, id, value, subject); }
                         pin-message(item) => { root.pin-message(item); }
                         start-forward(item) => { root.start-forward(item); }
                         delete-now(item) => { root.delete-now(item); }
@@ -4052,6 +4062,7 @@ export component YapfastWindow inherits Window {
                     }
                     if root.members-docked: MemberPanel {
                         width: root.members-shown; rows: root.roster; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
+                        viewport(top, bottom) => { root.roster-viewport(top, bottom); }
                         activity-hidden <=> root.activity-cards-hidden;
                         activity-hidden-toggled(hidden) => { root.activity-cards-hidden-toggled(hidden); }
                         activity-clock => { root.activity-clock(); }
@@ -4076,6 +4087,8 @@ export component YapfastWindow inherits Window {
                                 root.profile-at-pointer = true;
                                 root.show-friend-profile(id, false);
                             }
+                            plugin-parts: root.plugin-profile;
+                            plugin-acted(plugin, slot, id, value, subject) => { root.plugin-acted(plugin, slot, id, value, subject); }
                         }
                     }
                 }
@@ -4590,6 +4603,8 @@ export component YapfastWindow inherits Window {
             open-link(link) => { root.open-link(link); }
             send-message(text) => { root.message-from-profile(root.profile.id, text); }
             edit-profile => { root.close-profile(); root.edit-profile(); }
+            plugin-parts: root.plugin-profile;
+            plugin-acted(plugin, slot, id, value, subject) => { root.plugin-acted(plugin, slot, id, value, subject); }
         }
     }
     // A full profile over the window, as the viewer shows images.
@@ -4623,6 +4638,8 @@ export component YapfastWindow inherits Window {
             open-friend(id, x, y, width, height) => { root.show-friend-profile(id, true); }
             tab-opened(page) => { root.profile-tab-opened(page); }
             edit-profile => { root.close-profile(); root.edit-profile(); }
+            plugin-parts: root.plugin-profile;
+            plugin-acted(plugin, slot, id, value, subject) => { root.plugin-acted(plugin, slot, id, value, subject); }
         }
     }
     // A mutual server's card, over the profile that lists it. Clicking

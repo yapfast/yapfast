@@ -2555,6 +2555,12 @@ impl Adapter {
                         // One line under the name, as Discord shows it.
                         activity,
                         activity_emoji,
+                        // What plugins badge them with, which a plugin that
+                        // hasn't answered yet leaves empty.
+                        plugin: state.plugin_slots.as_ref().map_or_else(
+                            ModelRc::default,
+                            |slots| plugins::badges(slots, &member.id),
+                        ),
                         ..MemberRow::default()
                     };
                     heading.into_iter().chain([row])

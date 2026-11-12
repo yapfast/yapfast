@@ -5,6 +5,7 @@ import { Theme, Tip, Middle, Label } from "theme.slint";
 import { Avatar, Nameplate, PictureStore, StatusText, StyledName, NameStyleRow, VoiceSpot, ServerTagChip, ActivityClock } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { PersonRow, LivePill, VoiceCard } from "voice.slint";
+import { PluginRowButton, PluginSurfaces } from "plugins.slint";
 
 /// A server in a closed folder's tile: its icon, or its initial.
 export struct FolderServer { initial: string, picture-url: string }
@@ -1077,6 +1078,15 @@ export component ServerRail inherits Rectangle {
             icon: @image-url("icons/circle-plus.svg"); icon-color: Theme.accent; icon-size: 24px;
             label: "Join a server"; tip: "Join a server";
             clicked => { root.join-server(); }
+        }
+        // What plugins put at the foot of the rail, from their manifests: each
+        // says whose it is, and choosing one reports the plugin and action.
+        if PluginSurfaces.rail-items.length > 0: Rectangle { height: 1px;
+            Rectangle { width: 32px; height: 1px; background: Theme.outline; }
+        }
+        for entry in PluginSurfaces.rail-items: PluginRowButton {
+            entry: entry; named: true;
+            clicked => { PluginSurfaces.row-acted(entry.plugin, entry.id); }
         }
     }
 }

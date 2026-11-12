@@ -3,6 +3,7 @@ import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label } from "theme.slint";
 import { ActionButton, IconButton, Avatar, Picture, Skeleton, SpoilerCover } from "controls.slint";
 import { StatusDot } from "rail.slint";
+import { PluginSurfaces } from "plugins.slint";
 import { ImageCell, PollCard, PollView, TextBlock, TextBlocks } from "messages.slint";
 
 /// A pinned message or a search result: who wrote it, when, and what it says.
@@ -659,6 +660,20 @@ export component SearchPanel inherits Rectangle {
                     }
                 }
             }
+        }
+    }
+}
+
+// The buttons plugins put in the conversation's header, from their manifests,
+// so they show without the plugin running. Each says whose it is to a screen
+// reader, and choosing one reports the plugin and its action.
+export component PluginHeaderButtons inherits HorizontalLayout {
+    spacing: 4px;
+    for button in PluginSurfaces.header-buttons: Middle {
+        ActionButton {
+            text: button.label; label: button.label + ", from " + button.name;
+            ghost: true; small: true;
+            clicked => { PluginSurfaces.row-acted(button.plugin, button.id); }
         }
     }
 }

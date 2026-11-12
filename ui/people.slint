@@ -4,6 +4,7 @@ import { Theme, Middle, Label, Tip, BadgeTip } from "theme.slint";
 import { ActionButton, IconButton, Avatar, Nameplate, StatusText, StyledName, NameStyleRow, EffectLayer, ProfileEffect, PictureStore, TextField, ServerTagChip, TipIcon, ActivityClock } from "controls.slint";
 import { StatusDot } from "rail.slint";
 import { BotTag } from "messages.slint";
+import { PluginBadge, PluginBadgeView, PluginPart, PluginWidgets } from "plugins.slint";
 
 /// A member of the open room, or the heading, with no id, that starts a group.
 export struct MemberRow {
@@ -39,6 +40,9 @@ export struct MemberRow {
     /// Discord server, which a gem by the name says on hover; empty for
     /// anyone else.
     boosting: string,
+    /// What plugins badge them with, from `member.decorate`: an empty model for
+    /// anyone no plugin badged.
+    plugin: [PluginBadge],
 }
 
 /// A role's picture, asked for as it shows.
@@ -114,6 +118,15 @@ export component MemberPanel inherits Rectangle {
     callback open-profile(string, length);
     /// A member was right-clicked: their id, and where in the window.
     callback open-member-menu(string, length, length);
+    /// The rows in or near the list's view, as first and last index, so a
+    /// plugin is asked about the people on screen and no others.
+    callback viewport(int, int);
+    property <int> top-index: -1;
+    property <int> bottom-index: -1;
+    /// Changes as rows are made, which makes each of them report where it is.
+    property <int> view-tick: 0;
+    changed top-index => { root.viewport(root.top-index, root.bottom-index); }
+    changed bottom-index => { root.viewport(root.top-index, root.bottom-index); }
     // Discord's member list sits on the conversation's ground, a faint line on its left.
     background: ClientStyle.enabled ? Theme.chat : Theme.sidebar;
     accessible-role: list;
@@ -234,9 +247,19 @@ export component MemberPanel inherits Rectangle {
         }
         if root.note != "": HorizontalLayout { padding: 16px; Label { text: root.note; } }
         // A list view makes only the rows in sight, which matters in large servers.
-        ListView {
+        member-list := ListView {
             vertical-stretch: 1;
             for member[index] in root.rows: VerticalLayout {
+                property <length> view-y: self.y + member-list.content-y;
+                property <int> view-tick: root.view-tick;
+                function report-view() {
+                    if self.view-y <= 0px && self.view-y + self.height > 0px { root.top-index = index; }
+                    if self.view-y < member-list.height && (self.view-y + self.height >= member-list.height || index == root.rows.length - 1) { root.bottom-index = index; }
+                }
+                init => { root.view-tick += 1; }
+                changed view-y => { self.report-view(); }
+                changed height => { self.report-view(); }
+                changed view-tick => { self.report-view(); }
                 padding-left: 8px; padding-right: 8px;
                 padding-top: index == 0 ? 8px : 0px;
                 padding-bottom: index == root.rows.length - 1 ? 12px : 2px;
@@ -314,6 +337,11 @@ export component MemberPanel inherits Rectangle {
                                     source: @image-url("icons/gem.svg"); width: 14px; height: 14px;
                                     colorize: #ff73fa; tip: member.boosting;
                                 }
+                            }
+                            // What plugins badge them with, each saying whose it is
+                            // to a screen reader.
+                            for badge in member.plugin: Middle {
+                                PluginBadgeView { badge: badge; opacity: member.presence == "offline" ? 0.5 : 1; }
                             }
                             if member.timed-out: Image {
                                 source: @image-url("icons/clock.svg"); width: 14px; image-fit: contain;
@@ -943,6 +971,12 @@ export component ProfileCard inherits Rectangle {
     callback send-message(string);
     /// Edit Profile, on one's own card.
     callback edit-profile;
+    /// What plugins add to the open person's card, from the `profile.badges`
+    /// slot, drawn under the person's own details and above the card's notes.
+    in property <[PluginPart]> plugin-parts;
+    /// A widget of one of them: the plugin, its slot, the cell's id, its value,
+    /// and the person the card is of.
+    callback plugin-acted(string, string, string, string, string);
     property <length> banner-height: root.side ? 140px : root.large ? 210px : root.docked ? (ClientStyle.enabled ? 105px : 120px) : 105px;
     property <length> avatar-size: root.side ? 96px : root.large ? 120px : 80px;
     property <length> pad: root.side ? 20px : root.large ? 24px : 16px;
@@ -1360,6 +1394,12 @@ export component ProfileCard inherits Rectangle {
                             }
                         }
                         if root.data.note != "": Text { text: root.data.note; color: root.ink3; font-size: 13px; wrap: word-wrap; }
+                        // What plugins add to this person's card, under their own
+                        // details, each tree under its plugin's name.
+                        for part in root.plugin-parts: PluginWidgets {
+                            part: part; subject: root.data.id;
+                            acted(plugin, slot, id, value, subject) => { root.plugin-acted(plugin, slot, id, value, subject); }
+                        }
                         if !root.large && !root.preview && root.data.own: ActionButton {
                             text: "Edit Profile"; icon: @image-url("icons/pencil.svg"); primary: true;
                             clicked => { root.edit-profile(); }
@@ -1457,6 +1497,9 @@ export component ProfileModal inherits Rectangle {
     callback tab-opened(int);
     /// Edit Profile, on one's own.
     callback edit-profile;
+    /// What plugins add to the open person's card; see [`ProfileCard`].
+    in property <[PluginPart]> plugin-parts;
+    callback plugin-acted(string, string, string, string, string);
     /// 0 activity, 1 mutual friends, 2 mutual servers, 3 board, 4 wishlist.
     in-out property <int> page: 0;
     // The tab asked for when it is empty falls back to the first.
@@ -1496,6 +1539,8 @@ export component ProfileModal inherits Rectangle {
             more(x, y) => { root.more(x, y); }
             open-link(link) => { root.open-link(link); }
             edit-profile => { root.edit-profile(); }
+            plugin-parts: root.plugin-parts;
+            plugin-acted(plugin, slot, id, value, subject) => { root.plugin-acted(plugin, slot, id, value, subject); }
         }
         VerticalLayout {
             padding-left: 12px; padding-right: 12px; padding-top: 4px; spacing: 12px;

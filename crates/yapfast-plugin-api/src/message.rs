@@ -306,6 +306,42 @@ pub struct DecorateRequest {
     pub own: bool,
 }
 
+/// What `yf_member_decorate` is given: someone in the open room's member list,
+/// with what decides whether a plugin badges them.
+///
+/// It is one person's place in the list and no more: a plugin that wants the
+/// whole member reads them with `people.get`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DecorateMemberRequest {
+    /// The server the list is of; empty for a direct message.
+    #[serde(default)]
+    pub server: String,
+    pub room: String,
+    /// The person, by id.
+    pub member: String,
+    /// Their display name in this room.
+    pub name: String,
+    /// Whether it is this account.
+    pub own: bool,
+    /// A Discord application's account.
+    pub bot: bool,
+    /// The ids of the roles they have here; empty where unknown.
+    #[serde(default)]
+    pub roles: Vec<String>,
+}
+
+/// What a plugin badges a person in the member list with: a few characters and
+/// a tone, not a tree. The parent caps and checks it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemberBadge {
+    pub text: String,
+    /// `normal`, `muted`, `accent`, `success`, `warning` or `danger`, as a
+    /// widget tree's cells name theirs.
+    #[serde(default)]
+    pub tone: String,
+}
+
 /// The helper's report to the parent.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
@@ -394,6 +430,14 @@ pub enum FromHelper {
         block: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         spans: Option<Vec<crate::code::Span>>,
+    },
+    /// What a plugin badges a person in the member list with, as
+    /// `yf_member_decorate` answered: unchecked, so the parent checks it.
+    MemberDecorated {
+        plugin: PluginId,
+        member: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        badge: Option<serde_json::Value>,
     },
     /// An event batch finished; nothing to report.
     EventDone { plugin: PluginId },

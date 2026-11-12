@@ -1174,6 +1174,69 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     {
         let adapter = adapter.clone();
         let weak = window.as_weak();
+        // A plugin's own row, from its manifest, in the rail or the header.
+        window
+            .global::<yapfast_ui::PluginSurfaces>()
+            .on_row_acted(move |_plugin, id| {
+                if let Some(window) = weak.upgrade() {
+                    adapter.borrow_mut().plugin_row_acted(&window, &id);
+                }
+            });
+    }
+    #[cfg(feature = "plugins")]
+    {
+        // The member list reports the rows in its view, as the timeline does:
+        // what a plugin that badges people is asked about, and only that.
+        let timer = Rc::new(slint::Timer::default());
+        let last = Rc::new(Cell::new(None));
+        let range = Rc::new(Cell::new((-1, -1)));
+        let state = Rc::downgrade(&adapter);
+        let weak = window.as_weak();
+        window.on_roster_viewport(move |top, bottom| {
+            range.set((top, bottom));
+            if timer.running() {
+                return;
+            }
+            let (state, weak, range) = (state.clone(), weak.clone(), range.clone());
+            timer.start(slint::TimerMode::SingleShot, report_delay(&last), move || {
+                let (Some(adapter), Some(window)) = (state.upgrade(), weak.upgrade()) else {
+                    return;
+                };
+                let mut adapter = adapter.borrow_mut();
+                let Some(room) = adapter.app.state.selected.clone() else {
+                    return;
+                };
+                let (top, bottom) = range.get();
+                if top < 0 {
+                    return;
+                }
+                // A margin either way, so a row scrolled into sight asks
+                // before it is read, as the timeline's rows do.
+                const MARGIN: i32 = 8;
+                let roster = window.get_roster();
+                let count = roster.row_count() as i32;
+                if count == 0 {
+                    return;
+                }
+                let first = (top - MARGIN).max(0) as usize;
+                let last = (bottom + MARGIN).clamp(top, count - 1) as usize;
+                // A heading is a row without a person, and nobody to ask about.
+                let ids: Vec<String> = (first..=last)
+                    .filter_map(|index| roster.row_data(index))
+                    .map(|row| row.id.to_string())
+                    .filter(|id| !id.is_empty())
+                    .collect();
+                if ids.is_empty() {
+                    return;
+                }
+                adapter.action(&window, Action::VisibleMembers { room, ids });
+            });
+        });
+    }
+    #[cfg(feature = "plugins")]
+    {
+        let adapter = adapter.clone();
+        let weak = window.as_weak();
         window.on_plugin_dismissed(move |plugin, slot| {
             if let Some(window) = weak.upgrade() {
                 adapter

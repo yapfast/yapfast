@@ -546,6 +546,17 @@ pub struct MenuItem {
     pub when: When,
 }
 
+/// A button a plugin adds where Yapfast already draws a row of its own, from
+/// its manifest, so it shows without the plugin running: `rail_items` at the
+/// bottom of the server rail, and `header_buttons` in a conversation's header.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Button {
+    pub label: String,
+    /// What choosing it tells the plugin, as `plugin/<index>/<action>`.
+    pub action: String,
+}
+
 /// Where a moved row goes: before or after another row of its group.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Place {
@@ -646,6 +657,10 @@ pub struct Checked {
     pub name: String,
     pub changes: Vec<Change>,
     pub rows: Vec<AddedRow>,
+    /// The buttons it adds to the server rail's bottom, checked.
+    pub rail: Vec<Button>,
+    /// The buttons it adds to a conversation's header, checked.
+    pub header: Vec<Button>,
     pub refused: Vec<Refusal>,
 }
 
@@ -852,6 +867,49 @@ pub fn check(manifest: &Manifest) -> Checked {
     }
     checked.changes = changes;
     checked.rows = rows;
+    // Buttons the manifest puts where Yapfast already draws rows of its own.
+    // They need no capability: they are the plugin's own surface, as a slot is.
+    fn buttons(
+        items: &[Button],
+        what: &str,
+        refused: &mut Vec<Refusal>,
+    ) -> Vec<Button> {
+        let mut checked = Vec::new();
+        for item in items {
+            let name = format!("{what} “{}”", item.label);
+            if checked.len() == CHANGES {
+                refused.push(Refusal {
+                    what: name,
+                    why: format!("the plugin adds more than {CHANGES} of them"),
+                });
+                continue;
+            }
+            let label = match label(&item.label) {
+                Ok(label) => label,
+                Err(why) => {
+                    refused.push(Refusal {
+                        what: name,
+                        why: format!("its label won't show: {why}"),
+                    });
+                    continue;
+                }
+            };
+            if !plain_id(&item.action) {
+                refused.push(Refusal {
+                    what: name,
+                    why: "its action isn't a plain name".to_owned(),
+                });
+                continue;
+            }
+            checked.push(Button {
+                label,
+                action: item.action.clone(),
+            });
+        }
+        checked
+    }
+    checked.rail = buttons(&manifest.rail_items, "rail item", &mut checked.refused);
+    checked.header = buttons(&manifest.header_buttons, "header button", &mut checked.refused);
     checked
 }
 
@@ -874,6 +932,10 @@ pub struct UiOverrides {
     pub replaced: Vec<(Part, usize)>,
     pub rows: Vec<(RowChange, usize)>,
     pub added: Vec<(AddedRow, usize)>,
+    /// Buttons at the bottom of the server rail, and in a conversation's
+    /// header, each with its plugin's index.
+    pub rail: Vec<(Button, usize)>,
+    pub header: Vec<(Button, usize)>,
     pub colours: Vec<(&'static str, u32, usize)>,
     pub sizes: Vec<(Size, f32, usize)>,
 }
@@ -965,11 +1027,19 @@ pub fn derive(
         overrides
             .added
             .extend(plugin.rows.iter().map(|row| (row.clone(), index)));
+        overrides
+            .rail
+            .extend(plugin.rail.iter().map(|row| (row.clone(), index)));
+        overrides
+            .header
+            .extend(plugin.header.iter().map(|row| (row.clone(), index)));
     }
     let unused = overrides.hidden == 0
         && overrides.replaced.is_empty()
         && overrides.rows.is_empty()
         && overrides.added.is_empty()
+        && overrides.rail.is_empty()
+        && overrides.header.is_empty()
         && overrides.colours.is_empty()
         && overrides.sizes.is_empty();
     if unused {
@@ -1490,6 +1560,36 @@ mod tests {
         assert_eq!((plugin.name.as_str(), action), ("Waver", "wave"));
         assert!(overrides.chosen("plugin/9/wave").is_none());
         assert!(overrides.chosen("copy-id").is_none());
+    }
+
+    #[test]
+    fn rail_items_and_header_buttons_are_checked_and_reach_their_plugin() {
+        let manifest = manifest(
+            r#"{ "api": 1, "id": "com.example.t", "name": "T",
+                "rail_items": [{ "label": "Wave", "action": "wave" }],
+                "header_buttons": [
+                    { "label": "Keep", "action": "keep" },
+                    { "label": "  ", "action": "empty" },
+                    { "label": "Bad action", "action": "no spaces" }
+                ] }"#,
+        );
+        let checked = check(&manifest);
+        assert_eq!(checked.rail.len(), 1, "a plugin's own surface needs no ui.modify");
+        assert_eq!(checked.rail[0].action, "wave");
+        assert_eq!(checked.header.len(), 1);
+        let refused: Vec<&str> = checked.refused.iter().map(|row| row.why.as_str()).collect();
+        assert_eq!(refused.len(), 2);
+        assert!(refused[0].contains("label won't show"), "{refused:?}");
+        assert!(refused[1].contains("isn't a plain name"), "{refused:?}");
+        // The overrides derive them with their plugin, whose id is what a click
+        // reports.
+        let (overrides, conflicts) = derive(&[checked], &BTreeMap::new());
+        assert!(conflicts.is_empty());
+        let overrides = overrides.unwrap();
+        assert_eq!(overrides.rail[0].0.label, "Wave");
+        assert_eq!(overrides.header[0].0.action, "keep");
+        let id = UiOverrides::row_id(0, &overrides.rail[0].0.action);
+        assert_eq!(overrides.chosen(&id).unwrap().1, "wave");
     }
 
     #[test]

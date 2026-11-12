@@ -6,7 +6,7 @@
 
 use std::{collections::VecDeque, sync::Arc};
 
-use super::ui::{PluginName, Tree};
+use super::ui::{PluginName, Tone, Tree};
 
 /// A place in the interface where plugins draw.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -24,16 +24,19 @@ pub enum Slot {
     /// A question a plugin asks, over the window until it's answered or
     /// dismissed. One per plugin: opening another replaces it.
     Dialog,
+    /// What a plugin adds to the open person's profile card.
+    ProfileBadges,
 }
 
 impl Slot {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Banner,
         Self::Toast,
         Self::Composer,
         Self::HoverBar,
         Self::Message,
         Self::Dialog,
+        Self::ProfileBadges,
     ];
 
     /// Its name, as a plugin and its input name it.
@@ -45,6 +48,7 @@ impl Slot {
             Self::HoverBar => "message.actions",
             Self::Message => "message",
             Self::Dialog => "dialog",
+            Self::ProfileBadges => "profile.badges",
         }
     }
 
@@ -80,11 +84,76 @@ pub enum Output {
         tree: Option<Tree>,
         hide: Hidden,
     },
+    /// What a plugin puts beside a person's name in the member list; `None`
+    /// takes it away. It is answered for the rows on screen as the list scrolls,
+    /// so the parent keeps it until the list's snapshot changes.
+    MemberBadge {
+        plugin: String,
+        member: String,
+        badge: Option<Badge>,
+    },
 }
 
 /// How many messages' decorations are kept, the least recently decorated
 /// going first; a message decorated again comes back when it's on screen.
 pub const DECORATIONS: usize = 512;
+
+/// How many people's badges are kept, the least recently asked about going
+/// first: a scroll through a large server asks for each row once.
+pub const BADGES: usize = 640;
+
+/// How many plugins may badge one person. A name has room for a few, and the
+/// rest of the list stays readable.
+pub const BADGES_PER_MEMBER: usize = 3;
+
+/// How many characters a badge may show: enough for a mark, not for a sentence.
+const BADGE_CHARS: usize = 16;
+
+/// A badge a plugin puts beside a person's name: a few characters and a tone,
+/// not a widget tree.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Badge {
+    pub text: String,
+    pub tone: Tone,
+}
+
+impl Badge {
+    /// A plugin's answer, checked: a few characters on one line and a tone the
+    /// theme knows, refused with the reason as a tree is.
+    pub fn parse(value: &serde_json::Value) -> Result<Self, String> {
+        let badge: yapfast_plugin_api::message::MemberBadge = serde_json::from_value(value.clone())
+            .map_err(|error| error.to_string())?;
+        let text = badge.text.trim();
+        if text.is_empty() {
+            return Err("its text is empty".to_owned());
+        }
+        if text.chars().count() > BADGE_CHARS {
+            return Err(format!("its text is longer than {BADGE_CHARS} characters"));
+        }
+        if text.chars().any(char::is_control) {
+            return Err("its text has a line break or control character".to_owned());
+        }
+        let tone = match badge.tone.as_str() {
+            "" => Tone::Normal,
+            name => serde_json::from_value(serde_json::Value::String(name.to_owned()))
+                .map_err(|_| format!("its tone `{name}` isn't one the theme knows"))?,
+        };
+        Ok(Badge {
+            text: text.to_owned(),
+            tone,
+        })
+    }
+}
+
+/// One plugin's badge for one person, with the plugin's index in the names;
+/// `badge` is `None` for a person it answered for and badged nothing, which is
+/// kept so scrolling back doesn't ask again.
+#[derive(Clone, Debug, PartialEq)]
+struct Badged {
+    member: String,
+    plugin: usize,
+    badge: Option<Badge>,
+}
 
 /// A plugin's tree under one message.
 #[derive(Clone, Debug, PartialEq)]
@@ -133,6 +202,11 @@ pub struct Slots {
     decorations: VecDeque<Decoration>,
     /// The messages whose decorations changed since the UI last took them.
     decorated: Vec<String>,
+    /// What plugins badge people in the member list with, the least recently
+    /// asked about first.
+    badges: VecDeque<Badged>,
+    /// The people whose badges changed since the UI last took them.
+    badged: Vec<String>,
 }
 
 impl Slots {
@@ -240,19 +314,35 @@ impl Slots {
             self.changes[Slot::Message as usize] += 1;
             changed = true;
         }
+        let before = self.badges.len();
+        if self.badges.iter().any(|kept| kept.plugin == plugin) {
+            let gone: Vec<String> = self
+                .badges
+                .iter()
+                .filter(|kept| kept.plugin == plugin)
+                .map(|kept| kept.member.clone())
+                .collect();
+            self.badges.retain(|kept| kept.plugin != plugin);
+            self.badged.extend(gone);
+            self.changes[Slot::ProfileBadges as usize] += 1;
+            changed = true;
+        }
+        debug_assert!(before >= self.badges.len());
         changed
     }
-
     /// Takes everything away, which is what an install, an uninstall or a roll
     /// back does: the instances that drew it are gone, and what is drawn next
     /// comes from the code the store holds now.
     pub fn clear_all(&mut self) -> bool {
         let drawn = !self.drawn.is_empty();
         let decorated = !self.decorations.is_empty();
-        if !drawn && !decorated {
+        let badged = !self.badges.is_empty();
+        if !drawn && !decorated && !badged {
             return false;
         }
         self.drawn.clear();
+        self.badged
+            .extend(self.badges.drain(..).map(|gone| gone.member));
         self.decorated
             .extend(self.decorations.drain(..).map(|gone| gone.message));
         for slot in Slot::ALL {
@@ -342,6 +432,93 @@ impl Slots {
     /// The messages whose decorations changed since this was last called.
     pub fn take_decorated(&mut self) -> Vec<String> {
         std::mem::take(&mut self.decorated)
+    }
+
+    /// Sets, changes or takes away a plugin's badge for one person; false when
+    /// nothing changed. A person keeps at most [`BADGES_PER_MEMBER`] badges, and
+    /// an answer beyond that is dropped.
+    ///
+    /// An answer of none is kept too: the person was asked, so scrolling back
+    /// to them asks nothing again.
+    pub fn badge(&mut self, plugin: &str, member: &str, badge: Option<Badge>) -> bool {
+        let Some(plugin) = self.index(plugin) else {
+            return false;
+        };
+        let place = self
+            .badges
+            .iter()
+            .position(|kept| kept.plugin == plugin && kept.member == member);
+        let old = place.and_then(|place| self.badges.remove(place));
+        if badge.is_some()
+            && old.as_ref().is_none_or(|old| old.badge.is_none())
+            && self
+                .badges
+                .iter()
+                .filter(|kept| kept.member == member && kept.badge.is_some())
+                .count()
+                >= BADGES_PER_MEMBER
+        {
+            // The row keeps the badges it had: a person's name has room for a
+            // few, and the plugin's answer is the one that came last.
+            if let Some(old) = old {
+                self.badges.push_back(old);
+            }
+            return false;
+        }
+        let was = old.as_ref().and_then(|old| old.badge.clone());
+        self.badges.push_back(Badged {
+            member: member.to_owned(),
+            plugin,
+            badge: badge.clone(),
+        });
+        while self.badges.len() > BADGES {
+            if let Some(gone) = self.badges.pop_front() {
+                self.badged.push(gone.member);
+            }
+        }
+        if was == badge {
+            return false;
+        }
+        self.badged.push(member.to_owned());
+        self.changes[Slot::ProfileBadges as usize] += 1;
+        true
+    }
+
+    /// What plugins badge a person with, in the order they first answered, each
+    /// with its plugin's name for the row's screen reader.
+    pub fn badges<'a>(
+        &'a self,
+        member: &'a str,
+    ) -> impl Iterator<Item = (&'a PluginName, &'a Badge)> {
+        self.badges
+            .iter()
+            .filter(move |kept| kept.member == member)
+            .filter_map(|kept| Some((self.names.get(kept.plugin)?, kept.badge.as_ref()?)))
+    }
+
+    /// How many plugins have answered for a person, badged or not: a member the
+    /// member list shows asks each of the rest again.
+    pub fn members_asked(&self, member: &str) -> usize {
+        self.badges
+            .iter()
+            .filter(|kept| kept.member == member)
+            .count()
+    }
+
+    /// The people whose badges changed since this was last called.
+    pub fn take_badged(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.badged)
+    }
+
+    /// Forgets every badge, which is what a new member list's snapshot does: a
+    /// person's roles or name changed, so what a plugin said about them may no
+    /// longer hold. The rows keep what they show until the list is built again.
+    pub fn members_changed(&mut self) -> bool {
+        if self.badges.is_empty() {
+            return false;
+        }
+        self.badges.clear();
+        true
     }
 
     pub fn apply(&mut self, output: Output) -> bool {

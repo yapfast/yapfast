@@ -8,11 +8,14 @@ use yapfast_core::plugins::{
     self,
     slots::{Output, Slot},
     ui::{
-        Checked, Kind, Part, Place, PluginName, ROW_PREFIX, Size, Subject, Target, Tone, Tree,
-        UiOverrides,
+        Button, Checked, Kind, Part, Place, PluginName, ROW_PREFIX, Size, Subject, Target, Tone,
+        Tree, UiOverrides,
     },
 };
-use yapfast_ui::{PluginCell, PluginKind, PluginPart, PluginRow, PluginTone};
+use yapfast_ui::{
+    PluginBadge, PluginButton, PluginCell, PluginKind, PluginPart, PluginRow, PluginSurfaces,
+    PluginTone,
+};
 
 use super::*;
 
@@ -100,8 +103,10 @@ impl Plugins {
         }))
     }
 
+    /// The plugins of these overrides alone, for tests that need a window with
+    /// some and no folder to load.
     #[cfg(test)]
-    fn with(
+    pub(super) fn with(
         overrides: Option<Arc<UiOverrides>>,
         runtime: Option<Box<dyn plugins::Runtime>>,
     ) -> Self {
@@ -154,6 +159,64 @@ pub(super) fn decorations(slots: &plugins::slots::Slots, message: &str) -> Model
 /// A widget tree as the window draws it, under its plugin's name.
 fn part(name: &PluginName, slot: Slot, tree: &Tree) -> PluginPart {
     tree_part(&name.id, &name.name, slot.id(), tree)
+}
+
+/// A button a plugin's manifest puts where Yapfast draws rows of its own, as
+/// the rail and the header draw it. Its id is what choosing it reports.
+fn row_button(name: &PluginName, button: &Button, plugin: usize) -> PluginButton {
+    PluginButton {
+        plugin: name.id.as_str().into(),
+        name: name.name.as_str().into(),
+        id: UiOverrides::row_id(plugin, &button.action).into(),
+        label: button.label.as_str().into(),
+    }
+}
+
+fn buttons(overrides: Option<&UiOverrides>, rows: impl Fn(&UiOverrides) -> &[(Button, usize)]) -> ModelRc<PluginButton> {
+    let Some(overrides) = overrides else {
+        return ModelRc::default();
+    };
+    let drawn: Vec<PluginButton> = rows(overrides)
+        .iter()
+        .filter_map(|(button, plugin)| {
+            Some(row_button(overrides.plugins.get(*plugin)?, button, *plugin))
+        })
+        .collect();
+    if drawn.is_empty() {
+        ModelRc::default()
+    } else {
+        ModelRc::new(VecModel::from(drawn))
+    }
+}
+
+/// What plugins badge a person in the member list with: an empty model unless
+/// one badged them, each with its plugin's name for the row's screen reader.
+pub(super) fn badges(slots: &plugins::slots::Slots, member: &str) -> ModelRc<PluginBadge> {
+    let drawn: Vec<PluginBadge> = slots
+        .badges(member)
+        .map(|(name, badge)| PluginBadge {
+            text: badge.text.as_str().into(),
+            tone: tone(badge.tone),
+            name: name.name.as_str().into(),
+        })
+        .collect();
+    if drawn.is_empty() {
+        ModelRc::default()
+    } else {
+        ModelRc::new(VecModel::from(drawn))
+    }
+}
+
+/// A tree's cell tone, as the theme maps it.
+fn tone(tone: Tone) -> PluginTone {
+    match tone {
+        Tone::Normal => PluginTone::Normal,
+        Tone::Muted => PluginTone::Muted,
+        Tone::Accent => PluginTone::Accent,
+        Tone::Success => PluginTone::Success,
+        Tone::Warning => PluginTone::Warning,
+        Tone::Danger => PluginTone::Danger,
+    }
 }
 
 /// A widget tree, drawn in `slot`, or the Plugins page's `settings`.
@@ -270,6 +333,11 @@ pub(super) fn show(window: &YapfastWindow, plugins: Option<&Plugins>) {
     style.set_channel_row_height_plugin(size(Size::ChannelRowHeight));
     style.set_message_gap_plugin(size(Size::MessageGap));
     style.set_message_group_gap_plugin(size(Size::MessageGroupGap));
+    // The rows plugins' manifests put where Yapfast draws its own: the foot of
+    // the rail, and the conversation's header.
+    let surfaces = window.global::<PluginSurfaces>();
+    surfaces.set_rail_items(buttons(overrides, |overrides| &overrides.rail));
+    surfaces.set_header_buttons(buttons(overrides, |overrides| &overrides.header));
 }
 
 impl Adapter {
@@ -288,6 +356,20 @@ impl Adapter {
                     row.plugin = decorations(slots, &row.id);
                     self.models.messages.set_row_data(index, row.clone());
                 }
+            }
+        }
+        // Only the people whose badges changed.
+        let badged = slots.take_badged();
+        if !badged.is_empty() {
+            for index in 0..self.models.roster.row_count() {
+                let Some(mut row) = self.models.roster.row_data(index) else {
+                    continue;
+                };
+                if !badged.iter().any(|id| *id == row.id.as_str()) {
+                    continue;
+                }
+                row.plugin = badges(slots, &row.id);
+                self.models.roster.set_row_data(index, row);
             }
         }
         for slot in Slot::ALL {
@@ -310,6 +392,7 @@ impl Adapter {
                 Slot::Composer => window.set_plugin_composer(model),
                 Slot::HoverBar => window.set_plugin_hover(model),
                 Slot::Dialog => window.set_plugin_dialogs(model),
+                Slot::ProfileBadges => window.set_plugin_profile(model),
                 // Rows of messages, above.
                 Slot::Message => {}
             }
@@ -357,6 +440,26 @@ impl Adapter {
 
     pub(super) fn ui_overrides(&self) -> Option<&UiOverrides> {
         self.plugins.as_ref()?.overrides.as_deref()
+    }
+    /// A plugin's own row from a manifest was chosen in the rail or the header:
+    /// it reports as a menu row's choice, with the open room behind it.
+    pub(super) fn plugin_row_acted(&mut self, window: &YapfastWindow, id: &str) {
+        let Some((plugin, action)) = self
+            .ui_overrides()
+            .and_then(|overrides| overrides.chosen(id))
+            .map(|(plugin, action)| (plugin.id.clone(), action.to_owned()))
+        else {
+            return;
+        };
+        let target = self.app.state.selected.clone().unwrap_or_default();
+        self.action(
+            window,
+            Action::PluginInput(plugins::Input::Menu {
+                plugin,
+                action,
+                target,
+            }),
+        );
     }
 
     /// Hands what the person did to the plugin runtime.

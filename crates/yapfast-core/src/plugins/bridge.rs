@@ -174,6 +174,18 @@ impl Bridge {
         self.shared.decorates.load(Ordering::Relaxed)
     }
 
+    /// Whether an enabled plugin badges people in the member list. A list that
+    /// nobody badged costs one load of this and nothing else.
+    pub fn decorates_members(&self) -> bool {
+        self.shared.decorates_members.load(Ordering::Relaxed)
+    }
+
+    /// How many plugins badge people in the member list: a person the list has
+    /// heard from every one of them about isn't asked about again.
+    pub fn member_decorator_count(&self) -> usize {
+        self.shared.registry().member_decorator_count()
+    }
+
     /// Asks every plugin that draws under messages what it draws under each row
     /// on screen.
     ///
@@ -3220,6 +3232,15 @@ impl Session {
             } => {
                 self.pending.remove(&frame.id);
                 self.on_code_block(shared, &plugin, &block, spans);
+                None
+            }
+            FromHelper::MemberDecorated {
+                plugin,
+                member,
+                badge,
+            } => {
+                self.pending.remove(&frame.id);
+                self.on_member_decorated(shared, &plugin, &member, badge);
                 None
             }
             FromHelper::EventDone { .. } => None,
