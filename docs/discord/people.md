@@ -1012,9 +1012,10 @@ game, whatever `show_current_game` says, as that setting covers games.
 
 Where it differs from Discord's client: an idle account keeps sharing, since
 Yapfast only sees input in its own window; a link with `show_activity` off has
-no socket, as Yapfast has no playing along; and a playlist isn't given as
-`context_uri`, since telling a public one from a private one takes a request
-for each.
+no socket, as Yapfast has no playing along; a Spotify private session shares
+nothing, where Discord's client doesn't look for one; and a playlist isn't
+given as `context_uri`, since telling a public one from a private one takes a
+request for each.
 
 ## Game detection
 
