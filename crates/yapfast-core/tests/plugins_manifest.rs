@@ -242,3 +242,61 @@ fn the_review_leaves_out_a_capability_nothing_checks() {
         "and the dialog's order is the contract crate's"
     );
 }
+
+/// The settings a plugin may write are the settings the page draws.
+///
+/// `testing/plugins/word-filter/` is the manifest `docs/plugins/settings.md`
+/// documents: a select whose choices have labels, a slider with a step, a
+/// string with a length and a pattern, a list with fields and rows, a widget,
+/// and a `when` that shows one setting when another is set. The installer used
+/// to read a narrower shape than the interface — `options` as plain strings, no
+/// `step`, no `fields`, a menu's `when` instead of a setting's — so this file
+/// was refused at install and loaded whole from a folder. It is handed to
+/// `PluginManifest::parse` here, which is what an install does.
+#[test]
+fn the_settings_the_page_draws_are_the_settings_an_install_reads() {
+    let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testing/plugins/word-filter");
+    let text = std::fs::read_to_string(folder.join("yapfast-plugin.json")).expect("the fixture");
+    let manifest = PluginManifest::parse(&text).expect("the documented settings shape reads");
+
+    // Not vacuous: the fixture has to actually carry the fields the old parser
+    // refused, or this test would pass against the narrower shape too.
+    assert!(manifest.settings.len() >= 5, "the fixture has a setting per kind");
+    assert!(
+        manifest
+            .settings
+            .iter()
+            .any(|setting| setting.options.iter().any(|choice| matches!(
+                choice,
+                yapfast_plugin_api::manifest::SettingChoice::Labelled { .. }
+            ))),
+        "a select with labelled choices"
+    );
+    assert!(manifest.settings.iter().any(|setting| setting.step.is_some()), "a slider's step");
+    assert!(
+        manifest
+            .settings
+            .iter()
+            .any(|setting| !setting.fields.is_empty() && setting.max_rows.is_some()),
+        "a list's fields and rows"
+    );
+    assert!(
+        manifest.settings.iter().any(|setting| setting.when.is_some()),
+        "a setting shown by another"
+    );
+}
+
+/// A setting field nobody knows is still a typo, not a shrug.
+#[test]
+fn a_setting_field_nobody_knows_is_still_refused() {
+    let mut manifest = quiet_manifest();
+    manifest["settings"] = json!([{
+        "key": "words",
+        "type": "string",
+        "label": "Words",
+        "max_lenght": 40
+    }]);
+    let text = serde_json::to_string(&manifest).expect("json");
+    let error = PluginManifest::parse(&text).expect_err("a typo in a setting is refused");
+    assert!(matches!(error, ManifestError::Json(_)), "{error}");
+}

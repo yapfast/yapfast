@@ -1,0 +1,649 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/yapfast/yapfast/main/schemas/yapfast-plugin.schema.json",
+  "title": "yapfast-plugin.json",
+  "description": "A Yapfast plugin's manifest. Written for `yapfast-plugin.json` in a plugin's folder; an editor that validates against this turns a field the parser would refuse into a red squiggle while it is typed.",
+  "$comment": "The manifest is read by two parsers in the tree, and this schema describes the union of what they accept, strict where either of them refuses. (1) `yapfast_plugin_api::PluginManifest::parse` (crates/yapfast-plugin-api/src/manifest.rs) is what an install reads: it is `#[serde(deny_unknown_fields)]` all the way down, and it bounds `limits`, menu rows, buttons, `ui` changes, commands and the paths. (2) `yapfast_core::plugins::Manifest::parse` (crates/yapfast-core/src/plugins.rs) is what a folder is read with: its top level skips fields it doesn't name, but `menus`, `rail_items`, `header_buttons` and `ui` are the API crate's own structs, so they are denied unknown fields there too. `settings` is `yapfast_core::plugins::settings::RawSetting` (crates/yapfast-core/src/plugins/settings.rs), which is the shape the repository's manifests are written in; `SettingDecl` in the API crate is narrower and the two disagree today (see schemas/README.md). Checks that JSON Schema cannot express, and which this file therefore leaves to the parser: an id that `dependencies` also names (`DependsOnItself`), two settings sharing a key, a `when` that names a setting not declared before it, `min` above `max`, a slider with more than 1000 steps, a select with two options of one value, `local-port` without `network.local`, `on_failure: \"block\"` without `messages.intercept`, a plugin with no `wasm` and nothing to do, and colour/size names the interface this build does not have.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api", "id", "name", "version"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "The schema this file was written against, so an editor finds it: `../../schemas/yapfast-plugin.schema.json` when the plugin sits in this repository, or the raw URL of the same file. Yapfast itself ignores it."
+    },
+    "api": {
+      "const": 1,
+      "type": "integer",
+      "description": "The guest ABI and interface version the plugin was built for. A manifest for another version is refused, so this is the only value `PluginManifest::problems` accepts (`UnsupportedApi`)."
+    },
+    "id": {
+      "$ref": "#/$defs/pluginId"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f]*$",
+      "description": "The display name, one line of 1 to 64 characters."
+    },
+    "version": {
+      "$ref": "#/$defs/version"
+    },
+    "description": {
+      "type": "string"
+    },
+    "authors": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "license": {
+      "type": "string"
+    },
+    "homepage": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string",
+      "description": "Where the source that was reviewed lives."
+    },
+    "min_yapfast": {
+      "$ref": "#/$defs/version"
+    },
+    "wasm": {
+      "$ref": "#/$defs/relativePath",
+      "description": "The WebAssembly module, relative to the manifest. Absent for a plugin that only sets named points or changes the interface."
+    },
+    "icon": {
+      "$ref": "#/$defs/relativePath"
+    },
+    "wasi": {
+      "type": "boolean"
+    },
+    "limits": {
+      "$ref": "#/$defs/limits"
+    },
+    "activation": {
+      "$ref": "#/$defs/activation"
+    },
+    "permissions": {
+      "$ref": "#/$defs/permissions"
+    },
+    "commands": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/commandDecl" }
+    },
+    "menus": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/menuDecl" }
+    },
+    "rail_items": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/buttonDecl" }
+    },
+    "header_buttons": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/buttonDecl" }
+    },
+    "ui": {
+      "$ref": "#/$defs/uiDecl"
+    },
+    "settings": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/setting" }
+    },
+    "on_failure": {
+      "$ref": "#/$defs/onFailure"
+    },
+    "dependencies": {
+      "$ref": "#/$defs/dependencyMap"
+    },
+    "optional_dependencies": {
+      "$ref": "#/$defs/dependencyMap"
+    },
+    "tweaks": {
+      "type": "object",
+      "description": "Named behaviours the plugin switches, by name.",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "pluginId": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^(?:[a-z0-9]|[a-z0-9][a-z0-9-]{0,61}[a-z0-9])(?:\\.(?:[a-z0-9]|[a-z0-9][a-z0-9-]{0,61}[a-z0-9]))+$",
+      "description": "Reverse-DNS, lowercase, stable forever, as in `com.example.word-filter`. Matches `PluginId::parse`: at most 128 bytes, at least two dot-separated labels, each 1 to 63 bytes of `a-z`, `0-9` and `-`, and no label starting or ending with a hyphen."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\s*[0-9]{1,20}(?:\\.[0-9]{1,20}){0,2}(?:[-+].*)?\\s*$",
+      "description": "`major`, `major.minor` or `major.minor.patch`, as `Version::from_str` reads one. A `-prerelease` or `+build` suffix may follow and is compared only by the numbers, so `1.4.0-beta.2` reads as `1.4.0`. Each number is a `u64`, so the pattern caps it at 20 digits; the handful of 20-digit numbers above 18446744073709551615 are the one thing it lets through that the parser refuses."
+    },
+    "versionReq": {
+      "type": "string",
+      "pattern": "^\\s*(?:\\*|[~^=]?[0-9]{1,20}(?:\\.[0-9]{1,20}){0,2}(?:[-+].*)?)\\s*$",
+      "description": "A dependency requirement: `*`, or `^1.2`, `~1.4.0`, `=1.4.0` or a bare `1.4.0`, which means `^1.4.0`. As `VersionReq::from_str` reads one."
+    },
+    "plainId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,64}$",
+      "description": "An action's or a row's id, as `plain_id` reads one: letters, digits, `-`, `_` and `.`, 1 to 64 bytes."
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f]*$",
+      "description": "A label as the interface can draw it, as `plain_label` reads one: 1 to 64 characters, nothing blank and no control character."
+    },
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!\\.\\.(?:/|$))(?!.*/\\.\\.(?:/|$)).+$",
+      "description": "A path inside the plugin's folder: relative, and with no `..` component, as `check_relative_path` refuses one that leaves."
+    },
+    "onFailure": {
+      "type": "string",
+      "enum": ["fail_open", "block"],
+      "description": "What a hook does when the plugin fails or runs late. `block` needs the `messages.intercept` capability, which this schema cannot say."
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The memory and quota limits a manifest may raise. Every field has a default, so none is required.",
+      "properties": {
+        "memory_pages": {
+          "type": "integer",
+          "minimum": 32,
+          "maximum": 1024,
+          "description": "Pages of guest memory, 64 KiB each: `limits::MIN_MEMORY_PAGES` to `limits::MAX_MEMORY_PAGES`. Defaults to 256."
+        },
+        "http_response_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 16777216,
+          "description": "An HTTP response's cap, in bytes, at most `limits::MAX_HTTP_RESPONSE_CONSENTED_BYTES` (16 MiB). Defaults to 4 MiB."
+        },
+        "storage_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 16777216,
+          "description": "The plugin's storage, in bytes, at most `limits::MAX_STORAGE_BYTES` (16 MiB). Defaults to 1 MiB."
+        }
+      }
+    },
+    "activation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "on": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "A trigger: `command`, `menu`, `startup`, `event:<name>`, `decorate`, `identity`, `code` or `member.decorate`. Anything else activates nothing rather than being refused."
+          }
+        }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "`Permissions` renames its fields to kebab-case, so `local_port` is written `local-port`.",
+      "properties": {
+        "capabilities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/capability" }
+        },
+        "network": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/hostPattern" }
+        },
+        "local-port": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "The one loopback port `network.local` opens. Naming it without that capability is refused, which this schema cannot say."
+        },
+        "schemes": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "capability": {
+      "type": "string",
+      "enum": [
+        "storage",
+        "messages.read",
+        "messages.intercept",
+        "messages.send",
+        "messages.send.background",
+        "messages.retain",
+        "messages.filter",
+        "people.read",
+        "servers.read",
+        "servers.manage",
+        "presence.write",
+        "notifications.manage",
+        "typing.intercept",
+        "uploads.intercept",
+        "media.read",
+        "files.save",
+        "voice.read",
+        "audio.play",
+        "audio.speak",
+        "microphone",
+        "notifications",
+        "clipboard.write",
+        "ui.modify",
+        "network",
+        "network.local",
+        "open.app"
+      ],
+      "description": "Every name `Capability` has. `files.save` and `microphone` are read and then dropped rather than refused, because nothing in this build checks them."
+    },
+    "hostPattern": {
+      "type": "string",
+      "maxLength": 253,
+      "pattern": "^(?:\\*\\.)?(?:[a-z0-9]|[a-z0-9][a-z0-9-]*[a-z0-9])(?:\\.(?:[a-z0-9]|[a-z0-9][a-z0-9-]*[a-z0-9]))+$",
+      "description": "A host the plugin may reach: `api.example.com`, or `*.cdn.example.com` for one level below it. As `HostPattern::parse` reads one; a bare `*` is refused."
+    },
+    "dependencyMap": {
+      "type": "object",
+      "description": "Plugins by id, each with the version the manifest requires.",
+      "propertyNames": { "$ref": "#/$defs/pluginId" },
+      "additionalProperties": { "$ref": "#/$defs/versionReq" }
+    },
+    "commandDecl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The word after `/`. An empty one refuses the manifest."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Shown beside the command. Written but empty refuses the manifest."
+        },
+        "options": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/commandOption" }
+        }
+      }
+    },
+    "commandOption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "$ref": "#/$defs/optionKind" },
+        "required": { "type": "boolean", "default": false },
+        "description": { "type": "string" },
+        "choices": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The values a `choice` option admits; empty for every other kind."
+        }
+      }
+    },
+    "optionKind": {
+      "type": "string",
+      "enum": ["string", "integer", "number", "bool", "choice", "person", "channel"]
+    },
+    "menuDecl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "label", "action"],
+      "properties": {
+        "target": { "$ref": "#/$defs/menuTarget" },
+        "label": { "$ref": "#/$defs/label" },
+        "icon": { "type": "string" },
+        "action": {
+          "$ref": "#/$defs/plainId",
+          "description": "The action the plugin receives when the row is chosen."
+        },
+        "when": { "$ref": "#/$defs/whenClause" }
+      }
+    },
+    "menuTarget": {
+      "type": "string",
+      "enum": [
+        "message",
+        "user",
+        "user_profile",
+        "channel",
+        "thread",
+        "group_dm",
+        "server",
+        "server_header",
+        "role",
+        "emoji",
+        "sticker",
+        "image",
+        "stream",
+        "game",
+        "forum_tag",
+        "composer",
+        "attach"
+      ],
+      "description": "What a menu row or a `ui` row is about. A closed list: a name outside it refuses the manifest."
+    },
+    "whenClause": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The closed set of conditions a menu row or a `ui` row may carry. Each field given must match, and each left out always does.",
+      "properties": {
+        "network": { "$ref": "#/$defs/networkName" },
+        "own": { "type": "boolean" },
+        "dm": { "type": "boolean" },
+        "has_attachment": { "type": "boolean" },
+        "is_bot": { "type": "boolean" },
+        "role": { "type": "string" }
+      }
+    },
+    "networkName": {
+      "type": "string",
+      "enum": ["discord", "matrix"]
+    },
+    "buttonDecl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "action"],
+      "properties": {
+        "label": { "$ref": "#/$defs/label" },
+        "action": { "$ref": "#/$defs/plainId" }
+      }
+    },
+    "uiDecl": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What a plugin changes in the interface Yapfast already draws. A row, a part, a colour and a size each count one against `CHANGES` (64); this schema caps each list and map at 64 and cannot express the sum.",
+      "properties": {
+        "menu": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "$ref": "#/$defs/uiRow" }
+        },
+        "parts": { "$ref": "#/$defs/uiParts" },
+        "colors": {
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": { "$ref": "#/$defs/plainId" },
+          "additionalProperties": {
+            "type": "string",
+            "description": "A colour as `#rgb`, `#rrggbb` or `#rrggbbaa`. A name this build has not got, or a value that isn't a colour, is refused on the plugin's page rather than in the manifest."
+          }
+        },
+        "sizes": {
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": { "$ref": "#/$defs/plainId" },
+          "additionalProperties": {
+            "type": "number",
+            "description": "Logical pixels, clamped to the range the size has. A name this build has not got is refused on the plugin's page."
+          }
+        }
+      }
+    },
+    "uiParts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hide": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "$ref": "#/$defs/plainId" }
+        },
+        "replace": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "$ref": "#/$defs/plainId" }
+        }
+      }
+    },
+    "uiRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "row"],
+      "properties": {
+        "target": { "$ref": "#/$defs/menuTarget" },
+        "row": {
+          "$ref": "#/$defs/plainId",
+          "description": "The built-in row's id, as the interface names it, such as `copy-id`."
+        },
+        "hide": { "type": "boolean" },
+        "label": { "$ref": "#/$defs/label" },
+        "before": { "$ref": "#/$defs/plainId" },
+        "after": { "$ref": "#/$defs/plainId" },
+        "when": { "$ref": "#/$defs/whenClause" }
+      }
+    },
+    "settingKey": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "description": "1 to 64 bytes: lowercase letters, digits and `_`, starting with a letter."
+    },
+    "setting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "type", "label"],
+      "description": "One setting the plugin's page draws. The fields beyond `key`, `type`, `label`, `description`, `when` and `default` are the ones its `type` allows, as `allowed()` reads them.",
+      "properties": {
+        "key": { "$ref": "#/$defs/settingKey" },
+        "type": {
+          "type": "string",
+          "enum": ["bool", "string", "select", "slider", "number", "integer", "list", "widget"]
+        },
+        "label": { "$ref": "#/$defs/label" },
+        "description": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "default": {
+          "description": "The value the setting starts with. Whether it suits the setting's own rules is checked by the parser, which this schema cannot express."
+        },
+        "options": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/selectOption" }
+        },
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "step": { "type": "number", "exclusiveMinimum": 0 },
+        "max_length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "placeholder": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "pattern": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "A regular expression the whole value must match. That it compiles is checked by the parser."
+        },
+        "pattern_message": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "fields": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/settingField" }
+        },
+        "max_rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256
+        },
+        "when": { "$ref": "#/$defs/settingWhen" }
+      },
+      "allOf": [
+        { "if": { "required": ["options"] }, "then": { "properties": { "type": { "const": "select" } } } },
+        { "if": { "required": ["fields"] }, "then": { "properties": { "type": { "const": "list" } } } },
+        { "if": { "required": ["max_rows"] }, "then": { "properties": { "type": { "const": "list" } } } },
+        { "if": { "required": ["max_length"] }, "then": { "properties": { "type": { "const": "string" } } } },
+        { "if": { "required": ["placeholder"] }, "then": { "properties": { "type": { "const": "string" } } } },
+        { "if": { "required": ["pattern"] }, "then": { "properties": { "type": { "const": "string" } } } },
+        { "if": { "required": ["pattern_message"] }, "then": { "properties": { "type": { "const": "string" } } } },
+        { "if": { "required": ["min"] }, "then": { "properties": { "type": { "enum": ["slider", "number", "integer"] } } } },
+        { "if": { "required": ["max"] }, "then": { "properties": { "type": { "enum": ["slider", "number", "integer"] } } } },
+        { "if": { "required": ["step"] }, "then": { "properties": { "type": { "enum": ["slider", "number", "integer"] } } } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "select" } } }, "then": { "required": ["options"] } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "list" } } }, "then": { "required": ["fields"] } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "slider" } } }, "then": { "required": ["min", "max"] } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "widget" } } }, "then": { "not": { "required": ["default"] } } },
+        {
+          "if": { "required": ["type"], "properties": { "type": { "const": "integer" } } },
+          "then": {
+            "properties": {
+              "min": { "multipleOf": 1, "minimum": -9007199254740991, "maximum": 9007199254740991 },
+              "max": { "multipleOf": 1, "minimum": -9007199254740991, "maximum": 9007199254740991 },
+              "step": { "multipleOf": 1, "minimum": -9007199254740991, "maximum": 9007199254740991 }
+            }
+          }
+        }
+      ]
+    },
+    "settingField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "type", "label"],
+      "description": "One field of a list's record: `bool`, `string`, `select`, `number` or `integer`. It has no `description`, no `when`, and it cannot be a `slider`, a `list` or a `widget`.",
+      "properties": {
+        "key": { "$ref": "#/$defs/settingKey" },
+        "type": {
+          "type": "string",
+          "enum": ["bool", "string", "select", "number", "integer"]
+        },
+        "label": { "$ref": "#/$defs/label" },
+        "default": {},
+        "options": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/selectOption" }
+        },
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "step": { "type": "number", "exclusiveMinimum": 0 },
+        "max_length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "placeholder": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "pattern": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "pattern_message": {
+          "type": "string",
+          "maxLength": 256
+        }
+      },
+      "allOf": [
+        { "if": { "required": ["options"] }, "then": { "properties": { "type": { "const": "select" } } } },
+        { "if": { "required": ["max_length"] }, "then": { "properties": { "type": { "const": "string" } } } },
+        { "if": { "required": ["placeholder"] }, "then": { "properties": { "type": { "const": "string" } } } },
+        { "if": { "required": ["pattern"] }, "then": { "properties": { "type": { "const": "string" } } } },
+        { "if": { "required": ["pattern_message"] }, "then": { "properties": { "type": { "const": "string" } } } },
+        { "if": { "required": ["min"] }, "then": { "properties": { "type": { "enum": ["number", "integer"] } } } },
+        { "if": { "required": ["max"] }, "then": { "properties": { "type": { "enum": ["number", "integer"] } } } },
+        { "if": { "required": ["step"] }, "then": { "properties": { "type": { "enum": ["number", "integer"] } } } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "select" } } }, "then": { "required": ["options"] } },
+        {
+          "if": { "required": ["type"], "properties": { "type": { "const": "integer" } } },
+          "then": {
+            "properties": {
+              "min": { "multipleOf": 1, "minimum": -9007199254740991, "maximum": 9007199254740991 },
+              "max": { "multipleOf": 1, "minimum": -9007199254740991, "maximum": 9007199254740991 },
+              "step": { "multipleOf": 1, "minimum": -9007199254740991, "maximum": 9007199254740991 }
+            }
+          }
+        }
+      ]
+    },
+    "selectOption": {
+      "description": "One option of a select: a bare value, which is also its label, or a value with a label.",
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "label"],
+          "properties": {
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "label": { "$ref": "#/$defs/label" }
+          }
+        }
+      ]
+    },
+    "settingWhen": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "show": { "$ref": "#/$defs/settingTests" },
+        "enable": { "$ref": "#/$defs/settingTests" }
+      }
+    },
+    "settingTests": {
+      "description": "One test, or 1 to 8 of them, all of which must hold.",
+      "anyOf": [
+        { "$ref": "#/$defs/settingTest" },
+        {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": { "$ref": "#/$defs/settingTest" }
+        }
+      ]
+    },
+    "settingTest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["setting"],
+      "description": "A test on a setting declared before this one. That the named setting exists, and that the value suits it, is checked by the parser.",
+      "properties": {
+        "setting": { "type": "string" },
+        "is": {},
+        "not": {},
+        "in": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32
+        },
+        "empty": { "type": "boolean" }
+      },
+      "oneOf": [
+        { "required": ["is"] },
+        { "required": ["not"] },
+        { "required": ["in"] },
+        { "required": ["empty"] }
+      ]
+    }
+  }
+}

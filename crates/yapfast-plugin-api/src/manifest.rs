@@ -539,6 +539,13 @@ pub enum SettingKind {
 }
 
 /// One setting the plugin's page draws for it.
+///
+/// This mirrors what `crates/yapfast-core/src/plugins/settings.rs` reads, field
+/// for field, because two readers of one file must not disagree: the installer
+/// validated a narrower shape than the interface drew, so a plugin whose
+/// settings were written the way `docs/plugins/settings.md` documents them was
+/// refused at install and worked when loaded from a folder. Which kinds accept
+/// which fields is the interface's check, and stays there; this is the shape.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SettingDecl {
@@ -550,17 +557,84 @@ pub struct SettingDecl {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Value::is_null")]
     pub default: Value,
+    /// A select's choices: a value, or a value with a label to show for it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub options: Vec<String>,
+    pub options: Vec<SettingChoice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max: Option<f64>,
+    /// The step a slider moves in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<f64>,
+    /// The longest text a string holds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placeholder: Option<String>,
     /// A regular expression a string must match.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pattern: Option<String>,
+    /// What to say when a string doesn't match [`SettingDecl::pattern`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub when: Option<WhenClause>,
+    pub pattern_message: Option<String>,
+    /// A list's fields: the settings one row holds.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<SettingDecl>,
+    /// The most rows a list holds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_rows: Option<usize>,
+    /// Whether this setting is drawn, and whether it can be changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<SettingWhen>,
+}
+
+/// One choice in a `select` setting: a bare value, or a value and the label to
+/// show for it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SettingChoice {
+    Value(String),
+    Labelled { value: String, label: String },
+}
+
+/// Whether a setting is drawn, and whether it can be changed.
+///
+/// A plugin states it as tests over its own settings, so a page can hide what
+/// does not apply: `show` decides whether the row is there at all, `enable`
+/// whether it is there and refused.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SettingWhen {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show: Option<SettingTests>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enable: Option<SettingTests>,
+}
+
+/// One test, or all of them.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SettingTests {
+    One(SettingTest),
+    All(Vec<SettingTest>),
+}
+
+/// One test over another setting's value.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SettingTest {
+    /// The key of the setting whose value is tested.
+    pub setting: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not: Option<Value>,
+    /// A value this one must be one of.
+    #[serde(default, rename = "in", skip_serializing_if = "Option::is_none")]
+    pub any: Option<Vec<Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub empty: Option<bool>,
 }
 
 /// What a plugin's hook does when the plugin fails or runs late.
@@ -597,6 +671,13 @@ impl OnFailure {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PluginManifest {
+    /// The JSON Schema this file was written against, for an editor.
+    ///
+    /// It means nothing to Yapfast: it is here so an editor checks the file as
+    /// it is typed, which is the same `deny_unknown_fields` strictness moved to
+    /// where a misspelled key is cheap to find. Left out when written back.
+    #[serde(default, rename = "$schema", skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
     /// The guest ABI and interface version this plugin was built for.
     pub api: u32,
     pub id: PluginId,

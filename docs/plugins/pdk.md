@@ -7,7 +7,7 @@ the rest of this page is ordered by what the measurements say a plugin costs.
 | PDK | Where | Builds with | Plugin | Load |
 | --- | --- | --- | --- | --- |
 | **AssemblyScript** | [`pdk/assemblyscript`](../../pdk/assemblyscript) | `asc`, with the plugin's own file as the entry | 11.4 KiB | **1 page, 64 KiB** |
-| TinyGo | no PDK yet; see [Go](#go) | `tinygo build -target=wasip1 -buildmode=c-shared` | 143.7 KiB | 2 pages, 128 KiB |
+| **TinyGo** | [`pdk/tinygo/template`](../../pdk/tinygo/template) | `tinygo build -target=wasip1 -buildmode=c-shared`, with `github.com/extism/go-pdk` | 10.2 KiB | 2 pages, 128 KiB | `tinygo build -target=wasip1 -buildmode=c-shared` | 143.7 KiB | 2 pages, 128 KiB |
 | Rust | [`pdk/rust`](../../pdk/rust) | `cargo build --target wasm32-unknown-unknown`, `crate-type = ["cdylib"]` | 160.8 KiB | 17 pages, 1,088 KiB |
 | C | [`pdk/c`](../../pdk/c) | plain `clang --target=wasm32-unknown-unknown -nostdlib`; no SDK, no WASI | 12.1 KiB | 2 pages, 128 KiB |
 | Zig | [`pdk/zig`](../../pdk/zig) | `zig build-exe --target=wasm32-freestanding --export=…` per export | 56.4 KiB | 17 pages (its 1 MiB stack) |
@@ -36,19 +36,40 @@ the installer refuses it), and Haskell (74–142 pages, and it retries a refused
 
 ## Starting here
 
-Every PDK has a `template` folder to copy: a manifest, one handler and a build
-script, all four of them the same `/hello` command, so the difference you see
-is the language's.
+Every PDK has a `template` folder: a manifest, one handler and a build script,
+all of them the same `/hello` command, so the difference you see is the
+language's. Start one with the line for your language.
 
-| Template | Builds in | Produces |
-| --- | --- | --- |
-| [`pdk/assemblyscript/template`](../../pdk/assemblyscript/template) | a second | 11.4 KiB, 1 page |
-| [`pdk/rust/template`](../../pdk/rust/template) | a cargo build | 160.8 KiB, 17 pages |
-| [`pdk/c/template`](../../pdk/c/template) | a second | 10.7 KiB, 5 pages |
-| [`pdk/zig/template`](../../pdk/zig/template) | a second | 55.1 KiB, 19 pages |
+| Language | Start it | Builds in | Produces |
+| --- | --- | --- | --- |
+| AssemblyScript | `cp -r pdk/assemblyscript/template ../my-plugin` | a second | 11.4 KiB, 1 page |
+| Rust | `cargo generate --path pdk/rust/template` | a cargo build | 160.8 KiB, 17 pages |
+| C | `cp -r pdk/c/template ../my-plugin` | a second | 10.7 KiB, 5 pages |
+| Zig | `cp -r pdk/zig/template ../my-plugin` | a second | 55.1 KiB, 19 pages |
+| TinyGo | `cp -r pdk/tinygo/template ../my-plugin` | a second | see [TinyGo](#go) |
 
-Each has `build.sh` for a Unix shell and `build.cmd` for Windows, so a plugin
-builds the same way on either.
+`cargo generate` is how Rust goes, because its template has prompts and
+placeholders (`{{project-name}}`, `{{plugin_id}}`); the other three are folders
+with nothing to fill in, and their manifests are edited in place. Each has
+`build.sh` for a Unix shell and `build.cmd` for Windows, so a plugin builds the
+same way on either.
+
+There is no `yfp init`. A template and one line is what that command would do,
+and a command would then have to keep working for ever.
+
+## The manifest, checked as you type
+
+[`schemas/yapfast-plugin.schema.json`](../../schemas/yapfast-plugin.schema.json)
+is a JSON Schema for `yapfast-plugin.json` and it is exactly as strict as the
+parser: a misspelled key is an error in the editor instead of a refusal at
+install. This repository points every `yapfast-plugin.json` at it in
+[`.vscode/settings.json`](../../.vscode/settings.json), so nothing has to be
+added to a manifest here; a plugin in its own repository can either copy that
+setting or put the schema's raw URL in `"$schema"`. Yapfast ignores that field.
+
+The parser's own rules that are not about one field's shape — a plugin that
+depends on itself, two settings with one key, `min` above `max` — stay with
+Yapfast, and the schema says so in its `$comment`.
 
 Everything below about Rust applies to the PDK that has a published crate; the
 advice about memory applies to all of them.
@@ -331,9 +352,19 @@ plugin author's decision the same way `GOGC` was; `-scheduler=asyncify`, the
 default, is what makes the default build grow to four pages on its first event.
 `scheduler=none` also takes the module from 46 WASI imports to 2.
 
-A Go plugin can also be built against Extism's own Go PDK and installed, with
-`wasi: true` in its manifest. The three bars above are how its author checks
-whether it fits before shipping it.
+The starter is [`pdk/tinygo/template`](../../pdk/tinygo/template): one
+`/hello` command on Extism's own Go PDK (`github.com/extism/go-pdk` — there is
+no second PDK to write, and no wrapper: `//go:wasmexport yf_activate` and the
+other four are what the PDK's conventions already are). Measured: **10.2 KiB and
+two pages**, three in use, a reactor with `_initialize` and no `_start`, and
+`"wasi": true` in the manifest because TinyGo's runtime imports
+`clock_time_get` and `random_get`. Its `build.sh` carries the flag set:
+`-opt=z -no-debug -gc=leaking -scheduler=none -panic=trap`.
+
+One number from that template is worth knowing before writing a plugin on it:
+the same command written with `pdk.InputJSON`/`OutputJSON` is **418.8 KiB**,
+because TinyGo's `encoding/json` is its reflection. The template reads its one
+option by hand and reports both numbers, so the trade is visible.
 
 ## The other PDKs, and how a plugin in each is shaped
 
