@@ -1590,9 +1590,7 @@ fn remb(packet: &[u8]) -> Option<(u64, Vec<u32>)> {
             Some(u32::from_be_bytes(packet.get(at..at + 4)?.try_into().ok()?))
         })
         .collect();
-    let bitrate = u64::from(mantissa)
-        .checked_mul(1u64 << exponent)
-        .unwrap_or(u64::MAX);
+    let bitrate = u64::from(mantissa).saturating_mul(1u64 << exponent);
     Some((bitrate, ssrcs))
 }
 
@@ -1835,6 +1833,78 @@ const HELD: usize = 1000;
 const MAX_MISSING: usize = HELD;
 const MAX_ASKED: usize = 256;
 
+/// The sequence numbers below the highest whose arrival is remembered: a
+/// packet that came out of order is counted received once, however late it was,
+/// and a duplicate isn't counted twice. About a quarter of a second at the rate
+/// a stream sends, and longer than a gap is waited for.
+const ARRIVED: u64 = 256;
+const ARRIVED_WORDS: usize = (ARRIVED / 64) as usize;
+
+/// Which packets near the highest sequence number have arrived, for the count a
+/// receiver report carries.
+///
+/// A packet that arrives behind the one the frames are being built from has
+/// still arrived: Discord's client, and RFC 3550 with it, counts it as received,
+/// so a report says the path lost what it lost rather than what arrived out of
+/// order. Reading it from the delivery point instead — "the highest less the
+/// packets handed on" — called every reordered packet lost, which is a loss a
+/// streamer reads as its own uplink's.
+#[derive(Default)]
+struct Arrived {
+    /// The highest sequence number marked.
+    newest: u64,
+    /// Bit `index * 64 + bit` is the packet `newest - (index * 64 + bit)`.
+    bits: [u64; ARRIVED_WORDS],
+    /// The packets marked since the stream began.
+    count: u64,
+}
+
+impl Arrived {
+    /// Marks `sequence` as arrived: whether this is its first arrival, which is
+    /// what a report counts.
+    fn note(&mut self, sequence: u64) -> bool {
+        if sequence > self.newest {
+            self.advance(sequence - self.newest);
+            self.newest = sequence;
+        }
+        let below = self.newest - sequence;
+        // Older than what's remembered: it can't be told from a packet counted
+        // when it first came, so it isn't counted again.
+        let Some((word, bit)) =
+            (below < ARRIVED).then_some(((below / 64) as usize, (below % 64) as u32))
+        else {
+            return false;
+        };
+        if self.bits[word] & (1 << bit) != 0 {
+            return false;
+        }
+        self.bits[word] |= 1 << bit;
+        self.count += 1;
+        true
+    }
+
+    /// The highest is `shift` further on, so every packet remembered is that
+    /// much older.
+    fn advance(&mut self, shift: u64) {
+        if shift >= ARRIVED {
+            self.bits = [0; ARRIVED_WORDS];
+            return;
+        }
+        let (words, bits) = ((shift / 64) as usize, (shift % 64) as u32);
+        let mut moved = [0; ARRIVED_WORDS];
+        for (index, word) in moved.iter_mut().enumerate() {
+            let Some(from) = index.checked_sub(words) else {
+                continue;
+            };
+            *word = self.bits[from] << bits;
+            if bits > 0 && from > 0 {
+                *word |= self.bits[from - 1] >> (64 - bits);
+            }
+        }
+        self.bits = moved;
+    }
+}
+
 /// Puts one SSRC's packets back in sequence for the assembler, as they can
 /// arrive out of order, and asks for missing ones again (NACK), as Discord's
 /// client does, rather than losing every frame until the next keyframe.
@@ -1845,10 +1915,10 @@ pub struct Reorder {
     highest: Option<u64>,
     held: std::collections::BTreeMap<u64, Held>,
     missing: std::collections::BTreeMap<u64, Missing>,
-    /// For receiver reports: the first extended sequence number, and the
-    /// packets received since.
+    /// For receiver reports: the first extended sequence number, and which of
+    /// the packets since have come.
     first: Option<u64>,
-    received: u64,
+    arrived: Arrived,
 }
 
 struct Missing {
@@ -1883,10 +1953,21 @@ impl Reorder {
         let sequence = self.extend(packet.sequence);
         let next = *self.next.get_or_insert(sequence);
         self.first.get_or_insert(sequence);
-        if sequence < next || self.held.contains_key(&sequence) {
+        // A copy of one still waiting is a copy, not a packet that arrived.
+        if self.held.contains_key(&sequence) {
             return Arrival::Late;
         }
-        self.received += 1;
+        let fresh = self.arrived.note(sequence);
+        if sequence < next {
+            // Behind what the frames were built from: the packets after it went
+            // on without it, so it can't join one, but it did arrive and the
+            // report says so.
+            return if fresh {
+                Arrival::Recovered
+            } else {
+                Arrival::Late
+            };
+        }
         let recovered = self.missing.remove(&sequence).is_some();
         match self.highest {
             // Far ahead: the sender started again, so start with it.
@@ -1977,7 +2058,7 @@ impl Reorder {
         let expected = highest + 1 - first;
         Some((
             highest as u32,
-            expected.saturating_sub(self.received) as u32,
+            expected.saturating_sub(self.arrived.count) as u32,
         ))
     }
 }
@@ -2015,6 +2096,10 @@ pub fn report_blocks(rtcp: &[u8]) -> Vec<(u32, u32, u32)> {
 /// What one report block of a sender or receiver report says about an SSRC.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Reception {
+    /// The SSRC of the end that reported: Discord's stream server, or a viewer
+    /// whose report the server passed on, so that one end's count of the video
+    /// isn't taken for another's.
+    pub reporter: u32,
     pub ssrc: u32,
     /// Packets lost since the previous report, out of 256.
     pub fraction_lost: u8,
@@ -2045,6 +2130,8 @@ fn blocks(mut rtcp: &[u8]) -> Vec<Reception> {
                 .get(at..at + 4)
                 .map(|bytes| u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
         };
+        // A sender or receiver report names its own SSRC after the header.
+        let reporter = word(4).unwrap_or_default();
         // A sender report's blocks follow its 20 bytes of sender information.
         let first = match packet[1] {
             200 => Some(28),
@@ -2057,6 +2144,7 @@ fn blocks(mut rtcp: &[u8]) -> Vec<Reception> {
             let block = || {
                 let lost = word(at + 4)?;
                 Some(Reception {
+                    reporter,
                     ssrc: word(at)?,
                     fraction_lost: (lost >> 24) as u8,
                     lost: lost & 0x00ff_ffff,
@@ -2145,6 +2233,7 @@ mod tests {
         assert_eq!(
             reception(&both, 77),
             Some(Reception {
+                reporter: 1,
                 ssrc: 77,
                 fraction_lost: 30,
                 lost: 12,
@@ -2588,8 +2677,70 @@ mod tests {
         assert_eq!(reorder.ready(at(399)), (vec![], 0));
         let (ready, skipped) = reorder.ready(at(400));
         assert_eq!((sequences(ready), skipped), (vec![4], 2));
-        assert_eq!(reorder.insert(held(3), at(410)), Arrival::Late);
-        assert_eq!(reorder.counts(), Some((65536 + 4, 2)), "one wrap, two lost");
+        // 3 was given up on, and comes anyway: it arrived, so the report says
+        // the path lost one rather than two.
+        assert_eq!(reorder.insert(held(3), at(410)), Arrival::Recovered);
+        assert_eq!(reorder.counts(), Some((65536 + 4, 1)), "one wrap, one lost");
+        // And once it has come, another copy of it isn't a second packet.
+        assert_eq!(reorder.insert(held(3), at(420)), Arrival::Late);
+        assert_eq!(reorder.counts(), Some((65536 + 4, 1)));
+    }
+
+    #[test]
+    fn counts_a_packet_that_came_late_as_arrived() {
+        // A report says what the path lost, not what arrived out of order: the
+        // delivery point went on without 12, so a count read from it called 12
+        // lost, and a streamer reads that as its own uplink losing it.
+        let now = std::time::Instant::now();
+        let later = now + std::time::Duration::from_millis(400);
+        let held = |sequence: u16| Held {
+            payload_type: VP8,
+            marker: false,
+            sequence,
+            timestamp: 0,
+            ssrc: 5,
+            payload: vec![0],
+            orientation: None,
+        };
+        let mut reorder = Reorder::default();
+        for sequence in [10, 11, 13, 14] {
+            reorder.insert(held(sequence), now);
+        }
+        assert_eq!(reorder.ready(now).0.len(), 2, "10 and 11, without 12");
+        assert_eq!(reorder.counts(), Some((14, 1)));
+        assert_eq!(reorder.ready(later).0.len(), 2, "13 and 14, given up on 12");
+        assert_eq!(reorder.counts(), Some((14, 1)), "12 never came");
+        assert_eq!(reorder.insert(held(12), later), Arrival::Recovered);
+        assert_eq!(reorder.counts(), Some((14, 0)), "and then it did");
+        // A second copy of it is not a second packet.
+        assert_eq!(reorder.insert(held(12), later), Arrival::Late);
+        assert_eq!(reorder.counts(), Some((14, 0)));
+    }
+
+    #[test]
+    fn remembers_the_arrivals_near_the_highest() {
+        let mut arrived = Arrived::default();
+        assert!(arrived.note(1000));
+        assert!(!arrived.note(1000), "a duplicate");
+        assert!(arrived.note(999), "out of order, and new");
+        assert_eq!(arrived.count, 2);
+        // Older than what's remembered: it can't be told from a packet counted
+        // when it first came, so it isn't counted again.
+        assert!(!arrived.note(1000 - ARRIVED));
+        assert_eq!(arrived.count, 2);
+        // A window that moves keeps what it holds, across a word's worth of it.
+        let mut arrived = Arrived::default();
+        arrived.note(100);
+        arrived.note(99);
+        arrived.note(170);
+        assert!(!arrived.note(100));
+        assert!(!arrived.note(99));
+        assert!(arrived.note(98));
+        assert_eq!(arrived.count, 4);
+        // Far ahead, everything before it is out of reach and it counts.
+        assert!(arrived.note(170 + ARRIVED * 4));
+        assert!(!arrived.note(169));
+        assert_eq!(arrived.count, 5);
     }
 
     #[test]

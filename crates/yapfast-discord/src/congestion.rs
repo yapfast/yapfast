@@ -4,6 +4,11 @@
 //! loss from the receiver reports Discord's stream server sends about the
 //! video, which a queue at the sender's router lengthens too.
 //!
+//! The server passes on reports a viewer made as well as its own, about the
+//! same video SSRC, so each end's count is kept apart: what the uplink carried
+//! is the fastest of their rates, and a report that lags behind the count it is
+//! measured from says nothing rather than saying the path carried nothing.
+//!
 //! It starts below the cap, raises the target a little each report while
 //! the round trip stays near the lowest seen, and lowers it below what the
 //! server received when the round trip climbs well over that or packets are
@@ -123,6 +128,19 @@ struct Received {
     lost: u32,
 }
 
+/// The most ends whose counts of the video are kept apart: Discord's stream
+/// server, and the viewers whose reports it passes on.
+const REPORTERS: usize = 4;
+
+/// One end's count of the video, and the bit/s between its last two reports.
+struct Reporter {
+    ssrc: u32,
+    /// The report the next count is measured from, and when it came.
+    counted: Received,
+    /// The bit/s its reports measured, while it went on reporting.
+    received: Option<u64>,
+}
+
 /// How long the server's estimate speaks for the path. Its reports come as often
 /// as viewers' receivers send them, so a stream somebody watches never sees it
 /// lapse; one that does lapse — a viewer who left, a socket gone quiet — is not
@@ -150,9 +168,10 @@ pub struct Controller {
     /// and when the first packet did.
     slices: VecDeque<Slice>,
     first: Option<Instant>,
-    /// The report the bit/s received is measured from, and that bit/s.
-    counted: Option<Received>,
-    received: Option<u64>,
+    /// Each end's count of the video, a report at a time: Discord's server and
+    /// the viewers it passes on speak about the same SSRC, and one end's count
+    /// isn't the next step of another's.
+    reporters: Vec<Reporter>,
 }
 
 impl Controller {
@@ -167,8 +186,7 @@ impl Controller {
             capacity: None,
             slices: VecDeque::new(),
             first: None,
-            counted: None,
-            received: None,
+            reporters: Vec::new(),
         }
     }
 
@@ -223,10 +241,13 @@ impl Controller {
         (packets > 0).then(|| bytes / packets)
     }
 
-    /// The bit/s the server received between its last reports at least
-    /// [`RECEIVING`] apart.
+    /// The bit/s the reporters' counts say, the fastest of them: what the
+    /// uplink carried then, whichever end of the stream measured it.
     pub fn received(&self) -> Option<u64> {
-        self.received
+        self.reporters
+            .iter()
+            .filter_map(|reporter| reporter.received)
+            .max()
     }
 
     /// The bit/s to send at.
@@ -267,8 +288,8 @@ impl Controller {
         self.clamp(now)
     }
 
-    /// Counts the packets the server received since the report it counts
-    /// from, as the highest sequence number grew less the packets lost
+    /// Counts the packets the end that reported received since the report it
+    /// counts from, as the highest sequence number grew less the packets lost
     /// meanwhile, at the size of those sent lately.
     fn count_received(&mut self, now: Instant, reception: &Reception) {
         let this = Received {
@@ -276,23 +297,60 @@ impl Controller {
             highest: reception.highest,
             lost: reception.lost,
         };
-        let Some(from) = self.counted else {
-            self.counted = Some(this);
-            return;
-        };
+        let index = self.reporter(reception.reporter, this, now);
+        let from = self.reporters[index].counted;
         let elapsed = now.duration_since(from.at);
         if elapsed < RECEIVING {
             return;
         }
-        self.counted = Some(this);
+        // A count that hasn't moved past the one it's measured from is a report
+        // that came out of order, or one relayed from another end: neither is
+        // the next step of this count, and the step read as nothing would say
+        // the path carried nothing.
+        let step = this.highest.wrapping_sub(from.highest) as i32;
+        if step < 0 {
+            return;
+        }
+        self.reporters[index].counted = this;
         // The count of packets lost is 24 bits, and signed: duplicates can
         // take it down.
         let lost = i64::from(((this.lost.wrapping_sub(from.lost) << 8) as i32) >> 8);
-        let arrived = (i64::from(this.highest.wrapping_sub(from.highest)) - lost).max(0) as u64;
-        self.received = self
+        let arrived = (i64::from(step) - lost).max(0) as u64;
+        self.reporters[index].received = self
             .packet_size()
             .map(|size| arrived * size * 8 * 1000 / elapsed.as_millis() as u64)
             .filter(|&received| received <= self.cap * UNLIKELY);
+    }
+
+    /// The slot for the end that reported, made for one that hasn't spoken
+    /// before and taking the oldest one's when they're all in use: an end that
+    /// stopped reporting isn't news about the path now.
+    fn reporter(&mut self, ssrc: u32, first: Received, now: Instant) -> usize {
+        if let Some(index) = self
+            .reporters
+            .iter()
+            .position(|reporter| reporter.ssrc == ssrc)
+        {
+            return index;
+        }
+        self.reporters
+            .retain(|reporter| now.duration_since(reporter.counted.at) < ESTIMATE_LIFE);
+        if self.reporters.len() >= REPORTERS
+            && let Some(oldest) = self
+                .reporters
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, reporter)| reporter.counted.at)
+                .map(|(index, _)| index)
+        {
+            self.reporters.swap_remove(oldest);
+        }
+        self.reporters.push(Reporter {
+            ssrc,
+            counted: first,
+            received: None,
+        });
+        self.reporters.len() - 1
     }
 
     /// Takes a receiver report about the video, received `now`: the round
@@ -338,8 +396,8 @@ impl Controller {
             // while the queue built, however much more went out: a picture
             // that turned busy at once sends far past it.
             let carried = self
-                .received
-                .or(self.sending(now))
+                .received()
+                .or_else(|| self.sending(now))
                 .map_or(self.target, |carried| carried.min(self.target));
             self.capacity = Some(carried);
             let lower = (carried * BACK_OFF / 100).max(FLOOR);
@@ -737,6 +795,47 @@ mod tests {
         uplink.highest = uplink.highest.wrapping_add(1 << 30);
         uplink.busy(1, Some(ms(40)), 0);
         assert_eq!(uplink.controller.received(), None);
+    }
+
+    #[test]
+    fn reads_each_ends_count_of_the_video_apart() {
+        // The server passes on a viewer's reports about the same video, counted
+        // from a point further back than its own. Read as one count, the step
+        // goes backwards and the path looks like it carried nothing, which a
+        // back-off then takes the target below.
+        let mut controller = Controller::new(CAP);
+        let mut at = Instant::now();
+        let reception = |reporter: u32, highest: u32| Reception {
+            reporter,
+            highest,
+            ..Reception::default()
+        };
+        for _ in 0..100 {
+            at += ms(1);
+            controller.sent(at, PACKET as usize);
+        }
+        // The server's count, a second apart, all of it received.
+        assert_eq!(controller.report(at, None, &reception(0, 0)), None);
+        at += ms(1000);
+        controller.sent(at, PACKET as usize);
+        controller.report(at, None, &reception(0, 1000));
+        let received = controller
+            .received()
+            .expect("a rate from the server's count");
+        assert!(received > 0, "{received}");
+        // A viewer's report, relayed in between about the same video.
+        at += ms(500);
+        controller.sent(at, PACKET as usize);
+        controller.report(at, None, &reception(7, 40));
+        assert_eq!(
+            controller.received(),
+            Some(received),
+            "a count from further back took the rate to nothing"
+        );
+        // And a report about the count it measures from, out of order.
+        at += ms(500);
+        controller.report(at, None, &reception(0, 900));
+        assert_eq!(controller.received(), Some(received));
     }
 
     #[test]

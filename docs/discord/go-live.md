@@ -233,6 +233,11 @@ it cuts the target below what the server received — what the uplink carried
 while the queue built — then holds. Discord's client reads this from
 transport-wide feedback; Yapfast reads the receiver reports the stream server
 sends about the video, which a queue at the sender's router lengthens too.
+Those reports can be a viewer's own, passed on by the server and counted from a
+point further back, so each end's count is kept apart by the SSRC that reported:
+what the uplink carried is the fastest rate among them, and a report that hasn't
+moved past the count it would be measured from says nothing rather than saying
+the path carried nothing.
 
 A round trip 60 ms over the lowest, on two reports in a row, or more than about
 10% of the packets lost, cuts the target at once to 85% of what the server got,
@@ -567,9 +572,11 @@ are frames while none has come yet, and after one the decoder was too far
 behind to take. The connection asks for a keyframe with a picture loss
 indication, at most every 500 ms. It sends a receiver report every second
 (packets lost, the highest received, and the streamer's last sender report
-echoed). With `YAPFAST_LOG=debug` it logs what it received every 5 s (`stream
-received`): packets out of order, resent, recovered, given up on, and keyframes
-asked for. The worker decodes with libvpx or with the FFmpeg H264 decoder in
+echoed), counting a packet that arrived as received however late it was: only
+what never came is lost, so the streamer doesn't read a stream that arrived out
+of order as its own uplink losing packets. With `YAPFAST_LOG=debug` it logs what
+it received every 5 s (`stream received`): packets out of order, resent,
+recovered, given up on, and keyframes asked for. The worker decodes with libvpx or with the FFmpeg H264 decoder in
 libwebrtc's archive (`native/decode.c`), AV1 with the dav1d in the same
 archive (`native/av1.c`), a picture out for each frame in, or H265 with the
 HEVC decoder of `vendor/ffmpeg-src`'s FFmpeg (`native/hevc.c`), which
