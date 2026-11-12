@@ -466,15 +466,135 @@ calls that fix the third are each a plugin author's private decision —
 unenforced by any PDK, invisible in the manifest, and undone by the next author
 who doesn't know about them.
 
-So: **no Go PDK for now; Rust stays the only official one.** The ABI
-description stays as it is, so a Go author can still build against Extism's Go
-PDK directly if their plugin fits, and these three bars give them a way to
-check before they ship it. TinyGo reopens the question rather than answering
-it: it is unmeasured here, and the experiment above is what would settle it. If
-it comes in under 512 KiB, under 4 MiB of steady state and under 4 MiB resident
-per instance, the PDK is worth writing; if it lands between those numbers and
-the standard toolchain's, the answer is the same as today's.
+So: **the standard Go toolchain does not qualify, and the experiment above was
+run — TinyGo does.** It is measured in the next section: 143.7 KiB and two
+pages by default, 6.0 KiB with the runtime's fat turned off, resident about
+1 MiB an instance, under all three bars. That makes a Go PDK worth writing,
+built on TinyGo and documenting the flags its row names; the standard toolchain
+stays what the numbers above say it is. The ABI description also stays as it
+is, so a Go author can build against Extism's Go PDK directly if their plugin
+fits, and these three bars give them a way to check before they ship it.
 
 For someone writing a plugin rather than maintaining this one, the same verdict
 and bars are in [writing a plugin](../plugins/pdk.md#go); the numbers stay
 here.
+
+## The other collected languages, measured the same way
+
+TinyGo, AssemblyScript, JavaScript, .NET and Haskell, measured on the same day
+as the Go numbers above and against the same three bars: a module under
+**512 KiB**, linear memory under **4 MiB (64 pages)** in steady state, and
+**4 MiB resident per live instance**. Two numbers are taken for every row and
+they answer different questions:
+
+* **What the module asks for at load** — read out of the binary's memory
+  section, data segments and exports, with a parser that executes nothing (the
+  same one the Go rows used). This is what `DEFAULT_MEMORY_PAGES` governs.
+* **What a live instance costs** — `/tmp/tinygo-measure/rss.py`, a wasmtime
+  host that provides the five Extism imports and stubs everything else, then
+  reads `VmRSS` at instantiate, at `_initialize`, and after `yf_activate` and
+  one `yf_event`. The helper is the real harness, and its own rest is measured
+  above; this one is smaller, so compare the columns between modules and the
+  bars against `instantiate + init + run`, not against the helper's absolute
+  numbers. Instantiation alone is 552–628 KiB for the host's own bookkeeping,
+  the same for every module.
+
+| Language, build | Module | Memory at load | Memory in use | Resident per instance | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| AssemblyScript 0.27.37, the repo's PDK, `asconfig.json` release | **6.8 KiB** | 1 page, 64 KiB | 1 page | ~0.7 MiB | under all three |
+| TinyGo 0.43.0, default (`gc=precise`, `scheduler=asyncify`) | 143.7 KiB | **2 pages, 128 KiB** | 4 pages | ~1.0 MiB | under all three |
+| TinyGo 0.43.0, `-scheduler=none -no-debug` | 11.6 KiB | 2 pages | 2 pages | ~0.7 MiB | under all three |
+| TinyGo 0.43.0, `-opt=z -gc=leaking -scheduler=none -no-debug -panic=trap` | **6.0 KiB** | 2 pages | 2 pages | ~0.7 MiB | under all three |
+| Rust PDK, `plugins/ping` | 160.8 KiB | 17 pages, 1,088 KiB | 18 pages | ~0.9 MiB | under all three |
+| Javy 9.1.0, reads its input and answers | 1,328.1 KiB | 22 pages, 1,408 KiB | 22 pages | ~0.6 MiB (no `yf_*` export to call) | over on size, 2.6× |
+| Extism JS PDK 1.6.1 (`extism-js`, QuickJS-ng + Wizer) | 2,425.9 KiB | 38 pages, 2,432 KiB | **100 pages, 6,400 KiB** | **~5.9 MiB** | over on size (4.7×), memory (1.6×) and resident (1.5×) |
+| quickjs-ng 0.18.0 reactor — the engine floor, not a PDK | 1,523.6 KiB | 34 pages | — | — | over on size alone |
+| .NET 8, `WasmSingleFileBundle`, Mono interpreter | **24,567.4 KiB** | **800 pages, 51,200 KiB** | — | — | refused: 3.0× `MAX_WASM_BYTES`, 3.1× `DEFAULT_MEMORY_PAGES` |
+| .NET 8, multi-file `AppBundle` | 3,453.8 KiB + 17,069.6 KiB of assemblies | 800 pages | — | — | needs a preopened directory the helper does not give |
+| GHC 9.12 wasm32-wasi, `-O2 -split-sections`, RTS `-A64k` | 1,460.9 KiB | 7 pages, 448 KiB | **142 pages, 9,088 KiB** | ~1.3 MiB | over on size (2.9×) and memory (2.2×) |
+
+### Verdicts
+
+**AssemblyScript** is the control case and the reason "a real language" is not
+the problem: 6.8 KiB and one page for the PDK's own shape, 1.4 KiB of data, no
+runtime linked because a plugin that does not use the heap does not need one.
+It is 24× smaller than the Rust PDK and asks for 1/17 of its memory. This is
+already the shipped PDK (`pdk/assemblyscript`), so the measurement's job here
+was to prove the bars are reachable, not to decide anything.
+
+**TinyGo** answers the Go question the standard toolchain opened. Its default
+build already fits — 143.7 KiB, two pages, about a megabyte resident, which is
+smaller than the Rust PDK in the two columns that matter and only 4 pages worse
+than it in use — and the flags move it further: `-no-debug` alone takes the file
+from 143.7 to 11.6 KiB (most of the default module is DWARF), and
+`-gc=leaking -scheduler=none -no-debug -panic=trap` to 6.0 KiB, at the cost of
+no goroutine scheduling and no collection, which is a plugin author's decision
+the same way std Go's `GOGC` was. `-gc=conservative` costs 22 KiB more than
+precise at `-scheduler=none`; `-opt=2` costs 14 KiB more than `-opt=z`.
+`-scheduler=asyncify` is the default and is what makes the default build's
+memory grow to four pages on the first event. The one axis not measured for
+TinyGo is a 10,000-event workload and the helper's own RSS with it alive; both
+belong to the PDK that this row justifies writing.
+
+**JavaScript** fails, and on three axes rather than one. The honest PDK build —
+Extism's `extism-js`, which is QuickJS-ng compiled to wasm with a Wizer
+snapshot — is 2,425.9 KiB, 4.7× the size bar; it asks 38 pages at load and
+**grows to 100 pages (6.4 MiB) on the first event**, 1.6× the steady-state bar;
+and that event costs 5.4 MiB of resident memory, 1.5× the resident bar. Javy is
+cheaper on disk and memory (1,328 KiB, 22 pages) but cannot serve this ABI
+without `-C wit`, which renames the exports to kebab case (`yf-activate`), so
+it would need a different ABI rather than a PDK; and the `quickjs-emscripten`
+module that looks cheapest at 491.3 KiB is not a floor at all — it *imports* its
+memory and asks the host for 256 pages, the entire default budget, with a 2 GiB
+maximum. A JS PDK would need the default page budget raised for every plugin,
+which is the one thing this design does not do.
+
+**.NET** is refused before a line of a plugin's code is read. The only shape
+`store.rs` can install — one `.wasm`, since the guest gets no filesystem — is
+the single-file bundle at 24,567.4 KiB, 3.0× `MAX_WASM_BYTES`; the 3,453.8 KiB
+core module exists only as a multi-file `AppBundle` that needs `--dir .` and
+17 MiB of assemblies beside it. Every variant declares 800 pages (51,200 KiB)
+minimum with no maximum: 3.1× `DEFAULT_MEMORY_PAGES`, so an instance cannot be
+created under the default at all, and a manifest would have to ask for ~800
+pages — one idle .NET plugin holding 50 MiB of the 256 MiB `MAX_HELPER_BYTES`,
+five instances total. There is also no shape to hang the ABI on: the WASI SDK
+emits command modules only, `OutputType=Library` produces no wasm, and the
+linker's export list is `malloc`/`free`/`__heap_base`/`__data_end`. AOT would
+not save it — Mono AOT adds native code to the runtime rather than removing the
+interpreter, and no shipped workload builds NativeAOT-LLVM for wasi.
+
+**Haskell** is the near miss that is nonetheless a miss. GHC's wasm32-wasi
+backend compiles the ABI shape cleanly, but an idle Haskell runtime asks for
+**142 pages (9,088 KiB) after `_initialize`** — 2.2× the steady-state bar, for a
+module that has done nothing — and the module is 1,460.9 KiB, 2.9× the size
+bar. The RTS flags barely move it: `-A8k`, `-A16k`, `-A64k` and `-G1` all land
+within 0.1 KiB of each other in the file and at the same 142 pages in use,
+because the heap in use is the RTS's own nursery and stacks rather than
+allocation the flags govern here. This is the one language where the measured
+failures are both structural: the cost is the runtime's, not a plugin's.
+
+### What was not measured
+
+* **Cold compile cost.** wasmtime's JIT is the dominant host-side cost and it is
+  not in these tables: compiling the 143.7 KiB TinyGo module added 19.5 MiB to
+  this host, the 2,425.9 KiB JS module 142.0 MiB, and the 1,460.9 KiB Haskell
+  module 128.8 MiB. The helper's own cold-compile column in the Go section is
+  the number to compare against, and it should be re-taken for whichever PDK is
+  built.
+* **A 10,000-event workload** for anything but std Go. The memory-in-use column
+  is after one event; a language whose heap grows with the events it reads is
+  not yet excluded by it.
+* **The helper's RSS with each of these alive.** This host's figures are a
+  comparison between modules; `MAX_HELPER_BYTES` is a helper figure.
+* **.NET NativeAOT-LLVM**, which no shipped workload builds for wasi.
+
+### How to reproduce
+
+Every row's commands are in this section's order: the toolchain, the module,
+the parser, the host. The two pieces are `measure.py` and `rss.py` beside this
+record's working files; both read a module without executing it and then
+instantiate it in turn. `measure.py` needs nothing but Python; `rss.py` needs
+`pip install wasmtime`. Toolchains: TinyGo 0.43.0 from nixpkgs, the repo's
+vendored `asc` 0.27.37, Javy 9.1.0 and `extism-js` 1.6.1 from their release
+binaries with Binaryen 133 on `PATH`, .NET SDK 8.0.404 with the
+`wasi-experimental` workload, and GHC 9.12 via `ghc-wasm-meta`.
