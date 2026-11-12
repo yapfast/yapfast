@@ -1,14 +1,45 @@
 # Writing a plugin
 
 A plugin is a WebAssembly module speaking the guest ABI, so it can be written in
-any language with a PDK that speaks it. This repository has four:
+any language with a PDK that speaks it. **AssemblyScript is the default**, and
+the rest of this page is ordered by what the measurements say a plugin costs.
 
-| PDK | Where | Builds with |
-| --- | --- | --- |
-| Rust | [`pdk/rust`](../../pdk/rust) | `cargo build --target wasm32-unknown-unknown`, `crate-type = ["cdylib"]` |
-| C | [`pdk/c`](../../pdk/c) | plain `clang --target=wasm32-unknown-unknown -nostdlib`; no SDK, no WASI |
-| Zig | [`pdk/zig`](../../pdk/zig) | `zig build-exe --target=wasm32-freestanding --export=…` per export |
-| AssemblyScript | [`pdk/assemblyscript`](../../pdk/assemblyscript) | `asc`, with the plugin's own file as the entry |
+| PDK | Where | Builds with | Plugin | Load |
+| --- | --- | --- | --- | --- |
+| **AssemblyScript** | [`pdk/assemblyscript`](../../pdk/assemblyscript) | `asc`, with the plugin's own file as the entry | 11.4 KiB | **1 page, 64 KiB** |
+| TinyGo | no PDK yet; see [Go](#go) | `tinygo build -target=wasip1 -buildmode=c-shared` | 143.7 KiB | 2 pages, 128 KiB |
+| Rust | [`pdk/rust`](../../pdk/rust) | `cargo build --target wasm32-unknown-unknown`, `crate-type = ["cdylib"]` | 160.8 KiB | 17 pages, 1,088 KiB |
+| C | [`pdk/c`](../../pdk/c) | plain `clang --target=wasm32-unknown-unknown -nostdlib`; no SDK, no WASI | 12.1 KiB | 2 pages, 128 KiB |
+| Zig | [`pdk/zig`](../../pdk/zig) | `zig build-exe --target=wasm32-freestanding --export=…` per export | 56.4 KiB | 17 pages (its 1 MiB stack) |
+
+The order is the recommendation, and it is the measurements' order rather than
+anyone's taste ([all of them](../measurements/README.md#the-other-collected-languages-measured-the-same-way)):
+
+* **AssemblyScript** first, because it is the cheapest thing measured by a wide
+  margin: one page of linear memory — a quarter of C's and a seventeenth of
+  Rust's — an 11.4 KiB module, and the fastest cold compile of the set. A
+  plugin that does not touch the heap links no runtime at all.
+* **TinyGo** second, when you want Go: two pages and 143.7 KiB by default, 6.0
+  KiB with `-opt=z -gc=leaking -scheduler=none -no-debug -panic=trap`. Its
+  standard toolchain is not an option — [what Go costs](#go).
+* **Rust** third: the most documented, the only PDK with a published crate, and
+  the one to pick when correctness matters more than a page or two. Its 17
+  pages are 1 MiB of preloaded code rather than a growth curve.
+* **C and Zig** when you want no runtime at all and will be careful. Zig's 17
+  pages are not the plugin's data but its default 1 MiB stack, and Zig 0.17 has
+  no flag to lower it; C asks for two.
+
+Measured and **not** worth writing a PDK on: JavaScript (`extism-js` 2,425.9
+KiB, and 100 pages after a single event), .NET (24,567.4 KiB and 800 pages, so
+the installer refuses it), and Haskell (74–142 pages, and it retries a refused
+`memory.grow` instead of failing). The numbers are in the measurements record.
+
+## Starting here
+
+[`pdk/assemblyscript/template`](../../pdk/assemblyscript/template) is the
+plugin to copy: a manifest and one file, `/hello`, which builds in a second.
+Everything below about Rust applies to the PDK that has a published crate; the
+advice about memory applies to all of them.
 
 Rust is the one with a published crate. Plugins are written in Rust with
 `yapfast-pdk`, in
@@ -226,13 +257,14 @@ That makes two habits worth having:
   clones is a byte its instance keeps for the rest of its life. Handle one event
   at a time, and let a value go when the batch ends rather than accumulating a
   list of everything seen.
-- **Prefer a language without a garbage collector,** and Rust first. A collected
-  language carries its runtime inside the module, and it tends to keep heap it
+- **Prefer the smallest runtime that fits,** which is AssemblyScript's and C's:
+  no runtime in the module at all when a plugin doesn't touch the heap. A
+  collected language carries its runtime inside the module, and it keeps heap it
   has finished with until the collector decides otherwise, which here means until
-  the instance is evicted. AssemblyScript is the one of the four PDKs that does,
-  and a module whose runtime asks the host for clocks or randomness needs
-  `wasi: true` in the manifest, which AssemblyScript's doesn't and a Go build's
-  does. Go is the language this advice costs most: [what Go costs](#go).
+  the instance is evicted. A module whose runtime asks the host for clocks or
+  randomness needs `wasi: true` in the manifest, which AssemblyScript's build
+  doesn't and a Go build's does. Go is the language this advice costs most:
+  [what Go costs](#go).
 
 A plugin in any of them should ask for the default page limit before it asks for
 more, and check what it actually costs: a module with a runtime in it starts
@@ -241,10 +273,11 @@ C `shout` is 11.9 KiB, AssemblyScript's 17.7 KiB, Zig's 57 KiB.
 
 ### Go
 
-Rust, C, Zig and AssemblyScript are the four languages a plugin can be written
-in today. The standard Go toolchain was measured before a fifth was written
-([the measurements](../measurements/README.md#go-as-a-plugin-language)), and it
-misses every bar by too much to be a close call:
+**Write Go with TinyGo, not with the standard toolchain.** Both were measured
+([standard toolchain](../measurements/README.md#go-as-a-plugin-language),
+[TinyGo](../measurements/README.md#the-other-collected-languages-measured-the-same-way)),
+and they are not close to each other. The standard toolchain misses every bar
+by too much to be a close call:
 
 | | Go, standard toolchain | Bar |
 | --- | --- | --- |
@@ -269,18 +302,28 @@ private decision — unenforced by any PDK, invisible in the manifest.
 
 **What would make one worth shipping.** TinyGo, measured the same way: under
 512 KiB a module, under 4 MiB of linear memory after a session's events, and
-under 4 MiB resident per instance. Those are the three numbers its `-gc=`,
-`-scheduler=` and `-no-debug` choices decide between, and
-[the experiment that records them](../measurements/README.md#the-experiment-for-someone-with-tinygo)
-has not been run: TinyGo is not installed on any machine this was measured on.
-No number here stands in for it, and the standard toolchain's miss is too wide
-for the comparison to close it.
+under 4 MiB resident per instance. **It clears all three**, which is why it is
+in the table at the top of this page:
 
-A Go plugin can still be built against Extism's own Go PDK and installed, with
+| | TinyGo 0.43, default | TinyGo, `-opt=z -gc=leaking -scheduler=none -no-debug -panic=trap` | Bar |
+| --- | --- | --- | --- |
+| Module | 143.7 KiB | **6.0 KiB** | 512 KiB |
+| Memory at load | 2 pages, 128 KiB | 2 pages | 256 pages |
+| Memory in use | 4 pages | 2 pages | 64 pages |
+| Resident per instance | ~1.0 MiB | ~0.7 MiB | 4 MiB |
+
+Two flags are worth knowing. `-no-debug` alone takes the module from 143.7 to
+11.6 KiB, because most of the default one is DWARF. `-gc=leaking
+-scheduler=none` gives up goroutine scheduling and collection, which is a
+plugin author's decision the same way `GOGC` was; `-scheduler=asyncify`, the
+default, is what makes the default build grow to four pages on its first event.
+`scheduler=none` also takes the module from 46 WASI imports to 2.
+
+A Go plugin can also be built against Extism's own Go PDK and installed, with
 `wasi: true` in its manifest. The three bars above are how its author checks
 whether it fits before shipping it.
 
-## The other three PDKs
+## The other PDKs, and how a plugin in each is shaped
 
 Each of them is the same shape as the Rust one: five exports a plugin writes,
 the ones it leaves out do nothing, and the JSON is never written by hand.

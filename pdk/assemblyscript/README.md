@@ -4,10 +4,18 @@ A plugin is a WebAssembly module Extism runs, and the ABI between it and Yapfast
 is five exports and two imports around JSON. This folder is the AssemblyScript
 side of it: no WASI, and one dev dependency (`assemblyscript`) for the compiler.
 
+**This is the PDK a new plugin should use.** It is the cheapest language
+measured — one page (64 KiB) of linear memory and an 11.4 KiB module, against
+the Rust PDK's 17 pages and 160.8 KiB — and it builds in a second with nothing
+but `npm`. The comparisons are in
+[the measurements](../docs/measurements/README.md#the-other-collected-languages-measured-the-same-way),
+and the recommendation is in [writing a plugin](../docs/plugins/pdk.md).
+
 | File | Is |
 | --- | --- |
 | `assembly/index.ts` | The PDK: the kernel's imports, marshalling, host calls, the `Plugin` base class and the handlers it reaches |
 | `assembly/json.ts` | Reading a payload's fields, and writing an answer's |
+| `template` | **Start here:** the plugin to copy, `/hello`, with its manifest, build script and README |
 | `examples/shout` | A whole plugin: one command, one host call, no state |
 
 ```sh

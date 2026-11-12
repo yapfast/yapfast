@@ -25,7 +25,7 @@ wasmtime nor `gix`, and carries no plugin state.
 | [`host.md`](host.md) | The helper: its threads, lanes, deadlines, faults and cache |
 | [`permissions.md`](permissions.md) | Capabilities, consent, and the network gate |
 | [`marketplace.md`](marketplace.md) | The registry repository: entries, icons, review and CI, browsing and updates |
-| [`pdk.md`](pdk.md) | Writing a plugin, in Rust, C, Zig or AssemblyScript |
+| [`pdk.md`](pdk.md) | Writing a plugin: AssemblyScript first, then TinyGo, Rust, C and Zig, with what each costs |
 | [`testing.md`](testing.md) | Fixtures, fake Discord, and the measurements |
 
 ## The lifecycle
@@ -118,7 +118,7 @@ follow from them.
 | Where the marketplace lives | A repository in the Yapfast organization, merged by a maintainer who read the source ([the marketplace](marketplace.md)) |
 | What a listing promises | An OSI-approved license and a public `source` link; a URL install promises neither |
 | Which network first | Discord's events. Every payload carries its network, so Matrix can follow without changing the ABI |
-| Which language | Rust first: four PDKs ship in [`pdk/`](../../pdk), and a runtime carried inside a module costs its own memory ([writing a plugin](pdk.md)) |
+| Which language | AssemblyScript first, then TinyGo, Rust, C or Zig: four PDKs ship in [`pdk/`](../../pdk) and TinyGo costs two pages, and a runtime carried inside a module costs its own memory ([writing a plugin](pdk.md), [the numbers](../measurements/README.md#the-other-collected-languages-measured-the-same-way)) |
 | Which platforms | Linux and Windows. The macOS code paths are written and no macOS build ships: nobody has an Apple machine to test one on ([the README](../../README.md#macos)) |
 | A hook that fails or runs late | The message goes as it was, unless the manifest asked to block it ([fail-open hooks](host.md#fail-open-hooks)) |
 | Updates | Asked for, never taken: a URL install always, a marketplace one until someone builds the setting ([the marketplace](marketplace.md#what-is-not-there-yet)) |
@@ -201,7 +201,7 @@ when it first installs a plugin and not before.
 | [ABI](abi.md) | The pipe frames, the guest's exports and imports, and the JSON each one carries |
 | [Permissions](permissions.md) | Every capability and its sentence, the network gate, grants and revoking them |
 | [The helper](host.md) | The helper's threads, lanes, deadlines, faults, eviction, cache and crashes |
-| [Writing a plugin](pdk.md) | The Rust PDK, a plugin end to end, and the eviction contract |
+| [Writing a plugin](pdk.md) | Which language, the AssemblyScript template, a plugin end to end, and the eviction contract |
 | [Testing](testing.md) | The `.wat` fixtures, the helper and gate tests, and measuring memory |
 
 ## What isn't wired yet
