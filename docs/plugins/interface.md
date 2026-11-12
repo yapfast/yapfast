@@ -458,8 +458,11 @@ components. `PluginWidgets` puts *From* and the plugin's name above every
 tree, and a plugin's buttons on the hover bar and beside the composer say
 whose they are to a screen reader. Each interactive cell has a role, a label
 and keyboard focus, with Space and Enter: buttons and links are buttons, a
-toggle a switch, a select a combo box, a slider a slider. Pictures in `icon`
-and `image` cells stay empty until the runtime fetches them.
+toggle a switch, a select a combo box, a slider a slider. A select is
+`Dropdown` from [`ui/controls.slint`](../../ui/controls.slint), Yapfast's own
+field and menu in the theme's colours rather than Slint's stock `ComboBox`, as
+it is on a plugin's settings page. Pictures in `icon` and `image` cells stay
+empty until the runtime fetches them.
 
 What the person does goes back through the window's `plugin-acted` callback
 as `Input::Widget`: the plugin, the slot, the cell's id, its value (`true`

@@ -1,6 +1,6 @@
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label } from "theme.slint";
-import { ActionButton, Avatar, IconButton, TextField, VolumeSlider } from "controls.slint";
+import { ActionButton, Avatar, Dropdown, IconButton, TextField, VolumeSlider } from "controls.slint";
 import { SettingsTitle, SettingsHeading, SettingsSwitch, Choices, Picker } from "settings.slint";
 import { PluginPart, PluginWidgets } from "plugins.slint";
 
@@ -526,10 +526,10 @@ component FormControl inherits VerticalLayout {
             if !self.focused && self.text != root.control.text { root.edited(self.text); }
         }
     }
-    if root.control.kind == 2: Picker {
-        model: root.control.options; chosen: root.control.selected; enabled: root.control.enabled;
-        accessible-label: root.label;
-        selected => { root.edited("" + self.current-index); }
+    if root.control.kind == 2: Dropdown {
+        model: root.control.options; current-index: root.control.selected; enabled: root.control.enabled;
+        label: root.label;
+        selected(index, option) => { root.edited("" + index); }
     }
     if root.control.kind == 3: VolumeSlider {
         property <int> stored: root.control.position;

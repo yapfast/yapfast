@@ -3,9 +3,8 @@
 // turns a checked tree from crates/yapfast-core/src/plugins/ui.rs into these
 // structs. Everything a plugin draws carries its name, so it can't pass for
 // Yapfast's own interface.
-import { ComboBox } from "std-widgets.slint";
 import { Theme, Middle } from "theme.slint";
-import { ActionButton, TextField, VolumeSlider } from "controls.slint";
+import { ActionButton, Dropdown, TextField, VolumeSlider } from "controls.slint";
 import { SettingsToggle } from "yapfast/settings-toggle.slint";
 
 /// What a cell is, in the order of `Kind` in Rust.
@@ -202,10 +201,10 @@ component PluginCellView inherits HorizontalLayout {
         toggled(on) => { root.acted(root.cell.id, on ? "true" : "false"); }
     }
     if root.cell.kind == PluginKind.select: Middle {
-        ComboBox {
+        Dropdown {
             model: root.cell.options; current-index: root.cell.selected; enabled: root.cell.enabled;
-            accessible-label: root.cell.text;
-            selected(option) => { root.acted(root.cell.id, option); }
+            label: root.cell.text; small: true; fill: Theme.field;
+            selected(index, option) => { root.acted(root.cell.id, option); }
         }
     }
     if root.cell.kind == PluginKind.input: TextField {

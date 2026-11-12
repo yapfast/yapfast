@@ -1386,6 +1386,165 @@ export component ContextMenu inherits Rectangle {
     }
 }
 
+// One of a list of options, chosen from a menu that opens under the field:
+// Yapfast's own ComboBox, drawn from the theme as `TextField` and the context
+// menus are.
+// The parent keeps the choice: `current-index` is what shows, a pick shows at
+// once and goes out through `selected`, and a new `current-index` shows again,
+// as after Reset. Closed, Space and Enter open the menu and Up and Down change
+// the choice; open, Up and Down (or Tab) move through it, Home and End go to
+// its ends, Enter or Space chooses, and Escape closes it.
+export component Dropdown inherits Rectangle {
+    in property <[string]> model;
+    in property <int> current-index;
+    in property <bool> enabled: true;
+    /// What a screen reader calls it.
+    in property <string> label;
+    /// 32 px tall, beside a plugin's other compact cells, rather than 36.
+    in property <bool> small;
+    /// Its ground, as a `TextField`'s.
+    in property <color> fill: Theme.sunken;
+    /// The option shown, which a screen reader reads as its value.
+    out property <string> current-value: root.shown >= 0 && root.shown < root.model.length ? root.model[root.shown] : "";
+    /// The option's index, and the option.
+    callback selected(int, string);
+    property <int> shown: root.current-index;
+    changed current-index => { root.shown = root.current-index; }
+    // The menu's row the keys or the pointer are on, and whether it's open.
+    property <int> lit: -1;
+    property <bool> open;
+    // A menu row and the gap under it, as `MenuRows` lays them out.
+    property <length> step: 34px;
+    function choose(index: int) {
+        if !root.enabled || index < 0 || index >= root.model.length { return; }
+        root.shown = index;
+        root.selected(index, root.model[index]);
+    }
+    function show-menu() {
+        if !root.enabled || root.model.length == 0 { return; }
+        root.lit = root.shown >= 0 ? root.shown : 0;
+        root.open = true;
+        focus.focus();
+        menu.show();
+    }
+    min-width: 160px;
+    min-height: root.small ? 32px : 36px;
+    max-height: self.min-height;
+    horizontal-stretch: 1; vertical-stretch: 0;
+    border-radius: 6px;
+    background: !root.enabled ? root.fill.with-alpha(0.5) : pointer.has-hover || root.open ? root.fill.mix(Theme.overlay, 0.96) : root.fill;
+    animate background { duration: Theme.quick; }
+    border-width: focus.has-focus || root.open ? 1px : 0px;
+    border-color: Theme.accent.with-alpha(0.8);
+    accessible-role: combobox;
+    accessible-label: root.label;
+    accessible-value: root.current-value;
+    accessible-enabled: root.enabled;
+    accessible-expandable: true;
+    accessible-expanded: root.open;
+    accessible-action-expand => { root.show-menu(); }
+    accessible-action-default => { root.show-menu(); }
+    forward-focus: focus;
+    HorizontalLayout {
+        padding-left: 10px; padding-right: 8px; spacing: 8px;
+        Text {
+            text: root.current-value; color: root.enabled ? Theme.text : Theme.muted; font-size: 14px;
+            vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+            accessible-role: none;
+        }
+        Middle {
+            Image {
+                source: @image-url("icons/chevron-down.svg"); width: 16px; height: 16px; image-fit: contain;
+                colorize: root.enabled ? Theme.secondary : Theme.faint;
+                accessible-role: none;
+            }
+        }
+    }
+    focus := FocusScope {
+        enabled: root.enabled;
+        // The menu closed and gave the keys back.
+        changed has-focus => { if self.has-focus { root.open = false; } }
+        key-pressed(event) => {
+            if event.text == " " || event.text == Key.Return {
+                root.show-menu();
+            } else if event.text == Key.UpArrow {
+                root.choose(max(0, root.shown - 1));
+            } else if event.text == Key.DownArrow {
+                root.choose(min(root.model.length - 1, root.shown + 1));
+            } else {
+                return reject;
+            }
+            return accept;
+        }
+        pointer := TouchArea {
+            enabled: root.enabled;
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { root.show-menu(); }
+        }
+    }
+    menu := PopupWindow {
+        x: 0px; y: root.height + 4px; width: root.width;
+        height: min(rows.preferred-height, 8 * root.step + 10px);
+        close-policy: PopupClosePolicy.close-on-click-outside;
+        keys := FocusScope {
+            // Puts the keys on row `to`, wrapping, and scrolls it into view.
+            function move(to: int) {
+                root.lit = Math.mod(to + root.model.length, root.model.length);
+                let top = 6px + root.lit * root.step;
+                if top + flick.content-y < 6px {
+                    flick.content-y = 6px - top;
+                } else if top + root.step + 4px + flick.content-y > flick.height {
+                    flick.content-y = flick.height - top - root.step - 4px;
+                }
+            }
+            init => { self.focus(); self.move(root.lit); }
+            key-pressed(event) => {
+                if event.text == Key.DownArrow || (event.text == Key.Tab && !event.modifiers.shift) {
+                    keys.move(root.lit + 1);
+                } else if event.text == Key.UpArrow || event.text == Key.Backtab || (event.text == Key.Tab && event.modifiers.shift) {
+                    keys.move(root.lit - 1);
+                } else if event.text == Key.Home {
+                    keys.move(0);
+                } else if event.text == Key.End {
+                    keys.move(root.model.length - 1);
+                } else if event.text == Key.Return || event.text == " " {
+                    root.choose(root.lit);
+                    menu.close();
+                    focus.focus();
+                } else if event.text == Key.Escape {
+                    menu.close();
+                    focus.focus();
+                } else {
+                    return reject;
+                }
+                return accept;
+            }
+            Rectangle {
+                background: Theme.menu; border-color: Theme.menu-line; border-width: 1px; border-radius: 8px;
+                clip: true;
+                accessible-role: list;
+                accessible-label: root.label;
+                flick := Flickable {
+                    content-height: rows.preferred-height;
+                    rows := VerticalLayout {
+                        padding: 6px; spacing: 2px;
+                        for option[index] in root.model: MenuItem {
+                            text: option; checked: index == root.shown;
+                            highlighted: index == root.lit;
+                            hovered => { root.lit = index; }
+                            clicked => {
+                                root.choose(index);
+                                menu.close();
+                                focus.focus();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // How loud something sounds, from 0% to `maximum`: a marigold fill up to the
 // value. Above 100%, as Discord allows for people, a mark shows 100%, and a
 // drag snaps to it nearby. Dragging reports each step through `changed` and the
