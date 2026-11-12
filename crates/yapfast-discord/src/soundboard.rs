@@ -393,7 +393,9 @@ mod tests {
         crate::settings::put_varint(&mut afk, 600);
         let mut voice = Vec::new();
         put_bytes(&mut voice, 6, &afk);
-        let mut data = decode(&crate::settings::write_status("idle"));
+        let mut data = decode(&crate::settings::encode_status(
+            &crate::settings::write_status(&[], "idle", 1),
+        ));
         put_bytes(&mut data, GUILDS, &guilds);
         put_bytes(&mut data, VOICE_AND_VIDEO, &voice);
         encode(&data)
@@ -410,7 +412,9 @@ mod tests {
             }
         );
         assert_eq!(
-            read_settings(&crate::settings::write_status("idle")),
+            read_settings(&crate::settings::encode_status(
+                &crate::settings::write_status(&[], "idle", 1)
+            )),
             Settings::default()
         );
 
@@ -460,7 +464,12 @@ mod tests {
             read_favorites(&write_favorites(&favorites)),
             Some(favorites)
         );
-        assert_eq!(read_favorites(&crate::settings::write_status("idle")), None);
+        assert_eq!(
+            read_favorites(&crate::settings::encode_status(
+                &crate::settings::write_status(&[], "idle", 1)
+            )),
+            None
+        );
         // A favourite the order leaves out comes after it.
         let mut message = Vec::new();
         put_fixed64(&mut message, SOUND_IDS, 3);

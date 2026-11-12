@@ -292,7 +292,7 @@ fn nicknames_change_for_oneself_and_those_below() {
 fn a_members_note_and_dm_need_no_dm_first() {
     let mut app = staff();
     assert!(matches!(
-        app.dispatch(Action::AskPerson { user: "3".into(), ask: PersonAsk::Note }).as_slice(),
+        app.dispatch(Action::AskPerson { user: "3".into(), ask: PersonAsk::Note, location: "ContextMenu" }).as_slice(),
         [Effect::Backend(Command::Discord(DiscordCommand::Note { user }))] if user == "3"
     ));
     assert_eq!(app.state.person_dialog.as_ref().unwrap().name, "Cara");
@@ -300,6 +300,7 @@ fn a_members_note_and_dm_need_no_dm_first() {
     app.dispatch(Action::AskPerson {
         user: "3".into(),
         ask: PersonAsk::Nickname,
+        location: "ContextMenu",
     });
     assert!(app.state.person_dialog.is_none(), "Cara isn't a friend");
     assert!(matches!(
@@ -358,6 +359,7 @@ fn a_call_from_a_menu_asks_first_unless_told_not_to() {
     let ask = || Action::AskPerson {
         user: "4".into(),
         ask: PersonAsk::Call,
+        location: "ContextMenu",
     };
     assert!(app.dispatch(ask()).is_empty(), "nothing goes yet");
     assert!(!app.pending_call);
@@ -429,7 +431,7 @@ fn invite_to_server_lists_where_one_may_invite_but_the_server_theyre_shown_in() 
     assert_eq!(names(app.invite_servers("4")), ["Test", "Club"]);
     assert_eq!(
         app.person_choices("4"),
-        [Message, InviteToServer, CopyId],
+        [Message, InviteToServer, Block, CopyId],
         "a friend's"
     );
 }
@@ -546,6 +548,49 @@ fn move_to_lists_the_other_voice_channels_one_may_move_them_to() {
         server(&["20"]).move_targets(LOUNGE, "4").is_empty(),
         "no Move Members"
     );
+}
+
+#[test]
+fn move_to_moves_someone_else_and_joins_for_this_account() {
+    const DEN: &str = "discord:10:13";
+    let mut app = staff();
+    let moved = |action: Option<Action>, who: &str| {
+        matches!(action, Some(Action::ChangeMember {
+            place,
+            user,
+            change: MemberChange::Move(Some(to)),
+        }) if place == LOUNGE && user == who && to == DEN)
+    };
+    let joined =
+        |action: Option<Action>| matches!(action, Some(Action::RequestJoinVoice(to)) if to == DEN);
+    // Dave is moved there; Alice, on another client, joins it from here.
+    assert!(moved(app.move_to(LOUNGE, "4", DEN), "4"));
+    assert!(joined(app.move_to(LOUNGE, "1", DEN)));
+    // Only onto a channel Move to offers: not the one they're in, one
+    // closed to them or a text channel, and not for someone who isn't in
+    // voice.
+    for to in [LOUNGE, "discord:10:14", GENERAL] {
+        assert!(app.move_to(LOUNGE, "4", to).is_none(), "{to}");
+    }
+    assert!(
+        app.move_to(LOUNGE, "3", DEN).is_none(),
+        "Cara isn't in voice"
+    );
+    // Without Move Members, only herself.
+    let crew = server(&["20"]);
+    assert!(crew.move_to(LOUNGE, "4", DEN).is_none());
+    assert!(joined(crew.move_to(LOUNGE, "1", DEN)));
+    // Moving Dave sends what Move to sends.
+    let action = app.move_to(LOUNGE, "4", DEN).unwrap();
+    let sent = app.dispatch(action);
+    assert!(matches!(
+        sent.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::Member {
+            server,
+            user,
+            change: MemberChange::Move(Some(to)),
+        }))] if server == SERVER && user == "4" && to == DEN
+    ));
 }
 
 #[test]

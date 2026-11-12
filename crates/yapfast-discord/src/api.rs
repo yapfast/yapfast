@@ -12,7 +12,6 @@ use crate::{
     client,
     limits::{self, Limits, Refusals, Stopped},
     mfa, scheduled_event,
-    settings::{self, CustomStatus},
 };
 
 const API: &str = "https://discord.com/api/v9";
@@ -354,11 +353,19 @@ impl Api {
 
     fn request(&self, method: Method, path: &str) -> RequestBuilder {
         // Only the API gets the client's description, as in the web client;
-        // it changes through a run, so each request makes it again.
+        // it changes through a run, so each request makes it again. The
+        // web client sends its language and time zone with every request
+        // too, and a request without them looks less like it.
         let request = self
             .http
             .request(method, format!("{}{path}", self.base))
-            .header("X-Super-Properties", client::super_properties());
+            .header("X-Super-Properties", client::super_properties())
+            .header(header::ACCEPT_LANGUAGE, client::ACCEPT_LANGUAGE)
+            .header("X-Discord-Locale", client::LOCALE);
+        let request = match client::timezone() {
+            Some(zone) => request.header("X-Discord-Timezone", zone),
+            None => request,
+        };
         // A request sent again once confirmed carries what confirmed it.
         let request = match mfa::token() {
             Some(confirmed) => request.header("X-Discord-MFA-Authorization", confirmed),
@@ -515,6 +522,20 @@ impl Api {
                 .find(|message| message["id"].as_str() == Some(id))),
             _ => bail!("could not understand Discord's answer"),
         }
+    }
+
+    /// The signed-in account uses a bot's message component, submits its
+    /// modal, runs an app's command or asks for an autocomplete's choices.
+    /// Discord acknowledges this request before the app responds over the
+    /// gateway; a successful HTTP response alone is not the app's result.
+    /// Files go uploaded first, named in the body's `data.attachments`.
+    ///
+    /// After a 429 it goes again once, as Discord's client sends commands
+    /// and forms again, only with `again`: the client drops a click or an
+    /// autocomplete that was limited.
+    pub async fn interact(&self, body: &Value, again: bool) -> Result<()> {
+        let request = with_json(self.request(Method::POST, "/interactions"), body);
+        self.send_request(request, again).await.map(drop)
     }
 
     /// Sends a message, as a reply when `options` names one in the same
@@ -694,6 +715,25 @@ impl Api {
             .collect();
         let path = format!("/applications/public?{}", query.join("&"));
         self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// The apps' commands under `resource`, `guilds/{id}`, `channels/{id}`
+    /// or `users/@me`: `{applications, application_commands, version}`, or
+    /// None while Discord is still building it and answers 202, as its
+    /// client then asks again a while later. See [`crate::commands`].
+    pub async fn command_index(&self, resource: &str) -> Result<Option<Value>> {
+        let path = format!("/{resource}/application-command-index");
+        let response = self.execute(self.request(Method::GET, &path)).await?;
+        if response.status() == StatusCode::ACCEPTED {
+            return Ok(None);
+        }
+        let body = response
+            .bytes()
+            .await
+            .context("could not read Discord's answer")?;
+        Ok(Some(
+            serde_json::from_slice(&body).context("could not understand Discord's answer")?,
+        ))
     }
 
     /// The message that each of up to 25 message requests is waiting with,
@@ -1121,17 +1161,6 @@ impl Api {
             .await
     }
 
-    /// Sets the custom status, or clears it with `None`, in the account's settings.
-    pub async fn set_custom_status(&self, custom: Option<&CustomStatus>) -> Result<()> {
-        let body = json!({"settings": settings::write_custom(custom)});
-        self.json(with_json(
-            self.request(Method::PATCH, "/users/@me/settings-proto/1"),
-            &body,
-        ))
-        .await
-        .map(drop)
-    }
-
     /// The GIF picker's home: trending terms, each with a GIF, and trending GIFs.
     pub async fn gifs_trending(&self) -> Result<Value> {
         let path = format!(
@@ -1219,17 +1248,6 @@ impl Api {
         .map(drop)
     }
 
-    /// Sets the status: `online`, `idle`, `dnd` or `invisible`.
-    pub async fn set_status(&self, status: &str) -> Result<()> {
-        let body = json!({"settings": settings::write_status(status)});
-        self.json(with_json(
-            self.request(Method::PATCH, "/users/@me/settings-proto/1"),
-            &body,
-        ))
-        .await
-        .map(drop)
-    }
-
     /// The services linked to this account, as READY's `connected_accounts`.
     pub(crate) async fn connections(&self) -> Result<Value> {
         self.json(self.request(Method::GET, "/users/@me/connections"))
@@ -1244,18 +1262,6 @@ impl Api {
             .as_str()
             .map(str::to_owned)
             .context("Discord's answer had no token")
-    }
-
-    /// Shares the game this account plays, everywhere it's signed in, or
-    /// stops sharing it.
-    pub async fn set_show_game(&self, shown: bool) -> Result<()> {
-        let body = json!({"settings": settings::write_show_game(shown)});
-        self.json(with_json(
-            self.request(Method::PATCH, "/users/@me/settings-proto/1"),
-            &body,
-        ))
-        .await
-        .map(drop)
     }
 
     /// Ignores a friend request, cancels one, or ends a friendship.
@@ -2226,10 +2232,15 @@ impl Api {
     /// A 429 means Discord didn't act on it, so it goes once more after the
     /// wait Discord asks for.
     async fn execute(&self, request: RequestBuilder) -> Result<Response> {
+        self.send_request(request, true).await
+    }
+
+    /// [`Self::execute`], sent again after a 429 only with `again`.
+    async fn send_request(&self, request: RequestBuilder, again: bool) -> Result<Response> {
         let (client, request) = request.build_split();
         let mut request = request.context("could not build the request")?;
         let route = limits::route(request.method(), request.url().path());
-        let mut retried = false;
+        let mut retried = !again;
         loop {
             match self.refusals.check() {
                 Ok(()) => {}

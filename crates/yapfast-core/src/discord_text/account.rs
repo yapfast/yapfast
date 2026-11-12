@@ -195,15 +195,35 @@ pub(super) fn command(
         }
         return None;
     }
-    if let Command::Discord(DiscordCommand::Profile { room, user, effect }) = command {
+    if let Command::Discord(DiscordCommand::Profile {
+        room,
+        user,
+        effect,
+        frame,
+    }) = command
+    {
         match (discord, discord::parse_room(&room)) {
             (Ok(discord), Some((guild, _))) => {
                 let (discord, events, guild) = (discord.clone(), events.clone(), guild.to_owned());
                 tokio::spawn(async move {
+                    // A frame the shop described already comes with the card.
+                    let framed = |profile: yapfast_discord::profile::Profile| {
+                        let layers = profile
+                            .frame
+                            .as_deref()
+                            .filter(|_| frame)
+                            .and_then(|sku| discord.kept_frame(sku))
+                            .flatten();
+                        let mut shown = chat_profile(&discord, &guild, profile);
+                        if let Some(layers) = layers {
+                            shown.frame = layers.iter().map(Into::into).collect();
+                        }
+                        shown
+                    };
                     let kept = |profile| {
                         let _ = events.send(Event::KeptProfile {
                             user: user.clone(),
-                            profile: chat_profile(&discord, &guild, profile),
+                            profile: framed(profile),
                         });
                     };
                     let profile = match discord.profile(&guild, &user, kept).await {
@@ -220,10 +240,16 @@ pub(super) fn command(
                     // The effect over the card is the shop's to describe, and
                     // comes after the card does.
                     let effect = profile.effect.clone().filter(|_| effect);
+                    // A frame not yet described comes after the card, as the
+                    // effect does.
+                    let frame_sku = profile
+                        .frame
+                        .clone()
+                        .filter(|sku| frame && discord.kept_frame(sku).is_none());
                     let mut badges = profile.badges.clone();
                     let _ = events.send(Event::Profile {
                         user: user.clone(),
-                        result: Ok(chat_profile(&discord, &guild, profile)),
+                        result: Ok(framed(profile)),
                     });
                     // The effect and the badges' levels come after the card is
                     // on screen, and together, as neither waits for the other.
@@ -259,7 +285,22 @@ pub(super) fn command(
                             });
                         }
                     };
-                    tokio::join!(effect_task, badges_task, note_task);
+                    let frame_task = async {
+                        let Some(sku) = frame_sku else { return };
+                        match discord.profile_frame(&sku).await {
+                            Ok(Some(layers)) => {
+                                let _ = events.send(Event::ProfileFrame {
+                                    user: user.clone(),
+                                    frame: layers.iter().map(Into::into).collect(),
+                                });
+                            }
+                            Ok(None) => {}
+                            Err(error) => {
+                                tracing::warn!(%error, "could not fetch a Discord profile frame");
+                            }
+                        }
+                    };
+                    tokio::join!(effect_task, badges_task, note_task, frame_task);
                 });
             }
             (discord, _) => {
@@ -347,15 +388,17 @@ pub(super) fn command(
     if let Command::Discord(DiscordCommand::SetCustomStatus(custom)) = command {
         match discord {
             Ok(discord) => {
-                let (discord, events) = (discord.clone(), events.clone());
+                let events = events.clone();
                 let custom = custom.map(|custom| yapfast_discord::settings::CustomStatus {
                     text: custom.text,
                     emoji_name: custom.emoji,
                     emoji_id: custom.emoji_id,
                     expires_at_ms: custom.expires_at_ms,
                 });
+                // Made now, so changes keep the order they were asked in.
+                let change = discord.set_custom_status(custom);
                 tokio::spawn(async move {
-                    let result = discord.set_custom_status(custom).await.map_err(|error| {
+                    let result = change.await.map_err(|error| {
                         tracing::warn!(
                             error = format!("{error:#}"),
                             "could not set the custom status"
@@ -455,9 +498,10 @@ pub(super) fn command(
     if let Command::Discord(DiscordCommand::ShowGame(shown)) = command {
         match discord {
             Ok(discord) => {
-                let (discord, events) = (discord.clone(), events.clone());
+                let events = events.clone();
+                let change = discord.set_show_game(shown);
                 tokio::spawn(async move {
-                    let result = discord.set_show_game(shown).await.map_err(|error| {
+                    let result = change.await.map_err(|error| {
                         tracing::warn!(
                             error = format!("{error:#}"),
                             "could not change sharing the game played"
@@ -476,9 +520,10 @@ pub(super) fn command(
     if let Command::Discord(DiscordCommand::SetStatus(status)) = command {
         match discord {
             Ok(discord) => {
-                let (discord, events) = (discord.clone(), events.clone());
+                let events = events.clone();
+                let change = discord.set_status(&status);
                 tokio::spawn(async move {
-                    let result = discord.set_status(&status).await.map_err(|error| {
+                    let result = change.await.map_err(|error| {
                         tracing::warn!(error = format!("{error:#}"), "could not set the status");
                         error.to_string()
                     });
@@ -1636,12 +1681,20 @@ fn change_person(
                     return;
                 }
             }
-            DiscordCommand::Relationship { user, change } => match change {
+            DiscordCommand::Relationship {
+                user,
+                change,
+                location,
+            } => match change {
                 RelationshipChange::Unfriend => {
-                    (discord.unfriend(&user).await, "remove the friend")
+                    (discord.unfriend(&user, location).await, "remove the friend")
                 }
-                RelationshipChange::Block => (discord.block(&user, true).await, "block them"),
-                RelationshipChange::Unblock => (discord.block(&user, false).await, "unblock them"),
+                RelationshipChange::Block => {
+                    (discord.block(&user, true, location).await, "block them")
+                }
+                RelationshipChange::Unblock => {
+                    (discord.block(&user, false, location).await, "unblock them")
+                }
                 RelationshipChange::Ignore => (discord.ignore(&user, true).await, "ignore them"),
                 RelationshipChange::Unignore => {
                     (discord.ignore(&user, false).await, "stop ignoring them")

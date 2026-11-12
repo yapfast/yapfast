@@ -10,6 +10,10 @@ impl Application {
             return vec![];
         }
         let open = self.state.dm_screen.is_some();
+        if !self.state.nav_walking {
+            let previous = self.state.place();
+            self.state.record_visit(previous, &HistoryPlace::Dm(screen));
+        }
         self.state.dm_screen = Some(screen);
         if open { vec![] } else { self.deselect() }
     }
@@ -114,6 +118,8 @@ impl Application {
                 room,
                 user: person,
                 effect: self.state.cosmetics.effects,
+                // The DM's panel draws no frame, so nothing of one is fetched.
+                frame: false,
             }))]
         } else {
             vec![]
@@ -293,19 +299,30 @@ impl Application {
         &mut self,
         user: String,
         change: chat::RelationshipChange,
+        location: &'static str,
     ) -> Vec<Effect> {
         if self.state.discord_user.is_none() || self.state.preview {
             return vec![];
         }
         vec![Effect::Backend(Command::Discord(
-            DiscordCommand::Relationship { user, change },
+            DiscordCommand::Relationship {
+                user,
+                change,
+                location,
+            },
         ))]
     }
 
-    /// Opens a dialog about a Discord user, from their DM's menu or their
-    /// menu as a server member, fetching the note it shows. A server's own
-    /// dialogs open through [`Self::ask_member`].
-    pub(super) fn ask_person(&mut self, user: String, ask: PersonAsk) -> Vec<Effect> {
+    /// Opens a dialog about a Discord user, from their DM's menu, their
+    /// menu as a server member or their profile's, which `location` names,
+    /// fetching the note it shows. A server's own dialogs open through
+    /// [`Self::ask_member`].
+    pub(super) fn ask_person(
+        &mut self,
+        user: String,
+        ask: PersonAsk,
+        location: &'static str,
+    ) -> Vec<Effect> {
         if self.state.discord_user.is_none()
             || self.state.preview
             || self.state.relation(&user) == Relation::Me
@@ -317,13 +334,20 @@ impl Application {
             return self.call_person(user);
         }
         let friend = self.state.friends.iter().find(|friend| friend.id == user);
-        // As their DM names them, or the open channel.
+        // As their DM names them, or the open channel, or their profile.
         let name = self
             .state
             .dm_with(&user)
             .map(|room| room.name.clone())
             .or_else(|| self.state.person(&user).map(|person| person.name))
-            .or_else(|| friend.map(|friend| friend.name.clone()));
+            .or_else(|| friend.map(|friend| friend.name.clone()))
+            .or_else(|| {
+                self.state
+                    .profile
+                    .as_ref()
+                    .filter(|view| view.profile.id == user)
+                    .map(|view| view.profile.name.clone())
+            });
         let Some(name) = name else {
             return vec![];
         };
@@ -342,6 +366,7 @@ impl Application {
             user: user.clone(),
             name,
             ask,
+            location,
             text,
             saving: false,
             error: None,
@@ -370,6 +395,7 @@ impl Application {
             return vec![];
         };
         let user = dialog.user.clone();
+        let location = dialog.location;
         let text = text.trim().to_owned();
         let command = match dialog.ask {
             PersonAsk::Call => {
@@ -388,7 +414,8 @@ impl Application {
                     chat::RelationshipChange::Unfriend
                 };
                 self.state.person_dialog = None;
-                return self.change_relationship(user, change);
+                // Discord's client names a confirmation by the menu it came from.
+                return self.change_relationship(user, change, location);
             }
             PersonAsk::ServerNickname | PersonAsk::Timeout | PersonAsk::Kick | PersonAsk::Ban => {
                 let Some(server) = dialog.server.clone() else {
@@ -473,6 +500,7 @@ impl Application {
                     presence: friend.presence.map(discord::presence),
                     activity: friend.activity.clone(),
                     activities: friend.activities.clone(),
+                    since: friend.since,
                 })
                 .collect();
         }
@@ -500,6 +528,9 @@ impl Application {
                     guild: join.guild.clone(),
                 })
                 .collect();
+        }
+        if changed(|a, b| Arc::ptr_eq(&a.own_activities, &b.own_activities)) {
+            self.state.discord_activities = snapshot.own_activities.clone();
         }
         let playing = snapshot.playing.as_deref();
         // Snapshots come often; the game rarely changes.
@@ -651,6 +682,7 @@ impl Application {
         self.state.custom_status = None;
         self.state.discord_show_game = false;
         self.state.discord_playing = None;
+        self.state.discord_activities = Default::default();
         self.state.join_sounds.clear();
         self.state.sound_catalog = None;
         self.show_lists()

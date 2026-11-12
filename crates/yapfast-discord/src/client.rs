@@ -51,6 +51,22 @@ pub fn user_agent() -> &'static str {
     })
 }
 
+/// The web client's language, sent in `X-Discord-Locale`: Yapfast is in
+/// English, as [`properties`]' `system_locale` says.
+pub const LOCALE: &str = "en-US";
+
+/// The `Accept-Language` the web client sends from an English Firefox's
+/// `navigator.languages`, `["en-US", "en"]`.
+pub const ACCEPT_LANGUAGE: &str = "en-US,en;q=0.9";
+
+/// This machine's time zone, such as `Europe/Prague`, as the web client
+/// sends it in `X-Discord-Timezone`; none when the system doesn't say.
+pub fn timezone() -> Option<&'static str> {
+    static ZONE: OnceLock<Option<String>> = OnceLock::new();
+    ZONE.get_or_init(|| iana_time_zone::get_timezone().ok())
+        .as_deref()
+}
+
 /// The web client's build number when Yapfast last checked, for when its page
 /// can't be read.
 const CLIENT_BUILD_NUMBER: u64 = 637268;
