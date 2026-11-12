@@ -254,14 +254,22 @@ profile once each time the open DM changes to someone else. Yapfast fetches it
 from `GET /users/{id}/profile` with the open server's id, so the server's
 nickname, avatar, banner, bio and pronouns win over the person's own, and the
 profile lists their roles in role order, when they joined Discord and the server,
-and the servers and friends the account shares with them. Profiles are kept for
+and the servers and friends the account shares with them. The full profile,
+the DM's panel and the profile editor's preview show the dates under "Member
+Since" in one row, as the client does: the Discord logo and the account's
+date, then a bullet, the server's icon (its initial without one) and the date
+of joining it; a profile not asked for a server has only the first. A
+friend's full profile, not the DM's panel, also shows "Friends Since", from
+`since` on their relationship in READY, RELATIONSHIP_ADD and
+RELATIONSHIP_UPDATE, kept for friends alone. These dates read as
+the client writes them, "Nov 5, 2026", whatever date format is chosen. Profiles are kept for
 five minutes, at most 32 of them. This account's own profile shares its
 friends and servers with nobody, so, as in Discord's client, its card shows
-no mutual line and its full profile no mutual tabs. Presence and activity
-come from the member list, since the profile doesn't carry them; one's own
-says the custom status the account has set, or none, whatever its presence,
-as Discord's client does, since the list's can be from before it changed.
-Their
+no mutual line, its full profile no mutual tabs, and it has no Friends
+Since. Presence and activity come from the member list, since the profile
+doesn't carry them; one's own says the custom status the account has set,
+or none, whatever its presence, as Discord's client does, since the list's
+can be from before it changed. Their
 custom status, or what
 they're doing, sits in a thought bubble beside the picture, as in
 Discord's: two lines at most, and all of it while pointed at. One's
@@ -429,9 +437,24 @@ rules:
 | Board | It's one's own, or they have widgets |
 | Activity | Always |
 | Wishlist | It's one's own, or it's public and they're a friend or share a server |
-| Mutual friends, mutual servers | It isn't one's own |
+| Mutual friends | It's someone else's on Discord, and not a bot's |
+| Mutual servers | It's someone else's on Discord |
 
-It opens on Activity. Activity lists their activities, then, under "Recent
+A bot's keeps Mutual Servers, as the client's bot profile has, and words an
+empty one "No servers in common".
+
+The tab is settled as it opens, as in the client: the one a card's mutual
+line asks for, else the first, the Board when there is one, else Activity.
+A Board that comes with Discord's answer afterwards doesn't take over, and a
+chosen tab that goes falls back to the first for good. The mutual tabs read
+"Mutual Friends" and "Mutual Servers" while the profile loads, and after a
+failed one, then "No Mutual Friends" or "3 Mutual Friends"; the card's line
+reads "1 Mutual Friend • 2 Mutual Servers", each part opening its own tab.
+An empty tab shows rows the shape of what's coming till Discord has said,
+then the client's words in its middle: on Activity, "You don't have any
+activity here" on one's own, and on someone else's "Name doesn't have any
+activity to share here" with a Message button; on a mutual tab, "You don't
+have any friends in common" or "servers in common". Activity lists their activities, then, under "Recent
 activity", from `GET /content-inventory/users/{id}/outbox` when the tab first
 opens, what they listened to (`extra.entries[0].media`: its `title`, first
 artist and `image_url`), watched (`extra.media_title`) and played

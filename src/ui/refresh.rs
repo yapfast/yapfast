@@ -3203,6 +3203,8 @@ impl Adapter {
                 )),
                 created: fallback.and_then(|fallback| fallback.created.clone()),
                 joined: fallback.and_then(|fallback| fallback.joined.clone()),
+                server_name: fallback_text(fallback.map(|fallback| &fallback.server_name)),
+                server_icon: fallback.and_then(|fallback| fallback.server_icon.clone()),
                 theme: editor.theme().ok().flatten(),
                 style: editor.name_style().map(Arc::new),
                 widgets: fallback

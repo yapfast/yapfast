@@ -2670,6 +2670,22 @@ async fn shows_profiles() {
     let own = discord.profile(PRIVATE, &bob, |_| {}).await.unwrap();
     assert!(own.bio.is_some_and(|bio| bio.starts_with("Plays bass")));
     assert!(own.roles.is_empty() && own.joined.is_none());
+    // A bot's profile comes too, and teaches Names it's a bot, which leaves
+    // its full profile Mutual Servers alone, listing where it posts.
+    let bot = discord
+        .profile(PRIVATE, "1400000000000000007", |_| {})
+        .await
+        .unwrap();
+    assert_eq!(bot.name, "Status Bot");
+    assert_eq!(bot.mutual_servers.len(), 1, "the server it posts in");
+    assert!(snapshot.names.read().is_bot("1400000000000000007"));
+    // Friends Since comes from the relationship's `since`.
+    let friend = snapshot
+        .friend_list
+        .iter()
+        .find(|friend| friend.user_id == bob)
+        .expect("Bob is a friend");
+    assert_eq!(friend.since, Some(1_788_253_200_000), "JOINED_AT");
 }
 
 #[tokio::test(flavor = "multi_thread")]

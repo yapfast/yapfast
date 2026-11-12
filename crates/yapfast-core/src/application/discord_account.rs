@@ -498,6 +498,7 @@ impl Application {
                     presence: friend.presence.map(discord::presence),
                     activity: friend.activity.clone(),
                     activities: friend.activities.clone(),
+                    since: friend.since,
                 })
                 .collect();
         }

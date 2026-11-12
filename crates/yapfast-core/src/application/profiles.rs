@@ -360,6 +360,7 @@ impl Application {
             .filter(|view| view.profile.id == user)
         {
             view.profile.recent = recent;
+            view.profile.recent_came = true;
         }
     }
 
@@ -449,6 +450,7 @@ fn fill_profile(view: &mut ProfileView, profile: &Profile) {
     };
     filled.recent = std::mem::take(&mut view.profile.recent);
     filled.recent_asked = view.profile.recent_asked;
+    filled.recent_came = view.profile.recent_came;
     if same_place {
         filled.wishlist = std::mem::take(&mut view.profile.wishlist);
     }

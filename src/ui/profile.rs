@@ -170,10 +170,21 @@ pub(super) fn activity_panel(
     Vec::new()
 }
 
-/// "1 mutual friend" or "5 mutual servers".
+/// "1 Mutual Friend" or "5 Mutual Servers", as the card's line says it.
 fn mutual_count(count: usize, what: &str) -> String {
     let plural = if count == 1 { "" } else { "s" };
-    format!("{count} mutual {what}{plural}")
+    format!("{count} Mutual {what}{plural}")
+}
+
+/// A mutual tab's name, as the client's: none till Discord has said, then
+/// how many.
+fn mutual_label(known: bool, count: usize, what: &str) -> String {
+    match (known, count) {
+        (false, _) => format!("Mutual {what}s"),
+        (true, 0) => format!("No Mutual {what}s"),
+        (true, 1) => format!("1 Mutual {what}"),
+        (true, count) => format!("{count} Mutual {what}s"),
+    }
 }
 
 /// Only mentions get a number; plain unread activity is a dot, because sync
@@ -575,6 +586,10 @@ pub(super) fn profile_data(
     // This account's own profile shows no mutual friends or servers, as
     // Discord's client doesn't: it shares them with nobody.
     let own = discord && state.relation(&profile.id) == Relation::Me;
+    // Discord has said who's mutual, so an empty list means none: not
+    // while it loads, nor when it failed, which the client's lists, still
+    // none, don't take for no one either.
+    let mutuals_known = view.kept || (!view.loading && view.note.is_none());
     let (wishlist, wishlist_note) = wishlist_rows(profile);
     // With no banner, accent colour or theme, Discord tints the banner area
     // with the avatar's dominant colour.
@@ -668,6 +683,9 @@ pub(super) fn profile_data(
         role_rows_large: role_rows(&profile.roles, PROFILE_LARGE_WIDTH),
         created: profile.created.clone().unwrap_or_default().into(),
         joined: profile.joined.clone().unwrap_or_default().into(),
+        server_initial: initial(&profile.server_name),
+        server_name: profile.server_name.as_str().into(),
+        server_icon: cached_picture(pictures, state, profile.server_icon.as_deref()),
         servers: ModelRc::new(VecModel::from(
             profile
                 .servers
@@ -772,8 +790,32 @@ pub(super) fn profile_data(
                     && (state.relation(&profile.id) == Relation::Friend
                         || !profile.servers.is_empty()))),
         own,
-        mutual_friends_text: mutual_count(profile.friends.len(), "friend").into(),
-        mutual_servers_text: mutual_count(profile.servers.len(), "server").into(),
+        mutual_friends_text: mutual_count(profile.friends.len(), "Friend").into(),
+        mutual_servers_text: mutual_count(profile.servers.len(), "Server").into(),
+        friends_label: mutual_label(mutuals_known, profile.friends.len(), "Friend").into(),
+        servers_label: mutual_label(mutuals_known, profile.servers.len(), "Server").into(),
+        mutuals_known,
+        // One's own has neither, and Matrix has no mutuals to list. A bot's
+        // has Mutual Servers alone, as the client's bot profile does.
+        friends_tab: discord && !own && state.relation(&profile.id) != Relation::Bot,
+        servers_tab: discord && !own,
+        bot: state.relation(&profile.id) == Relation::Bot,
+        // Discord's answer to what they did lately has come, or there is
+        // none to wait for.
+        recent_known: !discord || state.preview || profile.recent_came,
+        // From the friend list; no one is their own friend.
+        friends_since: if own {
+            SharedString::default()
+        } else {
+            state
+                .friends
+                .iter()
+                .find(|friend| friend.id == profile.id)
+                .and_then(|friend| friend.since)
+                .map(|ms| yapfast_core::clock::profile_day(ms / 1000))
+                .unwrap_or_default()
+                .into()
+        },
         note_text: profile.note.as_str().into(),
         note_editable: !profile.id.starts_with('@') && !own,
         can_message: state
