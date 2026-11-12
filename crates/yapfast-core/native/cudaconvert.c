@@ -49,6 +49,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "cuda_init.h"
+
 /* The CUDA driver API, as far as this file needs it: the types are the
  * driver's, and the few entry points are looked up when a share asks for the
  * card rather than linked. The declarations match cuda.h's; the structs the
@@ -722,9 +724,9 @@ struct yapfast_cudaconvert *yapfast_cudaconvert_new(int drm_fd, unsigned width,
     return NULL;
   }
   /* The driver is initialised before anything asks it a question: `cuDeviceGet`
-   * and the EGL device's CUDA ordinal both need it, and nothing else in Yapfast
-   * initialises the driver. */
-  if (c->cuda.cuInit(0) != CUDA_SUCCESS) {
+   * and the EGL device's CUDA ordinal both need it, and the session and the
+   * decoder ask the same function, so the process starts it once (cuda_init.c). */
+  if (yapfast_cuda_init(c->cuda.cuInit) != CUDA_SUCCESS) {
     put(c->error, sizeof(c->error), "the CUDA driver wouldn't start");
     put(error, size, "%s", c->error);
     yapfast_cudaconvert_free(c);

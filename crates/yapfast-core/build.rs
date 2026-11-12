@@ -383,6 +383,16 @@ fn main() {
             ),
         }
     }
+    // The one place libcuda is started for the process, which the converter,
+    // the session and the decoder all ask: `cuInit` doesn't survive two threads
+    // calling it at once, which a test binary does when a decoder's open and an
+    // encoder's run side by side. It has no dependencies of its own, so it is
+    // built wherever any of them is.
+    if target_os == "linux" && std::env::var_os("CARGO_FEATURE_DISCORD").is_some() {
+        let mut init = cc::Build::new();
+        init.file("native/cuda_init.c").std("gnu17").warnings(true);
+        init.compile("yapfast_cuda_init");
+    }
     // NVIDIA's card as the way a screen's picture reaches its encoder on Linux:
     // native/cuda_convert.cu, the BGRA to NV12 scale and convert that runs on
     // the card, compiled here to the PTX the driver loads at run time.

@@ -80,6 +80,7 @@
 #include "../../../vendor/ffmpeg-src/include/ffnvcodec/dynlink_cuda.h"
 #include "../../../vendor/ffmpeg-src/include/ffnvcodec/dynlink_nvcuvid.h"
 
+#include "cuda_init.h"
 #include "hwdec_cuda.h"
 
 /* cuMemGetHandleForAddressRange, which the vendored dynlink_cuda.h predates: it
@@ -1003,7 +1004,11 @@ struct yapfast_cudec *yapfast_cuvadec_new(int codec) {
     goto failed;
   }
   decoder->codec = codec;
-  const CUresult init = g_driver.cuInit(0);
+  /* The driver is started once for the process, by whichever of the three shims
+   * asks first: `cuInit` is the driver's own and two threads calling it at once
+   * is a race it doesn't survive. Its status is an enum here and an int there,
+   * which are the same value. */
+  const CUresult init = (CUresult)yapfast_cuda_init((yapfast_cu_init_fn)(void *)g_driver.cuInit);
   if (init != CUDA_SUCCESS) {
     snprintf(decoder->error, sizeof decoder->error,
              "the NVIDIA driver wouldn't start (%s), so there is no %s decoder on the card",

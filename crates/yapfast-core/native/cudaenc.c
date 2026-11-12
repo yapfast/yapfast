@@ -50,6 +50,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cuda_init.h"
+
 /* The vendored ffnvcodec header, which FFmpeg's NVENC encoder uses too: only
  * declarations, since every entry point is resolved from the driver's own
  * library. Relative to this file, so that the build and an editor's language
@@ -304,7 +306,7 @@ static void load_cuda(void) {
   /* The converter made a context already, so the driver has started, but stating
    * it here is what makes this file work from the driver's first call rather
    * than from the caller's, and it says so itself when it can't start at all. */
-  CUresult result = cuda.api.cuInit(0);
+  CUresult result = yapfast_cuda_init(cuda.api.cuInit);
   if (result != CUDA_SUCCESS) {
     const char *named = NULL;
     cuda.api.cuGetErrorName(result, &named);
