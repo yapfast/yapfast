@@ -72,9 +72,19 @@ scope of what a plugin can do here today:
 That is the shape the API is built around, and it is deliberately a manifest
 field rather than code: the interface can show the row without loading any
 WebAssembly, which is what keeps the helper process out of every menu that has
-one row in it. What is missing is the interface half — nothing in this build
-consumes `MenuDecl`, so the row is declared and not yet drawn, and no action
-reaches the plugin. The `menu` handler is where it will answer when it does.
+one row in it. The row is drawn — `MenuDecl` is read where the manifest is
+(`crates/yapfast-core/src/plugins.rs`) and becomes the interface's own menu row,
+and a click on it is dispatched as `Input::Menu` with this plugin's id and the
+row's action (`src/ui/plugins.rs`).
+
+What is missing is the last step: the runtime that would take that `Input` has
+no implementation in this build. `src/ui/plugins.rs` calls
+`runtime.input(input)` and the runtime is `None`, so the click becomes a log
+line — `no plugin runtime is attached to take this` — and the plugin never hears
+it. Every interactive surface a plugin has goes through the same seam: a menu
+row, a widget's toggle, a dismissed notice. Nor is there an export for it to
+arrive at yet: the ABI's five are `activate`, `deactivate`, `event`, `hook` and
+`command`, and the optional four are the decorations.
 
 This plugin declares the row anyway on purpose: the first plugin is a good place
 to have the thing that doesn't work yet written down in the form it will work in,

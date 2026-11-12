@@ -9,10 +9,11 @@
 //! plugin was written to exercise. The manifest carries it (`menus` in
 //! `yapfast-plugin.json`), and it is the declaration that a plugin's presence
 //! in a menu is meant to be: the interface can list it without loading any
-//! WebAssembly. Nothing dispatches a row yet — `MenuDecl` has no consumer in
-//! this build — so the handler below answers the command and the menu row
-//! waits for the interface half. When it arrives, the row's action comes to
-//! the same plugin, and `menu` is where this plugin answers it.
+//! WebAssembly. The row is drawn and a click on it is dispatched as
+//! `Input::Menu`, but the runtime that would carry it into a plugin has no
+//! implementation in this build, so the click stops at `src/ui/plugins.rs` and
+//! the plugin never hears it. The handler below answers the command; a menu
+//! row's action has no export to arrive at yet.
 
 use yapfast_pdk::prelude::*;
 
