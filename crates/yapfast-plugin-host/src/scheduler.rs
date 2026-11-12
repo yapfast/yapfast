@@ -60,6 +60,11 @@ const DECORATE_BUDGET: Duration = Duration::from_millis(16);
 /// already knows them until it comes.
 const IDENTITY_BUDGET: Duration = Duration::from_millis(16);
 
+/// How long one plugin's `yf_code_block` may run. A block is on screen and its
+/// colours are a nicety, like a decoration's: it gets the plan's 16 ms, and a
+/// block that misses it is drawn plain, which is what it looked like anyway.
+const CODE_BLOCK_BUDGET: Duration = Duration::from_millis(16);
+
 /// How long `yf_deactivate` may take. Its answer is a convenience handed to the
 /// next activation, so it gets long enough to write that and no longer: an
 /// instance going away must not hold the helper.
@@ -188,6 +193,13 @@ pub enum Message {
         id: u64,
         plugin: PluginId,
         request: yapfast_plugin_api::identity::IdentityRequest,
+    },
+    /// What a plugin makes of one code block, answered with
+    /// [`FromHelper::CodeBlock`]: `yf_code_block`'s export, with the block.
+    CodeBlock {
+        id: u64,
+        plugin: PluginId,
+        request: yapfast_plugin_api::code::CodeBlockRequest,
     },
     /// The parent's answer to a guest's host call.
     Return {
@@ -535,6 +547,29 @@ impl<B: Backend + 'static> Shared<B> {
                     },
                 );
             }
+            Message::CodeBlock {
+                id,
+                plugin,
+                request,
+            } => {
+                let slot = state.slot_for(&plugin);
+                let block = request.block.clone();
+                let text = request.text.clone();
+                let request = serde_json::to_value(request).unwrap_or(serde_json::Value::Null);
+                // Only the blocks on screen are asked about, and the answer is
+                // kept by the block's own hash, so the same snippet twice is
+                // one answer.
+                state.push(
+                    slot,
+                    Lane::Background,
+                    id,
+                    Job::CodeBlock {
+                        block,
+                        text,
+                        request,
+                    },
+                );
+            }
             Message::Return {
                 plugin,
                 call,
@@ -593,6 +628,11 @@ impl<B: Backend + 'static> Shared<B> {
                 server,
                 request,
             } => self.identity(task, person, server.as_deref(), request),
+            Job::CodeBlock {
+                block,
+                text,
+                request,
+            } => self.code_block(task, block, text, request),
             Job::Return { call, answer } => self.answer(task.owner(), *call, answer),
         }
     }
@@ -974,6 +1014,56 @@ impl<B: Backend + 'static> Shared<B> {
         }
     }
 
+    /// Asks a plugin to colour one code block, and answers the parent with the
+    /// spans it gave or with nothing.
+    ///
+    /// The block is drawn plain while this runs, which is what it looked like
+    /// anyway: colours are worth a frame and not a wait.
+    fn code_block(&self, task: &Task, block: &str, text: &str, request: &serde_json::Value) {
+        let slot = task.owner();
+        let plugin = self.id(slot);
+        let nothing = || FromHelper::CodeBlock {
+            plugin: plugin.as_ref().clone(),
+            block: block.to_owned(),
+            spans: None,
+        };
+        if self.ensure_active(slot).is_none() {
+            let _ = self.reply(task.id, &nothing());
+            return;
+        }
+        let Ok(bytes) = serde_json::to_vec(request) else {
+            let _ = self.reply(task.id, &nothing());
+            return;
+        };
+        let (result, late) = self.call(&[slot], CODE_BLOCK_BUDGET, |backend| {
+            backend.invoke(&plugin, "yf_code_block", &bytes)
+        });
+        let spans = match &result {
+            // An export that answered nothing, or answered `null`, colours
+            // nothing: an answer is optional, so an empty one is no fault.
+            Ok(Some(answer)) => {
+                serde_json::from_slice::<Vec<yapfast_plugin_api::code::Span>>(answer)
+                    .ok()
+                    .filter(|spans| yapfast_plugin_api::code::fits(text, spans))
+            }
+            Ok(None) => None,
+            Err(_) => None,
+        };
+        let _ = self.reply(
+            task.id,
+            &FromHelper::CodeBlock {
+                plugin: plugin.as_ref().clone(),
+                block: block.to_owned(),
+                spans,
+            },
+        );
+        match result {
+            Ok(_) if late => self.discard(slot, deadline_fault("a code block's colours"), None),
+            Ok(_) => {}
+            Err(fault) => self.discard(slot, fault, None),
+        }
+    }
+
     /// Calls one export of one plugin for another: what `plugin.call` asked the
     /// parent for, run where the callee's instance is.
     fn invoke(&self, task: &Task, function: &str, args_base64: &str) {
@@ -1305,6 +1395,18 @@ impl<B: Backend + 'static> Shared<B> {
                     },
                 );
             }
+            // A block nobody coloured is drawn plain, which is what it looked
+            // like while the plugin was asked.
+            Job::CodeBlock { block, .. } => {
+                let _ = self.reply(
+                    task.id,
+                    &FromHelper::CodeBlock {
+                        plugin,
+                        block: block.clone(),
+                        spans: None,
+                    },
+                );
+            }
             Job::Load(_) | Job::Unload | Job::Evict | Job::Kick | Job::Return { .. } => {}
         }
     }
@@ -1543,6 +1645,11 @@ enum Job {
     Identity {
         person: String,
         server: Option<String>,
+        request: serde_json::Value,
+    },
+    CodeBlock {
+        block: String,
+        text: String,
         request: serde_json::Value,
     },
     Return {

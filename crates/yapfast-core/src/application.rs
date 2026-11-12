@@ -3324,9 +3324,12 @@ impl Application {
                 self.pictured_timeline = Arc::new(Vec::new());
                 // A plugin that draws under messages is asked about the rows on
                 // screen and no others, so a long channel costs what a screen
-                // costs.
+                // costs. The same pass asks a plugin that colours code blocks
+                // about the fences in those rows.
                 #[cfg(feature = "plugins")]
                 self.plugins_decorate_visible(&room, &items);
+                #[cfg(feature = "plugins")]
+                self.plugins_colour_code_visible(&room, &items);
                 vec![Effect::Backend(Command::VisibleMessages {
                     room,
                     items,

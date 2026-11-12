@@ -23,6 +23,7 @@
 //! ```
 
 pub mod bridge;
+pub mod code_block;
 pub mod fetch;
 pub mod grants;
 pub mod identity;

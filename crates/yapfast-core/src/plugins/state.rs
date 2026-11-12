@@ -43,6 +43,9 @@ pub struct PluginState {
     /// What plugins said about how people look, kept once per (person, server)
     /// so the twentieth message from one author costs nothing.
     identities: crate::plugins::identity::Identities,
+    /// What plugins made of the code blocks on screen, kept by each block's own
+    /// content hash so the same snippet twice is one answer.
+    code_blocks: crate::plugins::code_block::CodeBlocks,
 }
 
 /// Something the plugin system did, for the application to act on.
@@ -116,6 +119,16 @@ pub enum Notice {
         server: Option<String>,
         rank: usize,
         identity: Option<yapfast_plugin_api::identity::Identity>,
+    },
+    /// What a plugin made of one code block on screen: spans that spell the
+    /// block again, kept by the block's content hash. `rank` is where the plugin
+    /// sits in the chain, so the earlier plugin's colours win whatever order two
+    /// answers arrive in.
+    CodeBlock {
+        plugin: PluginId,
+        block: String,
+        rank: usize,
+        spans: Option<Vec<yapfast_plugin_api::code::Span>>,
     },
     /// Take away everything one plugin drew, because it was turned off or
     /// suspended: a plugin that isn't running shows nothing.
@@ -217,6 +230,7 @@ impl PluginState {
             settings: settings::Store::new(data_dir.join("plugins")),
             refused: BTreeMap::new(),
             identities: crate::plugins::identity::Identities::default(),
+            code_blocks: crate::plugins::code_block::CodeBlocks::default(),
         })
     }
 
@@ -473,6 +487,56 @@ impl PluginState {
     /// happens on a change and not on every answer.
     pub fn identity_changes(&self) -> u64 {
         self.identities.changes()
+    }
+
+    /// Whether an enabled plugin colours code blocks. A row reads its own
+    /// markdown for fences only when one does.
+    pub fn colours_code(&self) -> bool {
+        self.bridge.colours_code()
+    }
+
+    /// Whether this block has been asked about, either way: a block whose
+    /// answer is kept is never asked about again.
+    pub fn knows_code_block(&self, block: &str) -> bool {
+        self.code_blocks.knows(block)
+    }
+
+    /// The colours of one code block, or nothing: a block nobody coloured is
+    /// drawn plain, the same as one nobody asked about.
+    pub fn code_block(&self, block: &str) -> Option<Arc<Vec<yapfast_plugin_api::code::Span>>> {
+        self.code_blocks.get(block)
+    }
+
+    /// Asks the plugins about these code blocks, which the caller takes from the
+    /// fences of the messages on screen.
+    pub fn ask_code_blocks(&mut self, blocks: &[yapfast_plugin_api::code::CodeBlockRequest]) {
+        if !self.bridge.colours_code() || blocks.is_empty() {
+            return;
+        }
+        self.bridge.ask_code_blocks(blocks);
+    }
+
+    /// Keeps what a plugin made of one code block, and answers whether what a
+    /// surface draws changed.
+    pub fn note_code_block(
+        &mut self,
+        block: &str,
+        rank: usize,
+        spans: Option<Vec<yapfast_plugin_api::code::Span>>,
+    ) -> bool {
+        self.code_blocks.note(block, rank, spans)
+    }
+
+    /// Forgets every code block's colours, which is what changing which plugins
+    /// are enabled asks for. Answers whether anything was forgotten.
+    pub fn forget_code_blocks(&mut self) -> bool {
+        self.code_blocks.forget()
+    }
+
+    /// The count of answers that changed how a block draws, so the interface
+    /// redraws a block that was coloured and not every block asked about.
+    pub fn code_block_changes(&self) -> u64 {
+        self.code_blocks.changes()
     }
 
     /// Runs the `message.pre_send` chain, if anything intercepts sends.

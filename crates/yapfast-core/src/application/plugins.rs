@@ -632,6 +632,8 @@ impl Application {
             }
             // How a plugin says somebody looks: what is on screen that shows
             // them is drawn again, and nothing else.
+            // How a plugin says somebody looks: what is on screen that shows
+            // them is drawn again, and nothing else.
             News::Notice(Notice::Identity {
                 person,
                 server,
@@ -646,6 +648,18 @@ impl Application {
                     return Vec::new();
                 }
                 self.plugins_identity_arrived(&person, server.as_deref())
+            }
+            News::Notice(Notice::CodeBlock {
+                block, rank, spans, ..
+            }) => {
+                // Kept by the block's hash. No frame is asked for: a row reads
+                // its block's colours from the application's state when it is
+                // drawn, and the interface doesn't draw them yet, which
+                // `interface.md` says.
+                if let Some(plugins) = self.state.plugins.as_mut() {
+                    plugins.note_code_block(&block, rank, spans);
+                }
+                Vec::new()
             }
             News::Observed(envelope) => {
                 self.plugins_observe(envelope);
@@ -926,6 +940,50 @@ impl Application {
             }
         }
         redraw_identity()
+    }
+
+    /// Asks the plugins that colour code blocks about the fences in the rows on
+    /// screen, and about none of the blocks it already has an answer for.
+    ///
+    /// A block is named by its own content hash, which is what makes two
+    /// messages quoting the same snippet one question, and a block that scrolls
+    /// away and back no question at all. The hash covers the language as well as
+    /// the text, because a language is what colours it.
+    pub(super) fn plugins_colour_code_visible(&mut self, _room: &str, items: &[String]) {
+        let Some(plugins) = self.state.plugins.as_ref() else {
+            return;
+        };
+        if !plugins.colours_code() {
+            return;
+        }
+        let mut asked: Vec<yapfast_plugin_api::code::CodeBlockRequest> = Vec::new();
+        for item in items {
+            let Some(message) = self
+                .state
+                .messages
+                .iter()
+                .find(|message| &message.item == item)
+            else {
+                continue;
+            };
+            for (language, text) in crate::plugins::code_block::fences(&message.body) {
+                let block = crate::plugins::code_block::hash(language.as_deref(), &text);
+                if plugins.knows_code_block(&block) {
+                    continue;
+                }
+                asked.push(yapfast_plugin_api::code::CodeBlockRequest {
+                    block,
+                    language,
+                    text,
+                });
+            }
+        }
+        if asked.is_empty() {
+            return;
+        }
+        if let Some(plugins) = self.state.plugins.as_mut() {
+            plugins.ask_code_blocks(&asked);
+        }
     }
 
     /// Hands one event to the plugins that subscribed to it. The bridge

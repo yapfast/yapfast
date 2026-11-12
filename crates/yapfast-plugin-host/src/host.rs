@@ -217,6 +217,14 @@ fn dispatch(
             });
             After::Continue
         }
+        ToHelper::CodeBlock { plugin, request } => {
+            scheduler.send(Message::CodeBlock {
+                id,
+                plugin,
+                request,
+            });
+            After::Continue
+        }
         ToHelper::Unload { plugin } => {
             scheduler.send(Message::Unload { plugin });
             After::Continue

@@ -278,6 +278,46 @@ for them like any other, so wiring one of them is a lookup and not a new call.
 The `badges` field is answered and kept but drawn nowhere: the card's badges are
 Discord's own, with pictures, and a plugin's name-only badge has no surface yet.
 
+## Colouring code blocks
+
+A plugin that colours code blocks declares `code` in its activation, and needs
+`messages.read`, because a block is message content:
+
+```json
+{ "activation": { "on": ["code"] },
+  "permissions": { "capabilities": ["messages.read"] } }
+```
+
+The parent asks with `yf_code_block` for **one block at a time**, named by the
+hash of its content and language, and only for the blocks of the messages on
+screen. That is what "on-screen blocks only" means here: the same action that
+reports the visible rows is the one that reads their markdown for fences
+(`code_block::fences`), and a block whose answer is already kept is never asked
+about again.
+
+[`plugins/code_block.rs`](../../crates/yapfast-core/src/plugins/code_block.rs)
+keeps the answers:
+
+- **Keyed by the content hash**, language included, so a block never goes stale
+  and two messages quoting the same snippet are one answer.
+- **Capped at 128 blocks**, the least lately asked forgotten first, so scrolling
+  a channel of code keeps what has been on screen lately.
+- **An answer that colours nothing is kept too**, so a block nobody coloured is
+  asked about once and not once per frame.
+- **The earlier plugin in the chain wins**, whatever order two answers arrive
+  in, and the same spans again change nothing.
+- **A change stamp**, `CodeBlocks::changes`, for an interface that redraws a
+  block that was coloured.
+- **The spans must spell the block exactly** (see
+  [`abi.md`](abi.md#the-payloads)): a plugin colours a block and never changes
+  what it says, so the check is in the helper, which holds the text, and a set
+  that doesn't add up is refused where it arrives.
+
+**Which surfaces draw it.** None yet. The spans are asked for, checked and kept,
+and reachable through the application's plugin state; the code block itself is
+drawn by the markdown renderer in `ui/messages.slint`, which does not take spans
+yet. Wiring it is a lookup per block in that renderer and not a new call.
+
 ## Slots
 
 [`plugins/slots.rs`](../../crates/yapfast-core/src/plugins/slots.rs) keeps what

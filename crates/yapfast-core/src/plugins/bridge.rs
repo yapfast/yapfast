@@ -130,6 +130,7 @@ impl Bridge {
             intercepts: AtomicBool::new(false),
             decorates: AtomicBool::new(false),
             identifies: AtomicBool::new(false),
+            colours_code: AtomicBool::new(false),
             gesture: Mutex::new(None),
             sends: Mutex::new(BTreeMap::new()),
             off: Mutex::new(None),
@@ -213,6 +214,33 @@ impl Bridge {
         for request in people.iter().take(MAX_IDENTITIES) {
             for plugin in &plugins {
                 self.send(Request::Identity {
+                    plugin: plugin.clone(),
+                    request: request.clone(),
+                });
+            }
+        }
+    }
+
+    /// Whether an enabled plugin colours code blocks. A row reads its markdown
+    /// for fences only when one does.
+    pub fn colours_code(&self) -> bool {
+        self.shared.colours_code.load(Ordering::Relaxed)
+    }
+
+    /// Asks every plugin that colours code blocks about each of these blocks.
+    ///
+    /// Only the blocks of the messages on screen are asked about, and the
+    /// application asks about none of the blocks it already has an answer for:
+    /// a block is named by its own content hash, so the same snippet twice is
+    /// one question.
+    pub fn ask_code_blocks(&mut self, blocks: &[yapfast_plugin_api::code::CodeBlockRequest]) {
+        let plugins = self.shared.registry().code_colourers();
+        if plugins.is_empty() || blocks.is_empty() {
+            return;
+        }
+        for request in blocks.iter().take(MAX_CODE_BLOCKS) {
+            for plugin in &plugins {
+                self.send(Request::CodeBlock {
                     plugin: plugin.clone(),
                     request: request.clone(),
                 });
@@ -1060,6 +1088,9 @@ pub(crate) struct Shared {
     /// Whether an enabled plugin says how people look, which a profile asks
     /// before it costs one answer per person.
     identifies: AtomicBool,
+    /// Whether an enabled plugin colours code blocks, which a row asks before
+    /// it reads its own markdown for fences.
+    colours_code: AtomicBool,
     /// When the person last did something a plugin's send can stand behind.
     gesture: Mutex<Option<Instant>>,
     /// When each plugin last sent a message, for the 5-per-10-s the plan puts
@@ -1093,6 +1124,8 @@ impl Shared {
         self.intercepts.store(summary.intercepts, Ordering::Relaxed);
         self.decorates.store(summary.decorates, Ordering::Relaxed);
         self.identifies.store(summary.identifies, Ordering::Relaxed);
+        self.colours_code
+            .store(summary.colours_code, Ordering::Relaxed);
     }
 
     /// Records that the person just did something, which is what a plugin's
@@ -1481,6 +1514,12 @@ enum Request {
     Identity {
         plugin: PluginId,
         request: yapfast_plugin_api::identity::IdentityRequest,
+    },
+    /// What a plugin makes of one code block on screen: the answer comes back as
+    /// [`FromHelper::CodeBlock`].
+    CodeBlock {
+        plugin: PluginId,
+        request: yapfast_plugin_api::code::CodeBlockRequest,
     },
     /// Replace a plugin with what the store holds now, with the plugins that
     /// need it stopped first and started again after.
@@ -1876,6 +1915,14 @@ const IDENTITY_TIMEOUT: Duration = Duration::from_millis(250);
 /// list's first page, so a misreported range can't turn into a burst of calls.
 const MAX_IDENTITIES: usize = 64;
 
+/// How long the parent waits for one plugin's colours for a block: the helper's
+/// own budget is 16 ms, and the rest is the frame it takes to get there.
+const CODE_BLOCK_TIMEOUT: Duration = Duration::from_millis(250);
+
+/// The most code blocks one pass asks about: a screenful of messages, each with
+/// a block or two, so a misreported range can't turn into a burst of calls.
+const MAX_CODE_BLOCKS: usize = 64;
+
 /// How often a folder plugin's files are looked at. A save is one `stat` of two
 /// files a second, which is nothing beside a build that takes longer than that.
 const DEV_POLL: Duration = Duration::from_secs(1);
@@ -2260,6 +2307,10 @@ impl Session {
                 self.identity(shared, &plugin, request);
                 None
             }
+            Request::CodeBlock { plugin, request } => {
+                self.code_block(shared, &plugin, request);
+                None
+            }
             Request::CallAnswer {
                 plugin,
                 call,
@@ -2582,6 +2633,33 @@ impl Session {
         );
     }
 
+    /// Asks one plugin for the colours of one code block.
+    ///
+    /// Only the blocks of the messages on screen are asked about, and the answer
+    /// is kept by the block's content hash, which is why a block that comes back
+    /// on screen never asks again.
+    fn code_block(
+        &mut self,
+        shared: &Shared,
+        plugin: &PluginId,
+        request: yapfast_plugin_api::code::CodeBlockRequest,
+    ) {
+        self.activate(shared, plugin);
+        let message = ToHelper::CodeBlock {
+            plugin: plugin.clone(),
+            request,
+        };
+        self.request(
+            &message,
+            CODE_BLOCK_TIMEOUT,
+            Purpose::Agent {
+                what: "a code block's colours",
+                plugin: plugin.clone(),
+                budget: CODE_BLOCK_TIMEOUT,
+            },
+        );
+    }
+
     /// Runs one plugin's call into another, which is what `plugin.call` asks for.
     ///
     /// The answer can't be built here: it is an export of the callee, and only
@@ -2818,6 +2896,9 @@ impl Session {
             // A person's answer is asked for again when the surfaces that show
             // them ask the cache, which forgets every answer at a swap.
             Request::Identity { plugin, .. } => self.in_swap(plugin),
+            // A block on screen is asked about again by the next report of what
+            // is on screen, which forgets every block at a swap.
+            Request::CodeBlock { plugin, .. } => self.in_swap(plugin),
             // An answer to a guest's call is about a guest that may be shut
             // down with the swap, so it goes as it comes.
             Request::CallAnswer { .. } => false,
@@ -3077,6 +3158,15 @@ impl Session {
             } => {
                 self.pending.remove(&frame.id);
                 self.on_identity(shared, &plugin, &person, server, identity);
+                None
+            }
+            FromHelper::CodeBlock {
+                plugin,
+                block,
+                spans,
+            } => {
+                self.pending.remove(&frame.id);
+                self.on_code_block(shared, &plugin, &block, spans);
                 None
             }
             FromHelper::EventDone { .. } => None,
@@ -4002,6 +4092,33 @@ impl Session {
         }));
     }
 
+    /// Files a plugin's colours for one block, or its silence about it.
+    fn on_code_block(
+        &mut self,
+        shared: &Shared,
+        plugin: &PluginId,
+        block: &str,
+        spans: Option<Vec<yapfast_plugin_api::code::Span>>,
+    ) {
+        let Some(rank) = shared
+            .registry()
+            .code_colourers()
+            .iter()
+            .position(|asking| asking == plugin)
+        else {
+            return;
+        };
+        // The helper checks that the spans spell the block, because it is the
+        // side holding the request's text; here they are only filed, by a hash,
+        // so the cache holds no copy of the code.
+        shared.announce(Notice::CodeBlock {
+            plugin: plugin.clone(),
+            block: block.to_owned(),
+            rank,
+            spans,
+        });
+    }
+
     /// Files a plugin's answer about one person: the application keeps it, and
     /// only the plugin's place in the chain decides whether it wins.
     ///
@@ -4758,6 +4875,7 @@ mod tests {
             intercepts: AtomicBool::new(false),
             decorates: AtomicBool::new(false),
             identifies: AtomicBool::new(false),
+            colours_code: AtomicBool::new(false),
             gesture: Mutex::new(None),
             sends: Mutex::new(BTreeMap::new()),
             off: Mutex::new(None),
@@ -6699,6 +6817,12 @@ mod tests {
         "activation":{"on":["identity"]},
         "permissions":{"capabilities":["people.read"]}}"#;
 
+    /// A plugin that colours code blocks, which needs `messages.read`.
+    const COLOURER_MANIFEST: &str = r#"{"api":1,"id":"com.example.colourer","name":"Colour",
+        "version":"1.0.0","wasm":"plugin.wasm",
+        "activation":{"on":["code"]},
+        "permissions":{"capabilities":["messages.read"]}}"#;
+
     /// The reply a chain sends for the request it was handed: the helper's own
     /// frame id is the one the parent is waiting under.
     fn hook_done(id: u64, outcome: HookOutcome, by: Option<PluginId>) -> Frame {
@@ -6998,6 +7122,87 @@ mod tests {
             notices.recv_timeout(Duration::from_millis(100)).is_err(),
             "a tree Yapfast refuses draws nothing at all"
         );
+    }
+
+    #[test]
+    fn a_code_block_is_asked_about_by_its_hash_and_comes_back_coloured() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), COLOURER_MANIFEST, b"not a real module");
+        let (wake, notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        let text = "let x = 1;";
+        let block = crate::plugins::code_block::hash(Some("rust"), text);
+        let request = yapfast_plugin_api::code::CodeBlockRequest {
+            block: block.clone(),
+            language: Some("rust".to_owned()),
+            text: text.to_owned(),
+        };
+        runtime().block_on(session.on_command(
+            &shared,
+            Request::CodeBlock {
+                plugin: plugin.clone(),
+                request: request.clone(),
+            },
+        ));
+
+        let activate = next_frame(&written);
+        assert!(matches!(
+            message(&activate),
+            ToHelper::Activate { plugin: started, .. } if started == plugin
+        ));
+        let ask = next_frame(&written);
+        let ToHelper::CodeBlock {
+            plugin: asked,
+            request: sent,
+        } = message(&ask)
+        else {
+            panic!("the second frame is the code block");
+        };
+        assert_eq!(asked, plugin);
+        assert_eq!(
+            sent, request,
+            "the block travels with its hash and language"
+        );
+
+        let spans = vec![
+            yapfast_plugin_api::code::Span::new("let", yapfast_plugin_api::code::Tone::Keyword),
+            yapfast_plugin_api::code::Span::new(" x = 1;", yapfast_plugin_api::code::Tone::Plain),
+        ];
+        assert!(
+            session
+                .on_frame(
+                    &shared,
+                    Frame::new(
+                        FrameKind::Report,
+                        ask.id,
+                        serde_json::to_vec(&FromHelper::CodeBlock {
+                            plugin: plugin.clone(),
+                            block: block.clone(),
+                            spans: Some(spans.clone()),
+                        })
+                        .expect("it serializes"),
+                    ),
+                )
+                .is_none()
+        );
+        let notice = notices
+            .recv_timeout(Duration::from_secs(2))
+            .expect("a notice");
+        let Notice::CodeBlock {
+            plugin: coloured_by,
+            block: coloured,
+            rank,
+            spans: answered,
+        } = notice
+        else {
+            panic!("colours for a block are their own notice: {notice:?}");
+        };
+        assert_eq!(coloured_by, plugin);
+        assert_eq!(coloured, block);
+        assert_eq!(rank, 0);
+        assert_eq!(answered, Some(spans));
     }
 
     #[test]

@@ -228,6 +228,12 @@ impl Activation {
         self.on.iter().any(|trigger| trigger == "identity")
     }
 
+    /// The plugin asks to colour code blocks, as `yf_code_block`: one answer per
+    /// block, which the parent keeps by the block's content hash.
+    pub fn colours_code(&self) -> bool {
+        self.on.iter().any(|trigger| trigger == "code")
+    }
+
     /// The event names this activation subscribes to, without the prefix.
     pub fn events(&self) -> impl Iterator<Item = &str> {
         self.on

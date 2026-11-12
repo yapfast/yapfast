@@ -127,6 +127,9 @@ pub struct Summary {
     /// Whether an enabled plugin says how people look, which is the only reason
     /// a profile asks anyone anything at all.
     pub identifies: bool,
+    /// Whether an enabled plugin colours code blocks, which is the only reason a
+    /// row reads its markdown for fences.
+    pub colours_code: bool,
 }
 
 /// One installed plugin, copied out of the registry for the settings page
@@ -516,6 +519,28 @@ impl Registry {
             .collect()
     }
 
+    /// The plugins that colour code blocks, in the order the chain would run
+    /// them. A block's text is message content, so the trigger needs
+    /// `messages.read` as well.
+    pub fn code_colourers(&self) -> Vec<PluginId> {
+        self.order
+            .iter()
+            .filter(|id| {
+                self.entries.get(*id).is_some_and(|entry| {
+                    entry.module.is_some()
+                        && entry.enabled
+                        && entry.manifest.permissions.allows(Capability::MessagesRead)
+                        && entry
+                            .manifest
+                            .activation
+                            .as_ref()
+                            .is_some_and(|activation| activation.colours_code())
+                })
+            })
+            .cloned()
+            .collect()
+    }
+
     /// Every plugin's state, for the page that lists them.
     /// Every command the enabled plugins with a module declare, in the order
     /// the plugins run.
@@ -593,6 +618,13 @@ impl Registry {
                     .activation
                     .as_ref()
                     .is_some_and(|activation| activation.identities());
+            summary.colours_code |= entry.module.is_some()
+                && entry.manifest.permissions.allows(Capability::MessagesRead)
+                && entry
+                    .manifest
+                    .activation
+                    .as_ref()
+                    .is_some_and(|activation| activation.colours_code());
         }
         self.summary = summary;
     }

@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::call::{CommandInvocation, CommandOutcome, HostCall, HostReturn};
+use crate::code::CodeBlockRequest;
 use crate::event::{EventEnvelope, TopicEvent};
 use crate::hook::{HookOutcome, HookRequest};
 use crate::identity::{Identity, IdentityRequest};
@@ -183,6 +184,12 @@ pub enum ToHelper {
         plugin: PluginId,
         request: IdentityRequest,
     },
+    /// Ask a plugin to colour one code block on screen, with `yf_code_block`:
+    /// the answer is spans that spell the block again.
+    CodeBlock {
+        plugin: PluginId,
+        request: CodeBlockRequest,
+    },
     /// The answer to a guest's host call.
     Return {
         plugin: PluginId,
@@ -284,6 +291,16 @@ pub enum FromHelper {
         server: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         identity: Option<Identity>,
+    },
+    /// What a plugin coloured one code block, as `yf_code_block` answered: the
+    /// spans, or nothing when it drew none. The parent checks that they spell
+    /// the block before anything shows them.
+    CodeBlock {
+        plugin: PluginId,
+        /// The block, by the content hash it was asked about with.
+        block: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        spans: Option<Vec<crate::code::Span>>,
     },
     /// An event batch finished; nothing to report.
     EventDone { plugin: PluginId },

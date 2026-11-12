@@ -13,6 +13,7 @@
 
 pub mod call;
 pub mod capability;
+pub mod code;
 pub mod event;
 pub mod frame;
 pub mod graph;

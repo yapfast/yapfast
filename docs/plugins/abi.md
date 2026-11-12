@@ -55,6 +55,7 @@ Every payload is a JSON object with a `t` naming the variant. The first is
 | `event` | `plugin`, `events` | A batch of events, already filtered and serialized |
 | `hook` | `chain`, `request` | One hook, for the whole chain at once |
 | `decorate` | `plugin`, `request` | Ask a plugin what it draws under a message on screen, with `yf_decorate` |
+| `code_block` | `plugin`, `request` | Ask a plugin to colour one code block on screen, with `yf_code_block` |
 | `identity` | `plugin`, `request` | Ask a plugin how one (person, server) looks, with `yf_identity` |
 | `command` | `plugin`, `command` | A command the person typed, with its options |
 | `invoke` | `plugin`, `function`, `args_base64` | One export of one plugin, called for another: `plugin.call`. Answered with `invoked` |
@@ -91,6 +92,7 @@ given a fresh one.
 | `command_done` | `plugin`, `outcome` | A command's answer |
 | `invoked` | `answer_base64`, `fault` | The export's answer, or the fault that stopped it |
 | `identity` | `plugin`, `person`, `server`, `identity` | How a plugin says one person looks, or nothing |
+| `code_block` | `plugin`, `block`, `spans` | The spans a plugin gave one code block, or nothing |
 | `event_done` | `plugin` | An event batch finished |
 | `status` | `plugin`, `status` | A plugin's state changed, for the page and the registry |
 | `fault` | `plugin`, `fault` | An instance was discarded, and why |
@@ -122,10 +124,10 @@ surface. The method is a name inside the payload, an unknown method answers
 
 A guest that doesn't export one of those five is a `bad_module` fault at
 activation, so a PDK that forgets `yf_event` fails early and clearly rather than
-on the first message. `yf_decorate`, `yf_identity` and `yf_ui_event` are the
-interface's half of the API and are optional: a module that declares them is
-left alone, and one that doesn't simply draws nothing and says nothing about
-how people look.
+on the first message. `yf_decorate`, `yf_identity`, `yf_code_block` and
+`yf_ui_event` are the interface's half of the API and are optional: a module
+that declares them is left alone, and one that doesn't simply draws nothing,
+says nothing about how people look and colours no code.
 
 ### The payloads
 
@@ -239,6 +241,26 @@ keeps as an answer so it isn't asked again. A name, a pronoun line or a badge
 is one line of at most 64 characters, there are at most 8 badges, a colour is
 `0xRRGGBB`, and a picture address is `https` and at most 2048 characters: a
 field that isn't is dropped, and the rest of the answer still applies.
+
+`yf_code_block` is asked once per code block, named by the hash of its content
+and language, and only for the blocks of the messages on screen:
+
+```json
+{ "block": "9f2c…", "language": "rust", "text": "let x = 1;" }
+```
+
+```json
+[{ "text": "let", "tone": "keyword" }, { "text": " x = 1;", "tone": "plain" }]
+```
+
+A tone is one of `plain`, `comment`, `keyword`, `string`, `number`, `function`,
+`type`, `variable`, `operator`, `punctuation` and `error`, and never a colour:
+how a tone looks is the interface's to decide, the way a widget cell's is. The
+answer must **spell the block exactly**, character for character, in at most 512
+spans, none of them empty; a set of spans that doesn't is refused where it
+arrives and the block is drawn plain. A plugin colours a block and never changes
+what it says. `null`, or nothing, is an answer too, and is kept: the block is
+plain and isn't asked about again.
 
 A settings change arrives as the answer to the `settings.on_change` call that
 asked for it: the keys that changed, with the values they hold now, and the
