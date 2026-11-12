@@ -1701,7 +1701,10 @@ impl History {
 
 /// The sequence numbers of `media` packets that generic NACKs (RTCP 205,
 /// format 1) in a decrypted compound packet report lost: each entry names
-/// one, and a bitmask the 16 after it.
+/// one, and a bitmask the 16 after it. A packet named twice is named once:
+/// Discord's stream server relays every viewer's report in the same datagram,
+/// so two people who lost the same packet ask for it in two blocks, and one
+/// resend answers both.
 pub fn nacked(mut rtcp: &[u8], media: u32) -> Vec<u16> {
     let mut lost = vec![];
     while rtcp.len() >= 4 {
@@ -1724,6 +1727,19 @@ pub fn nacked(mut rtcp: &[u8], media: u32) -> Vec<u16> {
         }
         rtcp = rtcp.get(length..).unwrap_or_default();
     }
+    // In place and in order: a report names a few packets, and the order is
+    // the first time each was asked for rather than anything a sequence
+    // number can be sorted by across its wrap.
+    let mut kept = 0;
+    for index in 0..lost.len() {
+        let sequence = lost[index];
+        if lost[..kept].contains(&sequence) {
+            continue;
+        }
+        lost[kept] = sequence;
+        kept += 1;
+    }
+    lost.truncate(kept);
     lost
 }
 
@@ -2896,6 +2912,20 @@ mod tests {
             ..resent
         };
         assert_eq!(Held::unwrap_rtx(&padding, 5), None);
+    }
+
+    /// Discord's stream server relays every viewer's report in one datagram, so
+    /// the same hole is named in two blocks: one resend answers both, and the
+    /// second name must not cost a second packet.
+    #[test]
+    fn a_packet_two_viewers_lost_is_named_once() {
+        let mut packet = vec![0x81, 205, 0, 4, 0, 0, 0, 1];
+        packet.extend_from_slice(&9u32.to_be_bytes());
+        for _ in 0..2 {
+            packet.extend_from_slice(&7u16.to_be_bytes());
+            packet.extend_from_slice(&0b100u16.to_be_bytes());
+        }
+        assert_eq!(nacked(&packet, 9), [7, 10]);
     }
 
     #[test]
