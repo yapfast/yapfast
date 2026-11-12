@@ -472,8 +472,28 @@ conversation for a composer button. Closing a notice, a toast or a dialog sends
 `Input::Dismissed` and takes it away at once. Both reach the `Runtime` as
 `Effect::PluginInput`.
 
+### Named parts
+
+A tree is drawn as a part when its plugin's manifest names one for its slot
+([manifest](manifest.md#named-parts)). The bridge decides which, not the tree:
+`ui::part_id` takes the name `ui.set_slot` asked for, or the first the manifest
+gives the slot, and refuses a name the manifest doesn't give that slot with the
+reason, as it refuses a tree. The name rides on the tree as `Tree::part`,
+`<plugin-id>/<name>`, which a tree's JSON can't set, and `Slots::part` answers
+which slot a named part is drawn in, or `None` while none is on screen. The
+same tree under another name is a change, since a theme may draw it
+differently.
+
+In the window, `PluginPart` carries it as `part-id`, empty for a tree no
+manifest named, and `PluginWidgets`, `PluginBanner`, `PluginToast` and
+`PluginDialog` expose it as an `out` property of the same name. That is the
+whole hook: nothing draws differently for a name, so a part looks exactly as an
+unnamed tree does until a theme styles it, and a plugin that names nothing
+costs one empty string per tree.
+
 `slots.json` beside a manifest in `YAPFAST_PLUGINS_DIR` stands in for the
 runtime, for trying widgets without writing a `.wasm`: an object from a slot's
 id, or `message:` and a message's id, to a tree, shown as the plugins load.
-Its trees go through the same checks. [`testing/plugins/widgets`](../../testing/plugins/widgets)
+Its trees go through the same checks, and each is the first part its manifest
+names for its slot. [`testing/plugins/widgets`](../../testing/plugins/widgets)
 shows each widget that way.

@@ -127,7 +127,20 @@ impl Session {
                 .map_err(|error| error.to_string())
                 .and_then(|text| crate::plugins::ui::Tree::parse(&text))
             {
-                Ok(tree) => Some(tree),
+                Ok(mut tree) => {
+                    // A decoration is the part its manifest names for the
+                    // `message` slot, if it names one.
+                    tree.part = shared.registry().entry(plugin).and_then(|entry| {
+                        crate::plugins::ui::part_id(
+                            plugin.as_str(),
+                            &entry.manifest.parts,
+                            Slot::Message,
+                            None,
+                        )
+                        .unwrap_or_default()
+                    });
+                    Some(tree)
+                }
                 Err(refusal) => {
                     tracing::warn!(%plugin, %refusal, "a plugin drew a message decoration Yapfast refused");
                     return;

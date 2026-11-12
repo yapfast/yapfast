@@ -136,6 +136,8 @@ plugin that has never been activated still appears:
   stream, game, composer or attachment menu, with a closed set of `when`
   conditions and no expression language;
 - buttons at the foot of the server rail and in a conversation's header;
+- names for what it draws in its slots, so Yapfast knows which of its parts is
+  on screen and a theme can style one by name;
 - settings the plugin's page draws for it, as strings, numbers, sliders,
   switches, choices, lists of records and a widget tree it draws itself;
 - named switches, `tweaks`, for parts of Yapfast that offer them: none does yet,

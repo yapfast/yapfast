@@ -13,7 +13,9 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use serde::Deserialize;
 
-use super::Manifest;
+use yapfast_plugin_api::manifest::{self, PartDecl};
+
+use super::{Manifest, slots::Slot};
 use crate::network::Network;
 
 /// The most characters a label, a row's text or a plugin's name can have.
@@ -904,6 +906,15 @@ pub fn check(manifest: &Manifest) -> Checked {
         }
         checked
     }
+    // A name for a slot this build doesn't have names nothing that can show.
+    for part in &manifest.parts {
+        if Slot::from_id(&part.slot).is_none() {
+            checked.refused.push(Refusal {
+                what: format!("part {}", part.name),
+                why: format!("Yapfast has no slot called `{}`", part.slot),
+            });
+        }
+    }
     checked.rail = buttons(&manifest.rail_items, "rail item", &mut checked.refused);
     checked.header = buttons(
         &manifest.header_buttons,
@@ -1108,6 +1119,38 @@ pub enum Tone {
 pub struct Tree {
     #[serde(default)]
     pub rows: Vec<Row>,
+    /// The part it is drawn as, `<plugin-id>/<name>`, when its plugin's
+    /// manifest names one for its slot ([`part_id`]). The bridge sets it, not
+    /// the tree's JSON, so a plugin can only be a part its manifest declares.
+    #[serde(skip)]
+    pub part: Option<String>,
+}
+
+/// The part a plugin's tree in `slot` is drawn as: `asked`, which the
+/// manifest's `parts` must give that slot, or else the first name they give it;
+/// `None` when they give it none. Refused, with the reason, for a name the
+/// manifest doesn't declare or gives another slot.
+pub fn part_id(
+    plugin: &str,
+    parts: &[PartDecl],
+    slot: Slot,
+    asked: Option<&str>,
+) -> Result<Option<String>, String> {
+    let Some(asked) = asked else {
+        return Ok(parts
+            .iter()
+            .find(|part| part.slot == slot.id())
+            .map(|part| manifest::part_id(plugin, &part.name)));
+    };
+    match parts.iter().find(|part| part.name == asked) {
+        None => Err(format!("the manifest names no part `{asked}`")),
+        Some(part) if part.slot != slot.id() => Err(format!(
+            "the manifest gives the part `{asked}` to the {} slot, not {}",
+            part.slot,
+            slot.id()
+        )),
+        Some(part) => Ok(Some(manifest::part_id(plugin, &part.name))),
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
@@ -1256,6 +1299,70 @@ mod tests {
             .iter()
             .map(|refusal| refusal.why.as_str())
             .collect()
+    }
+
+    #[test]
+    fn a_tree_is_the_part_its_manifest_names_for_its_slot() {
+        let named = manifest(
+            r#"{ "api": 1, "id": "com.example.player", "name": "Player", "wasm": "p.wasm",
+                "parts": [{ "name": "now-playing", "slot": "banner" },
+                          { "name": "lyrics", "slot": "dialog" },
+                          { "name": "confirm", "slot": "dialog" }] }"#,
+        );
+        let parts = &named.parts;
+        let id = |slot, asked| part_id("com.example.player", parts, slot, asked);
+        assert_eq!(
+            id(Slot::Banner, None),
+            Ok(Some("com.example.player/now-playing".into()))
+        );
+        assert_eq!(
+            id(Slot::Dialog, None),
+            Ok(Some("com.example.player/lyrics".into())),
+            "a tree that names no part is the first its slot has"
+        );
+        assert_eq!(
+            id(Slot::Dialog, Some("confirm")),
+            Ok(Some("com.example.player/confirm".into()))
+        );
+        assert_eq!(id(Slot::Toast, None), Ok(None), "a slot without a name");
+        assert_eq!(
+            id(Slot::Toast, Some("now-playing")),
+            Err("the manifest gives the part `now-playing` to the banner slot, not toast".into()),
+            "one name is one slot's"
+        );
+        assert_eq!(
+            id(Slot::Banner, Some("queue")),
+            Err("the manifest names no part `queue`".into())
+        );
+        assert!(check(&named).refused.is_empty());
+        // A slot this build doesn't have is refused on the plugin's page, and a
+        // name a theme couldn't address refuses the manifest.
+        let elsewhere = manifest(
+            r#"{ "api": 1, "id": "a.b", "name": "x", "wasm": "p.wasm",
+                "parts": [{ "name": "side", "slot": "panel" }] }"#,
+        );
+        assert_eq!(
+            refusals(&check(&elsewhere)),
+            ["Yapfast has no slot called `panel`"]
+        );
+        assert!(
+            Manifest::parse(
+                r#"{ "api": 1, "id": "a.b", "name": "x",
+                    "parts": [{ "name": "Side", "slot": "banner" }] }"#
+            )
+            .is_err()
+        );
+        assert!(
+            Manifest::parse(
+                r#"{ "api": 1, "id": "a.b", "name": "x",
+                    "parts": [{ "name": "a", "slot": "banner" }, { "name": "a", "slot": "toast" }] }"#
+            )
+            .is_err()
+        );
+        assert!(
+            Tree::parse(r#"{ "part": "com.example.other/now-playing", "rows": [] }"#).is_err(),
+            "a tree can't name itself, only its manifest can"
+        );
     }
 
     #[test]

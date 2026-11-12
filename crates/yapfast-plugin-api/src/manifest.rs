@@ -428,6 +428,68 @@ pub struct ButtonDecl {
     pub action: String,
 }
 
+/// The most characters in the name a plugin gives a part it draws.
+pub const PART_NAME_CHARS: usize = 32;
+
+/// A name a plugin gives what it draws in one slot, from its manifest's
+/// `parts`, so the interface knows which of a plugin's parts is on screen and a
+/// theme can style it by name.
+///
+/// The interface knows the part as `<plugin-id>/<name>` ([`part_id`]), so two
+/// plugins can't claim one name, and the manifest declares every name before
+/// the plugin runs, so no two of one plugin's trees can either. A plugin may
+/// give one slot several names; `ui.set_slot` says which one a tree is, and a
+/// tree that says none is the first named for its slot. Which slots exist is
+/// the interface's to say, as it is for the parts `ui` names.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PartDecl {
+    pub name: String,
+    /// The slot it is drawn in, such as `banner` or `dialog`.
+    pub slot: String,
+}
+
+/// Whether a part's name is one a theme can address: 1 to
+/// [`PART_NAME_CHARS`] lowercase letters, digits and `-`, starting with a
+/// letter.
+pub fn part_name(name: &str) -> bool {
+    (1..=PART_NAME_CHARS).contains(&name.len())
+        && name.starts_with(|first: char| first.is_ascii_lowercase())
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+/// The id the interface knows a plugin's named part by.
+pub fn part_id(plugin: &str, name: &str) -> String {
+    format!("{plugin}/{name}")
+}
+
+/// Everything wrong with a manifest's `parts`: a name a theme couldn't
+/// address, one name twice, a slot that isn't a plain name, or more than
+/// [`CHANGES`] of them.
+pub fn check_parts(parts: &[PartDecl]) -> Result<(), ManifestError> {
+    if parts.len() > CHANGES {
+        return Err(ManifestError::TooMany {
+            field: "named parts",
+        });
+    }
+    for (index, part) in parts.iter().enumerate() {
+        if !part_name(&part.name) {
+            return Err(ManifestError::PartName);
+        }
+        if !plain_id(&part.slot) {
+            return Err(ManifestError::Name {
+                field: "a part's slot",
+            });
+        }
+        if parts[..index].iter().any(|other| other.name == part.name) {
+            return Err(ManifestError::DuplicatePart);
+        }
+    }
+    Ok(())
+}
+
 /// A change to one of Yapfast's built-in menu rows, from a manifest's
 /// `ui.menu`.
 ///
@@ -728,6 +790,9 @@ pub struct PluginManifest {
     /// What it changes in the interface Yapfast already draws.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ui: Option<UiDecl>,
+    /// The names it gives what it draws in its slots.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parts: Vec<PartDecl>,
     #[serde(default)]
     pub settings: Vec<SettingDecl>,
 
@@ -888,6 +953,7 @@ impl PluginManifest {
                 }
             }
         }
+        check_parts(&self.parts)?;
         let Some(ui) = &self.ui else {
             return Ok(());
         };
@@ -1036,6 +1102,10 @@ pub enum ManifestError {
     TooMany {
         field: &'static str,
     },
+    /// A part's name a theme couldn't address.
+    PartName,
+    /// Two parts with one name.
+    DuplicatePart,
     /// Two settings with one key.
     DuplicateSetting,
     DependsOnItself,
@@ -1083,6 +1153,12 @@ impl fmt::Display for ManifestError {
             ManifestError::TooMany { field } => {
                 write!(f, "a plugin adds at most {CHANGES} {field}")
             }
+            ManifestError::PartName => write!(
+                f,
+                "a part's name must be 1 to {PART_NAME_CHARS} lowercase letters, digits and `-`, \
+                 starting with a letter"
+            ),
+            ManifestError::DuplicatePart => f.write_str("two parts share a name"),
             ManifestError::DuplicateSetting => f.write_str("two settings share a key"),
             ManifestError::DependsOnItself => f.write_str("a plugin can't depend on itself"),
         }
@@ -1186,6 +1262,70 @@ mod tests {
                 "{wasm} should be refused"
             );
         }
+    }
+
+    /// What `parts` declares: names a theme can address, each once.
+    #[test]
+    fn a_part_is_named_once_in_lowercase_letters_digits_and_dashes() {
+        let with = |parts: &str| {
+            PluginManifest::parse(&WORD_FILTER.replace(
+                "\"settings\": [",
+                &format!("\"parts\": {parts},\n\"settings\": ["),
+            ))
+        };
+        let manifest = with(
+            r#"[{ "name": "now-playing", "slot": "banner" }, { "name": "queue2", "slot": "dialog" }]"#,
+        )
+        .unwrap();
+        assert_eq!(manifest.parts.len(), 2);
+        assert_eq!(
+            part_id(manifest.id.as_str(), &manifest.parts[0].name),
+            "com.example.word-filter/now-playing"
+        );
+        let longest = "a".repeat(PART_NAME_CHARS);
+        assert!(with(&format!(r#"[{{ "name": "{longest}", "slot": "banner" }}]"#)).is_ok());
+        for name in [
+            "",
+            "Now",
+            "2nd",
+            "-a",
+            "now_playing",
+            "now.playing",
+            "now playing",
+            "é",
+            &format!("{longest}a"),
+        ] {
+            assert!(
+                matches!(
+                    with(&format!(r#"[{{ "name": "{name}", "slot": "banner" }}]"#)),
+                    Err(ManifestError::PartName)
+                ),
+                "{name:?} should be refused"
+            );
+        }
+        assert!(matches!(
+            with(r#"[{ "name": "a", "slot": "banner" }, { "name": "a", "slot": "dialog" }]"#),
+            Err(ManifestError::DuplicatePart)
+        ));
+        assert!(matches!(
+            with(r#"[{ "name": "a", "slot": "side panel" }]"#),
+            Err(ManifestError::Name {
+                field: "a part's slot"
+            })
+        ));
+        assert!(
+            with(r#"[{ "name": "a", "slot": "banner", "style": "x" }]"#).is_err(),
+            "a part takes no field it doesn't know"
+        );
+        let many: Vec<String> = (0..=CHANGES)
+            .map(|index| format!(r#"{{ "name": "p{index}", "slot": "banner" }}"#))
+            .collect();
+        assert!(matches!(
+            with(&format!("[{}]", many.join(","))),
+            Err(ManifestError::TooMany {
+                field: "named parts"
+            })
+        ));
     }
 
     #[test]

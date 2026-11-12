@@ -223,6 +223,35 @@ is to a screen reader. Both fields are optional, and a manifest that carries the
 installs like any other: they are part of what the installer reads, so nothing
 about them waits for the plugin to run.
 
+## Named parts
+
+A plugin can name what it draws in a slot, so Yapfast knows which of its parts
+is on screen and a theme can style one by name. `parts` declares each name
+with the slot it is drawn in:
+
+```json
+{ "parts": [{ "name": "now-playing", "slot": "banner" },
+            { "name": "lyrics", "slot": "dialog" },
+            { "name": "confirm", "slot": "dialog" }] }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `name` | 1 to 32 lowercase letters, digits and `-`, starting with a letter, and unique in the manifest |
+| `slot` | The slot's id, such as `banner`, `toast`, `dialog`, `profile.badges` or `message`; [the interface](interface.md#slots) lists them |
+
+The interface knows a part as `<plugin-id>/<name>`, such as
+`com.example.player/now-playing`, so no two plugins share one, and a name is
+declared before the plugin ever runs, so no two of one plugin's trees can claim
+it. A slot may have several names: `ui.set_slot` says which one a tree is with
+`part`, and a tree that says none — including a `ui.notice`, a `ui.toast`, a
+`ui.open_dialog` and a message's decoration — is the first named for its slot,
+or no part at all when the slot has none. Naming needs no capability and draws
+nothing differently: a part looks as any tree does until a theme says
+otherwise. A name a theme couldn't address, or one used twice, refuses the
+manifest; a slot this build doesn't have is refused on the plugin's page, as a
+`ui` change is. Up to 64 names.
+
 ## The interface Yapfast already draws
 
 `ui` names changes to Yapfast's own interface, and needs the `ui.modify`
@@ -330,7 +359,9 @@ in the window changes.
 | A command with nothing to say | Its name is empty, or its description is an empty string |
 | A label that won't show | A menu row's, rail item's, header button's or `ui` row's label is empty, over 64 characters, or carries a control character |
 | An action that isn't a name | A menu row's or button's `action`, or a `ui` row's `row` and anchor, isn't letters, digits, `-`, `_` and `.` |
-| More than 64 contributions | Menu rows, rail items, header buttons, or changes to the interface, past 64 |
+| More than 64 contributions | Menu rows, rail items, header buttons, named parts, or changes to the interface, past 64 |
+| A part a theme can't name | A `parts[].name` that isn't 1 to 32 lowercase letters, digits and `-` starting with a letter, or a `parts[].slot` that isn't a plain name |
+| Two parts with one name | Duplicate `parts[].name` |
 | Two settings with one key | Duplicate `settings[].key` |
 | Depending on itself | `dependencies` names the plugin's own id |
 

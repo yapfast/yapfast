@@ -296,6 +296,7 @@ pub(super) fn tree_part(plugin: &str, name: &str, slot: &str, tree: &Tree) -> Pl
         plugin: plugin.into(),
         name: name.into(),
         slot: slot.into(),
+        part_id: tree.part.as_deref().unwrap_or_default().into(),
         rows: ModelRc::new(VecModel::from(rows)),
     }
 }

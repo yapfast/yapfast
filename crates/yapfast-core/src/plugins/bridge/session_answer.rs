@@ -208,7 +208,7 @@ impl Session {
                     Ok(request) => request,
                     Err(error) => return wrong_payload(method, error),
                 };
-                self.paint_slot(plugin, request)
+                self.paint_slot(plugin, &entry.manifest.parts, request)
             }
             call::method::UI_CLEAR_SLOT => {
                 let request: ClearSlot = match call.parse() {
@@ -227,7 +227,7 @@ impl Session {
                 } else {
                     Slot::Toast
                 };
-                self.paint_line(plugin, slot, &request.text)
+                self.paint_line(plugin, &entry.manifest.parts, slot, &request.text)
             }
             call::method::UI_OPEN_DIALOG => {
                 let request: OpenDialog = match call.parse() {
@@ -236,9 +236,11 @@ impl Session {
                 };
                 self.paint_slot(
                     plugin,
+                    &entry.manifest.parts,
                     SetSlot {
                         slot: Slot::Dialog.id().to_owned(),
                         tree: request.tree,
+                        part: None,
                     },
                 )
             }

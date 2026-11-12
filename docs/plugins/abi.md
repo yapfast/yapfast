@@ -482,7 +482,7 @@ The `ui` calls take a widget tree, the rows of cells
 
 | Method | Payload | Answer |
 | --- | --- | --- |
-| `ui.set_slot` | `{ "slot": "banner", "tree": { … } }` | `{ "drawn": true }`, or `{ "drawn": false, "reason": … }` for a slot this build has no place for, a tree over its cap, or one that isn't a tree |
+| `ui.set_slot` | `{ "slot": "banner", "tree": { … } }`, and `"part": "now-playing"` for one of the names the manifest's `parts` gives that slot | `{ "drawn": true }`, or `{ "drawn": false, "reason": … }` for a slot this build has no place for, a tree over its cap, one that isn't a tree, or a part the manifest doesn't give that slot |
 | `ui.clear_slot` | `{ "slot": "banner" }` | `{ "drawn": true }` |
 | `ui.notice` | `{ "text": "…" }`, markdown | `{ "drawn": true }`; an empty line is an error |
 | `ui.toast` | `{ "text": "…" }`, plain text | `{ "drawn": true }` |
