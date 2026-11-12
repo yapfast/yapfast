@@ -57,6 +57,7 @@ Every payload is a JSON object with a `t` naming the variant. The first is
 | `decorate` | `plugin`, `request` | Ask a plugin what it draws under a message on screen, with `yf_decorate` |
 | `code_block` | `plugin`, `request` | Ask a plugin to colour one code block on screen, with `yf_code_block` |
 | `identity` | `plugin`, `request` | Ask a plugin how one (person, server) looks, with `yf_identity` |
+| `member_decorate` | `plugin`, `request` | Ask a plugin what it marks one member list row with, with `yf_member_decorate` |
 | `command` | `plugin`, `command` | A command the person typed, with its options |
 | `invoke` | `plugin`, `function`, `args_base64` | One export of one plugin, called for another: `plugin.call`. Answered with `invoked` |
 | `return` | `plugin`, `call`, `answer` | The answer to a guest's host call |
@@ -92,6 +93,7 @@ given a fresh one.
 | `command_done` | `plugin`, `outcome` | A command's answer |
 | `invoked` | `answer_base64`, `fault` | The export's answer, or the fault that stopped it |
 | `identity` | `plugin`, `person`, `server`, `identity` | How a plugin says one person looks, or nothing |
+| `member_decorated` | `plugin`, `member`, `badge` | What a plugin marks one member list row with, or nothing; unchecked, so the parent checks it |
 | `code_block` | `plugin`, `block`, `spans` | The spans a plugin gave one code block, or nothing |
 | `event_done` | `plugin` | An event batch finished |
 | `status` | `plugin`, `status` | A plugin's state changed, for the page and the registry |
@@ -124,10 +126,12 @@ surface. The method is a name inside the payload, an unknown method answers
 
 A guest that doesn't export one of those five is a `bad_module` fault at
 activation, so a PDK that forgets `yf_event` fails early and clearly rather than
-on the first message. `yf_decorate`, `yf_identity`, `yf_code_block` and
-`yf_ui_event` are the interface's half of the API and are optional: a module
-that declares them is left alone, and one that doesn't simply draws nothing,
-says nothing about how people look and colours no code.
+on the first message. Four more exports are the interface's half of the API, and
+optional: `yf_decorate` draws under a message, `yf_member_decorate` marks people
+in the member list, `yf_identity` says how one person looks, and `yf_code_block`
+colours one block. A module that declares one is asked for it and one that
+doesn't is left alone, so a plugin that draws nothing, marks nobody, says nothing
+about how people look and colours no code exports none of the four.
 
 ### The payloads
 
@@ -142,6 +146,9 @@ a log.
 | `yf_hook` | `HookRequest { hook, subject }` | `HookOutcome` |
 | `yf_command` | `CommandInvocation { name, options }` | `CommandOutcome` |
 | `yf_decorate` | `DecorateRequest { room, message, author, body, own }` | A widget tree, or `null` for none |
+| `yf_member_decorate` | `DecorateMemberRequest { server, room, member, name, own, bot, roles }` | `MemberBadge { text, tone }`, or `null` for none |
+| `yf_identity` | `IdentityRequest { person, server, name, username, own }` | An `Identity`, or `null` for none |
+| `yf_code_block` | `CodeBlockRequest { block, language, text }` | A list of spans, or `null` for none |
 | `yf_call` | `HostCall { method, payload }` | `HostReturn` |
 | `yf_post` | `HostCall` | Nothing |
 
@@ -222,7 +229,7 @@ is answered by `changed` with the `attachment` it should be uploaded as — a ne
 `name`, and a `content_type` or a byte count it may narrow but not raise — or by
 `block` with the reason the person sees where the file would have gone. Both
 chains answer under a deadline of their own, so the composer never waits longer
-than the plan's table for one.
+than a table's worth of them ([the helper](host.md#deadlines)).
 
 A command's answer is `none`, `notice` with a line for the person to see in the
 room they typed it in, `value` with the plugin's own JSON, or `failed` with a
@@ -233,8 +240,8 @@ guest's own call: it answers the widget tree `interface.md` describes, or
 `null` for "nothing under this one". The parent checks the tree, so a plugin
 that answers a shape the widget set doesn't have simply draws nothing.
 
-The answer may also keep the row or its pictures out of sight, which is
-[§17.2](../../PLAN.md#172-additions-to-the-api)'s `hide_media` and its filter:
+The answer may also keep the row or its pictures out of sight, which is what
+`messages.filter` is for:
 
 ```json
 { "hide_media": true }
@@ -339,10 +346,10 @@ so nothing waits on a person:
 | `open.url` | `{ url }` | Opens a page the way a message's link does |
 | `media.get` | `{ url }` | The bytes of an attachment, an avatar or an emoji the picture store already keeps; `{ "bytes": 1234, "bytes_base64": "…" }`, and never a fetch |
 
-The curated actions of [PLAN §17.2](../../PLAN.md#172-additions-to-the-api) are
-the same kind of call, named `discord.*`: each wraps something Yapfast already
-does for the person, so the token, the rate limiter and the account's own
-permissions stay here. A plugin names what it wants and never reaches REST.
+The curated actions named `discord.*` are the same kind of call: each wraps
+something Yapfast already does for the person, so the token, the rate limiter and
+the account's own permissions stay here. A plugin names what it wants and never
+reaches REST.
 
 | Call | Payload | Answer | Does |
 | --- | --- | --- | --- |
@@ -366,8 +373,8 @@ permission for is an `error` too — `servers.manage` is what lets a plugin ask,
 and the person's own roles are what lets it happen.
 
 `discord.open_room`, `start_reply` and `start_edit` need no capability and do
-need a recent user gesture, as §9.1 says: a plugin can't move the window or
-write the composer while nobody is there. Without one they answer `denied`.
+need a recent user gesture: a plugin can't move the window or write the composer
+while nobody is there. Without one they answer `denied`.
 
 ### A plugin's own sound, and its voice
 
@@ -391,15 +398,15 @@ A send a plugin asks for isn't run through `message.pre_send`: that chain is for
 what the person wrote, and a plugin that both intercepts and sends would meet
 itself.
 
-The methods are names, so adding one never changes the link surface. `storage`,
-`settings`, `http`, `timers`, `app`, `account`, the `rooms`, `messages` and
-`people` reads, the `ui` calls, `media.get` and the `plugin` group have typed
-payloads in the contract crate, because they are the calls the runtime answers.
-Every other name the ABI lists —
-`messages.send`, `edit`, `delete`, `react` and `jump_to`, the `composer` calls,
-`notify.send`, `clipboard.write` and `open.url` — is named from the first version
-so a plugin can feature-detect it, and answers `unsupported` until the runtime
-has it.
+The methods are names, so adding one never changes the link surface. Every name
+the ABI lists has a typed payload in the contract crate: `storage`, `settings`,
+`http`, `timers`, `app`, `account`, the `rooms`, `messages` and `people` reads,
+the `ui` calls, `media.get`, the application's own actions (`messages.send`,
+`edit`, `delete`, `react` and `jump_to`, the `composer` calls, `notify.send`,
+`clipboard.write` and `open.url`), the `discord` ones, the `audio` ones, and the
+`plugin` group. A name this build doesn't have answers `unsupported` rather than
+failing to link, which is how a plugin feature-detects what the Yapfast in front
+of it can do.
 
 ### Calls between plugins
 
@@ -473,9 +480,42 @@ The `ui` calls take a widget tree, the rows of cells
 A drawing doesn't wait for the interface: the call is answered as soon as the
 tree is checked, and what reaches the screen is coalesced to a frame and capped
 at ten a second per plugin. The slots a plugin may name are `banner`, `toast`,
-`composer`, `message.actions` and `dialog`; `message` answers that what a plugin
-draws under a message is a `message.decorate` answer, not a slot. None of them
-needs a capability: §9.1 of the plan gives every plugin its own slots.
+`dialog` and `profile.badges`; `composer` and `message.actions` take buttons only,
+and `message` answers that what a plugin draws under a message is a
+`message.decorate` answer, not a slot. None of them needs a capability: a slot is
+a plugin's own surface.
+
+### What a plugin keeps, and when it wakes
+
+`storage` is the plugin's own key-value store: the only thing that survives an
+instance being evicted, and the only thing counted against its `storage_bytes`
+quota. It needs the `storage` capability.
+
+| Method | Payload | Answer |
+| --- | --- | --- |
+| `storage.get` | `{ key }` | The value held there, which is the plugin's own JSON, or `null` for a key it doesn't have |
+| `storage.set` | `{ key, value }` | `true`, or `denied` with the quota's sentence when the store would go past it |
+| `storage.delete` | `{ key }` | `true`, whether or not the key was there |
+| `storage.list` | `{ prefix }` | The keys it holds under that prefix, which is every key when it's empty |
+
+One value is one answer, so a value too big for a frame is refused with a
+sentence saying its size and what one answer carries, rather than read back as
+`null` and taken for an absent key.
+
+`timers` wake a plugin with nothing to trigger it:
+
+| Method | Payload | Answer |
+| --- | --- | --- |
+| `timers.after` | `{ interval_ms, tag }` | `true`: wakes it once, after that long |
+| `timers.every` | `{ interval_ms, tag }` | `true`: wakes it every interval, which is at least 1000 ms |
+| `timers.cancel` | `{ tag }` | Whether a timer with that tag was there |
+
+A timer belongs to the helper and not to the instance, so it survives an eviction
+and an instance with one pending isn't evicted under it. A plugin may hold 16.
+What arrives when one fires is an `yf_event` call with nothing in it — no event,
+no result, and no field naming which timer fired — so a plugin holding two
+timers learns that one of them did and nothing more; the `tag` is what
+`timers.cancel` names.
 
 Every host call is a request the parent answers, because the parent holds the
 token, the network gate and the consent dialogs, and the guest's function is

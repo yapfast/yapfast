@@ -32,8 +32,14 @@ own, saying the plugin could send your messages there, and
 `messages.send.background` shows its warning in the danger tone.
 
 Advanced, at the page's foot, opens a dialog with **Install a .wasm file**, the
-memory budget and how long an idle plugin is kept. It asks for the plugin's file
-in the system's dialog: its `.wasm`, or the `yapfast-plugin.json` itself.
+memory budget and how long an idle plugin is kept. Choosing a file asks for it in
+the system's dialog: its `.wasm`, or the `yapfast-plugin.json` itself. The two
+pickers are drawn from the page's view and the choices are remembered by the page
+while it is open, but nothing applies them yet: both requests are logged as the
+runtime's (`SetMemoryBudget`, `SetIdleMinutes`), so the helper keeps its own
+256 MiB and five minutes ([the helper](host.md#eviction-and-the-memory-budget)).
+The dialog also says when the helper can't apply the OS sandbox here and runs
+under wasmtime's alone.
 
 **The manifest is what a plugin is** — its name and id, the commands it answers,
 its settings, what it may reach and when it runs — so it is what an install
@@ -106,8 +112,7 @@ it a widget tree, the form shows *The plugin draws this while it runs.*
 values as an object by key, a list as an array of objects, which is what
 `settings.json` holds and `settings.get` will give the plugin. Each plugin's
 values are kept in `data/<id>/settings.json` under the plugins' folder,
-`<data>/plugins` (plan §8.3), where `<data>` is Yapfast's data folder or
-`--data-dir`.
+`<data>/plugins`, where `<data>` is Yapfast's data folder or `--data-dir`.
 
 `settings::load` reads one plugin's file, of up to 1 MiB, and keeps each
 value the schema takes: a key it doesn't have, a value it refuses, a row of
@@ -166,11 +171,14 @@ do (*Move row 2 up*). Reset to defaults asks first, as a list's rows go with
 it. The form's rows exist only while the plugin's page is open.
 
 A `bool`, `string`, `select`, `slider`, `number`, `integer` and `list` setting is
-drawn, and its change takes effect at once. A `widget` setting is not drawn yet:
-the form says *The plugin draws this while it runs.* until the UI half of the
-API lands, which is the milestone that gives a plugin a widget tree to draw and
-changes to answer, so `Request::SettingWidget` has an input to carry. Nothing
-else the plan lists as a settings type is missing from `settings.rs`.
+drawn, and its change takes effect at once. A `widget` setting is drawn by the
+plugin as well: the page hands what it has to `PluginWidgets`, the same
+component a slot's tree goes to, and a widget the person uses comes back as
+`Request::SettingWidget` and on to the plugin the way a change is
+([the ABI](abi.md#the-payloads)). Until the plugin has drawn one, the form says
+*The plugin draws this while it runs.* Those eight are the types
+[`settings.rs`](../../crates/yapfast-core/src/plugins/settings.rs) checks, and a
+manifest that names another is refused.
 
 `--preview`'s Word Filter has a setting of every type, from
 [`testing/plugins/word-filter`](../../testing/plugins/word-filter), and starts
@@ -194,8 +202,8 @@ draws, so a page that is closed holds nothing and holds no lock while it is
 open. `src/application/plugin_page.rs` answers the page's requests: each request
 is an `application::Action`, `Effect::Plugin` carries a status back to it, and
 `Effect::Plugin(Effect::Page)` redraws it once the runtime has applied a change.
-A request for something no milestone has built yet — the marketplace, the
-memory budgets — is logged and does nothing.
+A request for something the runtime doesn't apply — the memory budget and the
+idle time, today — is logged and changes nothing.
 
 `--preview` keeps the sample plugins instead: the page shows `page::Fixture`,
 which answers at once, and `page::Unavailable` says plugins can't run only in a
@@ -212,5 +220,6 @@ empties the page's models. The catalog is asked for when Marketplace shows.
 tests, `cargo test --profile fast -p yapfast-core --features plugins page`
 the wording's, `-p yapfast-core --features plugins plugins::settings` the
 settings schema's, values' and store's, and `... tweaks` the setting
-points'. Neither runs in `scripts/check`, whose builds leave the feature
-off.
+points'. `scripts/check` runs all of them: the default build has the `plugins`
+feature, and its plugin steps run Clippy and the tests on `yapfast-core` with the
+feature named.

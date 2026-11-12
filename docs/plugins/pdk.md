@@ -19,8 +19,11 @@ and MessagePack support off, since neither is part of this ABI and both would be
 carried in the module. The crate's own floor is Rust 1.85, below the app's, so a
 plugin author isn't forced onto Yapfast's toolchain.
 
-Underneath the crate is the guest ABI described in [the ABI](abi.md): six
-exports, two imports, and JSON written by the crate and not by you.
+Underneath the crate is the guest ABI described in [the ABI](abi.md): five
+exports, two imports, and JSON written by the crate and not by you. The four the
+interface's half adds — `yf_decorate`, `yf_member_decorate`, `yf_identity` and
+`yf_code_block` — are not among them yet, and a plugin that answers one writes
+that export by hand.
 
 ## Starting from an example
 
@@ -88,10 +91,12 @@ fails if the answer isn't an `ok` — a refusal, a method this build doesn't hav
 or a failure all become an error with a sentence in it. `Reply::None` says there
 is nothing else to show, since the send is the visible result.
 
-`yapfast_plugin!` writes the guest's exports once, and the handlers you don't
-implement are generated as no-ops, which is why a plugin that only adds a command
-never writes a hook. `yf_decorate`, the export that draws beside a row, has no
-handler in the crate yet: a plugin that decorates writes that export by hand.
+`yapfast_plugin!` writes the guest's five exports once, and the handlers you
+don't implement are generated as no-ops, which is why a plugin that only adds a
+command never writes a hook. None of the four exports the interface's half adds
+has a handler in the crate — `yf_decorate`, `yf_member_decorate`, `yf_identity`
+and `yf_code_block` are written by hand by a plugin that answers one, alongside
+the generated five.
 
 ## The handlers
 
@@ -101,6 +106,7 @@ handler in the crate yet: a plugin that decorates writes that export by hand.
 | `deactivate` | The instance is going away | The hand-off is dropped; the instance goes anyway |
 | `answered` | A batch carries answers to calls the plugin left pending | Nothing; it returns nothing |
 | `event` | Once per event in a batch, after `answered` | Logged, and the rest of the batch still runs |
+| `topic` | Once per publish to a topic it subscribed to, after the batch's events | Logged, and the rest of the batch still runs |
 | `hook` | Before an outgoing message, edit, typing indicator, upload or activity is published | The message goes as it was: hooks fail open |
 | `command` | A person typed one of the plugin's commands | Shown to them as the command's failure |
 
@@ -123,6 +129,10 @@ wrapper:
 | `timers` | `after`, `every`, `cancel`: wake me later |
 | `app` | `version`, `version_string`: what Yapfast this is |
 | `log` | `error`, `warn`, `info`: lines in the plugin's own ring, shown on its page |
+
+`plugin.publish` and `plugin.subscribe` have no wrapper of their own: they go
+through `call::send` with `wire::PLUGIN_PUBLISH` or `wire::PLUGIN_SUBSCRIBE`, and
+what arrives is the `topic` handler.
 
 A method newer than the crate you depend on is still reachable with `call::send`
 and a method name, and answers `unsupported` rather than failing to link, which
@@ -219,17 +229,60 @@ That makes two habits worth having:
 - **Prefer a language without a garbage collector,** and Rust first. A collected
   language carries its runtime inside the module, and it tends to keep heap it
   has finished with until the collector decides otherwise, which here means until
-  the instance is evicted. Go and JavaScript builds also need `wasi: true` in the
-  manifest, since their runtimes ask the host for clocks and randomness.
+  the instance is evicted. AssemblyScript is the one of the four PDKs that does,
+  and a module whose runtime asks the host for clocks or randomness needs
+  `wasi: true` in the manifest, which AssemblyScript's doesn't and a Go build's
+  does. Go is the language this advice costs most: [what Go costs](#go).
 
 A plugin in any of them should ask for the default page limit before it asks for
 more, and check what it actually costs: a module with a runtime in it starts
 larger, compiles slower and holds more for longer. The examples measure it — the
 C `shout` is 11.9 KiB, AssemblyScript's 17.7 KiB, Zig's 57 KiB.
 
+### Go
+
+Rust, C, Zig and AssemblyScript are the four languages a plugin can be written
+in today. The standard Go toolchain was measured before a fifth was written
+([the measurements](../measurements/README.md#go-as-a-plugin-language)), and it
+misses every bar by too much to be a close call:
+
+| | Go, standard toolchain | Bar |
+| --- | --- | --- |
+| Module | 1,833.1 KiB | 512 KiB, 3.2× the Rust PDK's 160.8 KiB |
+| Memory section at load | 32 pages, 2,048 KiB | Fits the default 256 pages, and is `MIN_MEMORY_PAGES` exactly: the smallest manifest a plugin may declare is what a Go runtime asks for before it runs |
+| Resident per live instance | 6.4–9.6 MiB, warm compile cache | 4 MiB, from the helper's 6 MiB with one plugin alive |
+| 10,000 events of 1 KiB at a 4 MiB cap | `out_of_memory` at event 2,891 | All 10,000 |
+
+A Go module is its runtime: 1,156 KiB of machine code and 21,000 data
+segments, which `-ldflags="-s -w"` takes 34.5 KiB off. The load request is the
+linker's and not the program's — static data plus a 1 MiB reserve, no maximum —
+so `func main() {}` and a full ABI module ask for the same 32 pages. In use, an
+instance costs the helper 8.2 MiB `RssAnon` against Rust's 1.3, so its 6 MiB
+target is passed by the first instance and its 16 MiB for ten by the second on
+the means, the third at the low end of the samples.
+
+The runtime's own knobs move the last row and nothing else: `SetGCPercent(10)`
+and `SetMemoryLimit(3 MiB)` in `yf_activate` take a default Go plugin through
+all 10,000 events at 64 pages, and no flag reaches the reserve. `GOGC` and
+`GOMEMLIMIT` can't be handed to a guest, and the two calls are a plugin author's
+private decision — unenforced by any PDK, invisible in the manifest.
+
+**What would make one worth shipping.** TinyGo, measured the same way: under
+512 KiB a module, under 4 MiB of linear memory after a session's events, and
+under 4 MiB resident per instance. Those are the three numbers its `-gc=`,
+`-scheduler=` and `-no-debug` choices decide between, and
+[the experiment that records them](../measurements/README.md#the-experiment-for-someone-with-tinygo)
+has not been run: TinyGo is not installed on any machine this was measured on.
+No number here stands in for it, and the standard toolchain's miss is too wide
+for the comparison to close it.
+
+A Go plugin can still be built against Extism's own Go PDK and installed, with
+`wasi: true` in its manifest. The three bars above are how its author checks
+whether it fits before shipping it.
+
 ## The other three PDKs
 
-Each of them is the same shape as the Rust one: five handlers a plugin writes,
+Each of them is the same shape as the Rust one: five exports a plugin writes,
 the ones it leaves out do nothing, and the JSON is never written by hand.
 
 ```c

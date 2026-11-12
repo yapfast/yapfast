@@ -8,15 +8,24 @@ interface, and what a running plugin draws in it
 
 ## Trying a plugin
 
-Git install isn't built yet. Until it is, a build with plugins loads every
-plugin in the folder `YAPFAST_PLUGINS_DIR` names, one subfolder each with
-its `yapfast-plugin.json`, in the order of the subfolders' names, which is
-the order their changes win in. A manifest that can't be used is skipped and
-logged, and so is each change refused; run with `YAPFAST_LOG=info` to see
-them. [`testing/plugins`](../../testing/plugins) has an example:
+Installing a plugin from a repository is what ships: Settings → Plugins has a
+marketplace and *Add from URL*, the page's request turns into
+`yapfast-plugins fetch`, which is the helper's other subcommand, and what it
+reads is reviewed, installed and then turned on from the Installed list
+([the marketplace](marketplace.md)).
+
+For the interface's own half, `YAPFAST_PLUGINS_DIR` names a folder that a build
+with plugins reads as the window is made: one subfolder each, with its
+`yapfast-plugin.json`, in the order of the subfolders' names, which is the order
+their changes win in. Nothing of it is installed and no module of it runs, so it
+is the loop for trying a manifest's changes of Yapfast's own interface, and a
+`slots.json` beside the manifest for trying what a plugin would draw. A manifest
+that can't be used is skipped and logged, and so is each change refused; run
+with `YAPFAST_LOG=info` to see them.
+[`testing/plugins`](../../testing/plugins) has examples:
 
 ```sh
-YAPFAST_PLUGINS_DIR=testing/plugins cargo run --profile fast --features plugins -- --preview
+YAPFAST_PLUGINS_DIR=testing/plugins cargo run --profile fast -- --preview
 ```
 
 `yapfast --no-plugins` starts in safe mode: no plugin's changes apply, and
@@ -29,10 +38,11 @@ keeps it.
 [`crates/yapfast-core/src/plugins.rs`](../../crates/yapfast-core/src/plugins.rs)
 reads a manifest, `yapfast-plugin.json`. It's strict JSON, and must name
 `"api": 1`, a reverse-DNS `id` and a `name` of up to 64 characters. The
-interface reads only `id`, `name`, `wasm`, `permissions`, `menus`, `ui`,
-`settings` and `tweaks`, and leaves the rest of the manifest to the runtime.
-Inside `menus`, `ui` and each setting a field Yapfast doesn't know is an
-error, so a misspelt change fails loudly. `wasm` is optional: a plugin
+interface reads only `id`, `name`, `wasm`, `permissions`, `menus`, `rail_items`,
+`header_buttons`, `ui`, `settings` and `tweaks`, and leaves the rest of the
+manifest to the runtime. Inside `menus`, `rail_items`, `header_buttons`, `ui` and
+each setting a field Yapfast doesn't know is an error, so a misspelt change fails
+loudly. `wasm` is optional: a plugin
 without it only changes what its manifest names. Its own settings, the
 `settings` array, are in [`settings.md`](settings.md#a-plugins-own-settings).
 
@@ -62,11 +72,18 @@ change with `check`, which keeps what applies and says why it refused the
 rest, in words a plugin's page can show:
 
 - **`ui` needs `ui.modify`.** Without the capability, nothing in `ui`
-  applies. Rows added through `menus` need no capability.
-- **Menu rows** are named by `target` and the row's id. `target` is the
-  closed list of plan §17.2 (`message`, `user`, `channel`, `thread`,
-  `group_dm`, `server`, `server_header` and the rest); Yapfast applies the
-  ones it has a menu for. Only rows in `EDITABLE_ROWS` change, so a new
+  applies. Rows and buttons added through `menus`, `rail_items` and
+  `header_buttons` need no capability.
+- **Rail items and header buttons** are the plugin's own: a `label` of 1 to 64
+  characters and an `action`, drawn at the foot of the server rail
+  ([`ui/rail.slint`](../../ui/rail.slint)) and at the end of the conversation's
+  header ([`ui/header.slint`](../../ui/header.slint)). Choosing one is a menu
+  row's path exactly: the action goes to the runtime as `Input::Menu`, with the
+  open conversation as its target.
+- **Menu rows** are named by `target` and the row's id. `target` is a closed
+  list (`message`, `user`, `channel`, `thread`, `group_dm`, `server`,
+  `server_header` and the rest), and Yapfast applies the rows of a menu it has.
+  Only rows in `EDITABLE_ROWS` change, so a new
   built-in row is protected until it's listed there. Rows drawn in the
   danger tone (`DANGER_ROWS`: Block, Ban, Leave Server and the others),
   rows that show or control a call, and the friend and block rows aren't
@@ -174,8 +191,8 @@ it's drawn on (`TEXT_ON`): `text`, `secondary`, `muted`, `faint` and `link`
 on the sidebar, panel, chat, raised and field surfaces, and `on-accent` on
 `accent`. A surface colour can be refused the same way. Where a theme's own
 pair is already under 4.5:1, as muted text often is, the overlay only has
-to keep the theme's own contrast; the plan asks for 4.5:1 throughout, which
-would refuse every muted colour on those themes.
+to keep the theme's own contrast; 4.5:1 throughout would
+refuse every muted colour on those themes.
 
 ### Widget trees
 
@@ -272,11 +289,33 @@ name colour, avatar, banner, avatar decoration and pronouns change, and nothing
 about the card's roles, badges, notes or tabs does.
 
 **Which don't, yet.** The message row's author line and avatar, the member list
-row, the DM header, the thread's rows, reply previews, mention chips and search
-results draw Yapfast's own view of a person and no plugin's. The answer is kept
-for them like any other, so wiring one of them is a lookup and not a new call.
-The `badges` field is answered and kept but drawn nowhere: the card's badges are
-Discord's own, with pictures, and a plugin's name-only badge has no surface yet.
+row's name and avatar, the DM header, the thread's rows, reply previews, mention
+chips and search results draw Yapfast's own view of a person and no plugin's.
+The answer is kept for them like any other, so wiring one of them is a lookup and
+not a new call. The `badges` field of an answer is kept too and drawn nowhere:
+the card's badges are Discord's own, with pictures, and a plugin's name-only
+badge has no surface of its own yet. A member list's plugin badges come from
+`member.decorate` instead, below.
+
+## Badging people in the member list
+
+A plugin that puts a mark beside people's names in the member list declares
+`member.decorate`, and needs no capability of its own: what comes back is a mark
+beside a name in a list it already shows.
+
+```json
+{ "activation": { "on": ["member.decorate"] } }
+```
+
+The parent asks with `yf_member_decorate` for the rows the list is showing as it
+scrolls, one person at a time, and what comes back is a few characters and a
+tone — a mark rather than a tree. [`plugins/slots.rs`](../../crates/yapfast-core/src/plugins/slots.rs)
+keeps them under `BADGES`: at most 640 people, 3 badges a person and 16
+characters a badge, so a name stays a name. `ui/people.slint` draws a member
+row's badges beside Discord's own, each saying whose it is to a screen reader,
+and a member list whose snapshot changed — a role, a name, someone leaving —
+forgets them all and asks again, because what a plugin said about a person may
+no longer hold.
 
 ## Keeping a deleted row, and hiding one
 
@@ -361,16 +400,17 @@ count of changes moved, and only the message rows whose decorations changed.
 | Hover bar | `message.actions` | On a message's hover bar, before More, in the open channel | Buttons only |
 | Message | `message` | Under a message's text, attachments and cards, before its reactions | Any widget |
 | Dialog | `dialog` | Over the window, modal, with Dismiss; one per plugin, so another replaces it | Any widget |
+| Profile badges | `profile.badges` | On the open person's card, under their own details and above its notes | Any widget |
 
 ### How a plugin draws
 
 A guest asks with `ui.set_slot` and `ui.clear_slot`; `ui.notice` and
 `ui.toast` are the same thing in one line, and `ui.open_dialog` is
-`ui.set_slot` on the `dialog` slot. None of them needs a capability: §9.1 of
-the plan gives every plugin its own slots, and only changes to Yapfast's own
-interface need `ui.modify`.
+`ui.set_slot` on the `dialog` slot. None of them needs a capability: a slot is a
+plugin's own surface, and only changes to Yapfast's own interface need
+`ui.modify`.
 
-The bridge in [`plugins/bridge.rs`](../../crates/yapfast-core/src/plugins/bridge.rs)
+The bridge in [`plugins/bridge/`](../../crates/yapfast-core/src/plugins/bridge/)
 answers the call, not the interface, so a guest never waits on a frame:
 
 - **The tree is checked first.** `Tree::parse` refuses one over the cap or an
@@ -378,10 +418,10 @@ answers the call, not the interface, so a guest never waits on a frame:
   author can act on: *"the tree can't be drawn: it has 80 rows and cells, over
   64"*.
 - **A slot this build has no place for is refused, not dropped.** `panel`,
-  the side panel §11.2 leaves for later, answers *"Yapfast has no slot called
-  `panel`; the slots are banner, toast, composer, message.actions, dialog"*, and
-  the `message` slot answers that what a plugin draws under a message is a
-  `message.decorate` answer, not a slot.
+  a side panel that isn't built, answers *"Yapfast has no slot called `panel`;
+  the slots are banner, toast, dialog, profile.badges"*, and the `message` slot
+  answers that what a plugin draws under a message is a `message.decorate`
+  answer, not a slot.
 - **Drawings are coalesced to a frame and capped at ten a second per plugin.**
   A plugin that draws on every event costs one update per frame: the last tree
   for a slot (or for one decorated message) replaces the one before it, and a
@@ -401,11 +441,17 @@ answers the call, not the interface, so a guest never waits on a frame:
 A message's decorations are in `MessageRow::plugin`, one field: an empty
 model unless a plugin decorated that row, so a timeline without plugins
 carries one empty model per row. `Slots` keeps the decorations of the last
-512 messages decorated and drops the least recent; the runtime decorates a
-message again when it's edited, or when it comes back on screen after being
-dropped. Rows of the thread beside a channel aren't decorated yet, and no
-plugin decorates a message yet either: `message.decorate` is named here and in
-the manifest, and nothing calls it.
+512 messages decorated and drops the least recent, and a decoration is keyed by
+the plugin and the message and by nothing else.
+
+Every time the set of rows on screen changes, the plugin is asked again about
+the rows that are there: a row that scrolls away and comes back is asked about
+anew, and so is one the 512 dropped. What no pass asks about is a message that
+changed while it stayed on screen — an edit, or a plugin's own retention of a
+deleted one — so a row keeps the decoration it was first given until something
+moves the rows under it. Rows of the thread beside a channel aren't decorated
+at all: the thread's rows are built from their own timeline, which nothing asks
+the runtime about.
 
 [`ui/plugins.slint`](../../ui/plugins.slint) draws a tree with precompiled
 components. `PluginWidgets` puts *From* and the plugin's name above every

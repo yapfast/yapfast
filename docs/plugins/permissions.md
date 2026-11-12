@@ -15,7 +15,12 @@ manifests, kept in `grants.json`, and shown at install.
 
 The dialog lists them in this order, which is the contract crate's order and not
 the order the manifest happens to write. A capability the manifest doesn't
-declare isn't shown, because the plugin can't use it.
+declare isn't shown, because the plugin can't use it. Two rows below say they are
+not shown at all: nothing in this build is behind them, so a manifest may still
+name them and reading it leaves them out.
+
+The last column is the dialog's own wording, a sentence each except the two
+audio capabilities, which share one line.
 
 | Name | Grants | Shown as |
 | --- | --- | --- |
@@ -34,29 +39,29 @@ declare isn't shown, because the plugin can't use it.
 | `typing.intercept` | Stop the typing indicator being sent | Can hide that you're typing |
 | `uploads.intercept` | Rename or strip files before upload | Can change files you upload |
 | `media.read` | Bytes of attachments, avatars and emoji | Reads attachments and pictures |
-| `files.save` | Save through the native dialog | Saves files where you choose |
+| `files.save` | Save through the native dialog | Not shown: no save dialog is behind it |
 | `voice.read` | Voice state and who is speaking | Sees your calls |
-| `audio.play` | Play a sound | Plays sounds |
-| `audio.speak` | Speak text through the OS | Speaks out loud |
-| `microphone` | Record from the microphone | Records your microphone |
+| `audio.play`, `audio.speak` | Play a sound, speak text through the OS | Plays sounds and speech |
+| `microphone` | Record from the microphone | Not shown: no recording path is behind it |
 | `notifications` | OS notifications | Shows notifications |
 | `clipboard.write` | Write to the clipboard on a gesture | Writes to your clipboard |
 | `ui.modify` | Change, hide or replace named parts of the interface | Can change Yapfast's interface |
-| `network` | HTTPS to the hosts the manifest lists, and to no other | Connects to the sites it lists |
+| `network` | HTTPS to the hosts the manifest lists, and to no other | Uses network |
 | `network.local` | One exact loopback port, which the manifest names | Connects to an app on this computer |
-| `open.app` | Open other applications through listed URI schemes | Opens other applications |
+| `open.app` | Open other applications through listed URI schemes | Opens other apps |
 
-Four of those sentences are shown in the dialog's danger tone:
-`messages.intercept`, `messages.send.background`, `microphone` and `ui.modify`.
-They are the four that let a plugin act as the person, listen to the room they
-are in, or change what the interface says.
+One of those sentences is shown in the dialog's danger tone:
+`messages.send.background`, the one that lets a plugin act as the person without
+them. The lines that reach something people care about are a step below it, in
+bold: `messages.read`, `messages.intercept`, `messages.send`, `messages.retain`,
+`servers.manage`, `uploads.intercept` and `ui.modify`.
 
 `messages.send` covers a send a person asked for. `messages.send.background`
 covers everything else, and it is a deliberate exception to the rule the rest of
 Yapfast keeps, in [the Discord notes](../discord/README.md#staying-within-discords-limits):
 never act without a user action behind it. A plugin's own consent is what pays for
-that exception, which is why the capability is one of the four the dialog shows in
-its danger tone.
+that exception, which is why the capability is the one the dialog shows in its
+danger tone.
 
 ## What an event needs
 
@@ -167,18 +172,20 @@ point a request at a private address as a plugin is.
   end. A plugin may have 4 requests in flight while the whole helper has 16.
 
 A request body is at most 768 KiB undone from its base64, because it arrives
-inside one frame. A response body above 752 KiB is streamed to a file rather than
-carried in the answer.
+inside one frame. A response body above 752 KiB is written to
+`<data>/plugins-http/` as it arrives rather than carried in the answer.
 
 The gate is handed a transport by the application, `plugins/transport.rs`,
 because `yapfast-core` has no HTTP client and no trust roots of its own:
 `plugins/network.rs` defines `Transport` and `Resolver` and leaves them to the
-crate that owns the client. One seam is left, and it fails closed: a body
-streamed to a file has no field in the answer yet, so it is refused with a
-reason rather than truncated. A chunked-body frame is what lifts that. The
-methods are `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE` and `OPTIONS`, and a
-fixed set because `CONNECT` would ask a server for a tunnel and `TRACE` would
-echo the request back.
+crate that owns the client. One seam is open: the answer to a body that went to a
+file has its length in `bytes`, no `body_base64`, no field naming the file and no
+reason saying why, so a plugin can tell that there was a body and not what it
+said, and nothing deletes the file afterwards. Only an answer that runs past the
+cap tidies up after itself, by removing the file it had started. A chunked-body
+frame is what would carry one to a guest. The methods are `GET`, `HEAD`, `POST`,
+`PUT`, `PATCH`, `DELETE` and `OPTIONS`, and a fixed set because `CONNECT` would
+ask a server for a tunnel and `TRACE` would echo the request back.
 
 Loopback is the one deliberate exception, and it is its own capability: a plugin
 that declared `network.local` and named one port in `local-port` may reach that
@@ -280,14 +287,15 @@ The first is a plugin that reads messages and reaches a network, which is the
 real threat a plugin poses: it can send what it reads to a server it names.
 Listing that as two unrelated lines hides it, so the dialog says instead:
 
-> This plugin can read your messages and connect to api.example.com, so it could
-> send them there.
+> It reads your messages and connects to api.example.com, so it could send your
+> messages to that server.
 
-The hosts are the ones the manifest declares, in the manifest's order, joined as
-a list; with no hosts it says "a server it names". Reading here means
-`messages.read`, `messages.send` or `messages.intercept`, and reaching means the
-`network` capability, a declared host, or `network.local`.
+The hosts are the ones allowed, a declared one being granted by the install itself
+and the rest by the popup, joined as a list: "that server" for one and "those
+servers" for more, and no line at all when none is allowed. Reading here means
+`messages.read` and nothing else, so a plugin that holds `messages.send` or
+`messages.intercept` without it gets no such line either.
 
-The second is the danger tone's four sentences, above: a plugin that can change
-what the person sends, send without them, record the microphone, or change the
-interface says so in a line that doesn't look like the others.
+The second is the danger tone's sentence, above: a plugin that sends without the
+person says so in a line that doesn't look like the others, and the bold lines
+below it are the ones that reach something people care about.

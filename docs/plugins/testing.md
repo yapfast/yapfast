@@ -110,26 +110,33 @@ change, while one that never asked is told nothing.
 What the parent answers itself needs no `.wat` fixture, because the helper only
 carries the call: `plugins/world.rs`'s own tests publish an account, a room list
 and a timeline and check the answers, the frame cap and that publishing what
-hasn't changed replaces nothing, and `plugins/bridge.rs`'s drive a fake session
+hasn't changed replaces nothing, and `plugins/bridge/`'s drive a fake session
 to check that a read answers and that a read without its capability is refused
 by the name of the one it needs.
 
-Two tests run the real helper, which is the only way to see the two halves
-agree, and both say so and pass when `YAPFAST_PLUGINS` names no binary:
+Three test binaries run the real helper, which is the only way to see the two
+halves agree. Each takes the binary `YAPFAST_PLUGINS` names, or the one beside
+the test binary in its profile's directory, and fails when it finds neither: a
+test that ran nothing doesn't pass, and the message it fails with gives the
+build command for the profile it needed.
 
 ```sh
 cargo build --profile fast -p yapfast-plugin-host
-YAPFAST_PLUGINS=$PWD/target/fast/yapfast-plugins \
-  cargo test --profile fast -p yapfast-core --features plugins --test plugins_runtime
-YAPFAST_PLUGINS=$PWD/target/fast/yapfast-plugins \
-  cargo test --profile fast -p yapfast-core --features plugins --test plugins_install
+for test in plugins_runtime plugins_install plugins_marketplace; do
+  YAPFAST_PLUGINS=$PWD/target/fast/yapfast-plugins \
+    cargo test --profile fast -p yapfast-core --features plugins --test $test
+done
 ```
 
-`plugins_runtime.rs` is M1's exit: a plugin installed in a store receives
+`plugins_runtime.rs` is the runtime's: a plugin installed in a store receives
 `message_create` from the helper, and disabling it ends the helper.
-`plugins_install.rs` is M2's: a repository made in a temporary directory is
-fetched through a `file://` URL, reviewed, installed, rolled back and removed,
-and a second folder claiming an installed id is refused.
+`plugins_install.rs` is the install's: a repository made in a temporary
+directory is fetched through a `file://` URL, reviewed, installed, rolled back
+and removed, and a second folder claiming an installed id is refused.
+`plugins_marketplace.rs` is the registry's: a registry repository and a plugin
+repository are both made on disk, read through `file://`, and the catalog is
+checked entry by entry while the install is compared with the entry that listed
+it.
 
 The Settings → Plugins page itself is checked in `src/ui/tests.rs`: binding the
 window gives the page the runtime, and a view handed over while it is open is

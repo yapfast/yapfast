@@ -9,8 +9,9 @@ everything through one host function, and the parent answers it. What a plugin
 may do is written in its manifest and agreed to at install, line by line:
 [permissions](permissions.md).
 
-Plugins are behind a Cargo feature, `plugins`, and the helper is a separate
-binary, so a build without them links neither wasmtime nor `gix`.
+Plugins are behind a Cargo feature, `plugins`, which is on in a plain build, and
+the helper is a separate binary, so a build with the feature off links neither
+wasmtime nor `gix`, and carries no plugin state.
 
 ## The documents here
 
@@ -76,6 +77,55 @@ A run started with `--no-plugins` reads no plugin and starts no helper, which is
 how someone gets their window back when a plugin has made it unusable; the next
 run without the flag has its plugins again, since nothing was uninstalled.
 
+## Keeping it small
+
+A plugin system is a second runtime in the app, so most of the shape above is
+there to keep its footprint at nothing while nobody uses it:
+
+- **Copy once.** An event is serialized once, for the plugins that subscribed to
+  it, and the helper hands the same bytes to each; an event nobody subscribed to
+  is never serialized.
+- **Filter before waking.** A subscription's filters — the room, the server,
+  this account's own messages — are applied in the parent, so a plugin that
+  didn't ask for something is never called with it.
+- **Coalesce noise.** Typing, presence and speaking are opt-in and batched at a
+  quarter of a second, so a burst arrives as one call carrying several events.
+- **Share rather than clone.** A read answers from the `Arc<Snapshot>` and the
+  `Arc<ChatMessage>` the app already holds, serialized while borrowed.
+- **Evict.** An idle instance goes, and its linear memory with it, which
+  WebAssembly can't give back on its own ([the lifecycle](#the-lifecycle)).
+- **Stream to files.** A fetch is written to disk as it arrives, and the largest
+  payload a plugin handles is capped rather than grown to fit ([the network
+  gate](permissions.md#the-network-gate)).
+- **Models only while visible.** The marketplace's catalog and the installed
+  list exist while the page that draws them is open and not after, and a plugin
+  that draws beside a row is asked about the rows on screen, never the channel.
+
+The ceilings these add up to, and how each is measured, are in
+[the measurements](../measurements/README.md#plugins).
+
+## Decisions
+
+A few questions have one answer each, and most of the rest of these pages
+follow from them.
+
+| Question | Answer |
+| --- | --- |
+| Where a plugin runs | In a helper process of its own, not in Yapfast ([the helper](host.md)) |
+| What a manifest is | Strict JSON, read with the `serde_json` Yapfast already depends on ([the manifest](manifest.md)) |
+| What a plugin may change | The plugin system's own surfaces. A plugin reaches Yapfast through the ABI; nothing patches Yapfast's code ([the ABI](abi.md)) |
+| Sending with no one there | A capability of its own, whose warning says automated sending can get the account banned ([permissions](permissions.md#the-capabilities)) |
+| Where the marketplace lives | A repository in the Yapfast organization, merged by a maintainer who read the source ([the marketplace](marketplace.md)) |
+| What a listing promises | An OSI-approved license and a public `source` link; a URL install promises neither |
+| Which network first | Discord's events. Every payload carries its network, so Matrix can follow without changing the ABI |
+| Which language | Rust first: four PDKs ship in [`pdk/`](../../pdk), and a runtime carried inside a module costs its own memory ([writing a plugin](pdk.md)) |
+| Which platforms | Linux and Windows. The macOS code paths are written and no macOS build ships: nobody has an Apple machine to test one on ([the README](../../README.md#macos)) |
+| A hook that fails or runs late | The message goes as it was, unless the manifest asked to block it ([fail-open hooks](host.md#fail-open-hooks)) |
+| Updates | Asked for, never taken: a URL install always, a marketplace one until someone builds the setting ([the marketplace](marketplace.md#what-is-not-there-yet)) |
+| Installing from a URL | Open to anyone, with *Unreviewed source* said before anything runs ([permissions](permissions.md)) |
+| Changing built-in UI | Named rows and parts, never a selector or a patch; consent, attribution and call state are not touchable ([the interface](interface.md)) |
+| Recovering from an unusable interface | `--no-plugins` for one run ([the lifecycle](#the-lifecycle)) |
+
 ## What a plugin can add
 
 Everything the interface shows before a plugin runs is in its manifest, so a
@@ -85,9 +135,11 @@ plugin that has never been activated still appears:
 - rows in a message, person, channel, server, role, emoji, sticker, image,
   stream, game, composer or attachment menu, with a closed set of `when`
   conditions and no expression language;
+- buttons at the foot of the server rail and in a conversation's header;
 - settings the plugin's page draws for it, as strings, numbers, sliders,
-  switches, choices and lists of records;
-- named switches, `tweaks`, for parts of Yapfast that offer them.
+  switches, choices, lists of records and a widget tree it draws itself;
+- named switches, `tweaks`, for parts of Yapfast that offer them: none does yet,
+  so a point a manifest sets is refused as one this Yapfast doesn't have.
 
 Once it is running it can subscribe to events and answer with data to draw: text
 and controls beside a message, or inside a slot the interface offers. The
@@ -116,7 +168,7 @@ load.
 ## Where the files live
 
 Everything is in the data directory (the one `--data-dir` names), under
-`plugins/`:
+`plugins/`, with one directory beside it for what a fetch writes to disk:
 
 ```text
 <data>/plugins/
@@ -125,6 +177,7 @@ Everything is in the data directory (the one `--data-dir` names), under
   store/<sha256>/         content-addressed: plugin.wasm and manifest.json
   data/<id>/              the plugin's own storage.json and settings.json
   cache/                  wasmtime's compile cache, safe to delete
+<data>/plugins-http/      a response body too big for one answer, one file each
 ```
 
 A plugin loaded from a folder is installed the same way: its manifest and module
@@ -159,30 +212,38 @@ subcommand, permissions, the network gate and the dialog that asks about a host,
 grants and the page that revokes them, the application's actions and taps, the
 Rust PDK, and the fixtures and tests for all of it.
 
-Two things are deliberately not there yet:
+Three things are deliberately not there yet:
 
-- **Chunked response bodies.** A body larger than one frame is refused rather
-  than streamed to a file, because the answer has no field naming the file.
+- **Reading a body larger than one answer.** A response body past 752 KiB is
+  streamed to a file in `<data>/plugins-http/` rather than carried in the answer,
+  and there the answer stops: it has the length in `bytes`, no `body_base64`, no
+  field naming the file and no reason saying why, and nothing deletes the file
+  afterwards. A chunked-body frame is what would let a plugin read what it
+  spilled.
+- **Input from the interface to a plugin.** Choosing a plugin's menu row, rail or
+  header button, or using a widget it drew, becomes `Input` and comes back to the
+  window as `Effect::PluginInput`; the `Runtime` that would take it is never
+  attached in a build, so the click is logged and stops there.
 - **Matrix messages.** Selection, voice, focus and account-ready events are
   tapped where both networks pass; a Matrix message isn't tapped yet, so only
   Discord's gateway feeds `message_create`, `message_update` and
   `message_delete`.
 
-Beyond those, every method the first version of the API names is answered:
-`storage`, `settings`, `http`, `timers`, `ui`, `notify`, `clipboard`, `open`, the
-`app`, `account`, `rooms`, `messages` and `people` groups, the `plugin` group's
-`call`, `publish` and `subscribe`, [§17.2](../../PLAN.md#172-additions-to-the-api)'s
-curated actions (`discord.set_status`, `set_custom_status`, `set_activity`,
-`clear_activity`, `mark_read`, `set_mute`, `open_room`, `start_reply`,
-`start_edit`, `reactors`, `pause_invites`, `add_emoji`, `add_sticker`),
-`audio.play`, `audio.speak`, `media.get`, `messages.retain`, `identity.decorate`
-and `code_block.render`. A method this build doesn't have answers `unsupported`,
-which is what a plugin feature-detects on.
+Beyond those, every method the ABI names is answered: `storage`, `settings`,
+`http`, `timers`, `ui`, `notify`, `clipboard`, `open`, `media.get`, the `app`,
+`account`, `rooms`, `messages` and `people` groups, the `plugin` group's `call`,
+`publish` and `subscribe`, the `discord` calls (`set_status`,
+`set_custom_status`, `set_activity`, `clear_activity`, `mark_read`, `set_mute`,
+`open_room`, `start_reply`, `start_edit`, `reactors`, `pause_invites`,
+`add_emoji`, `add_sticker`), `audio.play` and `audio.speak`, and the hooks'
+answers, `messages.retain` and `identity.decorate`. A method this build doesn't
+have answers `unsupported`, which is what a plugin feature-detects on.
 
-What the API still doesn't have is the rest of §17.2: providers, `file.save`,
-local reach, input, the menu targets and widgets, attachments out
-(`messages.send` with bytes, which waits on the chunked frames above), and the
-changes to built-in UI beyond the part hides and the colour and size overlay.
+What the API doesn't have is the rest of the abilities Yapfast could offer a
+plugin: providers, `file.save`, local reach, keybinds, more menu targets and
+widgets, attachments out (`messages.send` with bytes, which waits on the chunked
+frames above), and the changes to built-in UI beyond the part hides and the
+colour and size overlay.
 `audio.record` waits because the microphone has no path that isn't a call's:
 `audio_io::Input` is opened by the call and the input meter, and recording to a
 file for a plugin would be a new Yapfast feature rather than a wrapper over one.
@@ -200,5 +261,22 @@ reads the picture store — what a conversation has already shown — and never
 fetches anything. `messages.retain` keeps a row the backend dropped, flagged
 deleted, and the `decorate` reply's `hide` and `hide_media` keep a row or its
 media out of view, both through their capability.
-`docs/plugins/manifest.md` lists the fields: `menus`, `settings` and `tweaks`
-are all drawn now.
+`docs/plugins/manifest.md` lists the fields: `menus` and `settings` are drawn,
+the message menu excepted, since Slint draws it and it takes no changes yet.
+`tweaks` are not drawn and nothing offers one: the registry is empty, so a point
+a manifest names comes back refused.
+
+## What can go wrong
+
+| Risk | What stands against it |
+| --- | --- |
+| Discord's terms on client modification and automation | The same position other clients take. Automated sending is a capability of its own, reviewed against, and its consent line says what it can cost |
+| A hostile plugin in the marketplace | The pin, the module's hash, a maintainer who read the source, the capability list at install, delisting with a reason, and a guest that never holds a token |
+| A URL install that talked someone into it | *Unreviewed source* before anything runs, and every row and widget a plugin draws saying whose it is |
+| A flaw in Extism or wasmtime | Extism pinned exactly, the helper separate from the client, and no network, filesystem or token in a guest's reach |
+| The compile cache is native code loaded from disk | Only the helper writes it, a guest has no filesystem, and whoever could alter it already has the account |
+| A plugin wanting a widget the set doesn't have | The widget set grows by request, so a plugin that needs a new kind gets one for everyone rather than an escape hatch |
+| Hiding or disguising something important | The parts a plugin can hide are a short list, its rows are locked out of the danger tone, every change is listed at review and on the plugin's page, and `--no-plugins` turns it all off |
+| A row that reflows when a late decoration arrives | The row draws plain until the answer comes, which is bounded at 16 ms, so what moves is one row and not the timeline |
+| An unreviewed pin behind a dependency | Dependencies are named at review, and each one must be installed explicitly |
+| An ecosystem that wants to rebuild the client | There is no runtime-compiled interface: a plugin sends data, and Yapfast's own components draw it |

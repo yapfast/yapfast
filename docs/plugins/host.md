@@ -123,13 +123,13 @@ anyway would put plain text on the wire — says so in its manifest:
 { "on_failure": "block" }
 ```
 
-That needs `messages.intercept`, which is one of the four capabilities the
-consent dialog shows in its danger tone: a manifest that asks for it without
-the capability is refused outright, so an update can't quietly turn a filter
-into something that stops messages. With it, the plugin's `block` outcome holds
-the send back and its reason is shown where the person typed; from a plugin
-whose manifest doesn't say it, a `block` is the fail-open answer and the
-message goes as it was.
+That needs `messages.intercept`, which the consent dialog shows in its bold tone,
+one step below the danger tone a send without the person gets: a manifest that
+asks for it without the capability is refused outright, so an update can't
+quietly turn a filter into something that stops messages. With it, the plugin's
+`block` outcome holds the send back and its reason is shown where the person
+typed; from a plugin whose manifest doesn't say it, a `block` is the fail-open
+answer and the message goes as it was.
 
 ## Faults and strikes
 

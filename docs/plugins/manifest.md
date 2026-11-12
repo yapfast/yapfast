@@ -60,6 +60,11 @@ The types are in
 }
 ```
 
+The `tweaks` line is refused in this build, though the rest of that manifest is
+read as written: nothing registers a setting point yet, so every point a manifest
+sets comes back as one this Yapfast doesn't have
+([interface](interface.md#setting-points)).
+
 ## The plugin
 
 | Field | Meaning |
@@ -105,15 +110,32 @@ answer may carry rather than what the helper holds.
 { "activation": { "on": ["event:message_create", "command"] } }
 ```
 
-`on` names what wakes the plugin. `startup` activates it with the app; `command`
-and `menu` are satisfied by the manifest's own contributions, so nothing loads
-until one is used; `event:<kind>` subscribes to an event. The event kinds are
-`message_create`, `message_update`, `message_delete`, `reaction_add`,
-`reaction_remove`, `room_selected`, `voice_state`, `app_focus`,
+`on` names what wakes the plugin, and nothing else does: a plugin nothing has
+woken has no instance, no memory and no cost beyond its registry entry. Eight
+kinds of trigger are read:
+
+| Trigger | What wakes it |
+| --- | --- |
+| `startup` | The session starts |
+| `command` | A person typed one of its commands |
+| `menu` | A person chose one of its menu rows, rail items or header buttons |
+| `event:<kind>` | One of the events below, for the rooms and people it subscribed to |
+| `decorate` | A message it draws under came on screen ([interface](interface.md#decorating-messages)) |
+| `identity` | A surface showed someone whose answer it doesn't have ([interface](interface.md#how-people-look)) |
+| `code` | A code block on screen wasn't coloured yet ([interface](interface.md#colouring-code-blocks)) |
+| `member.decorate` | A member list row came on screen ([interface](interface.md#badging-people-in-the-member-list)) |
+
+The event kinds are `message_create`, `message_update`, `message_delete`,
+`reaction_add`, `reaction_remove`, `room_selected`, `voice_state`, `app_focus`,
 `account_ready`, and the opt-in coalesced ones, `typing`, `presence` and
 `speaking`. A plugin that holds `messages.intercept` is activated at startup
 whether or not it says so, because the first message must not go out before it
 is ready.
+
+A trigger this build doesn't know wakes nothing: the subscriptions are a bitmask
+built from the names above, so an `event:` name that isn't one subscribes to
+nothing, and a trigger word nobody reads keeps the plugin idle rather than
+failing the install.
 
 ## Hooks and their failure
 
@@ -161,9 +183,11 @@ value of its declared type and not a string it has to parse.
 
 Menus are data, so a row appears without loading any WebAssembly: the row's
 label and `when` are all the interface needs. `target` is one of `message`,
-`user`, `channel`, `server`, `role`, `emoji`, `sticker`, `image`, `stream`,
-`game`, `composer` and `attach`. `action` names what the plugin receives when
-the row is chosen. `icon` is a path in the plugin's directory or an icon name.
+`user`, `user_profile`, `channel`, `thread`, `group_dm`, `server`,
+`server_header`, `role`, `emoji`, `sticker`, `image`, `stream`, `game`,
+`forum_tag`, `composer` and `attach`, and Yapfast draws the rows of the menus it
+has. `action` names what the plugin receives when the row is chosen. `icon` is a
+path in the plugin's directory, which no row draws yet.
 
 `when` is a closed set of conditions, not an expression language:
 
@@ -173,8 +197,59 @@ the row is chosen. `icon` is a path in the plugin's directory or an icon name.
 | `own` | Whether the message or person is the account's own |
 | `dm` | Whether it is a DM |
 | `has_attachment` | Whether the message carries a file |
-| `has_link` | Whether its text contains a link |
 | `is_bot` | Whether the person is a bot |
+| `role` | A role id the person the menu is about has |
+
+## Rail items and header buttons
+
+A plugin can put a button where Yapfast draws a row of its own: at the foot of
+the server rail, and in a conversation's header. Both are data like a menu row,
+so they show for a plugin that has never run, and both take the same two fields:
+
+```json
+{ "rail_items": [{ "label": "Notes", "action": "notes" }],
+  "header_buttons": [{ "label": "Summarise", "action": "summarise" }] }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `label` | What the button says: plain text on one line, 1 to 64 characters |
+| `action` | What choosing it tells the plugin, as a plain name of up to 64 characters: letters, digits, `-`, `_` and `.` |
+
+A plugin may add up to 64 of each, and needs no capability for either: a button
+is the plugin's own surface. The rail's buttons sit under a line at the rail's
+foot, the header's beside the conversation's own controls, and each says whose it
+is to a screen reader. Both fields are optional, and a manifest that carries them
+installs like any other: they are part of what the installer reads, so nothing
+about them waits for the plugin to run.
+
+## The interface Yapfast already draws
+
+`ui` names changes to Yapfast's own interface, and needs the `ui.modify`
+capability; without it nothing in the section applies. Its four parts:
+
+```json
+{ "ui": {
+    "menu": [{ "target": "user", "row": "profile", "label": "Wave at", "before": "mention" }],
+    "parts": { "hide": ["timeline.typing"] },
+    "colors": { "accent": "#7aa2ff" },
+    "sizes": { "message-group-gap": 8 } } }
+```
+
+| Field | What it changes |
+| --- | --- |
+| `menu` | A built-in menu row: `target`, `row` (the built-in row's id), and `hide`, `label`, `before` or `after`. A row is hidden, relabelled, or moved before or after another; not before and after both |
+| `parts` | `hide` and `replace`, each a list of part ids such as `sidebar.banner` or `message.actions.react` |
+| `colors` | Theme tokens by name, as `#rgb`, `#rrggbb` or `#rrggbbaa` |
+| `sizes` | Sizes by name, in logical pixels, each clamped to its range |
+
+The rows, parts, colours and sizes a plugin may name are closed lists, and a
+change costs one of the 64 a plugin may make; [the interface](interface.md#the-manifests-interface-changes)
+has each list, and the reason a row or a colour is refused there rather than
+here. A field of `ui` this build doesn't know — a misspelt `hide`, say — refuses
+the manifest, while a name it doesn't have is refused by the interface, which is
+the only side that knows what exists in this build, and its reason shows on the
+plugin's page.
 
 ## Settings
 
@@ -188,7 +263,7 @@ before the plugin has ever run:
 | Field | Meaning |
 | --- | --- |
 | `key` | What the plugin reads it by. Two settings with one key are refused. |
-| `type` | `string`, `bool`, `select`, `slider`, `number`, `integer` or `list` |
+| `type` | `string`, `bool`, `select`, `slider`, `number`, `integer`, `list` or `widget` |
 | `label`, `description` | What the page shows |
 | `default` | The starting value, as its type expects |
 | `options` | For `select`: the choices |
@@ -196,7 +271,8 @@ before the plugin has ever run:
 | `pattern` | For `string`: a regular expression the value must match |
 | `when` | The same conditions a menu row takes |
 
-A `list` is a list of records a person adds to and edits.
+A `list` is a list of records a person adds to and edits. A `widget` is a tree
+the plugin draws while it runs, and it holds no value of its own.
 
 ## Dependencies
 
@@ -234,7 +310,11 @@ order, swaps the version, and starts them again in dependency order.
 
 `tweaks` are named switches that parts of Yapfast offer, such as
 `messages.attachments.mosaic`. A plugin may set them without holding a
-capability, because each one is a behaviour Yapfast already has.
+capability, because each one is a behaviour Yapfast already has. No part offers
+one yet: the registry in
+[`tweaks.rs`](../../crates/yapfast-core/src/tweaks.rs) is empty, so every point a
+manifest names comes back refused as one this Yapfast doesn't have, and nothing
+in the window changes.
 
 ## What validation refuses
 
@@ -243,11 +323,14 @@ capability, because each one is a behaviour Yapfast already has.
 | Not JSON, or not this shape | A syntax error, an unknown field, an id or host pattern that isn't one |
 | Another API | `api` isn't 1 |
 | A path outside the plugin | `wasm` or `icon` is absolute, empty, or climbs out |
-| Nothing to do | No `wasm`, and no command, menu, setting or tweak |
+| Nothing to do | No `wasm`, and no command, menu, setting, rail item, header button, change to the interface or tweak |
 | Memory outside the range | `memory_pages` is below 32 or above 1024 |
 | A quota too high | `http_response_bytes` or `storage_bytes` is above the most consent may allow |
 | A port without its capability | `local-port` is set and `network.local` isn't declared |
 | A command with nothing to say | Its name is empty, or its description is an empty string |
+| A label that won't show | A menu row's, rail item's, header button's or `ui` row's label is empty, over 64 characters, or carries a control character |
+| An action that isn't a name | A menu row's or button's `action`, or a `ui` row's `row` and anchor, isn't letters, digits, `-`, `_` and `.` |
+| More than 64 contributions | Menu rows, rail items, header buttons, or changes to the interface, past 64 |
 | Two settings with one key | Duplicate `settings[].key` |
 | Depending on itself | `dependencies` names the plugin's own id |
 

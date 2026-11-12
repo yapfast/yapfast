@@ -2,8 +2,7 @@
 
 The marketplace is a git repository. There is no server, no API and no account:
 browsing fetches the registry the way installing fetches a plugin, reads JSON and
-pictures out of it, and keeps nothing once Settings → Plugins is closed
-(`PLAN.md` §8.6).
+pictures out of it, and keeps nothing once Settings → Plugins is closed.
 
 ```
 yapfast-plugin-registry/
@@ -150,8 +149,8 @@ permission given once isn't given for what comes later. Roll back returns to wha
 the install replaced, as it does for a URL install.
 
 A plugin nobody lists is a URL install, and its *Update* fetches its own ref and
-installs what it finds: URL installs stay manual (`PLAN.md` §8.5), and nothing
-checks a remote ref behind the person's back.
+installs what it finds: a URL install is updated when the person asks, and
+nothing checks a remote ref behind their back.
 
 ## What is not there yet
 
@@ -161,7 +160,8 @@ checks a remote ref behind the person's back.
   problem, but it is a fetch.
 - URL installs have no daily remote-ref check, so an update there is asked for
   rather than offered: the row has no *Update* until the person asks for one.
-- Auto-update for marketplace plugins (off by default, `PLAN.md` §14) is not
-  implemented; every update is a click.
+- Auto-update for marketplace plugins is not implemented, and nothing offers it
+today: every update is a click, and an install that follows a registry's pin on
+its own would be a new setting rather than something the page already carries.
 - The registry repository itself is not in this repository: the schema, the
   validator and the checks above are what this tree ships.
