@@ -968,7 +968,8 @@ presence change does.
 Settings → Game activity → Share the game you play is the account's own
 `show_current_game` setting, which Discord's apps change too. Yapfast reads
 it from READY and settings updates and writes it with
-`PATCH /users/@me/settings-proto/1`; it's on unless the account turned it
+`PATCH /users/@me/settings-proto/1`, keeping the status and custom status
+[as their changes do](messages.md); it's on unless the account turned it
 off, and a newly linked account shares nothing until READY says. While it's
 off, nothing scans processes, downloads the game list or serves the RPC
 socket.
