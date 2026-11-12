@@ -7,7 +7,7 @@ the rest of this page is ordered by what the measurements say a plugin costs.
 | PDK | Where | Builds with | Plugin | Load |
 | --- | --- | --- | --- | --- |
 | **AssemblyScript** | [`pdk/assemblyscript`](../../pdk/assemblyscript) | `asc`, with the plugin's own file as the entry | 11.4 KiB | **1 page, 64 KiB** |
-| **TinyGo** | [`pdk/tinygo/template`](../../pdk/tinygo/template) | `tinygo build -target=wasip1 -buildmode=c-shared`, with `github.com/extism/go-pdk` | 10.2 KiB | 2 pages, 128 KiB | `tinygo build -target=wasip1 -buildmode=c-shared` | 143.7 KiB | 2 pages, 128 KiB |
+| **TinyGo** | [`pdk/tinygo/template`](../../pdk/tinygo/template) | `tinygo build -target=wasip1 -buildmode=c-shared`, with `github.com/extism/go-pdk` | 10.2 KiB | 2 pages, 128 KiB |
 | Rust | [`pdk/rust`](../../pdk/rust) | `cargo build --target wasm32-unknown-unknown`, `crate-type = ["cdylib"]` | 160.8 KiB | 17 pages, 1,088 KiB |
 | C | [`pdk/c`](../../pdk/c) | plain `clang --target=wasm32-unknown-unknown -nostdlib`; no SDK, no WASI | 12.1 KiB | 2 pages, 128 KiB |
 | Zig | [`pdk/zig`](../../pdk/zig) | `zig build-exe --target=wasm32-freestanding --export=…` per export | 56.4 KiB | 17 pages (its 1 MiB stack) |
