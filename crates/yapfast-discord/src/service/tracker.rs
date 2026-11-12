@@ -151,6 +151,8 @@ pub(super) struct Tracker {
     ignored: Vec<String>,
     /// The nicknames this account gave its friends, by user id.
     nicknames: HashMap<String, String>,
+    /// When its friendships began, in Unix milliseconds, by user id.
+    friends_since: HashMap<String, u64>,
     /// The server list's order and folders, from the settings.
     order: Vec<String>,
     folders: Vec<settings::Folder>,
@@ -240,6 +242,7 @@ impl Tracker {
             blocked: Vec::new(),
             ignored: Vec::new(),
             nicknames: HashMap::new(),
+            friends_since: HashMap::new(),
             order: Vec::new(),
             folders: Vec::new(),
             status: "online".into(),
@@ -485,6 +488,7 @@ impl Tracker {
                 if let Some(id) = id {
                     self.requests.remove(id);
                     self.nicknames.remove(id);
+                    self.friends_since.remove(id);
                 }
                 true
             }
@@ -1478,14 +1482,32 @@ impl Tracker {
                 None => self.nicknames.remove(id),
             };
         }
+        // When a friendship began, kept for friends alone: a request keeps
+        // its own `since`, and a block needs none.
+        let since = relationship["since"]
+            .as_str()
+            .and_then(crate::message::iso_ms);
         let Some(kind) = relationship["type"].as_u64() else {
+            if let Some(since) = since
+                && self.friends.iter().any(|friend| friend == id)
+            {
+                self.friends_since.insert(id.to_owned(), since);
+            }
             return;
         };
         self.friends.retain(|friend| friend != id);
         self.blocked.retain(|blocked| blocked != id);
         self.requests.remove(id);
+        if kind != FRIEND {
+            self.friends_since.remove(id);
+        }
         match kind {
-            FRIEND => self.friends.push(id.to_owned()),
+            FRIEND => {
+                self.friends.push(id.to_owned());
+                if let Some(since) = since {
+                    self.friends_since.insert(id.to_owned(), since);
+                }
+            }
             BLOCKED => self.blocked.push(id.to_owned()),
             INCOMING_REQUEST | OUTGOING_REQUEST => {
                 let spam = relationship["is_spam_request"].as_bool().unwrap_or(false);
@@ -1520,7 +1542,12 @@ impl Tracker {
         let mut hasher = DefaultHasher::new();
         for user in &self.friends {
             shown(&mut hasher, user);
-            (self.nicknames.get(user), self.presences.get(user)).hash(&mut hasher);
+            (
+                self.nicknames.get(user),
+                self.friends_since.get(user),
+                self.presences.get(user),
+            )
+                .hash(&mut hasher);
         }
         let friend_list = shared(&mut kept.friend_list, hasher.finish(), || {
             self.friend_list(names).into()
@@ -1583,6 +1610,7 @@ impl Tracker {
                         names.user_name(user).unwrap_or("Discord user").to_owned()
                     }),
                     nickname,
+                    since: self.friends_since.get(user).copied(),
                     avatar: names.avatar(None, user),
                     presence: known.map(|known| known.presence),
                     activity: known.and_then(|known| known.activity.clone()),

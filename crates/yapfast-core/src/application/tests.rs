@@ -2184,6 +2184,7 @@ fn someones_menu_blocks_and_unblocks_them_but_never_this_account() {
             name: "Annie".into(),
             avatar: String::new(),
             nickname: None,
+            since: None,
             presence: None,
             activity: None,
             activities: Default::default(),
@@ -2321,6 +2322,7 @@ fn a_discord_dms_menu_manages_its_person_and_notifications() {
                 name: "Annie".into(),
                 avatar: String::new(),
                 nickname: Some("Annie".into()),
+                since: None,
                 presence: None,
                 activity: None,
                 activities: Default::default(),
@@ -4737,6 +4739,7 @@ fn discord_friends_are_listed_and_messaged() {
         name: name.into(),
         avatar: format!("{id}.png"),
         nickname: None,
+        since: None,
         presence,
         activity: None,
         activities: Default::default(),
@@ -4749,6 +4752,8 @@ fn discord_friends_are_listed_and_messaged() {
             Friend {
                 activity: Some("making tea".into()),
                 activities: Default::default(),
+                // Friends since 2026-09-01, in milliseconds.
+                since: Some(1_788_253_200_000),
                 ..friend("2", "Ann", Some(Discord::Idle))
             },
             friend("3", "Bob", None),
@@ -4779,6 +4784,7 @@ fn discord_friends_are_listed_and_messaged() {
             presence: Some(chat::Presence::Idle),
             activity: Some("making tea".into()),
             activities: Default::default(),
+            since: Some(1_788_253_200_000),
         }
     );
     let effects = app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
@@ -6807,6 +6813,7 @@ fn discord_dms(extra: Vec<yapfast_discord::service::Conversation>) -> Applicatio
         name: name.into(),
         avatar: String::new(),
         nickname: None,
+        since: None,
         presence: None,
         activity: None,
         activities: Default::default(),
@@ -9071,7 +9078,7 @@ fn a_chosen_server_tag_saves_and_the_account_profile_is_fetched_again() {
                 DiscordCommand::OwnProfile { server: None }
             ))]
         ),
-        "the profile is read back once"
+        "the profile is read back once, and its answer fills the card too"
     );
     assert!(
         app.dispatch(Action::LoadOwnProfile).iter().any(|effect| matches!(

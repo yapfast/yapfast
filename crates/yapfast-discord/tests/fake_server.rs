@@ -2707,6 +2707,22 @@ async fn shows_profiles() {
     let own = discord.profile(PRIVATE, &bob, |_| {}).await.unwrap();
     assert!(own.bio.is_some_and(|bio| bio.starts_with("Plays bass")));
     assert!(own.roles.is_empty() && own.joined.is_none());
+    // A bot's profile comes too, and teaches Names it's a bot, which leaves
+    // its full profile Mutual Servers alone, listing where it posts.
+    let bot = discord
+        .profile(PRIVATE, "1400000000000000007", |_| {})
+        .await
+        .unwrap();
+    assert_eq!(bot.name, "Status Bot");
+    assert_eq!(bot.mutual_servers.len(), 1, "the server it posts in");
+    assert!(snapshot.names.read().is_bot("1400000000000000007"));
+    // Friends Since comes from the relationship's `since`.
+    let friend = snapshot
+        .friend_list
+        .iter()
+        .find(|friend| friend.user_id == bob)
+        .expect("Bob is a friend");
+    assert_eq!(friend.since, Some(1_788_253_200_000), "JOINED_AT");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -6590,6 +6606,18 @@ async fn edits_the_main_profile_as_discords_client_does() {
     assert_eq!(own.bio, "Hi, I'm **Ally**");
     assert_eq!(own.pronouns, "she/her");
     assert_eq!(own.accent, Some(0x5865f2));
+    // The editor's answer is kept for the account's card: it comes fresh,
+    // with no second request and nothing older shown first.
+    let me = discord.snapshots().borrow().user_id.clone().unwrap();
+    let (_, card) = discord.own_profile_and_card(None).await.unwrap();
+    assert_eq!(card.map(|card| card.name), Some("Ally".into()));
+    let card = discord
+        .profile(yapfast_discord::ready::PRIVATE, &me, |_| {
+            panic!("a fresh profile shows nothing kept from before")
+        })
+        .await
+        .unwrap();
+    assert_eq!(card.bio.as_deref(), Some("Hi, I'm **Ally**"));
     assert!(
         discord
             .save_main_profile(
