@@ -4,6 +4,18 @@
 // `has_console`.
 #![cfg_attr(all(windows, feature = "desktop"), windows_subsystem = "windows")]
 
+// Skia's Vulkan is the archive built for Linux: a Windows build links the OpenGL
+// one and draws on Direct3D 12 when the GPU setting asks for a card's device (see
+// `src/graphics.rs`), so `skia-vulkan` is Linux's alone. A Windows build that
+// names it fails here with a sentence rather than inside the archive's link,
+// which names no feature.
+#[cfg(all(target_os = "windows", feature = "skia-vulkan"))]
+compile_error!(
+    "the skia-vulkan feature is Skia's Vulkan, which is built for Linux; build Windows with \
+     --no-default-features --features desktop,discord (or desktop,discord,matrix for the full \
+     preview)"
+);
+
 #[cfg(feature = "desktop")]
 mod autostart;
 mod build_info;

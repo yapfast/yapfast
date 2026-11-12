@@ -1,4 +1,15 @@
 fn main() {
+    // Skia's Vulkan is the archive built for Linux, so a Windows build leaves the
+    // feature out; one that names it anyway says so here rather than failing in
+    // Slint's own link, which names no feature at all.
+    if std::env::var_os("CARGO_CFG_WINDOWS").is_some()
+        && std::env::var_os("CARGO_FEATURE_SKIA_VULKAN").is_some()
+    {
+        panic!(
+            "the skia-vulkan feature is Skia's Vulkan, which is built for Linux; a Windows build \
+             leaves it out (--no-default-features --features desktop,discord)"
+        );
+    }
     // With the live-preview feature, Slint generates a wrapper around its
     // interpreter instead of compiled code: the window loads ui/ at runtime
     // and reloads it on each save. The compiler reads SLINT_LIVE_PREVIEW, so

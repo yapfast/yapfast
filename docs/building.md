@@ -53,7 +53,10 @@ prebuilt archive is what a build that leaves the `skia-vulkan` feature out
 links: it has no wgpu, and there Yapfast asks for Skia OpenGL or Skia Software
 by name. The Windows builds are what do, since the archive with Vulkan is
 Linux's; Windows turns wgpu back on through a dependency in Yapfast's own
-`Cargo.toml`, for Skia GPU on Direct3D 12 (see `src/graphics.rs`).
+`Cargo.toml`, for Skia GPU on Direct3D 12 (see `src/graphics.rs`). A Windows
+build that names `skia-vulkan` anyway fails at once with a sentence saying it is
+Linux's (`compile_error!` in `src/main.rs`, and the same check in
+`crates/yapfast-ui/build.rs`), rather than inside the archive's link.
 
 The GPU setting asks for Skia on Vulkan on Linux: `skia-vulkan` is one of
 `Cargo.toml`'s default features, and it is `i-slint-renderer-skia/vulkan` beside
