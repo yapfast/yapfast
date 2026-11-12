@@ -98,12 +98,6 @@ pub enum Input {
     Dismissed { plugin: String, slot: slots::Slot },
 }
 
-/// The plugin runtime, as the interface reaches it. The runtime implements
-/// it; until one is attached, input goes nowhere.
-pub trait Runtime {
-    fn input(&self, input: Input);
-}
-
 /// The parts of a plugin's manifest the interface reads. The file is strict
 /// JSON; fields this struct doesn't name belong to the runtime and are
 /// skipped here, but the `ui` section, its menu rows and each setting take

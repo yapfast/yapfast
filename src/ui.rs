@@ -1986,6 +1986,11 @@ struct Adapter {
     /// buttons is showing.
     emoji_grid: emoji_grid::EmojiGrid,
     app: Application,
+    /// What the person did with what a plugin drew, as the window dispatched
+    /// it, for the tests that check a click produces one. Delivering it is the
+    /// application's, which owns the bridge, so this is the shell's half only.
+    #[cfg(test)]
+    plugin_inputs: std::cell::RefCell<Vec<yapfast_core::plugins::Input>>,
     /// What a page's request set off, to run once the page has let go of its
     /// own borrow: see `defer`.
     #[cfg(feature = "plugins")]
@@ -2399,6 +2404,8 @@ impl Adapter {
                 emoji_rows_filled: (0, 0),
                 emoji_grid: Default::default(),
                 app,
+                #[cfg(test)]
+                plugin_inputs: std::cell::RefCell::new(Vec::new()),
                 #[cfg(feature = "plugins")]
                 deferred: Vec::new(),
                 models,
@@ -2811,7 +2818,6 @@ impl Adapter {
                     }
                 }
                 #[cfg(feature = "plugins")]
-                Effect::PluginInput(input) => self.plugin_input(input),
                 // A plugin asking to reach a site: the dialog belongs to the
                 // window, not to Settings, so it shows wherever the person is.
                 #[cfg(feature = "plugins")]
@@ -3046,6 +3052,10 @@ impl Adapter {
     }
 
     fn action(&mut self, window: &YapfastWindow, action: Action) {
+        #[cfg(test)]
+        if let Action::PluginInput(input) = &action {
+            self.plugin_inputs.borrow_mut().push(input.clone());
+        }
         // A keystroke in the composer changes only the composer, and one in
         // the profile editor only the editor; the rest of the window
         // stays as it is.

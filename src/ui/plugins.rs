@@ -26,9 +26,6 @@ pub(super) struct Plugins {
     /// while none sets one. Yapfast lists no point yet.
     #[allow(dead_code)]
     pub(super) tweaks: Option<Arc<yapfast_core::tweaks::Tweaks>>,
-    /// Where what the person does with plugins' rows and widgets goes: the
-    /// plugin runtime, once one is attached.
-    pub(super) runtime: Option<Box<dyn plugins::Runtime>>,
     names: Vec<PluginName>,
     /// What the plugins' folders show in slots until the runtime can,
     /// handed to the application once it exists.
@@ -96,7 +93,6 @@ impl Plugins {
         Some(Box::new(Self {
             overrides,
             tweaks,
-            runtime: None,
             names,
             previews,
             shown: [0; Slot::ALL.len()],
@@ -106,17 +102,13 @@ impl Plugins {
     /// The plugins of these overrides alone, for tests that need a window with
     /// some and no folder to load.
     #[cfg(test)]
-    pub(super) fn with(
-        overrides: Option<Arc<UiOverrides>>,
-        runtime: Option<Box<dyn plugins::Runtime>>,
-    ) -> Self {
+    pub(super) fn with(overrides: Option<Arc<UiOverrides>>) -> Self {
         let names = overrides
             .as_ref()
             .map_or_else(Vec::new, |overrides| overrides.plugins.clone());
         Self {
             overrides,
             tweaks: None,
-            runtime,
             names,
             previews: Vec::new(),
             shown: [0; Slot::ALL.len()],
@@ -459,18 +451,6 @@ impl Adapter {
                 target,
             }),
         );
-    }
-
-    /// Hands what the person did to the plugin runtime.
-    pub(super) fn plugin_input(&self, input: plugins::Input) {
-        match self
-            .plugins
-            .as_ref()
-            .and_then(|plugins| plugins.runtime.as_deref())
-        {
-            Some(runtime) => runtime.input(input),
-            None => tracing::info!(?input, "no plugin runtime is attached to take this"),
-        }
     }
 
     /// Draws, or takes away, a plugin's question about reaching a site.
@@ -851,23 +831,13 @@ mod tests {
 
     #[test]
     fn a_plugins_row_goes_to_the_runtime() {
-        struct Recorder(Rc<RefCell<Vec<Input>>>);
-        impl plugins::Runtime for Recorder {
-            fn input(&self, input: Input) {
-                self.0.borrow_mut().push(input);
-            }
-        }
         i_slint_backend_testing::init_no_event_loop();
         let window = YapfastWindow::new().unwrap();
         let adapter = adapter(&window);
-        let received = Rc::new(RefCell::new(Vec::new()));
-        adapter.borrow_mut().plugins = Some(Box::new(Plugins::with(
-            Some(overrides(&[(
-                "{}",
-                r#"[{ "target": "user", "label": "Wave", "action": "wave" }]"#,
-            )])),
-            Some(Box::new(Recorder(received.clone()))),
-        )));
+        adapter.borrow_mut().plugins = Some(Box::new(Plugins::with(Some(overrides(&[(
+            "{}",
+            r#"[{ "target": "user", "label": "Wave", "action": "wave" }]"#,
+        )])))));
         menus::choose(
             &mut adapter.borrow_mut(),
             &window,
@@ -883,8 +853,10 @@ mod tests {
             true,
             "plugin/7/wave",
         );
+        // The shell's job is the action: delivering it is the application's,
+        // which owns the bridge, and its own tests hold that half.
         assert_eq!(
-            *received.borrow(),
+            *adapter.borrow().plugin_inputs.borrow(),
             [Input::Menu {
                 plugin: "com.example.p0".into(),
                 action: "wave".into(),
@@ -897,14 +869,11 @@ mod tests {
     fn parts_and_sizes_show_as_plugins_set_them_and_return_without() {
         i_slint_backend_testing::init_no_event_loop();
         let window = YapfastWindow::new().unwrap();
-        let plugins = Plugins::with(
-            Some(overrides(&[(
-                r#"{ "parts": { "hide": ["timeline.typing", "message.actions.more"] },
-                     "sizes": { "message-group-gap": 4, "text-size": 18 } }"#,
-                "[]",
-            )])),
-            None,
-        );
+        let plugins = Plugins::with(Some(overrides(&[(
+            r#"{ "parts": { "hide": ["timeline.typing", "message.actions.more"] },
+                 "sizes": { "message-group-gap": 4, "text-size": 18 } }"#,
+            "[]",
+        )])));
         show(&window, Some(&plugins));
         let parts = window.global::<yapfast_ui::UiParts>();
         let style = window.global::<ClientStyle>();
@@ -922,23 +891,13 @@ mod tests {
 
     #[test]
     fn a_slot_shows_what_the_runtime_sets_and_closing_it_tells_the_plugin() {
-        struct Recorder(Rc<RefCell<Vec<Input>>>);
-        impl plugins::Runtime for Recorder {
-            fn input(&self, input: Input) {
-                self.0.borrow_mut().push(input);
-            }
-        }
         i_slint_backend_testing::init_no_event_loop();
         let window = YapfastWindow::new().unwrap();
         let adapter = adapter(&window);
-        let received = Rc::new(RefCell::new(Vec::new()));
-        let mut plugins = Plugins::with(
-            Some(overrides(&[(
-                "{}",
-                r#"[{ "target": "user", "label": "Wave", "action": "wave" }]"#,
-            )])),
-            Some(Box::new(Recorder(received.clone()))),
-        );
+        let mut plugins = Plugins::with(Some(overrides(&[(
+            "{}",
+            r#"[{ "target": "user", "label": "Wave", "action": "wave" }]"#,
+        )])));
         let mut adapter = adapter.borrow_mut();
         plugins.enable(&mut adapter.app);
         adapter.plugins = Some(Box::new(plugins));
@@ -975,7 +934,7 @@ mod tests {
         adapter.plugin_dismissed(&window, "com.example.p0", "banner");
         assert_eq!(window.get_plugin_banners().row_count(), 0);
         assert_eq!(
-            *received.borrow(),
+            *adapter.plugin_inputs.borrow(),
             [
                 Input::Widget {
                     plugin: "com.example.p0".into(),

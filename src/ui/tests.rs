@@ -11023,17 +11023,10 @@ fn the_installed_tab_is_a_list_or_cards() {
 fn plugin_cells_and_rows_say_what_they_are() {
     use i_slint_backend_testing::{AccessibleRole, ElementQuery};
     use yapfast_core::plugins::{
-        Input, Manifest, Runtime,
+        Input, Manifest,
         slots::{Output, Slot},
         ui::Tree,
     };
-
-    struct Recorder(Rc<RefCell<Vec<Input>>>);
-    impl Runtime for Recorder {
-        fn input(&self, input: Input) {
-            self.0.borrow_mut().push(input);
-        }
-    }
 
     i_slint_backend_testing::init_no_event_loop();
     let directory = tempfile::tempdir().unwrap();
@@ -11057,8 +11050,7 @@ fn plugin_cells_and_rows_say_what_they_are() {
     let checked = vec![yapfast_core::plugins::ui::check(&manifest)];
     let overrides =
         yapfast_core::plugins::ui::derive(&checked, &std::collections::BTreeMap::new()).0;
-    let received = Rc::new(RefCell::new(Vec::new()));
-    let mut plugins = plugins::Plugins::with(overrides, Some(Box::new(Recorder(received.clone()))));
+    let mut plugins = plugins::Plugins::with(overrides);
     plugins.enable(&mut adapter.borrow_mut().app);
     plugins::show(&window, Some(&plugins));
     adapter.borrow_mut().plugins = Some(Box::new(plugins));
@@ -11154,7 +11146,9 @@ fn plugin_cells_and_rows_say_what_they_are() {
     go.invoke_accessible_default_action();
     wave.invoke_accessible_default_action();
     keep.invoke_accessible_default_action();
-    let inputs = received.borrow();
+    // The shell's contract is the action; delivering it to the plugin is the
+    // application's, which owns the bridge.
+    let inputs = adapter.borrow().plugin_inputs.borrow().clone();
     assert_eq!(inputs.len(), 3, "{inputs:?}");
     assert!(matches!(
         &inputs[0],

@@ -2379,9 +2379,6 @@ pub enum Effect {
     /// Film for a preview call with the camera with this id, or the first,
     /// into this feed; or stop filming.
     PreviewCamera(Option<(Option<String>, crate::picture::Feed)>),
-    /// Hand what the person did to the plugin runtime.
-    #[cfg(feature = "plugins")]
-    PluginInput(crate::plugins::Input),
     /// Something the plugin system did, for the interface to show; see
     /// [`plugins::Effect`].
     #[cfg(feature = "plugins")]
@@ -2952,7 +2949,6 @@ impl Application {
             // the person closed it, and the plugin hears about it afterwards.
             effects.push(Effect::Plugin(crate::application::plugins::Effect::Slots));
         }
-        effects.push(Effect::PluginInput(input));
         effects
     }
 
