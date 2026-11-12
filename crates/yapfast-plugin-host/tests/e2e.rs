@@ -203,24 +203,36 @@ fn a_ui_call_reaches_the_parent_rather_than_answering_unsupported() {
     });
 
     helper.event(&slots, an_event());
-    // The call goes out while the guest is still inside its event handler, so by
-    // the time the event is done the parent has the request or never will: an
-    // `unsupported` answer is one the guest takes and finishes with.
+    // The call is sent while the guest is still inside its event handler, and an
+    // `unsupported` answer is one the guest takes and finishes with, so by the
+    // time the event is done the call has either gone out or never will. It
+    // does not follow that it arrives first: a call travels through the pipe's
+    // relay thread and `EventDone` straight to the writer, so on a loaded
+    // machine the relay can be scheduled after the writer has sent both. Once
+    // the event is done, the test waits for the call itself.
     helper.wait_for(BUDGET, "EventDone", |message| {
         matches!(message, FromHelper::EventDone { .. })
     });
-    match helper
+    let early = helper
         .seen
         .iter()
-        .find(|message| matches!(message, FromHelper::Call { .. }))
-    {
-        Some(FromHelper::Call {
+        .position(|message| matches!(message, FromHelper::Call { .. }));
+    let forwarded = match early {
+        Some(at) => helper.seen.remove(at),
+        None => helper.wait_for(
+            BUDGET,
+            "the `ui.set_slot` call, which a helper that answers it `unsupported` never sends",
+            |message| matches!(message, FromHelper::Call { .. }),
+        ),
+    };
+    match forwarded {
+        FromHelper::Call {
             plugin,
             call,
             request,
-        }) => {
-            assert_eq!(plugin, &slots);
-            assert!(*call > 0, "a host call has the id its answer names");
+        } => {
+            assert_eq!(plugin, slots);
+            assert!(call > 0, "a host call has the id its answer names");
             assert_eq!(
                 request.method, "ui.set_slot",
                 "a name this build forwards reaches the parent"
@@ -230,11 +242,7 @@ fn a_ui_call_reaches_the_parent_rather_than_answering_unsupported() {
                 "the request's own payload reaches the parent"
             );
         }
-        _ => panic!(
-            "`ui.set_slot` was answered `unsupported` in the helper instead of reaching \
-             the parent; the helper said {:?}",
-            helper.seen
-        ),
+        other => panic!("expected the `ui.set_slot` call, got {other:?}"),
     }
 }
 
