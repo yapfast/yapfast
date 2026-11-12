@@ -100,7 +100,7 @@ pub fn reset(window: &YapfastWindow) {
     art.set_sidebar(none());
     art.set_chat(none());
     art.set_members(none());
-    art.set_panel(none());
+    art.set_account(none());
     art.set_card(none());
     art.set_dialog(none());
     art.set_composer(none());
@@ -113,7 +113,7 @@ pub fn reset(window: &YapfastWindow) {
         yapfast_ui::Art::set_glass_sidebar,
         yapfast_ui::Art::set_glass_chat,
         yapfast_ui::Art::set_glass_members,
-        yapfast_ui::Art::set_glass_panel,
+        yapfast_ui::Art::set_glass_account,
         yapfast_ui::Art::set_glass_card,
         yapfast_ui::Art::set_glass_dialog,
         yapfast_ui::Art::set_glass_composer,
@@ -207,7 +207,7 @@ pub fn apply(
             ArtSurface::Sidebar => global.set_sidebar(model),
             ArtSurface::Chat => global.set_chat(model),
             ArtSurface::Members => global.set_members(model),
-            ArtSurface::Panel => global.set_panel(model),
+            ArtSurface::Account => global.set_account(model),
             ArtSurface::Card => global.set_card(model),
             ArtSurface::Dialog => global.set_dialog(model),
             ArtSurface::Composer => global.set_composer(model),
@@ -289,7 +289,7 @@ pub fn apply(
                 ArtSurface::Sidebar => yapfast_ui::Art::set_glass_sidebar,
                 ArtSurface::Chat => yapfast_ui::Art::set_glass_chat,
                 ArtSurface::Members => yapfast_ui::Art::set_glass_members,
-                ArtSurface::Panel => yapfast_ui::Art::set_glass_panel,
+                ArtSurface::Account => yapfast_ui::Art::set_glass_account,
                 ArtSurface::Card => yapfast_ui::Art::set_glass_card,
                 ArtSurface::Dialog => yapfast_ui::Art::set_glass_dialog,
                 ArtSurface::Composer => yapfast_ui::Art::set_glass_composer,

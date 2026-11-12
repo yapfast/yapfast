@@ -45,7 +45,7 @@ closed! {
         Sidebar = "sidebar",
         Chat = "chat",
         Members = "members",
-        Panel = "panel",
+        Account = "account",
         Card = "card",
         Dialog = "dialog",
         Composer = "composer",
@@ -54,6 +54,12 @@ closed! {
 }
 
 impl ArtSurface {
+    /// The surface a theme names, where `panel`, the account panel's first
+    /// name, is still read as `account`.
+    pub fn read(text: &str) -> Option<Self> {
+        Self::named(if text == "panel" { "account" } else { text })
+    }
+
     /// The colour token of the ground the art lies on, which a blend mixes
     /// with and contrast is checked over.
     pub fn ground(self) -> &'static str {
@@ -62,7 +68,7 @@ impl ArtSurface {
             Self::Rail => "rail",
             Self::Sidebar => "sidebar",
             Self::Members => "members",
-            Self::Panel => "panel",
+            Self::Account => "account",
             Self::Card | Self::Dialog => "raised",
             Self::Composer => "composer",
             Self::Menu => "menu",
@@ -419,7 +425,7 @@ pub(super) fn read_art(
             "surfaces" => {
                 for (name, layers) in object(value, &here)? {
                     let at = format!("{here}.{name}");
-                    let Some(surface) = ArtSurface::named(name) else {
+                    let Some(surface) = ArtSurface::read(name) else {
                         notes.push(format!("\"{at}\" isn't a surface art lies on; ignored"));
                         continue;
                     };
@@ -788,6 +794,12 @@ fn read_glass(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<Gla
                     .ok_or_else(|| Error(format!("\"{here}\" is a list of surfaces")))?;
                 glass.surfaces.clear();
                 for (index, item) in items.iter().enumerate() {
+                    let account = Value::from("account");
+                    let item = if item.as_str() == Some("panel") {
+                        &account
+                    } else {
+                        item
+                    };
                     let surface = named(
                         item,
                         &format!("{here}[{index}]"),
@@ -1023,6 +1035,20 @@ mod tests {
             ]
         );
         assert_eq!(art.moving(), (1, 0));
+    }
+
+    #[test]
+    fn the_account_panel_is_still_read_by_its_first_name() {
+        let art = art(
+            r#"{ "surfaces": { "panel": { "texture": "grain" } }, "glass": { "surfaces": ["panel", "chat"] } }"#,
+        )
+        .unwrap();
+        assert!(art.surfaces.contains_key(&ArtSurface::Account));
+        assert_eq!(
+            art.glass.unwrap().surfaces,
+            vec![ArtSurface::Account, ArtSurface::Chat]
+        );
+        assert_eq!(ArtSurface::Account.ground(), "account");
     }
 
     #[test]

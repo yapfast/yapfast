@@ -140,6 +140,11 @@ export global Theme {
     out property <brush> chat-fill: self.chat-painted ? self.chat-paint : self.chat;
     in property <brush> panel-paint; in property <bool> panel-painted;
     out property <brush> panel-fill: self.panel-painted ? self.panel-paint : self.panel;
+    /// The account panel's ground at the bottom left: the panel's until a
+    /// theme sets `account`.
+    in property <color> account-set; in property <bool> account-on;
+    out property <color> account: self.account-on ? self.account-set : self.panel;
+    out property <brush> account-fill: self.account-on ? self.account-set : self.panel-fill;
     in property <brush> raised-paint; in property <bool> raised-painted;
     out property <brush> raised-fill: self.raised-painted ? self.raised-paint : self.raised;
     in property <brush> accent-paint; in property <bool> accent-painted;

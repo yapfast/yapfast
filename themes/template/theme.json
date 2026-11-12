@@ -50,7 +50,8 @@
   "art": {
     "surfaces": {
       "chat": { "texture": "paper", "colour": "#ffffff", "opacity": 0.05, "blend": "screen" },
-      "sidebar": [{ "texture": "noise", "colour": "#000000", "opacity": 0.12, "scale": 2 }]
+      "sidebar": [{ "texture": "noise", "colour": "#000000", "opacity": 0.12, "scale": 2 }],
+      "account": { "texture": "grain", "colour": "#ffffff", "opacity": 0.04 }
     },
     "overlays": [
       { "kind": "vignette", "opacity": 0.25 },
@@ -85,7 +86,8 @@
         "accent-hover": "#93b4ff",
         "on-accent": "#0b1020",
         "accent-text": "#93b4ff",
-        "selection": "#7aa2ff59"
+        "selection": "#7aa2ff59",
+        "account": "#1a1d27"
       }
     },
     "light": {

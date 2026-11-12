@@ -734,6 +734,10 @@ fn set_extra(tokens: &yapfast_ui::Theme<'_>, token: &str, colour: Option<Color>)
             tokens.set_app_badge_set(colour);
             tokens.set_app_badge_on(on);
         }
+        "account" => {
+            tokens.set_account_set(colour);
+            tokens.set_account_on(on);
+        }
         "mentioned" => tokens.set_mentioned(if on {
             colour
         } else {

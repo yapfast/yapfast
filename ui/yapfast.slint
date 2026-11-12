@@ -2792,16 +2792,19 @@ export component YapfastWindow inherits Window {
                     open-call => { root.open-call(); }
                 }
                 // Inset the account card while preserving the inherited controls.
+                // A theme's glass account panel floats as the other panes do,
+                // `gap` from what's around it.
                 VerticalLayout {
-                    padding: ClientStyle.account-inset; padding-top: 0px;
+                    padding: Art.glass-account ? max(ClientStyle.account-inset, Art.gap) : ClientStyle.account-inset;
+                    padding-top: Art.glass-account ? Art.gap : 0px;
                     account-panel := Rectangle {
                         // Anywhere on the card brightens its nameplate; each part lights only itself.
                         property <bool> hot: account-touch.has-hover || avatar-touch.has-hover || mic.hovered || ear.hovered || cog.hovered;
-                        height: ClientStyle.account-height; background: Art.glass-panel ? transparent : Theme.panel-fill;
-                        border-radius: ClientStyle.enabled ? 8px : 0px;
-                        if Art.panel.length > 0 || Art.glass-panel: ArtLayer {
+                        height: ClientStyle.account-height; background: Art.glass-account ? transparent : Theme.account-fill;
+                        border-radius: Art.glass-account && Art.pane-radius > 0px ? Art.pane-radius : ClientStyle.enabled ? 8px : 0px;
+                        if Art.account.length > 0 || Art.glass-account: ArtLayer {
                             x: 0px; y: 0px; width: parent.width; height: parent.height; radius: parent.border-radius;
-                            layers: Art.panel; glass: Art.glass-panel; ground: Theme.panel-fill;
+                            layers: Art.account; glass: Art.glass-account; ground: Theme.account-fill;
                         }
                         // The nameplate fills the card, a pixel beyond it above and below.
                         if AccountLook.nameplate-url != "": Nameplate {
@@ -2817,10 +2820,10 @@ export component YapfastWindow inherits Window {
                                 // The own.avatar slot.
                                 Avatar { x: (ClientStyle.enabled ? 8px : 19px) + Look.own-avatar.x; y: (parent.height - self.height) / 2 + Look.own-avatar.y; opacity: Look.own-avatar.opacity; transform-scale: Look.own-avatar.scale; transform-rotation: Look.own-avatar.rotation * 1deg; size: ClientStyle.enabled ? 40px : 34px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; speaking: root.account-speaking; decoration-url: AccountLook.decoration-url; animate: account-panel.hot; }
                                 if root.account-presence != "": StatusDot {
-                                    x: ClientStyle.enabled ? 34px : 40px; y: parent.height / 2 + 3px; presence: root.account-presence; ring: Theme.panel;
+                                    x: ClientStyle.enabled ? 34px : 40px; y: parent.height / 2 + 3px; presence: root.account-presence; ring: Theme.account;
                                 }
                                 if root.account-presence == "": Rectangle {
-                                    x: ClientStyle.enabled ? 35px : 41px; y: parent.height / 2 + 4px; width: 14px; height: 14px; border-radius: Look.radius(7px); background: Theme.panel-fill;
+                                    x: ClientStyle.enabled ? 35px : 41px; y: parent.height / 2 + 4px; width: 14px; height: 14px; border-radius: Look.radius(7px); background: Theme.account-fill;
                                     Rectangle {
                                         width: 8px; height: 8px; border-radius: Look.radius(4px);
                                         background: root.preview ? Theme.accent-fill : root.online ? Theme.live : Theme.faint;

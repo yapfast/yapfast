@@ -165,7 +165,7 @@ fn mean(colours: &[u32]) -> u32 {
 /// The text drawn on each surface art may lie on.
 fn texts(surface: ArtSurface) -> &'static [&'static str] {
     match surface {
-        ArtSurface::Sidebar | ArtSurface::Chat | ArtSurface::Members | ArtSurface::Panel => {
+        ArtSurface::Sidebar | ArtSurface::Chat | ArtSurface::Members | ArtSurface::Account => {
             &["text", "secondary", "muted"]
         }
         ArtSurface::Card | ArtSurface::Dialog | ArtSurface::Menu | ArtSurface::Composer => {

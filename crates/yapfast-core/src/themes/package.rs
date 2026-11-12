@@ -65,7 +65,7 @@ pub const COLOURS: [&str; 37] = [
 
 /// Colours only a theme sets (plugins can't), each following another until a
 /// theme does: what it follows is [`follows`].
-pub const EXTRA_COLOURS: [&str; 22] = [
+pub const EXTRA_COLOURS: [&str; 23] = [
     "accent-text",
     "on-tooltip",
     "selection",
@@ -88,6 +88,7 @@ pub const EXTRA_COLOURS: [&str; 22] = [
     "embed",
     "members",
     "app-badge",
+    "account",
 ];
 
 /// The colour an extra colour shows while a theme doesn't set it, for
@@ -107,6 +108,7 @@ pub fn follows(token: &str) -> Option<&'static str> {
         "code" => "panel",
         "embed" => "sidebar",
         "members" => "chat",
+        "account" => "panel",
         _ => return None,
     })
 }
@@ -122,7 +124,7 @@ pub const BRUSHES: [&str; 6] = ["rail", "sidebar", "chat", "panel", "raised", "a
 
 /// Each text colour and the surfaces it's drawn on, which it must stay
 /// readable against.
-pub const TEXT_ON: [(&str, &[&str]); 14] = [
+pub const TEXT_ON: [(&str, &[&str]); 17] = [
     ("text", &SURFACES),
     ("secondary", &SURFACES),
     ("muted", &SURFACES),
@@ -137,6 +139,9 @@ pub const TEXT_ON: [(&str, &[&str]); 14] = [
     ("text", &["code"]),
     ("text", &["embed"]),
     ("text", &["members"]),
+    ("text", &["account"]),
+    ("secondary", &["account"]),
+    ("muted", &["account"]),
 ];
 
 /// The surfaces most text sits on.

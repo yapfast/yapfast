@@ -268,6 +268,7 @@ another until one does:
 | `code`, `embed` | The grounds of code blocks and of embeds | `panel`, `sidebar` |
 | `members` | The member list's ground | `chat` (`sidebar` without Discord's look) |
 | `app-badge` | The APP tag after a bot's name | Discord's blurple |
+| `account` | The account panel's ground at the bottom left (avatar, name, mic, headphones, settings) | `panel` |
 
 A theme that sets `hover` also lights the hovered row of a context menu with
 it, instead of the stock white or black wash, and `scrim` dims the window
@@ -436,7 +437,8 @@ variant's `surfaces` and `text` replace the shared ones surface by surface.
 ```
 
 *Surfaces*: `window` (under everything, and what shows between panes with a
-gap), `rail`, `sidebar`, `chat`, `members`, `panel` (the account panel),
+gap), `rail`, `sidebar`, `chat`, `members`, `account` (the account panel at the
+bottom left, on the `account` colour; `panel`, its first name, is read as it),
 `card` (a profile card the person hasn't themed themselves), `dialog`,
 `composer` and `menu`. Each takes a layer or a list of up to 4, bottom first,
 drawn over the surface's ground and under its content:
@@ -483,7 +485,9 @@ window's art, not other panes or messages. `surfaces` (any but `window`;
 on the top and left inner edge), `inset` (a shadow inside the edges, as
 `shape` writes one: `blur` is its depth), `gap` (0–24 px between the window's
 edge and its two panes, the navigation and the conversation, where the
-window's art shows) and `radius` (their corners when there's a gap).
+window's art shows; a glass `account` panel floats the same distance from the
+navigation above it and the window's edge) and `radius` (their corners, and
+a glass account panel's, when there's a gap).
 
 *Text*: `names` (authors, the member list, the profile card), `headings` (the
 conversation's and the server's names, settings titles) and `labels` (small
