@@ -919,6 +919,9 @@ pub struct Resolved {
     pub icons: BTreeMap<&'static str, super::media::IconChoice>,
     /// Where the panes sit and how messages are laid out.
     pub layout: super::layout::Layout,
+    /// How people's pictures, names and profiles are drawn, when the person
+    /// lets the theme: [`super::content`].
+    pub content: super::content::Content,
 }
 
 impl Resolved {
@@ -1029,8 +1032,9 @@ const TOP_KEYS: [&str; 15] = [
 ];
 
 /// The layers, at the top level or in a variant.
-const LAYER_KEYS: [&str; 11] = [
+const LAYER_KEYS: [&str; 12] = [
     "art",
+    "content",
     "layout",
     "colours",
     "shape",
@@ -1282,6 +1286,14 @@ impl Package {
             }
             if let Some(layout) = layers.get("layout") {
                 super::layout::read_layout(layout, &place("layout"), &mut resolved.layout, notes)?;
+            }
+            if let Some(content) = layers.get("content") {
+                super::content::read_content(
+                    content,
+                    &place("content"),
+                    &mut resolved.content,
+                    notes,
+                )?;
             }
         }
         Ok(resolved)

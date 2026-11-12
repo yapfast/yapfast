@@ -1,0 +1,36 @@
+// A theme's `content` section, when the person lets it style people's
+// profiles and media (Settings → Themes): avatar shapes, rings and
+// decorations, nameplates, embed links, activity tiles and the LIVE pill.
+// Pictures are recoloured in Rust as they're handed over, and names and
+// profile cards are built with it there; src/ui/theme_content.rs sets this.
+// Every value at its default draws the stock window.
+import { Theme, Look } from "theme.slint";
+
+export global ThemeContent {
+    /// Avatars' shape: 0 as stock, 1 circle, 2 square, 3 rounded with
+    /// `avatar-radius` at a 40 px avatar, scaled with its size.
+    in property <int> avatar-shape;
+    in property <length> avatar-radius;
+    /// Decorations aren't drawn or fetched.
+    in property <bool> hide-decorations;
+    /// A ring around every person's avatar; 0 px for none.
+    in property <length> ring-width;
+    in property <color> ring;
+    /// Nameplates: 0 as stock, 1 hidden, 2 tinted in the accent.
+    in property <int> nameplates;
+    /// Embeds' links take the accent's text colour.
+    in property <bool> embeds;
+    /// Activity tiles take the theme's corners and the LIVE pill its accent.
+    in property <bool> activity;
+
+    /// A person's avatar's corner radius at `size`, or `stock`.
+    public pure function avatar-corner(size: length, stock: length) -> length {
+        self.avatar-shape == 1 ? size / 2
+            : self.avatar-shape == 2 ? 0px
+            : self.avatar-shape == 3 ? min(size / 2, self.avatar-radius * size / 40px)
+            : stock
+    }
+
+    /// The links in an embed.
+    out property <color> embed-link: self.embeds ? Theme.accent-text : Theme.link;
+}

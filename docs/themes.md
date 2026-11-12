@@ -217,7 +217,7 @@ move; text effects tick only while one plays.
   "icon": "icon.png",
   "colours": { … }, "shape": { … }, "type": { … }, "spacing": { … },
   "motion": { … }, "animations": [ … ], "effects": { … }, "art": { … },
-  "sounds": { … }, "icons": { … }, "layout": { … },
+  "sounds": { … }, "icons": { … }, "layout": { … }, "content": { … },
   "variants": {
     "dark": { "base": "yap", "colours": { … } },
     "light": { "base": "sakura", "colours": { … } }
@@ -757,6 +757,72 @@ the focus ring and every accessible name stay as stock.
 "layout": {
   "rail": "top", "messages": "irc", "chat_avatars": false, "chat_max_width": 960,
   "irc": { "time_width": 56, "nick_width": 120, "separator": "│" }
+}
+```
+
+**People's content** (`content`): how the theme draws what people bring —
+their pictures, avatars, names, profiles, embeds and activity — rather than
+Yapfast's own surfaces. It shows only when the person lets it: Settings →
+Themes → Installed → *Let the theme style people's profiles and media*, and
+the same switch in the install review. It's off unless turned on, and kept for
+each theme (`theme_content` in `layout.json`); off, everyone's pictures,
+colours and cosmetics show as they made them. Every field is optional, and
+`keep` draws that thing as stock. `crates/yapfast-core/src/themes/content.rs`
+reads it; `src/ui/theme_content.rs` and the `ThemeContent` global
+(`ui/theme_content.slint`) draw it.
+
+- `media`: people's pictures — avatars, server icons, emoji pictures in the
+  picker and on reactions, stickers, attachments, embed thumbnails, link
+  previews, GIFs and spoilers' blurs. `"normal"`, `"mono"` (greys),
+  `{ "duotone": { "dark": "#03110a", "light": "#5cff85" } }` (each pixel's
+  luminance mapped from `dark` to `light`, as a two-ink print) or
+  `{ "tint": { "colour": "#ff71ce", "amount": 0.35 } }` (washed towards the
+  colour by `amount`, 0–1, keeping light and shade). Pictures are recoloured
+  once, as they're handed to the interface, through a 256-entry table; an
+  animation's frames are recoloured on its decoding thread as they're
+  decoded. Nothing is redone per frame. While `media` is `normal` a picture is
+  shared with its decoder as stock; recoloured, each picture showing is held
+  once more, as its copy, within the same bounded caches. Emoji drawn inside
+  message text are glyphs of a font made as they arrive, and Twemoji is
+  Yapfast's own art: both stay as they are.
+- `avatars`: `shape` — `"keep"`, `"circle"`, `"square"`, `"rounded"` (8
+  pixels) or `{ "rounded": 6 }` (0–24 pixels at a 40-pixel avatar, scaled
+  with its size) — for people's avatars, not servers' icons;
+  `decorations` — `"keep"` or `"hide"` (neither drawn nor fetched); and
+  `ring` — `{ "colour": "#5cff85", "width": 2 }` (1–4 pixels), a ring in
+  the theme's colour around every person's avatar in place of decorations.
+- `names`: `colours` — role colours as the server gives them (`"keep"`), every
+  name in `colour` (`"theme"`; the theme's `text` when `colour` isn't set,
+  which has to read 4.5:1 on `chat`, `sidebar` and `members`), or each
+  keeping its hue with its saturation and lightness pulled into
+  `saturation` and `lightness` (`[low, high]`, 0–1 each; muted mid tones
+  that suit the theme's darkness unset) and then lightened or darkened until
+  it reads 4.5:1 on `chat` (`"clamp"`); `styles` — display name styles
+  (fonts, gradients, glows) `"keep"` or `"theme"` (the theme's names
+  type); `nameplates` — `"keep"`, `"hide"` (neither drawn nor fetched) or
+  `"tint"` (the plate's picture as a shape in `accent`, over an `accent`
+  wash).
+- `profiles`: `themes` — profile themes, Nitro colours and the banner colour,
+  `"keep"` or `"theme"` (the card is drawn on the theme's own card surface
+  and art; a banner picture still shows, recoloured as `media` says);
+  `effects` — profile effects `"keep"` or `"hide"`.
+- `embeds`: `"keep"` or `"theme"`: the embed's and a component card's colour
+  bar in `accent`, and the links in embeds in `accent-text`.
+- `activity`: `"keep"` or `"theme"`: activity and game pictures take the
+  theme's card corners and outline, a song's progress bar `accent`, and the
+  LIVE pill `accent` with `on-accent` text.
+
+Protected dialogs, danger colours and reduce motion are as without it. `theme
+check` lists what `content` changes in the cost line, as `content (if
+allowed): duotone pictures, square avatars, …`.
+
+```json
+"content": {
+  "media": { "duotone": { "dark": "#03110a", "light": "#5cff85" } },
+  "avatars": { "shape": "square", "decorations": "hide" },
+  "names": { "colours": "theme", "styles": "theme", "nameplates": "hide" },
+  "profiles": { "themes": "theme", "effects": "hide" },
+  "embeds": "theme", "activity": "theme"
 }
 ```
 

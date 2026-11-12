@@ -1481,8 +1481,14 @@ fn show_review(window: &YapfastWindow, fetched: Fetched) {
         .filter_map(|mode| package.resolve(mode).ok())
         .flat_map(|resolved| resolved.sounds.into_keys())
         .collect();
+    let content = package
+        .modes()
+        .into_iter()
+        .filter_map(|mode| package.resolve(mode).ok())
+        .find_map(|resolved| resolved.content.phrase());
     let review = ThemeReview {
         shown: true,
+        content: content.unwrap_or_default().into(),
         name: package.name.as_str().into(),
         version: package.version.as_str().into(),
         author: package.authors.join(", ").into(),
@@ -1498,13 +1504,35 @@ fn show_review(window: &YapfastWindow, fetched: Fetched) {
         interface_sounds: slots.iter().any(|slot| slot.interface()),
     };
     let page = window.global::<ThemesPage>();
-    // Notification sounds start on, interface sounds off.
+    // Notification sounds start on, interface sounds off, and the theme
+    // leaves people's content alone until it's let.
     page.set_review_notify_on(true);
     page.set_review_ui_on(false);
+    page.set_review_content_on(false);
     page.set_review(review);
     STATE.with_borrow_mut(|state| state.review = Some(fetched));
     // The review is a protected dialog: it shows in the stock theme.
     theme::protect_for(window, theme::Protected::ThemeReview, true);
+}
+
+/// The shown theme's `content` and the colours it's drawn with; none while
+/// no installed theme shows.
+pub(super) fn applied_content() -> Option<(
+    yapfast_core::themes::content::Content,
+    super::theme_content::Colours,
+)> {
+    STATE.with_borrow(|state| {
+        let resolved = &state.applied.as_ref()?.resolved;
+        let colour = |token, stock| token_colour(resolved, token).unwrap_or(stock);
+        Some((
+            resolved.content,
+            super::theme_content::Colours {
+                dark: resolved.dark,
+                chat: colour("chat", 0xff00_0000),
+                accent: colour("accent", 0xff58_65f2),
+            },
+        ))
+    })
 }
 
 /// The id of the theme under review, if one is.

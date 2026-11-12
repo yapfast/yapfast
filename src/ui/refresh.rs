@@ -529,10 +529,11 @@ impl Adapter {
 
     pub(super) fn refresh(&mut self, window: &YapfastWindow) {
         // A theme shown without `set_theme`, as at start, gets its sounds'
-        // choices and Rust's icons here.
+        // choices, Rust's icons and its `content` here.
         if self.media_changes != theme_media::changes() {
             self.media_changes = theme_media::changes();
             self.show_theme_media(window);
+            self.show_theme_content(window);
         }
         self.sound_context();
         if self.pictures_sourced != Some(self.app.state.picture_changes) {
@@ -2571,8 +2572,8 @@ impl Adapter {
                             .unwrap_or_default()
                             .into(),
                         presence: presence_name(member.presence).into(),
-                        color: role_color(member.color),
-                        has_color: member.color.is_some(),
+                        color: role_color(theme_content::name(member.color)),
+                        has_color: theme_content::name(member.color).is_some(),
                         // One line under the name, as Discord shows it.
                         activity,
                         activity_emoji,
@@ -2669,8 +2670,8 @@ impl Adapter {
                 tint: tint(&member.name),
                 picture: slint::Image::default(),
                 picture_url: member.avatar.as_deref().unwrap_or_default().into(),
-                color: role_color(member.color),
-                has_color: member.color.is_some(),
+                color: role_color(theme_content::name(member.color)),
+                has_color: theme_content::name(member.color).is_some(),
                 ..Default::default()
             })
             .collect();
@@ -4089,8 +4090,8 @@ impl Adapter {
                     initial: initial(&candidate.name),
                     tint: tint(&candidate.name),
                     picture: cached_picture(&mut self.pictures, state, candidate.avatar.as_deref()),
-                    color: role_color(candidate.color),
-                    has_color: candidate.color.is_some(),
+                    color: role_color(theme_content::name(candidate.color)),
+                    has_color: theme_content::name(candidate.color).is_some(),
                     group: candidate.group,
                     detail: match candidate.mention.as_str() {
                         "@everyone" => "Everyone in this channel".into(),
@@ -5811,8 +5812,8 @@ fn thread_row(thread: &yapfast_core::chat::ListedThread, now: u64) -> ThreadRow 
         initial: person.map_or(SharedString::default(), |person| initial(&person.name)),
         tint: person.map_or(slint::Color::default(), |person| tint(&person.name)),
         picture_url: person.map_or("", |person| person.avatar.as_str()).into(),
-        color: role_color(person.and_then(|person| person.color)),
-        has_color: person.is_some_and(|person| person.color.is_some()),
+        color: role_color(theme_content::name(person.and_then(|person| person.color))),
+        has_color: theme_content::name(person.and_then(|person| person.color)).is_some(),
         lead: lead.into(),
         text: text.into(),
         time: time.into(),
@@ -5914,8 +5915,8 @@ fn post_row(
             more => format!("+{more}").into(),
         },
         person: person.map_or("", |person| person.name.as_str()).into(),
-        color: role_color(person.and_then(|person| person.color)),
-        has_color: person.is_some_and(|person| person.color.is_some()),
+        color: role_color(theme_content::name(person.and_then(|person| person.color))),
+        has_color: theme_content::name(person.and_then(|person| person.color)).is_some(),
         text: text.into(),
         has_reaction: reaction.is_some(),
         reaction_count: reaction

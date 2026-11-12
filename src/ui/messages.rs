@@ -627,8 +627,8 @@ pub(super) fn message_row_within(
                 laid_out(&previews(Placement::Embed(index)), &covered, room);
             let description_blocks = markdown_blocks(&embed.description);
             EmbedCard {
-                color: role_color(embed.color),
-                has_color: embed.color.is_some(),
+                color: role_color(theme_content::embed(embed.color)),
+                has_color: theme_content::embed(embed.color).is_some(),
                 provider: slint::StyledText::from_plain_text(&embed.provider),
                 has_provider: !embed.provider.is_empty(),
                 author: bold(&embed.author),
@@ -700,8 +700,8 @@ pub(super) fn message_row_within(
         .iter()
         .map(|card| ComponentCard {
             framed: card.framed,
-            color: role_color(card.color),
-            has_color: card.color.is_some(),
+            color: role_color(theme_content::embed(card.color)),
+            has_color: theme_content::embed(card.color).is_some(),
             rows: ModelRc::new(VecModel::from(
                 card.rows
                     .iter()
@@ -748,8 +748,8 @@ pub(super) fn message_row_within(
         sender: discord::sender_user(&message.sender)
             .unwrap_or(&message.sender)
             .into(),
-        color: role_color(message.color),
-        has_color: message.color.is_some(),
+        color: role_color(theme_content::name(message.color)),
+        has_color: theme_content::name(message.color).is_some(),
         bot: message.bot,
         app_id: message
             .application_id
@@ -795,11 +795,11 @@ pub(super) fn message_row_within(
         reply_author: reply_author.into(),
         reply_initial: initial(reply_author),
         reply_tint: tint(reply_author),
-        reply_color: role_color(message.reply.as_ref().and_then(|reply| reply.color)),
-        reply_has_color: message
-            .reply
-            .as_ref()
-            .is_some_and(|reply| reply.color.is_some()),
+        reply_color: role_color(theme_content::name(
+            message.reply.as_ref().and_then(|reply| reply.color),
+        )),
+        reply_has_color: theme_content::name(message.reply.as_ref().and_then(|reply| reply.color))
+            .is_some(),
         // Virtualized avatars resolve their URLs when their components are built.
         reply_picture: slint::Image::default(),
         reply_body: message
@@ -824,11 +824,11 @@ pub(super) fn message_row_within(
             .into(),
         command_initial: initial(message.used.as_ref().map_or("", |used| &used.user)),
         command_tint: tint(message.used.as_ref().map_or("", |used| &used.user)),
-        command_color: role_color(message.used.as_ref().and_then(|used| used.color)),
-        command_has_color: message
-            .used
-            .as_ref()
-            .is_some_and(|used| used.color.is_some()),
+        command_color: role_color(theme_content::name(
+            message.used.as_ref().and_then(|used| used.color),
+        )),
+        command_has_color: theme_content::name(message.used.as_ref().and_then(|used| used.color))
+            .is_some(),
         command_picture_url: message
             .used
             .as_ref()
@@ -1337,8 +1337,8 @@ pub(super) fn found_row(message: &ChatMessage, twelve_hour: bool) -> FoundRow {
         initial: initial(&message.author),
         tint: tint(&message.author),
         picture_url: message.avatar.clone().unwrap_or_default().into(),
-        color: role_color(message.color),
-        has_color: message.color.is_some(),
+        color: role_color(theme_content::name(message.color)),
+        has_color: theme_content::name(message.color).is_some(),
         when: if message.timestamp == 0 {
             SharedString::default()
         } else {

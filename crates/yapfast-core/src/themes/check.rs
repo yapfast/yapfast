@@ -423,6 +423,11 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
                 let (errors, warnings) = art::readable(&variant, files);
                 report.errors.extend(errors);
                 report.warnings.extend(warnings);
+                for sentence in unreadable_content(&variant) {
+                    if !report.errors.contains(&sentence) {
+                        report.errors.push(sentence);
+                    }
+                }
                 for sentence in unreadable_layout(&variant) {
                     if !report.errors.contains(&sentence) {
                         report.errors.push(sentence);
@@ -658,7 +663,33 @@ fn looks(variant: &Resolved) -> Vec<String> {
     if !changes.is_empty() {
         out.push(format!("layout: {}", changes.join(", ")));
     }
+    out.extend(variant.content.summary());
     out
+}
+
+/// The colour `content.names` draws every name in, against the grounds names
+/// sit on. Clamped role colours are made readable as they're drawn, so only
+/// a set colour is held to it here.
+pub fn unreadable_content(variant: &Resolved) -> Vec<String> {
+    let Some(colour) = variant.content.names.colour else {
+        return Vec::new();
+    };
+    let mut refused = Vec::new();
+    for ground in ["chat", "sidebar", "members"] {
+        let Some(backs) = shown_colours(variant, ground) else {
+            continue;
+        };
+        let worst = backs
+            .iter()
+            .map(|back| contrast(colour, *back))
+            .fold(f64::INFINITY, f64::min);
+        if worst < READABLE - 0.005 {
+            refused.push(format!(
+                "content.names.colour on {ground} contrasts {worst:.1}:1, under {READABLE:.1}:1; text has to stay readable"
+            ));
+        }
+    }
+    refused
 }
 
 /// A colour as a variant shows it: its own, the base's, or what it follows.
@@ -988,6 +1019,38 @@ mod tests {
         let reason = report.reason().unwrap();
         assert!(reason.starts_with("text on chat"), "{reason}");
         assert!(reason.contains("4.5:1"), "{reason}");
+    }
+
+    #[test]
+    fn a_content_name_colour_must_read_and_content_shows_in_the_cost() {
+        let content = |colour: &str| {
+            PLUM.replace(
+                r#""variants""#,
+                &format!(
+                    r#""content": {{ "media": "mono", "names": {{ "colours": "theme", "colour": "{colour}" }} }}, "variants""#
+                ),
+            )
+        };
+        let report = check(&files(&content("#3a2a4a")), Strictness::Install);
+        assert!(!report.passed());
+        assert!(
+            report
+                .reason()
+                .unwrap()
+                .starts_with("content.names.colour on chat"),
+            "{:?}",
+            report.errors
+        );
+        let report = check(&files(&content("#f0e0ff")), Strictness::Install);
+        assert!(report.passed(), "{:?}", report.errors);
+        assert!(
+            report
+                .cost
+                .text()
+                .contains("content (if allowed): mono pictures, theme name colours"),
+            "{}",
+            report.cost.text()
+        );
     }
 
     #[test]

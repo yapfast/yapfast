@@ -3,6 +3,7 @@ import { ScrollView } from "scrollview.slint";
 import { Theme, Tip, Middle, Label, Look } from "theme.slint";
 import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
 import { Arrange, DashedOutline } from "theme_layout.slint";
+import { ThemeContent } from "theme_content.slint";
 import { ClientStyle } from "yapfast/style.slint";
 
 // A labelled action. Primary is marigold, danger red, ghost transparent until hovered.
@@ -522,7 +523,7 @@ export component Avatar inherits Rectangle {
     /// A corner radius for a rounded square; negative is a circle.
     in property <length> corner: -1px;
     property <length> shape: root.corner >= 0px ? Look.radius(root.corner)
-        : Look.avatar.radius >= 0px ? root.size * Look.avatar.radius / 100px : root.size / 2;
+        : ThemeContent.avatar-corner(root.size, Look.avatar.radius >= 0px ? root.size * Look.avatar.radius / 100px : root.size / 2);
     /// Corners that differ from `corner`, as Discord's folder previews have a
     /// large outer corner and small others; negative follows `corner`.
     in property <length> corner-tl: -1px;
@@ -537,17 +538,19 @@ export component Avatar inherits Rectangle {
     /// Discord's client animates a decoration while the pointer is on its row
     /// or message.
     in property <bool> animate;
-    property <image> decoration: root.decoration-url != "" ? PictureStore.picture(root.decoration-url, PictureStore.revision(root.decoration-url)) : @image-url("");
-    property <string> animated-url: root.animate && root.decoration-url != "" ? PictureStore.animated(root.decoration-url) : "";
+    // A theme that hides decorations has them neither drawn nor fetched.
+    property <string> decoration-shown: ThemeContent.hide-decorations ? "" : root.decoration-url;
+    property <image> decoration: root.decoration-shown != "" ? PictureStore.picture(root.decoration-shown, PictureStore.revision(root.decoration-shown)) : @image-url("");
+    property <string> animated-url: root.animate && root.decoration-shown != "" ? PictureStore.animated(root.decoration-shown) : "";
     function request-decoration() {
-        if root.decoration-url != "" && root.decoration.width == 0 {
-            PictureStore.request(root.decoration-url);
+        if root.decoration-shown != "" && root.decoration.width == 0 {
+            PictureStore.request(root.decoration-shown);
         }
         if root.animated-url != "" {
             PictureStore.request(root.animated-url);
         }
     }
-    changed decoration-url => { root.request-decoration(); }
+    changed decoration-shown => { root.request-decoration(); }
     changed decoration => { root.request-decoration(); }
     changed animated-url => { root.request-decoration(); }
     width: root.size; height: root.size;
@@ -575,9 +578,17 @@ export component Avatar inherits Rectangle {
         frames: root.animated-url != "" ? PictureStore.frames(root.animated-url, PictureStore.revision(root.animated-url)) : [];
         delays: root.animated-url != "" ? PictureStore.delays(root.animated-url, PictureStore.revision(root.animated-url)) : [];
     }
+    // The theme's ring, round a person's avatar but not a server's.
+    if ThemeContent.ring-width > 0px && root.corner < 0px && !root.speaking: Rectangle {
+        x: -ThemeContent.ring-width; y: self.x;
+        width: root.size + 2 * ThemeContent.ring-width; height: self.width;
+        border-radius: root.shape + ThemeContent.ring-width;
+        border-width: ThemeContent.ring-width; border-color: ThemeContent.ring;
+    }
     if root.speaking: Rectangle {
         x: -3px; y: -3px; width: root.size + 6px; height: root.size + 6px;
-        border-radius: self.width / 2; border-width: 2px; border-color: Theme.live;
+        border-radius: ThemeContent.avatar-shape == 0 ? self.width / 2 : root.shape + 3px;
+        border-width: 2px; border-color: Theme.live;
     }
 }
 
@@ -604,12 +615,14 @@ export component Nameplate inherits Rectangle {
     in property <color> ground;
     /// How wide the row's text is; the picture fades in after it.
     in property <length> content-width;
-    property <image> picture: root.picture-url != "" ? PictureStore.picture(root.picture-url, PictureStore.revision(root.picture-url)) : @image-url("");
+    // A theme that hides nameplates has them neither drawn nor fetched.
+    property <bool> shown: ThemeContent.nameplates != 1;
+    property <image> picture: root.shown && root.picture-url != "" ? PictureStore.picture(root.picture-url, PictureStore.revision(root.picture-url)) : @image-url("");
     // The animated picture is asked for when it's to play, so that a list of
     // plates holds and downloads only their stills.
     property <string> animated-url: root.animate && root.picture.width > 0 ? PictureStore.animated(root.picture-url) : "";
     function request-picture() {
-        if root.picture-url != "" && root.picture.width == 0 {
+        if root.shown && root.picture-url != "" && root.picture.width == 0 {
             PictureStore.request(root.picture-url);
         }
         if root.animated-url != "" {
@@ -620,6 +633,9 @@ export component Nameplate inherits Rectangle {
     changed picture-url => { root.request-picture(); }
     changed picture => { root.request-picture(); }
     changed animated-url => { root.request-picture(); }
+    changed shown => { root.request-picture(); }
+    // A tinted plate is its picture's shape in the accent, over the accent's wash.
+    property <color> tint: ThemeContent.nameplates == 2 ? Theme.accent : root.palette;
     // Discord's opacities: .6 at rest, .9 selected or hovered; the account
     // card's .4 rises to .6 under the pointer.
     property <float> strength: root.account ? (root.hovered ? 0.6 : 0.4) : (root.selected || root.hovered) ? 0.9 : 0.6;
@@ -634,6 +650,7 @@ export component Nameplate inherits Rectangle {
         height: root.height; width: self.height * root.picture.width / root.picture.height;
         x: root.width - self.width;
         image-fit: fill; opacity: root.strength; accessible-role: none;
+        colorize: ThemeContent.nameplates == 2 ? Theme.accent.with-alpha(0.5) : transparent;
         frames: root.animated-url != "" ? PictureStore.frames(root.animated-url, PictureStore.revision(root.animated-url)) : [];
         delays: root.animated-url != "" ? PictureStore.delays(root.animated-url, PictureStore.revision(root.animated-url)) : [];
     }
@@ -643,10 +660,10 @@ export component Nameplate inherits Rectangle {
         background: @linear-gradient(90deg, root.ground.with-alpha(0.7) 0%, root.ground.with-alpha(0.7) root.fade-from / root.width * 100%, root.ground.with-alpha(0) root.fade-to / root.width * 100%, root.ground.with-alpha(0) 100%);
     }
     // The palette's tint, from nothing at the left edge.
-    if root.palette.alpha > 0: Rectangle {
+    if root.shown && root.tint.alpha > 0 && (root.picture-url != "" || root.palette.alpha > 0): Rectangle {
         background: root.account
-            ? @linear-gradient(90deg, root.palette.with-alpha(0.1) 0%, root.palette.with-alpha(0.4) 100%)
-            : @linear-gradient(90deg, root.palette.with-alpha(0) 0%, root.palette.with-alpha(0.08) 20%, root.palette.with-alpha(0.08) 50%, root.palette.with-alpha(root.selected ? 0.5 : root.hovered && !root.channel ? 0.3 : 0.2) 100%);
+            ? @linear-gradient(90deg, root.tint.with-alpha(0.1) 0%, root.tint.with-alpha(0.4) 100%)
+            : @linear-gradient(90deg, root.tint.with-alpha(0) 0%, root.tint.with-alpha(0.08) 20%, root.tint.with-alpha(0.08) 50%, root.tint.with-alpha(root.selected ? 0.5 : root.hovered && !root.channel ? 0.3 : 0.2) 100%);
     }
 }
 
