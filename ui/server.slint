@@ -5,7 +5,7 @@ import { Theme, Label, Middle, Popup } from "theme.slint";
 import { ActionButton, Avatar, IconButton, MenuItem, TextField, Motion, StatusText, ServerTagChip, PictureStore, StyledName, NameStyleRow } from "controls.slint";
 import { Choices, Picker, UnsavedBar } from "settings.slint";
 import { NameStyles } from "controls.slint";
-import { ProfileData, ProfileHeading, ProfileTitle, ActivityCard, ProfileBadge, ProfileBadgeRow, BoardCard, WishlistCard, ProfileTheme } from "people.slint";
+import { ProfileData, ProfileHeading, MemberSince, ActivityCard, ProfileBadge, ProfileBadgeRow, BoardCard, WishlistCard, ProfileTheme } from "people.slint";
 
 // What an invite dialog shows: whom it invites where, and the link once
 // Discord made it.
@@ -2040,17 +2040,13 @@ export component ProfileEditorDialog inherits Rectangle {
                                 }
                                 if root.prompt.preview.created != "" || root.prompt.preview.joined != "": VerticalLayout {
                                     spacing: 6px;
-                                    ProfileTitle { text: "Member since"; color: root.ink; }
-                                    HorizontalLayout {
-                                        spacing: 24px; alignment: start;
-                                        if root.prompt.preview.created != "": VerticalLayout {
-                                            Text { text: root.prompt.preview.created; color: root.ink; font-size: root.prompt.main ? 15px : 14px; font-weight: root.prompt.main ? 400 : 500; }
-                                            if !root.prompt.main: Text { text: "On Discord"; color: root.ink3; font-size: 12px; }
-                                        }
-                                        if root.prompt.preview.joined != "": VerticalLayout {
-                                            Text { text: root.prompt.preview.joined; color: root.ink; font-size: 14px; font-weight: 500; }
-                                            Text { text: "In this server"; color: root.ink3; font-size: 12px; }
-                                        }
+                                    // The main profile's in its card's words, a server's as a heading.
+                                    ProfileHeading { text: root.prompt.main ? "Member Since" : "MEMBER SINCE"; color: root.prompt.main ? root.ink : root.ink3; font-size: root.prompt.main ? 13px : 12px; font-weight: root.prompt.main ? 500 : 700; letter-spacing: root.prompt.main ? 0px : 0.6px; }
+                                    MemberSince {
+                                        created: root.prompt.preview.created;
+                                        joined: root.prompt.preview.joined;
+                                        server-name: root.prompt.preview.server-name; server-initial: root.prompt.preview.server-initial; server-icon: root.prompt.preview.server-icon;
+                                        ink: root.ink;
                                     }
                                 }
                                 if root.prompt.main: VerticalLayout {

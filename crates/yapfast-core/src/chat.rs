@@ -289,6 +289,9 @@ pub struct Friend {
     pub presence: Option<Presence>,
     pub activity: Option<String>,
     pub activities: Activities,
+    /// When they became friends, in Unix milliseconds; written out only for
+    /// the profile on screen.
+    pub since: Option<u64>,
 }
 
 /// A file waiting in the composer to go with the next message.
@@ -881,6 +884,10 @@ pub struct Profile {
     pub created: Option<String>,
     /// When they joined this server, as a date.
     pub joined: Option<String>,
+    /// The server `joined` is of, whose icon shows beside it: its name and
+    /// the address of its icon.
+    pub server_name: String,
+    pub server_icon: Option<String>,
     /// The servers and friends this account shares with them.
     pub servers: Vec<ProfileServer>,
     pub friends: Vec<ProfileFriend>,
@@ -907,6 +914,8 @@ pub struct Profile {
     /// What they did lately, once asked for.
     pub recent: Vec<RecentActivity>,
     pub recent_asked: bool,
+    /// Discord's answer to it came, even an empty or failed one.
+    pub recent_came: bool,
 }
 
 /// A past thing on someone's Activity tab.

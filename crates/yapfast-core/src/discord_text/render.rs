@@ -650,8 +650,18 @@ pub(super) fn chat_profile(
             .into_iter()
             .map(|(name, color)| ProfileRole { name, color })
             .collect(),
-        created: Some(crate::clock::day(profile.created / 1000)),
-        joined: profile.joined.map(|ms| crate::clock::day(ms / 1000)),
+        created: Some(crate::clock::profile_day(profile.created / 1000)),
+        joined: profile
+            .joined
+            .map(|ms| crate::clock::profile_day(ms / 1000)),
+        // The server whose date `joined` is, drawn beside it.
+        server_name: server
+            .filter(|_| profile.joined.is_some())
+            .map(|server| server.name.clone())
+            .unwrap_or_default(),
+        server_icon: server
+            .filter(|_| profile.joined.is_some())
+            .and_then(|server| server.icon.clone()),
         servers: profile
             .mutual_servers
             .into_iter()
@@ -725,6 +735,7 @@ pub(super) fn chat_profile(
         board_named: false,
         recent: Vec::new(),
         recent_asked: false,
+        recent_came: false,
         handle: profile.username,
         id: profile.user_id,
         // What the member list knows; the profile doesn't say.
