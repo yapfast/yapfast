@@ -7,7 +7,7 @@ side of it: no WASI, and one dev dependency (`assemblyscript`) for the compiler.
 **This is the PDK a new plugin should use.** It is the cheapest language
 measured — one page (64 KiB) of linear memory and an 11.4 KiB module, against
 the Rust PDK's 17 pages and 160.8 KiB — and it builds in a second with nothing
-but `npm`. The comparisons are in
+but `bun`. The comparisons are in
 [the measurements](../docs/measurements/README.md#the-other-collected-languages-measured-the-same-way),
 and the recommendation is in [writing a plugin](../docs/plugins/pdk.md).
 
@@ -19,7 +19,7 @@ and the recommendation is in [writing a plugin](../docs/plugins/pdk.md).
 | `examples/shout` | A whole plugin: one command, one host call, no state |
 
 ```sh
-npm install
+bun install
 cd examples/shout && ./build.sh && ls -l plugin.wasm
 ```
 

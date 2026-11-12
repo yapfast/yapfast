@@ -2,18 +2,18 @@
 rem Builds this plugin into plugin.wasm, which is what yapfast-plugin.json
 rem names. The Windows twin of build.sh.
 rem
-rem asc is run through node rather than through node_modules\.bin\asc, because
+rem asc is run through bun rather than through node_modules\.bin\asc, because
 rem that shim is a shell script on Unix and a .cmd on Windows and neither is
-rem the other. Nothing needs installing beyond `npm install` in the PDK folder.
+rem the other. Nothing needs installing beyond `bun install` in the PDK folder.
 setlocal
 cd /d "%~dp0.."
 
 if not exist "node_modules\assemblyscript\bin\asc.js" (
-    echo no asc: run `npm install` in %CD% first 1>&2
+    echo no asc: run `bun install` in %CD% first 1>&2
     exit /b 1
 )
 
-node "node_modules\assemblyscript\bin\asc.js" template\index.ts ^
+bun "node_modules\assemblyscript\bin\asc.js" template\index.ts ^
     --baseDir . ^
     -o template\plugin.wasm ^
     -O3 ^

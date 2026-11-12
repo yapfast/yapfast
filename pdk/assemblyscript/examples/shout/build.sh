@@ -10,9 +10,15 @@ set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
 pdk=$(cd "$here/../.." && pwd)
-cd "$pdk"
 
-"$pdk/node_modules/.bin/asc" examples/shout/shout.ts \
+asc="$pdk/node_modules/assemblyscript/bin/asc.js"
+if [ ! -f "$asc" ]; then
+    echo "no asc: run \`bun install\` in $pdk first" >&2
+    exit 1
+fi
+
+cd "$pdk"
+bun "$asc" examples/shout/shout.ts \
     --baseDir . \
     -o examples/shout/plugin.wasm \
     -O3 \

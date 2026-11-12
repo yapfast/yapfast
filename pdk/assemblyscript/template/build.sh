@@ -12,13 +12,13 @@ set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 pdk=$(cd "$here/.." && pwd)
 
-if [ ! -x "$pdk/node_modules/.bin/asc" ]; then
-    echo "no asc: run \`npm install\` in $pdk first" >&2
+if [ ! -f "$pdk/node_modules/assemblyscript/bin/asc.js" ]; then
+    echo "no asc: run \`bun install\` in $pdk first" >&2
     exit 1
 fi
 
 cd "$pdk"
-"$pdk/node_modules/.bin/asc" template/index.ts \
+bun "$pdk/node_modules/assemblyscript/bin/asc.js" template/index.ts \
     --baseDir . \
     -o template/plugin.wasm \
     -O3 \

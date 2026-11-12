@@ -3,7 +3,7 @@
 AssemblyScript, which is what a new Yapfast plugin should be written in: it is
 the cheapest one measured — 11.4 KiB and **one page (64 KiB)** of linear memory,
 against the Rust PDK's 160.8 KiB and 17 pages — and it compiles in a second with
-nothing installed but `npm`.
+nothing installed but `bun`.
 
 ## What is here
 
@@ -17,13 +17,13 @@ nothing installed but `npm`.
 ## Build it
 
 ```sh
-cd pdk/assemblyscript && npm install   # once, if node_modules is missing
+cd pdk/assemblyscript && bun install   # once, if node_modules is missing
 sh template/build.sh                   # writes template/plugin.wasm
 ```
 
 `build.sh` builds from the PDK's folder with `--baseDir`, which is what lets
 `index.ts` import `../assembly`. To take this plugin out of the repository,
-copy `pdk/assemblyscript/{assembly,package.json,package-lock.json,asconfig.json}`
+copy `pdk/assemblyscript/{assembly,package.json,bun.lock,asconfig.json}`
 beside it and keep the same layout:
 
 ```text
@@ -34,7 +34,7 @@ my-plugin/
   yapfast-plugin.json
 ```
 
-On Windows, `build.cmd` is the same build, run through `node`.
+On Windows, `build.cmd` is the same build, run through `bun`.
 
 ## Try it
 
