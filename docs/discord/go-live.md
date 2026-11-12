@@ -782,8 +782,13 @@ counted across the process: the first converter to take one initialises it
 and the last to let go terminates it, and a converter dropped never ends the
 display another one imports on. A format that isn't 32-bit BGRA, a picture the driver
 holds in neither rows nor an array, and a device that isn't the picture's are
-one sentence and the
-processor's copy, which is the ladder every encoder here walks. The session's
+one sentence each. One picture the card can't take is dropped rather than the
+path: a compositor hands a buffer of another layout now and then, and giving the
+path up for it would cost the share the card's own copy and the pointer the
+portal paints into its pictures for the rest of the stream. Half a second of
+them in a row — 30 pictures at 60 a second — is the layout changed for good or
+the device gone, and then the processor's capturer takes the share over, which
+is the ladder every encoder here walks. The session's
 settings are `native/hwenc.c`'s NVENC row, and a test holds the two tables to one
 answer. A share whose pictures are descriptors opens this session first on a
 machine with NVIDIA's card (`encode::nvidia_card`, FFmpeg's own CUDA device):

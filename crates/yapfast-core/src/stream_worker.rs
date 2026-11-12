@@ -123,6 +123,12 @@ const STILL_RETRY: Duration = Duration::from_secs(5);
 /// waiting for: a stream nothing negotiates with is otherwise a long silence.
 #[cfg(target_os = "linux")]
 const WAITING_EVERY: Duration = Duration::from_secs(5);
+/// How many pictures in a row the card's own path may refuse before the share
+/// gives it up for the processor's capturer: half a second of a 60 fps screen,
+/// which rides out the one buffer a compositor draws in another layout while
+/// catching a layout that has changed for good.
+#[cfg(nvcuda)]
+const REFUSED_PICTURES: u32 = 30;
 /// How long a shared stream whose connection ended waits for a server
 /// Discord moved it to.
 const MOVE_GRACE: Duration = Duration::from_secs(5);
@@ -565,6 +571,8 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
                 thumbnail: None,
                 lost: None,
                 diagnosis: Diagnosis::default(),
+                #[cfg(nvcuda)]
+                refused_pictures: 0,
             };
             report(Report::Ready);
             match source {
@@ -671,6 +679,11 @@ struct Sink {
     /// Where the pictures come from and how they reach the window, which is
     /// the half of a share no packet shows.
     diagnosis: Diagnosis,
+    /// How many pictures in a row the card's own path refused, which is how a
+    /// share tells a compositor handing one buffer of another layout from a
+    /// picture path that has gone: see [`Sink::dmabuf`].
+    #[cfg(nvcuda)]
+    refused_pictures: u32,
 }
 
 /// What a share can say about itself that the picture can't: how its frames
@@ -779,18 +792,13 @@ struct Cuda {
     engine: String,
 }
 
-/// Why the card's own path isn't there, said once: a share opens an encoder for
-/// each codec it could send, and every one of those asks for the path before
-/// settling for the processor's copy of a picture.
-#[cfg(nvcuda)]
-static NO_CARD_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-
 #[cfg(nvcuda)]
 impl Cuda {
     /// The card's own path for a stream of this size in `codec`, or `None` with
-    /// the reason in the log: the share then encodes through the encoder it
-    /// opened either way, and a machine without the path says why once rather
-    /// than once for each codec a share offers.
+    /// the reason in the log: the share then encodes through the encoder FFmpeg
+    /// opens. Said every time it is asked for, since a share asks again when its
+    /// codec or its size changes, and a share that dropped to an encoder that
+    /// uploads each frame has to say why it did.
     fn open(codec: Codec, width: u32, height: u32, fps: u32, kbps: u32) -> Option<Self> {
         let opened = cuda::Convert::open(width, height).and_then(|convert| {
             let encoder = cuda::Encoder::open(codec, width, height, fps, kbps, &convert)?;
@@ -799,14 +807,10 @@ impl Cuda {
         let (convert, encoder) = match opened {
             Ok(opened) => opened,
             Err(error) => {
-                if NO_CARD_PATH.get().is_none() {
-                    let why = format!("{error:#}");
-                    tracing::info!(
-                        why = why.as_str(),
-                        "converting every picture: the card can't take them where they lie"
-                    );
-                    let _ = NO_CARD_PATH.set(why);
-                }
+                tracing::info!(
+                    why = format!("{error:#}").as_str(),
+                    "converting every picture: the card can't take them where they lie"
+                );
                 return None;
             }
         };
@@ -1300,22 +1304,37 @@ impl Sink {
             )
         };
         let made = match made {
-            // The card's own path can't take this picture, so it is given up for
-            // the rest of the stream and the encoder FFmpeg opens takes the
-            // share over: this picture is converted on the processor and encoded
-            // here, exactly as every picture of a share without the rung is, and
-            // the ones after it follow the same way.
+            // A picture the card's own path can't take is dropped, not the path.
+            // A compositor hands a buffer of another layout now and then — one
+            // it drew for something else, or one tiled differently after a
+            // change — and giving the path up for it would cost the share the
+            // card's own copy and the pointer the portal paints into its
+            // pictures for the rest of the stream. Pictures refused one after
+            // another are the layout changed for good, or the device gone, and
+            // that is when the encoder FFmpeg opens takes the share over: this
+            // picture is converted on the processor and encoded here, exactly
+            // as every picture of a share without the rung is, and the ones
+            // after it follow the same way.
             #[cfg(nvcuda)]
             Sent::Card(why) => {
-                if self.diagnosis.fallback.is_none() {
-                    tracing::info!(
-                        why = why.as_str(),
-                        "converting every picture: the card can't take them where they lie"
-                    );
-                    self.diagnosis.fallback = Some(format!(
-                        "the card can't take a picture where it lies: {why}"
-                    ));
+                self.refused_pictures = self.refused_pictures.saturating_add(1);
+                if self.refused_pictures < REFUSED_PICTURES {
+                    if self.refused_pictures == 1 {
+                        tracing::info!(
+                            why = why.as_str(),
+                            "a picture the card can't take where it lies: the frame is dropped"
+                        );
+                    }
+                    return Ok(Taken::Held);
                 }
+                tracing::info!(
+                    why = why.as_str(),
+                    pictures = self.refused_pictures,
+                    "converting every picture: the card can't take them where they lie"
+                );
+                self.diagnosis.fallback = Some(format!(
+                    "the card can't take a picture where it lies: {why}"
+                ));
                 // No encoder at all for this codec is the answer a picture
                 // nothing here can read gets, which moves the share to the
                 // capturer that has pixels rather than failing it.
@@ -1340,6 +1359,12 @@ impl Sink {
         };
         match made {
             Sent::Frame { frame, converted } => {
+                // The card's path has taken a picture again, so the ones before
+                // it were its now and then rather than gone.
+                #[cfg(nvcuda)]
+                {
+                    self.refused_pictures = 0;
+                }
                 // Which encoder opened doesn't change under a stream, so the
                 // answer to "does it read a descriptor" would be the same for
                 // every frame after this one: it is said once, in the log and in
@@ -6528,6 +6553,8 @@ mod tests {
             thumbnail: None,
             lost: None,
             diagnosis: Diagnosis::default(),
+            #[cfg(nvcuda)]
+            refused_pictures: 0,
         };
         let (offers, encoder) = sink.offers(320, 180, None).unwrap();
         eprintln!("offering {offers:?}, encoding with {}", encoder.engine());
@@ -6572,6 +6599,8 @@ mod tests {
             thumbnail: None,
             lost: None,
             diagnosis: Diagnosis::default(),
+            #[cfg(nvcuda)]
+            refused_pictures: 0,
         };
         // The device the stream's own session opens on is the capture's, which
         // a test can only ask for by capturing something. A machine with no
@@ -6629,6 +6658,8 @@ mod tests {
             thumbnail: None,
             lost: None,
             diagnosis: Diagnosis::default(),
+            #[cfg(nvcuda)]
+            refused_pictures: 0,
         };
         let bounds = (SHARE_WIDTH, SHARE_HEIGHT);
         for (source, why) in [
@@ -7216,6 +7247,8 @@ root.mainloop()
             thumbnail: None,
             lost: None,
             diagnosis: Diagnosis::default(),
+            #[cfg(nvcuda)]
+            refused_pictures: 0,
         };
         // A 1080p picture, mid-grey: luma and chroma halfway.
         let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
@@ -7268,6 +7301,8 @@ root.mainloop()
             thumbnail: None,
             lost: None,
             diagnosis: Diagnosis::default(),
+            #[cfg(nvcuda)]
+            refused_pictures: 0,
         };
         let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
         let (y, u, v) = picture.data_mut();
@@ -7324,6 +7359,8 @@ root.mainloop()
             thumbnail: None,
             lost: None,
             diagnosis: Diagnosis::default(),
+            #[cfg(nvcuda)]
+            refused_pictures: 0,
         };
         let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
         let (y, u, v) = picture.data_mut();
@@ -7362,6 +7399,8 @@ root.mainloop()
             thumbnail: None,
             lost: None,
             diagnosis: Diagnosis::default(),
+            #[cfg(nvcuda)]
+            refused_pictures: 0,
         };
         let mut report = |_| {};
         assert_eq!(
@@ -7407,6 +7446,8 @@ root.mainloop()
             thumbnail: None,
             lost: None,
             diagnosis: Diagnosis::default(),
+            #[cfg(nvcuda)]
+            refused_pictures: 0,
         };
         let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
         let (y, u, v) = picture.data_mut();
@@ -7557,6 +7598,8 @@ root.mainloop()
             thumbnail: None,
             lost: None,
             diagnosis: Diagnosis::default(),
+            #[cfg(nvcuda)]
+            refused_pictures: 0,
         };
         let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
         {
@@ -7606,6 +7649,8 @@ root.mainloop()
             thumbnail: None,
             lost: None,
             diagnosis: Diagnosis::default(),
+            #[cfg(nvcuda)]
+            refused_pictures: 0,
         }));
         let captured = Arc::new(Mutex::new(Captured::default()));
         // Held as the loop holds it while it reads the capture's status.
@@ -8171,6 +8216,8 @@ root.mainloop()
             thumbnail: None,
             lost: None,
             diagnosis: Diagnosis::default(),
+            #[cfg(nvcuda)]
+            refused_pictures: 0,
         }
     }
 
@@ -8313,7 +8360,7 @@ root.mainloop()
         };
         let opened = Opened {
             capture: Box::new(Eager {
-                until: Instant::now() + Duration::from_millis(250),
+                until: Instant::now() + Duration::from_millis(1500),
                 pictures: 0,
                 stop: stop.clone(),
             }),
@@ -8331,11 +8378,14 @@ root.mainloop()
             &mut report,
         );
         assert!(matches!(outcome, Ok((_, After::Ended))));
-        // 250 ms at 20 frames a second is five slots, and the desktop drew about
-        // two hundred pictures in them.
+        // 1.5 s at 20 frames a second is thirty slots, and the desktop drew
+        // hundreds of pictures in them. The band is wide because the slots are
+        // wall-clock ones and this suite runs its tests side by side: a thread
+        // that waits its turn sends some of them late, and what the test is for
+        // is that the rate bounds the pictures sent rather than the capture.
         assert!(
-            (3..=7).contains(&sent),
-            "{sent} pictures sent in five slots"
+            (12..=40).contains(&sent),
+            "{sent} pictures sent in thirty slots"
         );
     }
 
