@@ -50,6 +50,10 @@ impl Session {
                 self.decorate_member(shared, &plugin, request);
                 None
             }
+            Request::Input { plugin, input } => {
+                self.input(shared, &plugin, input);
+                None
+            }
             Request::Identity { plugin, request } => {
                 self.identity(shared, &plugin, request);
                 None

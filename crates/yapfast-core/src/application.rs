@@ -2937,6 +2937,13 @@ impl Application {
     #[cfg(feature = "plugins")]
     fn plugin_input(&mut self, input: crate::plugins::Input) -> Vec<Effect> {
         let mut effects = Vec::new();
+        // The interface changed when the person clicked, so this is delivered
+        // here rather than handed back to the interface to deliver: the runtime
+        // that would take it is the one this application owns.
+        #[cfg(feature = "plugins")]
+        if let Some(plugins) = self.state.plugins.as_mut() {
+            plugins.deliver(&input);
+        }
         if let crate::plugins::Input::Dismissed { plugin, slot } = &input
             && let Some(slots) = &mut self.state.plugin_slots
             && slots.clear(plugin, *slot)

@@ -62,6 +62,59 @@ pub(in crate::plugins) struct Supervisor {
 }
 
 impl Bridge {
+    /// Hands a plugin what the person did with something it drew.
+    ///
+    /// The interface changed when the person clicked — a toggle took its value,
+    /// a notice left the screen — so nothing here answers into it. The input
+    /// goes to the plugin that declared the thing: a menu row names its plugin,
+    /// a slot belongs to one, and a notice is the one that drew it.
+    pub fn input(&mut self, input: &crate::plugins::Input) {
+        let (plugin, event) = match input {
+            crate::plugins::Input::Menu {
+                plugin,
+                action,
+                target,
+            } => (
+                plugin.clone(),
+                yapfast_plugin_api::message::InputEvent::Menu {
+                    action: action.clone(),
+                    target: target.clone(),
+                },
+            ),
+            crate::plugins::Input::Widget {
+                plugin,
+                slot,
+                id,
+                value,
+                subject,
+            } => (
+                plugin.clone(),
+                yapfast_plugin_api::message::InputEvent::Widget {
+                    slot: slot.id().to_owned(),
+                    id: id.clone(),
+                    value: value.clone(),
+                    subject: subject.clone(),
+                },
+            ),
+            crate::plugins::Input::Dismissed { plugin, slot } => (
+                plugin.clone(),
+                yapfast_plugin_api::message::InputEvent::Dismissed {
+                    slot: slot.id().to_owned(),
+                },
+            ),
+        };
+        let Ok(plugin) = PluginId::parse(&plugin) else {
+            // A slot drawn by something that isn't a plugin id can't be handed
+            // to a plugin; the interface's own id and a plugin's never collide,
+            // so this is a manifest that changed under a click.
+            return;
+        };
+        self.send(Request::Input {
+            plugin,
+            input: event,
+        });
+    }
+
     /// Hands one event to the plugins subscribed to it.
     ///
     /// The event is serialized once, and only if someone wants it; the filters

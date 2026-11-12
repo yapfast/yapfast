@@ -39,6 +39,14 @@ pub(super) enum Request {
         plugin: PluginId,
         request: yapfast_plugin_api::message::DecorateMemberRequest,
     },
+    /// Something the person did with what a plugin drew, for its `yf_input`.
+    ///
+    /// Nothing comes back: a plugin that wants to be seen says so with a host
+    /// call or by drawing again, and the interface has already changed.
+    Input {
+        plugin: PluginId,
+        input: yapfast_plugin_api::message::InputEvent,
+    },
     /// What a plugin makes of one code block on screen: the answer comes back as
     /// [`FromHelper::CodeBlock`].
     CodeBlock {

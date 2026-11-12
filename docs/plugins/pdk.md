@@ -85,9 +85,10 @@ plugin author isn't forced onto Yapfast's toolchain.
 
 Underneath the crate is the guest ABI described in [the ABI](abi.md): five
 exports, two imports, and JSON written by the crate and not by you. The four the
-interface's half adds — `yf_decorate`, `yf_member_decorate`, `yf_identity` and
-`yf_code_block` — are not among them yet, and a plugin that answers one writes
-that export by hand.
+interface's half adds — `yf_decorate`, `yf_member_decorate`, `yf_identity`,
+`yf_code_block` and `yf_input` — are not among them yet, except `yf_input`,
+which the macro writes for you and which reaches `Plugin::input`; a plugin that
+answers one of the other four writes that export by hand.
 
 ## Starting from an example
 
@@ -157,8 +158,10 @@ is nothing else to show, since the send is the visible result.
 
 `yapfast_plugin!` writes the guest's five exports once, and the handlers you
 don't implement are generated as no-ops, which is why a plugin that only adds a
-command never writes a hook. None of the four exports the interface's half adds
-has a handler in the crate — `yf_decorate`, `yf_member_decorate`, `yf_identity`
+command never writes a hook. Of the five exports the interface's half adds, only
+`yf_input` has a handler in the crate — it arrives at `Plugin::input`, with the
+kind, the action and what it was about. The other four have none — `yf_decorate`,
+`yf_member_decorate`, `yf_identity`
 and `yf_code_block` are written by hand by a plugin that answers one, alongside
 the generated five.
 

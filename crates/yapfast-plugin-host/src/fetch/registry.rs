@@ -182,7 +182,8 @@ impl Entry {
         if self.name.trim().is_empty() || self.version.trim().is_empty() {
             bail!("`{file}` has no name or no version");
         }
-        let local = local_ok && self.repo.starts_with("file://") && self.repo.len() > "file://".len();
+        let local =
+            local_ok && self.repo.starts_with("file://") && self.repo.len() > "file://".len();
         if !fetchable(&self.repo) && !local {
             bail!(
                 "`{}` isn't a repository Yapfast may fetch; use the https:// address",

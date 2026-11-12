@@ -195,6 +195,36 @@ pub struct DeactivatePayload {
     pub state: Option<String>,
 }
 
+/// What the person did with something a plugin drew, as `yf_input` is given it.
+///
+/// The ABI's shape, written again here because this crate stands on its own: its
+/// only runtime dependency is Extism's PDK, so a plugin author depends on this
+/// crate and nothing of Yapfast's. The names are the interface's own — `slot` is
+/// a slot's id, `id` a widget's, `target` what a menu row was clicked on, and
+/// `subject` what a widget was drawn on.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum InputEvent {
+    /// A menu row the plugin added was chosen.
+    Menu {
+        /// The row's `action`, as the manifest declares it.
+        action: String,
+        /// What the menu was about: a person's, conversation's or server's id.
+        target: String,
+    },
+    /// A widget the plugin drew was clicked or changed.
+    Widget {
+        slot: String,
+        id: String,
+        /// Its value after the change; empty for a button.
+        value: String,
+        /// What it was drawn on: the message, or the open conversation.
+        subject: String,
+    },
+    /// A notice or toast the plugin drew was closed.
+    Dismissed { slot: String },
+}
+
 /// What `yf_event` is given, in one call.
 ///
 /// Events are batched, so a burst of typing is one call. Answers to host calls

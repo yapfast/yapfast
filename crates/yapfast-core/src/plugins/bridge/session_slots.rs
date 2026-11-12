@@ -1,6 +1,29 @@
 use super::*;
 
 impl Session {
+    /// Hands a plugin what the person did with something it drew, with
+    /// `yf_input`: a menu row it added, a widget it drew, a notice of its that
+    /// was closed.
+    ///
+    /// Nothing answers this, so it goes the way a timer's tick goes: with no id
+    /// and nothing to expire. The interface changed when the person clicked, so
+    /// waiting on a plugin here would only delay what already happened; a
+    /// plugin that wants to be seen says so with a host call or by drawing
+    /// again, which is the same thing it does everywhere else.
+    pub(super) fn input(
+        &mut self,
+        shared: &Shared,
+        plugin: &PluginId,
+        input: yapfast_plugin_api::message::InputEvent,
+    ) {
+        self.activate(shared, plugin);
+        let message = ToHelper::Input {
+            plugin: plugin.clone(),
+            input,
+        };
+        self.send_message(&message, FrameKind::Request);
+    }
+
     /// Draws a tree in a slot, or says why the interface has no place for it.
     ///
     /// Nothing here reaches the interface at once: a drawing joins the frame

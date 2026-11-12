@@ -39,6 +39,11 @@ impl Session {
             // An answer to a guest's call is about a guest that may be shut
             // down with the swap, so it goes as it comes.
             Request::CallAnswer { .. } => false,
+            // A click is about something the instance being replaced drew: the
+            // new one draws that surface again, and its own row may not be
+            // there. Held for the swap it would arrive at a version that never
+            // showed it.
+            Request::Input { .. } => false,
             // An eviction is the application asking for memory back, and one
             // that raced a swap would be undoing it; it waits the 100 ms. A
             // second swap waits for the one running for the same reason: the

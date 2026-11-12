@@ -73,6 +73,13 @@ pub trait Backend: Send + Sync {
     /// last `yf_deactivate` handed on, if any.
     fn activate(&self, plugin: &PluginId) -> Result<Option<String>, Fault>;
 
+    /// Whether this plugin's module writes that export.
+    ///
+    /// The optional ones are asked this before they are called: a call to an
+    /// export a module doesn't have answers a fault the runtime can't tell from
+    /// a trap, and discarding a good instance over it would be wrong.
+    fn has_export(&self, plugin: &PluginId, export: &str) -> bool;
+
     /// Calls `yf_deactivate`, and drops the instance. The answer is its
     /// hand-off for the next activation, cut to the limit.
     fn deactivate(&self, plugin: &PluginId) -> Result<Option<String>, Fault>;

@@ -194,6 +194,17 @@ pub enum ToHelper {
         plugin: PluginId,
         request: DecorateMemberRequest,
     },
+    /// Something the person did with what this plugin drew, for its
+    /// `yf_input`: a menu row it added, a widget it drew in a slot, a notice of
+    /// its that was closed.
+    ///
+    /// There is no answer. A plugin that wants the person to see something says
+    /// it the way it always does, with `ui.notice` or by drawing again, and a
+    /// click that answered into thin air would be an answer nobody reads. It is
+    /// still a request and not a call because the instance is the helper's: the
+    /// parent turns the person's click into this, and the helper runs the
+    /// export.
+    Input { plugin: PluginId, input: InputEvent },
     /// The answer to a guest's host call.
     Return {
         plugin: PluginId,
@@ -204,6 +215,48 @@ pub enum ToHelper {
     Evict { plugin: PluginId },
     /// The parent is going away; exit.
     Shutdown,
+}
+
+/// What the person did with something a plugin drew, as `yf_input` is given it.
+///
+/// The names and values are the interface's own: `slot` is a slot's id, `id` is
+/// a widget's, `target` is what a menu row was clicked on, and `subject` is what
+/// a widget was drawn on. A plugin compares them with what it declared.
+///
+/// ```json
+/// { "kind": "menu", "action": "wave", "target": "com.example.someone" }
+/// { "kind": "widget", "slot": "composer", "id": "shout", "value": "", "subject": "1234" }
+/// { "kind": "dismissed", "slot": "toast" }
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum InputEvent {
+    /// A menu row the plugin added was chosen.
+    Menu {
+        /// The row's `action`, as the manifest declares it.
+        action: String,
+        /// What the menu was about: a person's, conversation's or server's id.
+        target: String,
+    },
+    /// A widget the plugin drew was clicked or changed.
+    Widget {
+        /// The slot it was drawn in.
+        slot: String,
+        /// The widget's own id.
+        id: String,
+        /// Its value after the change: a toggle's `true` or `false`, a select's
+        /// option, an input's text, a slider's number, a link's own value, and
+        /// nothing for a button.
+        value: String,
+        /// What it was drawn on: the message, or the open conversation.
+        subject: String,
+    },
+    /// A notice or toast the plugin drew was closed, so it is leaving the
+    /// screen.
+    Dismissed {
+        /// The slot it was in.
+        slot: String,
+    },
 }
 
 /// What `yf_decorate` may answer: what to draw under a message, and whether the

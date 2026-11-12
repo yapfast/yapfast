@@ -371,6 +371,16 @@ impl Backend for ExtismBackend {
         loaded.call_bytes(function, args)
     }
 
+    fn has_export(&self, plugin: &PluginId, export: &str) -> bool {
+        let Some(slot) = self.slot(plugin) else {
+            return false;
+        };
+        let loaded = slot
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        loaded.shape.has(export)
+    }
+
     fn memory_pages(&self, plugin: &PluginId) -> Option<u32> {
         let slot = self.slot(plugin)?;
         let loaded = slot

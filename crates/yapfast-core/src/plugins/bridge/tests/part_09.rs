@@ -253,3 +253,51 @@ fn a_plugin_without_messages_filter_hides_nothing() {
         "a hide without `messages.filter` hides nothing"
     );
 }
+
+/// What the person did with something a plugin drew reaches that plugin.
+///
+/// The row was drawn from the manifest, so the click had somewhere to happen;
+/// this is the other half, which for a while was a log line: the session turns
+/// the interface's `Input` into a request the helper answers with `yf_input`.
+/// Nothing comes back, so there is no answer to wait for — only the frame that
+/// says it was handed over.
+#[test]
+fn a_click_reaches_the_plugin_that_drew_the_row() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let plugin = installed(directory.path(), PAINTER_MANIFEST, b"not a real module");
+    let (wake, _notices) = notice_channel();
+    let shared = shared(directory.path(), wake);
+    let (_session_directory, mut session, written, _inbound) = session_stub();
+
+    runtime().block_on(session.on_command(
+        &shared,
+        Request::Input {
+            plugin: plugin.clone(),
+            input: yapfast_plugin_api::message::InputEvent::Menu {
+                action: "wave".to_owned(),
+                target: "person-1".to_owned(),
+            },
+        },
+    ));
+
+    // The plugin is activated first, as anything addressed to it is, and then
+    // the input goes: no id, because nothing answers it.
+    assert!(matches!(
+        message(&next_frame(&written)),
+        ToHelper::Activate { .. }
+    ));
+    let handed = next_frame(&written);
+    let ToHelper::Input { plugin: to, input } = message(&handed) else {
+        panic!("an input is its own message");
+    };
+    assert_eq!(to, plugin);
+    assert_eq!(
+        input,
+        yapfast_plugin_api::message::InputEvent::Menu {
+            action: "wave".to_owned(),
+            target: "person-1".to_owned(),
+        }
+    );
+    assert_eq!(handed.kind, FrameKind::Request);
+    assert_eq!(handed.id, 0, "nothing answers an input");
+}

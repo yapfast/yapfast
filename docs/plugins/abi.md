@@ -126,12 +126,15 @@ surface. The method is a name inside the payload, an unknown method answers
 
 A guest that doesn't export one of those five is a `bad_module` fault at
 activation, so a PDK that forgets `yf_event` fails early and clearly rather than
-on the first message. Four more exports are the interface's half of the API, and
+on the first message. Five more exports are the interface's half of the API, and
 optional: `yf_decorate` draws under a message, `yf_member_decorate` marks people
-in the member list, `yf_identity` says how one person looks, and `yf_code_block`
-colours one block. A module that declares one is asked for it and one that
-doesn't is left alone, so a plugin that draws nothing, marks nobody, says nothing
-about how people look and colours no code exports none of the four.
+in the member list, `yf_identity` says how one person looks, `yf_code_block`
+colours one block, and `yf_input` is told what the person did with something the
+plugin drew. A module that declares one is asked for it and one that doesn't is
+left alone — the helper reads the export section and calls only what is there,
+so a missing one is a plugin that chose not to listen rather than a fault — so a
+plugin that draws nothing, marks nobody, says nothing about how people look,
+colours no code and ignores clicks exports none of the five.
 
 ### The payloads
 
@@ -149,6 +152,7 @@ a log.
 | `yf_member_decorate` | `DecorateMemberRequest { server, room, member, name, own, bot, roles }` | `MemberBadge { text, tone }`, or `null` for none |
 | `yf_identity` | `IdentityRequest { person, server, name, username, own }` | An `Identity`, or `null` for none |
 | `yf_code_block` | `CodeBlockRequest { block, language, text }` | A list of spans, or `null` for none |
+| `yf_input` | `InputEvent`, one of `menu`, `widget` or `dismissed` | Nothing |
 | `yf_call` | `HostCall { method, payload }` | `HostReturn` |
 | `yf_post` | `HostCall` | Nothing |
 
@@ -285,6 +289,13 @@ keeps as an answer so it isn't asked again. A name, a pronoun line or a badge
 is one line of at most 64 characters, there are at most 8 badges, a colour is
 `0xRRGGBB`, and a picture address is `https` and at most 2048 characters: a
 field that isn't is dropped, and the rest of the answer still applies.
+
+`yf_input` is the click, not the question: the interface has already changed — a
+toggle took its value, a notice left the screen — so there is nothing to answer.
+`menu` carries the row's `action` and what the menu was about, `widget` the slot,
+the widget's id, its new value and what it was drawn on, and `dismissed` the slot
+the notice was in. A plugin that wants the person to see something says it with
+`ui.notice` or by drawing again.
 
 `yf_code_block` is asked once per code block, named by the hash of its content
 and language, and only for the blocks of the messages on screen:

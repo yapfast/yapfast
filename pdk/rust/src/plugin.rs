@@ -11,6 +11,7 @@ use crate::call::Pending;
 use crate::command::{Command, Reply};
 use crate::event::Event;
 use crate::hook::HookRequest;
+use crate::input::Input;
 use crate::json;
 use crate::wire::{self, CallResult, CommandInvocation, HookOutcome, PluginId};
 
@@ -34,6 +35,8 @@ pub enum Call {
     Hook,
     /// One command a person typed.
     Command,
+    /// Something the person did with what this plugin drew.
+    Input,
 }
 
 /// The call a handler is running in.
@@ -130,6 +133,14 @@ pub trait Plugin: Default + 'static {
         Ok(Reply::None)
     }
 
+    /// Something the person did with what this plugin drew.
+    ///
+    /// A menu row it added was chosen, a widget it drew in a slot was clicked or
+    /// changed, or a notice of its was closed. Nothing is answered, and the
+    /// instance is already running — it drew the thing — so say what should
+    /// happen with the host calls this plugin has, or draw again.
+    fn input(&mut self, _ctx: &Context<'_>, _input: Input) {}
+
     /// One thing another plugin published to a topic this one subscribed to.
     ///
     /// Called after the batch's events, once per publish, in the order they were
@@ -219,6 +230,18 @@ macro_rules! yapfast_plugin {
                 })?;
                 Ok(answer)
             }
+
+            // Exported always, even by a plugin that answers nothing: the helper
+            // asks a module whether it has this one before calling it, and a
+            // plugin that has it and ignores it is a plugin that chose not to
+            // listen, not one that is asked a question it can't answer.
+            #[::yapfast_pdk::extism_pdk::plugin_fn]
+            pub fn yf_input(input: String) -> extism_pdk::FnResult<String> {
+                let answer = YAPFAST_PLUGIN.with(|plugin| {
+                    ::yapfast_pdk::plugin::__private::input(&mut *plugin.borrow_mut(), &input)
+                })?;
+                Ok(answer)
+            }
         }
     };
 }
@@ -287,6 +310,18 @@ pub mod __private {
             }
         };
         Ok(json::to_string(&outcome)?)
+    }
+
+    /// Runs `yf_input`: what the person did with something this plugin drew.
+    ///
+    /// An answer nobody reads, so it is always empty; a failure is logged
+    /// rather than raised, because the interface has already changed and there
+    /// is nobody left to tell.
+    pub fn input<P: Plugin>(plugin: &mut P, input: &str) -> Result<String> {
+        let event: Input = json::from_str(input)?;
+        let context = Context::for_call(Call::Input, &[]);
+        plugin.input(&context, event);
+        Ok(String::new())
     }
 
     /// The answer to `yf_command`, whose failure is shown to the person

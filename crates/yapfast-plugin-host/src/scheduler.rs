@@ -54,6 +54,15 @@ const INVOKE_BUDGET: Duration = Duration::from_secs(2);
 /// it leaves the row plain until it is asked again.
 const DECORATE_BUDGET: Duration = Duration::from_millis(16);
 
+/// How long a plugin's `yf_input` may run.
+///
+/// The person already clicked, so nothing waits on the answer; what this bounds
+/// is how long one stuck instance blocks the lane it is in. A quarter of a
+/// second is enough to send, draw or answer through a host call, and short
+/// enough that a hung plugin is noticed while the person still remembers
+/// clicking.
+const INPUT_BUDGET: Duration = Duration::from_millis(250);
+
 /// How long one plugin's `yf_identity` may run. The answer is kept and used by
 /// every surface that shows that person, so it is asked once and not per row;
 /// it still runs in the background lane, and the person is drawn as Yapfast
@@ -202,6 +211,11 @@ pub enum Message {
         plugin: PluginId,
         member: String,
         request: yapfast_plugin_api::message::DecorateMemberRequest,
+    },
+    Input {
+        id: u64,
+        plugin: PluginId,
+        input: yapfast_plugin_api::message::InputEvent,
     },
     /// The parent's answer to a guest's host call.
     Return {
@@ -610,6 +624,13 @@ impl<B: Backend + 'static> Shared<B> {
                     Job::DecorateMember { member, request },
                 );
             }
+            Message::Input { id, plugin, input } => {
+                let slot = state.slot_for(&plugin);
+                // A click is a person waiting on nothing: it is queued ahead of
+                // a decoration because it is what the person just did, and it
+                // is not in the background lane where a screenful of rows is.
+                state.push(slot, Lane::Interactive, id, Job::Input { input });
+            }
             Message::Return {
                 plugin,
                 call,
@@ -668,6 +689,7 @@ impl<B: Backend + 'static> Shared<B> {
             } => self.invoke(task, function, args_base64),
             Job::Decorate { message, request } => self.decorate(task, message, request),
             Job::DecorateMember { member, request } => self.decorate_member(task, member, request),
+            Job::Input { input } => self.input(task, input),
             Job::Identity {
                 person,
                 server,
@@ -699,6 +721,38 @@ impl<B: Backend + 'static> Shared<B> {
             self.discard(slot, deadline_fault("loading the module"), None);
         } else if let Err(fault) = result {
             self.discard(slot, fault, None);
+        }
+    }
+
+    /// Runs a plugin's `yf_input`: what the person did with something it drew.
+    ///
+    /// Nothing is answered, so nothing is waited for. A plugin that doesn't
+    /// write the export is skipped rather than called: the call would answer a
+    /// fault the runtime can't tell from a trap, and discarding a good instance
+    /// because it chose not to listen to clicks would be wrong.
+    fn input(&self, task: &Task, input: &yapfast_plugin_api::message::InputEvent) {
+        let slot = task.owner();
+        let plugin = self.id(slot);
+        if self.ensure_active(slot).is_none() {
+            return;
+        }
+        if !self.backend.has_export(&plugin, "yf_input") {
+            return;
+        }
+        let Ok(bytes) = serde_json::to_vec(input) else {
+            return;
+        };
+        let (result, late) = self.call(&[slot], INPUT_BUDGET, |backend| {
+            backend.invoke(&plugin, "yf_input", &bytes)
+        });
+        match result {
+            Ok(_) if late => self.discard(
+                slot,
+                deadline_fault("what a person did with what it drew"),
+                None,
+            ),
+            Ok(_) => {}
+            Err(fault) => self.discard(slot, fault, None),
         }
     }
 
@@ -1555,7 +1609,14 @@ impl<B: Backend + 'static> Shared<B> {
                     },
                 );
             }
-            Job::Load(_) | Job::Unload | Job::Evict | Job::Kick | Job::Return { .. } => {}
+            // Nothing answers an input, a load, an unload, a tick or an answer:
+            // there is no one waiting on any of them.
+            Job::Load(_)
+            | Job::Unload
+            | Job::Evict
+            | Job::Kick
+            | Job::Input { .. }
+            | Job::Return { .. } => {}
         }
     }
 
@@ -1802,6 +1863,9 @@ enum Job {
     DecorateMember {
         member: String,
         request: serde_json::Value,
+    },
+    Input {
+        input: yapfast_plugin_api::message::InputEvent,
     },
     Decorate {
         message: String,

@@ -395,6 +395,16 @@ impl PluginState {
         self.bridge.run_command(plugin, invocation);
     }
 
+    /// Hands a plugin what the person did with something it drew: a menu row
+    /// it added was chosen, a widget it drew was clicked or changed, or a
+    /// notice of its was closed.
+    ///
+    /// Nothing comes back, and the plugin is not woken for it: a plugin that
+    /// isn't running has drawn nothing to click.
+    pub fn deliver(&mut self, input: &crate::plugins::Input) {
+        self.bridge.input(input);
+    }
+
     /// Applies one change to a plugin's settings, stores what changed, and
     /// tells a running instance through `settings.on_change`.
     ///

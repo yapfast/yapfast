@@ -77,14 +77,12 @@ one row in it. The row is drawn — `MenuDecl` is read where the manifest is
 and a click on it is dispatched as `Input::Menu` with this plugin's id and the
 row's action (`src/ui/plugins.rs`).
 
-What is missing is the last step: the runtime that would take that `Input` has
-no implementation in this build. `src/ui/plugins.rs` calls
-`runtime.input(input)` and the runtime is `None`, so the click becomes a log
-line — `no plugin runtime is attached to take this` — and the plugin never hears
-it. Every interactive surface a plugin has goes through the same seam: a menu
-row, a widget's toggle, a dismissed notice. Nor is there an export for it to
-arrive at yet: the ABI's five are `activate`, `deactivate`, `event`, `hook` and
-`command`, and the optional four are the decorations.
+The last step is the application's: the click is turned into a request the
+helper answers with `yf_input`, which is how every interactive surface reaches a
+plugin — a menu row, a widget's toggle, a dismissed notice. This plugin doesn't
+export it, so it hears nothing; that is the choice the optional export exists
+for, and the helper reads the export section before calling it rather than
+discarding a plugin that chose not to listen.
 
 This plugin declares the row anyway on purpose: the first plugin is a good place
 to have the thing that doesn't work yet written down in the form it will work in,

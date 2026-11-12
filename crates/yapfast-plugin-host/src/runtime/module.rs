@@ -40,13 +40,40 @@ const WASI_MODULES: [&str; 2] = ["wasi_snapshot_preview1", "wasi_unstable"];
 
 const MAGIC: [u8; 4] = *b"\0asm";
 
+/// The exports a plugin may write, which the helper calls only where the
+/// module has them.
+///
+/// None of these is required: a plugin that doesn't draw under a message
+/// doesn't export `yf_decorate`, and one that ignores what people do with what
+/// it drew doesn't export `yf_input`. Calling one of them anyway answers a
+/// fault from the runtime, indistinguishable from a trap, which would discard a
+/// perfectly good instance — so the shape records which are there and the
+/// helper asks only those.
+pub const OPTIONAL_EXPORTS: [&str; 5] = [
+    "yf_decorate",
+    "yf_member_decorate",
+    "yf_identity",
+    "yf_code_block",
+    "yf_input",
+];
+
 /// What a module exports of what this helper needs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Shape {
     present: u8,
+    /// One bit per [`OPTIONAL_EXPORTS`], in that order.
+    optional: u8,
 }
 
 impl Shape {
+    /// Whether the module writes this optional export.
+    pub fn has(&self, export: &str) -> bool {
+        OPTIONAL_EXPORTS
+            .iter()
+            .position(|name| *name == export)
+            .is_some_and(|bit| self.optional & (1 << bit) != 0)
+    }
+
     /// The required exports the module doesn't have.
     pub fn missing_exports(&self) -> Vec<&'static str> {
         REQUIRED_EXPORTS
@@ -236,6 +263,12 @@ fn check_exports(body: &[u8], shape: &mut Shape) -> Result<(), Fault> {
             .position(|required| required.as_bytes() == name)
         {
             shape.present |= 1 << bit;
+        }
+        if let Some(bit) = OPTIONAL_EXPORTS
+            .iter()
+            .position(|optional| optional.as_bytes() == name)
+        {
+            shape.optional |= 1 << bit;
         }
     }
     Ok(())

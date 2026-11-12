@@ -829,6 +829,16 @@ impl Harness {
         threads
     }
 
+    /// Says the module writes none of the optional exports.
+    fn writes_no_optional_exports(&self) {
+        *lock(&self.fake.no_optional_exports) = true;
+    }
+
+    /// Whether the backend was asked for `needle` at all.
+    fn saw_log(&self, needle: &str) -> bool {
+        self.log().iter().any(|call| call.contains(needle))
+    }
+
     fn wait_log(&self, needle: &str) {
         let deadline = Instant::now() + PATIENCE;
         loop {
@@ -899,6 +909,10 @@ struct FakeLog {
     /// Where the runtime would report a guest's waits; the scheduler installs
     /// it, and a test writes through it the way a guest's host call does.
     waits: Mutex<Option<Waits>>,
+    /// Set when the module writes none of the optional exports. Inverted
+    /// because `#[derive(Default)]` is what makes this struct, and a test that
+    /// says nothing should be the one where the exports are there.
+    no_optional_exports: Mutex<bool>,
 }
 
 impl FakeLog {
@@ -943,6 +957,12 @@ struct Fake {
 }
 
 impl Backend for Fake {
+    /// The fake writes every optional export unless a test says otherwise, so
+    /// one that hands it an input exercises the call rather than the skip.
+    fn has_export(&self, _plugin: &PluginId, _export: &str) -> bool {
+        !*lock(&self.calls.no_optional_exports)
+    }
+
     fn load(&self, spec: LoadSpec) -> Result<(), Fault> {
         self.calls.enter(format!("load:{}", spec.plugin))
     }
@@ -1134,5 +1154,57 @@ fn a_background_call_does_not_hold_an_interactive_send() {
     assert!(
         took < Duration::from_millis(350),
         "the send waited for the event, which serialises the lanes: {took:?}"
+    );
+}
+
+#[test]
+fn what_a_person_clicked_reaches_the_plugin_that_drew_it() {
+    let harness = Harness::new(config(1));
+    let a = plugin("a");
+    harness.load(&a, 256);
+    harness.live(&a, 101);
+
+    harness.send(Message::Input {
+        id: 0,
+        plugin: a.clone(),
+        input: yapfast_plugin_api::message::InputEvent::Menu {
+            action: "wave".to_owned(),
+            target: "person-1".to_owned(),
+        },
+    });
+
+    // The export is the plugin's own, like a decoration's: only the helper has
+    // the instance. Nothing is answered, so this is the whole of it.
+    harness.wait_log("invoke:com.example.a:yf_input");
+}
+
+#[test]
+fn a_plugin_that_didnt_write_yf_input_is_not_called_for_one() {
+    let harness = Harness::new(config(1));
+    let a = plugin("a");
+    harness.load(&a, 256);
+    harness.live(&a, 101);
+    // A module that exports only the five required ones. Calling an export it
+    // doesn't have answers a fault the runtime can't tell from a trap, and
+    // discarding a good instance over a click it chose not to hear would be
+    // wrong.
+    harness.writes_no_optional_exports();
+
+    harness.send(Message::Input {
+        id: 0,
+        plugin: a.clone(),
+        input: yapfast_plugin_api::message::InputEvent::Dismissed {
+            slot: "toast".to_owned(),
+        },
+    });
+
+    // Something that is always called sorts before the assertion, so this is a
+    // wait on the scheduler having run the input's job rather than a sleep.
+    harness.send(Message::Kick { plugin: a.clone() });
+    harness.wait_log("activate:com.example.a");
+    assert!(
+        !harness.saw_log("invoke:com.example.a:yf_input"),
+        "a plugin without the export is not called: {:?}",
+        harness.log()
     );
 }

@@ -51,6 +51,7 @@ pub mod command;
 pub mod event;
 pub mod hook;
 pub mod http;
+pub mod input;
 pub mod log;
 pub mod plugin;
 pub mod settings;
@@ -75,6 +76,7 @@ pub mod prelude {
     pub use crate::command::{Command, Reply};
     pub use crate::event::{Event, EventKind, Network};
     pub use crate::hook::{Draft, HookKind, HookOutcome, HookRequest, HookSubject};
+    pub use crate::input::Input;
     pub use crate::plugin::{Activation, Call, Context, Plugin};
 }
 

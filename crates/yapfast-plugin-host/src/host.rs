@@ -238,6 +238,10 @@ fn dispatch(
             });
             After::Continue
         }
+        ToHelper::Input { plugin, input } => {
+            scheduler.send(Message::Input { id, plugin, input });
+            After::Continue
+        }
         ToHelper::Unload { plugin } => {
             scheduler.send(Message::Unload { plugin });
             After::Continue

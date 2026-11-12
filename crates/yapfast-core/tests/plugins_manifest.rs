@@ -261,7 +261,10 @@ fn the_settings_the_page_draws_are_the_settings_an_install_reads() {
 
     // Not vacuous: the fixture has to actually carry the fields the old parser
     // refused, or this test would pass against the narrower shape too.
-    assert!(manifest.settings.len() >= 5, "the fixture has a setting per kind");
+    assert!(
+        manifest.settings.len() >= 5,
+        "the fixture has a setting per kind"
+    );
     assert!(
         manifest
             .settings
@@ -272,7 +275,13 @@ fn the_settings_the_page_draws_are_the_settings_an_install_reads() {
             ))),
         "a select with labelled choices"
     );
-    assert!(manifest.settings.iter().any(|setting| setting.step.is_some()), "a slider's step");
+    assert!(
+        manifest
+            .settings
+            .iter()
+            .any(|setting| setting.step.is_some()),
+        "a slider's step"
+    );
     assert!(
         manifest
             .settings
@@ -281,7 +290,10 @@ fn the_settings_the_page_draws_are_the_settings_an_install_reads() {
         "a list's fields and rows"
     );
     assert!(
-        manifest.settings.iter().any(|setting| setting.when.is_some()),
+        manifest
+            .settings
+            .iter()
+            .any(|setting| setting.when.is_some()),
         "a setting shown by another"
     );
 }
@@ -290,6 +302,8 @@ fn the_settings_the_page_draws_are_the_settings_an_install_reads() {
 #[test]
 fn a_setting_field_nobody_knows_is_still_refused() {
     let mut manifest = quiet_manifest();
+    // `max_lenght` is spelled wrong on purpose: this is the typo a person makes,
+    // and the parser refusing it is the whole point. The schema says the same.
     manifest["settings"] = json!([{
         "key": "words",
         "type": "string",
