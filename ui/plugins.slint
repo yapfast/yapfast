@@ -5,7 +5,7 @@
 // Yapfast's own interface.
 import { ComboBox } from "std-widgets.slint";
 import { Theme, Middle } from "theme.slint";
-import { ActionButton, TextField, VolumeSlider } from "controls.slint";
+import { ActionButton, IconButton, TextField, VolumeSlider } from "controls.slint";
 import { SettingsToggle } from "yapfast/settings-toggle.slint";
 
 /// What a cell is, in the order of `Kind` in Rust.
@@ -368,7 +368,10 @@ export component PluginToast inherits Rectangle {
         }
         VerticalLayout {
             alignment: start;
-            ActionButton { text: "×"; label: "Close " + root.part.name + "'s toast"; ghost: true; small: true; clicked => { root.dismissed(root.part.plugin, root.part.slot); } }
+            IconButton {
+                icon: @image-url("icons/x.svg"); label: "Close " + root.part.name + "'s toast"; size: 28px; glyph: 16px;
+                clicked => { root.dismissed(root.part.plugin, root.part.slot); }
+            }
         }
     }
 }

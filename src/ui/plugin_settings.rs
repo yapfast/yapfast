@@ -36,6 +36,8 @@ struct Page {
     view: i32,
     /// The open plugin's settings form, while its page shows.
     form: Option<FormModel>,
+    /// The source is the preview's sample plugins.
+    sample: bool,
 }
 
 /// A plugin's settings form, in one model whose rows Rust changes in
@@ -221,6 +223,7 @@ impl Page {
             tab: 1,
             view: 0,
             form: None,
+            sample: false,
         }
     }
 }
@@ -295,6 +298,15 @@ fn bind_page(window: &YapfastWindow) {
     // pastes when asking why it broke.
     {
         let weak = window.as_weak();
+        // The repository and its commit open as a message's links do.
+        let opener = window.as_weak();
+        page.on_open_link(move |url| {
+            if let Some(window) = opener.upgrade()
+                && web_url(&url).is_some()
+            {
+                window.invoke_open_link(url);
+            }
+        });
         page.on_copy_log(move || {
             let Some(_window) = weak.upgrade() else {
                 return;
@@ -344,6 +356,12 @@ fn bind_page(window: &YapfastWindow) {
                 let page = page.get_or_insert_with(|| Page::new(source_for(window.get_preview())));
                 if page.open {
                     return;
+                }
+                // The window learns it's a preview after `attach` gave the page
+                // the runtime, so the sample plugins take its place here.
+                if window.get_preview() && !page.sample {
+                    page.source = source_for(true);
+                    page.sample = true;
                 }
                 page.open = true;
                 page.source.request(Request::Open);
@@ -566,9 +584,14 @@ fn permission_of(key: &str) -> Option<Permission> {
     }
 }
 
-fn line(line: &Line) -> PluginLine {
+fn line(line: &Line, hosts: &[&str]) -> PluginLine {
     PluginLine {
         text: line.text.as_str().into(),
+        styled: styled_line(
+            &line.text,
+            matches!(line.tone, Tone::Strong | Tone::Danger),
+            hosts,
+        ),
         tone: tone(line.tone),
         permission: line
             .permission
@@ -579,8 +602,52 @@ fn line(line: &Line) -> PluginLine {
     }
 }
 
+/// The lines, each naming in bold the hosts any of them connects to, so the
+/// risk sentence's hosts stand out as the hosts' own lines do.
 fn lines(items: &[Line]) -> ModelRc<PluginLine> {
-    ModelRc::new(VecModel::from(items.iter().map(line).collect::<Vec<_>>()))
+    let hosts: Vec<&str> = items
+        .iter()
+        .filter_map(|item| match &item.permission {
+            Some(Permission::Host(host)) if !host.is_empty() => Some(host.as_str()),
+            _ => None,
+        })
+        .collect();
+    ModelRc::new(VecModel::from(
+        items
+            .iter()
+            .map(|item| line(item, &hosts))
+            .collect::<Vec<_>>(),
+    ))
+}
+
+/// A line's words as the page draws them: a strong or dangerous line bold
+/// throughout, and any other with only the hosts it names in bold.
+fn styled_line(text: &str, bold: bool, hosts: &[&str]) -> slint::StyledText {
+    slint::StyledText::from_markdown(&line_markdown(text, bold, hosts))
+        .unwrap_or_else(|_| slint::StyledText::from_plain_text(text))
+}
+
+/// The Markdown [`styled_line`] draws.
+fn line_markdown(text: &str, bold: bool, hosts: &[&str]) -> String {
+    use super::messages::escape_markdown;
+    if bold {
+        format!("**{}**", escape_markdown(text))
+    } else {
+        let mut out = String::new();
+        let mut rest = text;
+        // The first host in what's left, the longest where two start together.
+        while let Some((at, host)) = hosts
+            .iter()
+            .filter_map(|host| rest.find(host).map(|at| (at, *host)))
+            .min_by_key(|(at, host)| (*at, std::cmp::Reverse(host.len())))
+        {
+            out.push_str(&escape_markdown(&rest[..at]));
+            out.push_str(&format!("**{}**", escape_markdown(host)));
+            rest = &rest[at + host.len()..];
+        }
+        out.push_str(&escape_markdown(rest));
+        out
+    }
 }
 
 fn initial(name: &str) -> SharedString {
@@ -665,7 +732,11 @@ fn detail(plugin: &Installed) -> PluginDetail {
             .into(),
         previous: plugin.previous.clone().unwrap_or_default().into(),
         source: plugin.source.as_str().into(),
+        source_link: web_url(&plugin.source).unwrap_or_default().into(),
         commit: page::short_commit(&plugin.commit).into(),
+        commit_link: commit_url(&plugin.source, &plugin.commit)
+            .unwrap_or_default()
+            .into(),
         license: plugin.license.as_str().into(),
         origin: match plugin.origin {
             Origin::Marketplace => "The marketplace",
@@ -704,6 +775,41 @@ fn listing(listing: &Listing, installed: bool) -> ListingRow {
     }
 }
 
+/// The repository's address when it's a web page to open, http or https,
+/// without the `#path=` that names a folder in it.
+fn web_url(source: &str) -> Option<&str> {
+    let url = source.trim();
+    let url = url.split_once('#').map_or(url, |(url, _)| url);
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
+    let host = rest.split('/').next().unwrap_or_default();
+    (!host.is_empty() && !url.chars().any(char::is_whitespace)).then_some(url)
+}
+
+/// The commit's page on its forge, for a repository on GitHub, GitLab or
+/// Codeberg; `None` elsewhere, where the page's address isn't known.
+fn commit_url(source: &str, commit: &str) -> Option<String> {
+    let url = web_url(source)?;
+    if commit.is_empty() || !commit.chars().all(|letter| letter.is_ascii_hexdigit()) {
+        return None;
+    }
+    let repo = url.trim_end_matches('/');
+    let repo = repo.strip_suffix(".git").unwrap_or(repo);
+    let rest = repo.split_once("://")?.1;
+    let (host, path) = rest.split_once('/')?;
+    // An owner and a repository at least.
+    if path.split('/').filter(|part| !part.is_empty()).count() < 2 {
+        return None;
+    }
+    let commit_path = match host.to_ascii_lowercase().as_str() {
+        "github.com" | "www.github.com" | "codeberg.org" => "commit",
+        "gitlab.com" => "-/commit",
+        _ => return None,
+    };
+    Some(format!("{repo}/{commit_path}/{commit}"))
+}
+
 fn review(review: &Review) -> PluginReview {
     let (memory, memory_tone) = page::memory(review.memory_pages);
     let dependencies: Vec<Line> = review
@@ -733,17 +839,24 @@ fn review(review: &Review) -> PluginReview {
         icon_url: review.icon.clone().unwrap_or_default().into(),
         version: review.version.as_str().into(),
         source: review.source.as_str().into(),
+        source_link: web_url(&review.source).unwrap_or_default().into(),
         commit: page::short_commit(&review.commit).into(),
+        commit_link: commit_url(&review.source, &review.commit)
+            .unwrap_or_default()
+            .into(),
         reviewed: review.reviewed,
         lines: lines(&page::permission_lines(
             &review.capabilities,
             &review.network,
         )),
-        memory: line(&Line {
-            text: memory,
-            tone: memory_tone,
-            permission: None,
-        }),
+        memory: line(
+            &Line {
+                text: memory,
+                tone: memory_tone,
+                permission: None,
+            },
+            &[],
+        ),
         dependencies: lines(&dependencies),
         replaces: review.replaces.clone().unwrap_or_default().into(),
     }
@@ -1448,6 +1561,93 @@ mod tests {
         let kind = |key: &str| &schema.setting(key).unwrap().kind;
         assert_eq!(input(kind("a"), "1"), Input::Text("y".into()));
         assert_eq!(input(kind("b"), "3"), Input::Text("0.3".into()));
+    }
+
+    #[test]
+    fn a_line_bolds_only_the_hosts_it_names() {
+        let hosts = ["api.example.com", "cdn.example.net"];
+        assert_eq!(
+            line_markdown("Connects to cdn.example.net, as you allowed", false, &hosts),
+            "Connects to **cdn\\.example\\.net**\\, as you allowed"
+        );
+        assert_eq!(
+            line_markdown(
+                "It reads your messages and connects to api.example.com and cdn.example.net, so it could send your messages to those servers.",
+                false,
+                &hosts,
+            ),
+            "It reads your messages and connects to **api\\.example\\.com** and **cdn\\.example\\.net**\\, so it could send your messages to those servers\\."
+        );
+        assert_eq!(
+            line_markdown("Reads your messages", true, &hosts),
+            "**Reads your messages**"
+        );
+        assert_eq!(
+            line_markdown("Keeps its own data", false, &hosts),
+            "Keeps its own data"
+        );
+    }
+
+    #[test]
+    fn a_repository_links_only_to_the_web_and_a_known_forges_commit() {
+        let commit = "051b765bb6abe4fe95d5e4f489f03ad7b137edbc";
+        assert_eq!(
+            web_url("https://codeberg.org/ada/word-filter"),
+            Some("https://codeberg.org/ada/word-filter")
+        );
+        assert_eq!(
+            web_url("https://github.com/bea/translate#path=plugins/translate"),
+            Some("https://github.com/bea/translate")
+        );
+        assert_eq!(web_url("/home/ada/plugins/word-filter"), None);
+        assert_eq!(web_url("git@github.com:bea/translate.git"), None);
+        assert_eq!(web_url("file:///home/ada/plugin"), None);
+        assert_eq!(
+            commit_url("https://codeberg.org/ada/word-filter", commit).as_deref(),
+            Some(
+                "https://codeberg.org/ada/word-filter/commit/051b765bb6abe4fe95d5e4f489f03ad7b137edbc"
+            )
+        );
+        assert_eq!(
+            commit_url("https://github.com/bea/translate.git", commit).as_deref(),
+            Some(
+                "https://github.com/bea/translate/commit/051b765bb6abe4fe95d5e4f489f03ad7b137edbc"
+            )
+        );
+        assert_eq!(
+            commit_url("https://gitlab.com/dee/quiet-hours/", commit).as_deref(),
+            Some(
+                "https://gitlab.com/dee/quiet-hours/-/commit/051b765bb6abe4fe95d5e4f489f03ad7b137edbc"
+            )
+        );
+        assert_eq!(
+            commit_url("https://git.example.org/ada/word-filter", commit),
+            None
+        );
+        assert_eq!(commit_url("https://github.com/bea", commit), None);
+        assert_eq!(
+            commit_url("https://github.com/bea/translate", "not-a-hash"),
+            None
+        );
+    }
+
+    #[test]
+    fn the_source_links_open_through_the_windows_link_path() {
+        let window = open_page(true);
+        let opened = Rc::new(RefCell::new(Vec::<String>::new()));
+        let record = opened.clone();
+        window.on_open_link(move |link| record.borrow_mut().push(link.into()));
+        let page = window.global::<PluginPage>();
+        page.invoke_open_plugin("com.example.word-filter".into());
+        let detail = page.get_detail();
+        assert_eq!(detail.source_link, "https://codeberg.org/ada/word-filter");
+        assert_eq!(
+            detail.commit_link,
+            "https://codeberg.org/ada/word-filter/commit/051b765bb6abe4fe95d5e4f489f03ad7b137edbc"
+        );
+        page.invoke_open_link(detail.source_link.clone());
+        page.invoke_open_link("file:///etc/passwd".into());
+        assert_eq!(*opened.borrow(), vec![detail.source_link.to_string()]);
     }
 
     #[test]

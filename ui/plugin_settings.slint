@@ -3,6 +3,7 @@ import { Theme, Middle, Label } from "theme.slint";
 import { ActionButton, Avatar, IconButton, TextField, VolumeSlider } from "controls.slint";
 import { SettingsTitle, SettingsHeading, SettingsSwitch, Choices, Picker } from "settings.slint";
 import { PluginPart, PluginWidgets } from "plugins.slint";
+import { ClientStyle } from "yapfast/style.slint";
 
 // Settings → Plugins: the marketplace, the installed plugins and installing
 // from a git URL, each a choice at the top; a plugin's own page; and the
@@ -13,7 +14,14 @@ import { PluginPart, PluginWidgets } from "plugins.slint";
 /// A line of what a plugin can do. `permission` is what Revoke takes
 /// away, as `capability:messages.read` or `host:api.example.com`; empty for
 /// a line that only explains.
-export struct PluginLine { text: string, tone: int, permission: string }
+export struct PluginLine {
+    text: string,
+    /// The words as drawn: bold throughout for a strong or dangerous line,
+    /// and otherwise bold only on the hosts it names.
+    styled: styled-text,
+    tone: int,
+    permission: string,
+}
 
 /// An installed plugin, as Installed lists it.
 export struct InstalledRow {
@@ -102,7 +110,12 @@ export struct PluginDetail {
     /// The version Roll back goes to; empty without one.
     previous: string,
     source: string,
+    /// The repository's web page, which Source links; empty when it isn't
+    /// an http or https address.
+    source-link: string,
     commit: string,
+    /// The commit's page on its forge; empty off GitHub, GitLab and Codeberg.
+    commit-link: string,
     license: string,
     /// Marketplace, URL or folder, in words.
     origin: string,
@@ -134,7 +147,10 @@ export struct PluginReview {
     icon-url: string,
     version: string,
     source: string,
+    /// As PluginDetail's.
+    source-link: string,
     commit: string,
+    commit-link: string,
     reviewed: bool,
     lines: [PluginLine],
     memory: PluginLine,
@@ -201,6 +217,9 @@ export global PluginPage {
     /// Copies the open plugin's details and its whole log, for pasting into a
     /// report.
     callback copy-log();
+    /// Opens a repository's or a commit's page in the browser, as a
+    /// message's link opens.
+    callback open-link(string);
     callback revoke(string, string);
     callback update(string);
     callback roll-back(string);
@@ -236,6 +255,41 @@ component PluginIcon inherits Avatar {
     size: 40px; corner: 10px; tint: Theme.avatar;
 }
 
+// A fact that opens in the browser, as a repository's address: in the link
+// colour, underlined while pointed at or focused, and opened by a click,
+// Enter or Space. A fact without a page to open is plain Text instead.
+component FactLink inherits Rectangle {
+    in property <string> text;
+    in property <string> url;
+    in property <length> font-size: 14px;
+    in property <bool> monospace;
+    property <bool> lit: touch.has-hover || focus.has-focus;
+    min-height: label.preferred-height; horizontal-stretch: 1;
+    label := Text {
+        width: parent.width; height: parent.height;
+        text: root.text; color: Theme.link; font-size: root.font-size;
+        font-family: root.monospace ? "monospace" : ClientStyle.font-family;
+        vertical-alignment: center; overflow: elide;
+        accessible-role: none;
+    }
+    if root.lit: Rectangle {
+        x: 0px; y: (parent.height + root.font-size) / 2 + 1px; height: 1px;
+        width: min(parent.width, label.preferred-width); background: Theme.link;
+    }
+    // Only the words take the click, not the row's space after them.
+    focus := FocusScope {
+        x: 0px; width: min(parent.width, label.preferred-width);
+        accessible-role: button;
+        accessible-label: "Open " + root.text + " in the browser";
+        accessible-action-default => { PluginPage.open-link(root.url); }
+        key-pressed(event) => {
+            if event.text == "\n" || event.text == " " { PluginPage.open-link(root.url); return accept; }
+            return reject;
+        }
+        touch := TouchArea { mouse-cursor: pointer; clicked => { PluginPage.open-link(root.url); } }
+    }
+}
+
 // A small marker, as "Reviewed" or "Unreviewed source".
 component Badge inherits Rectangle {
     in property <string> text;
@@ -251,6 +305,34 @@ component Badge inherits Rectangle {
     }
 }
 
+// A tab with nothing to list: an icon in a circle, what's missing, and what
+// to do about it, as buttons given as children.
+component EmptyState inherits VerticalLayout {
+    in property <image> icon;
+    in property <string> title;
+    in property <string> text;
+    alignment: start; spacing: 8px; padding-top: 48px; padding-bottom: 24px;
+    HorizontalLayout {
+        alignment: center;
+        Rectangle {
+            width: 64px; height: 64px; border-radius: 32px; background: Theme.raised;
+            Image { source: root.icon; width: 28px; height: 28px; colorize: Theme.muted; }
+        }
+    }
+    Text {
+        text: root.title; color: Theme.text; font-size: 16px; font-weight: 600;
+        horizontal-alignment: center; wrap: word-wrap;
+    }
+    if root.text != "": Text {
+        text: root.text; color: Theme.muted; font-size: 14px;
+        horizontal-alignment: center; wrap: word-wrap;
+    }
+    HorizontalLayout {
+        alignment: center; spacing: 8px; padding-top: 8px;
+        @children
+    }
+}
+
 // What a plugin can do, a line each, with Revoke beside those it can lose.
 component PermissionLines inherits VerticalLayout {
     in property <[PluginLine]> lines;
@@ -259,20 +341,30 @@ component PermissionLines inherits VerticalLayout {
     spacing: 6px;
     // A bullet each, in the line's own colour: what a plugin may do reads as a
     // list to check one by one, which a turned-on switch's paragraph doesn't.
+    // The bullet and the line's first row share a top, and the pair sits
+    // level with Revoke beside it.
     for line in root.lines: HorizontalLayout {
         spacing: 8px;
-        Text {
-            text: "•"; vertical-alignment: top; font-size: 14px;
-            color: line.tone == 0 || line.tone == 1 ? Theme.muted : PluginPage.ink(line.tone);
+        Middle {
+            horizontal-stretch: 1;
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: "•"; vertical-alignment: top; font-size: 14px;
+                    color: line.tone == 0 || line.tone == 1 ? Theme.muted : PluginPage.ink(line.tone);
+                }
+                StyledText {
+                    text: line.styled; horizontal-stretch: 1;
+                    default-color: PluginPage.ink(line.tone); default-font-size: 14px;
+                    accessible-role: text; accessible-label: line.text;
+                }
+            }
         }
-        Text {
-            text: line.text; wrap: word-wrap; horizontal-stretch: 1; vertical-alignment: center;
-            color: PluginPage.ink(line.tone); font-size: 14px;
-            font-weight: line.tone == 1 || line.tone == 5 ? 700 : 400;
-        }
-        if root.revocable && line.permission != "": ActionButton {
-            text: "Revoke"; label: "Revoke: " + line.text; small: true; ghost: true;
-            clicked => { root.revoke(line.permission); }
+        if root.revocable && line.permission != "": Middle {
+            ActionButton {
+                text: "Revoke"; label: "Revoke: " + line.text; small: true; ghost: true;
+                clicked => { root.revoke(line.permission); }
+            }
         }
     }
 }
@@ -350,13 +442,29 @@ component ReviewDialog inherits PageDialog {
             spacing: 12px; padding-right: 12px;
             VerticalLayout {
                 spacing: 2px;
-                Text { text: PluginPage.review.source; color: Theme.text; font-size: 13px; wrap: word-wrap; }
-                Text { text: "Commit " + PluginPage.review.commit; color: Theme.muted; font-size: 12px; font-family: "monospace"; }
+                if PluginPage.review.source-link == "": Text { text: PluginPage.review.source; color: Theme.text; font-size: 13px; wrap: word-wrap; }
+                if PluginPage.review.source-link != "": FactLink { text: PluginPage.review.source; url: PluginPage.review.source-link; font-size: 13px; }
+                HorizontalLayout {
+                    spacing: 7px;
+                    Text { text: "Commit"; color: Theme.muted; font-size: 12px; font-family: "monospace"; vertical-alignment: center; }
+                    if PluginPage.review.commit-link == "": Text {
+                        text: PluginPage.review.commit; color: Theme.muted; font-size: 12px; font-family: "monospace";
+                        horizontal-stretch: 1;
+                    }
+                    if PluginPage.review.commit-link != "": FactLink {
+                        text: PluginPage.review.commit; url: PluginPage.review.commit-link; font-size: 12px; monospace: true;
+                    }
+                }
             }
             SettingsHeading { text: "WHAT IT CAN DO"; }
             if PluginPage.review.lines.length == 0: Label { text: "Nothing beyond adding its own commands and buttons."; }
-            PermissionLines { lines: PluginPage.review.lines; }
-            PermissionLines { lines: [PluginPage.review.memory]; }
+            // One list, so the memory line is as far from the others as they
+            // are from each other.
+            VerticalLayout {
+                spacing: 6px;
+                PermissionLines { lines: PluginPage.review.lines; }
+                PermissionLines { lines: [PluginPage.review.memory]; }
+            }
             if PluginPage.review.dependencies.length > 0: SettingsHeading { text: "NEEDS"; }
             PermissionLines { lines: PluginPage.review.dependencies; }
         }
@@ -425,6 +533,7 @@ component InstalledRow inherits Rectangle {
         if root.plugin.update != "": Middle {
             ActionButton {
                 text: "Update"; label: "Update " + root.plugin.name + " to v" + root.plugin.update; small: true;
+                icon: @image-url("icons/download.svg");
                 clicked => { PluginPage.update(root.plugin.id); }
             }
         }
@@ -457,12 +566,13 @@ component InstalledCard inherits Rectangle {
         open := TouchArea { mouse-cursor: pointer; clicked => { PluginPage.open-plugin(root.plugin.id); } }
     }
     VerticalLayout {
-        padding: 14px; spacing: 8px;
+        // A card stretched to its taller neighbour keeps its lines at the top.
+        padding: 14px; spacing: 8px; alignment: start;
         HorizontalLayout {
             spacing: 10px;
             Middle { PluginIcon { size: 44px; corner: 11px; initial: root.plugin.initial; picture: root.plugin.picture; } }
             VerticalLayout {
-                spacing: 2px; horizontal-stretch: 1;
+                alignment: center; spacing: 2px; horizontal-stretch: 1;
                 Text { text: root.plugin.name; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; }
                 Text { text: root.plugin.byline; color: Theme.muted; font-size: 12px; overflow: elide; }
             }
@@ -480,9 +590,13 @@ component InstalledCard inherits Rectangle {
             color: root.plugin.log-error ? Theme.danger-text : Theme.faint;
             font-size: 12px; font-family: "monospace"; overflow: elide;
         }
-        if root.plugin.update != "": ActionButton {
-            text: "Update"; label: "Update " + root.plugin.name + " to v" + root.plugin.update; small: true;
-            clicked => { PluginPage.update(root.plugin.id); }
+        if root.plugin.update != "": HorizontalLayout {
+            alignment: start;
+            ActionButton {
+                text: "Update"; label: "Update " + root.plugin.name + " to v" + root.plugin.update; small: true;
+                icon: @image-url("icons/download.svg");
+                clicked => { PluginPage.update(root.plugin.id); }
+            }
         }
     }
 }
@@ -510,6 +624,8 @@ component FormControl inherits VerticalLayout {
     /// In a list's row, where the column names it: a switch alone.
     in property <bool> compact;
     callback edited(string);
+    // In a list's row, the switch sits level with the fields beside it.
+    alignment: root.compact ? LayoutAlignment.center : LayoutAlignment.stretch;
     if root.control.kind == 0: SettingsSwitch {
         text: root.compact ? "" : root.control.label; label: root.label;
         checked: root.control.checked; enabled: root.control.enabled; controlled: true;
@@ -573,6 +689,8 @@ component FormRow inherits VerticalLayout {
             horizontal-stretch: cell.kind == 0 ? 0 : 1;
             min-width: cell.kind == 0 ? 104px : 60px; max-width: cell.kind == 0 ? 104px : 4000px;
             text: cell.label; color: Theme.muted; font-size: 12px; font-weight: 700; overflow: elide;
+            // A switch's column names it from the switch's side.
+            horizontal-alignment: cell.kind == 0 && ClientStyle.enabled ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
             accessible-role: none;
         }
         Rectangle { width: root.buttons; horizontal-stretch: 0; }
@@ -696,20 +814,21 @@ component PluginDetailView inherits VerticalLayout {
     VerticalLayout {
         spacing: 4px;
         for fact in [
-            { name: "From", value: PluginPage.detail.origin },
-            { name: "Repository", value: PluginPage.detail.source },
-            { name: "Commit", value: PluginPage.detail.commit },
-            { name: "License", value: PluginPage.detail.license },
+            { name: "From", value: PluginPage.detail.origin, link: "" },
+            { name: "Repository", value: PluginPage.detail.source, link: PluginPage.detail.source-link },
+            { name: "Commit", value: PluginPage.detail.commit, link: PluginPage.detail.commit-link },
+            { name: "License", value: PluginPage.detail.license, link: "" },
         ]: HorizontalLayout {
             spacing: 12px;
             Text { text: fact.name; width: 96px; color: Theme.muted; font-size: 14px; }
-            Text { text: fact.value == "" ? "—" : fact.value; color: Theme.text; font-size: 14px; wrap: word-wrap; horizontal-stretch: 1; }
+            if fact.link == "": Text { text: fact.value == "" ? "—" : fact.value; color: Theme.text; font-size: 14px; wrap: word-wrap; horizontal-stretch: 1; }
+            if fact.link != "": FactLink { text: fact.value; url: fact.link; }
         }
     }
     if PluginPage.detail.update != "" || PluginPage.detail.previous != "": HorizontalLayout {
         spacing: 8px; alignment: start;
         if PluginPage.detail.update != "": ActionButton {
-            text: "Update to v" + PluginPage.detail.update; primary: true;
+            text: "Update to v" + PluginPage.detail.update; primary: true; icon: @image-url("icons/download.svg");
             clicked => { PluginPage.update(PluginPage.detail.id); }
         }
         if PluginPage.detail.previous != "": ActionButton {
@@ -720,7 +839,7 @@ component PluginDetailView inherits VerticalLayout {
 
     HorizontalLayout {
         vertical-stretch: 0;
-        SettingsHeading { text: "RECENT LOG"; horizontal-stretch: 1; }
+        SettingsHeading { text: "RECENT LOG"; horizontal-stretch: 1; vertical-alignment: center; }
         Middle {
             ActionButton {
                 text: "Copy"; label: "Copy " + PluginPage.detail.name + "'s details and log";
@@ -756,7 +875,7 @@ component ListingFace inherits Rectangle {
     in property <ListingRow> listing;
     height: 80px;
     HorizontalLayout {
-        padding-top: 8px; padding-bottom: 8px; padding-right: 16px; spacing: 12px;
+        padding-top: 8px; padding-bottom: 8px; padding-right: 12px; spacing: 12px;
         Middle { PluginIcon { initial: root.listing.initial; picture-url: root.listing.icon-url; } }
         VerticalLayout {
             alignment: center; spacing: 2px; horizontal-stretch: 1;
@@ -777,7 +896,7 @@ component ListingFace inherits Rectangle {
             }
         }
     }
-    Rectangle { y: parent.height - 1px; width: parent.width - 16px; x: 0px; height: 1px; background: Theme.line; }
+    Rectangle { y: parent.height - 1px; width: parent.width - 12px; x: 0px; height: 1px; background: Theme.line; }
 }
 
 // Advanced, which the page's foot opens: installing a plugin from a `.wasm`
@@ -841,7 +960,9 @@ component AdvancedDialog inherits PageDialog {
 // The page's foot, which opens Advanced.
 component AdvancedFooter inherits VerticalLayout {
     callback open;
-    spacing: 8px;
+    // The tabs' scrolled lists keep 12px clear for their scroll bars; the
+    // foot's line ends where they do.
+    spacing: 8px; padding-right: 12px;
     Rectangle { height: 1px; background: Theme.line; }
     HorizontalLayout {
         alignment: start;
@@ -878,7 +999,7 @@ export component PluginSettings inherits Rectangle {
         if PluginPage.tab == 0: VerticalLayout {
             spacing: 12px; vertical-stretch: 1;
             HorizontalLayout {
-                spacing: 8px; height: 40px;
+                spacing: 8px; height: 40px; padding-right: 12px;
                 TextField {
                     text <=> PluginPage.query; label: "Search plugins"; placeholder: "Search plugins"; text-size: 14px;
                     trailing-icon: @image-url("icons/search.svg");
@@ -890,12 +1011,18 @@ export component PluginSettings inherits Rectangle {
                     selected => { PluginPage.category-chosen(self.current-index); }
                 }
             }
-            if PluginPage.catalog-note != "": Label { text: PluginPage.catalog-note; font-size: 14px; }
             if PluginPage.listings.length > 0: ListView {
                 vertical-stretch: 1; min-height: 160px;
                 for listing in PluginPage.listings: ListingFace { listing: listing; }
             }
-            if PluginPage.listings.length == 0: Rectangle { vertical-stretch: 1; }
+            if PluginPage.listings.length == 0: VerticalLayout {
+                vertical-stretch: 1;
+                if PluginPage.catalog-note != "": EmptyState {
+                    // Loading or a failure isn't a search that found nothing.
+                    icon: PluginPage.catalog-note == "No plugins match." ? @image-url("icons/search.svg") : @image-url("icons/plugins.svg");
+                    title: PluginPage.catalog-note;
+                }
+            }
         }
 
         if PluginPage.tab == 1 && !PluginPage.detail-open: installed-scroll := ScrollView {
@@ -904,15 +1031,21 @@ export component PluginSettings inherits Rectangle {
             installed := VerticalLayout {
                 width: installed-scroll.visible-width;
                 spacing: 8px; alignment: start; padding-right: 12px;
-                if PluginPage.installed.length == 0: Label {
-                    text: "No plugins yet. Find one in the Marketplace, or add one from its git repository.";
-                    font-size: 14px;
+                if PluginPage.installed.length == 0: EmptyState {
+                    icon: @image-url("icons/plugins.svg");
+                    title: "No plugins yet";
+                    text: "Find one in the Marketplace, or add one from its git repository.";
+                    ActionButton { text: "Browse the Marketplace"; primary: true; clicked => { PluginPage.tab-chosen(0); } }
+                    ActionButton { text: "Add from URL"; clicked => { PluginPage.tab-chosen(2); } }
                 }
                 if PluginPage.installed.length > 0: HorizontalLayout {
                     vertical-stretch: 0; alignment: end;
                     middle := Rectangle { horizontal-stretch: 1; }
                     Middle {
                         Choices {
+                            // Room for both words, which the switch otherwise
+                            // squeezes against each other.
+                            width: 160px;
                             label: "Show plugins as"; options: ["List", "Cards"];
                             current: PluginPage.view; controlled: true;
                             chosen(index) => { PluginPage.view-chosen(index); }
@@ -925,12 +1058,16 @@ export component PluginSettings inherits Rectangle {
                 }
                 if PluginPage.view == 1: VerticalLayout {
                     spacing: 8px;
+                    // Each card takes half the row, a lone last one too, so the
+                    // grid's columns line up whatever the cards say.
                     for pair in PluginPage.card-rows: HorizontalLayout {
-                        spacing: 8px;
-                        for plugin in pair: InstalledCard { plugin: plugin; horizontal-stretch: 1; }
+                        spacing: 8px; alignment: start;
+                        for plugin in pair: InstalledCard {
+                            plugin: plugin; width: (installed.width - installed.padding-right - 8px) / 2;
+                        }
                     }
                 }
-                if PluginPage.memory != "": Label { text: PluginPage.memory; }
+                if PluginPage.memory != "" && PluginPage.installed.length > 0: Label { text: PluginPage.memory; }
             }
         }
         if PluginPage.tab == 1 && PluginPage.detail-open: detail-scroll := ScrollView {
@@ -948,11 +1085,11 @@ export component PluginSettings inherits Rectangle {
         }
 
         if PluginPage.tab == 2: VerticalLayout {
-            spacing: 12px; vertical-stretch: 1; alignment: start;
+            spacing: 12px; vertical-stretch: 1; alignment: start; padding-right: 12px;
             Label { text: "Paste the https:// address of a plugin's git repository. Yapfast fetches it and shows what it can do before anything is installed. Nothing runs until you install it."; font-size: 14px; }
             VerticalLayout {
                 spacing: 6px;
-                Text { text: "Git repository"; color: Theme.text; font-size: 15px; font-weight: 600; }
+                Text { text: "Git repository"; color: Theme.text; font-size: 15px; }
                 TextField {
                     text <=> PluginPage.url; label: "Git repository"; text-size: 14px;
                     placeholder: "https://codeberg.org/ada/word-filter";
