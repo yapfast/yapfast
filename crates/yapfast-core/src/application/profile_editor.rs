@@ -744,7 +744,6 @@ impl Application {
         };
         editor.saving = false;
         editor.refreshing = true;
-        let main = server.is_none() && result.is_ok();
         let sent = editor.sent.get_or_insert_default();
         match result {
             // It stays open, with nothing left to save. A server member's
@@ -773,16 +772,12 @@ impl Application {
             // change.
             Err(error) => editor.error = Some(error),
         }
-        // The save dropped the profile the service kept. A saved main
-        // profile asks for the account's own again at once too, so its card
-        // and profile show what was saved instead of what was there before.
-        let mut effects = vec![Effect::Backend(Command::Discord(
+        // The save dropped the profile the service kept. The main profile's
+        // answer fills the account's card too, so it shows what was saved,
+        // with no second request; Discord's client also asks no more.
+        vec![Effect::Backend(Command::Discord(
             DiscordCommand::OwnProfile { server },
-        ))];
-        if main {
-            effects.extend(self.load_own_profile());
-        }
-        effects
+        ))]
     }
 
     /// Opens Discord's Nitro page, from the editor's offer.

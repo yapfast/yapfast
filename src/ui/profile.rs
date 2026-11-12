@@ -195,12 +195,20 @@ pub(super) fn friend_offer(state: &AppState, user: &str) -> i32 {
 /// after its emoji when that's Unicode, and the address of its custom emoji's
 /// picture.
 pub(super) fn status_line(status: &yapfast_core::chat::CustomStatus) -> (String, Option<String>) {
-    let text = one_line(&status.text);
+    let (words, emoji) = status_words(status);
+    (one_line(&words), emoji)
+}
+
+/// The custom status as a profile shows it, with its own line breaks: its
+/// words after its emoji when that's Unicode, and the address of its custom
+/// emoji's picture.
+fn status_words(status: &yapfast_core::chat::CustomStatus) -> (String, Option<String>) {
+    let text = status.text.trim();
     match (&status.emoji, &status.emoji_id) {
-        (_, Some(id)) => (text, yapfast_core::discord::emoji_picture(id)),
+        (_, Some(id)) => (text.to_owned(), yapfast_core::discord::emoji_picture(id)),
         (Some(emoji), None) if text.is_empty() => (emoji.clone(), None),
         (Some(emoji), None) => (format!("{emoji} {text}"), None),
-        (None, None) => (text, None),
+        (None, None) => (text.to_owned(), None),
     }
 }
 
@@ -302,13 +310,7 @@ fn activity_row(activity: &yapfast_core::chat::Activity) -> ActivityRow {
         (
             activity.details.as_deref().unwrap_or(name).to_owned(),
             after("by", &activity.state),
-            // A podcast's episode has no artist, and Discord's card names only
-            // the episode, with no "on" line for its show.
-            if activity.state.is_some() {
-                after("on", &activity.large_text)
-            } else {
-                String::new()
-            },
+            after("on", &activity.large_text),
         )
     } else {
         (
@@ -544,17 +546,15 @@ pub(super) fn profile_data(
         ))
     }));
     // The profile keeps the status's own line breaks. A line that only
-    // names an activity goes, as its card says more. One's own, while
-    // online, says the custom status this session has: it is the newest, and
-    // the member list's line, where there is one, can be from before it
-    // changed.
-    let own_status = state
-        .custom_status
-        .as_ref()
-        .filter(|_| state.online && state.discord_user.as_deref() == Some(profile.id.as_str()))
-        .map(status_line);
+    // names an activity goes, as its card says more. One's own says the
+    // custom status this account has set, or none, whatever its presence, as
+    // Discord's client does: the member list's line can be from before it
+    // changed, cleared or ran out.
+    let own_status = (state.discord_user.as_deref() == Some(profile.id.as_str()))
+        .then(|| state.custom_status.as_ref().map(status_words));
     let (activity_emoji, activity) = match &own_status {
-        Some((words, emoji)) => (emoji.clone(), words.as_str()),
+        Some(Some((words, emoji))) => (emoji.clone(), words.as_str()),
+        Some(None) => (None, ""),
         None => profile
             .activity
             .as_deref()

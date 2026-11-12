@@ -227,12 +227,14 @@ fn ones_own_profile_says_the_custom_status_set_this_session() {
     assert_eq!(own.activity, "🙂 Now", "the newest status, not the list's");
     let other = profile_data(&mut pictures, &state, &view("7"));
     assert_eq!(other.activity, "Before", "someone else's stays theirs");
+    // Whatever the presence, as Discord's client shows the setting.
     state.online = false;
     let offline = profile_data(&mut pictures, &state, &view("42"));
-    assert_eq!(
-        offline.activity, "Before",
-        "offline, the profile's own line"
-    );
+    assert_eq!(offline.activity, "🙂 Now", "offline, still the setting");
+    // A status cleared or run out leaves none, not the list's older one.
+    state.custom_status = None;
+    let cleared = profile_data(&mut pictures, &state, &view("42"));
+    assert_eq!(cleared.activity, "", "a cleared status shows nothing");
 }
 
 #[test]
@@ -5782,15 +5784,15 @@ fn a_profile_shows_activities_as_discord_cards() {
         "https://open.spotify.com/track/6kkwzB6hXLIONkEk9JciA6"
     );
     assert_eq!(rows[1].state, "In a party (2 of 4)");
-    // A podcast's episode has no artist, and, as in Discord's client, its
-    // card names only the episode, with no "on" line for the show.
+    // A podcast's episode has no artist, and names its show as Discord's
+    // card does.
     assert_eq!(
         (
             rows[2].name.as_str(),
             rows[2].details.as_str(),
             rows[2].state.as_str()
         ),
-        ("Episode 12", "", "")
+        ("Episode 12", "", "on A Podcast")
     );
     // The line under the name goes when it only names one of them.
     assert!(profile::names_an_activity("Playing Factorio", &activities));
@@ -11009,4 +11011,55 @@ fn the_full_profile_takes_escape_again_after_the_note_dialog_closes() {
         closed.get(),
         "Escape closes the full profile after the dialog"
     );
+}
+
+#[test]
+fn a_card_or_full_profile_takes_escape_again_after_a_link_or_person_dialog() {
+    use slint::platform::Key;
+    i_slint_backend_testing::init_no_event_loop();
+    let window = YapfastWindow::new().unwrap();
+    type_anywhere(&window);
+    let closed = Rc::new(Cell::new(0));
+    window.on_close_profile({
+        let closed = closed.clone();
+        move || closed.set(closed.get() + 1)
+    });
+    window.on_close_person({
+        let weak = window.as_weak();
+        move || weak.unwrap().set_person_open(false)
+    });
+    window.on_close_leaving_link({
+        let weak = window.as_weak();
+        move || weak.unwrap().set_leaving_link("".into())
+    });
+    let wait = |ms| {
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(ms));
+        settle(&window);
+    };
+    window.show().unwrap();
+    // The small card stays open under the note dialog from its menu.
+    window.set_profile_open(true);
+    wait(500);
+    window.set_person_open(true);
+    wait(500);
+    tap(&window, Key::Escape.into());
+    assert!(!window.get_person_open(), "Escape closes the dialog");
+    assert_eq!(closed.get(), 0, "and leaves the card");
+    wait(500);
+    tap(&window, Key::Escape.into());
+    assert_eq!(closed.get(), 1, "then Escape closes the card");
+    // A masked link's question over the full profile.
+    window.set_profile_open(false);
+    wait(500);
+    window.set_profile_large(true);
+    window.set_profile_open(true);
+    wait(500);
+    window.set_leaving_link("https://example.com".into());
+    wait(500);
+    tap(&window, Key::Escape.into());
+    assert_eq!(window.get_leaving_link(), "", "Escape closes the question");
+    assert_eq!(closed.get(), 1, "and leaves the profile");
+    wait(500);
+    tap(&window, Key::Escape.into());
+    assert_eq!(closed.get(), 2, "then Escape closes the full profile");
 }

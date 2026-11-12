@@ -9030,12 +9030,11 @@ fn a_chosen_server_tag_saves_and_the_account_profile_is_fetched_again() {
     assert!(
         matches!(
             effects.as_slice(),
-            [
-                Effect::Backend(Command::Discord(DiscordCommand::OwnProfile { server: None })),
-                Effect::Backend(Command::Discord(DiscordCommand::Profile { user, .. })),
-            ] if user == "1"
+            [Effect::Backend(Command::Discord(
+                DiscordCommand::OwnProfile { server: None }
+            ))]
         ),
-        "the profile is read back once, and the account's card's at once"
+        "the profile is read back once, and its answer fills the card too"
     );
     assert!(
         app.dispatch(Action::LoadOwnProfile).iter().any(|effect| matches!(
