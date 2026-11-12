@@ -54,6 +54,9 @@ Every payload is a JSON object with a `t` naming the variant. The first is
 | `kick` | `plugin` | Run an instance again with nothing new: an eviction clock's trigger |
 | `event` | `plugin`, `events` | A batch of events, already filtered and serialized |
 | `hook` | `chain`, `request` | One hook, for the whole chain at once |
+| `decorate` | `plugin`, `request` | Ask a plugin what it draws under a message on screen, with `yf_decorate` |
+| `code_block` | `plugin`, `request` | Ask a plugin to colour one code block on screen, with `yf_code_block` |
+| `identity` | `plugin`, `request` | Ask a plugin how one (person, server) looks, with `yf_identity` |
 | `command` | `plugin`, `command` | A command the person typed, with its options |
 | `invoke` | `plugin`, `function`, `args_base64` | One export of one plugin, called for another: `plugin.call`. Answered with `invoked` |
 | `return` | `plugin`, `call`, `answer` | The answer to a guest's host call |
@@ -88,6 +91,8 @@ given a fresh one.
 | `hook_done` | `outcome`, `failures`, `by` | A chain's final answer, the plugins that failed on the way, and the plugin whose answer it is |
 | `command_done` | `plugin`, `outcome` | A command's answer |
 | `invoked` | `answer_base64`, `fault` | The export's answer, or the fault that stopped it |
+| `identity` | `plugin`, `person`, `server`, `identity` | How a plugin says one person looks, or nothing |
+| `code_block` | `plugin`, `block`, `spans` | The spans a plugin gave one code block, or nothing |
 | `event_done` | `plugin` | An event batch finished |
 | `status` | `plugin`, `status` | A plugin's state changed, for the page and the registry |
 | `fault` | `plugin`, `fault` | An instance was discarded, and why |
@@ -119,9 +124,10 @@ surface. The method is a name inside the payload, an unknown method answers
 
 A guest that doesn't export one of those five is a `bad_module` fault at
 activation, so a PDK that forgets `yf_event` fails early and clearly rather than
-on the first message. `yf_decorate` and `yf_ui_event` are for drawing beside a
-row, which is the interface half of the API and not in this build; a module that
-declares them is left alone.
+on the first message. `yf_decorate`, `yf_identity`, `yf_code_block` and
+`yf_ui_event` are the interface's half of the API and are optional: a module
+that declares them is left alone, and one that doesn't simply draws nothing,
+says nothing about how people look and colours no code.
 
 ### The payloads
 
@@ -178,8 +184,23 @@ so a plugin still sees that its message was long. Typing, presence and speaking
 are opt-in and coalesced, so a burst is one call with several events rather than
 one call each.
 
+| Event | Payload | Tapped where |
+| --- | --- | --- |
+| `typing` | `{ "name": … }` | Discord's gateway, for any channel the account may read |
+| `presence` | `{ "person": …, "presence": "online"\|"idle"\|"dnd"\|"offline" }` | The open room's member list, once per person whose presence moved; the first list of a conversation says nothing, and someone who left is not reported |
+| `speaking` | `{ "person": …, "speaking": true\|false }` | The call's own voice state, once per person whose voice started or stopped, which is what `discord_audio` hears in its frames |
+
+`presence` costs one comparison per member of a list that arrived, and `speaking`
+one per participant of a voice state that changed; neither builds an event while
+no plugin declared the capability its subscription needs.
+
 A hook's subject is a draft about to be sent, a file on its way up, a typing
-indicator about to go, or an activity about to be published. The answer is
+indicator about to go, or an activity about to be published — the last of which
+nothing dispatches yet: Yapfast does publish an activity, the game it detects
+merged into its own presence, but that happens in the Discord client's session,
+which has no bridge to ask, so `activity_pre_publish` is named in the ABI and
+`HookKind::DISPATCHED` says it is the one hook no chain runs. Wiring it means
+asking the chain where the session builds its presence. The answer is
 `unchanged`, `changed` with the new subject, which the next plugin in the chain
 sees, or `block` with a reason. A `block` stops the message only from a plugin
 whose manifest says `"on_failure": "block"`, which needs `messages.intercept`;
@@ -211,6 +232,72 @@ message.
 guest's own call: it answers the widget tree `interface.md` describes, or
 `null` for "nothing under this one". The parent checks the tree, so a plugin
 that answers a shape the widget set doesn't have simply draws nothing.
+
+The answer may also keep the row or its pictures out of sight, which is
+[§17.2](../../PLAN.md#172-additions-to-the-api)'s `hide_media` and its filter:
+
+```json
+{ "hide_media": true }
+{ "hide": true, "tree": { "rows": [ { "cells": [ { "kind": "muted", "text": "hidden" } ] } ] } }
+```
+
+A bare tree is still an answer, so a plugin that only draws says what it always
+said. `hide` takes the whole row out of view and `hide_media` takes its pictures
+and files and leaves its text: both are display only, nothing is deleted and
+nothing is sent, and both need `messages.filter`. A plugin without that
+capability has the flags dropped and keeps whatever it drew, so a plugin that
+declares `decorate` alone can draw under a row and cannot make it go away.
+
+`messages.retain` is the other half of showing what went: a plugin that declares
+it keeps a deleted row on screen, flagged `deleted` with its text, while the
+backend's new timeline no longer holds it. The plugin is told about the deletion
+by the `message_delete` event, which is where the row it stores comes from. The
+merge is the parent's (`plugins/retention.rs`), so a plugin keeps the row by
+declaring the capability and needs no call.
+
+`yf_identity` is asked once per (person, server) and not once per message, so
+the answer is a description of a person and not of a row:
+
+```json
+{ "person": "person-1", "server": "server-1", "name": "Ada",
+  "username": "ada", "own": false }
+```
+
+```json
+{ "display_name": "Ada Lovelace", "name_colour": 11580159,
+  "avatar": "https://example.test/ada.png",
+  "banner": "https://example.test/banner.png",
+  "decoration": "https://example.test/decoration.png",
+  "pronouns": "she/her", "badges": ["early", "bug-hunter"] }
+```
+
+Every field of the answer is optional: a plugin that changes only the name
+answers only the name, and the rest stays as Yapfast had it. `null`, or an
+answer with nothing in it, says nobody changed this person, which the parent
+keeps as an answer so it isn't asked again. A name, a pronoun line or a badge
+is one line of at most 64 characters, there are at most 8 badges, a colour is
+`0xRRGGBB`, and a picture address is `https` and at most 2048 characters: a
+field that isn't is dropped, and the rest of the answer still applies.
+
+`yf_code_block` is asked once per code block, named by the hash of its content
+and language, and only for the blocks of the messages on screen:
+
+```json
+{ "block": "9f2c…", "language": "rust", "text": "let x = 1;" }
+```
+
+```json
+[{ "text": "let", "tone": "keyword" }, { "text": " x = 1;", "tone": "plain" }]
+```
+
+A tone is one of `plain`, `comment`, `keyword`, `string`, `number`, `function`,
+`type`, `variable`, `operator`, `punctuation` and `error`, and never a colour:
+how a tone looks is the interface's to decide, the way a widget cell's is. The
+answer must **spell the block exactly**, character for character, in at most 512
+spans, none of them empty; a set of spans that doesn't is refused where it
+arrives and the block is drawn plain. A plugin colours a block and never changes
+what it says. `null`, or nothing, is an answer too, and is kept: the block is
+plain and isn't asked about again.
 
 A settings change arrives as the answer to the `settings.on_change` call that
 asked for it: the keys that changed, with the values they hold now, and the
@@ -250,6 +337,7 @@ so nothing waits on a person:
 | `notify.send` | `{ text }` | One OS notification, titled with the plugin |
 | `clipboard.write` | `{ text }` | Puts text on the clipboard |
 | `open.url` | `{ url }` | Opens a page the way a message's link does |
+| `media.get` | `{ url }` | The bytes of an attachment, an avatar or an emoji the picture store already keeps; `{ "bytes": 1234, "bytes_base64": "…" }`, and never a fetch |
 
 The curated actions of [PLAN §17.2](../../PLAN.md#172-additions-to-the-api) are
 the same kind of call, named `discord.*`: each wraps something Yapfast already
@@ -305,9 +393,9 @@ itself.
 
 The methods are names, so adding one never changes the link surface. `storage`,
 `settings`, `http`, `timers`, `app`, `account`, the `rooms`, `messages` and
-`people` reads, the `ui` calls and the `plugin` group have typed payloads in
-the contract crate, because they are the calls the runtime answers. Every
-other name the ABI lists —
+`people` reads, the `ui` calls, `media.get` and the `plugin` group have typed
+payloads in the contract crate, because they are the calls the runtime answers.
+Every other name the ABI lists —
 `messages.send`, `edit`, `delete`, `react` and `jump_to`, the `composer` calls,
 `notify.send`, `clipboard.write` and `open.url` — is named from the first version
 so a plugin can feature-detect it, and answers `unsupported` until the runtime

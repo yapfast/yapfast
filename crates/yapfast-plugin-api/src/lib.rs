@@ -13,11 +13,13 @@
 
 pub mod call;
 pub mod capability;
+pub mod code;
 pub mod event;
 pub mod frame;
 pub mod graph;
 pub mod guest;
 pub mod hook;
+pub mod identity;
 pub mod ids;
 pub mod limits;
 pub mod manifest;

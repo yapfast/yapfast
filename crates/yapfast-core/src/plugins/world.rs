@@ -27,7 +27,7 @@ use yapfast_plugin_api::call::{AccountView, AppInfo, MemberView};
 use yapfast_plugin_api::event::{MessageView, PersonView, RoomView};
 use yapfast_plugin_api::frame::MAX_FRAME;
 
-use crate::chat::{ChatMember, ChatMessage, ChatRoom, Presence};
+use crate::chat::{ChatMember, ChatMessage, ChatRoom};
 
 /// The room an id names, as the room list answers it.
 ///
@@ -370,7 +370,9 @@ impl World {
                 .map(|member| MemberView {
                     person: person(member),
                     roles: member.roles.iter().cloned().collect(),
-                    presence: member.presence.map(|around| presence(around).to_owned()),
+                    presence: member
+                        .presence
+                        .map(|around| crate::plugins::presence::name(around).to_owned()),
                     colour: member.color,
                     activity: member.activity.clone(),
                     timed_out_until: member.timed_out_until,
@@ -457,16 +459,6 @@ fn message_view(message: &ChatMessage, room: &str) -> MessageView {
         attachments: Vec::new(),
         reply_to: message.reply.as_ref().and_then(|reply| reply.item.clone()),
         mentions_me: message.mentions_me,
-    }
-}
-
-/// A presence as the plugin API names it.
-fn presence(presence: Presence) -> &'static str {
-    match presence {
-        Presence::Online | Presence::Mobile => "online",
-        Presence::Idle => "idle",
-        Presence::DoNotDisturb => "dnd",
-        Presence::Offline => "offline",
     }
 }
 

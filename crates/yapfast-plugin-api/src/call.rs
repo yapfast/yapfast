@@ -46,6 +46,7 @@ pub mod method {
     pub const UI_NOTICE: &str = "ui.notice";
     pub const UI_TOAST: &str = "ui.toast";
     pub const UI_OPEN_DIALOG: &str = "ui.open_dialog";
+    pub const MEDIA_GET: &str = "media.get";
 
     // Named now, implemented with their capability.
     pub const MESSAGES_SEND: &str = "messages.send";
@@ -490,6 +491,17 @@ pub struct PlaySound {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Speak {
     pub text: String,
+}
+
+/// `media.get`: the bytes of an attachment, an avatar or an emoji Yapfast already
+/// keeps, by its address.
+///
+/// The answer is `{ "bytes": 1234, "bytes_base64": "…" }`: the length, so a
+/// plugin can decide before decoding, and the bytes, base64 because a frame's
+/// payload is JSON. A picture larger than one frame is refused and never cut.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MediaGet {
+    pub url: String,
 }
 
 /// `ui.set_slot`: a widget tree to draw in one of the interface's slots.

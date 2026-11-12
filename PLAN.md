@@ -1576,12 +1576,22 @@ application can carry out — `messages.send|edit|delete|react|jump_to`, the
 `composer` calls, `notify.send`, `clipboard.write` and `open.url`, each behind
 its capability, with a send's gesture rule and the 5-per-10-s cap. Every method
 the first version of the API names is answered, and `message.decorate` draws
-through `yf_decorate`. Still to come: items 1's extra events (`presence`,
-`speaking` have no tap), item 2 (`identity.decorate`, `code_block.render`,
-providers), the rest of item 3 (`media.get`, retention, `activity.pre_publish`,
-and the curated actions of §17.2's table), item 4 (audio and the microphone), and
-item 5 (§11.7's changes to built-in UI beyond the part hides and the colour and
-size overlay `plugins/ui.rs` already derives).
+through `yf_decorate`. Since then: `presence` and `speaking` are tapped and
+coalesced; `identity.decorate` answers once per (person, server) through
+`yf_identity`, from a cache of 256 people, and the profile card is the one
+surface that draws it; `code_block.render` asks `yf_code_block` for the fences of
+the rows on screen, keeps the spans by content hash, and nothing draws them yet;
+`media.get` answers bytes from the picture store behind `media.read`, capped and
+never a fetch; `messages.retain` keeps a row the backend dropped, flagged, and a
+`decorate` reply may hide a row or its media with `messages.filter`. Still to
+come: providers, `activity.pre_publish` (Yapfast does publish the game it
+detects, but in the Discord client's session, which has no bridge to ask, so
+`HookKind::DISPATCHED` names it as the one hook nothing dispatches), and the
+curated actions of §17.2's table; item 4 (audio and the microphone); and item 5
+(§11.7's changes to built-in UI beyond the part hides and the colour and size
+overlay `plugins/ui.rs` already derives). Two surfaces are named and waiting in
+`docs/plugins/interface.md`: the message rows do not skip a row a plugin hid, and
+no renderer draws a code block's spans.
 
 The rest of [§17.2](#172-additions-to-the-api), in this order:
 

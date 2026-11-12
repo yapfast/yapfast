@@ -174,22 +174,31 @@ Beyond those, every method the first version of the API names is answered:
 `call`, `publish` and `subscribe`, [§17.2](../../PLAN.md#172-additions-to-the-api)'s
 curated actions (`discord.set_status`, `set_custom_status`, `set_activity`,
 `clear_activity`, `mark_read`, `set_mute`, `open_room`, `start_reply`,
-`start_edit`, `reactors`, `pause_invites`, `add_emoji`, `add_sticker`), and
-`audio.play` and `audio.speak`. A method this build doesn't have answers
-`unsupported`, which is what a plugin feature-detects on. What the API still
-doesn't have is the rest of §17.2: `media.get`, retention, attachments out
-(`messages.send` with bytes, which waits on the chunked frames above),
-`identity.decorate`, `code_block.render`, providers, `audio.record` and the
-microphone, `file.save`, local reach, input, the menu targets and widgets, and
-the changes to built-in UI beyond the part hides and the colour and size
-overlay. `audio.record` waits
-because the microphone has no path that isn't a call's: `audio_io::Input` is
-opened by the call and the input meter, and recording to a file for a plugin
-would be a new Yapfast feature rather than a wrapper over one. The hooks are
-`message.pre_send`, `message.pre_edit`, `typing.pre_send` and
-`attachment.pre_upload`, with `message.decorate` drawn through `yf_decorate`;
-`activity.pre_publish` exists in the ABI and Yapfast publishes no activity to run
-it on, so `discord.set_activity` shows the game Discord sees the account play,
-which is the only activity there is.
-`docs/plugins/manifest.md` lists the fields; a manifest may declare `menus`,
-`settings` and `tweaks` that nothing draws yet.
+`start_edit`, `reactors`, `pause_invites`, `add_emoji`, `add_sticker`),
+`audio.play`, `audio.speak`, `media.get`, `messages.retain`, `identity.decorate`
+and `code_block.render`. A method this build doesn't have answers `unsupported`,
+which is what a plugin feature-detects on.
+
+What the API still doesn't have is the rest of §17.2: providers, `file.save`,
+local reach, input, the menu targets and widgets, attachments out
+(`messages.send` with bytes, which waits on the chunked frames above), and the
+changes to built-in UI beyond the part hides and the colour and size overlay.
+`audio.record` waits because the microphone has no path that isn't a call's:
+`audio_io::Input` is opened by the call and the input meter, and recording to a
+file for a plugin would be a new Yapfast feature rather than a wrapper over one.
+
+The hooks are `message.pre_send`, `message.pre_edit`, `typing.pre_send` and
+`attachment.pre_upload`; `message.decorate` draws through `yf_decorate`,
+`identity.decorate` answers through `yf_identity` once per (person, server), and
+`code_block.render` through `yf_code_block` once per block — and a plugin's
+colours for a block are kept, though nothing draws them yet.
+`activity.pre_publish` exists in the ABI and no chain runs it: Yapfast does
+publish an activity — the game it detects, merged into its presence — but that
+happens in the Discord client's session, which has no bridge to ask, and
+`HookKind::DISPATCHED` names it as the one hook nothing dispatches. `media.get`
+reads the picture store — what a conversation has already shown — and never
+fetches anything. `messages.retain` keeps a row the backend dropped, flagged
+deleted, and the `decorate` reply's `hide` and `hide_media` keep a row or its
+media out of view, both through their capability.
+`docs/plugins/manifest.md` lists the fields: `menus`, `settings` and `tweaks`
+are all drawn now.

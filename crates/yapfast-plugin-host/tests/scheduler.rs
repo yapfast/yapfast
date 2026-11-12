@@ -240,6 +240,44 @@ fn a_call_that_runs_late_is_cancelled_and_faulted() {
 }
 
 #[test]
+fn a_plugin_is_asked_how_a_person_looks_through_its_own_export() {
+    let harness = Harness::new(config(1));
+    let a = plugin("a");
+    harness.load(&a, 256);
+    harness.live(&a, 101);
+
+    harness.send(Message::Identity {
+        id: 3,
+        plugin: a.clone(),
+        request: yapfast_plugin_api::identity::IdentityRequest {
+            person: "person-1".into(),
+            server: Some("server-1".into()),
+            name: "Ada".into(),
+            username: None,
+            own: false,
+        },
+    });
+
+    // The question reaches the plugin's own export, not a host call: only the
+    // helper holds the instance, so `yf_identity` is the answer.
+    harness.wait_log("invoke:com.example.a:yf_identity");
+    let reports = harness.wait_until(|reports| {
+        reports
+            .iter()
+            .any(|report| matches!(report, FromHelper::Identity { .. }))
+    });
+    assert!(
+        reports.iter().any(|report| matches!(
+            report,
+            FromHelper::Identity { person, server, .. }
+                if person == "person-1" && server.as_deref() == Some("server-1")
+        )),
+        "the pair the parent asked about comes back with the answer: {reports:?}"
+    );
+    harness.finish();
+}
+
+#[test]
 fn three_traps_in_a_window_suspend_a_plugin() {
     let harness = Harness::new(config(1));
     let a = plugin("a");

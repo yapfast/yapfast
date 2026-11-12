@@ -40,6 +40,15 @@ pub struct PluginState {
     /// changes. A refused value is never stored, so the page's own copy of the
     /// form — read back from the store — would otherwise forget why it refused.
     refused: BTreeMap<PluginId, BTreeMap<String, settings::Refused>>,
+    /// What plugins said about how people look, kept once per (person, server)
+    /// so the twentieth message from one author costs nothing.
+    identities: crate::plugins::identity::Identities,
+    /// What plugins made of the code blocks on screen, kept by each block's own
+    /// content hash so the same snippet twice is one answer.
+    code_blocks: crate::plugins::code_block::CodeBlocks,
+    /// The presences the open room\'s members were last said to have, so a
+    /// member list that arrives again reports only who moved.
+    presences: crate::plugins::presence::Presences,
 }
 
 /// Something the plugin system did, for the application to act on.
@@ -102,6 +111,28 @@ pub enum Notice {
     /// keep and show. The runtime coalesces these, so a plugin that draws once
     /// per event costs one update per frame at most.
     Slot(crate::plugins::slots::Output),
+    /// How a plugin says one person looks: the application keeps it under the
+    /// pair the plugin was asked about, and every surface that shows that
+    /// person reads it from there. `rank` is where the plugin sits in the
+    /// chain, so which plugin wins doesn't depend on which answer arrived
+    /// first.
+    Identity {
+        plugin: PluginId,
+        person: String,
+        server: Option<String>,
+        rank: usize,
+        identity: Option<yapfast_plugin_api::identity::Identity>,
+    },
+    /// What a plugin made of one code block on screen: spans that spell the
+    /// block again, kept by the block's content hash. `rank` is where the plugin
+    /// sits in the chain, so the earlier plugin's colours win whatever order two
+    /// answers arrive in.
+    CodeBlock {
+        plugin: PluginId,
+        block: String,
+        rank: usize,
+        spans: Option<Vec<yapfast_plugin_api::code::Span>>,
+    },
     /// Take away everything one plugin drew, because it was turned off or
     /// suspended: a plugin that isn't running shows nothing.
     SlotsGone(PluginId),
@@ -265,11 +296,18 @@ impl PluginState {
             .with_resolver(Arc::new(crate::plugins::network::SystemResolver)),
         );
         bridge.install_network(gate);
+        // `media.get` reads the picture store and nothing else, so a build with
+        // no Discord client has no store and answers `unsupported`.
+        #[cfg(feature = "discord")]
+        bridge.install_pictures(Arc::new(crate::plugins::media::Disk));
         Ok(PluginState {
             bridge,
             grants,
             settings: settings::Store::new(data_dir.join("plugins")),
             refused: BTreeMap::new(),
+            identities: crate::plugins::identity::Identities::default(),
+            code_blocks: crate::plugins::code_block::CodeBlocks::default(),
+            presences: crate::plugins::presence::Presences::default(),
         })
     }
 
@@ -463,6 +501,145 @@ impl PluginState {
     /// Asks each of them what it draws under the rows on screen.
     pub fn decorate(&mut self, rows: &[yapfast_plugin_api::message::DecorateRequest]) {
         self.bridge.decorate(rows);
+    }
+
+    /// Whether an enabled plugin says how people look. A surface that shows a
+    /// person asks this before it costs an answer.
+    pub fn identifies(&self) -> bool {
+        self.bridge.identifies()
+    }
+
+    /// How plugins say this person looks, when anything about them changed.
+    ///
+    /// It is one answer per (person, server) and not one per row: the cache is
+    /// what makes a channel of twenty messages from one author cost one answer.
+    pub fn identity(
+        &mut self,
+        person: &str,
+        server: Option<&str>,
+    ) -> Option<Arc<yapfast_plugin_api::identity::Identity>> {
+        self.identities
+            .get(person, server, std::time::Instant::now())
+    }
+
+    /// Asks the plugins about one person, when what is kept about them is
+    /// missing or stale. A fresh answer costs nothing, which is what makes this
+    /// safe to call from wherever a person is drawn.
+    pub fn ask_identity(&mut self, request: yapfast_plugin_api::identity::IdentityRequest) {
+        if !self.bridge.identifies() {
+            return;
+        }
+        let pair = request.pair();
+        if !self.identities.needs(
+            &pair.0,
+            Some(pair.1.as_str()).filter(|server| !server.is_empty()),
+            std::time::Instant::now(),
+        ) {
+            return;
+        }
+        self.bridge.ask_identities(&[request]);
+    }
+
+    /// Keeps what a plugin answered about one person, and answers whether what
+    /// a surface draws changed: the same answer again redraws nothing.
+    pub fn note_identity(
+        &mut self,
+        person: &str,
+        server: Option<&str>,
+        rank: usize,
+        identity: Option<yapfast_plugin_api::identity::Identity>,
+    ) -> bool {
+        self.identities
+            .note(person, server, rank, identity, std::time::Instant::now())
+    }
+
+    /// Forgets every answer about how people look, which is what changing which
+    /// plugins are enabled asks for: what a plugin that no longer runs said must
+    /// not stay on screen. Answers whether anything was forgotten.
+    pub fn forget_identities(&mut self) -> bool {
+        self.identities.forget()
+    }
+
+    /// The count of answers that changed how somebody looks, so a redraw
+    /// happens on a change and not on every answer.
+    pub fn identity_changes(&self) -> u64 {
+        self.identities.changes()
+    }
+
+    /// Whether an enabled plugin colours code blocks. A row reads its own
+    /// markdown for fences only when one does.
+    pub fn colours_code(&self) -> bool {
+        self.bridge.colours_code()
+    }
+
+    /// Whether an enabled plugin keeps deleted messages visible, which is the
+    /// only reason the timeline merges what the backend dropped.
+    pub fn retains(&self) -> bool {
+        self.bridge.retains()
+    }
+
+    /// Whether this block has been asked about, either way: a block whose
+    /// answer is kept is never asked about again.
+    pub fn knows_code_block(&self, block: &str) -> bool {
+        self.code_blocks.knows(block)
+    }
+
+    /// The colours of one code block, or nothing: a block nobody coloured is
+    /// drawn plain, the same as one nobody asked about.
+    pub fn code_block(&self, block: &str) -> Option<Arc<Vec<yapfast_plugin_api::code::Span>>> {
+        self.code_blocks.get(block)
+    }
+
+    /// Asks the plugins about these code blocks, which the caller takes from the
+    /// fences of the messages on screen.
+    pub fn ask_code_blocks(&mut self, blocks: &[yapfast_plugin_api::code::CodeBlockRequest]) {
+        if !self.bridge.colours_code() || blocks.is_empty() {
+            return;
+        }
+        self.bridge.ask_code_blocks(blocks);
+    }
+
+    /// Keeps what a plugin made of one code block, and answers whether what a
+    /// surface draws changed.
+    pub fn note_code_block(
+        &mut self,
+        block: &str,
+        rank: usize,
+        spans: Option<Vec<yapfast_plugin_api::code::Span>>,
+    ) -> bool {
+        self.code_blocks.note(block, rank, spans)
+    }
+
+    /// Forgets every code block's colours, which is what changing which plugins
+    /// are enabled asks for. Answers whether anything was forgotten.
+    pub fn forget_code_blocks(&mut self) -> bool {
+        self.code_blocks.forget()
+    }
+
+    /// The count of answers that changed how a block draws, so the interface
+    /// redraws a block that was coloured and not every block asked about.
+    pub fn code_block_changes(&self) -> u64 {
+        self.code_blocks.changes()
+    }
+
+    /// The people in this member list whose presence moved, which is what a
+    /// `presence` subscriber is told. The first list of a conversation reports
+    /// nobody: a plugin can read who is there with `people.member`.
+    ///
+    /// It costs one comparison per member and nothing else, so a member list
+    /// that arrives again with the same presences makes no event at all.
+    pub fn presence_changes(
+        &mut self,
+        people: &[crate::chat::ChatMember],
+    ) -> Vec<(String, &'static str)> {
+        let first = self.presences.empty();
+        self.presences.changes(people, first)
+    }
+
+    /// Forgets every presence said, for when the people it was about are no
+    /// longer the ones on screen.
+    pub fn forget_presences(&mut self) {
+        self.presences.forget();
     }
 
     /// Runs the `message.pre_send` chain, if anything intercepts sends.

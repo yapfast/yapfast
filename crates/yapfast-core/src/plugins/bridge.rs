@@ -30,8 +30,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use yapfast_plugin_api::call::{
-    self, AddEmoji, AddSticker, ClearSlot, CommandInvocation, CommandOutcome, CopyText,
-    DraftRequest, EditMessage, HostCall, HostReturn, HttpRequest, InsertText, Line, MessageGet,
+    self, AddEmoji, AddSticker, ClearSlot, CommandInvocation, CommandOutcome, CopyText, DraftRequest,
+    EditMessage, HostCall, HostReturn, HttpRequest, InsertText, Line, MediaGet, MessageGet,
     MessageHistory, MessageRef, Mute, NotifySend, OpenDialog, OpenUrl, PauseInvites, PeopleGet,
     PeopleMember, PlaySound, PluginCall, PluginSubscribe, ReactMessage, RoomGet, RoomsList,
     SendMessage, SetActivity, SetCustomStatus, SetMute, SetSlot, SetStatus, SettingsNews,
@@ -130,10 +130,14 @@ impl Bridge {
             wanted: AtomicU64::new(0),
             intercepts: AtomicBool::new(false),
             decorates: AtomicBool::new(false),
+            identifies: AtomicBool::new(false),
+            retains: AtomicBool::new(false),
+            colours_code: AtomicBool::new(false),
             gesture: Mutex::new(None),
             sends: Mutex::new(BTreeMap::new()),
             off: Mutex::new(None),
             gate: Mutex::new(None),
+            pictures: Mutex::new(None),
             held: Mutex::new(BTreeMap::new()),
             // Asked once: a file beside the app doesn't appear while it runs.
             helper_installed: spawn::program().is_ok(),
@@ -193,6 +197,66 @@ impl Bridge {
         }
     }
 
+    /// Whether an enabled plugin says how people look. One answer serves every
+    /// row that person wrote, so this is asked once per person and not per row.
+    pub fn identifies(&self) -> bool {
+        self.shared.identifies.load(Ordering::Relaxed)
+    }
+
+    /// Asks every plugin that says how people look about each of these people.
+    ///
+    /// The callers ask about the people on screen whose answer is missing or
+    /// stale, never about every row: one pair is one answer, and the parent
+    /// keeps it. A plugin is asked in the chain's order, so which answer wins is
+    /// the chain's order too and not the order two answers arrive in.
+    pub fn ask_identities(&mut self, people: &[yapfast_plugin_api::identity::IdentityRequest]) {
+        let plugins = self.shared.registry().identities();
+        if plugins.is_empty() || people.is_empty() {
+            return;
+        }
+        for request in people.iter().take(MAX_IDENTITIES) {
+            for plugin in &plugins {
+                self.send(Request::Identity {
+                    plugin: plugin.clone(),
+                    request: request.clone(),
+                });
+            }
+        }
+    }
+
+    /// Whether an enabled plugin keeps deleted messages visible. The timeline
+    /// asks once per arriving timeline, and merges nothing when nobody does.
+    pub fn retains(&self) -> bool {
+        self.shared.retains.load(Ordering::Relaxed)
+    }
+
+    /// Whether an enabled plugin colours code blocks. A row reads its markdown
+    /// for fences only when one does.
+    pub fn colours_code(&self) -> bool {
+        self.shared.colours_code.load(Ordering::Relaxed)
+    }
+
+    /// Asks every plugin that colours code blocks about each of these blocks.
+    ///
+    /// Only the blocks of the messages on screen are asked about, and the
+    /// application asks about none of the blocks it already has an answer for:
+    /// a block is named by its own content hash, so the same snippet twice is
+    /// one question.
+    pub fn ask_code_blocks(&mut self, blocks: &[yapfast_plugin_api::code::CodeBlockRequest]) {
+        let plugins = self.shared.registry().code_colourers();
+        if plugins.is_empty() || blocks.is_empty() {
+            return;
+        }
+        for request in blocks.iter().take(MAX_CODE_BLOCKS) {
+            for plugin in &plugins {
+                self.send(Request::CodeBlock {
+                    plugin: plugin.clone(),
+                    request: request.clone(),
+                });
+            }
+        }
+    }
+
     /// Answers a call the application carried out, under the number the guest
     /// asked with, so the runtime hands it to the call that is waiting.
     pub fn answer_call(&mut self, plugin: &PluginId, call: u64, answer: HostReturn) {
@@ -247,6 +311,20 @@ impl Bridge {
         for plugin in plugins {
             self.shared.declare(&plugin);
         }
+    }
+
+    /// Hands the bridge the picture store `media.get` reads, which is the
+    /// application's because the store is the Discord client's disk cache.
+    ///
+    /// The parent never fetches a picture for a plugin: bytes come from what a
+    /// conversation, a member list or a profile has already shown, which is what
+    /// keeps `media.get` from being a request the network gate never saw.
+    pub fn install_pictures(&mut self, pictures: Arc<dyn crate::plugins::media::Pictures>) {
+        *self
+            .shared
+            .pictures
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(pictures);
     }
 
     /// Activates what must run at startup: plugins whose manifest asks for it,
@@ -1030,6 +1108,19 @@ pub(crate) struct Shared {
     /// Whether an enabled plugin draws under messages, which a row asks before
     /// it costs one call per message on screen.
     decorates: AtomicBool,
+    /// Whether an enabled plugin says how people look, which a profile asks
+    /// before it costs one answer per person.
+    identifies: AtomicBool,
+    /// Whether an enabled plugin keeps deleted messages visible, which is the
+    /// only reason the timeline merges what a backend dropped.
+    retains: AtomicBool,
+    /// Whether an enabled plugin colours code blocks, which a row asks before
+    /// it reads its own markdown for fences.
+    colours_code: AtomicBool,
+    /// The picture store `media.get` reads, once the application has installed
+    /// it: the parent never fetches a picture for a plugin, so a build without
+    /// it answers `unsupported`.
+    pictures: Mutex<Option<Arc<dyn crate::plugins::media::Pictures>>>,
     /// When the person last did something a plugin's send can stand behind.
     gesture: Mutex<Option<Instant>>,
     /// When each plugin last sent a message, for the 5-per-10-s the plan puts
@@ -1038,6 +1129,7 @@ pub(crate) struct Shared {
     /// Why plugins are off, when they are.
     off: Mutex<Option<String>>,
     /// The one place a plugin's HTTP request can be made, once the application
+    /// has installed it; nothing here can reach the network without it.
     /// has installed one with a transport.
     gate: Mutex<Option<Arc<crate::plugins::network::NetworkGate>>>,
     /// The `http.fetch` calls kept waiting on a consent dialog, per plugin and
@@ -1062,6 +1154,10 @@ impl Shared {
         self.wanted.store(summary.wanted, Ordering::Relaxed);
         self.intercepts.store(summary.intercepts, Ordering::Relaxed);
         self.decorates.store(summary.decorates, Ordering::Relaxed);
+        self.identifies.store(summary.identifies, Ordering::Relaxed);
+        self.retains.store(summary.retains, Ordering::Relaxed);
+        self.colours_code
+            .store(summary.colours_code, Ordering::Relaxed);
     }
 
     /// Records that the person just did something, which is what a plugin's
@@ -1444,6 +1540,18 @@ enum Request {
     Decorate {
         plugin: PluginId,
         request: yapfast_plugin_api::message::DecorateRequest,
+    },
+    /// How a plugin says one person looks, asked once per person and server:
+    /// the answer comes back as [`FromHelper::Identity`].
+    Identity {
+        plugin: PluginId,
+        request: yapfast_plugin_api::identity::IdentityRequest,
+    },
+    /// What a plugin makes of one code block on screen: the answer comes back as
+    /// [`FromHelper::CodeBlock`].
+    CodeBlock {
+        plugin: PluginId,
+        request: yapfast_plugin_api::code::CodeBlockRequest,
     },
     /// Replace a plugin with what the store holds now, with the plugins that
     /// need it stopped first and started again after.
@@ -1840,6 +1948,23 @@ const DECORATE_TIMEOUT: Duration = Duration::from_millis(250);
 /// misreported visible range can't turn into a burst of calls.
 const MAX_DECORATE_ROWS: usize = 64;
 
+/// How long the parent waits for one plugin's answer about a person: the
+/// helper's own budget is 16 ms, and the rest is the frame it takes to get
+/// there.
+const IDENTITY_TIMEOUT: Duration = Duration::from_millis(250);
+
+/// The most people one pass asks about: a screenful of authors or a member
+/// list's first page, so a misreported range can't turn into a burst of calls.
+const MAX_IDENTITIES: usize = 64;
+
+/// How long the parent waits for one plugin's colours for a block: the helper's
+/// own budget is 16 ms, and the rest is the frame it takes to get there.
+const CODE_BLOCK_TIMEOUT: Duration = Duration::from_millis(250);
+
+/// The most code blocks one pass asks about: a screenful of messages, each with
+/// a block or two, so a misreported range can't turn into a burst of calls.
+const MAX_CODE_BLOCKS: usize = 64;
+
 /// How often a folder plugin's files are looked at. A save is one `stat` of two
 /// files a second, which is nothing beside a build that takes longer than that.
 const DEV_POLL: Duration = Duration::from_secs(1);
@@ -2220,6 +2345,14 @@ impl Session {
                 self.decorate(shared, &plugin, request);
                 None
             }
+            Request::Identity { plugin, request } => {
+                self.identity(shared, &plugin, request);
+                None
+            }
+            Request::CodeBlock { plugin, request } => {
+                self.code_block(shared, &plugin, request);
+                None
+            }
             Request::CallAnswer {
                 plugin,
                 call,
@@ -2515,6 +2648,60 @@ impl Session {
         );
     }
 
+    /// Asks one plugin how a person looks, once for the pair.
+    ///
+    /// The answer is kept by the application, so this is asked for a person
+    /// whose cache entry is missing or stale and not for every row that person
+    /// wrote.
+    fn identity(
+        &mut self,
+        shared: &Shared,
+        plugin: &PluginId,
+        request: yapfast_plugin_api::identity::IdentityRequest,
+    ) {
+        self.activate(shared, plugin);
+        let message = ToHelper::Identity {
+            plugin: plugin.clone(),
+            request,
+        };
+        self.request(
+            &message,
+            IDENTITY_TIMEOUT,
+            Purpose::Agent {
+                what: "how someone looks",
+                plugin: plugin.clone(),
+                budget: IDENTITY_TIMEOUT,
+            },
+        );
+    }
+
+    /// Asks one plugin for the colours of one code block.
+    ///
+    /// Only the blocks of the messages on screen are asked about, and the answer
+    /// is kept by the block's content hash, which is why a block that comes back
+    /// on screen never asks again.
+    fn code_block(
+        &mut self,
+        shared: &Shared,
+        plugin: &PluginId,
+        request: yapfast_plugin_api::code::CodeBlockRequest,
+    ) {
+        self.activate(shared, plugin);
+        let message = ToHelper::CodeBlock {
+            plugin: plugin.clone(),
+            request,
+        };
+        self.request(
+            &message,
+            CODE_BLOCK_TIMEOUT,
+            Purpose::Agent {
+                what: "a code block's colours",
+                plugin: plugin.clone(),
+                budget: CODE_BLOCK_TIMEOUT,
+            },
+        );
+    }
+
     /// Runs one plugin's call into another, which is what `plugin.call` asks for.
     ///
     /// The answer can't be built here: it is an export of the callee, and only
@@ -2748,6 +2935,12 @@ impl Session {
             // A row that comes back after a swap is decorated again by the
             // interface's next report of what is on screen.
             Request::Decorate { plugin, .. } => self.in_swap(plugin),
+            // A person's answer is asked for again when the surfaces that show
+            // them ask the cache, which forgets every answer at a swap.
+            Request::Identity { plugin, .. } => self.in_swap(plugin),
+            // A block on screen is asked about again by the next report of what
+            // is on screen, which forgets every block at a swap.
+            Request::CodeBlock { plugin, .. } => self.in_swap(plugin),
             // An answer to a guest's call is about a guest that may be shut
             // down with the swap, so it goes as it comes.
             Request::CallAnswer { .. } => false,
@@ -2994,9 +3187,39 @@ impl Session {
                 plugin,
                 message,
                 tree,
+                hide,
+                hide_media,
             } => {
                 self.pending.remove(&frame.id);
-                self.on_decorated(shared, &plugin, &message, tree);
+                self.on_decorated(
+                    shared,
+                    &plugin,
+                    &message,
+                    tree,
+                    crate::plugins::slots::Hidden {
+                        row: hide,
+                        media: hide_media,
+                    },
+                );
+                None
+            }
+            FromHelper::Identity {
+                plugin,
+                person,
+                server,
+                identity,
+            } => {
+                self.pending.remove(&frame.id);
+                self.on_identity(shared, &plugin, &person, server, identity);
+                None
+            }
+            FromHelper::CodeBlock {
+                plugin,
+                block,
+                spans,
+            } => {
+                self.pending.remove(&frame.id);
+                self.on_code_block(shared, &plugin, &block, spans);
                 None
             }
             FromHelper::EventDone { .. } => None,
@@ -3394,6 +3617,7 @@ impl Session {
                 Some(Capability::MessagesRead)
             }
             call::method::PEOPLE_GET | call::method::PEOPLE_MEMBER => Some(Capability::PeopleRead),
+            call::method::MEDIA_GET => Some(Capability::MediaRead),
             _ => None,
         };
         if let Some(capability) = capability
@@ -3594,6 +3818,27 @@ impl Session {
                         tree: request.tree,
                     },
                 )
+            }
+            call::method::MEDIA_GET => {
+                let request: MediaGet = match call.parse() {
+                    Ok(request) => request,
+                    Err(error) => return wrong_payload(method, error),
+                };
+                // The store is the application's, and a build without one
+                // answers `unsupported` rather than pretending it has no
+                // pictures: the difference matters to a plugin telling the two
+                // builds apart.
+                let pictures = shared
+                    .pictures
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .clone();
+                match pictures {
+                    Some(pictures) => {
+                        crate::plugins::media::answer(pictures.as_ref(), &request.url)
+                    }
+                    None => HostReturn::Unsupported,
+                }
             }
             // Everything else is named in the contract so a plugin can
             // feature-detect it, and answers so rather than failing to link.
@@ -4019,6 +4264,7 @@ impl Session {
         plugin: &PluginId,
         message: &str,
         tree: Option<serde_json::Value>,
+        mut hide: crate::plugins::slots::Hidden,
     ) {
         let tree = match tree {
             Some(value) => match serde_json::to_string(&value)
@@ -4031,13 +4277,91 @@ impl Session {
                     return;
                 }
             },
-            None => return,
+            None => None,
         };
+        // Hiding is a capability of its own, so a plugin that declared only
+        // `decorate` can draw under a row and cannot make it go away.
+        if !hide.none() {
+            let allowed = shared.registry().entry(plugin).is_some_and(|entry| {
+                entry
+                    .manifest
+                    .permissions
+                    .allows(Capability::MessagesFilter)
+            });
+            if !allowed {
+                tracing::warn!(
+                    %plugin,
+                    "a plugin asked to hide a message or its media without `messages.filter`"
+                );
+                hide = crate::plugins::slots::Hidden::default();
+            }
+        }
+        if tree.is_none() && hide.none() {
+            return;
+        }
         shared.announce(Notice::Slot(crate::plugins::slots::Output::Decorate {
             plugin: plugin.to_string(),
             message: message.to_owned(),
             tree,
+            hide,
         }));
+    }
+
+    /// Files a plugin's colours for one block, or its silence about it.
+    fn on_code_block(
+        &mut self,
+        shared: &Shared,
+        plugin: &PluginId,
+        block: &str,
+        spans: Option<Vec<yapfast_plugin_api::code::Span>>,
+    ) {
+        let Some(rank) = shared
+            .registry()
+            .code_colourers()
+            .iter()
+            .position(|asking| asking == plugin)
+        else {
+            return;
+        };
+        // The helper checks that the spans spell the block, because it is the
+        // side holding the request's text; here they are only filed, by a hash,
+        // so the cache holds no copy of the code.
+        shared.announce(Notice::CodeBlock {
+            plugin: plugin.clone(),
+            block: block.to_owned(),
+            rank,
+            spans,
+        });
+    }
+
+    /// Files a plugin's answer about one person: the application keeps it, and
+    /// only the plugin's place in the chain decides whether it wins.
+    ///
+    /// An answer from a plugin that is no longer enabled is dropped, which is
+    /// what a frame that raced a suspend or a disable looks like.
+    fn on_identity(
+        &mut self,
+        shared: &Shared,
+        plugin: &PluginId,
+        person: &str,
+        server: Option<String>,
+        identity: Option<yapfast_plugin_api::identity::Identity>,
+    ) {
+        let Some(rank) = shared
+            .registry()
+            .identities()
+            .iter()
+            .position(|asking| asking == plugin)
+        else {
+            return;
+        };
+        shared.announce(Notice::Identity {
+            plugin: plugin.clone(),
+            person: person.to_owned(),
+            server,
+            rank,
+            identity,
+        });
     }
 
     /// Reports a command's answer: a line for the person, or the reason it
@@ -4830,10 +5154,14 @@ mod tests {
             wanted: AtomicU64::new(0),
             intercepts: AtomicBool::new(false),
             decorates: AtomicBool::new(false),
+            identifies: AtomicBool::new(false),
+            retains: AtomicBool::new(false),
+            colours_code: AtomicBool::new(false),
             gesture: Mutex::new(None),
             sends: Mutex::new(BTreeMap::new()),
             off: Mutex::new(None),
             gate: Mutex::new(None),
+            pictures: Mutex::new(None),
             held: Mutex::new(BTreeMap::new()),
             helper_installed: false,
             helper: AtomicU32::new(0),
@@ -5350,6 +5678,98 @@ mod tests {
         assert_eq!(history[0]["at"], 1_700_000_000_000_u64);
     }
 
+    /// A plugin that may read pictures, and nothing else.
+    const READER_MANIFEST: &str = r#"{"api":1,"id":"com.example.reader","name":"Reader",
+        "version":"1.0.0","wasm":"plugin.wasm",
+        "permissions":{"capabilities":["media.read"]}}"#;
+
+    /// A picture store with one picture in it, which is what `media.get` reads.
+    struct HeldPicture;
+
+    impl crate::plugins::media::Pictures for HeldPicture {
+        fn bytes(&self, url: &str) -> Option<Vec<u8>> {
+            (url == "https://cdn.example.test/a.png").then(|| b"hello".to_vec())
+        }
+    }
+
+    #[test]
+    fn a_kept_picture_comes_back_to_the_plugin_that_may_read_it() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let ids = install_all(directory.path(), &[READER_MANIFEST, HOOK_MANIFEST]);
+        let (plugin, readerless) = (ids[0].clone(), ids[1].clone());
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        *shared.pictures.lock().expect("the store lock") = Some(Arc::new(HeldPicture));
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        let kept = ask(
+            &mut session,
+            &written,
+            &shared,
+            &plugin,
+            HostCall::new(
+                call::method::MEDIA_GET,
+                MediaGet {
+                    url: "https://cdn.example.test/a.png".to_owned(),
+                },
+            )
+            .expect("a call"),
+        );
+        let HostReturn::Ok(value) = kept else {
+            panic!("a kept picture is an answer: {kept:?}");
+        };
+        assert_eq!(value["bytes"], 5);
+        assert_eq!(value["bytes_base64"], "aGVsbG8=");
+
+        // The same call without `media.read` is denied by the name of what it
+        // needs, and the store is never asked.
+        let denied = ask(
+            &mut session,
+            &written,
+            &shared,
+            &readerless,
+            HostCall::new(
+                call::method::MEDIA_GET,
+                MediaGet {
+                    url: "https://cdn.example.test/a.png".to_owned(),
+                },
+            )
+            .expect("a call"),
+        );
+        let HostReturn::Denied { reason } = denied else {
+            panic!("a picture without its capability is denied: {denied:?}");
+        };
+        assert!(reason.contains("media.read"), "{reason}");
+    }
+
+    #[test]
+    fn a_picture_nobody_keeps_says_so_rather_than_being_fetched() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), READER_MANIFEST, b"not a real module");
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        *shared.pictures.lock().expect("the store lock") = Some(Arc::new(HeldPicture));
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        let missing = ask(
+            &mut session,
+            &written,
+            &shared,
+            &plugin,
+            HostCall::new(
+                call::method::MEDIA_GET,
+                MediaGet {
+                    url: "https://cdn.example.test/b.png".to_owned(),
+                },
+            )
+            .expect("a call"),
+        );
+        let HostReturn::Error { message } = missing else {
+            panic!("a picture nobody keeps says why: {missing:?}");
+        };
+        assert!(message.contains("never asks the network"), "{message}");
+    }
+
     #[test]
     fn a_read_without_its_capability_is_denied_by_the_name_of_what_it_needs() {
         let directory = tempfile::tempdir().expect("a temporary directory");
@@ -5671,6 +6091,71 @@ mod tests {
             panic!("a message event is one event frame");
         };
         assert_eq!(events.len(), 1, "a message is not coalesced");
+    }
+
+    /// A plugin that watches who is around and who is talking, which is what
+    /// the two coalesced taps are for.
+    const WATCHER_MANIFEST: &str = r#"{"api":1,"id":"com.example.watcher","name":"Watcher",
+        "version":"1.0.0","wasm":"plugin.wasm",
+        "permissions":{"capabilities":["people.read","voice.read"]},
+        "activation":{"on":["event:presence","event:speaking"]}}"#;
+
+    #[test]
+    fn presence_and_speaking_arrive_as_one_batch_and_not_one_call_each() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), WATCHER_MANIFEST, b"not a real module");
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        // A burst: two people came online and one of them started talking, all
+        // inside the quarter-second window the coalesced kinds wait in.
+        for (kind, body) in [
+            (EventKind::Presence, "person-1"),
+            (EventKind::Presence, "person-2"),
+            (EventKind::Speaking, "person-1"),
+        ] {
+            runtime().block_on(session.on_command(
+                &shared,
+                Request::Event {
+                    plugin: plugin.clone(),
+                    event: SharedEvent::new(event(kind, body)).expect("it serializes"),
+                },
+            ));
+        }
+        // Nothing is sent while the window is open: a burst is one call.
+        assert!(
+            written.recv_timeout(Duration::from_millis(50)).is_err(),
+            "presence and speaking are held for their window"
+        );
+        std::thread::sleep(Duration::from_millis(COALESCE_MS + 50));
+        session.on_tick(&shared);
+        let activate = next_frame(&written);
+        assert!(matches!(
+            message(&activate),
+            ToHelper::Activate { load: Some(_), .. }
+        ));
+        // One frame, once the window has gone by, with all three: a plugin that
+        // watched a busy call would otherwise be woken per frame it speaks.
+        let batch = next_frame(&written);
+        let ToHelper::Event {
+            events: sent,
+            topics,
+            ..
+        } = message(&batch)
+        else {
+            panic!("a coalesced burst is one event frame");
+        };
+        assert!(topics.is_empty());
+        let kinds: Vec<EventKind> = sent.iter().map(|event| event.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                EventKind::Presence,
+                EventKind::Presence,
+                EventKind::Speaking
+            ]
+        );
     }
 
     /// A manifest that may reach the network and names no host, so every
@@ -6760,10 +7245,29 @@ mod tests {
         "activation":{"on":["decorate"]},
         "permissions":{"capabilities":[]}}"#;
 
+    /// A plugin that draws under messages and may hide them, which needs
+    /// `messages.filter` for the hiding half.
+    const FILTER_MANIFEST: &str = r#"{"api":1,"id":"com.example.filter","name":"Filter",
+        "version":"1.0.0","wasm":"plugin.wasm",
+        "activation":{"on":["decorate"]},
+        "permissions":{"capabilities":["messages.filter"]}}"#;
+
     /// A plugin that may send messages, and may write the composer.
     const SENDER_MANIFEST: &str = r#"{"api":1,"id":"com.example.sender","name":"Sender",
         "version":"1.0.0","wasm":"plugin.wasm",
         "permissions":{"capabilities":["messages.send"]}}"#;
+
+    /// A plugin that says how people look, which needs `people.read`.
+    const FACES_MANIFEST: &str = r#"{"api":1,"id":"com.example.faces","name":"Faces",
+        "version":"1.0.0","wasm":"plugin.wasm",
+        "activation":{"on":["identity"]},
+        "permissions":{"capabilities":["people.read"]}}"#;
+
+    /// A plugin that colours code blocks, which needs `messages.read`.
+    const COLOURER_MANIFEST: &str = r#"{"api":1,"id":"com.example.colourer","name":"Colour",
+        "version":"1.0.0","wasm":"plugin.wasm",
+        "activation":{"on":["code"]},
+        "permissions":{"capabilities":["messages.read"]}}"#;
 
     /// The reply a chain sends for the request it was handed: the helper's own
     /// frame id is the one the parent is waiting under.
@@ -6939,6 +7443,24 @@ mod tests {
     }
 
     #[test]
+    fn activity_pre_publish_is_the_one_hook_this_build_doesnt_dispatch() {
+        // Yapfast publishes an activity — the game it detects, merged into its
+        // own presence in `yapfast-discord`'s `show_presence` — but the plugin
+        // bridge lives here and that publish is the service's, so no call
+        // reaches the hook. The doc says so; this holds the list to the truth,
+        // and adding a dispatch fails it until the list and the doc agree.
+        let missing: Vec<HookKind> = HookKind::ALL
+            .into_iter()
+            .filter(|hook| !HookKind::DISPATCHED.contains(hook))
+            .collect();
+        assert_eq!(
+            missing,
+            vec![HookKind::ActivityPrePublish],
+            "every hook but activity_pre_publish reaches a chain"
+        );
+    }
+
+    #[test]
     fn a_decorator_is_asked_about_the_rows_on_screen_and_answers_with_a_tree() {
         let directory = tempfile::tempdir().expect("a temporary directory");
         let plugin = installed(directory.path(), DECORATOR_MANIFEST, b"not a real module");
@@ -6992,6 +7514,8 @@ mod tests {
                             plugin: plugin.clone(),
                             message: "message-1".to_owned(),
                             tree: Some(tree.clone()),
+                            hide: false,
+                            hide_media: false,
                         })
                         .expect("it serializes"),
                     ),
@@ -7005,6 +7529,7 @@ mod tests {
             plugin: drawn_by,
             message: drawn_for,
             tree: some,
+            hide,
         }) = notice
         else {
             panic!("a decoration is a slot notice: {notice:?}");
@@ -7012,6 +7537,7 @@ mod tests {
         assert_eq!(drawn_by, plugin.to_string());
         assert_eq!(drawn_for, "message-1");
         assert!(some.is_some(), "the tree arrives as the plugin drew it");
+        assert!(hide.none(), "a plugin that hid nothing hid nothing");
     }
 
     #[test]
@@ -7054,6 +7580,8 @@ mod tests {
                             plugin: plugin.clone(),
                             message: "message-1".to_owned(),
                             tree: Some(tree),
+                            hide: false,
+                            hide_media: false,
                         })
                         .expect("it serializes"),
                     ),
@@ -7064,6 +7592,297 @@ mod tests {
             notices.recv_timeout(Duration::from_millis(100)).is_err(),
             "a tree Yapfast refuses draws nothing at all"
         );
+    }
+
+    #[test]
+    fn a_code_block_is_asked_about_by_its_hash_and_comes_back_coloured() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), COLOURER_MANIFEST, b"not a real module");
+        let (wake, notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        let text = "let x = 1;";
+        let block = crate::plugins::code_block::hash(Some("rust"), text);
+        let request = yapfast_plugin_api::code::CodeBlockRequest {
+            block: block.clone(),
+            language: Some("rust".to_owned()),
+            text: text.to_owned(),
+        };
+        runtime().block_on(session.on_command(
+            &shared,
+            Request::CodeBlock {
+                plugin: plugin.clone(),
+                request: request.clone(),
+            },
+        ));
+
+        let activate = next_frame(&written);
+        assert!(matches!(
+            message(&activate),
+            ToHelper::Activate { plugin: started, .. } if started == plugin
+        ));
+        let ask = next_frame(&written);
+        let ToHelper::CodeBlock {
+            plugin: asked,
+            request: sent,
+        } = message(&ask)
+        else {
+            panic!("the second frame is the code block");
+        };
+        assert_eq!(asked, plugin);
+        assert_eq!(
+            sent, request,
+            "the block travels with its hash and language"
+        );
+
+        let spans = vec![
+            yapfast_plugin_api::code::Span::new("let", yapfast_plugin_api::code::Tone::Keyword),
+            yapfast_plugin_api::code::Span::new(" x = 1;", yapfast_plugin_api::code::Tone::Plain),
+        ];
+        assert!(
+            session
+                .on_frame(
+                    &shared,
+                    Frame::new(
+                        FrameKind::Report,
+                        ask.id,
+                        serde_json::to_vec(&FromHelper::CodeBlock {
+                            plugin: plugin.clone(),
+                            block: block.clone(),
+                            spans: Some(spans.clone()),
+                        })
+                        .expect("it serializes"),
+                    ),
+                )
+                .is_none()
+        );
+        let notice = notices
+            .recv_timeout(Duration::from_secs(2))
+            .expect("a notice");
+        let Notice::CodeBlock {
+            plugin: coloured_by,
+            block: coloured,
+            rank,
+            spans: answered,
+        } = notice
+        else {
+            panic!("colours for a block are their own notice: {notice:?}");
+        };
+        assert_eq!(coloured_by, plugin);
+        assert_eq!(coloured, block);
+        assert_eq!(rank, 0);
+        assert_eq!(answered, Some(spans));
+    }
+
+    #[test]
+    fn a_plugin_that_may_filter_hides_a_row_and_its_media() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), FILTER_MANIFEST, b"not a real module");
+        let (wake, notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+        let ask = decorate_ask(&mut session, &shared, &written, &plugin);
+        // The plugin answers a hide and nothing to draw.
+        answer_decorated(&mut session, &shared, ask, &plugin, None, true, true);
+        let notice = notices
+            .recv_timeout(Duration::from_secs(2))
+            .expect("a notice");
+        let Notice::Slot(slots::Output::Decorate { hide, tree, .. }) = notice else {
+            panic!("a hide is a decoration: {notice:?}");
+        };
+        assert!(hide.row && hide.media, "both the row and its media go");
+        assert_eq!(tree, None, "a hide draws nothing under the row");
+    }
+
+    #[test]
+    fn a_plugin_without_messages_filter_hides_nothing() {
+        // The same answer from a plugin that may only draw: the hide is
+        // dropped, and with no tree there is nothing to announce at all.
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), DECORATOR_MANIFEST, b"not a real module");
+        let (wake, notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+        let ask = decorate_ask(&mut session, &shared, &written, &plugin);
+        answer_decorated(&mut session, &shared, ask, &plugin, None, true, true);
+        assert!(
+            notices.recv_timeout(Duration::from_millis(50)).is_err(),
+            "a hide without `messages.filter` hides nothing"
+        );
+    }
+
+    /// Asks one plugin what it draws under a message, and answers the frames the
+    /// helper would write, so a test can get at the reply's id.
+    fn decorate_ask(
+        session: &mut Session,
+        shared: &Arc<Shared>,
+        written: &std::sync::mpsc::Receiver<Frame>,
+        plugin: &PluginId,
+    ) -> u64 {
+        runtime().block_on(session.on_command(
+            shared,
+            Request::Decorate {
+                plugin: plugin.clone(),
+                request: yapfast_plugin_api::message::DecorateRequest {
+                    room: "room-1".to_owned(),
+                    message: "message-1".to_owned(),
+                    author: "person-1".to_owned(),
+                    body: "hi".to_owned(),
+                    own: false,
+                },
+            },
+        ));
+        let activate = next_frame(written);
+        assert!(matches!(message(&activate), ToHelper::Activate { .. }));
+        let ask = next_frame(written);
+        assert!(matches!(message(&ask), ToHelper::Decorate { .. },));
+        ask.id
+    }
+
+    fn answer_decorated(
+        session: &mut Session,
+        shared: &Arc<Shared>,
+        ask: u64,
+        plugin: &PluginId,
+        tree: Option<serde_json::Value>,
+        hide: bool,
+        hide_media: bool,
+    ) {
+        assert!(
+            session
+                .on_frame(
+                    shared,
+                    Frame::new(
+                        FrameKind::Report,
+                        ask,
+                        serde_json::to_vec(&FromHelper::Decorated {
+                            plugin: plugin.clone(),
+                            message: "message-1".to_owned(),
+                            tree,
+                            hide,
+                            hide_media,
+                        })
+                        .expect("it serializes"),
+                    ),
+                )
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_plugin_says_how_a_person_looks_once_for_the_pair() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let plugin = installed(directory.path(), FACES_MANIFEST, b"not a real module");
+        let (wake, notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let (_session_directory, mut session, written, _inbound) = session_stub();
+
+        let person = yapfast_plugin_api::identity::IdentityRequest {
+            person: "person-1".to_owned(),
+            server: Some("server-1".to_owned()),
+            name: "Ada".to_owned(),
+            username: Some("ada".to_owned()),
+            own: false,
+        };
+        runtime().block_on(session.on_command(
+            &shared,
+            Request::Identity {
+                plugin: plugin.clone(),
+                request: person.clone(),
+            },
+        ));
+
+        // The instance comes up first, then the pair is asked about.
+        let activate = next_frame(&written);
+        assert!(matches!(
+            message(&activate),
+            ToHelper::Activate { plugin: started, .. } if started == plugin
+        ));
+        let ask = next_frame(&written);
+        let ToHelper::Identity {
+            plugin: asked,
+            request,
+        } = message(&ask)
+        else {
+            panic!("the second frame is the question about a person");
+        };
+        assert_eq!(asked, plugin);
+        assert_eq!(request, person, "the pair travels as the plugin reads it");
+
+        let identity = yapfast_plugin_api::identity::Identity {
+            display_name: Some("Ada Lovelace".to_owned()),
+            avatar: Some("http://example.test/a.png".to_owned()),
+            ..Default::default()
+        };
+        assert!(
+            session
+                .on_frame(
+                    &shared,
+                    Frame::new(
+                        FrameKind::Report,
+                        ask.id,
+                        serde_json::to_vec(&FromHelper::Identity {
+                            plugin: plugin.clone(),
+                            person: "person-1".to_owned(),
+                            server: Some("server-1".to_owned()),
+                            identity: Some(identity.clone()),
+                        })
+                        .expect("it serializes"),
+                    ),
+                )
+                .is_none()
+        );
+        let notice = notices
+            .recv_timeout(Duration::from_secs(2))
+            .expect("a notice");
+        let Notice::Identity {
+            plugin: said_by,
+            person: said_about,
+            server,
+            rank,
+            identity: answered,
+        } = notice
+        else {
+            panic!("an answer about a person is its own notice: {notice:?}");
+        };
+        assert_eq!(said_by, plugin);
+        assert_eq!(said_about, "person-1");
+        assert_eq!(server.as_deref(), Some("server-1"));
+        assert_eq!(rank, 0);
+        assert_eq!(answered, Some(identity));
+    }
+
+    #[test]
+    fn a_plugin_that_may_not_read_people_is_never_asked_how_they_look() {
+        // The trigger without `people.read` leaves the summary flag off, so the
+        // surfaces ask nobody; the registry says why, and the bridge agrees.
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        installed(
+            directory.path(),
+            r#"{"api":1,"id":"com.example.blind","name":"Blind",
+                "version":"1.0.0","wasm":"plugin.wasm",
+                "activation":{"on":["identity"]}}"#,
+            b"not a real module",
+        );
+        let (wake, _notices) = notice_channel();
+        let shared = shared(directory.path(), wake);
+        let mut bridge = Bridge {
+            data_dir: directory.path().to_owned(),
+            background: None,
+            fetches: Vec::new(),
+            shared,
+            supervisor: None,
+            next_send: 0,
+        };
+        assert!(!bridge.identifies());
+        bridge.ask_identities(&[yapfast_plugin_api::identity::IdentityRequest {
+            person: "person-1".to_owned(),
+            server: None,
+            name: "Ada".to_owned(),
+            username: None,
+            own: false,
+        }]);
     }
 
     #[test]

@@ -133,7 +133,16 @@ impl Plugins {
 pub(super) fn decorations(slots: &plugins::slots::Slots, message: &str) -> ModelRc<PluginPart> {
     let parts: Vec<PluginPart> = slots
         .decorations(message)
-        .map(|kept| part(&slots.names()[kept.plugin], Slot::Message, &kept.tree))
+        .filter_map(|kept| {
+            // A plugin that only filters a row answered a hide and no tree, so
+            // there is nothing of its to draw.
+            let tree = kept.tree.as_ref()?;
+            Some(part(
+                &slots.names()[kept.plugin],
+                Slot::Message,
+                tree,
+            ))
+        })
         .collect();
     if parts.is_empty() {
         ModelRc::default()

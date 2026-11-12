@@ -3324,9 +3324,12 @@ impl Application {
                 self.pictured_timeline = Arc::new(Vec::new());
                 // A plugin that draws under messages is asked about the rows on
                 // screen and no others, so a long channel costs what a screen
-                // costs.
+                // costs. The same pass asks a plugin that colours code blocks
+                // about the fences in those rows.
                 #[cfg(feature = "plugins")]
                 self.plugins_decorate_visible(&room, &items);
+                #[cfg(feature = "plugins")]
+                self.plugins_colour_code_visible(&room, &items);
                 vec![Effect::Backend(Command::VisibleMessages {
                     room,
                     items,
@@ -4322,6 +4325,16 @@ impl Application {
                         self.state.history_start = false;
                     }
                     self.state.room_ready = true;
+                    // A plugin that asked for `messages.retain` wants a row the
+                    // backend dropped kept, flagged, so the person sees what
+                    // went and can read what the plugin kept of it.
+                    #[cfg(feature = "plugins")]
+                    let messages = match self.state.plugins.as_ref() {
+                        Some(plugins) if plugins.retains() => {
+                            crate::plugins::retention::keep(messages, &self.state.messages)
+                        }
+                        _ => messages,
+                    };
                     self.state.messages = self.without_blocked(Arc::new(messages));
                     self.show_sent_commands();
                     let mut effects = self.place_unread();

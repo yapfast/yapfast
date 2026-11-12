@@ -54,6 +54,17 @@ const INVOKE_BUDGET: Duration = Duration::from_secs(2);
 /// it leaves the row plain until it is asked again.
 const DECORATE_BUDGET: Duration = Duration::from_millis(16);
 
+/// How long one plugin's `yf_identity` may run. The answer is kept and used by
+/// every surface that shows that person, so it is asked once and not per row;
+/// it still runs in the background lane, and the person is drawn as Yapfast
+/// already knows them until it comes.
+const IDENTITY_BUDGET: Duration = Duration::from_millis(16);
+
+/// How long one plugin's `yf_code_block` may run. A block is on screen and its
+/// colours are a nicety, like a decoration's: it gets the plan's 16 ms, and a
+/// block that misses it is drawn plain, which is what it looked like anyway.
+const CODE_BLOCK_BUDGET: Duration = Duration::from_millis(16);
+
 /// How long `yf_deactivate` may take. Its answer is a convenience handed to the
 /// next activation, so it gets long enough to write that and no longer: an
 /// instance going away must not hold the helper.
@@ -175,6 +186,20 @@ pub enum Message {
         plugin: PluginId,
         message: String,
         request: yapfast_plugin_api::message::DecorateRequest,
+    },
+    /// How a plugin says one person looks, answered with
+    /// [`FromHelper::Identity`]: `yf_identity`'s export, with the pair.
+    Identity {
+        id: u64,
+        plugin: PluginId,
+        request: yapfast_plugin_api::identity::IdentityRequest,
+    },
+    /// What a plugin makes of one code block, answered with
+    /// [`FromHelper::CodeBlock`]: `yf_code_block`'s export, with the block.
+    CodeBlock {
+        id: u64,
+        plugin: PluginId,
+        request: yapfast_plugin_api::code::CodeBlockRequest,
     },
     /// The parent's answer to a guest's host call.
     Return {
@@ -499,6 +524,52 @@ impl<B: Backend + 'static> Shared<B> {
                     Job::Decorate { message, request },
                 );
             }
+            Message::Identity {
+                id,
+                plugin,
+                request,
+            } => {
+                let slot = state.slot_for(&plugin);
+                let server = request.server.clone();
+                let person = request.person.clone();
+                let request = serde_json::to_value(request).unwrap_or(serde_json::Value::Null);
+                // One answer serves every row the person wrote, so it is worth
+                // waiting behind other work for: the person is drawn as Yapfast
+                // already knows them until it comes.
+                state.push(
+                    slot,
+                    Lane::Background,
+                    id,
+                    Job::Identity {
+                        person,
+                        server,
+                        request,
+                    },
+                );
+            }
+            Message::CodeBlock {
+                id,
+                plugin,
+                request,
+            } => {
+                let slot = state.slot_for(&plugin);
+                let block = request.block.clone();
+                let text = request.text.clone();
+                let request = serde_json::to_value(request).unwrap_or(serde_json::Value::Null);
+                // Only the blocks on screen are asked about, and the answer is
+                // kept by the block's own hash, so the same snippet twice is
+                // one answer.
+                state.push(
+                    slot,
+                    Lane::Background,
+                    id,
+                    Job::CodeBlock {
+                        block,
+                        text,
+                        request,
+                    },
+                );
+            }
             Message::Return {
                 plugin,
                 call,
@@ -552,6 +623,16 @@ impl<B: Backend + 'static> Shared<B> {
                 args_base64,
             } => self.invoke(task, function, args_base64),
             Job::Decorate { message, request } => self.decorate(task, message, request),
+            Job::Identity {
+                person,
+                server,
+                request,
+            } => self.identity(task, person, server.as_deref(), request),
+            Job::CodeBlock {
+                block,
+                text,
+                request,
+            } => self.code_block(task, block, text, request),
             Job::Return { call, answer } => self.answer(task.owner(), *call, answer),
         }
     }
@@ -840,6 +921,8 @@ impl<B: Backend + 'static> Shared<B> {
             plugin: plugin.as_ref().clone(),
             message: message.to_owned(),
             tree: None,
+            hide: false,
+            hide_media: false,
         };
         if self.ensure_active(slot).is_none() {
             let _ = self.reply(task.id, &nothing());
@@ -852,25 +935,135 @@ impl<B: Backend + 'static> Shared<B> {
         let (result, late) = self.call(&[slot], DECORATE_BUDGET, |backend| {
             backend.invoke(&plugin, "yf_decorate", &bytes)
         });
-        let tree = match &result {
+        let decoration = match &result {
             // An export that answered nothing, or answered `null`, draws
             // nothing: a decoration is optional, so an empty one is no fault.
             Ok(Some(answer)) => serde_json::from_slice::<serde_json::Value>(answer)
                 .ok()
-                .filter(|tree| !tree.is_null()),
+                .and_then(yapfast_plugin_api::message::Decoration::parse),
             Ok(None) => None,
             Err(_) => None,
-        };
+        }
+        .unwrap_or_default();
         let _ = self.reply(
             task.id,
             &FromHelper::Decorated {
                 plugin: plugin.as_ref().clone(),
                 message: message.to_owned(),
-                tree,
+                tree: decoration.tree,
+                hide: decoration.hide,
+                hide_media: decoration.hide_media,
             },
         );
         match result {
             Ok(_) if late => self.discard(slot, deadline_fault("a message decoration"), None),
+            Ok(_) => {}
+            Err(fault) => self.discard(slot, fault, None),
+        }
+    }
+
+    /// Asks a plugin how one person looks, and answers the parent with the
+    /// answer or with nothing.
+    ///
+    /// The person is drawn as Yapfast already knows them while this runs, which
+    /// is why the budget is 16 ms: the answer is kept by the parent and shown
+    /// everywhere that person appears.
+    fn identity(
+        &self,
+        task: &Task,
+        person: &str,
+        server: Option<&str>,
+        request: &serde_json::Value,
+    ) {
+        let slot = task.owner();
+        let plugin = self.id(slot);
+        let nothing = || FromHelper::Identity {
+            plugin: plugin.as_ref().clone(),
+            person: person.to_owned(),
+            server: server.map(str::to_owned),
+            identity: None,
+        };
+        if self.ensure_active(slot).is_none() {
+            let _ = self.reply(task.id, &nothing());
+            return;
+        }
+        let Ok(bytes) = serde_json::to_vec(request) else {
+            let _ = self.reply(task.id, &nothing());
+            return;
+        };
+        let (result, late) = self.call(&[slot], IDENTITY_BUDGET, |backend| {
+            backend.invoke(&plugin, "yf_identity", &bytes)
+        });
+        let identity = match &result {
+            // An export that said nothing, or answered `null`, changes nothing:
+            // an answer is optional, so an empty one is no fault.
+            Ok(Some(answer)) => {
+                serde_json::from_slice::<yapfast_plugin_api::identity::Identity>(answer).ok()
+            }
+            Ok(None) => None,
+            Err(_) => None,
+        };
+        let _ = self.reply(
+            task.id,
+            &FromHelper::Identity {
+                plugin: plugin.as_ref().clone(),
+                person: person.to_owned(),
+                server: server.map(str::to_owned),
+                identity,
+            },
+        );
+        match result {
+            Ok(_) if late => self.discard(slot, deadline_fault("how someone looks"), None),
+            Ok(_) => {}
+            Err(fault) => self.discard(slot, fault, None),
+        }
+    }
+
+    /// Asks a plugin to colour one code block, and answers the parent with the
+    /// spans it gave or with nothing.
+    ///
+    /// The block is drawn plain while this runs, which is what it looked like
+    /// anyway: colours are worth a frame and not a wait.
+    fn code_block(&self, task: &Task, block: &str, text: &str, request: &serde_json::Value) {
+        let slot = task.owner();
+        let plugin = self.id(slot);
+        let nothing = || FromHelper::CodeBlock {
+            plugin: plugin.as_ref().clone(),
+            block: block.to_owned(),
+            spans: None,
+        };
+        if self.ensure_active(slot).is_none() {
+            let _ = self.reply(task.id, &nothing());
+            return;
+        }
+        let Ok(bytes) = serde_json::to_vec(request) else {
+            let _ = self.reply(task.id, &nothing());
+            return;
+        };
+        let (result, late) = self.call(&[slot], CODE_BLOCK_BUDGET, |backend| {
+            backend.invoke(&plugin, "yf_code_block", &bytes)
+        });
+        let spans = match &result {
+            // An export that answered nothing, or answered `null`, colours
+            // nothing: an answer is optional, so an empty one is no fault.
+            Ok(Some(answer)) => {
+                serde_json::from_slice::<Vec<yapfast_plugin_api::code::Span>>(answer)
+                    .ok()
+                    .filter(|spans| yapfast_plugin_api::code::fits(text, spans))
+            }
+            Ok(None) => None,
+            Err(_) => None,
+        };
+        let _ = self.reply(
+            task.id,
+            &FromHelper::CodeBlock {
+                plugin: plugin.as_ref().clone(),
+                block: block.to_owned(),
+                spans,
+            },
+        );
+        match result {
+            Ok(_) if late => self.discard(slot, deadline_fault("a code block's colours"), None),
             Ok(_) => {}
             Err(fault) => self.discard(slot, fault, None),
         }
@@ -1191,6 +1384,33 @@ impl<B: Backend + 'static> Shared<B> {
                         plugin,
                         message: message.clone(),
                         tree: None,
+                        hide: false,
+                        hide_media: false,
+                    },
+                );
+            }
+            // A person nobody answered about is drawn as Yapfast already knows
+            // them.
+            Job::Identity { person, server, .. } => {
+                let _ = self.reply(
+                    task.id,
+                    &FromHelper::Identity {
+                        plugin,
+                        person: person.clone(),
+                        server: server.clone(),
+                        identity: None,
+                    },
+                );
+            }
+            // A block nobody coloured is drawn plain, which is what it looked
+            // like while the plugin was asked.
+            Job::CodeBlock { block, .. } => {
+                let _ = self.reply(
+                    task.id,
+                    &FromHelper::CodeBlock {
+                        plugin,
+                        block: block.clone(),
+                        spans: None,
                     },
                 );
             }
@@ -1427,6 +1647,16 @@ enum Job {
     },
     Decorate {
         message: String,
+        request: serde_json::Value,
+    },
+    Identity {
+        person: String,
+        server: Option<String>,
+        request: serde_json::Value,
+    },
+    CodeBlock {
+        block: String,
+        text: String,
         request: serde_json::Value,
     },
     Return {
