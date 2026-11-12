@@ -827,7 +827,7 @@ export component ActivityCard inherits VerticalLayout {
 export component ServerCard inherits Rectangle {
     in property <ProfileServerRow> server;
     callback open;
-    height: body.preferred-height;
+    height: body.preferred-height + 2 * root.inset;
     background: Theme.sidebar-fill;
     border-radius: Look.radius(12px); border-width: Look.line(1px); border-color: Theme.edge;
     drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
@@ -835,8 +835,12 @@ export component ServerCard inherits Rectangle {
     accessible-label: root.server.name;
     // Clicks on the card stay on it, instead of closing it.
     TouchArea { }
+    // A theme's outline stays around the banner; the stock card keeps its
+    // banner to the edge.
+    property <length> inset: Look.outline-width >= 0px ? Look.line(1px) : 0px;
     Rectangle {
-        border-radius: Look.radius(12px); clip: true;
+        x: root.inset; y: root.inset; width: parent.width - 2 * root.inset; height: parent.height - 2 * root.inset;
+        border-radius: max(0px, Look.radius(12px) - root.inset); clip: true;
         body := VerticalLayout {
             padding-bottom: 16px; spacing: 0px;
             // The banner, with the icon hanging over its lower edge.
@@ -1024,11 +1028,20 @@ export component ProfileCard inherits Rectangle {
     // themed card, the colours measured off Discord's, white on a light theme.
     property <color> bubble: !root.themed ? Theme.raised : root.light ? #ffffff : #232427;
     property <color> bubble-edge: !root.themed ? Theme.edge : root.light ? #00000026 : #404044;
-    height: min(body.preferred-height, root.limit);
+    height: min(body.preferred-height + (root.themed ? 0px : 2 * root.edge-inset), root.limit);
     background: root.themed ? @linear-gradient(180deg, root.data.theme-primary 0%, root.data.theme-secondary 100%) : Art.glass-card && !root.docked ? transparent : root.plain-ground;
     property <length> corner: root.docked ? Look.radius(ClientStyle.enabled ? 8px : 0px) : Look.r(Look.card, 12px);
+    // A theme's border, solid, dashed or dotted, stays around the banner
+    // and the card's art: what's inside starts past it, under corners
+    // rounded to the border's inner edge. The stock card keeps its banner
+    // to the edge.
+    property <bool> dashed: Arrange.dash-card.on && !root.docked;
+    property <bool> edge-themed: Look.card.border >= 0px || Look.outline-width >= 0px || root.dashed;
+    property <length> dash-stroke: Arrange.dash-card.width >= 0px ? Arrange.dash-card.width : Look.bw(Look.card, 1px);
+    property <length> solid-edge: root.themed ? 0px : root.docked && !ClientStyle.enabled ? 0px : Look.bw(Look.card, 1px);
+    property <length> edge-inset: root.themed ? 2px : !root.edge-themed ? 0px : max(root.dashed ? max(1px, root.dash-stroke) : 0px, root.solid-edge);
     border-radius: root.corner;
-    border-width: root.themed ? 0px : root.docked && !ClientStyle.enabled ? 0px : Look.bw(Look.card, 1px); border-color: Look.bc(Look.card, Theme.edge);
+    border-width: root.dashed ? 0px : root.solid-edge; border-color: Look.bc(Look.card, Theme.edge);
     drop-shadow-blur: root.docked ? 0px : Look.sb(Look.card, 24px); drop-shadow-offset-x: root.docked ? 0px : Look.sx(Look.card, 0px); drop-shadow-color: root.docked ? transparent : Look.sc(Look.card, #00000080); drop-shadow-offset-y: root.docked ? 0px : Look.sy(Look.card, 8px);
     accessible-role: groupbox;
     accessible-label: root.data.name + "'s profile";
@@ -1037,9 +1050,9 @@ export component ProfileCard inherits Rectangle {
     // the pointer is on it.
     card-pointer := TouchArea {
         Rectangle {
-            x: root.themed ? 2px : 0px; y: root.themed ? 2px : 0px;
-            width: parent.width - (root.themed ? 4px : 0px); height: parent.height - (root.themed ? 4px : 0px);
-            border-radius: (root.docked ? (ClientStyle.enabled ? 8px : 0px) : 12px) - (root.themed ? 2px : 0px); clip: true;
+            x: root.edge-inset; y: root.edge-inset;
+            width: parent.width - 2 * root.edge-inset; height: parent.height - 2 * root.edge-inset;
+            border-radius: max(0px, (root.edge-themed ? root.corner : root.docked ? (ClientStyle.enabled ? 8px : 0px) : 12px) - root.edge-inset); clip: true;
             if root.themed: Rectangle {
                 background: @linear-gradient(180deg, root.theme-start 0%, root.theme-start root.banner-height / parent.height * 100%, root.theme-end 100%);
             }
@@ -1065,8 +1078,8 @@ export component ProfileCard inherits Rectangle {
                         Rectangle {
                             y: 0px; height: root.banner-height;
                             // Its top corners follow the card's, inside its border.
-                            border-top-left-radius: max(0px, root.corner - root.border-width);
-                            border-top-right-radius: max(0px, root.corner - root.border-width);
+                            border-top-left-radius: max(0px, root.corner - max(root.edge-inset, root.border-width));
+                            border-top-right-radius: max(0px, root.corner - max(root.edge-inset, root.border-width));
                             clip: true;
                             background: root.data.has-accent ? root.data.accent : root.themed ? root.data.theme-primary : Theme.raised-fill;
                             if root.data.banner.width > 0: Image {
