@@ -392,6 +392,35 @@ higher.
 So the card's picture is its bitrate and its codec, and the box that asks for a
 sharper one stays the processor's: the card's encoder has one tuning.
 
+**At this desktop's own size, 3440x1440 at 60 fps**, the same levers against the
+same desktop panning through a 3440x1440 window, at the 20805 kbit/s ceiling
+Settings' experimental switch declares for it:
+
+| lever | wall s | kbit/s | PSNR-Y | SSIM-Y |
+| --- | --- | --- | --- | --- |
+| shipped row: p4, vbr | **0.82** | 16485 | 58.974 | 0.99893 |
+| p7 | 1.14 | **14427** | 58.660 | 0.99886 |
+| `multipass fullres` | 1.18 | **13545** | 57.329 | 0.99883 |
+| `refs 4` | 0.81 | 16529 | 58.976 | 0.99893 |
+| `spatial-aq 4` | 0.83 | 20608 | 59.761 | 0.99915 |
+| `spatial-aq 8` | 0.83 | 20744 | 59.431 | 0.99919 |
+| `rc cbr` | 0.81 | 19371 | **61.627** | **0.99928** |
+
+The numbers that matter are the third column. Every lever that "won" on quality
+spent more of the ceiling — `cbr` 17 % more, `spatial-aq` the lot — and at equal
+spend none of them wins: `cbr` held to 16500 spends 15359 and measures 58.637,
+less than the shipped row's 58.974 for 16485, and held to 14200 on a still
+desktop it spends 13209 for 58.428 against 58.823. p7 and `multipass` **underspend**
+by 12 % and 18 % and measure lower in both bitrate and picture, which is the
+worst of both: "Higher quality" was sending fewer bits than the box beside it.
+
+What `cbr` does buy is the ceiling spent: on a **still** desktop at 20805 it
+spends 18561 of 20805 where vbr spends 14193, and measures 62.149 against
+58.823 — a picture a third better fed by bits nobody looks at, which is why the
+shipped row leaves a calm screen below the cap. And a share sending 2 Mbit/s
+under a 20.8 Mbit ceiling is a screen that isn't changing: this still desktop
+already spends 14 Mbit/s of it on text and edges at 58.8 dB.
+
 **The colour claim.** The question assumed BT.709; `hwenc.c` and `d3d11enc.c`
 declare **SMPTE 170M (BT.601) limited**, and that is what the pixels are:
 measured mean absolute error 0.33/0.33/0.41 codes through NVENC's own BGRA→NV12
