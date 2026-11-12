@@ -104,8 +104,8 @@ pub enum Input {
 /// no field they don't know.
 ///
 /// The sections the interface draws are the API crate's to define — `menus`,
-/// `rail_items`, `header_buttons` and `ui` — because one file is read by two
-/// parsers: an install reads it with
+/// `rail_items`, `header_buttons`, `ui` and `parts` — because one file is
+/// read by two parsers: an install reads it with
 /// [`yapfast_plugin_api::PluginManifest`], which is what a plugin is once the
 /// store holds it, and a folder is read with this. The shape of those sections
 /// lives there (`wire` turns it into what [`ui`] draws), so a field added to
@@ -138,6 +138,9 @@ pub struct Manifest {
     /// Changes to Yapfast's own interface.
     #[serde(default, deserialize_with = "wire::ui_section")]
     pub ui: Option<ui::Ui>,
+    /// The names it gives what it draws in its slots.
+    #[serde(default)]
+    pub parts: Vec<yapfast_plugin_api::manifest::PartDecl>,
     /// The plugin's own settings, checked as the manifest is read: one that
     /// can't be used refuses the manifest.
     #[serde(default)]
@@ -189,6 +192,8 @@ impl Manifest {
                 ui::LABEL_CHARS
             ));
         }
+        yapfast_plugin_api::manifest::check_parts(&manifest.parts)
+            .map_err(|error| error.to_string())?;
         Ok(manifest)
     }
 
@@ -399,18 +404,24 @@ pub fn preview(found: &Found) -> Vec<slots::Output> {
             let tree = serde_json::from_value::<ui::Tree>(tree)
                 .map_err(|error| error.to_string())
                 .and_then(ui::Tree::checked);
+            // Each tree is the part the manifest names first for its slot.
+            let named = |mut tree: ui::Tree, slot| {
+                tree.part =
+                    ui::part_id(plugin, &found.manifest.parts, slot, None).unwrap_or_default();
+                tree
+            };
             let output = tree.and_then(|tree| match key.strip_prefix("message:") {
                 Some(message) => Ok(slots::Output::Decorate {
                     hide: slots::Hidden::default(),
                     plugin: plugin.clone(),
                     message: message.to_owned(),
-                    tree: Some(tree),
+                    tree: Some(named(tree, slots::Slot::Message)),
                 }),
                 None => match slots::Slot::from_id(&key) {
                     Some(slot) if slot != slots::Slot::Message => Ok(slots::Output::SetSlot {
                         plugin: plugin.clone(),
                         slot,
-                        tree,
+                        tree: named(tree, slot),
                     }),
                     _ => Err(format!("there's no slot {key:?}")),
                 },

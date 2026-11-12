@@ -577,11 +577,15 @@ pub struct MediaGet {
 /// `slot` is one of `banner`, `toast`, `composer`, `message.actions` or
 /// `dialog`. `tree` is the widget tree the interface draws: rows of cells,
 /// which `docs/plugins/interface.md` describes. It is untyped here because
-/// the crate that checks it is the parent's.
+/// the crate that checks it is the parent's. `part` is which of the names the
+/// manifest's `parts` gives this slot the tree is drawn as; left out, it is the
+/// first, or none when the manifest names none.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SetSlot {
     pub slot: String,
     pub tree: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub part: Option<String>,
 }
 
 /// `ui.set_slot` and `ui.clear_slot`'s answer: whether the interface drew

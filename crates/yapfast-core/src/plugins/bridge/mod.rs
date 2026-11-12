@@ -52,7 +52,7 @@ use yapfast_plugin_api::hook::{
     AttachmentPending, Draft, HookKind, HookOutcome, HookRequest, HookSubject, TypingPending,
 };
 use yapfast_plugin_api::limits;
-use yapfast_plugin_api::manifest::CommandDecl;
+use yapfast_plugin_api::manifest::{CommandDecl, PartDecl};
 use yapfast_plugin_api::message::{
     Activation, Fault, FromHelper, LogLevel, LogRecord, PluginStatus, ToHelper,
 };

@@ -29,7 +29,15 @@ impl Session {
     /// Nothing here reaches the interface at once: a drawing joins the frame
     /// that is being gathered, so a plugin that draws on every event still costs
     /// one update per frame.
-    pub(super) fn paint_slot(&mut self, plugin: &PluginId, request: SetSlot) -> HostReturn {
+    ///
+    /// `parts` are the names the plugin's manifest gives what it draws: the tree
+    /// is drawn as the one it asks for, or the first its slot has.
+    pub(super) fn paint_slot(
+        &mut self,
+        plugin: &PluginId,
+        parts: &[PartDecl],
+        request: SetSlot,
+    ) -> HostReturn {
         let Some(slot) = Slot::from_id(&request.slot) else {
             let named: Vec<&str> = Slot::ALL
                 .into_iter()
@@ -51,8 +59,21 @@ impl Session {
                     .to_owned(),
             };
         }
-        let tree = match crate::plugins::ui::Tree::parse(&request.tree.to_string()) {
+        let mut tree = match crate::plugins::ui::Tree::parse(&request.tree.to_string()) {
             Ok(tree) => tree,
+            Err(reason) => {
+                return HostReturn::Denied {
+                    reason: format!("the tree can't be drawn: {reason}"),
+                };
+            }
+        };
+        tree.part = match crate::plugins::ui::part_id(
+            plugin.as_str(),
+            parts,
+            slot,
+            request.part.as_deref(),
+        ) {
+            Ok(part) => part,
             Err(reason) => {
                 return HostReturn::Denied {
                     reason: format!("the tree can't be drawn: {reason}"),
@@ -96,7 +117,13 @@ impl Session {
 
     /// A line for the person under the plugin's name, in the banner slot or the
     /// toast's.
-    pub(super) fn paint_line(&mut self, plugin: &PluginId, slot: Slot, text: &str) -> HostReturn {
+    pub(super) fn paint_line(
+        &mut self,
+        plugin: &PluginId,
+        parts: &[PartDecl],
+        slot: Slot,
+        text: &str,
+    ) -> HostReturn {
         if text.trim().is_empty() {
             return HostReturn::Error {
                 message: "the line to show is empty".to_owned(),
@@ -105,7 +132,7 @@ impl Session {
         let tree = serde_json::json!({
             "rows": [{ "cells": [{ "kind": "text", "text": text }] }]
         });
-        let tree = match crate::plugins::ui::Tree::parse(&tree.to_string()) {
+        let mut tree = match crate::plugins::ui::Tree::parse(&tree.to_string()) {
             Ok(tree) => tree,
             Err(reason) => {
                 return HostReturn::Denied {
@@ -113,6 +140,9 @@ impl Session {
                 };
             }
         };
+        // A line names no part, so it is the first its slot has, if any.
+        tree.part =
+            crate::plugins::ui::part_id(plugin.as_str(), parts, slot, None).unwrap_or_default();
         self.painting.queue(
             Instant::now(),
             slots::Output::SetSlot {

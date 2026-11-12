@@ -85,6 +85,74 @@ fn a_dialog_is_one_slot_a_plugin_opens_one_at_a_time() {
 }
 
 #[test]
+fn a_tree_is_drawn_as_a_part_its_manifest_names() {
+    const NAMING: &str = r#"{"api":1,"id":"com.example.painter","name":"Painter",
+        "version":"1.0.0","wasm":"plugin.wasm",
+        "permissions":{"capabilities":["ui.modify"]},
+        "parts":[{"name":"digest","slot":"banner"},{"name":"ask","slot":"dialog"}]}"#;
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let plugin = installed(directory.path(), NAMING, b"not a real module");
+    let (wake, notices) = notice_channel();
+    let shared = shared(directory.path(), wake);
+    let (_session_directory, mut session, _written, _inbound) = session_stub();
+
+    let named = |slot: &str, part: Option<&str>| {
+        HostCall::new(
+            call::method::UI_SET_SLOT,
+            SetSlot {
+                slot: slot.to_owned(),
+                tree: text_tree("hi"),
+                part: part.map(str::to_owned),
+            },
+        )
+        .expect("a call")
+    };
+    assert_eq!(
+        session.answer(&shared, &plugin, named("banner", None)),
+        answered(SlotDrawn::yes())
+    );
+    assert_eq!(
+        session.answer(&shared, &plugin, named("dialog", Some("ask"))),
+        answered(SlotDrawn::yes())
+    );
+    for (slot, part) in [("toast", "digest"), ("banner", "nothing")] {
+        assert!(
+            matches!(
+                session.answer(&shared, &plugin, named(slot, Some(part))),
+                HostReturn::Denied { .. }
+            ),
+            "{part} in {slot} isn't a part the manifest gives that slot"
+        );
+    }
+    let line = HostCall::new(
+        call::method::UI_TOAST,
+        Line {
+            text: "done".into(),
+        },
+    )
+    .expect("a call");
+    assert_eq!(
+        session.answer(&shared, &plugin, line),
+        answered(SlotDrawn::yes())
+    );
+    session.paint(&shared, Instant::now());
+    let parts: Vec<(Slot, Option<String>)> = std::iter::from_fn(|| notices.try_recv().ok())
+        .filter_map(|notice| match notice {
+            Notice::Slot(slots::Output::SetSlot { slot, tree, .. }) => Some((slot, tree.part)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        parts,
+        [
+            (Slot::Banner, Some("com.example.painter/digest".to_owned())),
+            (Slot::Dialog, Some("com.example.painter/ask".to_owned())),
+            (Slot::Toast, None),
+        ]
+    );
+}
+
+#[test]
 fn a_plugin_draws_at_most_ten_frames_a_second_and_a_quiet_one_wakes_nothing() {
     let now = Instant::now();
     let mut painting = Painting::default();

@@ -287,6 +287,23 @@ impl Slots {
         self.drawn.iter().filter(move |drawn| drawn.slot == slot)
     }
 
+    /// The slot a plugin's named part is drawn in, by its id
+    /// (`<plugin-id>/<name>`), or `None` while no tree of that name is shown:
+    /// how the application knows which of a plugin's parts is on screen.
+    pub fn part(&self, id: &str) -> Option<Slot> {
+        let named = |tree: &Tree| tree.part.as_deref() == Some(id);
+        self.drawn
+            .iter()
+            .find(|drawn| named(&drawn.tree))
+            .map(|drawn| drawn.slot)
+            .or_else(|| {
+                self.decorations
+                    .iter()
+                    .any(|kept| kept.tree.as_deref().is_some_and(named))
+                    .then_some(Slot::Message)
+            })
+    }
+
     /// Takes away everything one plugin drew: its trees in every slot, and
     /// what it drew under messages, which is what disabling, suspending or
     /// uninstalling it does. False when it drew nothing.
@@ -651,6 +668,28 @@ mod tests {
                 name: "Two".into(),
             },
         ])
+    }
+
+    #[test]
+    fn a_named_part_is_found_where_it_is_drawn() {
+        let mut slots = slots();
+        let mut named = tree(r#"{ "rows": [{ "cells": [{ "text": "Hello" }] }] }"#);
+        named.part = Some("a.one/now-playing".into());
+        assert_eq!(slots.part("a.one/now-playing"), None);
+        assert!(slots.set("a.one", Slot::Banner, named.clone()));
+        assert_eq!(slots.part("a.one/now-playing"), Some(Slot::Banner));
+        assert_eq!(slots.part("a.two/now-playing"), None);
+        // The same tree under another name is a change, as the theme may draw it
+        // differently.
+        let mut renamed = named.clone();
+        renamed.part = Some("a.one/digest".into());
+        assert!(slots.set("a.one", Slot::Banner, renamed));
+        assert_eq!(slots.part("a.one/now-playing"), None);
+        assert!(slots.clear("a.one", Slot::Banner));
+        assert_eq!(slots.part("a.one/digest"), None);
+        named.part = Some("a.one/flag".into());
+        assert!(slots.decorate("a.one", "m1", Some(named), Hidden::default()));
+        assert_eq!(slots.part("a.one/flag"), Some(Slot::Message));
     }
 
     #[test]

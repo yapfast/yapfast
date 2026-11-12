@@ -3,9 +3,8 @@
 // turns a checked tree from crates/yapfast-core/src/plugins/ui.rs into these
 // structs. Everything a plugin draws carries its name, so it can't pass for
 // Yapfast's own interface.
-import { ComboBox } from "std-widgets.slint";
 import { Theme, Middle } from "theme.slint";
-import { ActionButton, IconButton, TextField, VolumeSlider } from "controls.slint";
+import { ActionButton, Dropdown, IconButton, TextField, VolumeSlider } from "controls.slint";
 import { SettingsToggle } from "yapfast/settings-toggle.slint";
 
 /// What a cell is, in the order of `Kind` in Rust.
@@ -40,8 +39,11 @@ export struct PluginCell {
 export struct PluginRow { framed: bool, indent: int, cells: [PluginCell] }
 
 /// What one plugin draws in one slot: its id, which input reports, and its
-/// name, which labels what it draws.
-export struct PluginPart { plugin: string, name: string, slot: string, rows: [PluginRow] }
+/// name, which labels what it draws. `part-id` is the part its manifest names
+/// it, as `<plugin-id>/<name>`, and empty for a tree it didn't name; the
+/// containers below expose it so a theme can style a part by name, and none
+/// draws differently for it.
+export struct PluginPart { plugin: string, name: string, slot: string, part-id: string, rows: [PluginRow] }
 
 /// A button a plugin's manifest puts where Yapfast draws rows of its own: at
 /// the bottom of the server rail, or in a conversation's header. It shows
@@ -202,10 +204,10 @@ component PluginCellView inherits HorizontalLayout {
         toggled(on) => { root.acted(root.cell.id, on ? "true" : "false"); }
     }
     if root.cell.kind == PluginKind.select: Middle {
-        ComboBox {
+        Dropdown {
             model: root.cell.options; current-index: root.cell.selected; enabled: root.cell.enabled;
-            accessible-label: root.cell.text;
-            selected(option) => { root.acted(root.cell.id, option); }
+            label: root.cell.text; small: true; fill: Theme.field;
+            selected(index, option) => { root.acted(root.cell.id, option); }
         }
     }
     if root.cell.kind == PluginKind.input: TextField {
@@ -243,6 +245,8 @@ export component PluginWidgets inherits Rectangle {
     in property <string> subject;
     /// The plugin, its slot, the cell's id, its value, and the subject.
     callback acted(string, string, string, string, string);
+    /// The named part it draws, for a theme to style; empty when unnamed.
+    out property <string> part-id: root.part.part-id;
     min-height: column.preferred-height; min-width: column.min-width;
     accessible-role: groupbox;
     accessible-label: "From " + root.part.name;
@@ -328,6 +332,7 @@ export component PluginBadgeView inherits Rectangle {
 // but always under the plugin's name, with a way to close it.
 export component PluginBanner inherits Rectangle {
     in property <PluginPart> part;
+    out property <string> part-id: root.part.part-id;
     callback acted(string, string, string, string, string);
     callback dismissed(string, string);
     min-height: content.preferred-height; vertical-stretch: 0; background: Theme.raised;
@@ -345,6 +350,7 @@ export component PluginBanner inherits Rectangle {
 // in front unless the pointer rests on it.
 export component PluginToast inherits Rectangle {
     in property <PluginPart> part;
+    out property <string> part-id: root.part.part-id;
     /// It counts down only while the window is in front, so it isn't gone
     /// before anyone could see it.
     in property <bool> counting: true;
@@ -404,6 +410,7 @@ export component PluginButtons inherits HorizontalLayout {
 // closes it with `ui.clear_slot` or replaces its tree.
 export component PluginDialog inherits Rectangle {
     in property <PluginPart> part;
+    out property <string> part-id: root.part.part-id;
     callback acted(string, string, string, string, string);
     callback dismissed(string, string);
     width: 420px; min-height: content.preferred-height;
