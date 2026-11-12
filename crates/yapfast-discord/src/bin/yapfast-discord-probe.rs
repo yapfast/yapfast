@@ -23,6 +23,8 @@ use yapfast_discord::{
 const USAGE: &str = "usage: yapfast-discord-probe <command>
   go-live <guild> <channel> <width> <height> <fps> <seconds> [pattern|screen]
                            join a voice channel, go live there, and share
+                           YAPFAST_PROBE_CODEC=av1|h265|h264 asks for that codec
+                           first, as the Stream codec setting does
   store-token              save the test account's token in the OS credential store
   whoami                   show which account the saved token belongs to
   servers                  list servers and their text and voice channels
@@ -221,6 +223,8 @@ async fn worker(
             "height": height,
             "fps": fps,
             "hardware": true,
+            "codec": std::env::var("YAPFAST_PROBE_CODEC")
+                .unwrap_or_else(|_| "automatic".into()),
         }})
     )?;
     writeln!(input, "{}", serde_json::json!({ "send": server }))?;

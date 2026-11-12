@@ -169,11 +169,11 @@ switched to, is made at once, since nothing sent can be repaired without it.
 Before sharing, the share button's menu picks a resolution and a frame rate, as
 Discord's client asks for them: 720p, 1080p or the screen's own size (up to
 4K), at 15, 30 or 60 fps. Its "Higher quality" checkbox, which Discord's client
-doesn't have, has the processor's encoder work harder on each frame — x264's or
-libvpx's slower preset for a sharper picture at the same bitrate. The graphics
-card's encoders run the one tuning `native/hwenc.c` names, so with "Encode
-streams with the GPU" on the row says that and can't be ticked: a slower preset
-there would change nothing. Yapfast remembers the choice
+doesn't have, has the encoder work harder on each frame, for a sharper picture
+at the same bitrate: x264's or libvpx's slower preset on the processor, which
+costs about twice the CPU, or NVENC's slowest preset, p7 in place of p4, on the
+card, which costs it time the game's frames would have had. The row says which
+of the two it asks for. Yapfast remembers the choice
 beside the chosen audio devices (`devices.json`), and starts at 1080p30 without
 it. Larger screens are scaled down to fit, and one of another shape keeps its
 shape: the box a share fits in is named landscape, and it turns with the
@@ -226,11 +226,11 @@ real stream had 3840x2160 declared at 60, 120 and even 200 Mbit/s, and
 7680x4320@60, and Discord refused none of it. So the declaration is a ceiling
 and not the rate: what a stream sends at is decided by a congestion controller
 of its own (`crates/yapfast-discord/src/congestion.rs`), the way Discord's
-client runs libwebrtc's. It starts below the ceiling, at 2.5 Mbit/s, and raises
-the target a little each report while the round trip stays near the lowest it
-has measured; when the round trip climbs well over that, or packets are lost,
-it cuts the target below what the server received — what the uplink carried
-while the queue built — then holds. Discord's client reads this from
+client runs libwebrtc's. It starts at the ceiling, which is what the picture is
+worth, so a share is at its full quality from the first frame; when the round
+trip climbs well over the lowest it has measured, or packets are lost, it cuts
+the target below what the server received — what the uplink carried while the
+queue built — then holds. Discord's client reads this from
 transport-wide feedback; Yapfast reads the receiver reports the stream server
 sends about the video, which a queue at the sender's router lengthens too.
 Those reports can be a viewer's own, passed on by the server and counted from a
@@ -246,7 +246,10 @@ either. A round trip within 25 ms of the lowest raises it 8% a report, and near
 the rate it last backed off from 1%, so the climb back is slow where the queue
 built before. It never rises past half again as fast as the encoder is really
 sending, so a calm picture can't take the target to a rate the uplink has never
-carried. The server's bandwidth estimate (REMB), where it sends one, caps the
+carried. A stream starts at its ceiling rather than climbing to it: a share is
+at the quality its picture is worth from the first frame, and a path that can't
+carry it says so in its reports and brings the target down. The server's
+bandwidth estimate (REMB), where it sends one, caps the
 target as either declared ceiling does — a path that says it carries 4 Mbit/s
 sends 4, whichever cap was declared — and a frame of another size declares a new
 ceiling. The encoder follows the target once it has moved a tenth of its rate.
@@ -503,9 +506,14 @@ Like Discord's client, Yapfast makes one once the stream connects and the
 picture isn't black any more (a screen is black until what's shared draws),
 then every 5 minutes: the picture scaled down to fit 512 by 288, a JPEG at
 quality 92. The worker reports it as a data URI, and Yapfast uploads it with
-`POST /streams/{stream key}/preview`. A failed upload is tried again a minute
-later, up to three times; a newer still replaces an upload not done yet, and
-stopping the share cancels it.
+`POST /streams/{stream key}/preview`. One upload a stream a minute is as often as
+it goes: a share stopped and started again has the key the one before it had, so
+Discord's budget for it is shared with that stream's own still, and the still it
+already shows is this stream's picture. An upload Discord refuses is tried again
+a minute later, up to three times. A still reported while one is uploading is
+dropped rather than cancelling it, since Discord's answer to that upload is what
+says how much of the budget is left; stopping the share cancels an upload not
+done.
 
 A shared screen carries the sound every other application plays, as Discord's
 client and Vesktop share it; Yapfast's own sound stays out, so viewers never hear
@@ -688,7 +696,7 @@ it drops frames rather than lower their quality, and with frame skipping off
 its rate control runs far past the target.
 
 x264 encodes every frame within the bitrate. `native/h264.c` uses its superfast
-preset, or faster with "Higher quality", tuned for zero latency (a frame out
+preset, or its slower one with "Higher quality", tuned for zero latency (a frame out
 for each frame in, no B-frames or lookahead, a slice for each of up to four
 threads), in Main profile, which Discord's client sends (profile-level-id
 `4d0033`). Superfast is the default because it costs little processor time;
@@ -697,6 +705,12 @@ quantization is off: it was the one setting that helped both screens and games
 against x264's defaults. The bitrate peaks at the target over half a second's
 buffer; a second's buffer let a second reach twice the cap, and a two-frame
 buffer starved keyframes. Capped CRF ran past Discord's cap.
+
+NVENC takes the same choice from the same box: `NVENC_TUNINGS` in
+`native/hwenc.c` has a row per effort, p4 for a share as it comes and p7 for
+"Higher quality", with every other setting the same. p7 is the slowest preset
+and the card's time is the game's, so it is a choice rather than the default;
+nothing in either row holds a frame back, so the picture's delay is the same.
 
 ## Encoding on the GPU
 
@@ -922,15 +936,19 @@ time base and rate it settled on are reported at open.
 NVENC's tuning lives in one table in `native/hwenc.c` — preset, tune, rate
 control, zerolatency, frame delay and forced-IDR in a row — so choosing a
 different one is adding a row rather than editing the open path, and what a
-stream actually got is logged at open. The default is unchanged: a preset has to
-earn its place with a measured comparison, not a guess.
+stream actually got is logged at open. Its two rows are the two efforts: p4
+unless the share asked for "Higher quality", and p7 when it did. A row beyond
+those has to earn its place with a measured comparison, not a guess.
 NVENC, AMF and VA-API change their bitrate as they run, without the IDR frame
 FFmpeg would insert, with a patch to FFmpeg for each (AMF's sets the target,
 peak and buffer on the running encoder). Quick Sync needs no patch: FFmpeg
 applies a new target, cap and buffer to its running session itself, and
 `native/hwenc.c` hands it the same cap-and-target pair it opened with. "Higher
-quality" changes nothing on
-the GPU: NVENC's slowest preset looked no better than p4.
+quality" is the same choice on the GPU as on the processor: NVENC's p7 preset
+in place of p4, which is the card's time rather than the CPU. What the preset
+buys a stream is not measured yet — p7's picture against p4's at the same
+bitrate is the comparison that would say whether it earns its place as a
+default.
 
 Where the GPU's encoder encodes AV1 or H265, the stream offers them too,
 first, AV1 before H265, as Discord's client orders them: each looks better

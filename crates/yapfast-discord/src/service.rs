@@ -3395,8 +3395,10 @@ impl Discord {
     }
 
     /// Uploads the preview Discord shows of this account's live stream: a
-    /// JPEG as a data URI.
-    pub async fn stream_preview(&self, stream_key: &str, thumbnail: &str) -> Result<()> {
+    /// JPEG as a data URI. `false` when this stream had one uploaded moments
+    /// ago, which leaves the still Discord already has; see
+    /// [`Api::stream_preview`].
+    pub async fn stream_preview(&self, stream_key: &str, thumbnail: &str) -> Result<bool> {
         self.api.stream_preview(stream_key, thumbnail).await
     }
 

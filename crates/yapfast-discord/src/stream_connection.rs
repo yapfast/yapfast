@@ -628,10 +628,10 @@ struct Shared {
 
 impl Shared {
     /// The state a stream of `size` at `fps` shares between threads. A
-    /// sender's target starts at what the controller opens a stream of that
-    /// size at, under the ceiling [`max_bitrate`] declares for it: it's the
-    /// encoder's rate before the first frame goes, and again after an encoder
-    /// is opened mid-stream.
+    /// sender's target starts at the ceiling [`max_bitrate`] declares for that
+    /// size, which is what the picture is worth: it's the encoder's rate before
+    /// the first frame goes, and again after an encoder is opened mid-stream.
+    /// The controller lowers it when the path says it can't carry that.
     fn new(size: (u32, u32), fps: u32) -> Arc<Self> {
         Arc::new(Self {
             link: Mutex::new(Link::Connecting),
@@ -1045,8 +1045,8 @@ async fn send(
     let (ssrc, video, rtx) = (connection.ssrc, connection.video, connection.rtx);
     let mut size = *lock(&shared.size);
     // What says how fast the stream sends: its ceiling is the rate op 12
-    // declares for the picture, and it starts below it, at what the controller
-    // opens a stream of that size at.
+    // declares for the picture, and it starts there, at what the picture is
+    // worth, coming down only when a report says the path can't carry it.
     let mut pacing = Controller::new(max_bitrate(size.0, size.1, fps).into());
     shared.target.store(pacing.target(), Ordering::Relaxed);
     send_json(
@@ -2031,12 +2031,12 @@ mod tests {
     }
 
     #[test]
-    fn a_stream_starts_below_its_declared_ceiling() {
+    fn a_stream_starts_at_its_declared_ceiling() {
         // The declaration is the picture's worth, 0.07 bit/pixel/frame between
-        // 3.5 and 9 Mbit/s, and the controller opens a stream under it at
-        // congestion::start's rate: that is what an encoder is opened at
-        // mid-stream, and what the first frame is encoded at before a report
-        // has said anything about the path.
+        // 3.5 and 9 Mbit/s, and the controller opens the stream there: that is
+        // what an encoder is opened at mid-stream, and what the first frame is
+        // encoded at before a report has said anything about the path. A path
+        // that can't carry it makes the controller come down.
         let (frames, _queued) = mpsc::channel(4);
         let (sounds, _heard) = mpsc::channel(8);
         let sender = |(width, height), fps| StreamSender {
@@ -2053,7 +2053,7 @@ mod tests {
             let ceiling = u64::from(max_bitrate(size.0, size.1, fps));
             let sender = sender(size, fps);
             assert_eq!(sender.target(), congestion::start(ceiling));
-            assert!(sender.target() < ceiling, "a stream opens under its cap");
+            assert_eq!(sender.target(), ceiling, "a stream opens at its cap");
             assert!(
                 sender.target() >= congestion::FLOOR,
                 "and not under the floor a screen is given"

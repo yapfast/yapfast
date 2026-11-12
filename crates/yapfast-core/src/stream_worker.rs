@@ -2088,10 +2088,9 @@ impl Sink {
         _device: Option<*mut c_void>,
     ) -> Result<Encoding> {
         // Where the controller has got to, so an encoder opened mid-stream
-        // starts at the rate the stream sends at rather than at the declared
-        // ceiling a path may not carry; a stream's first encoder, opened
-        // before the stream has a target, starts where the controller would
-        // open it.
+        // starts at the rate the stream sends at; a stream's first encoder,
+        // opened before the stream has a target, starts at the ceiling the
+        // picture declares, which is where the controller opens it too.
         let aimed = self.video.as_ref().map_or_else(
             || congestion::start(u64::from(kbps(width, height, self.fps)) * 1000) / 1000,
             |video| video.sender.target() / 1000,

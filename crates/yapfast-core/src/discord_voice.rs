@@ -95,32 +95,47 @@ impl Share {
         }
     }
 
-    /// Uploads a preview of the stream, in place of one still uploading.
+    /// Uploads a preview of the stream, unless one is still uploading or
+    /// Discord had one for this stream moments ago.
     /// A failed upload is tried again a minute later, as Discord's client
     /// does, up to three times.
     fn show_preview(&mut self, discord: &Discord, thumbnail: String) {
         let Some(key) = self.key.clone() else { return };
-        if let Some(older) = self.preview.take() {
-            older.abort();
+        // The still already on its way is a second older at most, and what
+        // Discord answers it is what says how much of the stream's budget for
+        // a preview is left: cancelling it would throw that answer away and
+        // have the next still refused instead.
+        if self
+            .preview
+            .as_ref()
+            .is_some_and(|uploading| !uploading.is_finished())
+        {
+            return;
         }
         let discord = discord.clone();
         self.preview = Some(tokio::spawn(async move {
             for attempt in 1..=3 {
                 if attempt > 1 {
-                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    // Past the minute the API spaces one stream's previews by,
+                    // so a second attempt isn't the spacing's own boundary.
+                    tokio::time::sleep(std::time::Duration::from_secs(65)).await;
                 }
                 match discord.stream_preview(&key, &thumbnail).await {
-                    Ok(()) => {
+                    Ok(true) => {
                         tracing::debug!("uploaded the stream's preview");
                         return;
                     }
-                    Err(error) => {
-                        tracing::warn!(
-                            error = format!("{error:#}"),
-                            attempt,
-                            "could not upload the stream's preview"
-                        )
+                    // Discord had this stream's still moments ago, so the one
+                    // it shows is already this stream's own picture.
+                    Ok(false) => {
+                        tracing::debug!("the stream's preview is the one Discord has");
+                        return;
                     }
+                    Err(error) => tracing::warn!(
+                        error = format!("{error:#}"),
+                        attempt,
+                        "could not upload the stream's preview"
+                    ),
                 }
             }
         }));

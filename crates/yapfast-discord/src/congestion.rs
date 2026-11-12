@@ -9,14 +9,14 @@
 //! is the fastest of their rates, and a report that lags behind the count it is
 //! measured from says nothing rather than saying the path carried nothing.
 //!
-//! It starts below the cap, raises the target a little each report while
-//! the round trip stays near the lowest seen, and lowers it below what the
-//! server received when the round trip climbs well over that or packets are
-//! lost, then holds. It doesn't rise far past what the encoder sends, so a
-//! calm picture can't take it to a rate the uplink never carried, and near
-//! the rate it last backed off from it rises slowly. The cap is Discord's
-//! for the stream's height, or the server's estimate (REMB) when that's
-//! lower.
+//! It starts at the cap, which is what the picture is worth, so a share is at
+//! its full quality from its first frame: a path that can't carry that says so
+//! in the reports the server sends, and the target drops below what the server
+//! received when the round trip climbs well over the lowest seen or packets are
+//! lost, then holds. It doesn't rise far past what the encoder sends, so a calm
+//! picture can't take it to a rate the uplink never carried, and near the rate
+//! it last backed off from it rises slowly. The cap is Discord's for the
+//! stream's height, or the server's estimate (REMB) when that's lower.
 
 use std::{
     collections::VecDeque,
@@ -29,9 +29,6 @@ use crate::rtp::Reception;
 /// The lowest bit/s a stream is sent at, what Discord's client gives a
 /// screen.
 pub const FLOOR: u64 = 500_000;
-/// The most a stream starts at, below the cap for 1080p, about what
-/// Discord's client trials 1080p30 at for accounts without Nitro.
-const START: u64 = 2_500_000;
 /// A round trip this far over the lowest is a queue building.
 const QUEUING: Duration = Duration::from_millis(60);
 /// For this many reports in a row.
@@ -73,9 +70,12 @@ const HOLD: Duration = Duration::from_secs(3);
 /// since, so a path that changes gets a new one.
 const BASELINE: Duration = Duration::from_secs(60);
 
-/// The bit/s a stream starts at under `cap`.
+/// The bit/s a stream starts at under `cap`: the rate the picture is worth, so
+/// the first frame is already at the quality the source deserves rather than
+/// climbing to it. A path that can't carry it says so in its reports, and the
+/// target comes down then.
 pub fn start(cap: u64) -> u64 {
-    cap.clamp(FLOOR, START)
+    cap.max(FLOOR)
 }
 
 /// Packets per one-millisecond pacing turn after a frame's initial burst.
@@ -537,9 +537,9 @@ mod tests {
     }
 
     #[test]
-    fn starts_below_the_cap() {
-        assert_eq!(Controller::new(CAP).target(), 2_500_000);
-        assert_eq!(Controller::new(3_500_000).target(), 2_500_000);
+    fn starts_at_the_cap() {
+        assert_eq!(Controller::new(CAP).target(), CAP);
+        assert_eq!(Controller::new(3_500_000).target(), 3_500_000);
         assert_eq!(
             Controller::new(1_000_000).target(),
             1_000_000,
@@ -549,48 +549,39 @@ mod tests {
     }
 
     #[test]
-    fn ramps_up_to_the_cap_while_the_round_trip_stays_short() {
+    fn stays_at_the_cap_while_the_round_trip_stays_short() {
         let mut uplink = Uplink::new(CAP);
-        let said = uplink.busy(3, Some(ms(40)), 0);
-        assert!(
-            said.iter().all(|&said| said == Some(Reason::Ramp)),
-            "{said:?}"
-        );
-        assert_eq!(
-            uplink.target(),
-            2_500_000 * 108 / 100 * 108 / 100 * 108 / 100
-        );
-        uplink.busy(30, Some(ms(50)), 0);
-        assert_eq!(uplink.target(), CAP, "within NEAR of the lowest");
+        let said = uplink.busy(5, Some(ms(40)), 0);
+        assert!(said.iter().all(Option::is_none), "{said:?}");
+        assert_eq!(uplink.target(), CAP);
         assert_eq!(uplink.controller.baseline(), Some(ms(40)));
     }
 
     #[test]
-    fn does_not_ramp_without_a_round_trip() {
+    fn does_not_rise_without_a_round_trip() {
         let mut uplink = Uplink::new(CAP);
+        // A drop leaves the target under the cap, where a rise would show.
+        assert_eq!(uplink.busy(1, None, 40), [Some(Reason::Loss)]);
+        let dropped = uplink.target();
+        assert!(dropped < CAP, "{dropped}");
         let said = uplink.busy(10, None, 0);
         assert!(said.iter().all(Option::is_none));
-        assert_eq!(uplink.target(), 2_500_000);
+        assert_eq!(uplink.target(), dropped);
     }
 
     #[test]
     fn backs_off_when_the_round_trip_stays_up() {
         let mut uplink = Uplink::new(CAP);
-        uplink.busy(20, Some(ms(50)), 0);
-        let before = uplink.target();
+        uplink.busy(1, Some(ms(50)), 0);
         // Between NEAR and QUEUING: holds.
         assert_eq!(uplink.busy(2, Some(ms(90)), 0), [None, None]);
-        assert_eq!(uplink.target(), before);
+        assert_eq!(uplink.target(), CAP);
         // One report over: may be a keyframe; two in a row is a queue.
         assert_eq!(
             uplink.busy(2, Some(ms(300)), 0),
             [None, Some(Reason::Queuing)]
         );
-        assert!(
-            near(uplink.target(), before * 85 / 100),
-            "{}",
-            uplink.target()
-        );
+        assert!(near(uplink.target(), CAP * 85 / 100), "{}", uplink.target());
         // Held a while, even with the round trip short again.
         assert_eq!(uplink.busy(2, Some(ms(50)), 0), [None, None]);
         assert_eq!(uplink.busy(1, Some(ms(50)), 0), [Some(Reason::Ramp)]);
@@ -687,24 +678,41 @@ mod tests {
     #[test]
     fn does_not_rise_far_past_what_is_sent() {
         let mut uplink = Uplink::new(CAP);
-        // A calm picture: the encoder sends a fifth of the target.
+        // The uplink carries 4 Mbit/s and the stream sends 9: the target drops
+        // to what it carried.
+        uplink.seconds(1, 4_000_000, None, 40);
+        let dropped = uplink.target();
+        assert!(near(dropped, 4_000_000 * 85 / 100), "{dropped}");
+        // A calm picture: the encoder sends a fifth of the target, and the
+        // target doesn't climb to a rate its picture never asked for.
         uplink.seconds(30, 500_000, Some(ms(40)), 0);
         let sending = uplink.controller.sending(uplink.at).unwrap();
-        assert!(near(sending, 500_000), "{sending}");
-        assert_eq!(uplink.target(), 2_500_000, "never lowered by it either");
+        assert!(sending < 1_000_000, "a fifth of the target: {sending}");
+        assert_eq!(uplink.target(), dropped, "never lowered by it either");
         // Busy again, it rises as the encoder follows.
-        uplink.busy(3, Some(ms(40)), 0);
-        assert_eq!(
-            uplink.target(),
-            2_500_000 * 108 / 100 * 108 / 100 * 108 / 100
+        let said = uplink.busy(3, Some(ms(40)), 0);
+        assert!(
+            said.iter().all(|&said| said == Some(Reason::Ramp)),
+            "{said:?}"
         );
+        assert!(uplink.target() > dropped);
     }
 
     #[test]
     fn does_not_rise_without_knowing_what_was_sent() {
         let mut uplink = Uplink::new(CAP);
-        assert_eq!(uplink.report(Some(ms(40)), 0), None);
-        assert_eq!(uplink.target(), 2_500_000);
+        // A drop leaves room to rise, and nothing has been sent to measure.
+        assert_eq!(uplink.report(Some(ms(40)), 40), Some(Reason::Loss));
+        let dropped = uplink.target();
+        assert!(dropped < CAP, "{dropped}");
+        assert_eq!(uplink.controller.sending(uplink.at), None);
+        uplink.at += HOLD;
+        assert_eq!(
+            uplink.report(Some(ms(50)), 0),
+            None,
+            "nothing was sent to rise past"
+        );
+        assert_eq!(uplink.target(), dropped);
     }
 
     #[test]
@@ -763,8 +771,8 @@ mod tests {
     #[test]
     fn rises_slowly_near_the_rate_it_backed_off_from() {
         let mut uplink = Uplink::new(CAP);
-        uplink.busy(5, Some(ms(40)), 0);
         let capacity = uplink.target();
+        assert_eq!(capacity, CAP);
         uplink.busy(1, None, 40);
         assert!(near(uplink.target(), capacity * 85 / 100));
         // Held, then a hundredth of that rate a report.
@@ -773,18 +781,9 @@ mod tests {
         uplink.busy(1, Some(ms(40)), 0);
         let step = uplink.target() - after;
         assert!(near(step, capacity / 100), "{step} of {capacity}");
-        // Well past it, the uplink carries more, and it rises faster again.
-        let mut reached = None;
-        for _ in 0..60 {
-            let before = uplink.target();
-            uplink.busy(1, Some(ms(40)), 0);
-            if uplink.target() - before > capacity * 2 / 100 {
-                reached = Some(before);
-                break;
-            }
-        }
-        let reached = reached.expect("rose faster again");
-        assert!(reached > capacity * 115 / 100, "{reached} of {capacity}");
+        // And it comes back up to the ceiling from there.
+        uplink.busy(20, Some(ms(40)), 0);
+        assert_eq!(uplink.target(), CAP);
     }
 
     #[test]

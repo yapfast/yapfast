@@ -463,9 +463,11 @@ pub fn timestamp(elapsed: Duration) -> u64 {
     elapsed.as_micros() as u64 * CLOCK / 1_000_000
 }
 
-/// How much work the H264 encoder puts into each frame: x264's superfast
-/// preset, or its faster one, for a sharper picture at about twice the CPU.
-/// VP8 takes no effort.
+/// How much work an encoder puts into each frame, which Settings' share menu
+/// ticks as "Higher quality": x264's superfast preset, or its slower one, for
+/// a sharper picture at about twice the CPU; libvpx's faster preset, or its
+/// slower one; and NVENC's p4, or its slowest preset, p7, which costs the card
+/// time a game would have had. VP8 takes no effort. See `Tuning`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Effort {
@@ -479,25 +481,38 @@ pub enum Effort {
 /// keyframe. The set itself is `NVENC_TUNINGS` in native/hwenc.c, which knows
 /// what each setting needs and what it costs; this names one row of it.
 ///
-/// It is not a setting a person chooses. The stream's quality setting is
-/// [`Effort`], which picks between x264's presets, and the GPU's encoders have
-/// always run one tuning, so there is one row to name: adding a candidate is a
-/// row there and a variant here, and nothing else, and it stays out of the
-/// settings until a comparison of its picture puts it there.
+/// There is a row per [`Effort`]: the share menu's "Higher quality" box is the
+/// one thing that chooses between them, so a stream that asks for the sharper
+/// picture gets the slower preset on whichever encoder runs, and one that
+/// doesn't spends the card's time on the game instead.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum Tuning {
     /// p4 at low-latency tuning, capped VBR, no frame delay and an IDR on
     /// demand: where screen recordings and games landed.
     #[default]
     LowLatency,
+    /// p7, the slowest preset, for the picture "Higher quality" asks for. The
+    /// same tuning otherwise: p7 costs card time per frame, not a frame of
+    /// delay.
+    High,
 }
 
 impl Tuning {
+    /// The row an encoder of this [`Effort`] is opened with: the card's encoder
+    /// follows the same setting x264's does.
+    fn for_effort(effort: Effort) -> Self {
+        match effort {
+            Effort::Light => Self::LowLatency,
+            Effort::High => Self::High,
+        }
+    }
+
     /// The row's name, as native/hwenc.c reads it.
     #[cfg(hwenc)]
     fn name(self) -> &'static std::ffi::CStr {
         match self {
             Self::LowLatency => c"p4",
+            Self::High => c"p7",
         }
     }
 }
@@ -834,7 +849,7 @@ impl Encoder {
                 height,
                 fps,
                 kbps,
-                Tuning::default(),
+                Tuning::for_effort(effort),
                 capture,
                 &[],
             )
@@ -1786,7 +1801,7 @@ impl Encoder {
             height,
             fps,
             kbps,
-            Tuning::default(),
+            Tuning::for_effort(effort),
             self.capture,
             &self.tried,
         ) {
