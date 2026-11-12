@@ -1449,20 +1449,32 @@ impl Tracker {
                 None => self.nicknames.remove(id),
             };
         }
-        if let Some(since) = relationship["since"]
+        // When a friendship began, kept for friends alone: a request keeps
+        // its own `since`, and a block needs none.
+        let since = relationship["since"]
             .as_str()
-            .and_then(crate::message::iso_ms)
-        {
-            self.friends_since.insert(id.to_owned(), since);
-        }
+            .and_then(crate::message::iso_ms);
         let Some(kind) = relationship["type"].as_u64() else {
+            if let Some(since) = since
+                && self.friends.iter().any(|friend| friend == id)
+            {
+                self.friends_since.insert(id.to_owned(), since);
+            }
             return;
         };
         self.friends.retain(|friend| friend != id);
         self.blocked.retain(|blocked| blocked != id);
         self.requests.remove(id);
+        if kind != FRIEND {
+            self.friends_since.remove(id);
+        }
         match kind {
-            FRIEND => self.friends.push(id.to_owned()),
+            FRIEND => {
+                self.friends.push(id.to_owned());
+                if let Some(since) = since {
+                    self.friends_since.insert(id.to_owned(), since);
+                }
+            }
             BLOCKED => self.blocked.push(id.to_owned()),
             INCOMING_REQUEST | OUTGOING_REQUEST => {
                 let spam = relationship["is_spam_request"].as_bool().unwrap_or(false);

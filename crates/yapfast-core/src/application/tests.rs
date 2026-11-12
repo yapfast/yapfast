@@ -4747,7 +4747,7 @@ fn discord_friends_are_listed_and_messaged() {
             presence: Some(chat::Presence::Idle),
             activity: Some("making tea".into()),
             activities: Default::default(),
-            since: Some(crate::clock::profile_day(1_788_253_200)),
+            since: Some(1_788_253_200_000),
         }
     );
     let effects = app.dispatch(Action::OpenDmScreen(DmScreen::Friends));

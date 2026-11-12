@@ -569,8 +569,10 @@ pub(super) fn profile_data(
     // This account's own profile shows no mutual friends or servers, as
     // Discord's client doesn't: it shares them with nobody.
     let own = discord && state.relation(&profile.id) == Relation::Me;
-    // Discord has said who's mutual, so an empty list means none.
-    let mutuals_known = !view.loading || view.kept;
+    // Discord has said who's mutual, so an empty list means none: not
+    // while it loads, nor when it failed, which the client's lists, still
+    // none, don't take for no one either.
+    let mutuals_known = view.kept || (!view.loading && view.note.is_none());
     let (wishlist, wishlist_note) = wishlist_rows(profile);
     // With no banner, accent colour or theme, Discord tints the banner area
     // with the avatar's dominant colour.
@@ -776,9 +778,14 @@ pub(super) fn profile_data(
         friends_label: mutual_label(mutuals_known, profile.friends.len(), "Friend").into(),
         servers_label: mutual_label(mutuals_known, profile.servers.len(), "Server").into(),
         mutuals_known,
-        // Neither one's own nor a bot's has them, as the client's full
-        // profile shows none; Matrix has no mutuals to list.
-        mutual_tabs: discord && !own && state.relation(&profile.id) != Relation::Bot,
+        // One's own has neither, and Matrix has no mutuals to list. A bot's
+        // has Mutual Servers alone, as the client's bot profile does.
+        friends_tab: discord && !own && state.relation(&profile.id) != Relation::Bot,
+        servers_tab: discord && !own,
+        bot: state.relation(&profile.id) == Relation::Bot,
+        // Discord's answer to what they did lately has come, or there is
+        // none to wait for.
+        recent_known: !discord || state.preview || profile.recent_came,
         // From the friend list; no one is their own friend.
         friends_since: if own {
             SharedString::default()
@@ -787,7 +794,8 @@ pub(super) fn profile_data(
                 .friends
                 .iter()
                 .find(|friend| friend.id == profile.id)
-                .and_then(|friend| friend.since.as_deref())
+                .and_then(|friend| friend.since)
+                .map(|ms| yapfast_core::clock::profile_day(ms / 1000))
                 .unwrap_or_default()
                 .into()
         },

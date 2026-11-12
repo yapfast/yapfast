@@ -230,6 +230,8 @@ fn the_full_profiles_tabs_and_dates_are_discords() {
             created: Some("May 4, 2024".into()),
             joined: Some("Nov 5, 2026".into()),
             server_name: "Server".into(),
+            // Discord said what they did lately: nothing.
+            recent_came: true,
             ..Default::default()
         },
         ..Default::default()
@@ -245,7 +247,8 @@ fn the_full_profiles_tabs_and_dates_are_discords() {
         presence: None,
         activity: None,
         activities: Default::default(),
-        since: Some("Mar 3, 2025".into()),
+        // 2025-03-03 at noon UTC, in milliseconds.
+        since: Some(1_741_003_200_000),
     };
     state.friends = vec![friend("7"), friend("42")];
     let mut names = yapfast_core::yapfast_discord::message::Names::default();
@@ -262,7 +265,7 @@ fn the_full_profiles_tabs_and_dates_are_discords() {
     assert_eq!(other.mutual_servers_text, "1 Mutual Server");
     assert_eq!(other.friends_label, "1 Mutual Friend");
     assert_eq!(other.servers_label, "1 Mutual Server");
-    assert!(other.mutuals_known && other.mutual_tabs);
+    assert!(other.mutuals_known && other.friends_tab && other.servers_tab);
     assert_eq!(other.friends_since, "Mar 3, 2025");
     assert!(!other.own);
 
@@ -279,17 +282,24 @@ fn the_full_profiles_tabs_and_dates_are_discords() {
     let none = profile_data(&mut pictures, &state, &none);
     assert_eq!(none.friends_label, "No Mutual Friends");
     assert_eq!(none.servers_label, "No Mutual Servers");
+    // A profile Discord didn't give says nothing of who's shared.
+    let mut failed = view("7");
+    failed.note = Some("Discord didn't share the rest of this profile.".into());
+    let failed = profile_data(&mut pictures, &state, &failed);
+    assert!(!failed.mutuals_known);
+    assert_eq!(failed.friends_label, "Mutual Friends");
 
-    // A bot's full profile has no mutual tabs, as the client's has none.
+    // A bot's full profile has Mutual Servers alone, as the client's bot
+    // profile does.
     let bot = profile_data(&mut pictures, &state, &view("9"));
-    assert!(!bot.mutual_tabs);
+    assert!(bot.bot && !bot.friends_tab && bot.servers_tab);
     assert_eq!(bot.friends_since, "");
 
     // Its own shares them with nobody, so, as in Discord's client, its card
     // has no mutual line and its full profile no mutual tabs; nor is anyone
     // their own friend, whatever a list says.
     let own = profile_data(&mut pictures, &state, &view("42"));
-    assert!(own.own && !own.mutual_tabs);
+    assert!(own.own && !own.friends_tab && !own.servers_tab);
     assert_eq!(own.friends_since, "");
 
     let window = classic_window();
@@ -322,28 +332,33 @@ fn the_full_profiles_tabs_and_dates_are_discords() {
     // The full profile opens on its first tab: Activity, which says
     // Discord's words when empty, or one's own Board.
     let empty_activity = "Sam doesn't have any activity to share here";
-    for (data, mutuals, tabs, activity) in [
-        (other, true, true, true),
-        (bot, true, false, true),
-        (own, false, false, false),
+    for (data, mutuals, friends_tab, servers_tab, activity) in [
+        (other, true, true, true, true),
+        (bot, true, false, true, true),
+        (own, false, false, false, false),
     ] {
         window.set_profile_large(false);
         window.set_profile(data);
         window.set_profile_open(true);
         settle(&window);
         assert_eq!(
-            shows(
-                &window,
-                "Show mutual friends and servers in the full profile"
-            ),
+            shows(&window, "1 Mutual Friend") && shows(&window, "1 Mutual Server"),
             mutuals,
             "the card's mutual line"
         );
         window.set_profile_large(true);
         settle(&window);
         assert!(shows(&window, "Activity"), "the full profile is open");
-        assert_eq!(shows(&window, "1 Mutual Friend"), tabs, "Mutual Friends");
-        assert_eq!(shows(&window, "1 Mutual Server"), tabs, "Mutual Servers");
+        assert_eq!(
+            shows(&window, "1 Mutual Friend"),
+            friends_tab,
+            "Mutual Friends"
+        );
+        assert_eq!(
+            shows(&window, "1 Mutual Server"),
+            servers_tab,
+            "Mutual Servers"
+        );
         assert_eq!(shows(&window, empty_activity), activity, "on Activity");
         // Member Since in one row: the Discord logo and a date, then the
         // server's icon and a date.
@@ -353,6 +368,82 @@ fn the_full_profiles_tabs_and_dates_are_discords() {
         window.set_profile_open(false);
         settle(&window);
     }
+
+    // Which tab is open, by its label.
+    let open_tab = |window: &YapfastWindow, label: &str| {
+        let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+        ItemRc::new_root(inner.component())
+            .visit_descendants(|item| {
+                let named = item.accessible_string_property(AccessibleStringProperty::Label);
+                let checked = item.accessible_string_property(AccessibleStringProperty::Checked);
+                if named.as_deref() == Some(label)
+                    && item.is_visible()
+                    && checked.as_deref() == Some("true")
+                {
+                    std::ops::ControlFlow::Break(())
+                } else {
+                    std::ops::ControlFlow::Continue(())
+                }
+            })
+            .is_some()
+    };
+    let press = |window: &YapfastWindow, label: &str| {
+        let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+        let found = ItemRc::new_root(inner.component()).visit_descendants(|item| {
+            let named = item.accessible_string_property(AccessibleStringProperty::Label);
+            if named.as_deref() == Some(label) && item.is_visible() {
+                std::ops::ControlFlow::Break(item.clone())
+            } else {
+                std::ops::ControlFlow::Continue(())
+            }
+        });
+        found
+            .expect("something to press")
+            .accessible_action(&i_slint_core::accessibility::AccessibilityAction::Default);
+    };
+    window.on_enlarge_profile({
+        let weak = window.as_weak();
+        move || weak.unwrap().set_profile_large(true)
+    });
+    // The card's "1 Mutual Server" opens the full profile on its tab, as
+    // Discord's does.
+    let data = profile_data(&mut pictures, &state, &view("7"));
+    window.set_profile_large(false);
+    window.set_profile(data.clone());
+    window.set_profile_open(true);
+    settle(&window);
+    press(&window, "1 Mutual Server");
+    settle(&window);
+    assert!(window.get_profile_large());
+    assert!(open_tab(&window, "1 Mutual Server"), "on Mutual Servers");
+    window.set_profile_open(false);
+    settle(&window);
+    // Opened on Activity, it stays there when a Board comes with Discord's
+    // answer, as the client settles the tab as it opens.
+    window.set_profile(data.clone());
+    window.set_profile_open(true);
+    settle(&window);
+    assert!(open_tab(&window, "Activity"), "on its first tab");
+    window.set_profile(ProfileData {
+        board_tab: true,
+        ..data.clone()
+    });
+    settle(&window);
+    assert!(
+        open_tab(&window, "Activity"),
+        "a Board coming late doesn't take over"
+    );
+    // Before Discord says what they did lately, rows stand in for it, not
+    // the words for none.
+    window.set_profile(ProfileData {
+        recent_known: false,
+        ..data
+    });
+    settle(&window);
+    assert!(!shows(&window, empty_activity), "nothing said yet");
+    assert!(shows(&window, "Loading"), "rows stand in");
+    window.set_profile_open(false);
+    settle(&window);
 }
 
 #[test]

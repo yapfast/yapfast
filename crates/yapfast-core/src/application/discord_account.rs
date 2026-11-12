@@ -498,7 +498,7 @@ impl Application {
                     presence: friend.presence.map(discord::presence),
                     activity: friend.activity.clone(),
                     activities: friend.activities.clone(),
-                    since: friend.since.map(|ms| crate::clock::profile_day(ms / 1000)),
+                    since: friend.since,
                 })
                 .collect();
         }

@@ -2671,12 +2671,13 @@ async fn shows_profiles() {
     assert!(own.bio.is_some_and(|bio| bio.starts_with("Plays bass")));
     assert!(own.roles.is_empty() && own.joined.is_none());
     // A bot's profile comes too, and teaches Names it's a bot, which leaves
-    // its full profile no mutual tabs.
+    // its full profile Mutual Servers alone, listing where it posts.
     let bot = discord
         .profile(PRIVATE, "1400000000000000007", |_| {})
         .await
         .unwrap();
     assert_eq!(bot.name, "Status Bot");
+    assert_eq!(bot.mutual_servers.len(), 1, "the server it posts in");
     assert!(snapshot.names.read().is_bot("1400000000000000007"));
     // Friends Since comes from the relationship's `since`.
     let friend = snapshot

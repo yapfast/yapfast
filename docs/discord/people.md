@@ -259,8 +259,9 @@ the DM's panel and the profile editor's preview show the dates under "Member
 Since" in one row, as the client does: the Discord logo and the account's
 date, then a bullet, the server's icon (its initial without one) and the date
 of joining it; a profile not asked for a server has only the first. A
-friend's also show "Friends Since", from `since` on their relationship in
-READY and RELATIONSHIP_ADD, as the friend list keeps it. These dates read as
+friend's full profile, not the DM's panel, also shows "Friends Since", from
+`since` on their relationship in READY, RELATIONSHIP_ADD and
+RELATIONSHIP_UPDATE, kept for friends alone. These dates read as
 the client writes them, "Nov 5, 2026", whatever date format is chosen. Profiles are kept for
 five minutes, at most 32 of them. This account's own profile shares its
 friends and servers with nobody, so, as in Discord's client, its card shows
@@ -430,17 +431,24 @@ rules:
 | Board | It's one's own, or they have widgets |
 | Activity | Always |
 | Wishlist | It's one's own, or it's public and they're a friend or share a server |
-| Mutual friends, mutual servers | It's someone else's on Discord, and not a bot's |
+| Mutual friends | It's someone else's on Discord, and not a bot's |
+| Mutual servers | It's someone else's on Discord |
 
-It opens on its first tab, the Board when there is one, else Activity, and a
-chosen tab that goes falls back to the first. The mutual tabs read "Mutual
-Friends" and "Mutual Servers" while the profile loads, then "No Mutual
-Friends" or "3 Mutual Friends", and the card's line "1 Mutual Friend • 2
-Mutual Servers". An empty tab says what the client's does in its middle: on
-Activity, "You don't have any activity here" on one's own, and on someone
-else's "Name doesn't have any activity to share here" with a Message button;
-on a mutual tab, "You don't have any friends in common" or "servers in
-common", or "Loading..." till Discord has said. Activity lists their activities, then, under "Recent
+A bot's keeps Mutual Servers, as the client's bot profile has, and words an
+empty one "No servers in common".
+
+The tab is settled as it opens, as in the client: the one a card's mutual
+line asks for, else the first, the Board when there is one, else Activity.
+A Board that comes with Discord's answer afterwards doesn't take over, and a
+chosen tab that goes falls back to the first for good. The mutual tabs read
+"Mutual Friends" and "Mutual Servers" while the profile loads, and after a
+failed one, then "No Mutual Friends" or "3 Mutual Friends"; the card's line
+reads "1 Mutual Friend • 2 Mutual Servers", each part opening its own tab.
+An empty tab shows rows the shape of what's coming till Discord has said,
+then the client's words in its middle: on Activity, "You don't have any
+activity here" on one's own, and on someone else's "Name doesn't have any
+activity to share here" with a Message button; on a mutual tab, "You don't
+have any friends in common" or "servers in common". Activity lists their activities, then, under "Recent
 activity", from `GET /content-inventory/users/{id}/outbox` when the tab first
 opens, what they listened to (`extra.entries[0].media`: its `title`, first
 artist and `image_url`), watched (`extra.media_title`) and played
