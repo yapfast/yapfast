@@ -19,13 +19,14 @@ use slint::{Color, ComponentHandle, Image, ModelRc, SharedString, VecModel};
 use yapfast_core::themes::Performance;
 use yapfast_core::themes::layout::RailSide;
 use yapfast_core::themes::lists::{
-    Case, FontRole, Glyph, HeaderStyle, HoverGround, HoverKind, LabelPlace, PillMode, Separator, StatusStyle,
-    SubLine, TileArt, UnreadMark,
+    Case, FontRole, Glyph, HeaderStyle, HoverGround, HoverKind, LabelPlace, PillMode, Separator,
+    StatusStyle, SubLine, TileArt, UnreadMark,
 };
 use yapfast_core::themes::package::art::Fit;
 use yapfast_core::themes::package::{Resolved, Role};
 use yapfast_ui::{
-    ArtImage, ChannelLists, Chrome, ListGlyph, MemberLists, Picker, PickerRow, Rails, TileLayer, YapfastWindow,
+    ArtImage, ChannelLists, Chrome, ListGlyph, MemberLists, Picker, PickerRow, Rails, TileLayer,
+    YapfastWindow,
 };
 
 /// Pictures decoded since the program started: the decode-once test reads it.
@@ -52,34 +53,46 @@ pub fn init(window: &YapfastWindow) {
     window
         .global::<ChannelLists>()
         .on_fill(|template, name, n| {
-            fill(&template, &[("name", name.as_str()), ("n", n.to_string().as_str())]).into()
+            fill(
+                &template,
+                &[("name", name.as_str()), ("n", n.to_string().as_str())],
+            )
+            .into()
         });
-    window.global::<MemberLists>().on_fill(|template, role, n, name, detail, activity| {
-        // A heading passes its words whole, "Leads — 2", as `role`.
-        let (role, n) = if n.is_empty() {
-            match role.rsplit_once(" — ") {
-                Some((role, count)) => (role.to_owned(), count.to_owned()),
-                None => (role.to_string(), String::new()),
-            }
-        } else {
-            (role.to_string(), n.to_string())
-        };
-        let either = if detail.is_empty() { name.to_string() } else { detail.to_string() };
-        fill(
-            &template,
-            &[
-                ("role", role.as_str()),
-                ("n", n.as_str()),
-                ("name", name.as_str()),
-                ("detail", detail.as_str()),
-                ("detail|name", either.as_str()),
-                ("activity", activity.as_str()),
-            ],
-        )
-        .into()
-    });
+    window
+        .global::<MemberLists>()
+        .on_fill(|template, role, n, name, detail, activity| {
+            // A heading passes its words whole, "Leads — 2", as `role`.
+            let (role, n) = if n.is_empty() {
+                match role.rsplit_once(" — ") {
+                    Some((role, count)) => (role.to_owned(), count.to_owned()),
+                    None => (role.to_string(), String::new()),
+                }
+            } else {
+                (role.to_string(), n.to_string())
+            };
+            let either = if detail.is_empty() {
+                name.to_string()
+            } else {
+                detail.to_string()
+            };
+            fill(
+                &template,
+                &[
+                    ("role", role.as_str()),
+                    ("n", n.as_str()),
+                    ("name", name.as_str()),
+                    ("detail", detail.as_str()),
+                    ("detail|name", either.as_str()),
+                    ("activity", activity.as_str()),
+                ],
+            )
+            .into()
+        });
     let picker = window.global::<Picker>();
-    picker.set_rows(ModelRc::from(PICKER.with_borrow(|state| state.model.clone())));
+    picker.set_rows(ModelRc::from(
+        PICKER.with_borrow(|state| state.model.clone()),
+    ));
     picker.on_toggle(|folder| {
         PICKER.with_borrow_mut(|picker| {
             if !picker.expanded.remove(folder.as_str()) {
@@ -93,12 +106,10 @@ pub fn init(window: &YapfastWindow) {
         show_picker();
     });
     picker.on_count_of(|folder| picker_count(&folder));
-    window
-        .global::<MemberLists>()
-        .on_numbered(|template, n| {
-            let n = n.to_string();
-            fill(&template, &[("online", n.as_str()), ("n", n.as_str())]).into()
-        });
+    window.global::<MemberLists>().on_numbered(|template, n| {
+        let n = n.to_string();
+        fill(&template, &[("online", n.as_str()), ("n", n.as_str())]).into()
+    });
 }
 
 /// A template with its placeholders filled. A part between " · " whose
@@ -158,7 +169,12 @@ pub fn picker(state: &yapfast_core::application::AppState, numbers: usize) {
     let unread_rooms: HashMap<&str, (bool, u64)> = state
         .rooms
         .iter()
-        .map(|room| (room.id.as_str(), (room.mentions > 0 || room.unread > 0, room.mentions)))
+        .map(|room| {
+            (
+                room.id.as_str(),
+                (room.mentions > 0 || room.unread > 0, room.mentions),
+            )
+        })
         .collect();
     let marks = |server: &yapfast_core::chat::ChatServer| {
         let mut unread = false;
@@ -186,7 +202,13 @@ pub fn picker(state: &yapfast_core::application::AppState, numbers: usize) {
         PickerRow {
             id: server.id.as_str().into(),
             name: server.name.as_str().into(),
-            initial: server.name.chars().next().map(|first| first.to_uppercase().to_string()).unwrap_or_default().into(),
+            initial: server
+                .name
+                .chars()
+                .next()
+                .map(|first| first.to_uppercase().to_string())
+                .unwrap_or_default()
+                .into(),
             picture_url: server.icon.as_deref().unwrap_or_default().into(),
             number: number.into(),
             selected: selected(server),
@@ -213,7 +235,11 @@ pub fn picker(state: &yapfast_core::application::AppState, numbers: usize) {
     let mut servers = state.servers.iter().peekable();
     while let Some(server) = servers.next() {
         place += 1;
-        let number = if place <= numbers { place.to_string() } else { String::new() };
+        let number = if place <= numbers {
+            place.to_string()
+        } else {
+            String::new()
+        };
         let Some(folder) = &server.folder else {
             rows.push(row(server, number, false));
             continue;
@@ -225,13 +251,22 @@ pub fn picker(state: &yapfast_core::application::AppState, numbers: usize) {
         let (unread, mentions) = inside
             .iter()
             .map(|server| marks(server))
-            .fold((false, 0), |(unread, sum), (one, more)| (unread || one, sum + more));
+            .fold((false, 0), |(unread, sum), (one, more)| {
+                (unread || one, sum + more)
+            });
         rows.push(PickerRow {
             id: folder.id.as_str().into(),
             name: folder
                 .name
                 .clone()
-                .unwrap_or_else(|| inside.iter().map(|server| server.name.as_str()).take(3).collect::<Vec<_>>().join(", "))
+                .unwrap_or_else(|| {
+                    inside
+                        .iter()
+                        .map(|server| server.name.as_str())
+                        .take(3)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
                 .into(),
             number: number.into(),
             selected: inside.iter().any(|server| selected(server)),
@@ -243,7 +278,13 @@ pub fn picker(state: &yapfast_core::application::AppState, numbers: usize) {
                     .iter()
                     .take(4)
                     .map(|server| yapfast_ui::FolderServer {
-                        initial: server.name.chars().next().map(|first| first.to_uppercase().to_string()).unwrap_or_default().into(),
+                        initial: server
+                            .name
+                            .chars()
+                            .next()
+                            .map(|first| first.to_uppercase().to_string())
+                            .unwrap_or_default()
+                            .into(),
                         picture_url: server.icon.as_deref().unwrap_or_default().into(),
                     })
                     .collect::<Vec<_>>(),
@@ -278,7 +319,10 @@ fn show_picker() {
             }
             if !picker.folder.is_empty() {
                 if row.nested && inside == Some(picker.folder.as_str()) {
-                    shown.push(PickerRow { nested: false, ..row.clone() });
+                    shown.push(PickerRow {
+                        nested: false,
+                        ..row.clone()
+                    });
                 }
                 continue;
             }
@@ -286,7 +330,10 @@ fn show_picker() {
                 continue;
             }
             let open = row.folder && picker.expanded.contains(row.id.as_str());
-            shown.push(PickerRow { open, ..row.clone() });
+            shown.push(PickerRow {
+                open,
+                ..row.clone()
+            });
         }
         picker.model.set_vec(shown);
     });
@@ -318,7 +365,14 @@ pub fn reset(window: &YapfastWindow) {
     rails.set_on(false);
     rails.set_frames(ModelRc::default());
     rails.set_overs(ModelRc::default());
-    for set in [Rails::set_below, Rails::set_between, Rails::set_sel_frame, Rails::set_sel_over, Rails::set_folder_frame, Rails::set_folder_open_frame] {
+    for set in [
+        Rails::set_below,
+        Rails::set_between,
+        Rails::set_sel_frame,
+        Rails::set_sel_over,
+        Rails::set_folder_frame,
+        Rails::set_folder_open_frame,
+    ] {
         set(&rails, TileLayer::default());
     }
     rails.set_reflection(false);
@@ -454,7 +508,11 @@ fn layer(folder: &Path, art: &TileArt, moves: bool) -> TileLayer {
     };
     let decoded = image.size();
     let frames = art.layer.frames.map_or((1, 1, 1000.0), |frames| {
-        (frames.count as i32, frames.columns.max(1) as i32, frames.period)
+        (
+            frames.count as i32,
+            frames.columns.max(1) as i32,
+            frames.period,
+        )
     });
     let (x, y) = art.layer.position;
     // A nine-slice picture that was shrunk to fit its cap counts its edges
@@ -508,7 +566,9 @@ fn layer(folder: &Path, art: &TileArt, moves: bool) -> TileLayer {
 
 fn layers(folder: &Path, arts: &[TileArt], moves: bool) -> ModelRc<TileLayer> {
     ModelRc::new(VecModel::from(
-        arts.iter().map(|art| layer(folder, art, moves)).collect::<Vec<_>>(),
+        arts.iter()
+            .map(|art| layer(folder, art, moves))
+            .collect::<Vec<_>>(),
     ))
 }
 
@@ -574,7 +634,11 @@ pub fn apply(
         rails.set_pad(tiles.pad);
         // A lean is static: it stays under reduced motion, and Light
         // leaves the tiles straight, as it does cards.
-        rails.set_tilt(if performance == Performance::Light { 0. } else { tiles.tilt });
+        rails.set_tilt(if performance == Performance::Light {
+            0.
+        } else {
+            tiles.tilt
+        });
         rails.set_label(match tiles.label {
             LabelPlace::None => 0,
             LabelPlace::Below => 1,
@@ -630,7 +694,9 @@ pub fn apply(
         rails.set_focus_radius(tiles.focus_radius.unwrap_or(-1.));
         rails.set_badge_ground(colour(tiles.badge.ground));
         rails.set_badge_ink(colour(tiles.badge.ink));
-        window.global::<Chrome>().set_rail_tiles_px(tiles.rail_width());
+        window
+            .global::<Chrome>()
+            .set_rail_tiles_px(tiles.rail_width());
     }
     if let Some(rows) = &layout.channel_rows {
         let lists = window.global::<ChannelLists>();
@@ -638,7 +704,11 @@ pub fn apply(
         lists.set_height(rows.height.unwrap_or(-1.));
         lists.set_gap(rows.gap.unwrap_or(2.));
         let text = face(resolved, fonts, rows.font.unwrap_or(FontRole::Body));
-        lists.set_family(if rows.font.is_some() { text.family } else { SharedString::new() });
+        lists.set_family(if rows.font.is_some() {
+            text.family
+        } else {
+            SharedString::new()
+        });
         lists.set_size(rows.size.or(rows.font.and(text.size)).unwrap_or(-1.));
         lists.set_weight(rows.weight.map_or(0, |weight| weight as i32));
         lists.set_case(case(rows.case));
@@ -651,9 +721,17 @@ pub fn apply(
         lists.set_icon_follows_ink(rows.icon.follow_ink);
         lists.set_frames(layers(folder, &rows.frame, !still));
         lists.set_fit_text(rows.fit_text);
-        lists.set_tilt(if performance == Performance::Light { 0. } else { rows.tilt });
+        lists.set_tilt(if performance == Performance::Light {
+            0.
+        } else {
+            rows.tilt
+        });
         match &rows.separator {
-            Some(Separator::Line { colour, width, inset }) => {
+            Some(Separator::Line {
+                colour,
+                width,
+                inset,
+            }) => {
                 lists.set_sep_on(true);
                 lists.set_sep_colour(Color::from_argb_encoded(*colour));
                 lists.set_sep_width(*width);
@@ -707,7 +785,11 @@ pub fn apply(
         lists.set_unread(glyph(folder, meta.unread_glyph.as_ref(), !still));
         lists.set_voice(meta.voice.as_str().into());
         let meta_face = face(resolved, fonts, meta.font.unwrap_or(FontRole::Body));
-        lists.set_meta_family(if meta.font.is_some() { meta_face.family } else { SharedString::new() });
+        lists.set_meta_family(if meta.font.is_some() {
+            meta_face.family
+        } else {
+            SharedString::new()
+        });
         lists.set_meta_size(meta.size.unwrap_or(12.));
         lists.set_meta_colour(colour(meta.colour));
         lists.set_meta_inset(meta.inset.unwrap_or(8.));
@@ -726,12 +808,22 @@ pub fn apply(
         let headers = &rows.headers;
         let head = face(resolved, fonts, headers.font.unwrap_or(FontRole::Body));
         lists.set_head_on(*headers != Default::default());
-        lists.set_head_family(if headers.font.is_some() { head.family } else { SharedString::new() });
+        lists.set_head_family(if headers.font.is_some() {
+            head.family
+        } else {
+            SharedString::new()
+        });
         lists.set_head_size(headers.size.or(headers.font.and(head.size)).unwrap_or(-1.));
-        lists.set_head_weight(headers.weight.map_or(head.weight.unwrap_or(0), |weight| weight as i32));
+        lists.set_head_weight(
+            headers
+                .weight
+                .map_or(head.weight.unwrap_or(0), |weight| weight as i32),
+        );
         lists.set_head_case(case(headers.case));
         lists.set_head_text(headers.text.as_str().into());
-        lists.set_head_ransom(headers.style == HeaderStyle::Ransom && performance != Performance::Light);
+        lists.set_head_ransom(
+            headers.style == HeaderStyle::Ransom && performance != Performance::Light,
+        );
         lists.set_head_height(headers.height.unwrap_or(-1.));
         lists.set_head_colour(colour(headers.colour));
         lists.set_head_frame(one(folder, headers.frame.as_ref(), !still));
@@ -744,11 +836,18 @@ pub fn apply(
         let names = face(resolved, fonts, rows.font.unwrap_or(FontRole::Names));
         lists.set_family(names.family);
         lists.set_size(rows.size.or(names.size).unwrap_or(-1.));
-        lists.set_weight(rows.weight.map_or(names.weight.unwrap_or(0), |weight| weight as i32));
+        lists.set_weight(
+            rows.weight
+                .map_or(names.weight.unwrap_or(0), |weight| weight as i32),
+        );
         lists.set_case(case(rows.case));
         lists.set_avatar(rows.avatar.size.unwrap_or(-1.));
         lists.set_avatar_frames(layers(folder, &rows.avatar.frame, !still));
-        lists.set_avatar_tilt(if performance == Performance::Light { 0. } else { rows.avatar.tilt });
+        lists.set_avatar_tilt(if performance == Performance::Light {
+            0.
+        } else {
+            rows.avatar.tilt
+        });
         lists.set_dot(rows.avatar.dot.unwrap_or(16.));
         lists.set_dot_out(rows.avatar.dot_out.unwrap_or(4.));
         lists.set_avatar_gap(rows.avatar.gap.unwrap_or(10.));
@@ -763,13 +862,21 @@ pub fn apply(
             lists.set_ring_colour(Color::from_argb_encoded(ring.colour));
             lists.set_ring_width(ring.width);
             lists.set_ring_glow(ring.glow);
-            let mut presences: Vec<SharedString> =
-                ring.presences.iter().map(|presence| presence.as_str().into()).collect();
+            let mut presences: Vec<SharedString> = ring
+                .presences
+                .iter()
+                .map(|presence| presence.as_str().into())
+                .collect();
             presences.resize(4, SharedString::new());
             lists.set_ring_presences(ModelRc::new(VecModel::from(presences)));
         }
         lists.set_frames(layers(folder, &rows.frame, !still));
-        if let Some(Separator::Line { colour, width, inset }) = &rows.separator {
+        if let Some(Separator::Line {
+            colour,
+            width,
+            inset,
+        }) = &rows.separator
+        {
             lists.set_sep_on(true);
             lists.set_sep_colour(Color::from_argb_encoded(*colour));
             lists.set_sep_width(*width);
@@ -791,17 +898,27 @@ pub fn apply(
         let meta = &rows.meta;
         lists.set_meta_on(meta.is_set());
         lists.set_meta_presence(ModelRc::new(VecModel::from(
-            [&meta.online, &meta.idle, &meta.dnd, &meta.offline, &meta.streaming]
-                .iter()
-                .map(|words| words.as_deref().unwrap_or("").into())
-                .collect::<Vec<SharedString>>(),
+            [
+                &meta.online,
+                &meta.idle,
+                &meta.dnd,
+                &meta.offline,
+                &meta.streaming,
+            ]
+            .iter()
+            .map(|words| words.as_deref().unwrap_or("").into())
+            .collect::<Vec<SharedString>>(),
         )));
         lists.set_meta_playing(meta.playing.as_deref().unwrap_or("").into());
         lists.set_meta_listening(meta.listening.as_deref().unwrap_or("").into());
         lists.set_meta_watching(meta.watching.as_deref().unwrap_or("").into());
         lists.set_meta_streaming(meta.streaming.as_deref().unwrap_or("").into());
         let meta_face = face(resolved, fonts, meta.font.unwrap_or(FontRole::Body));
-        lists.set_meta_family(if meta.font.is_some() { meta_face.family } else { SharedString::new() });
+        lists.set_meta_family(if meta.font.is_some() {
+            meta_face.family
+        } else {
+            SharedString::new()
+        });
         lists.set_meta_size(meta.size.unwrap_or(12.));
         lists.set_meta_colour(colour(meta.colour));
         lists.set_meta_max(meta.max_width);
@@ -825,9 +942,17 @@ pub fn apply(
         let headers = &rows.headers;
         let head = face(resolved, fonts, headers.font.unwrap_or(FontRole::Body));
         lists.set_head_on(*headers != Default::default());
-        lists.set_head_family(if headers.font.is_some() { head.family } else { SharedString::new() });
+        lists.set_head_family(if headers.font.is_some() {
+            head.family
+        } else {
+            SharedString::new()
+        });
         lists.set_head_size(headers.size.or(headers.font.and(head.size)).unwrap_or(-1.));
-        lists.set_head_weight(headers.weight.map_or(head.weight.unwrap_or(0), |weight| weight as i32));
+        lists.set_head_weight(
+            headers
+                .weight
+                .map_or(head.weight.unwrap_or(0), |weight| weight as i32),
+        );
         lists.set_head_case(case(headers.case));
         lists.set_head_text(headers.text.as_str().into());
         lists.set_head_height(headers.height.unwrap_or(-1.));
@@ -839,8 +964,17 @@ pub fn apply(
         lists.set_tile_outline(rows.tile_outline);
         let title = &rows.title;
         let title_face = face(resolved, fonts, title.font.unwrap_or(FontRole::Body));
-        lists.set_title_family(if title.font.is_some() { title_face.family } else { SharedString::new() });
-        lists.set_title_size(title.size.or(title.font.and(title_face.size)).unwrap_or(-1.));
+        lists.set_title_family(if title.font.is_some() {
+            title_face.family
+        } else {
+            SharedString::new()
+        });
+        lists.set_title_size(
+            title
+                .size
+                .or(title.font.and(title_face.size))
+                .unwrap_or(-1.),
+        );
         lists.set_title_colour(colour(title.colour));
     }
 }
@@ -862,8 +996,11 @@ mod tests {
         let folder = tempfile::tempdir().unwrap();
         std::fs::create_dir(folder.path().join("art")).unwrap();
         for (index, name) in ["a", "b", "c", "tape", "star", "pill"].iter().enumerate() {
-            let picture = image::RgbaImage::from_pixel(24, 24, image::Rgba([index as u8 * 40, 0, 0, 255]));
-            picture.save(folder.path().join(format!("art/{name}.png"))).unwrap();
+            let picture =
+                image::RgbaImage::from_pixel(24, 24, image::Rgba([index as u8 * 40, 0, 0, 255]));
+            picture
+                .save(folder.path().join(format!("art/{name}.png")))
+                .unwrap();
         }
         let package = Package::parse(
             r##"{ "theme_api": 1, "id": "dev.example.lists", "name": "Lists", "version": "1.0.0",
@@ -880,7 +1017,14 @@ mod tests {
         .unwrap();
         let resolved = package.resolve(Mode::Dark).unwrap();
         let before = decodes();
-        apply(&window, &resolved, folder.path(), &[], Performance::Full, false);
+        apply(
+            &window,
+            &resolved,
+            folder.path(),
+            &[],
+            Performance::Full,
+            false,
+        );
         // a, b, c, the tape, the star and the pill: the channels' and
         // members' a, b and c are the rail's.
         let first = decodes() - before;
@@ -898,10 +1042,25 @@ mod tests {
         // Painting again (Performance changing, a dialog closing) decodes
         // nothing more.
         reset(&window);
-        apply(&window, &resolved, folder.path(), &[], Performance::Light, true);
+        apply(
+            &window,
+            &resolved,
+            folder.path(),
+            &[],
+            Performance::Light,
+            true,
+        );
         assert_eq!(decodes() - before, first);
-        assert_eq!(window.global::<Rails>().get_hover_time(), 0, "reduced motion: no tween");
-        assert_eq!(window.global::<Rails>().get_tilt(), 0., "Light leaves the tiles straight");
+        assert_eq!(
+            window.global::<Rails>().get_hover_time(),
+            0,
+            "reduced motion: no tween"
+        );
+        assert_eq!(
+            window.global::<Rails>().get_tilt(),
+            0.,
+            "Light leaves the tiles straight"
+        );
         // Cleared, it's stock again.
         reset(&window);
         assert!(!window.global::<Rails>().get_on());
@@ -921,7 +1080,14 @@ mod tests {
         .unwrap();
         let resolved = package.resolve(Mode::Dark).unwrap();
         let folder = tempfile::tempdir().unwrap();
-        apply(&window, &resolved, folder.path(), &[], Performance::Full, false);
+        apply(
+            &window,
+            &resolved,
+            folder.path(),
+            &[],
+            Performance::Full,
+            false,
+        );
         assert!(!window.global::<Rails>().get_on());
         assert!(!window.global::<ChannelLists>().get_on());
         assert!(!window.global::<MemberLists>().get_on());
@@ -934,7 +1100,10 @@ mod tests {
         assert_eq!(fill("{role} · {activity}", &values), "Crew");
         let values = [("role", "Crew"), ("activity", "Lumen Drift")];
         assert_eq!(fill("{role} · {activity}", &values), "Crew · Lumen Drift");
-        assert_eq!(fill("WORLD {n} · {name}", &[("n", "2"), ("name", "OFF HOURS")]), "WORLD 2 · OFF HOURS");
+        assert_eq!(
+            fill("WORLD {n} · {name}", &[("n", "2"), ("name", "OFF HOURS")]),
+            "WORLD 2 · OFF HOURS"
+        );
         assert_eq!(fill("voice · {n}", &[("n", "0")]), "voice · 0");
         assert_eq!(fill("P{online}", &[("online", "5")]), "P5");
         assert_eq!(fill("// {name}", &[("name", "studio")]), "// studio");

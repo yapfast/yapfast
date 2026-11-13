@@ -14,8 +14,8 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 
-use super::package::art::{Layer, Source, read_layer};
 use super::lists::{ChannelRows, MemberRows, RailTiles};
+use super::package::art::{Layer, Source, read_layer};
 use super::package::{Error, Shadow, colour_at, named, number, object, read_shadow, relative};
 
 /// The most pictures one card carries.

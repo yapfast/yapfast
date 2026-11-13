@@ -988,7 +988,9 @@ component CategoryHeading inherits Rectangle {
     callback create;
     property <color> ink: touch.has-hover ? Theme.secondary : Theme.muted;
     HorizontalLayout {
-        padding-left: 16px; padding-right: 8px; padding-top: root.height - 21px; spacing: 4px;
+        padding-left: 16px; padding-right: 8px; spacing: 4px;
+        padding-top: ChannelLists.on && ChannelLists.head-on && ChannelLists.head-ransom ? max(0px, root.height - 34px) : root.height - 21px;
+        padding-bottom: ChannelLists.on && ChannelLists.head-on && ChannelLists.head-ransom ? 4px : 0px;
         if ChannelLists.on && ChannelLists.head-on && !ChannelLists.head-ransom: ListedHeadingText {
             text: root.text; place: root.place; ink: root.ink; tail: 26px;
         }

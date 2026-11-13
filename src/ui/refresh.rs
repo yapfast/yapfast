@@ -2512,7 +2512,12 @@ impl Adapter {
             .map(|member| {
                 if matches!(
                     member.presence,
-                    Some(Presence::Online | Presence::Mobile | Presence::Idle | Presence::DoNotDisturb)
+                    Some(
+                        Presence::Online
+                            | Presence::Mobile
+                            | Presence::Idle
+                            | Presence::DoNotDisturb
+                    )
                 ) {
                     online += 1;
                     online - 1
@@ -5325,7 +5330,10 @@ fn group_name(group: &str) -> &str {
 #[cfg(feature = "discord")]
 fn activity_words(activities: &yapfast_core::chat::Activities) -> (SharedString, SharedString) {
     use yapfast_core::yapfast_discord::activity::Kind;
-    let Some(first) = activities.iter().find(|activity| activity.kind != Kind::Hang) else {
+    let Some(first) = activities
+        .iter()
+        .find(|activity| activity.kind != Kind::Hang)
+    else {
         return (SharedString::new(), SharedString::new());
     };
     let detail = match first.kind {

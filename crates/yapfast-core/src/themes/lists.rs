@@ -132,7 +132,15 @@ pub struct TileArt {
 }
 
 /// The keys an art slot's picture takes beyond a layer's.
-const TILE_ART_KEYS: [&str; 7] = ["size", "offset", "rotation", "slice", "window", "density", "pixelated"];
+const TILE_ART_KEYS: [&str; 7] = [
+    "size",
+    "offset",
+    "rotation",
+    "slice",
+    "window",
+    "density",
+    "pixelated",
+];
 
 /// A glyph, or a picture, for a mark such as an unread star or a status.
 #[derive(Clone, Debug, PartialEq)]
@@ -300,7 +308,9 @@ fn read_badge(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<Men
             "ground" => badge.ground = Some(colour_at(value, &at)?),
             "ink" => badge.ink = Some(colour_at(value, &at)?),
             "radius" => badge.radius = Some(number(value, &at, (0.0, 12.0))?),
-            _ => notes.push(format!("\"{at}\" isn't something a mention badge takes; ignored")),
+            _ => notes.push(format!(
+                "\"{at}\" isn't something a mention badge takes; ignored"
+            )),
         }
     }
     Ok(badge)
@@ -518,9 +528,7 @@ fn text(value: &Value, place: &str, most: usize) -> Result<String, Error> {
         .as_str()
         .ok_or_else(|| Error(format!("\"{place}\" is text")))?;
     if text.chars().count() > most {
-        return Err(Error(format!(
-            "\"{place}\" is at most {most} characters"
-        )));
+        return Err(Error(format!("\"{place}\" is at most {most} characters")));
     }
     Ok(text.to_owned())
 }
@@ -552,9 +560,7 @@ fn read_one(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<TileA
         .collect();
     let mut layer = read_layer(&Value::Object(picture), place, notes)?;
     if layer.drift != (0.0, 0.0) {
-        return Err(Error(format!(
-            "\"{place}\" stays in its place: no drift"
-        )));
+        return Err(Error(format!("\"{place}\" stays in its place: no drift")));
     }
     if layer.fit == Fit::Tile {
         return Err(Error(format!("\"{place}\" doesn't tile")));
@@ -579,7 +585,8 @@ fn read_one(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<TileA
         match key.as_str() {
             "size" => {
                 if value.as_str() != Some("full") {
-                    let [width, height] = numbers::<2>(value, &here, (4.0, 400.0), "width, height")?;
+                    let [width, height] =
+                        numbers::<2>(value, &here, (4.0, 400.0), "width, height")?;
                     art.size = Some((width, height));
                 }
             }
@@ -605,7 +612,12 @@ fn read_one(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<TileA
                     art.window_radius = number(&list[4], &format!("{here}[4]"), (0.0, 32.0))?;
                     list.pop();
                 }
-                art.window = Some(numbers::<4>(&items, &here, (0.0, 400.0), "x, y, width, height(, radius)")?);
+                art.window = Some(numbers::<4>(
+                    &items,
+                    &here,
+                    (0.0, 400.0),
+                    "x, y, width, height(, radius)",
+                )?);
             }
             "density" => art.density = number(value, &here, (1.0, 4.0))?,
             "pixelated" => art.pixelated = boolean(value, &here)?,
@@ -677,9 +689,9 @@ fn case(value: &Value, place: &str) -> Result<Case, Error> {
 fn read_separator(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<Separator, Error> {
     let fields = object(value, place)?;
     if fields.contains_key("image") || fields.contains_key("texture") {
-        let height = fields
-            .get("height")
-            .map_or(Ok(1.0), |height| number(height, &format!("{place}.height"), (1.0, 16.0)))?;
+        let height = fields.get("height").map_or(Ok(1.0), |height| {
+            number(height, &format!("{place}.height"), (1.0, 16.0))
+        })?;
         let picture: serde_json::Map<String, Value> = fields
             .iter()
             .filter(|(key, _)| key.as_str() != "height")
@@ -712,7 +724,9 @@ fn read_separator(value: &Value, place: &str, notes: &mut Vec<String>) -> Result
                 let [left, right] = numbers::<2>(value, &here, (0.0, 64.0), "left, right")?;
                 *inset = (left, right);
             }
-            _ => notes.push(format!("\"{here}\" isn't something a separator takes; ignored")),
+            _ => notes.push(format!(
+                "\"{here}\" isn't something a separator takes; ignored"
+            )),
         }
     }
     Ok(line)
@@ -725,21 +739,36 @@ fn read_hover(
 ) -> Result<(Option<HoverKind>, Option<f32>, f32), Error> {
     let hover = fields
         .get("hover")
-        .map(|value| named(value, &format!("{place}.hover"), HoverKind::ALL, HoverKind::name))
+        .map(|value| {
+            named(
+                value,
+                &format!("{place}.hover"),
+                HoverKind::ALL,
+                HoverKind::name,
+            )
+        })
         .transpose()?;
     let amount = match (hover, fields.get("hover_amount")) {
         (Some(kind), Some(value)) if kind != HoverKind::None => {
             let (_, (low, high)) = kind.amount();
-            let high = if kind == HoverKind::Magnify { high.min(most_magnify) } else { high };
-            Some(number(value, &format!("{place}.hover_amount"), (low, high))?)
+            let high = if kind == HoverKind::Magnify {
+                high.min(most_magnify)
+            } else {
+                high
+            };
+            Some(number(
+                value,
+                &format!("{place}.hover_amount"),
+                (low, high),
+            )?)
         }
         (Some(HoverKind::Magnify), None) if most_magnify < 1.12 => Some(most_magnify),
         (Some(kind), None) if kind != HoverKind::None => Some(kind.amount().0),
         _ => None,
     };
-    let ms = fields
-        .get("hover_ms")
-        .map_or(Ok(120.0), |value| number(value, &format!("{place}.hover_ms"), (60.0, 300.0)))?;
+    let ms = fields.get("hover_ms").map_or(Ok(120.0), |value| {
+        number(value, &format!("{place}.hover_ms"), (60.0, 300.0))
+    })?;
     Ok((hover, amount, ms))
 }
 
@@ -770,11 +799,14 @@ pub fn read_rail_tiles(
     notes: &mut Vec<String>,
 ) -> Result<RailTiles, Error> {
     let fields = object(value, place)?;
-    let shape = fields
-        .get("shape")
-        .map_or(Ok(RailShape::Square), |value| {
-            named(value, &format!("{place}.shape"), RailShape::ALL, RailShape::name)
-        })?;
+    let shape = fields.get("shape").map_or(Ok(RailShape::Square), |value| {
+        named(
+            value,
+            &format!("{place}.shape"),
+            RailShape::ALL,
+            RailShape::name,
+        )
+    })?;
     let (width, height) = shape.size();
     let (hover, hover_amount, hover_ms) = read_hover(fields, place, 1.25)?;
     let mut tiles = RailTiles {
@@ -832,7 +864,12 @@ pub fn read_rail_tiles(
                 }
             }
             "label_box" => {
-                tiles.label_box = Some(numbers::<4>(value, &here, (0.0, 72.0), "x, y, width, height")?);
+                tiles.label_box = Some(numbers::<4>(
+                    value,
+                    &here,
+                    (0.0, 72.0),
+                    "x, y, width, height",
+                )?);
             }
             "frame" => tiles.frame = read_tile_art(value, &here, MOST_CHOICES, notes)?,
             "over" => tiles.over = read_tile_art(value, &here, MOST_CHOICES, notes)?,
@@ -865,7 +902,8 @@ pub fn read_rail_tiles(
                     let at = format!("{here}.{key}");
                     match key.as_str() {
                         "size" => {
-                            let [width, height] = numbers::<2>(value, &at, (1.0, 64.0), "width, height")?;
+                            let [width, height] =
+                                numbers::<2>(value, &at, (1.0, 64.0), "width, height")?;
                             divider.size = (width, height);
                         }
                         "colour" => divider.colour = colour_at(value, &at)?,
@@ -893,7 +931,9 @@ pub fn read_rail_tiles(
                         }
                         "scale" => tiles.selected.scale = Some(number(value, &at, (0.9, 1.2))?),
                         "stamp_ms" => tiles.selected.stamp_ms = number(value, &at, (0.0, 600.0))?,
-                        _ => notes.push(format!("\"{at}\" isn't something selected takes; ignored")),
+                        _ => {
+                            notes.push(format!("\"{at}\" isn't something selected takes; ignored"))
+                        }
                     }
                 }
             }
@@ -907,7 +947,9 @@ pub fn read_rail_tiles(
                     }
                 }
             }
-            _ => notes.push(format!("\"{here}\" isn't something rail_tiles takes; ignored")),
+            _ => notes.push(format!(
+                "\"{here}\" isn't something rail_tiles takes; ignored"
+            )),
         }
     }
     // What a hovered, lifted, turned or pushed tile needs round it.
@@ -922,7 +964,9 @@ pub fn read_rail_tiles(
         )));
     }
     if tiles.frame.iter().any(|frame| frame.layer.frames.is_some()) {
-        notes.push(format!("\"{place}.frame\" plays frames on every tile; mind the cost"));
+        notes.push(format!(
+            "\"{place}.frame\" plays frames on every tile; mind the cost"
+        ));
     }
     Ok(tiles)
 }
@@ -963,7 +1007,9 @@ pub fn read_channel_rows(
                     other => named(other, &here, HoverGround::ALL, HoverGround::name)?,
                 })
             }
-            "hover_frame_opacity" => rows.hover_frame_opacity = Some(number(value, &here, (0.0, 1.0))?),
+            "hover_frame_opacity" => {
+                rows.hover_frame_opacity = Some(number(value, &here, (0.0, 1.0))?)
+            }
             "emboss" => rows.emboss = boolean(value, &here)?,
             "icon" => {
                 for (key, value) in object(value, &here)? {
@@ -1011,7 +1057,9 @@ pub fn read_channel_rows(
                     match key.as_str() {
                         "frame" => rows.selected.frame = Some(one_art(value, &at, notes)?),
                         "prefix" => rows.selected.prefix = text(value, &at, 3)?,
-                        "prefix_colour" => rows.selected.prefix_colour = Some(colour_at(value, &at)?),
+                        "prefix_colour" => {
+                            rows.selected.prefix_colour = Some(colour_at(value, &at)?)
+                        }
                         "blink_ms" => {
                             let ms = number(value, &at, (0.0, 1200.0))?;
                             if ms > 0.0 && ms < 300.0 {
@@ -1031,13 +1079,19 @@ pub fn read_channel_rows(
                                 match key.as_str() {
                                     "colour" => underline.colour = colour_at(value, &line)?,
                                     "width" => underline.width = number(value, &line, (1.0, 4.0))?,
-                                    "offset" => underline.offset = number(value, &line, (0.0, 8.0))?,
-                                    _ => notes.push(format!("\"{line}\" isn't something underline takes; ignored")),
+                                    "offset" => {
+                                        underline.offset = number(value, &line, (0.0, 8.0))?
+                                    }
+                                    _ => notes.push(format!(
+                                        "\"{line}\" isn't something underline takes; ignored"
+                                    )),
                                 }
                             }
                             rows.selected.underline = Some(underline);
                         }
-                        _ => notes.push(format!("\"{at}\" isn't something selected takes; ignored")),
+                        _ => {
+                            notes.push(format!("\"{at}\" isn't something selected takes; ignored"))
+                        }
                     }
                 }
             }
@@ -1046,7 +1100,8 @@ pub fn read_channel_rows(
                     let at = format!("{here}.{key}");
                     match key.as_str() {
                         "unread" => {
-                            rows.meta.unread = Some(named(value, &at, UnreadMark::ALL, UnreadMark::name)?)
+                            rows.meta.unread =
+                                Some(named(value, &at, UnreadMark::ALL, UnreadMark::name)?)
                         }
                         "unread_glyph" => rows.meta.unread_glyph = Some(glyph(value, &at, notes)?),
                         "voice" => rows.meta.voice = text(value, &at, 24)?,
@@ -1060,11 +1115,15 @@ pub fn read_channel_rows(
                 }
             }
             "headers" => rows.headers = read_headers(value, &here, notes)?,
-            _ => notes.push(format!("\"{here}\" isn't something channel_rows takes; ignored")),
+            _ => notes.push(format!(
+                "\"{here}\" isn't something channel_rows takes; ignored"
+            )),
         }
     }
     if rows.selected.blink_ms > 0.0 && rows.selected.prefix.is_empty() {
-        notes.push(format!("\"{place}.selected.blink_ms\" blinks nothing without a prefix"));
+        notes.push(format!(
+            "\"{place}.selected.blink_ms\" blinks nothing without a prefix"
+        ));
     }
     Ok(rows)
 }
@@ -1109,11 +1168,15 @@ pub fn read_member_rows(
             "case" => rows.case = Some(case(value, &here)?),
             "frame" => rows.frame = read_tile_art(value, &here, MOST_CHOICES, notes)?,
             "separator" => rows.separator = Some(read_separator(value, &here, notes)?),
-            "status" => rows.status = Some(named(value, &here, StatusStyle::ALL, StatusStyle::name)?),
+            "status" => {
+                rows.status = Some(named(value, &here, StatusStyle::ALL, StatusStyle::name)?)
+            }
             "status_glyphs" => read_status_glyphs(value, &here, &mut rows.status_glyphs, notes)?,
             "sub" => rows.sub = Some(named(value, &here, SubLine::ALL, SubLine::name)?),
             "sub_text" => rows.sub_text = text(value, &here, 40)?,
-            "hover_frame_opacity" => rows.hover_frame_opacity = Some(number(value, &here, (0.0, 1.0))?),
+            "hover_frame_opacity" => {
+                rows.hover_frame_opacity = Some(number(value, &here, (0.0, 1.0))?)
+            }
             "tile_outline" => rows.tile_outline = boolean(value, &here)?,
             "margin" => {
                 let [left, right] = numbers::<2>(value, &here, (0.0, 32.0), "left, right")?;
@@ -1134,7 +1197,9 @@ pub fn read_member_rows(
                             }
                             rows.avatar.size = Some(size);
                         }
-                        "frame" => rows.avatar.frame = read_tile_art(value, &at, MOST_CHOICES, notes)?,
+                        "frame" => {
+                            rows.avatar.frame = read_tile_art(value, &at, MOST_CHOICES, notes)?
+                        }
                         "tilt" => rows.avatar.tilt = number(value, &at, (0.0, 8.0))?,
                         "dot" => rows.avatar.dot = Some(number(value, &at, (8.0, 20.0))?),
                         "dot_out" => rows.avatar.dot_out = Some(number(value, &at, (-4.0, 8.0))?),
@@ -1155,12 +1220,18 @@ pub fn read_member_rows(
                                     "presences" => {
                                         ring.presences = value
                                             .as_array()
-                                            .ok_or_else(|| Error(format!("\"{ring_at}\" is a list of presences")))?
+                                            .ok_or_else(|| {
+                                                Error(format!(
+                                                    "\"{ring_at}\" is a list of presences"
+                                                ))
+                                            })?
                                             .iter()
                                             .map(|item| text(item, &ring_at, 10))
                                             .collect::<Result<_, _>>()?;
                                     }
-                                    _ => notes.push(format!("\"{ring_at}\" isn't something ring takes; ignored")),
+                                    _ => notes.push(format!(
+                                        "\"{ring_at}\" isn't something ring takes; ignored"
+                                    )),
                                 }
                             }
                             rows.avatar.ring = Some(ring);
@@ -1218,7 +1289,9 @@ pub fn read_member_rows(
                     match key.as_str() {
                         "frame" => rows.selected_frame = Some(one_art(value, &at, notes)?),
                         "over" => rows.selected_over = Some(one_art(value, &at, notes)?),
-                        _ => notes.push(format!("\"{at}\" isn't something selected takes; ignored")),
+                        _ => {
+                            notes.push(format!("\"{at}\" isn't something selected takes; ignored"))
+                        }
                     }
                 }
             }
@@ -1233,7 +1306,9 @@ pub fn read_member_rows(
                     }
                 }
             }
-            _ => notes.push(format!("\"{here}\" isn't something member_rows takes; ignored")),
+            _ => notes.push(format!(
+                "\"{here}\" isn't something member_rows takes; ignored"
+            )),
         }
     }
     Ok(rows)
@@ -1258,7 +1333,13 @@ pub fn files<'a>(
         if let Some(Separator::Art { art, .. }) = &channels.separator {
             all.push(art);
         }
-        all.extend(channels.selected.frame.iter().chain(&channels.selected.after));
+        all.extend(
+            channels
+                .selected
+                .frame
+                .iter()
+                .chain(&channels.selected.after),
+        );
         if let Some(Glyph::Art(art)) = &channels.meta.unread_glyph {
             all.push(art);
         }
@@ -1319,7 +1400,13 @@ pub(super) fn check_with(
     let layout = &resolved.layout;
     let workspaces = layers
         .iter()
-        .filter_map(|layer| layer.get("chrome")?.get("topbar")?.get("workspaces")?.as_f64())
+        .filter_map(|layer| {
+            layer
+                .get("chrome")?
+                .get("topbar")?
+                .get("workspaces")?
+                .as_f64()
+        })
         .next_back()
         .unwrap_or(0.0);
     if layout.rail == Some(super::layout::RailSide::Hidden) && workspaces < 1.0 {
@@ -1341,19 +1428,25 @@ pub(super) fn check_with(
                 && animation.property == super::package::Property::Rotation
         });
         if (tiles.tilt > 0.0 || tiles.hover == HoverKind::Tilt) && turns {
-            notes.push("\"layout.rail_tiles.tilt\" and the rail's icon animation both turn the tiles".into());
+            notes.push(
+                "\"layout.rail_tiles.tilt\" and the rail's icon animation both turn the tiles"
+                    .into(),
+            );
         }
     }
-    if let Some(rows) = &layout.channel_rows {
-        if resolved.chrome.tree.contains(&TreeList::Channels) {
-            if rows.tilt > 0.0 {
-                return Err(Error(
+    if let Some(rows) = &layout.channel_rows
+        && resolved.chrome.tree.contains(&TreeList::Channels)
+    {
+        if rows.tilt > 0.0 {
+            return Err(Error(
                     "\"layout.channel_rows.tilt\" breaks the channel tree's lines: a tree's rows stay straight".into(),
                 ));
-            }
-            if rows.fit_text {
-                notes.push("\"layout.channel_rows.fit_text\" with a channel tree leaves gaps in its lines".into());
-            }
+        }
+        if rows.fit_text {
+            notes.push(
+                "\"layout.channel_rows.fit_text\" with a channel tree leaves gaps in its lines"
+                    .into(),
+            );
         }
     }
     if let Some(rows) = &layout.member_rows {
@@ -1430,18 +1523,37 @@ mod tests {
             (json!({ "height": 20 }), "height"),
             (json!({ "tilt": 13 }), "tilt"),
             (json!({ "shape": "hexagon" }), "shape"),
-            (json!({ "hover": "magnify", "hover_amount": 1.4 }), "hover_amount"),
-            (json!({ "frame": [{ "image": "a.png" }, { "image": "b.png" }, { "image": "c.png" }, { "image": "d.png" }] }), "frame"),
-            (json!({ "frame": { "image": "a.png", "drift": [3, 0] } }), "drift"),
+            (
+                json!({ "hover": "magnify", "hover_amount": 1.4 }),
+                "hover_amount",
+            ),
+            (
+                json!({ "frame": [{ "image": "a.png" }, { "image": "b.png" }, { "image": "c.png" }, { "image": "d.png" }] }),
+                "frame",
+            ),
+            (
+                json!({ "frame": { "image": "a.png", "drift": [3, 0] } }),
+                "drift",
+            ),
             (json!({ "selected": { "offset": [13, 0] } }), "offset"),
-            (json!({ "frame": { "image": "a.png", "size": [40, 40], "window": [0, 0, 44, 40] } }), "window"),
+            (
+                json!({ "frame": { "image": "a.png", "size": [40, 40], "window": [0, 0, 44, 40] } }),
+                "window",
+            ),
             (json!({ "label_lines": 2 }), "label_lines"),
         ] {
             let error = rail(value).unwrap_err();
-            assert!(error.0.contains(place) || error.0.contains("rail_tiles"), "{place}: {}", error.0);
+            assert!(
+                error.0.contains(place) || error.0.contains("rail_tiles"),
+                "{place}: {}",
+                error.0
+            );
         }
         // A magnified tile that would reach past its slot.
-        let error = rail(json!({ "height": 72, "hover": "magnify", "hover_amount": 1.25, "gap": 0, "pad": 0 })).unwrap_err();
+        let error = rail(
+            json!({ "height": 72, "hover": "magnify", "hover_amount": 1.25, "gap": 0, "pad": 0 }),
+        )
+        .unwrap_err();
         assert!(error.0.contains("reaches"), "{}", error.0);
     }
 
@@ -1479,12 +1591,22 @@ mod tests {
         for (value, place) in [
             (json!({ "height": 60 }), "height"),
             (json!({ "tilt": 5 }), "tilt"),
-            (json!({ "hover": "magnify", "hover_amount": 1.1 }), "hover_amount"),
-            (json!({ "selected": { "blink_ms": 100, "prefix": ">" } }), "blink_ms"),
+            (
+                json!({ "hover": "magnify", "hover_amount": 1.1 }),
+                "hover_amount",
+            ),
+            (
+                json!({ "selected": { "blink_ms": 100, "prefix": ">" } }),
+                "blink_ms",
+            ),
             (json!({ "selected": { "prefix": "abcd" } }), "prefix"),
-            (json!({ "meta": { "voice": "a very long voice template text here" } }), "voice"),
+            (
+                json!({ "meta": { "voice": "a very long voice template text here" } }),
+                "voice",
+            ),
         ] {
-            let error = read_channel_rows(&value, "layout.channel_rows", &mut Vec::new()).unwrap_err();
+            let error =
+                read_channel_rows(&value, "layout.channel_rows", &mut Vec::new()).unwrap_err();
             assert!(error.0.contains(place), "{place}: {}", error.0);
         }
     }
@@ -1527,7 +1649,8 @@ mod tests {
             (json!({ "meta": { "max_width": 200 } }), "max_width"),
             (json!({ "status": "sparkles" }), "status"),
         ] {
-            let error = read_member_rows(&value, "layout.member_rows", &mut Vec::new()).unwrap_err();
+            let error =
+                read_member_rows(&value, "layout.member_rows", &mut Vec::new()).unwrap_err();
             assert!(error.0.contains(place), "{place}: {}", error.0);
         }
     }

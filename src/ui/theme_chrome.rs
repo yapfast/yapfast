@@ -262,7 +262,10 @@ pub fn workspaces(state: &yapfast_core::application::AppState) {
         let mut rows: Vec<Workspace> = Vec::new();
         if let Some(home) = &home {
             let dms = super::refresh::unread_dm_rows(state);
-            let waiting: u64 = dms.iter().filter_map(|dm| dm.badge.parse::<u64>().ok()).sum();
+            let waiting: u64 = dms
+                .iter()
+                .filter_map(|dm| dm.badge.parse::<u64>().ok())
+                .sum();
             rows.push(Workspace {
                 id: "@dms".into(),
                 number: home.as_str().into(),
@@ -275,22 +278,23 @@ pub fn workspaces(state: &yapfast_core::application::AppState) {
             });
         }
         let first = rows.len();
-        let mut push = |id: &str, name: &str, current: bool, unread: bool, mentions: u64, folder: &str| {
-            if rows.len() - first < bar.count {
-                rows.push(Workspace {
-                    id: id.into(),
-                    number: (rows.len() - first + 1).to_string().into(),
-                    name: name.into(),
-                    current,
-                    unread,
-                    badge: badge(mentions),
-                    folder: folder.into(),
-                    ..Workspace::default()
-                });
-            } else {
-                beyond += 1;
-            }
-        };
+        let mut push =
+            |id: &str, name: &str, current: bool, unread: bool, mentions: u64, folder: &str| {
+                if rows.len() - first < bar.count {
+                    rows.push(Workspace {
+                        id: id.into(),
+                        number: (rows.len() - first + 1).to_string().into(),
+                        name: name.into(),
+                        current,
+                        unread,
+                        badge: badge(mentions),
+                        folder: folder.into(),
+                        ..Workspace::default()
+                    });
+                } else {
+                    beyond += 1;
+                }
+            };
         match bar.from {
             Workspaces::Servers => {
                 for server in &state.servers {
