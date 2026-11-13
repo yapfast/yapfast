@@ -376,9 +376,18 @@ impl Cost {
             }
             art_memory = art_memory.max(art::memory(variant, files));
             // A variant's cursors are decoded when it shows, every size.
-            cursor_memory = cursor_memory.max(super::cursors::memory(&variant.cursors, |path| {
-                files.files.get(path).map(Vec::as_slice)
-            }));
+            cursor_memory = cursor_memory.max(
+                super::cursors::memory(&variant.cursors, |path| {
+                    files.files.get(path).map(Vec::as_slice)
+                }) + super::cursors::animated_memory(&variant.animated_cursors, |path| {
+                    files.files.get(path).map(Vec::as_slice)
+                }),
+            );
+            if !variant.animated_cursors.is_still() {
+                // Frames are swapped on the system's cursor, at most 60 a second.
+                cost.animations = cost.animations.max(variant.animations.len() + moving + 1);
+                cost.redraws = cost.redraws.max(60);
+            }
             cost.cursors = cost.cursors.max(variant.cursors.len());
             cost.layers = cost.layers.max(art.surfaces.values().map(Vec::len).sum());
             cost.overlays = cost.overlays.max(art.overlays.len());
@@ -478,6 +487,13 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
         }
     }
     for variant in &resolved {
+        for sentence in super::cursors::animated_problems(&variant.animated_cursors, |path| {
+            files.files.get(path).map(Vec::as_slice)
+        }) {
+            if !report.errors.contains(&sentence) {
+                report.errors.push(sentence);
+            }
+        }
         for (kind, cursor) in &variant.cursors {
             let problems = super::cursors::problems(*kind, cursor, |path| {
                 files.files.get(path).map(Vec::as_slice)
@@ -689,6 +705,16 @@ fn looks(variant: &Resolved) -> Vec<String> {
         out.push(format!("layout: {}", changes.join(", ")));
     }
     out.extend(variant.content.summary());
+    if let Some(cursors) = variant.animated_cursors.summary() {
+        out.push(format!("cursors: {cursors}"));
+    }
+    if variant
+        .art
+        .events
+        .contains_key(&super::package::art::EventSlot::NameHover)
+    {
+        out.push("names decrypt under the pointer".into());
+    }
     let chrome = variant.chrome.summary();
     if !chrome.is_empty() {
         out.push(format!("chrome: {}", chrome.join(", ")));
@@ -700,10 +726,11 @@ fn looks(variant: &Resolved) -> Vec<String> {
 /// sit on. Clamped role colours are made readable as they're drawn, so only
 /// a set colour is held to it here.
 pub fn unreadable_content(variant: &Resolved) -> Vec<String> {
+    let mut refused = unreadable_initials(variant);
+    refused.extend(unreadable_topbar(variant));
     let Some(colour) = variant.content.names.colour else {
-        return Vec::new();
+        return refused;
     };
-    let mut refused = Vec::new();
     for ground in ["chat", "sidebar", "members"] {
         let Some(backs) = shown_colours(variant, ground) else {
             continue;
@@ -715,6 +742,62 @@ pub fn unreadable_content(variant: &Resolved) -> Vec<String> {
         if worst < READABLE - 0.005 {
             refused.push(format!(
                 "content.names.colour on {ground} contrasts {worst:.1}:1, under {READABLE:.1}:1; text has to stay readable"
+            ));
+        }
+    }
+    refused
+}
+
+/// An illuminated initial is a large letter, held to 3:1 against its ground
+/// (or the chat's, without one), as large text is.
+fn unreadable_initials(variant: &Resolved) -> Vec<String> {
+    let Some(initials) = variant.content.avatars.initials else {
+        return Vec::new();
+    };
+    let colours = match initials.colour {
+        Some(colour) => vec![colour],
+        None => shown_colours(variant, "accent-text").unwrap_or_default(),
+    };
+    let grounds = match initials.ground.filter(|ground| ground >> 24 == 0xff) {
+        Some(ground) => vec![ground],
+        None => shown_colours(variant, "chat").unwrap_or_default(),
+    };
+    let worst = colours
+        .iter()
+        .flat_map(|colour| grounds.iter().map(|ground| contrast(*colour, *ground)))
+        .fold(f64::INFINITY, f64::min);
+    if worst < 3.0 - 0.005 {
+        return vec![format!(
+            "content.avatars.initial's letter contrasts {worst:.1}:1 with its ground, under 3.0:1; it has to stay readable"
+        )];
+    }
+    Vec::new()
+}
+
+/// The top bar's words on its ground.
+fn unreadable_topbar(variant: &Resolved) -> Vec<String> {
+    let Some(bar) = &variant.chrome.topbar else {
+        return Vec::new();
+    };
+    let pick = |set: Option<u32>, token: &str| match set {
+        Some(colour) => vec![colour],
+        None => shown_colours(variant, token).unwrap_or_default(),
+    };
+    let grounds = pick(bar.ground, "rail");
+    let mut refused = Vec::new();
+    // Its words are dim, as `muted` is, and held to 3:1 as `muted` is; the
+    // open workspace to 4.5:1.
+    for (name, colours, least) in [
+        ("colour", pick(bar.text, "muted"), 3.0),
+        ("current", pick(bar.current, "text"), READABLE),
+    ] {
+        let worst = colours
+            .iter()
+            .flat_map(|colour| grounds.iter().map(|ground| contrast(*colour, *ground)))
+            .fold(f64::INFINITY, f64::min);
+        if worst < least - 0.005 {
+            refused.push(format!(
+                "chrome.topbar.{name} contrasts {worst:.1}:1 with the bar, under {least:.1}:1; text has to stay readable"
             ));
         }
     }

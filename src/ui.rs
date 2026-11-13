@@ -155,6 +155,8 @@ pub fn run(
         .with_winit_window_attributes_hook(|attributes| {
             crate::instance::attributes(title_bar::attributes(crate::icon::attributes(attributes)))
         })
+        // A theme's animated cursors see the pointer here; see `theme_cursor`.
+        .with_winit_custom_application_handler(theme_cursor::Handler)
         .select()
         .context("could not select the Slint desktop backend")?;
     slint::set_xdg_app_id(crate::icon::APP_ID).context("could not set Yapfast's app ID")?;

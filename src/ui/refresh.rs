@@ -1142,6 +1142,7 @@ impl Adapter {
         self.rail_call = call_room(state).map(str::to_owned);
         let rail = rail(state, &rooms_by_id, &self.layout.open_folders);
         update_model_by_id(&self.models.servers, rail, |row| row.id.clone());
+        super::theme_chrome::workspaces(state);
         let mut listed_text = false;
         let mut listed_voice = false;
         let mut category = None;
@@ -1702,6 +1703,7 @@ impl Adapter {
             .into(),
         );
         window.set_has_custom_status(state.custom_status.is_some());
+        super::theme_chrome::now_playing(window, state);
         window.set_show_game(state.discord_show_game);
         let playing = state.discord_playing.as_ref();
         window.set_game_activity_name(playing.map_or("", |playing| &playing.name).into());

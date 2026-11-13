@@ -120,7 +120,27 @@ export component Composer inherits Rectangle {
     property <bool> commanding: root.command-name != "";
     // A theme's prompt's room, with a space after it.
     property <length> prompt-width: Chrome.prompt == "" ? 0px : prompt-measure.preferred-width + root.text-size * 0.6;
-    prompt-measure := Text { visible: false; text: Chrome.prompt; font-size: root.text-size; accessible-role: none; }
+    prompt-measure := Text { visible: false; text: Chrome.prompt; font-size: root.text-size; font-family: root.console-face; accessible-role: none; }
+    // A theme's console composer: its face, a placeholder that types itself
+    // each time the empty field takes the keys, and a caret in its colour.
+    property <string> console-face: Chrome.console ? Chrome.face(Look.mono) : "";
+    property <bool> typing-now: Chrome.console && Chrome.console-typing > 0ms && input.has-focus && root.text == "" && !root.commanding;
+    property <int> typed: 0;
+    changed typing-now => { if self.typing-now { root.typed = 0; } }
+    Timer {
+        running: root.typing-now && root.typed < root.placeholder.character-count;
+        interval: Chrome.console-typing;
+        triggered => { root.typed += 1; }
+    }
+    property <bool> own-caret: Chrome.console && Chrome.console-caret.alpha > 0;
+    property <length> caret-x;
+    property <length> caret-y;
+    property <bool> caret-on: true;
+    Timer {
+        running: root.own-caret && input.has-focus;
+        interval: 530ms;
+        triggered => { root.caret-on = !root.caret-on; }
+    }
     // The command's pills, over the text, in as many rows as they take.
     property <length> pills: root.commanding ? pill-rows.preferred-height + 6px : 0px;
     property <CommandOptionPill> focused-pill: root.command-options[root.command-focus];
@@ -151,17 +171,17 @@ export component Composer inherits Rectangle {
     // A theme's prompt, such as `$`, before the text.
     if Chrome.prompt != "": Text {
         x: 6px; y: root.pills + root.pad; height: root.line;
-        text: Chrome.prompt; color: root.enabled ? Theme.text : Theme.faint; font-size: root.text-size;
-        vertical-alignment: center; accessible-role: none;
+        text: Chrome.prompt; color: !root.enabled ? Theme.faint : Chrome.console ? Theme.secondary : Theme.text; font-size: root.text-size;
+        font-family: root.console-face; vertical-alignment: center; accessible-role: none;
     }
     Text {
         x: 6px + root.prompt-width; y: root.pills + root.pad; width: root.width - 12px - root.prompt-width; height: root.line;
         visible: root.text == "";
-        text: !root.commanding ? root.placeholder
+        text: !root.commanding ? (root.typing-now ? Chrome.typed(root.placeholder, root.typed) : root.placeholder)
             : root.command-options.length == 0 ? "Press Enter to run /" + root.command-name
             : root.focused-pill.file ? "Press Enter to choose a file for " + root.focused-pill.name
             : root.focused-pill.description; color: root.enabled ? Theme.placeholder : Theme.faint; font-size: root.text-size;
-        vertical-alignment: center; overflow: elide;
+        font-family: root.console-face; vertical-alignment: center; overflow: elide;
     }
     FocusScope {
         x: 6px + root.prompt-width; y: root.pills + root.pad - root.overhang; width: root.width - 12px - root.prompt-width;
@@ -233,15 +253,19 @@ export component Composer inherits Rectangle {
                 single-line: false;
                 wrap: word-wrap;
                 font-size: root.text-size;
+                font-family: root.console-face;
                 color: root.enabled ? Theme.text : Theme.muted;
                 selection-background-color: Theme.selection;
                 selection-foreground-color: Theme.text;
                 // A theme's block caret is as wide as a letter.
-                text-cursor-width: Chrome.caret-block ? root.text-size * 0.6 : 1px;
+                text-cursor-width: root.own-caret ? 0px : Chrome.caret-block ? root.text-size * 0.6 : 1px;
                 accessible-label: root.label;
                 changed has-focus => { if self.has-focus { root.got-focus(); } }
                 edited => { root.edited(self.text); root.caret(self.text, self.cursor-position-byte-offset); }
                 cursor-position-changed(position) => {
+                    root.caret-x = position.x;
+                    root.caret-y = position.y;
+                    root.caret-on = true;
                     root.caret(self.text, self.cursor-position-byte-offset);
                     if position.y + flick.content-y < 0px {
                         flick.content-y = -position.y;
@@ -249,6 +273,12 @@ export component Composer inherits Rectangle {
                         flick.content-y = flick.height - position.y - root.line - 2 * root.overhang;
                     }
                 }
+            }
+            // The console's caret, in the theme's colour.
+            if root.own-caret && input.has-focus && root.caret-on: Rectangle {
+                x: root.caret-x; y: root.overhang + root.caret-y;
+                width: Chrome.caret-block ? root.text-size * 0.6 : 2px; height: root.text-size * 1.3;
+                background: Chrome.console-caret;
             }
         }
     }

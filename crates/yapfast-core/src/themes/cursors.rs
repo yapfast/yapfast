@@ -140,19 +140,43 @@ pub struct Cursor {
     pub hotspot: (u32, u32),
 }
 
-/// Reads a layer's `"cursors"` into `cursors`, over what an earlier layer
-/// set; `null` gives a kind the system's cursor again.
+/// Reads a layer's `"cursors"` into `cursors` and `animated`, over what an
+/// earlier layer set; `null` gives a kind the system's cursor again.
 pub(super) fn read_cursors(
     value: &Value,
     place: &str,
     cursors: &mut BTreeMap<Kind, Cursor>,
+    animated: &mut Animated,
     notes: &mut Vec<String>,
 ) -> Result<(), Error> {
     let Value::Object(entries) = value else {
         bail!("\"{place}\" has to be an object");
     };
+    // Read first: every sequence's frames take it.
+    if let Some(suffix) = entries.get("hidpi") {
+        animated.hidpi = Some(hidpi(suffix, &format!("{place}.hidpi"))?);
+    }
     for (name, written) in entries {
         let at = format!("{place}.{name}");
+        match name.as_str() {
+            "hidpi" => continue,
+            "transitions" => {
+                read_transitions(written, &at, animated, notes)?;
+                continue;
+            }
+            "motion" => {
+                read_motion(written, &at, animated, notes)?;
+                continue;
+            }
+            "trail" => {
+                animated.trail = match written {
+                    Value::Null => None,
+                    _ => Some(read_trail(written, &at, animated.hidpi.as_deref(), notes)?),
+                };
+                continue;
+            }
+            _ => {}
+        }
         let Some(kind) = Kind::named(name) else {
             notes.push(format!("\"{at}\" isn't a kind of cursor; ignored"));
             continue;
@@ -160,6 +184,7 @@ pub(super) fn read_cursors(
         let fields = match written {
             Value::Null => {
                 cursors.remove(&kind);
+                animated.kinds.remove(&kind);
                 continue;
             }
             Value::Object(fields) => fields,
@@ -183,6 +208,21 @@ pub(super) fn read_cursors(
         };
         let mut images = Vec::new();
         let mut hotspot = None;
+        if fields.contains_key("frames") {
+            // An animated kind: its first frame stands still where motion
+            // is reduced, and is what the system is first given.
+            let sequence = read_sequence(written, &at, animated.hidpi.as_deref(), None, true)?;
+            cursors.insert(
+                kind,
+                Cursor {
+                    images: sequence.frames[0].clone(),
+                    hotspot: sequence.hotspot,
+                },
+            );
+            animated.kinds.insert(kind, sequence);
+            continue;
+        }
+        animated.kinds.remove(&kind);
         for (key, value) in fields {
             let here = format!("{at}.{key}");
             match key.as_str() {
@@ -231,6 +271,797 @@ pub(super) fn read_cursors(
         );
     }
     Ok(())
+}
+
+/// The most frames a sequence has.
+pub const MAX_FRAMES: usize = 64;
+/// The most frame files a theme's cursors name, every size counted.
+pub const MAX_FRAME_FILES: usize = 1024;
+/// The shortest a frame shows: 60 a second.
+pub const MIN_FRAME_MS: u32 = 16;
+/// The largest trail sprite sheet, in pixels on either side.
+pub const MAX_SHEET_SIDE: u32 = 1024;
+/// The most trail sprites alive at once.
+pub const MAX_TRAIL: u32 = 160;
+
+/// One frame of an animated cursor: the same picture at each size, smallest
+/// first.
+pub type Frame = Vec<PathBuf>;
+
+/// Frames that play in turn.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Sequence {
+    pub frames: Vec<Frame>,
+    /// Milliseconds each frame shows, one per frame.
+    pub ms: Vec<u32>,
+    /// It starts again at its end; otherwise it plays once.
+    pub looped: bool,
+    /// The point that clicks, in the first size's pixels.
+    pub hotspot: (u32, u32),
+}
+
+impl Sequence {
+    /// Milliseconds it takes once through.
+    pub fn total(&self) -> u32 {
+        self.ms.iter().sum()
+    }
+
+    /// The frame at `elapsed` milliseconds from its start, and the
+    /// milliseconds until the next; `None` once a sequence that plays once
+    /// is over.
+    pub fn at(&self, elapsed: u32) -> Option<(usize, u32)> {
+        let total = self.total().max(1);
+        let mut left = if self.looped {
+            elapsed % total
+        } else if elapsed >= total {
+            return None;
+        } else {
+            elapsed
+        };
+        for (index, ms) in self.ms.iter().enumerate() {
+            if left < *ms {
+                return Some((index, ms - left));
+            }
+            left -= ms;
+        }
+        Some((self.ms.len() - 1, 1))
+    }
+}
+
+/// The directions pointer motion is sorted into, clockwise from east, as
+/// screens count angles (y down).
+pub const DIRECTIONS: [&str; 8] = ["e", "se", "s", "sw", "w", "nw", "n", "ne"];
+
+/// The direction of a motion `(dx, dy)`, as an index into [`DIRECTIONS`].
+pub fn direction(dx: f32, dy: f32) -> usize {
+    let angle = dy.atan2(dx).to_degrees();
+    ((angle / 45.0).round() as i32).rem_euclid(8) as usize
+}
+
+/// How the cursor of one kind answers the pointer's motion: a still frame
+/// for each direction at a slow and a fast speed, a settle as it stops, and
+/// an idle loop once it's been still a while.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Motion {
+    /// `[direction][0 slow, 1 fast]`.
+    pub moving: Vec<[Frame; 2]>,
+    pub hotspot: (u32, u32),
+    /// One per direction, as it stops after moving that way; or, when its
+    /// frames name `{speed}`, one per direction and speed, the slow one
+    /// first: `[direction * 2 + speed]`.
+    pub settle: Vec<Sequence>,
+    /// The settle frame a slow stop starts from.
+    pub slow_start: usize,
+    pub idle: Option<Sequence>,
+    /// Milliseconds still before the idle loop starts.
+    pub idle_after: u32,
+}
+
+/// A trail of fading sprites behind the pointer while it moves.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Trail {
+    /// The sprite sheet at each size, smallest first.
+    pub sheet: Frame,
+    /// A sprite's side, in the first size's pixels.
+    pub cell: u32,
+    /// The sprites' top left corners on the first size.
+    pub sprites: Vec<(u32, u32)>,
+    /// Milliseconds one lives.
+    pub life: f32,
+    /// Logical pixels of motion between spawns, and how many each spawns.
+    pub every: f32,
+    pub per_step: u32,
+    /// How far from the pointer one starts.
+    pub jitter: f32,
+    /// The most alive at once.
+    pub count: u32,
+    /// How many burst out on a click.
+    pub press: u32,
+    /// Opacity a new one starts at.
+    pub opacity: f32,
+}
+
+/// What animates a theme's cursors, beside their still pictures.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Animated {
+    /// The suffix a frame's larger size takes before `.png`, such as `@2x`.
+    pub hidpi: Option<String>,
+    /// Kinds that animate on their own, such as `wait`.
+    pub kinds: BTreeMap<Kind, Sequence>,
+    /// Played once as the cursor changes from one kind to another.
+    pub transitions: BTreeMap<(Kind, Kind), Sequence>,
+    /// Played once as the button goes down and up, by the kind under it.
+    pub press: BTreeMap<Kind, Sequence>,
+    pub release: BTreeMap<Kind, Sequence>,
+    /// Pointer motion, by kind.
+    pub motion: BTreeMap<Kind, Motion>,
+    /// Pointer speeds, logical pixels a second: still below `slow`, fast
+    /// from `fast`.
+    pub slow: f32,
+    pub fast: f32,
+    pub trail: Option<Trail>,
+}
+
+impl Animated {
+    /// Whether anything moves.
+    pub fn is_still(&self) -> bool {
+        self.kinds.is_empty()
+            && self.transitions.is_empty()
+            && self.press.is_empty()
+            && self.release.is_empty()
+            && self.motion.is_empty()
+            && self.trail.is_none()
+    }
+
+    /// Every sequence, once each.
+    pub fn sequences(&self) -> Vec<&Sequence> {
+        let mut all: Vec<&Sequence> = self
+            .kinds
+            .values()
+            .chain(self.transitions.values())
+            .chain(self.press.values())
+            .chain(self.release.values())
+            .collect();
+        for motion in self.motion.values() {
+            all.extend(&motion.settle);
+            all.extend(&motion.idle);
+        }
+        all
+    }
+
+    /// Every frame file it names, every size, once each.
+    pub fn files(&self) -> Vec<PathBuf> {
+        let mut files: Vec<PathBuf> = Vec::new();
+        let mut add = |frame: &Frame| {
+            for path in frame {
+                if !files.contains(path) {
+                    files.push(path.clone());
+                }
+            }
+        };
+        for sequence in self.sequences() {
+            sequence.frames.iter().for_each(&mut add);
+        }
+        for motion in self.motion.values() {
+            motion.moving.iter().flatten().for_each(&mut add);
+        }
+        if let Some(trail) = &self.trail {
+            add(&trail.sheet);
+        }
+        files
+    }
+
+    /// Frames and trail sprites, in a few words, for the cost line.
+    pub fn summary(&self) -> Option<String> {
+        if self.is_still() {
+            return None;
+        }
+        let frames: usize = self
+            .sequences()
+            .iter()
+            .map(|sequence| sequence.frames.len())
+            .sum::<usize>()
+            + self
+                .motion
+                .values()
+                .map(|motion| motion.moving.len() * 2)
+                .sum::<usize>();
+        let mut parts = vec![format!("{frames} cursor frames")];
+        if !self.motion.is_empty() {
+            parts.push("motion".into());
+        }
+        if let Some(trail) = &self.trail {
+            parts.push(format!("a trail of up to {}", trail.count));
+        }
+        Some(parts.join(", "))
+    }
+}
+
+/// `"@2x"`: a suffix for the larger size of every frame.
+fn hidpi(value: &Value, at: &str) -> Result<String, Error> {
+    let text = value.as_str().unwrap_or("");
+    let fine = !text.is_empty()
+        && text.len() <= 8
+        && text
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '@' | '-' | '_' | '.'));
+    if !fine {
+        bail!("\"{at}\" is a suffix such as \"@2x\" a frame's larger size takes before .png");
+    }
+    Ok(text.to_owned())
+}
+
+/// A PNG path in the theme.
+fn png_path(text: &str, here: &str) -> Result<PathBuf, Error> {
+    let path = relative(text, here)?;
+    let is_png = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("png"));
+    if !is_png {
+        bail!("\"{here}\" names \"{text}\": cursors are .png files");
+    }
+    Ok(path)
+}
+
+/// A frame from one path, with its larger size when `hidpi` is set.
+fn frame_of(text: &str, here: &str, hidpi: Option<&str>) -> Result<Frame, Error> {
+    let first = png_path(text, here)?;
+    let mut frame = vec![first];
+    if let Some(suffix) = hidpi {
+        let stem = text.strip_suffix(".png").unwrap_or(text);
+        frame.push(png_path(&format!("{stem}{suffix}.png"), here)?);
+    }
+    Ok(frame)
+}
+
+/// A frame written as a path or a list of sizes.
+fn frame_value(value: &Value, here: &str, hidpi: Option<&str>) -> Result<Frame, Error> {
+    match value {
+        Value::String(text) => frame_of(text, here, hidpi),
+        Value::Array(sizes) if !sizes.is_empty() && sizes.len() <= MAX_SIZES => sizes
+            .iter()
+            .enumerate()
+            .map(|(index, size)| {
+                let at = format!("{here}[{index}]");
+                let text = size
+                    .as_str()
+                    .ok_or_else(|| Error(format!("\"{at}\" names a PNG file in the theme")))?;
+                png_path(text, &at)
+            })
+            .collect(),
+        _ => bail!("\"{here}\" is a PNG's path, or a list of 1 to {MAX_SIZES} sizes of it"),
+    }
+}
+
+/// Fills a pattern's `{dir}`, `{speed}` and `{nn}` (00, 01, …).
+fn pattern(text: &str, dir: Option<&str>, speed: Option<&str>, index: Option<usize>) -> String {
+    let mut out = text.to_owned();
+    if let Some(dir) = dir {
+        out = out.replace("{dir}", dir);
+    }
+    if let Some(speed) = speed {
+        out = out.replace("{speed}", speed);
+    }
+    if let Some(index) = index {
+        out = out.replace("{nn}", &format!("{index:02}"));
+    }
+    out
+}
+
+/// Writes `speed` for `{speed}` in a sequence's frames.
+fn speed_in(value: &mut Value, speed: &str) {
+    let Some(frames) = value.get_mut("frames") else {
+        return;
+    };
+    match frames {
+        Value::String(text) => *text = text.replace("{speed}", speed),
+        Value::Array(items) => {
+            for item in items {
+                if let Value::String(text) = item {
+                    *text = text.replace("{speed}", speed);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// A sequence: `frames` as a list, or a pattern with `{nn}` and `count`;
+/// `ms` one number for every frame or one each; `loop`; `hotspot`. `dir`
+/// fills a pattern's `{dir}`.
+fn read_sequence(
+    value: &Value,
+    at: &str,
+    hidpi: Option<&str>,
+    dir: Option<&str>,
+    looped: bool,
+) -> Result<Sequence, Error> {
+    let Value::Object(fields) = value else {
+        bail!("\"{at}\" is an object with \"frames\" and \"ms\"");
+    };
+    let mut sequence = Sequence {
+        frames: Vec::new(),
+        ms: Vec::new(),
+        looped,
+        hotspot: (0, 0),
+    };
+    let here = format!("{at}.frames");
+    match fields.get("frames") {
+        Some(Value::Array(items)) => {
+            for (index, item) in items.iter().enumerate() {
+                let text = item.as_str().map(|text| pattern(text, dir, None, None));
+                sequence.frames.push(match text {
+                    Some(text) => frame_of(&text, &format!("{here}[{index}]"), hidpi)?,
+                    None => frame_value(item, &format!("{here}[{index}]"), hidpi)?,
+                });
+            }
+        }
+        Some(Value::String(text)) => {
+            if !text.contains("{nn}") {
+                bail!("\"{here}\" is a list, or a pattern with {{nn}} where 00, 01, … go");
+            }
+            let count = fields
+                .get("count")
+                .and_then(Value::as_u64)
+                .filter(|count| (1..=MAX_FRAMES as u64).contains(count))
+                .ok_or_else(|| {
+                    Error(format!(
+                        "\"{at}.count\" is how many frames, 1 to {MAX_FRAMES}"
+                    ))
+                })?;
+            for index in 0..count as usize {
+                let text = pattern(text, dir, None, Some(index));
+                sequence.frames.push(frame_of(&text, &here, hidpi)?);
+            }
+        }
+        _ => bail!("\"{at}\" needs \"frames\""),
+    }
+    if sequence.frames.is_empty() || sequence.frames.len() > MAX_FRAMES {
+        bail!("\"{here}\" has 1 to {MAX_FRAMES} frames");
+    }
+    let frame_ms = |value: &Value, here: &str| -> Result<u32, Error> {
+        value
+            .as_u64()
+            .filter(|ms| (u64::from(MIN_FRAME_MS)..=5000).contains(ms))
+            .map(|ms| ms as u32)
+            .ok_or_else(|| {
+                Error(format!(
+                    "\"{here}\" is milliseconds a frame shows, {MIN_FRAME_MS} to 5000"
+                ))
+            })
+    };
+    let here = format!("{at}.ms");
+    sequence.ms = match fields.get("ms") {
+        None => vec![100; sequence.frames.len()],
+        Some(Value::Array(each)) => {
+            if each.len() != sequence.frames.len() {
+                bail!("\"{here}\" has one number for each frame, or one for all");
+            }
+            each.iter()
+                .enumerate()
+                .map(|(index, ms)| frame_ms(ms, &format!("{here}[{index}]")))
+                .collect::<Result<_, _>>()?
+        }
+        Some(ms) => vec![frame_ms(ms, &here)?; sequence.frames.len()],
+    };
+    for (key, value) in fields {
+        let here = format!("{at}.{key}");
+        match key.as_str() {
+            "frames" | "ms" | "count" => {}
+            "loop" => {
+                sequence.looped = value
+                    .as_bool()
+                    .ok_or_else(|| Error(format!("\"{here}\" is true or false")))?;
+            }
+            "hotspot" => sequence.hotspot = read_hotspot(value, &here)?,
+            _ => bail!("\"{here}\" isn't something a cursor's frames take"),
+        }
+    }
+    Ok(sequence)
+}
+
+fn read_hotspot(value: &Value, here: &str) -> Result<(u32, u32), Error> {
+    let point = value.as_array().and_then(|point| match point.as_slice() {
+        [x, y] => Some((x.as_u64()?, y.as_u64()?)),
+        _ => None,
+    });
+    let Some((x, y)) = point else {
+        bail!(
+            "\"{here}\" is the point that clicks, as [x, y] in pixels from the picture's top left"
+        );
+    };
+    if x >= u64::from(MAX_SIDE) || y >= u64::from(MAX_SIDE) {
+        bail!("\"{here}\" lies outside a {MAX_SIDE}-pixel picture");
+    }
+    Ok((x as u32, y as u32))
+}
+
+/// `"default>pointer"`, `"press"`, `"release:pointer"`, … each a sequence
+/// played once.
+fn read_transitions(
+    value: &Value,
+    place: &str,
+    animated: &mut Animated,
+    notes: &mut Vec<String>,
+) -> Result<(), Error> {
+    let Value::Object(entries) = value else {
+        bail!("\"{place}\" has to be an object");
+    };
+    for (name, written) in entries {
+        let at = format!("{place}.{name}");
+        let kinds = |text: &str| Kind::named(text);
+        enum Key {
+            Change(Kind, Kind),
+            Press(Kind),
+            Release(Kind),
+        }
+        let key = if let Some((from, to)) = name.split_once('>') {
+            match (kinds(from), kinds(to)) {
+                (Some(from), Some(to)) if from != to => Some(Key::Change(from, to)),
+                _ => None,
+            }
+        } else {
+            let (event, kind) = name.split_once(':').unwrap_or((name, "default"));
+            match (event, kinds(kind)) {
+                ("press", Some(kind)) => Some(Key::Press(kind)),
+                ("release", Some(kind)) => Some(Key::Release(kind)),
+                _ => None,
+            }
+        };
+        let Some(key) = key else {
+            notes.push(format!(
+                "\"{at}\" isn't a change such as \"default>pointer\", \"press\" or \"release:pointer\"; ignored"
+            ));
+            continue;
+        };
+        let sequence = match written {
+            Value::Null => None,
+            _ => Some(read_sequence(
+                written,
+                &at,
+                animated.hidpi.as_deref(),
+                None,
+                false,
+            )?),
+        };
+        let (map, key) = match key {
+            Key::Change(from, to) => {
+                match sequence {
+                    Some(sequence) => animated.transitions.insert((from, to), sequence),
+                    None => animated.transitions.remove(&(from, to)),
+                };
+                continue;
+            }
+            Key::Press(kind) => (&mut animated.press, kind),
+            Key::Release(kind) => (&mut animated.release, kind),
+        };
+        match sequence {
+            Some(sequence) => map.insert(key, sequence),
+            None => map.remove(&key),
+        };
+    }
+    Ok(())
+}
+
+/// `"motion"`: by kind, the frames for each direction and speed, a settle
+/// and an idle loop; and the speeds that sort motion.
+fn read_motion(
+    value: &Value,
+    place: &str,
+    animated: &mut Animated,
+    notes: &mut Vec<String>,
+) -> Result<(), Error> {
+    let Value::Object(entries) = value else {
+        bail!("\"{place}\" has to be an object");
+    };
+    for (name, written) in entries {
+        let at = format!("{place}.{name}");
+        match name.as_str() {
+            "slow" => {
+                animated.slow = super::package::number(written, &at, (1.0, 2000.0))?;
+                continue;
+            }
+            "fast" => {
+                animated.fast = super::package::number(written, &at, (1.0, 10000.0))?;
+                continue;
+            }
+            _ => {}
+        }
+        let Some(kind) = Kind::named(name) else {
+            notes.push(format!("\"{at}\" isn't a kind of cursor; ignored"));
+            continue;
+        };
+        let Value::Object(fields) = written else {
+            if written.is_null() {
+                animated.motion.remove(&kind);
+                continue;
+            }
+            bail!("\"{at}\" has to be an object with \"move\"");
+        };
+        let hidpi = animated.hidpi.clone();
+        let hidpi = hidpi.as_deref();
+        let hotspot = match fields.get("hotspot") {
+            Some(value) => read_hotspot(value, &format!("{at}.hotspot"))?,
+            None => (0, 0),
+        };
+        let here = format!("{at}.move");
+        let moving = match fields.get("move") {
+            Some(Value::String(text)) if text.contains("{dir}") && text.contains("{speed}") => {
+                DIRECTIONS
+                    .iter()
+                    .map(|dir| -> Result<[Frame; 2], Error> {
+                        Ok([
+                            frame_of(&pattern(text, Some(dir), Some("slow"), None), &here, hidpi)?,
+                            frame_of(&pattern(text, Some(dir), Some("fast"), None), &here, hidpi)?,
+                        ])
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+            }
+            _ => bail!(
+                "\"{here}\" is a pattern with {{dir}} (e, se, s, sw, w, nw, n, ne) and {{speed}} (slow, fast)"
+            ),
+        };
+        let mut motion = Motion {
+            moving,
+            hotspot,
+            settle: Vec::new(),
+            slow_start: 0,
+            idle: None,
+            idle_after: 600,
+        };
+        for (key, value) in fields {
+            let here = format!("{at}.{key}");
+            match key.as_str() {
+                "move" | "hotspot" => {}
+                "settle" => {
+                    let mut value = value.clone();
+                    let start = value
+                        .as_object_mut()
+                        .and_then(|fields| fields.remove("slow_start"));
+                    let by_direction = match value.get("frames") {
+                        Some(Value::String(text)) => text.contains("{dir}"),
+                        Some(Value::Array(items)) => items
+                            .iter()
+                            .any(|item| item.as_str().is_some_and(|text| text.contains("{dir}"))),
+                        _ => false,
+                    };
+                    if !by_direction {
+                        bail!("\"{here}.frames\" names each direction's frames with {{dir}}");
+                    }
+                    if let Some(object) = value.as_object_mut()
+                        && !object.contains_key("hotspot")
+                    {
+                        object.insert("hotspot".into(), serde_json::json!([hotspot.0, hotspot.1]));
+                    }
+                    // `{speed}` in its frames: one settle for each speed.
+                    let by_speed = value
+                        .get("frames")
+                        .is_some_and(|frames| frames.to_string().contains("{speed}"));
+                    let speeds: &[Option<&str>] = if by_speed {
+                        &[Some("slow"), Some("fast")]
+                    } else {
+                        &[None]
+                    };
+                    let mut settle = Vec::new();
+                    for dir in DIRECTIONS {
+                        for speed in speeds {
+                            let mut value = value.clone();
+                            if let Some(speed) = speed {
+                                speed_in(&mut value, speed);
+                            }
+                            settle.push(read_sequence(&value, &here, hidpi, Some(dir), false)?);
+                        }
+                    }
+                    motion.settle = settle;
+                    if let Some(start) = start {
+                        let frames = motion.settle[0].frames.len();
+                        motion.slow_start = start
+                            .as_u64()
+                            .filter(|start| (*start as usize) < frames)
+                            .ok_or_else(|| {
+                                Error(format!(
+                                    "\"{here}.slow_start\" is a frame of the settle, from 0"
+                                ))
+                            })? as usize;
+                    }
+                }
+                "idle" => {
+                    let mut value = value.clone();
+                    if let Some(object) = value.as_object_mut()
+                        && !object.contains_key("hotspot")
+                    {
+                        object.insert("hotspot".into(), serde_json::json!([hotspot.0, hotspot.1]));
+                    }
+                    motion.idle = Some(read_sequence(&value, &here, hidpi, None, true)?);
+                }
+                "idle_after" => {
+                    motion.idle_after =
+                        super::package::number(value, &here, (0.0, 60000.0))? as u32;
+                }
+                _ => notes.push(format!("\"{here}\" isn't something motion takes; ignored")),
+            }
+        }
+        animated.motion.insert(kind, motion);
+    }
+    if animated.slow <= 0.0 {
+        animated.slow = 60.0;
+    }
+    if animated.fast <= animated.slow {
+        animated.fast = animated.slow.max(700.0);
+    }
+    Ok(())
+}
+
+/// `"trail"`: sprites cut from a sheet, fading behind the moving pointer.
+fn read_trail(
+    value: &Value,
+    at: &str,
+    hidpi: Option<&str>,
+    notes: &mut Vec<String>,
+) -> Result<Trail, Error> {
+    let Value::Object(fields) = value else {
+        bail!("\"{at}\" has to be an object with \"sheet\", \"cell\" and \"sprites\"");
+    };
+    let sheet = fields
+        .get("sheet")
+        .ok_or_else(|| Error(format!("\"{at}\" needs \"sheet\"")))
+        .and_then(|sheet| frame_value(sheet, &format!("{at}.sheet"), hidpi))?;
+    let mut trail = Trail {
+        sheet,
+        cell: 16,
+        sprites: Vec::new(),
+        life: 1300.0,
+        every: 9.0,
+        per_step: 2,
+        jitter: 16.0,
+        count: 96,
+        press: 6,
+        opacity: 0.6,
+    };
+    let number = super::package::number;
+    for (key, value) in fields {
+        let here = format!("{at}.{key}");
+        match key.as_str() {
+            "sheet" => {}
+            "cell" => trail.cell = number(value, &here, (4.0, 128.0))? as u32,
+            "sprites" => {
+                let items = value
+                    .as_array()
+                    .filter(|items| !items.is_empty() && items.len() <= 64)
+                    .ok_or_else(|| {
+                        Error(format!(
+                            "\"{here}\" lists 1 to 64 sprites, each [x, y] on the sheet"
+                        ))
+                    })?;
+                trail.sprites = items
+                    .iter()
+                    .map(|item| match item.as_array().map(Vec::as_slice) {
+                        Some([x, y]) => Some((x.as_u64()? as u32, y.as_u64()? as u32)),
+                        _ => None,
+                    })
+                    .collect::<Option<_>>()
+                    .ok_or_else(|| Error(format!("\"{here}\" lists [x, y] corners")))?;
+            }
+            "life" => trail.life = number(value, &here, (100.0, 5000.0))?,
+            "every" => trail.every = number(value, &here, (1.0, 200.0))?,
+            "per_step" => trail.per_step = number(value, &here, (1.0, 8.0))? as u32,
+            "jitter" => trail.jitter = number(value, &here, (0.0, 64.0))?,
+            "count" => trail.count = number(value, &here, (1.0, MAX_TRAIL as f32))? as u32,
+            "press" => trail.press = number(value, &here, (0.0, 32.0))? as u32,
+            "opacity" => trail.opacity = number(value, &here, (0.05, 1.0))?,
+            _ => notes.push(format!("\"{here}\" isn't something a trail takes; ignored")),
+        }
+    }
+    if trail.sprites.is_empty() {
+        bail!("\"{at}\" needs \"sprites\"");
+    }
+    Ok(trail)
+}
+
+/// A trail's sheet, decoded under its own limits.
+pub fn decode_sheet(bytes: &[u8]) -> Result<Picture, String> {
+    if bytes.len() > MAX_BYTES * 4 {
+        return Err("a trail's sheet is at most 1 MiB".into());
+    }
+    if image::guess_format(bytes).ok() != Some(image::ImageFormat::Png) {
+        return Err("isn't a PNG".into());
+    }
+    let mut reader =
+        image::ImageReader::with_format(std::io::Cursor::new(bytes), image::ImageFormat::Png);
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_SHEET_SIDE);
+    limits.max_image_height = Some(MAX_SHEET_SIDE);
+    limits.max_alloc = Some(8 << 20);
+    reader.limits(limits);
+    let rgba = reader
+        .decode()
+        .map_err(|_| {
+            format!("doesn't decode, or is larger than {MAX_SHEET_SIDE} pixels on a side")
+        })?
+        .into_rgba8();
+    let (width, height) = rgba.dimensions();
+    Ok(Picture {
+        width,
+        height,
+        rgba: rgba.into_raw(),
+    })
+}
+
+/// Why a theme's animated cursors can't show: frames that don't decode,
+/// too many files, hotspots off their pictures, sprites off the sheet.
+pub fn animated_problems<'a>(
+    animated: &Animated,
+    bytes: impl Fn(&Path) -> Option<&'a [u8]>,
+) -> Vec<String> {
+    let mut problems = Vec::new();
+    let files = animated.files();
+    if files.len() > MAX_FRAME_FILES {
+        problems.push(format!(
+            "the cursors name {} frame files, more than {MAX_FRAME_FILES}",
+            files.len()
+        ));
+    }
+    let sheet = animated.trail.as_ref().map(|trail| &trail.sheet);
+    for path in &files {
+        let Some(file) = bytes(path) else { continue };
+        let on_sheet = sheet.is_some_and(|sheet| sheet.contains(path));
+        let decoded = if on_sheet {
+            decode_sheet(file)
+        } else {
+            decode(file)
+        };
+        if let Err(error) = decoded {
+            problems.push(format!("{}: {error}", path.display()));
+        }
+    }
+    let size = |path: &PathBuf| bytes(path).and_then(size);
+    let mut check = |frame: &Frame, hotspot: (u32, u32), what: &str| {
+        if let Some((width, height)) = frame.first().and_then(size)
+            && (hotspot.0 >= width || hotspot.1 >= height)
+        {
+            let sentence = format!(
+                "the {what} hotspot [{}, {}] isn't on its {width}×{height} frame",
+                hotspot.0, hotspot.1
+            );
+            if !problems.contains(&sentence) {
+                problems.push(sentence);
+            }
+        }
+    };
+    for sequence in animated.sequences() {
+        for frame in &sequence.frames {
+            check(frame, sequence.hotspot, "animated cursor's");
+        }
+    }
+    for motion in animated.motion.values() {
+        for frame in motion.moving.iter().flatten() {
+            check(frame, motion.hotspot, "motion");
+        }
+    }
+    if let Some(trail) = &animated.trail
+        && let Some((width, height)) = trail.sheet.first().and_then(size)
+        && trail
+            .sprites
+            .iter()
+            .any(|(x, y)| x + trail.cell > width || y + trail.cell > height)
+    {
+        problems.push(format!(
+            "a trail sprite lies off its {width}×{height} sheet"
+        ));
+    }
+    problems
+}
+
+/// What the animated cursors hold decoded, at most: every frame at every
+/// size, and the sheet.
+pub fn animated_memory<'a>(animated: &Animated, bytes: impl Fn(&Path) -> Option<&'a [u8]>) -> u64 {
+    animated
+        .files()
+        .iter()
+        .filter_map(|path| bytes(path).and_then(size))
+        .map(|(width, height)| u64::from(width) * u64::from(height) * 4)
+        .sum()
 }
 
 /// A cursor picture's pixels, straight RGBA, row by row.
@@ -398,7 +1229,14 @@ mod tests {
             "pointer": { "image": ["cursors/hand.png", "cursors/hand@2x.png"], "hotspot": [9, 3] },
             "sparkle": { "image": "cursors/x.png" },
         });
-        read_cursors(&value, "cursors", &mut cursors, &mut notes).unwrap();
+        read_cursors(
+            &value,
+            "cursors",
+            &mut cursors,
+            &mut Animated::default(),
+            &mut notes,
+        )
+        .unwrap();
         assert_eq!(cursors.len(), 2);
         assert_eq!(cursors[&Kind::Pointer].images.len(), 2);
         assert_eq!(cursors[&Kind::Default].hotspot, (1, 2));
@@ -410,6 +1248,7 @@ mod tests {
             &serde_json::json!({ "default": null }),
             "cursors",
             &mut cursors,
+            &mut Animated::default(),
             &mut notes,
         )
         .unwrap();
@@ -446,7 +1285,14 @@ mod tests {
                 "1 to 4",
             ),
         ] {
-            let error = read_cursors(&value, "cursors", &mut cursors, &mut notes).unwrap_err();
+            let error = read_cursors(
+                &value,
+                "cursors",
+                &mut cursors,
+                &mut Animated::default(),
+                &mut notes,
+            )
+            .unwrap_err();
             assert!(error.0.contains(why), "{error} lacks {why}");
         }
     }
@@ -490,6 +1336,144 @@ mod tests {
         all.insert(Kind::Pointer, cursor(&["s.png", "l.png"], (0, 0)));
         all.insert(Kind::Default, cursor(&["s.png"], (0, 0)));
         assert_eq!(memory(&all, get), (32 * 32 + 64 * 64) * 4);
+    }
+
+    #[test]
+    fn reads_frames_transitions_motion_and_a_trail() {
+        let mut cursors = BTreeMap::new();
+        let mut animated = Animated::default();
+        let mut notes = Vec::new();
+        let value = serde_json::json!({
+            "hidpi": "@2x",
+            "default": { "image": "c/default.png", "hotspot": [16, 16] },
+            "wait": { "frames": "c/wait/{nn}.png", "count": 3, "ms": [50, 50, 140], "hotspot": [32, 32] },
+            "transitions": {
+                "default>pointer": { "frames": ["c/to-pointer/00.png", "c/to-pointer/01.png"], "ms": 35 },
+                "press": { "frames": "c/press/{nn}.png", "count": 2 },
+                "release:pointer": { "frames": "c/release/{nn}.png", "count": 2, "ms": 40 },
+                "spin": { "frames": "c/x/{nn}.png", "count": 1 }
+            },
+            "motion": {
+                "slow": 60, "fast": 700,
+                "default": {
+                    "move": "c/move/{dir}-{speed}.png", "hotspot": [32, 32],
+                    "settle": { "frames": "c/settle/{dir}/{nn}.png", "count": 6, "ms": [50, 50, 50, 50, 50, 70], "slow_start": 2 },
+                    "idle": { "frames": "c/idle/{nn}.png", "count": 4, "ms": 150 },
+                    "idle_after": 600
+                }
+            },
+            "trail": { "sheet": "c/trail.png", "cell": 16, "sprites": [[0, 0], [16, 0]], "count": 64 }
+        });
+        read_cursors(&value, "cursors", &mut cursors, &mut animated, &mut notes).unwrap();
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        let wait = &animated.kinds[&Kind::Wait];
+        assert_eq!(wait.frames.len(), 3);
+        assert!(wait.looped);
+        assert_eq!(
+            wait.frames[1],
+            vec![
+                PathBuf::from("c/wait/01.png"),
+                PathBuf::from("c/wait/01@2x.png")
+            ]
+        );
+        assert_eq!(cursors[&Kind::Wait].images, wait.frames[0]);
+        assert_eq!(wait.at(0), Some((0, 50)));
+        assert_eq!(wait.at(120), Some((2, 120)));
+        assert_eq!(wait.at(240), Some((0, 50)), "it loops");
+        let morph = &animated.transitions[&(Kind::Default, Kind::Pointer)];
+        assert!(!morph.looped);
+        assert_eq!(morph.at(80), None, "it plays once");
+        assert!(animated.press.contains_key(&Kind::Default));
+        assert!(animated.release.contains_key(&Kind::Pointer));
+        let motion = &animated.motion[&Kind::Default];
+        assert_eq!(motion.moving.len(), 8);
+        assert_eq!(motion.moving[1][1][0], PathBuf::from("c/move/se-fast.png"));
+        assert_eq!(
+            motion.settle[6].frames[5][0],
+            PathBuf::from("c/settle/n/05.png")
+        );
+        assert_eq!(motion.settle[0].hotspot, (32, 32));
+        assert_eq!(motion.slow_start, 2);
+        let mut by_speed = Animated::default();
+        read_cursors(
+            &serde_json::json!({ "motion": { "pointer": {
+                "move": "p/move/{dir}-{speed}.png",
+                "settle": { "frames": "p/settle/{dir}-{speed}/{nn}.png", "count": 9, "ms": 40 } } } }),
+            "cursors",
+            &mut BTreeMap::new(),
+            &mut by_speed,
+            &mut notes,
+        )
+        .unwrap();
+        let settle = &by_speed.motion[&Kind::Pointer].settle;
+        assert_eq!(settle.len(), 16);
+        assert_eq!(
+            settle[3].frames[8][0],
+            PathBuf::from("p/settle/se-fast/08.png")
+        );
+        assert!(motion.idle.as_ref().unwrap().looped);
+        assert_eq!((animated.slow, animated.fast), (60.0, 700.0));
+        let trail = animated.trail.as_ref().unwrap();
+        assert_eq!(trail.sheet.len(), 2);
+        assert_eq!(trail.count, 64);
+        // Two sizes of 3 + 2 + 2 + 2 + 16 + 48 + 4 frames, and the sheet.
+        assert_eq!(
+            animated.files().len(),
+            2 * (3 + 2 + 2 + 2 + 16 + 48 + 4) + 2
+        );
+        assert!(animated.summary().unwrap().contains("motion"));
+    }
+
+    #[test]
+    fn refuses_bad_frames() {
+        let mut notes = Vec::new();
+        for (value, why) in [
+            (
+                serde_json::json!({ "wait": { "frames": "c/{nn}.png" } }),
+                "count",
+            ),
+            (
+                serde_json::json!({ "wait": { "frames": "c/a.png", "count": 2 } }),
+                "{nn}",
+            ),
+            (
+                serde_json::json!({ "wait": { "frames": ["a.png", "b.png"], "ms": [10, 50] } }),
+                "16 to 5000",
+            ),
+            (
+                serde_json::json!({ "wait": { "frames": ["a.png"], "ms": [50, 50] } }),
+                "each frame",
+            ),
+            (
+                serde_json::json!({ "motion": { "default": { "move": "m/{dir}.png" } } }),
+                "{speed}",
+            ),
+            (
+                serde_json::json!({ "trail": { "sheet": "t.png" } }),
+                "sprites",
+            ),
+            (serde_json::json!({ "hidpi": "/../x" }), "suffix"),
+        ] {
+            let error = read_cursors(
+                &value,
+                "cursors",
+                &mut BTreeMap::new(),
+                &mut Animated::default(),
+                &mut notes,
+            )
+            .unwrap_err();
+            assert!(error.0.contains(why), "{error} lacks {why}");
+        }
+    }
+
+    #[test]
+    fn directions_follow_screen_angles() {
+        assert_eq!(DIRECTIONS[direction(1.0, 0.0)], "e");
+        assert_eq!(DIRECTIONS[direction(1.0, 1.0)], "se");
+        assert_eq!(DIRECTIONS[direction(0.0, 1.0)], "s");
+        assert_eq!(DIRECTIONS[direction(-1.0, 0.1)], "w");
+        assert_eq!(DIRECTIONS[direction(0.0, -1.0)], "n");
+        assert_eq!(DIRECTIONS[direction(0.7, -0.7)], "ne");
     }
 
     #[test]

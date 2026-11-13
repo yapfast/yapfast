@@ -1003,6 +1003,7 @@ component CategoryHeading inherits Rectangle {
         if !(ChannelLists.on && ChannelLists.head-on): Text {
             property <string> named: Chrome.category != "" ? Chrome.fill(Chrome.category, "name", root.text) : root.text;
             text: Chrome.folders ? Chrome.folder(self.named, !root.collapsed) : self.named; accessible-label: root.text;
+            font-family: Chrome.category != "" || Chrome.folders ? Chrome.font : "";
             color: root.ink; font-size: 14px; font-weight: 600; letter-spacing: 0px;
             vertical-alignment: center; overflow: elide; horizontal-stretch: 0;
         }
@@ -1241,6 +1242,7 @@ export component ServerRail inherits Rectangle {
         padding: 8px; spacing: 0px;
         if Chrome.rail-title != "": Text {
             text: Chrome.rail-title; color: Theme.muted; font-size: 14px; wrap: word-wrap; accessible-role: none;
+            font-family: Chrome.font;
         }
         RailItem {
             text-mode: true; width: Chrome.rail-px - 16px;
@@ -1298,6 +1300,7 @@ export component ServerRail inherits Rectangle {
         }
         if Chrome.rail-footer != "" && root.selected-name != "": Text {
             text: Chrome.fill(Chrome.rail-footer, "server", root.selected-name); color: Theme.muted; font-size: 14px;
+            font-family: Chrome.font;
             wrap: word-wrap; accessible-role: none;
         }
     }

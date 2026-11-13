@@ -72,7 +72,8 @@
     "particles": [
       { "preset": "sparkles", "on": "message.sent", "colours": ["#7aa2ff", "#ffffff"], "count": 10 }
     ],
-    "events": { "click": "ripple", "hover": "gloss", "select": { "effect": "highlighter", "colour": "#7aa2ff" }, "reaction": "stamp", "row": "none" },
+    "events": { "click": "ripple", "hover": "gloss", "select": { "effect": "highlighter", "colour": "#7aa2ff" }, "reaction": "stamp", "row": "none",
+                "name_hover": "decrypt" },
     "foil": { "surfaces": ["card"], "opacity": 0.12 },
     "transition": { "kind": "fade", "duration": 260 }
   },
@@ -86,7 +87,25 @@
   },
   "cursors": {
     "default": { "image": ["cursors/default.png", "cursors/default@2x.png"], "hotspot": [16, 16] },
-    "pointer": { "image": ["cursors/pointer.png", "cursors/pointer@2x.png"], "hotspot": [16, 16] }
+    "pointer": { "image": ["cursors/pointer.png", "cursors/pointer@2x.png"], "hotspot": [16, 16] },
+    "hidpi": "@2x",
+    "wait": { "frames": ["cursors/default.png", "cursors/move/n-slow.png"], "ms": 400, "hotspot": [16, 16] },
+    "transitions": {
+      "default>pointer": { "frames": ["cursors/move/s-slow.png", "cursors/pointer.png"], "ms": 40, "hotspot": [16, 16] },
+      "pointer>default": { "frames": ["cursors/move/n-slow.png", "cursors/default.png"], "ms": 40, "hotspot": [16, 16] },
+      "press": { "frames": ["cursors/move/s-fast.png", "cursors/move/s-slow.png"], "ms": [50, 80], "hotspot": [16, 16] }
+    },
+    "motion": {
+      "slow": 60, "fast": 700,
+      "default": {
+        "move": "cursors/move/{dir}-{speed}.png", "hotspot": [16, 16],
+        "settle": { "frames": ["cursors/move/{dir}-slow.png", "cursors/default.png"], "ms": [50, 70], "slow_start": 1 },
+        "idle": { "frames": ["cursors/default.png", "cursors/move/n-slow.png"], "ms": 900 },
+        "idle_after": 1500
+      }
+    },
+    "trail": { "sheet": "cursors/trail.png", "cell": 16, "sprites": [[0, 0], [16, 0]], "life": 900,
+               "every": 12, "per_step": 1, "jitter": 8, "count": 48, "press": 4, "opacity": 0.5 }
   },
   "layout": {
     "rail": "left",
@@ -103,7 +122,9 @@
   },
   "content": {
     "media": { "tint": { "colour": "#7aa2ff", "amount": 0.2 } },
-    "avatars": { "shape": { "rounded": 10 }, "decorations": "keep", "ring": { "colour": "#7aa2ff", "width": 2 } },
+    "avatars": { "shape": { "rounded": 10 }, "decorations": "keep", "ring": { "colour": "#7aa2ff", "width": 2 },
+                 "mode": "initial", "initial": { "font": "headings", "size": 0.8, "border": { "colour": "#7aa2ff", "width": 1 },
+                                                 "hover": "picture", "members": false } },
     "names": { "colours": "clamp", "styles": "keep", "nameplates": "tint" },
     "profiles": { "themes": "theme", "effects": "keep" },
     "embeds": "theme",
@@ -117,7 +138,11 @@
     "time": "HH:MM",
     "hide": [],
     "rail": { "mode": "icons", "width": 150 },
-    "composer": { "caret": "line", "prompt": "" },
+    "composer": { "style": "console", "caret": "block", "prompt": "", "line": "#3a3d46", "focus_line": "#7aa2ff",
+                  "caret_colour": "#7aa2ffcc", "draw": 420, "typing": 38 },
+    "font": "code",
+    "topbar": { "workspaces": 5, "from": "servers", "centre": "{name}@{server}", "right": "{now_playing}  {time}",
+                "height": 26, "size": 12, "underline": "#7aa2ff", "effect": "decrypt" },
     "members": { "columns": {} },
     "tree": { "lists": [], "colour": "faint" },
     "folders": { "open": "▾", "closed": "▸", "suffix": "/" }
