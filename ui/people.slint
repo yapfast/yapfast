@@ -1054,6 +1054,35 @@ component ProfileFrameLayer {
     }
 }
 
+/// Someone's badges as Discord's profile sets them: twelve to a row, 20px
+/// icons 2px apart, each row a pill of its own (3px by 1px inside a 1px
+/// border, 8px corners, a grey wash that brightens under the pointer), more
+/// going on to the next. Six and a "+n" count is Discord's badge-management
+/// experiment, off by default.
+export component BadgeRows inherits VerticalLayout {
+    in property <[ProfileBadgeRow]> badges;
+    callback open-link(string);
+    spacing: 4px; alignment: start;
+    for row in ceil(root.badges.length / 12): HorizontalLayout {
+        alignment: start;
+        Rectangle {
+            width: min(root.badges.length - row * 12, 12) * 22px + 6px; height: 24px;
+            background: pill-hover.has-hover ? #97979f33 : #97979f1f;
+            border-radius: 8px; border-width: 1px; border-color: #97979f0a;
+            pill-hover := TouchArea { mouse-cursor: MouseCursor.default; }
+            Rectangle {
+                x: 3px; y: 1px; width: parent.width - 6px; height: 20px;
+                for badge[index] in root.badges: ProfileBadge {
+                    x: (index - row * 12) * 22px; width: 20px; height: 20px;
+                    visible: index >= row * 12 && index < row * 12 + 12;
+                    badge: badge;
+                    open-link(url) => { root.open-link(url); }
+                }
+            }
+        }
+    }
+}
+
 export component ProfileCard inherits Rectangle {
     in property <ProfileData> data;
     in property <bool> large;
@@ -1341,30 +1370,9 @@ export component ProfileCard inherits Rectangle {
                                 action-more := TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.more(self.absolute-position.x, self.absolute-position.y + self.height); } }
                             }
                         }
-                        // Discord sets the badges in a pill of their own: 20px icons 2px
-                        // apart, 3px by 1px inside a 1px border, 8px corners, a grey wash
-                        // that brightens when the pointer is over it.
-                        if root.data.badges.length > 0: HorizontalLayout {
-                            alignment: start;
-                            Rectangle {
-                                width: min(root.data.badges.length, 6) * 22px + (root.data.badges.length > 6 ? 26px : 0px) + 6px; height: 24px;
-                                background: pill-hover.has-hover ? #97979f33 : #97979f1f;
-                                border-radius: 8px; border-width: 1px; border-color: #97979f0a;
-                                pill-hover := TouchArea { mouse-cursor: MouseCursor.default; }
-                                Rectangle {
-                                    x: 3px; y: 1px; width: parent.width - 6px; height: 20px;
-                                    for badge[index] in root.data.badges: ProfileBadge {
-                                        x: index * 22px; width: 20px; height: 20px; visible: index < 6;
-                                        badge: badge;
-                                        open-link(url) => { root.open-link(url); }
-                                    }
-                                    if root.data.badges.length > 6: Text {
-                                        x: 6 * 22px; width: 24px; height: 20px;
-                                        text: "+" + (root.data.badges.length - 6); color: root.ink2;
-                                        font-size: 12px; font-weight: 600; vertical-alignment: center; horizontal-alignment: center;
-                                    }
-                                }
-                            }
+                        if root.data.badges.length > 0: BadgeRows {
+                            badges: root.data.badges;
+                            open-link(url) => { root.open-link(url); }
                         }
                         // The full profile has its Activity tab for them, as
                         // Discord's does; the card leaves them out.

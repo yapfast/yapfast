@@ -5,7 +5,7 @@ import { Theme, Label, Middle, Popup } from "theme.slint";
 import { ActionButton, Avatar, IconButton, MenuItem, TextField, Motion, StatusText, ServerTagChip, PictureStore, StyledName, NameStyleRow, Nameplate, ProfileEffect, AccountLook } from "controls.slint";
 import { Choices, Picker, UnsavedBar } from "settings.slint";
 import { NameStyles } from "controls.slint";
-import { ProfileData, ProfileHeading, MemberSince, ActivityCard, ProfileBadge, ProfileBadgeRow, BoardCard, WishlistCard, ProfileTheme } from "people.slint";
+import { ProfileData, ProfileHeading, MemberSince, ActivityCard, ProfileBadge, ProfileBadgeRow, BadgeRows, BoardCard, WishlistCard, ProfileTheme } from "people.slint";
 
 // What an invite dialog shows: whom it invites where, and the link once
 // Discord made it.
@@ -1986,30 +1986,11 @@ export component ProfileEditorDialog inherits Rectangle {
                                             }
                                         }
                                     }
-                                    // Their badges under the line, as Discord's preview sets them:
-                                    // twelve to a row, each row a pill of its own, more going on
-                                    // to the next. (Discord's six and a count is behind an
-                                    // experiment that's off.)
-                                    if root.prompt.main && root.editing != 2 && root.prompt.preview.badges.length > 0: VerticalLayout {
-                                        padding-top: 10px; spacing: 4px; alignment: start;
-                                        for row in ceil(root.prompt.preview.badges.length / 12): HorizontalLayout {
-                                            alignment: start;
-                                            Rectangle {
-                                                width: min(root.prompt.preview.badges.length - row * 12, 12) * 22px + 6px; height: 24px;
-                                                background: pill-hover.has-hover ? #97979f33 : #97979f1f;
-                                                border-radius: 8px; border-width: 1px; border-color: #97979f0a;
-                                                pill-hover := TouchArea { mouse-cursor: MouseCursor.default; }
-                                                Rectangle {
-                                                    x: 3px; y: 1px; width: parent.width - 6px; height: 20px;
-                                                    for badge[index] in root.prompt.preview.badges: ProfileBadge {
-                                                        x: (index - row * 12) * 22px; width: 20px; height: 20px;
-                                                        visible: index >= row * 12 && index < row * 12 + 12;
-                                                        badge: badge;
-                                                        open-link(url) => { root.open-link(url); }
-                                                    }
-                                                }
-                                            }
-                                        }
+                                    // Their badges under the line, as Discord's preview sets them.
+                                    if root.prompt.main && root.editing != 2 && root.prompt.preview.badges.length > 0: BadgeRows {
+                                        padding-top: 10px;
+                                        badges: root.prompt.preview.badges;
+                                        open-link(url) => { root.open-link(url); }
                                     }
                                     if root.prompt.too-long != "": Text { text: root.prompt.too-long; color: Theme.danger; font-size: 13px; wrap: word-wrap; }
                                 }

@@ -389,9 +389,12 @@ carries the new one; a user object without `primary_guild`, as a partial one
 is, changes nothing, and `null` takes it away. They are kept with the names
 across restarts.
 
-The card shows the person's badges, as Discord's does, in a row of pictures
-under the name and handle: HypeSquad, Active Developer, a Nitro subscriber's
-and the like, in the order the profile lists them. They come from the
+The card shows the person's badges, as Discord's does, in pills of pictures
+under the name and handle, twelve to a row, more going on to the next row:
+HypeSquad, Active Developer, a Nitro subscriber's and the like, in the order
+the profile lists them. The account's own card in the account menu and the
+profile editor's preview set them the same way. Discord's six and a "+n"
+count belongs to its badge-management experiment, which is off by default. They come from the
 `badges` of `GET /users/{id}/profile`: each has an `id`, a `description`, an
 `icon` hash that Yapfast fetches from `/badge-icons/{icon}.png`, and
 sometimes a `link`. Pointing at one shows its description; clicking one that
