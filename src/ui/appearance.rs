@@ -3,6 +3,50 @@
 use super::*;
 use yapfast_core::themes::Performance;
 use yapfast_core::themes::media::SoundSlot;
+use yapfast_core::themes::options;
+use yapfast_ui::{ThemeOptionRow, ThemeOptions};
+
+/// One option as Settings draws it.
+fn option_row(option: &options::ThemeOption, value: &serde_json::Value) -> ThemeOptionRow {
+    let mut row = ThemeOptionRow {
+        id: option.id.as_str().into(),
+        label: option.label.as_str().into(),
+        description: option.description.as_str().into(),
+        ..ThemeOptionRow::default()
+    };
+    match &option.kind {
+        options::Kind::Toggle { .. } => row.on = value.as_bool().unwrap_or(false),
+        options::Kind::Choice { choices, .. } => {
+            row.kind = 1;
+            row.choices = ModelRc::new(VecModel::from(
+                choices
+                    .iter()
+                    .map(|choice| SharedString::from(choice.label.as_str()))
+                    .collect::<Vec<_>>(),
+            ));
+            row.current = choices
+                .iter()
+                .position(|choice| Some(choice.value.as_str()) == value.as_str())
+                .unwrap_or(0) as i32;
+        }
+        options::Kind::Slider { min, max, step, .. } => {
+            row.kind = 2;
+            row.steps = ((max - min) / step).round() as i32;
+            row.current = ((value.as_f64().unwrap_or(*min) - min) / step).round() as i32;
+            row.minimum = *min as f32;
+            row.step = *step as f32;
+            if option.id == options::SOUNDS {
+                row.unit = "%".into();
+                row.zero_off = true;
+            }
+        }
+        options::Kind::Hue { .. } => {
+            row.kind = 3;
+            row.current = value.as_f64().unwrap_or(0.0).round() as i32;
+        }
+    }
+    row
+}
 
 impl Adapter {
     /// Shows the window in a theme, built in or the person's own, and keeps
@@ -143,6 +187,7 @@ impl Adapter {
         #[cfg(feature = "plugins")]
         self.app.plugins_theme(theme.dark);
         let icons = self.show_theme_media(window);
+        self.show_theme_options(window);
         let content = self.show_theme_content(window);
         super::theme_chrome::workspaces(&self.app.state);
         super::theme_chrome::now_playing(window, &self.app.state);
@@ -150,6 +195,68 @@ impl Adapter {
             self.restyle_mentions();
             self.refresh(window);
         }
+    }
+
+    /// Settings' list of the shown installed theme's options, as the person
+    /// has them.
+    pub(super) fn show_theme_options(&self, window: &YapfastWindow) {
+        let rows: Vec<ThemeOptionRow> = theme_look::applied_options()
+            .iter()
+            .map(|(option, value)| option_row(option, value))
+            .collect();
+        let global = window.global::<ThemeOptions>();
+        global.set_theme(theme_look::applied_name().unwrap_or_default().into());
+        global.set_rows(ModelRc::new(VecModel::from(rows)));
+        theme_media::set_scale(theme_look::sounds_scale());
+    }
+
+    /// Keeps a new value for one of the shown theme's options and shows the
+    /// theme with it: made ready off the UI thread, as choosing a theme is,
+    /// the theme as it was staying on the window until then. `pick` gives
+    /// the value from the option's kind, or nothing for one that doesn't fit.
+    pub(super) fn change_theme_option(
+        &mut self,
+        window: &YapfastWindow,
+        option: &str,
+        pick: impl FnOnce(&options::Kind) -> Option<serde_json::Value>,
+    ) {
+        let Some(id) = theme_look::applied_id() else {
+            return;
+        };
+        let Some((option, _)) = theme_look::applied_options()
+            .into_iter()
+            .find(|(known, _)| known.id == option)
+        else {
+            return;
+        };
+        let Some(value) = pick(&option.kind) else {
+            return;
+        };
+        let mut chosen = self.layout.theme_options.remove(&id).unwrap_or_default();
+        chosen.insert(option.id.clone(), value);
+        let value = option.value(&chosen);
+        // Only what differs from the default is kept; "Ransom names" also
+        // remembers on when the old Plain names switch was on.
+        let legacy = option.id == options::RANSOM && self.layout.plain_names;
+        if value == option.default_value() && !legacy {
+            chosen.remove(&option.id);
+        } else {
+            chosen.insert(option.id.clone(), value);
+        }
+        if !chosen.is_empty() {
+            self.layout.theme_options.insert(id.clone(), chosen.clone());
+        }
+        self.layout.write(&self.root);
+        theme_look::set_choices(&id, chosen);
+        self.show_theme_options(window);
+        // The theme's sounds' volume is the app's to apply: nothing to make.
+        if option.id == options::SOUNDS {
+            return;
+        }
+        let again = SharedString::from(id.as_str());
+        theme_look::prepare(window, &id, move |window| {
+            window.global::<ThemeOptions>().invoke_reshow(again);
+        });
     }
 
     /// The shown theme's sounds as the person chose them, and Settings →
@@ -528,6 +635,52 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
                 None => text,
             });
     }
+    let option_page = window.global::<ThemeOptions>();
+    on!(option_page, on_toggled(id, on) => |adapter, window| {
+        adapter.change_theme_option(&window, &id, |_| Some(serde_json::Value::Bool(on)));
+    });
+    on!(option_page, on_chosen(id, index) => |adapter, window| {
+        adapter.change_theme_option(&window, &id, |kind| match kind {
+            options::Kind::Choice { choices, .. } => usize::try_from(index)
+                .ok()
+                .and_then(|index| choices.get(index))
+                .map(|choice| serde_json::Value::String(choice.value.clone())),
+            _ => None,
+        });
+    });
+    on!(option_page, on_slid(id, step) => |adapter, window| {
+        adapter.change_theme_option(&window, &id, |kind| match kind {
+            options::Kind::Slider { min, step: size, .. } => {
+                serde_json::Number::from_f64(min + f64::from(step) * size)
+                    .map(serde_json::Value::Number)
+            }
+            options::Kind::Hue { .. } => Some(serde_json::json!(step)),
+            _ => None,
+        });
+    });
+    option_page.on_sliding({
+        let weak = window.as_weak();
+        // Only the window's colours follow the slider: what's slow to make
+        // waits for its release. No adapter borrow, so it keeps up.
+        move |id, hue| {
+            if let Some(window) = weak.upgrade()
+                && let Some(colours) = theme_look::hue_preview(&id, f64::from(hue))
+            {
+                let _ = colours.apply(&window);
+            }
+        }
+    });
+    on!(option_page, on_reshow(id) => |adapter, window| {
+        match theme_look::show(&window, &id) {
+            Ok(colours) => adapter.set_theme(&window, &colours),
+            Err(reason) => {
+                // The theme as it was stays; the person hears why.
+                adapter.app.state.notice = Some(format!("That option couldn't be shown: {reason}"));
+                adapter.show_theme_options(&window);
+            }
+        }
+        adapter.refresh(&window);
+    });
     on!(window, on_theme_reload() => |adapter, window| {
         match theme_look::show(&window, "dev") {
             Ok(colours) => {

@@ -131,6 +131,82 @@ export component SettingsSwitch inherits Rectangle {
     }
 }
 
+/// One of the shown theme's options, as Settings draws it: 0 a switch, 1 a
+/// choice, 2 a slider over `steps` steps of `step` from `minimum`, shown with
+/// `unit` (and as Off at 0 when `zero-off`), 3 a hue in degrees.
+export struct ThemeOptionRow {
+    id: string,
+    label: string,
+    description: string,
+    kind: int,
+    on: bool,
+    choices: [string],
+    current: int,
+    steps: int,
+    minimum: float,
+    step: float,
+    unit: string,
+    zero-off: bool,
+}
+
+/// The installed theme's options, under it in Settings → Appearance and
+/// Settings → Themes; empty for a theme without any.
+export global ThemeOptions {
+    in property <string> theme;
+    in property <[ThemeOptionRow]> rows;
+    callback toggled(string, bool);
+    callback chosen(string, int);
+    callback slid(string, int);
+    /// A hue's slider moving, before it's let go.
+    callback sliding(string, int);
+    /// Rust's own: shows the theme again once its options are made ready.
+    callback reshow(string);
+}
+
+// The installed theme's options, each changing it as soon as it's flipped.
+export component ThemeOptionList inherits VerticalLayout {
+    spacing: 8px;
+    SettingsHeading { text: "THEME OPTIONS"; }
+    for option in ThemeOptions.rows: VerticalLayout {
+        spacing: 6px;
+        if option.kind == 0: SettingsSwitch {
+            text: option.label; description: option.description;
+            checked: option.on; controlled: true;
+            toggled(on) => { ThemeOptions.toggled(option.id, on); }
+        }
+        if option.kind == 1: VerticalLayout {
+            spacing: 6px;
+            Text { text: option.label; color: Theme.text; font-size: 15px; wrap: word-wrap; }
+            Choices {
+                label: option.label; options: option.choices;
+                current: option.current; controlled: true;
+                chosen(index) => { ThemeOptions.chosen(option.id, index); }
+            }
+            if option.description != "": Label { text: option.description; }
+        }
+        if option.kind == 2: VerticalLayout {
+            spacing: 6px;
+            VolumeSlider {
+                label: option.label; maximum: option.steps; step: 1; full-mark: false;
+                value: option.current;
+                shown: option.zero-off && self.value == 0 ? "Off" : round((option.minimum + self.value * option.step) * 1000) / 1000 + option.unit;
+                committed(value) => { ThemeOptions.slid(option.id, value); }
+            }
+            if option.description != "": Label { text: option.description; }
+        }
+        if option.kind == 3: VerticalLayout {
+            spacing: 6px;
+            VolumeSlider {
+                label: option.label; maximum: 360; step: 5; full-mark: false;
+                value: option.current; shown: self.value + "°";
+                changed(value) => { ThemeOptions.sliding(option.id, value); }
+                committed(value) => { ThemeOptions.slid(option.id, value); }
+            }
+            if option.description != "": Label { text: option.description; }
+        }
+    }
+}
+
 export component Choices inherits Rectangle {
     in property <[string]> options;
     in property <string> label;
@@ -1036,6 +1112,7 @@ export component AppearanceSettings inherits VerticalLayout {
     if !root.editor && root.installed-name != "": Label {
         text: "Showing " + root.installed-name + ", an installed theme. Choose one above, or manage it in Themes.";
     }
+    if !root.editor && root.installed-name != "" && ThemeOptions.rows.length > 0: ThemeOptionList { }
     if !root.editor && root.title-bar-choice: SettingsSwitch {
         text: "Use the system title bar";
         description: "Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own.";
@@ -1073,13 +1150,6 @@ export component AppearanceSettings inherits VerticalLayout {
             text: "Show name styles";
             description: "The fonts and colours people give their display names.";
             checked <=> Looks.name-styles;
-            toggled => { root.preferences-changed(); }
-        }
-        // Only while the theme cuts names into ransom letters.
-        if Arrange.ransom-names: SettingsSwitch {
-            text: "Plain names";
-            description: "Names as plain text, not cut into the theme's letters.";
-            checked <=> Arrange.plain-names;
             toggled => { root.preferences-changed(); }
         }
         SettingsSwitch {

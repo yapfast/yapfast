@@ -140,10 +140,9 @@ export global Arrange {
     in property <bool> panes;
     in property <Dash> dash-panes;
     // Names cut into ransom letters from the theme's fonts, unless the
-    // person turns on Settings' "Plain names".
+    // person turns the theme's "Ransom names" option off.
     in property <bool> ransom-names;
-    in-out property <bool> plain-names;
-    out property <bool> ransom: self.ransom-names && !self.plain-names;
+    out property <bool> ransom: self.ransom-names;
     /// A name's letters as scraps, at most 24; the rest comes back as one
     /// scrap in the first font.
     pure callback scraps(string) -> [Scrap];

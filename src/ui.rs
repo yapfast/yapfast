@@ -1331,7 +1331,9 @@ struct Layout {
     moving_cosmetics: Option<bool>,
     name_styles: Option<bool>,
     server_tags: Option<bool>,
-    /// Names show plain, not in a theme's ransom letters.
+    /// Names show plain, not in a theme's ransom letters: the switch before
+    /// themes had options, now the default of each theme's "Ransom names"
+    /// option, which `theme_options` overrides.
     plain_names: bool,
     /// Joining a call turns the microphone on; on unless turned off.
     unmute_on_join: Option<bool>,
@@ -1414,6 +1416,10 @@ struct Layout {
     theme_content: std::collections::BTreeSet<String>,
     /// Installed themes whose cursors the person turned off, by id.
     theme_cursors_off: std::collections::BTreeSet<String>,
+    /// The person's choices for installed themes' options, by the theme's
+    /// id, each only where it isn't the option's default.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    theme_options: std::collections::BTreeMap<String, yapfast_core::themes::options::Choices>,
     /// Closing the window leaves Yapfast in the system tray; on unless turned off.
     close_to_tray: Option<bool>,
     /// Starting Yapfast again on this folder starts another, rather than
@@ -1581,9 +1587,6 @@ impl Layout {
         looks.set_moving(cosmetics.moving);
         looks.set_name_styles(cosmetics.name_styles);
         looks.set_server_tags(cosmetics.server_tags);
-        window
-            .global::<yapfast_ui::Arrange>()
-            .set_plain_names(self.plain_names);
         pictures::set_moving_collectibles(cosmetics.moving);
     }
 
@@ -1595,7 +1598,6 @@ impl Layout {
         self.moving_cosmetics = Some(looks.get_moving());
         self.name_styles = Some(looks.get_name_styles());
         self.server_tags = Some(looks.get_server_tags());
-        self.plain_names = window.global::<yapfast_ui::Arrange>().get_plain_names();
         pictures::set_moving_collectibles(self.cosmetics().moving);
     }
 
@@ -1637,6 +1639,10 @@ impl Layout {
             .get_enabled()
             .then_some("bonfire");
         theme_look::set_motion(window, self.theme_performance, self.reduce_motion);
+        theme_look::set_plain_names(self.plain_names);
+        for (id, choices) in &self.theme_options {
+            theme_look::set_choices(id, choices.clone());
+        }
         let page = window.global::<yapfast_ui::ThemesPage>();
         page.set_performance(self.theme_performance.index());
         page.set_reduce_motion(self.reduce_motion);

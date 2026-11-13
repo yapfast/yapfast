@@ -1124,10 +1124,14 @@ pub struct Package {
     shared: Value,
     /// What Yapfast ignored, each as a sentence for the theme's page.
     pub notes: Vec<String>,
+    /// What the person can switch, choose or slide in it:
+    /// [`super::options`]. A theme with ransom names offers one more,
+    /// [`super::options::RANSOM`], unless it declares its own.
+    pub options: Vec<super::options::ThemeOption>,
 }
 
 /// The top-level keys of `theme.json`.
-const TOP_KEYS: [&str; 15] = [
+const TOP_KEYS: [&str; 17] = [
     "theme_api",
     "id",
     "name",
@@ -1143,6 +1147,8 @@ const TOP_KEYS: [&str; 15] = [
     "variants",
     "$schema",
     "parts",
+    "options",
+    "sets",
 ];
 
 /// The layers, at the top level or in a variant.
@@ -1257,6 +1263,8 @@ impl Package {
         if dark.is_none() && light.is_none() {
             bail!("\"variants\" needs \"dark\", \"light\" or both");
         }
+        let options =
+            super::options::read_options(top.get("options"), top.get("sets"), &LAYER_KEYS)?;
         let shared = Value::Object(
             top.iter()
                 .filter(|(key, _)| LAYER_KEYS.contains(&key.as_str()))
@@ -1279,14 +1287,34 @@ impl Package {
             light,
             shared,
             notes,
+            options,
         };
         // Every variant is resolved once here, so a value out of its range is
         // refused when the theme is read, not when someone switches modes.
         let mut notes = Vec::new();
+        // Yapfast's own options, which a theme doesn't declare: ransom names
+        // when it cuts them, its sounds' volume when it ships sounds, light
+        // or dark when it ships both. One the theme declares under the same
+        // id stands instead.
+        let (mut ransom, mut sounds) = (false, false);
         for mode in package.modes() {
-            package.resolve_noting(mode, &mut notes)?;
+            let resolved =
+                package.resolve_noting(mode, &super::options::Choices::new(), &mut notes)?;
+            ransom |= resolved.layout.names.is_some();
+            sounds |= !resolved.sounds.is_empty();
         }
         let mut package = package;
+        let both = package.dark.is_some() && package.light.is_some();
+        for (wanted, made) in [
+            (ransom, super::options::ransom_option as fn() -> _),
+            (sounds, super::options::sounds_option),
+            (both, super::options::mode_option),
+        ] {
+            let option = made();
+            if wanted && !package.options.iter().any(|known| known.id == option.id) {
+                package.options.push(option);
+            }
+        }
         for note in notes {
             if !package.notes.contains(&note) {
                 package.notes.push(note);
@@ -1318,17 +1346,62 @@ impl Package {
         }
     }
 
-    /// One variant with every layer applied over its base.
+    /// One variant with every layer applied over its base, its options at
+    /// their defaults.
     pub fn resolve(&self, mode: Mode) -> Result<Resolved, Error> {
-        self.resolve_noting(mode, &mut Vec::new())
+        self.resolve_with(mode, &super::options::Choices::new())
     }
 
-    fn resolve_noting(&self, mode: Mode, notes: &mut Vec<String>) -> Result<Resolved, Error> {
+    /// One variant with every layer applied over its base and the person's
+    /// `choices` for its options applied to its layers first.
+    pub fn resolve_with(
+        &self,
+        mode: Mode,
+        choices: &super::options::Choices,
+    ) -> Result<Resolved, Error> {
+        self.resolve_noting(mode, choices, &mut Vec::new())
+    }
+
+    /// [`Self::resolve_with`], also giving what it ignored: `theme check`
+    /// refuses an option whose fields this Yapfast doesn't read.
+    pub fn resolve_with_notes(
+        &self,
+        mode: Mode,
+        choices: &super::options::Choices,
+        notes: &mut Vec<String>,
+    ) -> Result<Resolved, Error> {
+        self.resolve_noting(mode, choices, notes)
+    }
+
+    fn resolve_noting(
+        &self,
+        mode: Mode,
+        choices: &super::options::Choices,
+        notes: &mut Vec<String>,
+    ) -> Result<Resolved, Error> {
         let variant = match mode {
             Mode::Dark => self.dark.as_ref(),
             Mode::Light => self.light.as_ref(),
         }
         .ok_or_else(|| Error(format!("it has no {} variant", mode.name())))?;
+        // Options rewrite the theme's own JSON, so what they set is read and
+        // checked as the theme's own values are. A theme without options
+        // reads its JSON as it is.
+        let overrides = super::options::overrides(&self.options, choices);
+        let changed;
+        let (shared, variant) = if overrides.is_empty() {
+            (&self.shared, variant)
+        } else {
+            let mut shared = self.shared.clone();
+            let mut variant = variant.clone();
+            super::options::apply(
+                &overrides,
+                &mut shared,
+                &mut [(mode.name(), Some(&mut variant))],
+            )?;
+            changed = (shared, variant);
+            (&changed.0, &changed.1)
+        };
         let Value::Object(variant) = variant else {
             bail!("the {} variant has to be an object", mode.name());
         };
@@ -1353,7 +1426,7 @@ impl Package {
         };
         // The shared layer first, then the variant's, each name the variant
         // sets replacing the shared one.
-        let Value::Object(shared) = &self.shared else {
+        let Value::Object(shared) = shared else {
             unreachable!("built as an object");
         };
         for (layers, place) in [(shared, String::new()), (variant, at(""))] {
@@ -1432,12 +1505,18 @@ impl Package {
     }
 
     /// Every file the theme names, relative to its folder, once each: what an
-    /// install copies and what [`super::check`] reads.
+    /// install copies and what [`super::check`] reads. A file only an option
+    /// names counts too.
     pub fn files(&self) -> Vec<PathBuf> {
         let mut files: Vec<PathBuf> = self.preview.clone();
         files.extend(self.icon.clone());
-        for mode in self.modes() {
-            if let Ok(resolved) = self.resolve(mode) {
+        let combinations = super::options::combinations(&self.options);
+        for (mode, (_, choices)) in self.modes().into_iter().flat_map(|mode| {
+            combinations
+                .iter()
+                .map(move |combination| (mode, combination))
+        }) {
+            if let Ok(resolved) = self.resolve_with(mode, choices) {
                 let media = resolved
                     .sounds
                     .values()

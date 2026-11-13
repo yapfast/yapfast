@@ -23,6 +23,7 @@ pub mod layout;
 pub mod lists;
 pub mod media;
 pub mod motion;
+pub mod options;
 pub mod package;
 
 pub use package::{Mode, Package, Resolved};
