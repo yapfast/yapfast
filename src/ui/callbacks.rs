@@ -551,6 +551,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     super::app_commands::bind(window, adapter);
     super::games::bind(window, adapter);
     super::gifs::bind(window, adapter);
+    super::updates::bind(window, adapter);
+    super::new_tags::bind(window, adapter);
     super::stickers::bind(window, adapter);
     {
         let state = adapter.clone();

@@ -53,6 +53,7 @@ mod messages;
 #[cfg(windows)]
 mod move_loop;
 mod name_style;
+mod new_tags;
 mod pictures;
 mod placement;
 mod polls;
@@ -64,6 +65,7 @@ mod stickers;
 mod theme;
 mod tiles;
 mod title_bar;
+mod updates;
 mod yapfast;
 
 use callbacks::bind_callbacks;
@@ -82,6 +84,8 @@ pub enum Exit {
     UseSoftware(String),
     /// The renderer setting changed; restart to use it.
     Restart,
+    /// An update was downloaded and checked; finish it and start the new program.
+    Update(crate::update::install::Prepared),
 }
 
 /// Slint releases the first window after at most 500 ms of desktop appearance
@@ -187,6 +191,8 @@ pub fn run(
     prepare(&window);
     let adapter = Adapter::new(Arc::new(runtime), root, &window)?;
     bind_callbacks(&window, &adapter);
+    updates::start(&adapter, &window);
+    new_tags::start(&adapter);
     watch_window(&window, &adapter);
     adapter.borrow_mut().watch_away();
     adapter.borrow_mut().watch_talk_key(&window);
@@ -238,6 +244,7 @@ pub fn run(
     let late_gpu_failure = shell.gpu_failure();
     drop(shell);
     let mut adapter = adapter.borrow_mut();
+    let updated = adapter.updates.prepared.take();
     placement::flush(&adapter);
     // The icon goes before Yapfast does, not when Windows next looks at it.
     adapter.tray = None;
@@ -255,8 +262,11 @@ pub fn run(
             "the window did not appear".into(),
             "Yapfast's window did not appear",
         ),
-        Ok(()) if restart => Ok(Exit::Restart),
-        Ok(()) => Ok(Exit::Closed),
+        Ok(()) => Ok(match updated {
+            Some(prepared) => Exit::Update(prepared),
+            None if restart => Exit::Restart,
+            None => Exit::Closed,
+        }),
     }
 }
 
@@ -1355,6 +1365,23 @@ struct Layout {
     /// Menus offer Copy ID, as Discord's Developer Mode does; off unless
     /// turned on.
     developer_mode: bool,
+    /// Settings' About page asks GitHub for the releases when Yapfast starts;
+    /// off unless turned on, and then Yapfast makes no request of its own.
+    /// See [`updates`].
+    check_for_updates: bool,
+    /// Nightly builds count as newer releases; off unless turned on.
+    update_nightlies: bool,
+    /// The tag of the release that Skip this version hid.
+    skipped_update: Option<String>,
+    /// The tag of the release a notification last told of, so each release is
+    /// announced once.
+    announced_update: Option<String>,
+    /// The version whose settings this person counts as having met: a fresh
+    /// install's own, or the release before NEW tags for an older layout. A
+    /// setting that arrived after it is NEW; see [`new_tags`].
+    first_version: Option<String>,
+    /// The NEW settings this person has looked at.
+    seen_new: Vec<String>,
     /// The desktop draws the window's title bar; unset, Yapfast draws its own
     /// on desktops that give windows one. See [`title_bar`].
     system_title_bar: Option<bool>,
@@ -1479,10 +1506,14 @@ impl Layout {
     }
 
     fn read(root: &std::path::Path) -> Self {
-        let mut layout: Self = std::fs::read(root.join(LAYOUT))
-            .ok()
+        let saved = std::fs::read(root.join(LAYOUT)).ok();
+        let fresh = saved.is_none();
+        let mut layout: Self = saved
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
+        if layout.first_version.is_none() {
+            layout.first_version = Some(new_tags::first_version(fresh));
+        }
         if layout.notification_sound.take() == Some(false) {
             layout.adjust_each_sound = true;
             layout.each_sound.insert(Sound::Message, 0);
@@ -1979,6 +2010,8 @@ struct Adapter {
     runtime: Arc<BackgroundRuntime>,
     root: PathBuf,
     layout: Layout,
+    /// What About knows of newer releases.
+    updates: updates::State,
     /// The rows of the emoji picker's grid that may hold pictures it drew, first
     /// and last: see `fill_shown_glyphs`.
     emoji_rows_filled: (usize, usize),
@@ -2391,6 +2424,7 @@ impl Adapter {
                 runtime,
                 root,
                 layout,
+                updates: Default::default(),
                 emoji_rows_filled: (0, 0),
                 emoji_grid: Default::default(),
                 app,
@@ -2548,6 +2582,7 @@ impl Adapter {
     fn attach(&mut self, window: &YapfastWindow) {
         self.models.attach(window);
         self.layout.apply(window);
+        updates::show(window, &self.layout, &self.updates);
         self.watch_talk_key(window);
         self.show_protocol(window);
         // The theme being edited goes unsaved with the old window, and rows

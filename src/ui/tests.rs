@@ -10464,6 +10464,64 @@ fn yapfast_settings_name_the_build_and_copy_it_on_a_click() {
 }
 
 #[test]
+fn yapfast_settings_offer_a_newer_release_and_open_about_on_a_click() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    i_slint_backend_testing::init_no_event_loop();
+    let window = YapfastWindow::new().unwrap();
+    window.set_own_title_bar(true);
+    window.set_account_name("Alex".into());
+    window.set_account_initial("A".into());
+    let build = window.global::<BuildInfo>();
+    build.set_headline("Yapfast v0.4.0".into());
+    build.set_channel("Stable".into());
+    window.set_settings_open(true);
+    window.set_settings_section(6);
+    window.show().unwrap();
+    window
+        .window()
+        .set_size(slint::LogicalSize::new(1920., 1080.));
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(1000));
+    let click = |y: f32| {
+        let position = slint::LogicalPosition::new(350., y);
+        window.window().dispatch_event(WindowEvent::PointerPressed {
+            position,
+            button: PointerEventButton::Left,
+        });
+        window
+            .window()
+            .dispatch_event(WindowEvent::PointerReleased {
+                position,
+                button: PointerEventButton::Left,
+            });
+    };
+    // Nothing is offered until a look finds a release, so no click along the
+    // navigation's foot opens About.
+    let rows: Vec<f32> = (880..1000).step_by(4).map(|y| y as f32).collect();
+    for &y in &rows {
+        click(y);
+    }
+    assert_eq!(window.get_settings_section(), 6);
+    let updates = window.global::<Updates>();
+    updates.set_status(UpdateStatus::Available);
+    updates.set_latest("v0.4.1".into());
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(100));
+    // The notice sits above the build; one of the clicks along the foot lands on it.
+    for &y in &rows {
+        click(y);
+        if window.get_settings_section() == 9 {
+            break;
+        }
+    }
+    assert_eq!(
+        window.get_settings_section(),
+        9,
+        "a click on the notice goes to About"
+    );
+    assert!(window.get_settings_open());
+    window.hide().unwrap();
+}
+
+#[test]
 fn yapfast_account_popover_copies_its_id_and_opens_settings_without_changing_status() {
     use slint::platform::{PointerEventButton, WindowEvent};
     let window = one_message("Synthetic message");
@@ -11151,6 +11209,36 @@ fn a_profiles_more_menu_blocks_from_the_profile() {
     window.invoke_choose_menu("profile-more:4".into(), true, "profile".into());
     let shown = adapter.borrow().app.state.profile.clone();
     assert_eq!(shown.map(|view| view.profile.id), Some("4".into()));
+}
+
+#[test]
+fn a_new_setting_is_tagged_until_settings_leaves_its_section() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    // A layout from before the tags existed has met no tagged setting.
+    std::fs::write(directory.path().join("layout.json"), b"{}").unwrap();
+    let window = YapfastWindow::new().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+    let tags = window.global::<NewTags>();
+    assert!(tags.invoke_is_new("check-updates".into(), tags.get_revision()));
+    assert!(!tags.invoke_is_new("no-such-setting".into(), tags.get_revision()));
+    assert!(tags.invoke_section_new(9, tags.get_revision()));
+    assert!(!tags.invoke_section_new(6, tags.get_revision()));
+    // Looking at About and leaving it clears its tags, for good.
+    let revision = tags.get_revision();
+    tags.invoke_left(9);
+    assert!(tags.get_revision() > revision);
+    assert!(!tags.invoke_is_new("check-updates".into(), tags.get_revision()));
+    assert!(!tags.invoke_section_new(9, tags.get_revision()));
+    assert!(!tags.invoke_is_new("update-nightlies".into(), tags.get_revision()));
+    let layout = Layout::read(directory.path());
+    assert!(layout.seen_new.contains(&"check-updates".to_owned()));
 }
 
 #[test]

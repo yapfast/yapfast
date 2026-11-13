@@ -263,6 +263,12 @@ impl Shell {
     /// Opens the window on a conversation, as a clicked notification does.
     fn open_room(self: &Rc<Self>, room: String) {
         if let Some(window) = self.open() {
+            // The notification of a newer release opens About.
+            if room == super::updates::ABOUT {
+                window.set_settings_section(9);
+                window.set_settings_open(true);
+                return;
+            }
             window.set_settings_open(false);
             self.adapter
                 .borrow_mut()
