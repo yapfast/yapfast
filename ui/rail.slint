@@ -1043,10 +1043,12 @@ export component ServerRail inherits Rectangle {
     callback join-server;
     /// A theme's layout runs the rail along the window's top.
     in property <bool> horizontal;
-    width: 72px; background: Art.glass-rail ? transparent : Theme.rail-fill;
     /// Draws a theme's rail art itself: on the right or the top, where the
     /// navigation pane that draws it on the left isn't behind it.
     in property <bool> own-art;
+    // On the left, the navigation pane draws the rail's ground and art
+    // beneath it: the rail paints no ground of its own over that art.
+    width: 72px; background: Art.glass-rail || (!root.own-art && Art.rail.length > 0) ? transparent : Theme.rail-fill;
     if root.own-art && (Art.rail.length > 0 || Art.glass-rail): ArtLayer {
         x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.rail; glass: Art.glass-rail; ground: Theme.rail-fill;
     }
