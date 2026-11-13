@@ -3,9 +3,17 @@
 // turns a checked tree from crates/yapfast-core/src/plugins/ui.rs into these
 // structs. Everything a plugin draws carries its name, so it can't pass for
 // Yapfast's own interface.
+//
+// They draw through the theme's tokens as Yapfast's own parts do, so an
+// installed theme reaches them with no plugin-* names: a framed row is an
+// `embed` (shape, art, glass), a code cell `code`, a badge a `chip`, a row
+// button a `button`, a toast a `menu`, a dialog a `dialog`; headings take the
+// `headings` type role and its text light, the "From …" line and badges the
+// `labels` role, code the `code` role. With no theme each is its stock value.
 import { IconPack } from "media.slint";
 import { ComboBox } from "std-widgets.slint";
 import { Theme, Middle, Look } from "theme.slint";
+import { Art, ArtLayer } from "theme_art.slint";
 import { ActionButton, IconButton, TextField, VolumeSlider } from "controls.slint";
 import { SettingsToggle } from "yapfast/settings-toggle.slint";
 
@@ -157,23 +165,35 @@ component PluginCellView inherits HorizontalLayout {
         accessible-role: text; accessible-label: root.cell.text;
     }
     if root.cell.kind == PluginKind.heading: Text {
-        horizontal-stretch: 1; text: root.cell.text; color: root.ink; font-size: 16px; font-weight: 700; wrap: word-wrap;
-        accessible-role: text;
+        horizontal-stretch: 1; text: Look.heading(root.cell.text); color: root.ink; wrap: word-wrap;
+        font-family: Look.heading-font(""); font-size: Look.heading-size(16px); font-weight: Look.heading-weight(700);
+        letter-spacing: Look.spacing-headings;
+        stroke: Art.outline(Art.headings); stroke-width: Art.headings.outline; stroke-style: outside;
+        accessible-role: text; accessible-label: root.cell.text;
     }
     if root.cell.kind == PluginKind.code: Rectangle {
-        horizontal-stretch: 1; background: Theme.sunken; border-radius: Look.radius(4px);
+        horizontal-stretch: 1; background: Art.glass-code ? transparent : Theme.sunken; border-radius: Look.r(Look.code, 4px);
+        border-width: Look.code.border >= 0px ? Look.code.border : 0px; border-color: Look.bc(Look.code, Theme.line);
         min-height: code-text.preferred-height + 8px;
+        if Art.code.length > 0 || Art.glass-code: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.code, 4px);
+            layers: Art.code; glass: Art.glass-code; ground: Theme.sunken;
+        }
         code-text := Text {
-            x: 6px; width: parent.width - 12px; text: root.cell.text; color: root.ink; font-family: Look.mono; font-size: 13px; wrap: word-wrap;
+            x: 6px; width: parent.width - 12px; text: root.cell.text; color: root.ink; font-family: Look.mono; font-size: Look.code-size(13px); wrap: word-wrap;
             accessible-role: text;
         }
     }
     if root.cell.kind == PluginKind.badge: Middle {
         Rectangle {
-            height: 18px; width: badge-text.preferred-width + 12px; border-radius: Look.radius(9px);
+            height: 18px; width: badge-text.preferred-width + 12px; border-radius: Look.r(Look.chip, 9px);
             background: root.ink.with-alpha(0.18);
+            border-width: Look.chip.border >= 0px ? Look.chip.border : 0px; border-color: Look.bc(Look.chip, transparent);
             accessible-role: text; accessible-label: root.cell.text;
-            badge-text := Text { text: root.cell.text; color: root.ink; font-size: 12px; font-weight: 700; }
+            badge-text := Text {
+                text: root.cell.text; color: root.ink; font-size: 12px; font-weight: Look.label-weight(700);
+                font-family: Look.label-font(""); letter-spacing: Look.spacing-labels;
+            }
         }
     }
     if root.cell.kind == PluginKind.icon: Middle {
@@ -232,7 +252,7 @@ component PluginCellView inherits HorizontalLayout {
         }
     }
     if root.cell.kind == PluginKind.divider: Middle {
-        Rectangle { horizontal-stretch: 1; height: 1px; background: Theme.line; }
+        Rectangle { horizontal-stretch: 1; height: Look.line(1px); background: Theme.line; }
     }
     if root.cell.kind == PluginKind.spacer: Rectangle { horizontal-stretch: 1; min-width: 8px; }
 }
@@ -250,14 +270,22 @@ export component PluginWidgets inherits Rectangle {
     column := VerticalLayout {
         spacing: 6px;
         Text {
-            text: "From " + root.part.name; color: Theme.muted; font-size: 12px; font-weight: 600; overflow: elide;
+            text: "From " + root.part.name; color: Theme.muted; font-size: Look.label-size(12px); font-weight: Look.label-weight(600); overflow: elide;
+            font-family: Look.label-font(""); letter-spacing: Look.spacing-labels;
+            stroke: Art.outline(Art.labels); stroke-width: Art.labels.outline; stroke-style: outside;
             accessible-role: none;
         }
+        // A framed row is drawn as the theme draws an embed.
         for row in root.part.rows: Rectangle {
-            background: row.framed ? Theme.raised-fill : transparent;
-            border-radius: row.framed ? 8px : 0px;
-            border-width: row.framed ? 1px : 0px; border-color: Theme.line;
+            background: row.framed && !Art.glass-embed ? Theme.raised-fill : transparent;
+            border-radius: row.framed ? Look.r(Look.embed, 8px) : 0px;
+            border-width: row.framed ? Look.bw(Look.embed, 1px) : 0px; border-color: Look.bc(Look.embed, Theme.line);
+            clip: row.framed && (Art.embed.length > 0 || Art.glass-embed);
             min-height: line.preferred-height;
+            if row.framed && (Art.embed.length > 0 || Art.glass-embed): ArtLayer {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.embed, 8px);
+                layers: Art.embed; glass: Art.glass-embed; ground: Theme.raised-fill;
+            }
             line := HorizontalLayout {
                 padding: row.framed ? 10px : 0px;
                 padding-left: (row.framed ? 10px : 0px) + row.indent * 16px;
@@ -278,7 +306,7 @@ export component PluginRowButton inherits Rectangle {
     /// The plugin's name under the label, which the rail has room for.
     in property <bool> named: false;
     callback clicked;
-    min-height: content.preferred-height; border-radius: 6px;
+    min-height: content.preferred-height; border-radius: Look.r(Look.button, 6px);
     background: hover.has-hover ? Theme.hover : transparent;
     vertical-stretch: 0;
     content := VerticalLayout {
@@ -315,13 +343,14 @@ export struct PluginBadge { text: string, tone: PluginTone, name: string }
 // and a tone, never a colour of its own, and whose it is to a screen reader.
 export component PluginBadgeView inherits Rectangle {
     in property <PluginBadge> badge;
-    height: 18px; width: badge-text.preferred-width + 12px; border-radius: 9px;
+    height: 18px; width: badge-text.preferred-width + 12px; border-radius: Look.r(Look.chip, 9px);
     background: PluginTones.ink(root.badge.tone).with-alpha(0.18);
+    border-width: Look.chip.border >= 0px ? Look.chip.border : 0px; border-color: Look.bc(Look.chip, transparent);
     accessible-role: text;
     accessible-label: root.badge.text + ", from " + root.badge.name;
     badge-text := Text {
         text: root.badge.text; color: PluginTones.ink(root.badge.tone);
-        font-size: 11px; font-weight: 700;
+        font-size: 11px; font-weight: Look.label-weight(700); font-family: Look.label-font(""); letter-spacing: Look.spacing-labels;
     }
 }
 
@@ -352,8 +381,14 @@ export component PluginToast inherits Rectangle {
     callback acted(string, string, string, string, string);
     callback dismissed(string, string);
     width: 340px; height: toast-content.preferred-height;
-    background: Theme.raised-fill; border-radius: Look.radius(8px); border-width: Look.line(1px); border-color: Theme.edge;
-    drop-shadow-blur: Look.shadow-blur(16px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066); drop-shadow-offset-y: Look.shadow-y(4px);
+    // Drawn as the theme draws a menu: a small surface over the window.
+    background: Art.glass-menu ? transparent : Theme.raised-fill; border-radius: Look.r(Look.menu, 8px);
+    border-width: Look.bw(Look.menu, 1px); border-color: Look.bc(Look.menu, Theme.edge);
+    drop-shadow-blur: Look.sb(Look.menu, 16px); drop-shadow-offset-x: Look.sx(Look.menu, 0px); drop-shadow-color: Look.sc(Look.menu, #00000066); drop-shadow-offset-y: Look.sy(Look.menu, 4px);
+    if Art.menu.length > 0 || Art.glass-menu: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.menu, 8px);
+        layers: Art.menu; glass: Art.glass-menu; ground: Theme.raised-fill;
+    }
     accessible-role: groupbox;
     accessible-label: root.part.name;
     hover := TouchArea {}
@@ -408,8 +443,14 @@ export component PluginDialog inherits Rectangle {
     callback acted(string, string, string, string, string);
     callback dismissed(string, string);
     width: 420px; min-height: content.preferred-height;
-    background: Theme.panel; border-radius: 12px; border-width: 1px; border-color: Theme.edge;
-    drop-shadow-blur: 32px; drop-shadow-color: #00000080; drop-shadow-offset-y: 12px;
+    // Drawn as the theme draws Yapfast's own dialogs.
+    background: Art.glass-dialog ? transparent : Theme.panel; border-radius: Look.r(Look.dialog, 12px);
+    border-width: Look.bw(Look.dialog, 1px); border-color: Look.bc(Look.dialog, Theme.edge);
+    drop-shadow-blur: Look.sb(Look.dialog, 32px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000080); drop-shadow-offset-y: Look.sy(Look.dialog, 12px);
+    if Art.dialog.length > 0 || Art.glass-dialog: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 12px);
+        layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.panel;
+    }
     accessible-role: groupbox;
     accessible-label: "From " + root.part.name;
     // A click on the dialog stays on it instead of reaching the scrim.
