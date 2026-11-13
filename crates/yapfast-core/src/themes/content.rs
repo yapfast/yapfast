@@ -40,6 +40,9 @@ closed! {
         /// Each keeps its hue, with its saturation and lightness pulled into
         /// the theme's range and its contrast forced.
         Clamp => "clamp",
+        /// Each person's name in a colour of the theme's `palette`, picked
+        /// from who they are, as a chat terminal colours nicks.
+        Palette => "palette",
     }
 }
 
@@ -147,9 +150,35 @@ pub struct Names {
     /// Display name styles (fonts, gradients, glow) and ransom names.
     pub styles: Follow,
     pub nameplates: Nameplates,
+    /// `palette`'s colours, ARGB, the first `palette_len` of them.
+    pub palette: [u32; MAX_PALETTE],
+    pub palette_len: u8,
 }
 
+/// The most colours a names palette holds.
+pub const MAX_PALETTE: usize = 8;
+
 impl Names {
+    /// The palette's colours.
+    pub fn palette(&self) -> &[u32] {
+        &self.palette[..usize::from(self.palette_len)]
+    }
+
+    /// The palette's colour for someone, from their id, the same each time.
+    pub fn palette_colour(&self, id: &str) -> Option<u32> {
+        let palette = self.palette();
+        if palette.is_empty() {
+            return None;
+        }
+        // FNV-1a: steady across runs and machines, unlike the std hasher.
+        let mut hash: u32 = 0x811c_9dc5;
+        for byte in id.bytes() {
+            hash ^= u32::from(byte);
+            hash = hash.wrapping_mul(0x0100_0193);
+        }
+        Some(palette[hash as usize % palette.len()])
+    }
+
     /// Saturation and lightness `clamp` holds colours in: the theme's, or
     /// muted mid tones that read on its ground.
     pub fn clamp_ranges(&self, dark: bool) -> ((f32, f32), (f32, f32)) {
@@ -449,6 +478,22 @@ fn read_names(
             "colour" => names.colour = Some(colour_at(value, &at)?),
             "saturation" => names.saturation = Some(range(value, &at)?),
             "lightness" => names.lightness = Some(range(value, &at)?),
+            "palette" => {
+                let items = value
+                    .as_array()
+                    .filter(|items| (2..=MAX_PALETTE).contains(&items.len()))
+                    .ok_or_else(|| {
+                        Error(format!("\"{at}\" is a list of 2 to {MAX_PALETTE} colours"))
+                    })?;
+                names.palette = [0; MAX_PALETTE];
+                for (index, item) in items.iter().enumerate() {
+                    names.palette[index] = colour_at(item, &format!("{at}[{index}]"))?;
+                }
+                names.palette_len = items.len() as u8;
+                if names.colours == NameColours::Keep {
+                    names.colours = NameColours::Palette;
+                }
+            }
             "styles" => names.styles = named(value, &at, Follow::ALL, Follow::name)?,
             "nameplates" => {
                 names.nameplates = named(value, &at, Nameplates::ALL, Nameplates::name)?

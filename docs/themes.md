@@ -280,6 +280,7 @@ another until one does:
 | `actions-hover` | A button's ground under the pointer in that bar, and in the quick reactions atop a message's menu | the stock wash |
 | `row-selected-text` | Text and icons on a selected channel row: with a light `row-selected`, an inverse-video selection | `text` |
 | `card-button`, `card-button-hover`, `card-button-icon` | The round buttons over a profile card's banner (add friend, more, close), under the pointer, and their icons | black at 50% and 70%, white |
+| `mention-chip` | A mention's text and chip in a message, for a person or role without a colour of its own; while the theme styles names (`content.names` other than `keep`), every mention's, as role colours give way | `link` |
 
 A theme that sets `hover` also lights the hovered row of a context menu with
 it, instead of the stock white or black wash, and `scrim` dims the window
@@ -315,8 +316,11 @@ percentage of its size: 50 a circle, 0 a square.
 | `embed` | Embeds: corners and outline (stock none) |
 | `toggle` | Switches: a `radius` in pixels (999, a pill, as stock), and their border |
 | `actions` | The bar of actions over a message under the pointer: quick reactions, Reply, Forward, More |
-| `row` | A message row's hover, mention and jump bands: `radius`, and `inset` (below) |
+| `row` | A message row's hover, mention and jump bands: `radius`, and `inset` (below); and `stripe` (below) |
 | `card-button` | The round buttons over a profile card's banner: `radius`, `border`, `border_colour`, `shadow` |
+| `label` | Channel categories' and member groups' headings drawn as bars (below) |
+| `header` | The bar over the conversation, with the channel's name and topic (below) |
+| `card_section` | A profile card's sections as boxes with a title bar (below) |
 
 `row` also takes `inset`: pixels each band keeps from the column's sides
 (0–32), or `[sides, ends]` with the room it keeps from the row's top and
@@ -332,6 +336,44 @@ it.
 profile card the person hasn't themed themselves, for chrome its art draws,
 such as a window's title bar. The banner, the avatar and the banner's
 buttons move down by it; the card's art covers it.
+
+`row` also takes `stripe`: every other row of a list tinted, a colour, or
+`{ "colour": "#241521", "lists": ["channels", "members", "messages"] }`
+(all three when `lists` is left out). Channels count down their list, members
+within their group, messages down the conversation (not in `cards` or
+`bubbles`); hover and selection draw over a stripe. `text` has to read
+4.5:1 on it.
+
+`label`, `header` and `card_section` are surfaces a theme draws itself, and
+take `ground` (a colour or a gradient as `colours` writes one; `sidebar`,
+`chat` and `raised` when left out) and `text` (the words on it; `text` when
+left out), besides `radius`, `border`, `border_colour` and `shadow`.
+`label` and `card_section` take `case`, `lower`, `upper` or `as written`.
+
+- `label` turns each channel category's heading and each member group's
+  heading into a bar, 22 pixels tall under the words, in the `labels` face.
+  `art.surfaces.label` lays art on the bars. The heading still folds, opens
+  its menu and reads as before.
+- `header` paints the bar over the conversation apart from the
+  conversation: its ground, border and shadow, the channel's name in
+  `text`, `art.surfaces.header` over it, and `header` in `art.glass`
+  for a glass bar.
+- `card_section` frames a profile card's bio (*About me*), *Member since*,
+  roles and each activity (*Now playing*) as a box on `ground`, each with a
+  title bar of `bar` and `bar_text` (`text` when left out), in the `labels`
+  face. Without it the sections show as stock, with no titles of their own.
+
+`yapfast theme check` holds each `text` to 4.5:1 on its `ground` (every
+stop of a gradient), and `bar_text` on `bar`.
+
+```json
+"shape": {
+  "label": { "ground": "linear(90deg, #ff4fa8, #e0458f)", "text": "#0c0a0e", "radius": 2, "case": "lower" },
+  "header": { "ground": "#131016", "border": 2, "border_colour": "#ff4fa8" },
+  "card_section": { "ground": "#131016", "bar": "linear(90deg, #a3175f, #8c1256)", "bar_text": "#ffffff", "case": "lower" },
+  "row": { "stripe": { "colour": "#241521", "lists": ["channels", "members"] } }
+}
+```
 
 Every other corner in the window takes `radii`: `small` for stock corners of
 4 pixels or less, `medium` up to 8, `large` above. Every other shadow takes
@@ -394,6 +436,8 @@ own, once per run.
 | `names` | Authors of messages (ransom names too), the member list, the profile card; a message's author follows `body` when unset, and scales with the person's text size | 12–24 |
 | `code` | Code blocks and inline code | 11–20 |
 | `labels` | Small capital headings, such as THEME | 10–16 |
+| `small` | The small fixed text: reply previews, the status line under a member's name, the text rail's rows, the status line | 9–16 |
+| `time` | Messages' times, in every message style | 9–16 |
 
 `names` also takes `style`: `"ransom"` cuts people's names from several
 fonts, letter by letter, each letter on a scrap of its own, as a ransom note,
@@ -523,7 +567,11 @@ gap), `rail`, `sidebar`, `chat`, `members`, `account` (the account panel at the
 bottom left, on the `account` colour; `panel`, its first name, is read as it),
 `card` (a profile card the person hasn't themed themselves), `dialog`,
 `composer`, `menu`, `actions` (the bar of actions over a message, on the
-`actions` colour), `settings` (the settings window: its page with its
+`actions` colour), `header` (the bar over the conversation, with `shape.header`
+or without), `label` (each heading bar of `shape.label`), `footer` (room at
+the foot of the member list for a theme's stickers and blinkies, which takes
+no input; `footer_height`, 16–240 pixels, 64 when left out; a sprite sheet's
+`frames` make a blinkie blink), `settings` (the settings window: its page with its
 tiles and fields, and the sections beside it, on `panel`), `embed`, `code`
 (code blocks), `row-selected` (the selected channel, on `row-selected`), `profile-pane`
 (the profile docked beside a one-to-one DM, on its ground, `panel`) and
@@ -589,8 +637,10 @@ server 8 pixels, plus 2 for the edge light or the rim's width, from the
 pane's edge, and its pills off the rim.
 
 *Text*: `names` (authors, the member list, the profile card), `headings` (the
-conversation's and the server's names, settings titles) and `labels` (small
-capital headings) each take `shadow` (as `shape` writes one; its blur isn't
+conversation's and the server's names, settings titles), `labels` (small
+capital headings) and `body` (message text; only its `glow`, drawn as the
+text twice more a pixel to either side in the glow's colour, so it costs two
+more layouts of each message in sight) each take `shadow` (as `shape` writes one; its blur isn't
 drawn), `glow` (`colour` and `size` 1–12, drawn as two widening outlines at a
 third of the colour's alpha), `outline` (`width` 0.5–4 and `colour`) and
 `emboss`. Settings titles and labels take the outline only.
@@ -875,12 +925,15 @@ or takes away a control.
 
 | Field | Values | Stock |
 | --- | --- | --- |
-| `rail` | `left`, `right`, `top`: the edge the server rail runs along | `left` |
+| `rail` | `left`, `right`, `top`: the edge the server rail runs along; or `tree`, no rail, and the sidebar as one tree (below) | `left` |
 | `members` | `right`, `left`, `hidden`: where the member list docks, or that it doesn't; `collapsed`: on the right as a 56-pixel strip of avatars that opens to the whole list, over the conversation, while the pointer is on it (at once with reduced motion or Light) | `right` |
 | `composer` | `bottom`, `top`: the message box under or over the messages | `bottom` |
 | `messages` | `flat`, `bubbles`, `irc`, `cards` (below) | `flat` |
 | `chat_max_width` | 480–1600 pixels: the messages and the composer grow no wider, centred | none |
 | `chat_avatars` | `false` hides the avatars beside messages | `true` |
+| `members_style` | `list`, or `grid`: the member list as tiles, several across, each the avatar with its status and the name under it (`grid` below) | `list` |
+| `grid` | `columns` (2–6 across) and `size` (32–96 pixels of each avatar) | 3, 56 |
+| `tree` | With `rail: "tree"`: `expand`, `one` (opening a folder closes the others) or `many`; `root` and `dms`, the root line's and the direct messages' words (at most 24 characters; a directory's mark after `dms` comes from `chrome.folders`, or `/`) | `one`, `~/`, `dm` |
 | `irc`, `bubbles`, `cards` | Settings for those message styles | |
 
 | Messages | What |
@@ -915,6 +968,18 @@ the focus ring and every accessible name stay as stock.
   your own bubble take its text's colour. The bar of actions over a message
   sits beside the bubble under the pointer: after someone else's, before
   your own.
+- `grid`: the group headings stay, and each tile is a button with the
+  member's name, as a row is; clicking shows the profile and a right click
+  opens the member's menu. Marks by role and before members' names show
+  under the avatar.
+- `rail: "tree"`: the sidebar lists `root`, then `dms` and every server and
+  folder of the rail as rows of a file tree, in the code face, with
+  `chrome.folders`' marks and `chrome.tree`'s colour. The open server's
+  channels (or the direct messages) hang under its row, indented, and the
+  rows after it follow. Clicking a server opens it; clicking the open one
+  again folds its channels away or back. A folder opens and closes on a
+  click. Unread and mention marks, calls, right-click menus, the server's
+  header with its menu and invite, keys and accessible names are the rail's.
 - `cards`: `tilt` (0–4 degrees; each card leans its own way within it, from
   who wrote it and when), `gap` and `padding` (0–24 pixels), and `ground`
   (`raised` unset), which `text` has to read on. Only the card leans: text
@@ -935,7 +1000,13 @@ the focus ring and every accessible name stay as stock.
   `stagger` (0–48 pixels) steps each card that far in from its left or its
   right, by the same seed as its lean, so cards down the page fall to
   either side. `tint_art: true` lays a hovered or mentioned card's tint
-  over its pictures too, where they're drawn.
+  over its pictures too, where they're drawn. `tab` writes
+  words on the card: `text` (at most 48 characters, `{name}` the author and
+  `{time}` the first message's time), `font` (a type role's face, `labels`
+  when left out), `size` (8–24), `weight`, `colour` (`text` when left out)
+  and `uppercase`. They sit over the first picture on the card's top edge,
+  or, with none, on a tab of their own at its top left on `ground`, where
+  `colour` has to read 4.5:1.
 
 ```json
 "layout": {
@@ -984,9 +1055,13 @@ reads it; `src/ui/theme_content.rs` and the `ThemeContent` global
   animation's frames are recoloured on its decoding thread as they're
   decoded. Nothing is redone per frame. While `media` is `normal` a picture is
   shared with its decoder as stock; recoloured, each picture showing is held
-  once more, as its copy, within the same bounded caches. Emoji drawn inside
-  message text are glyphs of a font made as they arrive, and Twemoji is
-  Yapfast's own art: both stay as they are.
+  once more, as its copy, within the same bounded caches. Emoji follow too:
+  Twemoji's pictures, and the font that draws them in message text,
+  reactions, the quick reactions and status lines, which is made again once
+  with every picture recoloured, on a thread of its own (a few seconds), and
+  kept while Yapfast runs, about 5 MB for each way of recolouring; text is
+  laid out again when it's ready. A custom emoji's picture is recoloured as
+  any picture is.
 - `avatars`: `shape` — `"keep"`, `"circle"`, `"square"`, `"rounded"` (8
   pixels) or `{ "rounded": 6 }` (0–24 pixels at a 40-pixel avatar, scaled
   with its size) — for people's avatars, not servers' icons;
@@ -1013,7 +1088,12 @@ reads it; `src/ui/theme_content.rs` and the `ThemeContent` global
   that suit the theme's darkness unset) and then lightened or darkened until
   it reads 4.5:1 on `chat` (`"clamp"`); `styles` — display name styles
   (fonts, gradients, glows) `"keep"` or `"theme"` (the theme's names
-  type); `nameplates` — `"keep"`, `"hide"` (neither drawn nor fetched) or
+  type); `palette` — 2 to 8 colours, each name in one of them picked
+  from who the person is, the same everywhere and on every run, as a chat
+  terminal colours nicks (it sets `colours` to `"palette"` unless `colours`
+  says otherwise; each has to read 4.5:1 on `chat`); mentions follow the
+  names, a person's in their palette colour and a role's in `mention-chip`;
+  `nameplates` — `"keep"`, `"hide"` (neither drawn nor fetched) or
   `"tint"` (the plate's picture as a shape in `accent`, over an `accent`
   wash).
 - `profiles`: `themes` — profile themes, Nitro colours and the banner colour,
@@ -1068,6 +1148,9 @@ left included.
 | `folders` | Server folders in the text rail and channel categories as directories: `open` and `closed`, the mark before an open or closed one, and `suffix`, after its name, at most 4 characters each, such as `▾ studio/` and `▸ games/`. Clicking still opens and closes it | `▾`, `▸`, `/` once set |
 | `tree` | `lists`: lists drawn as file trees, as the `tree` command prints them (below); `colour`: their lines' colour, `faint`, `muted`, `secondary`, `text`, `accent` or a colour such as `#2e7d45` | none, `faint` |
 | `members` | `columns`: a status column at the end of each member row, by presence: `online`, `idle`, `dnd`, `offline`, `streaming`, at most 12 characters, `{n}` the row's place in its group from 0 | none |
+| `prefix.member_by_role` | Marks before members' names by their group's place in the member list, 1 to 8, the first group's first and the last repeating for the groups after it, such as `["@", "+"]` | none |
+| `system` | Marks before notices in the conversation, at most 8 characters: `join` (someone joined), `leave` (for when Yapfast shows someone leaving; it doesn't yet) and `notice` (a pin, a thread, a call, a poll's result), such as `-->`, `<--` and `-!-`. The mark stands in place of the notice's icon | none |
+| `status` | A line across the conversation's foot, as a terminal's status bar: `text`, at most 120 characters, with `{time}` (now, by the clock setting), `{name}` (yours), `{channel}`, `{server}`, `{typing}` (who is typing) and `{unread_channels}` (the open server's unread channels, by name, joined with commas); and `position`, `below` the composer or `above` it. It's drawn in the `small` face (the code face when unset), and its clock moves every 10 seconds while it shows | none |
 
 | Label | Replaces | Placeholders |
 | --- | --- | --- |
@@ -1083,6 +1166,9 @@ left included.
 | `rail_footer` | In the text rail: a line under the servers while one is open | `{server}` |
 | `tree_root` | A root line over a tree of channels, such as `~/{server}` | `{server}` |
 | `reaction` | A reaction's count while `reaction-chips` are hidden | `{n}` (stock `(+{n})`) |
+| `topic` | Words around the channel's topic over the messages, such as `[{topic}]` | `{topic}` |
+| `member_count` | After the topic, how many the member list holds, such as `{n} users` (none stock) | `{n}` |
+| `day` | The day divider's words, such as `-- Day changed to {date} --` | `{date}` |
 
 | `hide` | What goes | What stays |
 | --- | --- | --- |
@@ -1135,6 +1221,9 @@ their progress stay as stock.
 }
 ```
 
+Spaces at a label's or a mark's ends are kept as written. The composer's
+block caret stands after the prompt, and the hint after the caret.
+
 A tree draws `├──` before each row of a list and `└──` before its
 group's last, in the code font, with `│` carrying on past rows nested under
 a row that isn't last. Each connector belongs to its row, so it follows the
@@ -1171,6 +1260,22 @@ says) with its servers indented under it, or on the tree's branches. Its keys, m
   "folders": { "open": "▾", "closed": "▸", "suffix": "/" }
 }
 ```
+
+```json
+"chrome": {
+  "prefix": { "member_by_role": ["@", "+"] },
+  "labels": { "topic": "[{topic}]", "member_count": "{n} users", "day": "-- Day changed to {date} --" },
+  "system": { "join": "-->", "leave": "<--", "notice": "-!-" },
+  "status": { "text": "[{time}] [{name}] [{server}/{channel}] {typing} [act: {unread_channels}]", "position": "below" }
+}
+```
+
+The window draws `shape.label`, `header`, `card_section`, `row.stripe`,
+`layout.cards.tab`, `members_style`, `rail: "tree"`, the `small` and `time`
+faces, the marks by role and notice, the topic's words, the member count and
+the status line through the Slint global `Trim` (`ui/theme_trim.slint`),
+which `src/ui/theme_trim.rs` sets; every default is the stock window, and
+a theme that sets none of them builds nothing for them.
 
 **Parts.** A later Yapfast lets a theme rebuild a few named parts —
 `message-row`, `member-row`, `account-panel`, `server-header`,

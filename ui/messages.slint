@@ -1,4 +1,5 @@
 import { Chrome } from "theme_chrome.slint";
+import { Trim } from "theme_trim.slint";
 import { IconPack, Cue } from "media.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ListView, ScrollView } from "scrollview.slint";
@@ -2868,8 +2869,8 @@ export component MessageContent inherits VerticalLayout {
         // a group's first, right-aligned, then the separator.
         if root.style == 2: Text {
             width: Arrange.irc-time; visible: Arrange.irc-time > 0px;
-            text: Chrome.time-before + message.short-time + Chrome.time-after; color: Theme.muted; font-size: root.message-font-size * 0.875;
-            font-family: Look.mono; vertical-alignment: top; overflow: elide;
+            text: Chrome.time-before + message.short-time + Chrome.time-after; color: Theme.muted; font-size: Trim.time-size(root.message-font-size * 0.875);
+            font-family: Trim.time-font(Look.mono); vertical-alignment: top; overflow: elide;
             accessible-role: none;
         }
         if root.style == 2: Rectangle {
@@ -2918,7 +2919,13 @@ export component MessageContent inherits VerticalLayout {
             text: Arrange.irc-separator; color: Theme.faint; font-size: root.message-font-size; height: root.line-height;
             vertical-alignment: center; accessible-role: none;
         }
-        if root.avatars: Rectangle {
+        // A theme's mark before a notice, such as `-->` before a join.
+        if Trim.notice-mark(message.notice) != "": Text {
+            text: Trim.notice-mark(message.notice); color: message.notice == "join" ? Theme.live : Theme.muted;
+            font-size: root.message-font-size; font-family: Look.mono; height: root.line-height;
+            vertical-alignment: center; horizontal-stretch: 0; accessible-role: none;
+        }
+        if root.avatars && Trim.notice-mark(message.notice) == "": Rectangle {
             width: root.avatar;
             min-height: message.first && message.notice == "" ? (root.header ? 24px + root.avatar : root.avatar) : 0px;
             if root.header && !Chrome.tree-replies: Rectangle {
@@ -2929,7 +2936,7 @@ export component MessageContent inherits VerticalLayout {
                 }
             }
             // As Discord's client marks a notice, in place of the avatar.
-            if message.notice != "": Image {
+            if message.notice != "" && Trim.notice-mark(message.notice) == "": Image {
                 x: 12px; y: (root.message-font-size * 1.375 - 16px) / 2 + 1px; width: 16px; height: 16px;
                 source: message.notice == "pin" ? IconPack.pin
                     : message.notice == "join" ? IconPack.user-plus
@@ -2965,7 +2972,8 @@ export component MessageContent inherits VerticalLayout {
             // further left, into the padding.
             if !message.first && root.active-item == message.item: Text {
                 width: max(root.avatar, self.preferred-width); x: root.avatar - self.width; y: 4px;
-                text: Chrome.time-before + message.short-time + Chrome.time-after; color: Theme.muted; font-size: 12px; font-weight: 500;
+                text: Chrome.time-before + message.short-time + Chrome.time-after; color: Theme.muted; font-size: Trim.time-size(12px); font-weight: Trim.time-weight(500);
+                font-family: Trim.time-font("");
                 horizontal-alignment: right; overflow: elide;
             }
         }
@@ -3014,10 +3022,12 @@ export component MessageContent inherits VerticalLayout {
                         text: ClientStyle.enabled ? "@" + message.reply-author : message.reply-author;
                         // On your own bubble, in its text's colour.
                         color: root.mine-right ? root.own-ink : ClientStyle.enabled && message.reply-has-color ? message.reply-color : Theme.secondary;
-                        font-size: 14px; font-weight: ClientStyle.enabled ? 400 : 700; vertical-alignment: center;
+                        font-size: Trim.small-size(14px); font-weight: ClientStyle.enabled ? 400 : 700; vertical-alignment: center;
+                        font-family: Trim.small-font("");
                     }
                     Text {
-                        text: message.reply-body; font-size: ClientStyle.enabled ? 13px : 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+                        text: message.reply-body; font-size: Trim.small-size(ClientStyle.enabled ? 13px : 14px); vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+                        font-family: Trim.small-font("");
                         color: root.mine-right ? (reply-touch.has-hover ? root.own-ink : Arrange.bubble-own-text.transparentize(0.2))
                             : reply-touch.has-hover ? Theme.text : ClientStyle.enabled ? Theme.secondary : Theme.muted;
                     }
@@ -3131,11 +3141,13 @@ export component MessageContent inherits VerticalLayout {
                 if message.tag != "": Middle { ServerTagChip { text: message.tag; badge: message.tag-badge; font-size: root.message-font-size * 0.72; } }
                 if message.bot: Middle { BotTag { } }
                 if Chrome.time-before != "": Text {
-                    text: Chrome.time-before; color: Theme.muted; font-size: root.message-font-size - (ClientStyle.enabled ? 4px : 3px); vertical-alignment: center; accessible-role: none;
+                    text: Chrome.time-before; color: Theme.muted; font-size: Trim.time-size(root.message-font-size - (ClientStyle.enabled ? 4px : 3px)); vertical-alignment: center; accessible-role: none;
+                    font-family: Trim.time-font("");
                 }
-                StyledText { text: message.time-styled; link-color: Theme.link; default-color: Theme.muted; default-font-size: root.message-font-size - (ClientStyle.enabled ? 4px : 3px); max-lines: 1; vertical-alignment: center; }
+                StyledText { text: message.time-styled; link-color: Theme.link; default-color: Theme.muted; default-font-size: Trim.time-size(root.message-font-size - (ClientStyle.enabled ? 4px : 3px)); max-lines: 1; vertical-alignment: center; default-font-family: Trim.time-font(""); }
                 if Chrome.time-after != "": Text {
-                    text: Chrome.time-after; color: Theme.muted; font-size: root.message-font-size - (ClientStyle.enabled ? 4px : 3px); vertical-alignment: center; accessible-role: none;
+                    text: Chrome.time-after; color: Theme.muted; font-size: Trim.time-size(root.message-font-size - (ClientStyle.enabled ? 4px : 3px)); vertical-alignment: center; accessible-role: none;
+                    font-family: Trim.time-font("");
                 }
                 Rectangle { horizontal-stretch: 1; }
             }
@@ -3155,6 +3167,17 @@ export component MessageContent inherits VerticalLayout {
                     // As wide as the text would run, so a bubble fits it.
                     preferred-width: root.style == 1 ? body.preferred-width : 0px;
                     clip: body-fold.folded;
+                    // A theme's glow on body text: the text twice more behind
+                    // it, a pixel either side, in the glow's colour.
+                    if Trim.body.on && Trim.body.glow > 0px && message.blocks.length == 0: Rectangle {
+                        x: 0px; y: 0px; width: body.width; height: body.height;
+                        for side in 2: StyledText {
+                            x: side == 0 ? -1px : 1px; y: 0px; width: parent.width; min-width: 0px;
+                            text: message.styled; default-color: Trim.body.glow-color; link-color: Trim.body.glow-color;
+                            default-font-size: message.jumbo ? root.message-font-size * 2.2 : root.message-font-size;
+                            accessible-role: none;
+                        }
+                    }
                     body := VerticalLayout {
                         y: 0px; height: self.preferred-height;
                         if message.blocks.length == 0: StyledText {

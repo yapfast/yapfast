@@ -274,6 +274,13 @@ pub fn apply(
             ArtSurface::Code => global.set_code(model),
             ArtSurface::RowSelected => global.set_row_selected(model),
             ArtSurface::CardOver => global.set_card_over(model),
+            ArtSurface::Header => window.global::<yapfast_ui::Trim>().set_header_art(model),
+            ArtSurface::Label => window.global::<yapfast_ui::Trim>().set_label_art(model),
+            ArtSurface::Footer => {
+                let trim = window.global::<yapfast_ui::Trim>();
+                trim.set_footer(model);
+                trim.set_footer_height(art.footer_height.unwrap_or(64.));
+            }
         }
     }
     // Content kept clear of a pane's art, at every Performance setting:
@@ -373,7 +380,14 @@ pub fn apply(
                 ArtSurface::Embed => yapfast_ui::Art::set_glass_embed,
                 ArtSurface::Code => yapfast_ui::Art::set_glass_code,
                 ArtSurface::RowSelected => yapfast_ui::Art::set_glass_row_selected,
-                ArtSurface::Window | ArtSurface::CardOver => continue,
+                ArtSurface::Header => {
+                    window.global::<yapfast_ui::Trim>().set_header_glass(true);
+                    continue;
+                }
+                ArtSurface::Window
+                | ArtSurface::CardOver
+                | ArtSurface::Label
+                | ArtSurface::Footer => continue,
             };
             set(&global, true);
         }
@@ -405,6 +419,7 @@ pub fn apply(
             TextRole::Names => global.set_names(lit),
             TextRole::Headings => global.set_headings(lit),
             TextRole::Labels => global.set_labels(lit),
+            TextRole::Body => window.global::<yapfast_ui::Trim>().set_body(lit),
         }
     }
     if !still {

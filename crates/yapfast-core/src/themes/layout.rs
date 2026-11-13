@@ -63,7 +63,15 @@ pub(super) use closed;
 
 closed! {
     /// Which edge of the window the server rail runs along.
-    RailSide { Left => "left", Right => "right", Top => "top" }
+    RailSide {
+        Left => "left",
+        Right => "right",
+        Top => "top",
+        /// No rail: the sidebar is one tree, as a file explorer shows one,
+        /// of the direct messages, the servers and folders, and the open
+        /// server's channels under it.
+        Tree => "tree",
+    }
 }
 
 closed! {
@@ -75,6 +83,16 @@ closed! {
         /// On the right as a narrow strip of avatars that opens to the
         /// whole list while the pointer is on it.
         Collapsed => "collapsed",
+    }
+}
+
+closed! {
+    /// How the member list lays out its people.
+    MembersStyle {
+        /// A row each, as stock.
+        List => "list",
+        /// Square tiles, several across, each the avatar with the name under it.
+        Grid => "grid",
     }
 }
 
@@ -195,6 +213,62 @@ pub struct Cards {
     pub stagger: Option<f32>,
     /// A hovered or mentioned card's tint lies over its pictures too.
     pub tint_art: bool,
+    /// Words on the card's tab: over its first picture, or a tab of their own.
+    pub tab: Option<CardTab>,
+}
+
+/// The words on a message card's tab, such as its author's name.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CardTab {
+    /// Plain text, with `{name}` for the author and `{time}` for the time.
+    pub text: String,
+    /// The type role whose face it takes: `labels` when unset.
+    pub role: Option<super::package::Role>,
+    pub size: Option<f32>,
+    pub weight: Option<i32>,
+    /// ARGB; `text` when unset.
+    pub colour: Option<u32>,
+    pub uppercase: bool,
+    /// ARGB ground of a tab of its own, where the card has no picture.
+    pub ground: Option<u32>,
+}
+
+/// The member list as tiles.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Grid {
+    /// Tiles across (2–6).
+    pub columns: u32,
+    /// Pixels of each avatar (32–96).
+    pub size: f32,
+}
+
+impl Default for Grid {
+    fn default() -> Self {
+        Self {
+            columns: 3,
+            size: 56.0,
+        }
+    }
+}
+
+/// The sidebar as one tree, with `rail: "tree"`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Tree {
+    /// Opening a folder closes the others (`one`), or leaves them (`many`).
+    pub expand_many: bool,
+    /// The root line and the direct messages' row.
+    pub root: String,
+    pub dms: String,
+}
+
+impl Default for Tree {
+    fn default() -> Self {
+        Self {
+            expand_many: false,
+            root: "~/".into(),
+            dms: "dm".into(),
+        }
+    }
 }
 
 /// A picture on a card's top or bottom edge, leaning with the card.
@@ -257,6 +331,11 @@ pub struct Layout {
     pub borders: BTreeMap<BorderPlace, Border>,
     /// People's names as ransom notes.
     pub names: Option<Names>,
+    /// The member list as rows or tiles.
+    pub members_style: Option<MembersStyle>,
+    pub grid: Grid,
+    /// The tree with `rail: "tree"`.
+    pub tree: Tree,
 }
 
 impl Layout {
@@ -464,7 +543,41 @@ pub(super) fn read_layout(
                         "art" => layout.cards.art = read_card_art(value, &at, notes)?,
                         "stagger" => layout.cards.stagger = Some(number(value, &at, (0.0, 48.0))?),
                         "tint_art" => layout.cards.tint_art = boolean(value, &at)?,
+                        "tab" => layout.cards.tab = Some(read_tab(value, &at, notes)?),
                         _ => notes.push(format!("\"{at}\" isn't something cards takes; ignored")),
+                    }
+                }
+            }
+            "members_style" => {
+                layout.members_style =
+                    Some(named(value, &here, MembersStyle::ALL, MembersStyle::name)?);
+            }
+            "grid" => {
+                for (key, value) in object(value, &here)? {
+                    let at = format!("{here}.{key}");
+                    match key.as_str() {
+                        "columns" => {
+                            layout.grid.columns = number(value, &at, (2.0, 6.0))?.round() as u32
+                        }
+                        "size" => layout.grid.size = number(value, &at, (32.0, 96.0))?,
+                        _ => notes.push(format!("\"{at}\" isn't something grid takes; ignored")),
+                    }
+                }
+            }
+            "tree" => {
+                for (key, value) in object(value, &here)? {
+                    let at = format!("{here}.{key}");
+                    match key.as_str() {
+                        "expand" => {
+                            layout.tree.expand_many = match value.as_str() {
+                                Some("one") => false,
+                                Some("many") => true,
+                                _ => return Err(Error(format!("\"{at}\" is one or many"))),
+                            }
+                        }
+                        "root" => layout.tree.root = short(value, &at, 24)?,
+                        "dms" => layout.tree.dms = short(value, &at, 24)?,
+                        _ => notes.push(format!("\"{at}\" isn't something tree takes; ignored")),
                     }
                 }
             }
@@ -517,6 +630,57 @@ fn read_bubble(
         }
     }
     Ok((ground, art))
+}
+
+/// `layout.cards.tab`: `{ "text": "{name}", "font": "labels", "size": 12,
+/// "weight": 800, "colour": "#0c0a0e", "uppercase": false, "ground": … }`.
+fn read_tab(value: &Value, at: &str, notes: &mut Vec<String>) -> Result<CardTab, Error> {
+    use super::package::Role;
+    let fields = object(value, at)?;
+    let mut tab = CardTab {
+        text: "{name}".into(),
+        role: None,
+        size: None,
+        weight: None,
+        colour: None,
+        uppercase: false,
+        ground: None,
+    };
+    for (key, value) in fields {
+        let here = format!("{at}.{key}");
+        match key.as_str() {
+            "text" => {
+                let text = short(value, &here, 48)?;
+                let mut rest = text.as_str();
+                while let Some(open) = rest.find('{') {
+                    let after = &rest[open + 1..];
+                    let Some(close) = after.find('}') else { break };
+                    let word = &after[..close];
+                    if word != "name" && word != "time" {
+                        return Err(Error(format!(
+                            "\"{here}\" can't use {{{word}}}; it takes {{name}} and {{time}}"
+                        )));
+                    }
+                    rest = &after[close + 1..];
+                }
+                tab.text = text;
+            }
+            "font" => {
+                tab.role = Some(value.as_str().and_then(Role::named).ok_or_else(|| {
+                    Error(format!("\"{here}\" names a type role, such as labels"))
+                })?);
+            }
+            "size" => tab.size = Some(number(value, &here, (8.0, 24.0))?),
+            "weight" => tab.weight = Some(number(value, &here, (100.0, 900.0))?.round() as i32),
+            "colour" => tab.colour = Some(colour_at(value, &here)?),
+            "ground" => tab.ground = Some(colour_at(value, &here)?),
+            "uppercase" => tab.uppercase = boolean(value, &here)?,
+            _ => notes.push(format!(
+                "\"{here}\" isn't something a card's tab takes; ignored"
+            )),
+        }
+    }
+    Ok(tab)
 }
 
 /// The outlines in `shape`: `outline_width`, every hairline's width, and
@@ -687,6 +851,85 @@ mod tests {
                 {layers}
                 "variants": {{ "dark": {{ "base": "yap" }} }} }}"#
         ))
+    }
+
+    #[test]
+    fn reads_the_trim_fields() {
+        use crate::themes::chrome::{Label, SystemKind};
+        use crate::themes::content::NameColours;
+        use crate::themes::package::art::{ArtSurface, TextRole};
+        use crate::themes::package::{Role, Surface};
+        let package = theme(
+            r##""colours": { "mention-chip": "#5cff85" },
+            "shape": {
+                "label": { "ground": "linear(90deg, #ff4fa8, #e0458f)", "text": "#0c0a0e", "radius": 4, "case": "lower" },
+                "header": { "ground": "#131016", "text": "#f6eef3", "border": 2, "border_colour": "#ff4fa8" },
+                "card_section": { "ground": "#1b161e", "bar": "#a3175f", "bar_text": "#ffffff" },
+                "row": { "stripe": { "colour": "#241521", "lists": ["channels", "members"] } }
+            },
+            "type": { "small": { "size": 12 }, "time": { "size": 11, "weight": 600 } },
+            "art": { "surfaces": { "header": { "texture": "grain" }, "label": { "texture": "paper" },
+                                   "footer": { "texture": "halftone", "fit": "contain" } },
+                     "footer_height": 80,
+                     "text": { "body": { "glow": { "colour": "#5cff85", "size": 2 } } } },
+            "layout": { "messages": "cards", "rail": "tree", "tree": { "expand": "many" },
+                        "members_style": "grid", "grid": { "columns": 3, "size": 50 },
+                        "cards": { "tab": { "text": "{name}", "font": "labels", "colour": "#0c0a0e" } } },
+            "content": { "names": { "palette": ["#5cff85", "#c8ff4a", "#7affc0"] } },
+            "chrome": { "prefix": { "member_by_role": ["@", "+"] },
+                        "labels": { "topic": "[{topic}]", "member_count": "{n} users", "day": "-- Day changed to {date} --" },
+                        "system": { "join": "-->", "leave": "<--", "notice": "-!-" },
+                        "status": { "text": "[{time}] [{name}] [{server}/{channel}] {typing}", "position": "below" } },"##,
+        )
+        .unwrap();
+        assert!(package.notes.is_empty(), "{:?}", package.notes);
+        let resolved = package.resolve(Mode::Dark).unwrap();
+        let label = &resolved.shapes[&Surface::Label];
+        assert!(label.ground.is_some() && label.text == Some(0xff0c_0a0e) && label.case == Some(1));
+        assert_eq!(
+            resolved.shapes[&Surface::CardSection].bar_text,
+            Some(0xffff_ffff)
+        );
+        let stripe = resolved.shapes[&Surface::Row].stripe.unwrap();
+        assert!(stripe.channels && stripe.members && !stripe.messages);
+        assert_eq!(resolved.types[&Role::Time].weight, Some(600));
+        assert!(resolved.art.surfaces.contains_key(&ArtSurface::Footer));
+        assert_eq!(resolved.art.footer_height, Some(80.0));
+        assert!(resolved.art.text.contains_key(&TextRole::Body));
+        let layout = &resolved.layout;
+        assert_eq!(layout.rail, Some(RailSide::Tree));
+        assert!(layout.tree.expand_many);
+        assert_eq!(layout.members_style, Some(MembersStyle::Grid));
+        assert_eq!((layout.grid.columns, layout.grid.size), (3, 50.0));
+        assert_eq!(layout.cards.tab.as_ref().unwrap().text, "{name}");
+        assert_eq!(resolved.content.names.colours, NameColours::Palette);
+        assert_eq!(resolved.content.names.palette().len(), 3);
+        let chrome = &resolved.chrome;
+        assert_eq!(chrome.member_by_role, ["@", "+"]);
+        assert_eq!(chrome.labels[&Label::MemberCount], "{n} users");
+        assert_eq!(chrome.system[&SystemKind::Join], "-->");
+        assert!(!chrome.status_line.as_ref().unwrap().above);
+        assert!(resolved.paint("mention-chip").is_some());
+        // The same person always gets the same colour.
+        let names = &resolved.content.names;
+        assert_eq!(names.palette_colour("123"), names.palette_colour("123"));
+    }
+
+    #[test]
+    fn refuses_trim_out_of_its_lists() {
+        for layers in [
+            r#""layout": { "grid": { "columns": 9 } },"#,
+            r#""layout": { "tree": { "expand": "all" } },"#,
+            r#""layout": { "cards": { "tab": { "text": "{server}" } } },"#,
+            r#""chrome": { "status": { "text": "{weather}" } },"#,
+            r#""chrome": { "status": { "position": "middle", "text": "x" } },"#,
+            r#""chrome": { "prefix": { "member_by_role": [] } },"#,
+            r##""shape": { "row": { "stripe": { "colour": "#000", "lists": ["dms"] } } },"##,
+            r#""shape": { "label": { "case": "title" } },"#,
+            r##""content": { "names": { "palette": ["#fff"] } },"##,
+        ] {
+            assert!(theme(layers).is_err(), "{layers}");
+        }
     }
 
     #[test]

@@ -50,7 +50,7 @@ import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { StickerPicker, StickerGridTile } from "stickers.slint";
 import { ActionButton, IconButton, Motion, PingToggle, DeviceToggle, Avatar, TextField, MessagesSkeleton, ContextMenu, MenuItem, MenuRow, QuickDeviceMenu, HeaderToggle, Banner, StatusText, Nameplate, AccountLook, PictureStore } from "controls.slint";
 import { PersonRow, VoiceCard, CallLink, CallLinkCard, LinkTouch, SignalIcon, VoiceDock, StreamPip, CallInvite, JoinVoice, ParticipantGrid, CallControls, IncomingCall, SwitchDialog, InputLevel, ShareMenu, ShareScreen, VolumeMenu, Soundboard, SoundRow } from "voice.slint";
-import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList, VoiceCardView } from "rail.slint";
+import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList, ServerTree, VoiceCardView } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, EmojiCardView, MessageStickerCard, MessageStickerCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, VoicePlayer, Polls } from "messages.slint";
 import { PluginSettings, PluginPage } from "plugin_settings.slint";
@@ -87,6 +87,8 @@ import { Chrome } from "theme_chrome.slint";
 import { TopBar } from "theme_topbar.slint";
 import { CursorTrail, CursorTrailLayer } from "theme_cursor.slint";
 export { CursorTrail, TrailSprite } from "theme_cursor.slint";
+export { Trim } from "theme_trim.slint";
+import { Trim, FrameGround } from "theme_trim.slint";
 export { Autoscroll } from "scrollview.slint";
 export { Art, ArtImage, ArtOverlay, ArtText, ArtParticle, CardArt, Reserve } from "theme_art.slint";
 export { PersonRow, CallLink, ShareScreen, VoiceCard } from "voice.slint";
@@ -1882,6 +1884,13 @@ export component YapfastWindow inherits Window {
     property <length> rail-right: Arrange.rail == 1 ? Chrome.rail-px : 0px;
     // A theme's top bar sits over the top rail, if there's one.
     property <length> rail-top: (Arrange.rail == 2 ? 64px : 0px) + (root.workspace ? Chrome.topbar-px : 0px);
+    /// In a theme's tree, the open server's channels folded away.
+    property <bool> tree-folded;
+    // A theme's status line's clock, while it shows.
+    Timer {
+        interval: 10s; running: Trim.status != "";
+        triggered => { Trim.status-tick += 1; }
+    }
     // A thread opened beside the channel takes the place of the member list
     // and the profile, and search results take its place.
     // The thread beside the channel, or the form that starts one, in place
@@ -2758,7 +2767,22 @@ export component YapfastWindow inherits Window {
                                     edited => { root.filter-edited(); }
                                 }
                             }
+                            // A theme's tree: the rows down to the open server, its
+                            // channels, then the rows after it.
+                            if Arrange.rail == 3: ServerTree {
+                                head: true; servers: root.servers; matrix-build: root.matrix-build; folded: root.tree-folded;
+                                dms-selected: root.dms-selected; dms-unread: root.dms-unread; dms-badge: root.dms-badge;
+                                navigate-dms => { root.tree-folded = false; root.navigate-dms(); }
+                                navigate-server(id) => { root.tree-folded = false; root.navigate-server(id); }
+                                toggle-folder(id) => { root.toggle-folder(id); }
+                                open-dm(id) => { root.open-conversation(id); }
+                                open-server-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
+                                fold => { root.tree-folded = !root.tree-folded; }
+                            }
                             RoomList {
+                                indent: Arrange.rail == 3 ? 16px : 0px;
+                                visible: !(Arrange.rail == 3 && root.tree-folded);
+                                max-height: Arrange.rail == 3 && root.tree-folded ? 0px : 100000px;
                                 open-add-friend => { root.open-add-friend(); }
                                 open-new-dm => { root.open-new-dm(); }
                                 server-name: root.sidebar-title;
@@ -2799,6 +2823,15 @@ export component YapfastWindow inherits Window {
                                 open-category-menu(id, x, y) => {
                                     if root.category-of(id) != "" { root.open-context-menu(root.category-of(id), false, x, y); }
                                 }
+                            }
+                            if Arrange.rail == 3: ServerTree {
+                                head: false; servers: root.servers; matrix-build: root.matrix-build; folded: root.tree-folded;
+                                dms-selected: root.dms-selected;
+                                navigate-server(id) => { root.tree-folded = false; root.navigate-server(id); }
+                                toggle-folder(id) => { root.toggle-folder(id); }
+                                open-dm(id) => { root.open-conversation(id); }
+                                open-server-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
+                                fold => { root.tree-folded = !root.tree-folded; }
                             }
                         }
                         // Discord's outline: the top and left edges meet in a 12px rounded corner,
@@ -2965,6 +2998,14 @@ export component YapfastWindow inherits Window {
                 padding-left: Art.reserve-chat.left; padding-right: Art.reserve-chat.right;
                 Rectangle {
                     height: ClientStyle.header-height;
+                    // A theme's own bar: its ground, art or glass, corners, border and shadow.
+                    if Trim.header.on: FrameGround {
+                        x: 0px; y: 0px; width: parent.width; height: parent.height; frame: Trim.header;
+                        if Trim.header-art.length > 0 || Trim.header-glass: ArtLayer {
+                            x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Trim.header-art;
+                            glass: Trim.header-glass; ground: Trim.header.ground; radius: Trim.header.radius;
+                        }
+                    }
                     // A theme may hide the bar's icon buttons until the pointer is on it
                     // or one of them has the keyboard.
                     header-touch := TouchArea {
@@ -2996,7 +3037,7 @@ export component YapfastWindow inherits Window {
                             }
                         }
                         if root.room-parent != "" && root.room-selected: Image { source: IconPack.chevron-right; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.faint); }
-                        if !root.room-direct && root.room-selected && !Chrome.hide-channel-icons: Image { source: root.room-icon; width: 22px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
+                        if !root.room-direct && root.room-selected && !Chrome.hide-channel-icons: Image { source: root.room-icon; width: 22px; image-fit: contain; colorize: IconPack.tint(self.source, Trim.header.on ? Trim.header.text : Theme.muted); }
                         if root.requests-open: Image { source: IconPack.inbox; width: 22px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
                         if root.friends-open: Image { source: IconPack.users; width: 22px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
                         if root.browse-open: Image { source: IconPack.hash; width: 22px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
@@ -3020,7 +3061,7 @@ export component YapfastWindow inherits Window {
                                 x: Look.channel-name.x; y: Look.channel-name.y; width: parent.width; height: parent.height;
                                 text: Look.channel-text(Look.heading(parent.title));
                                 accessible-role: none;
-                                color: root.room-selected || root.requests-open || root.friends-open || root.browse-open ? Theme.text : Theme.secondary;
+                                color: Trim.header.on ? Trim.header.text : root.room-selected || root.requests-open || root.friends-open || root.browse-open ? Theme.text : Theme.secondary;
                                 font-size: Look.header-size(16px); font-weight: Look.heading-weight(700); overflow: elide; vertical-alignment: center;
                                 font-family: Look.heading-font(""); letter-spacing: Look.spacing-headings;
                                 opacity: Look.channel-name.opacity; transform-scale: Look.channel-name.scale; transform-rotation: Look.channel-name.rotation * 1deg;
@@ -3036,10 +3077,27 @@ export component YapfastWindow inherits Window {
                             accessible-role: button;
                             accessible-label: "Channel topic";
                             accessible-action-default => { root.topic-open = true; }
-                            StyledText {
+                            if Trim.topic-before == "" && Trim.topic-after == "": StyledText {
                                 width: parent.width; height: parent.height;
-                                text: root.room-topic; default-color: topic-touch.has-hover ? Theme.secondary : Theme.muted;
+                                text: root.room-topic; default-color: Trim.header.on ? Trim.header.text.transparentize(topic-touch.has-hover ? 0 : 0.2) : topic-touch.has-hover ? Theme.secondary : Theme.muted;
                                 link-color: Theme.link; default-font-size: 14px; max-lines: 1; vertical-alignment: center;
+                            }
+                            if Trim.topic-before != "" || Trim.topic-after != "": HorizontalLayout {
+                                width: parent.width; height: parent.height;
+                                spacing: 0px;
+                                // A theme's words around the topic, such as `[` and `]`.
+                                if Trim.topic-before != "": Text {
+                                    text: Trim.topic-before; color: Trim.header.on ? Trim.header.text : Theme.muted; font-size: 14px; vertical-alignment: center; accessible-role: none;
+                                }
+                                StyledText {
+                                    horizontal-stretch: 0; min-width: 0px;
+                                    text: root.room-topic; default-color: Trim.header.on ? Trim.header.text.transparentize(topic-touch.has-hover ? 0 : 0.2) : topic-touch.has-hover ? Theme.secondary : Theme.muted;
+                                    link-color: Theme.link; default-font-size: 14px; max-lines: 1; vertical-alignment: center;
+                                }
+                                if Trim.topic-after != "": Text {
+                                    text: Trim.topic-after; color: Trim.header.on ? Trim.header.text : Theme.muted; font-size: 14px; vertical-alignment: center; accessible-role: none;
+                                }
+                                Rectangle { horizontal-stretch: 1; }
                             }
                             // Over the line, whose text would take the press to select: its
                             // links open from the full topic.
@@ -3051,6 +3109,11 @@ export component YapfastWindow inherits Window {
                                     root.topic-open = !root.topic-open;
                                 }
                             }
+                        }
+                        // A theme's count of the member list, such as `12 users`.
+                        if Trim.member-count != "" && !root.room-direct && root.room-selected && Trim.members-n > 0: Text {
+                            text: Chrome.fill(Trim.member-count, "n", Trim.members-n); color: Trim.header.on ? Trim.header.text : Theme.muted; font-size: 14px;
+                            vertical-alignment: center; horizontal-stretch: 0; accessible-role: none;
                         }
                         // What they're up to, as a bubble beside their name.
                         if root.room-direct && root.room-has-activity: Middle {
@@ -3656,7 +3719,32 @@ export component YapfastWindow inherits Window {
                                                             colorize: msg-row.mark; opacity: 1 - art-box.chosen.fade; accessible-role: none;
                                                         }
                                                     }
+                                                    // A theme's words on the card's tab: over its first
+                                                    // picture on the top edge, or on a tab of their own.
+                                                    if Trim.tab-on && message.first: Rectangle {
+                                                        property <bool> on-art: Art.cards.length > 0 && !Art.cards[0].bottom;
+                                                        property <string> words: Trim.tab(Trim.tab-text, message.author, message.short-time);
+                                                        width: self.on-art ? Art.cards[0].width : tab-words.preferred-width + 16px;
+                                                        height: self.on-art ? Art.cards[0].height : Trim.tab-size + 8px;
+                                                        x: self.on-art ? (parent.width - Art.cards[0].width) * Art.cards[0].across + Art.cards[0].dx : 12px;
+                                                        y: self.on-art ? -Art.cards[0].height / 2 + Art.cards[0].dy : -self.height / 2;
+                                                        transform-rotation: self.on-art ? Art.cards[0].rotation * 1deg : 0deg;
+                                                        background: self.on-art ? transparent : Trim.tab-ground;
+                                                        tab-words := Text {
+                                                            x: 8px; width: parent.width - 16px;
+                                                            text: Trim.tab-upper ? parent.words.to-uppercase() : parent.words; color: Trim.tab-ink;
+                                                            font-family: Trim.tab-family; font-size: Trim.tab-size; font-weight: Trim.tab-weight;
+                                                            horizontal-alignment: center; vertical-alignment: center; overflow: elide;
+                                                            accessible-role: none;
+                                                        }
+                                                    }
                                                 }
+                                            }
+                                            // A theme's stripes: every other message tinted.
+                                            if Trim.stripe-messages && Math.mod(index, 2) == 1 && !self.carded && !self.bubbled: Rectangle {
+                                                x: parent.band-x; width: parent.width - 2 * parent.band-x;
+                                                y: parent.body + Look.row-inset-y; height: parent.height - parent.body - parent.tail - 2 * Look.row-inset-y;
+                                                border-radius: Look.row-radius; background: Trim.stripe;
                                             }
                                             if !self.carded && !self.bubbled: Rectangle {
                                                 x: parent.band-x; width: parent.width - 2 * parent.band-x;
@@ -3732,7 +3820,7 @@ export component YapfastWindow inherits Window {
                                                             if !Arrange.dash-divider.on: Rectangle { height: Look.line(1px); background: message.unread-start ? Theme.accent-fill : Theme.line; }
                                                             if Arrange.dash-divider.on: DashedRule { dash: Arrange.dash-divider; stock-ink: message.unread-start ? Theme.accent : Theme.line; }
                                                         }
-                                                        if message.day != "": Text { text: message.day; color: Theme.muted; font-size: ClientStyle.enabled ? 12px : 13px; font-weight: ClientStyle.enabled ? 600 : 700; vertical-alignment: center; }
+                                                        if message.day != "": Text { text: Chrome.day != "" ? Chrome.fill(Chrome.day, "date", message.day) : message.day; color: Theme.muted; font-size: ClientStyle.enabled ? 12px : 13px; font-weight: ClientStyle.enabled ? 600 : 700; vertical-alignment: center; }
                                                         if message.day != "" && message.unread-start: Text { text: "·"; color: Theme.muted; font-size: 13px; font-weight: 700; vertical-alignment: center; }
                                                         if message.unread-start: Rectangle {
                                                             width: new-text.preferred-width + 10px;
@@ -4008,6 +4096,12 @@ export component YapfastWindow inherits Window {
                             padding-left: Arrange.centre(self.width, Look.chat-padding >= 0px ? Look.chat-padding : ClientStyle.composer-gutter); padding-right: self.padding-left;
                             padding-top: Arrange.composer-top ? ClientStyle.composer-gutter : 0px; padding-bottom: 0px;
                             spacing: 0px;
+                            if Trim.status != "" && Trim.status-above: status-top := Text {
+                                height: 22px;
+                                text: Trim.status-line(Trim.status, root.room-name, root.sidebar-title, root.typing, Trim.status-tick);
+                                color: Theme.secondary; font-family: Trim.small-font(Look.mono); font-size: Trim.small-size(13px);
+                                vertical-alignment: center; overflow: elide; accessible-role: none;
+                            }
                             if root.room-request: RequestBar {
                                 request-title: root.request-title;
                                 accept-request => { root.accept-request(); }
@@ -4222,6 +4316,12 @@ export component YapfastWindow inherits Window {
                                         }
                                     }
                                 }
+                            }
+                            if Trim.status != "" && !Trim.status-above: status-bottom := Text {
+                                height: 22px;
+                                text: Trim.status-line(Trim.status, root.room-name, root.sidebar-title, root.typing, Trim.status-tick);
+                                color: Theme.secondary; font-family: Trim.small-font(Look.mono); font-size: Trim.small-size(13px);
+                                vertical-alignment: center; overflow: elide; accessible-role: none;
                             }
                             // A hint under the field when there is one; otherwise as much
                             // room below it as beside it.

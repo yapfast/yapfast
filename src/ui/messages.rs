@@ -232,6 +232,25 @@ pub(super) fn markdown(body: &str) -> slint::StyledText {
 /// mentions are where the body as rendered has them, so this comes before
 /// anything else changes it.
 fn with_mentions(body: &str, mentions: &[yapfast_core::mention::Mentioned]) -> String {
+    // A theme that styles names styles mentions the same way: a role's own
+    // colour gives way to the theme's chips, or to the person's palette
+    // colour.
+    if theme_content::styles_names() {
+        let themed: Vec<_> = mentions
+            .iter()
+            .map(|mentioned| {
+                let id = match &mentioned.target {
+                    yapfast_core::mention::Target::User(id) => Some(id.as_str()),
+                    _ => None,
+                };
+                yapfast_core::mention::Mentioned {
+                    color: id.and_then(theme_content::palette_of),
+                    ..mentioned.clone()
+                }
+            })
+            .collect();
+        return mention::linked(body, &themed, theme::mention_color());
+    }
     mention::linked(body, mentions, theme::mention_color())
 }
 
@@ -748,8 +767,8 @@ pub(super) fn message_row_within(
         sender: discord::sender_user(&message.sender)
             .unwrap_or(&message.sender)
             .into(),
-        color: role_color(theme_content::name(message.color)),
-        has_color: theme_content::name(message.color).is_some(),
+        color: role_color(theme_content::name_of(&message.sender, message.color)),
+        has_color: theme_content::name_of(&message.sender, message.color).is_some(),
         bot: message.bot,
         app_id: message
             .application_id
@@ -1337,8 +1356,8 @@ pub(super) fn found_row(message: &ChatMessage, twelve_hour: bool) -> FoundRow {
         initial: initial(&message.author),
         tint: tint(&message.author),
         picture_url: message.avatar.clone().unwrap_or_default().into(),
-        color: role_color(theme_content::name(message.color)),
-        has_color: theme_content::name(message.color).is_some(),
+        color: role_color(theme_content::name_of(&message.sender, message.color)),
+        has_color: theme_content::name_of(&message.sender, message.color).is_some(),
         when: if message.timestamp == 0 {
             SharedString::default()
         } else {

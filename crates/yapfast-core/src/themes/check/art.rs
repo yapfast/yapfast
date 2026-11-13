@@ -252,10 +252,17 @@ fn texts(surface: ArtSurface) -> &'static [&'static str] {
         | ArtSurface::Menu
         | ArtSurface::Composer
         | ArtSurface::Actions
-        | ArtSurface::Code => &["text"],
+        | ArtSurface::Code
+        | ArtSurface::Header => &["text"],
         ArtSurface::RowSelected => &["row-selected-text"],
-        // Over the card's content, it's the theme's to keep faint.
-        ArtSurface::Window | ArtSurface::Rail | ArtSurface::CardOver => &[],
+        // Over the card's content, it's the theme's to keep faint; a label's
+        // words are checked on its own ground (`shape.label`), and the member
+        // list's foot holds no text.
+        ArtSurface::Window
+        | ArtSurface::Rail
+        | ArtSurface::CardOver
+        | ArtSurface::Label
+        | ArtSurface::Footer => &[],
     }
 }
 

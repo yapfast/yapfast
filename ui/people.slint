@@ -3,19 +3,22 @@ import { IconPack } from "media.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Tip, BadgeTip, Look } from "theme.slint";
-import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil, ArtVeil } from "theme_art.slint";
+import { Art, ArtLayer, ArtPicture, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil, ArtVeil } from "theme_art.slint";
 import { ActionButton, IconButton, Avatar, Nameplate, StatusText, StyledName, NameStyleRow, EffectLayer, ProfileEffect, PictureStore, TextField, ServerTagChip, TipIcon, ActivityClock } from "controls.slint";
 import { StatusDot } from "rail.slint";
 import { BotTag } from "messages.slint";
 import { PluginBadge, PluginBadgeView, PluginPart, PluginWidgets } from "plugins.slint";
 import { Arrange, DashedOutline, RansomName, PaneRule } from "theme_layout.slint";
 import { ThemeContent, IlluminatedInitial } from "theme_content.slint";
+import { Trim, FrameGround, SectionBox } from "theme_trim.slint";
 
 /// A member of the open room, or the heading, with no id, that starts a group.
 export struct MemberRow {
     id: string, name: string, initial: string, tint: color, picture: image, heading: string,
     /// Their place in their group, from 0.
     place: int,
+    /// Their group's place in the list, from 0.
+    group: int,
     /// Discord's presence: "online", "mobile" (online only on a phone), "idle",
     /// "dnd" or "offline"; empty for Matrix.
     presence: string,
@@ -106,6 +109,49 @@ export struct MemberActivityRow {
     live: bool,
 }
 
+// A member as a tile in a theme's grid: the avatar with its status, and the
+// name under it. Clicking shows the profile, as a row does.
+component MemberTile inherits Rectangle {
+    in property <MemberRow> member;
+    in property <bool> selected;
+    in property <length> size;
+    callback open(length);
+    callback menu(length, length);
+    border-radius: Look.radius(8px);
+    background: root.selected ? #97979f33 : touch.has-hover ? #97979f1f : transparent;
+    accessible-role: button;
+    accessible-label: root.member.name + ", " + root.member.id + ", show profile";
+    accessible-action-default => { root.open(self.absolute-position.y); }
+    touch := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.open(root.absolute-position.y); }
+        pointer-event(event) => {
+            if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                root.menu(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+            }
+        }
+    }
+    Rectangle {
+        x: (parent.width - root.size) / 2; y: 6px; width: root.size; height: root.size;
+        Avatar {
+            size: root.size; initial: root.member.initial; tint: root.member.tint; picture: root.member.picture; picture-url: root.member.picture-url;
+            decoration-url: root.member.decoration-url; animate: touch.has-hover; opacity: root.member.presence == "offline" ? 0.4 : 1;
+        }
+        if root.member.presence != "" && root.member.presence != "offline": StatusDot {
+            x: root.size - 13px; y: root.size - 13px; presence: root.member.presence; ring: Theme.sidebar;
+        }
+    }
+    Text {
+        x: 4px; y: root.size + 10px; width: parent.width - 8px; height: 20px;
+        text: Trim.role-mark(root.member.group) + Chrome.member-before + root.member.name + Chrome.member-after;
+        color: root.member.has-color ? root.member.color : Theme.secondary;
+        font-size: Look.name-size(13px); font-weight: Look.name-weight(500); font-family: Look.name-font("");
+        horizontal-alignment: center; vertical-alignment: center; overflow: elide;
+        opacity: root.member.presence == "offline" ? 0.5 : 1;
+        accessible-role: none;
+    }
+}
+
 // The open room's members, grouped by role under the conversation header.
 export component MemberPanel inherits Rectangle {
     in property <[MemberRow]> rows;
@@ -125,6 +171,8 @@ export component MemberPanel inherits Rectangle {
     /// A theme's collapsed list, shut: a narrow strip of avatars, without
     /// headings or activity.
     in property <bool> strip;
+    // A theme's tiles; the collapsed strip keeps its rows of avatars.
+    property <bool> tiles: Trim.grid && !root.strip;
     clip: root.strip;
     /// A gem by each server booster's name; on unless turned off.
     in property <bool> boost-gems: true;
@@ -295,23 +343,52 @@ export component MemberPanel inherits Rectangle {
                 changed view-tick => { self.report-view(); }
                 padding-left: 8px; padding-right: 8px;
                 padding-top: index == 0 ? 8px : 0px;
-                padding-bottom: index == root.rows.length - 1 ? 12px : 2px;
+                padding-bottom: index == root.rows.length - 1 ? 12px : root.tiles && member.id != "" && Math.mod(member.place, max(1, Trim.grid-columns)) != 0 ? 0px : 2px;
                 spacing: 2px;
                 // Discord's group heading: 14px medium in the channel grey, 20px above and 4px below.
-                if member.heading != "": HorizontalLayout {
+                // A theme's label bar lies under it.
+                if member.heading != "": Rectangle {
+                  height: 42px;
+                  if Trim.label.on: FrameGround {
+                      x: 0px; y: 18px; width: parent.width; height: 22px; frame: Trim.label;
+                      if Trim.label-art.length > 0: ArtLayer { x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Trim.label-art; radius: Trim.label.radius; }
+                  }
+                  HorizontalLayout {
                     padding-left: 8px; padding-top: 20px; padding-bottom: 4px; height: 42px; spacing: 8px;
                     if member.group-icon != "": Middle { RoleIcon { url: member.group-icon; size: 20px; } }
                     Text {
-                        text: Chrome.members-group != "" ? Chrome.fill(Chrome.members-group, "group", member.heading) : member.heading;
+                        text: Trim.cased(Trim.label, Chrome.members-group != "" ? Chrome.fill(Chrome.members-group, "group", member.heading) : member.heading);
                         accessible-label: member.heading;
-                        font-family: Chrome.members-group != "" ? Chrome.font : "";
-                        color: #81828a; font-size: 14px; font-weight: 500; vertical-alignment: center; opacity: root.strip ? 0 : 1;
+                        color: Trim.label.on ? Trim.label.text : #81828a; font-size: Trim.label.on ? Look.label-size(14px) : 14px;
+                        font-weight: Trim.label.on ? Look.label-weight(700) : 500; vertical-alignment: center; opacity: root.strip ? 0 : 1;
+                        font-family: Trim.label.on ? Look.label-font("") : Chrome.members-group != "" ? Chrome.font : "";
+                    }
+                  }
+                }
+                // A theme's tiles: the first of each line of them draws the
+                // line, the rest of it taking no room.
+                if member.id != "" && root.tiles: grid-line := Rectangle {
+                    property <int> across: max(1, Trim.grid-columns);
+                    property <bool> leads: Math.mod(member.place, self.across) == 0;
+                    property <length> tile-w: self.width / self.across;
+                    property <length> tile-h: Trim.grid-size + 34px;
+                    height: self.leads ? self.tile-h : 0px;
+                    for k in grid-line.leads ? grid-line.across : 0: MemberTile {
+                        property <int> at: index + k;
+                        property <bool> here: self.at < root.rows.length && root.rows[self.at].id != "" && root.rows[self.at].place == root.rows[index].place + k;
+                        visible: self.here;
+                        x: k * grid-line.tile-w; y: 0px; width: grid-line.tile-w; height: grid-line.tile-h;
+                        member: self.here ? root.rows[self.at] : root.rows[index]; selected: self.here && root.rows[self.at].id == root.selected;
+                        size: Trim.grid-size;
+                        open(y) => { root.open-profile(self.member.id, y); }
+                        menu(x, y) => { root.open-member-menu(self.member.id, x, y); }
                     }
                 }
                 // A heading is a row of its own; see `show_roster`.
-                if member.id != "": Rectangle {
+                if member.id != "" && !root.tiles: Rectangle {
                   height: Look.member-row-height >= 0px ? Look.member-row-height : 42px; border-radius: Look.radius(8px);
-                  background: member.id == root.selected ? #97979f33 : member-pointer.has-hover ? #97979f1f : transparent;
+                  background: member.id == root.selected ? #97979f33 : member-pointer.has-hover ? #97979f1f
+                      : Trim.stripe-members && Math.mod(member.place, 2) == 1 ? Trim.stripe : transparent;
                   if member.nameplate-url != "": Nameplate {
                       radius: 8px; picture-url: member.nameplate-url; palette: Theme.dark ? member.nameplate-color : member.nameplate-light;
                       hovered: member-pointer.has-hover; selected: member.id == root.selected;
@@ -366,13 +443,13 @@ export component MemberPanel inherits Rectangle {
                                 member-ransom := RansomName { x: 0px; y: 0px; width: parent.width; text: member.name; font-size: Look.name-size(16px) * 0.9; font-weight: Look.name-weight(500); }
                             }
                             if member.name-style.length == 0 && !Arrange.ransom && !Art.names.on: Text {
-                                text: Chrome.member-before + Look.name-text(member.name, member-pointer.has-hover) + Chrome.member-after; accessible-label: member.name; color: member.has-color ? member.color : Theme.secondary; font-size: Look.name-size(16px); font-weight: Look.name-weight(500); overflow: elide;
+                                text: Trim.role-mark(member.group) + Chrome.member-before + Look.name-text(member.name, member-pointer.has-hover) + Chrome.member-after; accessible-label: member.name; color: member.has-color ? member.color : Theme.secondary; font-size: Look.name-size(16px); font-weight: Look.name-weight(500); overflow: elide;
                                 font-family: Look.name-font(""); letter-spacing: Look.spacing-names;
                                 opacity: member.presence == "offline" ? 0.5 : 1;
                             }
                             if member.name-style.length == 0 && !Arrange.ransom && Art.names.on: ArtLabel {
                                 art: Art.names;
-                                text: Chrome.member-before + Look.name-text(member.name, member-pointer.has-hover) + Chrome.member-after; ink: member.has-color ? member.color : Theme.secondary; font-size: Look.name-size(16px); font-weight: Look.name-weight(500); overflow: elide;
+                                text: Trim.role-mark(member.group) + Chrome.member-before + Look.name-text(member.name, member-pointer.has-hover) + Chrome.member-after; ink: member.has-color ? member.color : Theme.secondary; font-size: Look.name-size(16px); font-weight: Look.name-weight(500); overflow: elide;
                                 font-family: Look.name-font(""); letter-spacing: Look.spacing-names;
                                 opacity: member.presence == "offline" ? 0.5 : 1;
                             }
@@ -414,7 +491,8 @@ export component MemberPanel inherits Rectangle {
                             }
                         }
                         if member.activity != "" || member.activity-emoji != "": StatusText {
-                            text: member.activity; emoji-url: member.activity-emoji; font-size: 12px;
+                            text: member.activity; emoji-url: member.activity-emoji; font-size: Trim.small-size(12px);
+                            font-family: Trim.small-font(""); font-weight: Trim.small-weight(400);
                             icon: member.activity-icon; bullet: member.activity-bullet;
                             opacity: member.presence == "offline" ? 0.5 : 1;
                         }
@@ -430,6 +508,11 @@ export component MemberPanel inherits Rectangle {
                   }
                 }
             }
+        }
+        // A theme's stickers at the list's foot, which take no input.
+        if Trim.footer.length > 0: Rectangle {
+            height: Trim.footer-height;
+            for layer in Trim.footer: ArtPicture { x: 0px; y: 0px; width: parent.width; height: parent.height; layer: layer; }
         }
     }
 }
@@ -1348,10 +1431,13 @@ export component ProfileCard inherits Rectangle {
                                 }
                             }
                         }
-                        for activity in root.data.activities: ActivityCard {
+                        for activity in root.data.activities: SectionBox {
+                          title: "Now playing";
+                          ActivityCard {
                             activity: activity; ink: root.ink; ink2: root.ink2; ink3: root.ink3;
                             ground: root.themed ? root.theme-start : Theme.sidebar; track: root.themed ? root.ink.transparentize(0.8) : Theme.raised;
                             open-link(url) => { root.open-link(url); }
+                          }
                         }
                         // The card names what is shared, with a few of the faces; the
                         // full profile lists it in its tabs. "5 mutual friends", a bullet,
@@ -1380,7 +1466,9 @@ export component ProfileCard inherits Rectangle {
                             }
                             TouchArea { mouse-cursor: MouseCursor.pointer; clicked => { root.enlarge(); } }
                         }
-                        if root.data.has-bio: VerticalLayout {
+                        if root.data.has-bio: SectionBox {
+                          title: "About me";
+                          VerticalLayout {
                             spacing: 6px;
                             // The card shows three lines and an ellipsis; the full profile
                             // shows it all. A fixed height, since the text would otherwise
@@ -1415,24 +1503,30 @@ export component ProfileCard inherits Rectangle {
                                 text: "View full bio"; color: root.ink; font-size: 12px; font-weight: 700;
                                 TouchArea { enabled: parent.cut; mouse-cursor: MouseCursor.pointer; clicked => { root.enlarge(); } }
                             }
+                          }
                         }
                         // The card leaves the dates to the full profile and the DM panel:
                         // "Member since", then the account's creation date, a bullet and
                         // the date of joining this server.
-                        if root.full && (root.data.created != "" || root.data.joined != ""): VerticalLayout {
+                        if root.full && (root.data.created != "" || root.data.joined != ""): SectionBox {
+                          title: "Member since";
+                          VerticalLayout {
                             spacing: 6px;
-                            ProfileTitle { text: "Member since"; color: root.ink; }
+                            if !Trim.section.on: ProfileTitle { text: "Member since"; color: root.ink; }
                             HorizontalLayout {
                                 spacing: 6px; alignment: start;
                                 if root.data.created != "": Text { text: root.data.created; color: root.ink2; font-size: 14px; vertical-alignment: center; }
                                 if root.data.created != "" && root.data.joined != "": Text { text: "\u{2022}"; color: root.ink2; font-size: 14px; vertical-alignment: center; }
                                 if root.data.joined != "": Text { text: root.data.joined; color: root.ink2; font-size: 14px; vertical-alignment: center; }
                             }
+                          }
                         }
-                        if (root.large && !root.side ? root.data.role-rows-large : root.data.role-rows).length > 0: VerticalLayout {
+                        if (root.large && !root.side ? root.data.role-rows-large : root.data.role-rows).length > 0: SectionBox {
+                          title: "Roles";
+                          VerticalLayout {
                             spacing: 6px;
                             // The card's chips speak for themselves.
-                            if root.full: ProfileTitle { text: "Roles"; color: root.ink; }
+                            if root.full && !Trim.section.on: ProfileTitle { text: "Roles"; color: root.ink; }
                             for row in (root.large && !root.side ? root.data.role-rows-large : root.data.role-rows): HorizontalLayout {
                                 spacing: 4px; alignment: start;
                                 for role in row.roles: Rectangle {
@@ -1446,6 +1540,7 @@ export component ProfileCard inherits Rectangle {
                                 }
                             }
                         }
+                          }
                         if root.large && root.data.connections.length > 0: VerticalLayout {
                             spacing: 8px;
                             ProfileTitle { text: "Connections"; color: root.ink; }

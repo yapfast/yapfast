@@ -58,6 +58,9 @@ closed! {
         Code = "code",
         RowSelected = "row-selected",
         CardOver = "card_over",
+        Header = "header",
+        Label = "label",
+        Footer = "footer",
     }
 }
 
@@ -87,6 +90,9 @@ impl ArtSurface {
             Self::Code => "code",
             Self::RowSelected => "row-selected",
             Self::CardOver => "raised",
+            Self::Header => "chat",
+            Self::Label => "sidebar",
+            Self::Footer => "members",
         }
     }
 
@@ -275,7 +281,7 @@ pub struct Glass {
 
 closed! {
     /// The text a theme may shadow, outline or light.
-    TextRole { Names = "names", Headings = "headings", Labels = "labels" }
+    TextRole { Names = "names", Headings = "headings", Labels = "labels", Body = "body" }
 }
 
 /// How one role's text is drawn beyond its colour.
@@ -388,6 +394,9 @@ pub struct Art {
     pub events: BTreeMap<EventSlot, Event>,
     pub foil: Option<Foil>,
     pub transition: Option<Transition>,
+    /// Pixels of the room the `footer` surface keeps at the member list's
+    /// foot, for stickers and blinkies; 64 when it has art and this isn't set.
+    pub footer_height: Option<f32>,
 }
 
 closed! {
@@ -605,6 +614,7 @@ pub(super) fn read_art(
                 }
             }
             "foil" => art.foil = Some(read_foil(value, &here, notes)?),
+            "footer_height" => art.footer_height = Some(number(value, &here, (16.0, 240.0))?),
             "transition" => {
                 let fields = object(value, &here)?;
                 let kind = named(

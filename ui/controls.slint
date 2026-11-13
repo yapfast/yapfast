@@ -869,6 +869,8 @@ export component StatusText inherits HorizontalLayout {
     in property <color> color: Theme.muted;
     in property <length> font-size: 13px;
     in property <int> font-weight: 400;
+    /// A theme's small face; the stock one when empty.
+    in property <string> font-family;
     in property <TextWrap> wrap: no-wrap;
     /// What they're doing, as a small icon before the words: 1 a controller,
     /// 2 a music note, 3 a screen, 4 a camera, 5 a trophy; 0 for none.
@@ -909,6 +911,7 @@ export component StatusText inherits HorizontalLayout {
     }
     if root.text != "": Text {
         text: root.text; color: root.color; font-size: root.font-size; font-weight: root.font-weight;
+        font-family: root.font-family;
         wrap: root.wrap; overflow: elide; horizontal-stretch: 1;
     }
 }

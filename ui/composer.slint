@@ -174,11 +174,14 @@ export component Composer inherits Rectangle {
         text: Chrome.prompt; color: !root.enabled ? Theme.faint : Chrome.console ? Theme.secondary : Theme.text; font-size: root.text-size;
         font-family: root.console-face; vertical-alignment: center; accessible-role: none;
     }
+    // A block caret stands where the text starts, so the placeholder
+    // starts after it.
+    property <length> caret-room: !Chrome.caret-block ? 0px : Chrome.console ? (input.has-focus ? root.text-size * 0.6 : 0px) : root.text-size * 0.6 + root.text-size * 0.3;
     Text {
         // A block caret sits at the start of the empty field: the hint
-        // follows it, as a console's does.
-        property <length> after-caret: Chrome.caret-block && input.has-focus ? root.text-size * 0.6 : 0px;
-        x: 6px + root.prompt-width + self.after-caret; y: root.pills + root.pad; width: root.width - 12px - root.prompt-width - self.after-caret; height: root.line;
+        // follows it, as a console's does (the console's only while it has
+        // the keys, as its caret shows only then).
+        x: 6px + root.prompt-width + root.caret-room; y: root.pills + root.pad; width: root.width - 12px - root.prompt-width - root.caret-room; height: root.line;
         visible: root.text == "";
         text: !root.commanding ? (root.typing-now ? Chrome.typed(root.placeholder, root.typed) : root.placeholder)
             : root.command-options.length == 0 ? "Press Enter to run /" + root.command-name

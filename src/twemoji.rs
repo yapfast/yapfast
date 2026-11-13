@@ -59,7 +59,9 @@ pub fn has_picture(glyph: &str) -> bool {
 /// frame a scroll drew, a quarter of the scroll's time; shrunk here once, a
 /// frame copies it.
 fn decode(glyph: &str, pixels: u32) -> Option<slint::Image> {
-    let picture = premultiplied(&published(glyph)?);
+    let mut straight = published(glyph)?;
+    crate::emoji_text::recolour_picture(&mut straight);
+    let picture = premultiplied(&straight);
     let (width, height) = picture.dimensions();
     let shrunk = if (width, height) == (pixels, pixels) {
         picture
@@ -203,6 +205,119 @@ fn find(glyph: &str) -> Option<usize> {
         }
         None
     })
+}
+
+/// Twemoji's font again, each picture passed through `recolour` (RGBA,
+/// straight alpha), under `family`: for a theme that recolours people's
+/// pictures, so emoji in text follow them. Decoding and encoding every
+/// picture takes a few seconds: call it off the window's thread.
+pub fn recoloured_font(family: &str, recolour: &(dyn Fn(&mut [u8]) + Sync)) -> Vec<u8> {
+    use crate::emoji_font_tables::{Joins, TWEMOJI, TWEMOJI_LAST, build_joined};
+    let glyph_at =
+        |index: usize| char::from_u32(TWEMOJI_LAST - index as u32).expect("a code point");
+    let names: Vec<&str> = (0..count()).map(|place| entry(place).0).collect();
+    let mut pictures: Vec<Vec<u8>> = (0..count()).map(|place| entry(place).1.to_vec()).collect();
+    // Two threads: the work is a few seconds, and the window keeps the rest.
+    let share = pictures.len().div_ceil(2).max(1);
+    std::thread::scope(|scope| {
+        for chunk in pictures.chunks_mut(share) {
+            scope.spawn(move || {
+                for bytes in chunk {
+                    if let Some(png) = recoloured_png(bytes, recolour) {
+                        *bytes = png;
+                    }
+                }
+            });
+        }
+    });
+    let own_code_point = |name: &str| {
+        let point = u32::from_str_radix(name, 16).ok()?;
+        char::from_u32(point).map(|_| point)
+    };
+    let code_points = |name: &str| -> Option<Vec<u32>> {
+        name.split('-')
+            .map(|point| u32::from_str_radix(point, 16).ok())
+            .collect()
+    };
+    let also: Vec<(u32, char)> = names
+        .iter()
+        .enumerate()
+        .filter_map(|(index, name)| Some((own_code_point(name)?, glyph_at(index))))
+        .collect();
+    // As build.rs joins them: each sequence as named, fully qualified and
+    // without its selectors, and an empty glyph for each code point those
+    // use that has no picture of its own.
+    let own: std::collections::HashSet<u32> = names
+        .iter()
+        .filter_map(|name| own_code_point(name))
+        .collect();
+    let mut sequences = Vec::new();
+    for (index, name) in names.iter().enumerate() {
+        let Some(points) = code_points(name).filter(|points| points.len() > 1) else {
+            continue;
+        };
+        let text: Option<String> = points.iter().map(|point| char::from_u32(*point)).collect();
+        let mut forms = vec![points.clone()];
+        if let Some(emoji) = text.as_deref().and_then(emojis::get) {
+            forms.push(emoji.as_str().chars().map(u32::from).collect());
+        }
+        forms.push(
+            points
+                .iter()
+                .copied()
+                .filter(|point| *point != 0xFE0F)
+                .collect(),
+        );
+        forms.sort();
+        forms.dedup();
+        for form in forms.into_iter().filter(|form| form.len() > 1) {
+            sequences.push((form, glyph_at(index)));
+        }
+    }
+    let mut empty: Vec<u32> = sequences
+        .iter()
+        .flat_map(|(points, _): &(Vec<u32>, char)| points.iter().copied())
+        .filter(|point| !own.contains(point))
+        .filter(|point| !matches!(char::from_u32(*point), Some('0'..='9' | '#' | '*')))
+        .collect();
+    empty.extend([0xFE0E, 0xFE0F]);
+    empty.sort_unstable();
+    empty.dedup();
+    let glyphs: Vec<(char, Vec<u8>)> = pictures
+        .into_iter()
+        .enumerate()
+        .map(|(index, bytes)| (glyph_at(index), bytes))
+        .collect();
+    build_joined(
+        &TWEMOJI,
+        family,
+        &glyphs,
+        &also,
+        &Joins { empty, sequences },
+    )
+}
+
+/// A PNG decoded, recoloured and encoded again.
+fn recoloured_png(png: &[u8], recolour: &(dyn Fn(&mut [u8]) + Sync)) -> Option<Vec<u8>> {
+    use image::ImageEncoder as _;
+    let mut picture = image::load_from_memory_with_format(png, image::ImageFormat::Png)
+        .ok()?
+        .into_rgba8();
+    recolour(&mut picture);
+    let mut out = Vec::new();
+    image::codecs::png::PngEncoder::new_with_quality(
+        &mut out,
+        image::codecs::png::CompressionType::Fast,
+        image::codecs::png::FilterType::Adaptive,
+    )
+    .write_image(
+        picture.as_raw(),
+        picture.width(),
+        picture.height(),
+        image::ExtendedColorType::Rgba8,
+    )
+    .ok()?;
+    Some(out)
 }
 
 fn count() -> usize {

@@ -21,7 +21,10 @@
     "toggle": { "radius": 999 },
     "avatar": { "radius": 50 },
     "actions": { "radius": 10, "shadow": { "blur": 12, "y": 4, "colour": "#00000055" } },
-    "row": { "radius": 6, "inset": [8, 1] },
+    "row": { "radius": 6, "inset": [8, 1], "stripe": { "colour": "#ffffff05", "lists": ["members"] } },
+    "label": { "radius": 6, "case": "as written" },
+    "header": { "border": 0 },
+    "card_section": { "radius": 8, "bar": "#ffffff0d" },
     "radii": { "small": 4, "medium": 8, "large": 12 },
     "outline_width": 1,
     "borders": { "tile": "dashed", "divider": { "style": "dotted", "gap": 4 }, "actions": "solid",
@@ -32,7 +35,9 @@
     "headings": { "weight": 800, "letter_spacing": 0.2 },
     "names": { "weight": 600, "style": "ransom",
                "papers": [["#f5f1e8", "#141414"], ["#141414", "#f5f1e8"]] },
-    "labels": { "letter_spacing": 1 }
+    "labels": { "letter_spacing": 1 },
+    "small": { "size": 13 },
+    "time": { "size": 12, "weight": 500 }
   },
   "spacing": {
     "density": "default",
@@ -70,8 +75,10 @@
       "embed": { "texture": "grain", "colour": "#ffffff", "opacity": 0.04 },
       "code": { "texture": "halftone", "colour": "#ffffff", "opacity": 0.03 },
       "row-selected": { "texture": "paper", "colour": "#ffffff", "opacity": 0.08 },
-      "card_over": { "texture": "grain", "colour": "#ffffff", "opacity": 0.03 }
+      "card_over": { "texture": "grain", "colour": "#ffffff", "opacity": 0.03 },
+      "footer": { "texture": "halftone", "colour": "#7aa2ff", "opacity": 0.06 }
     },
+    "footer_height": 48,
     "overlays": [
       { "kind": "vignette", "opacity": 0.25 },
       { "kind": "scanlines", "size": 3, "opacity": 0.04, "on": "chat" }
@@ -80,7 +87,8 @@
                "rim": { "colour": "#00000066", "width": 1 } },
     "text": {
       "headings": { "shadow": { "blur": 0, "x": 0, "y": 1, "colour": "#00000099" } },
-      "names": { "glow": { "colour": "#7aa2ff66", "size": 2 } }
+      "names": { "glow": { "colour": "#7aa2ff66", "size": 2 } },
+      "body": { "glow": { "colour": "#7aa2ff1a", "size": 1 } }
     },
     "particles": [
       { "preset": "sparkles", "on": "message.sent", "colours": ["#7aa2ff", "#ffffff"], "count": 10,
@@ -127,6 +135,9 @@
     "composer": "bottom",
     "messages": "flat",
     "chat_avatars": true,
+    "members_style": "list",
+    "grid": { "columns": 3, "size": 56 },
+    "tree": { "expand": "one", "root": "~/", "dms": "dm" },
     "irc": { "time_width": 56, "nick_width": 120, "separator": "│" },
     "bubbles": { "max_width": 72, "radius": 18,
                  "own": { "ground": "linear(180deg, #3558c9, #23409e)",
@@ -137,7 +148,8 @@
                "art": [{ "texture": "paper", "colour": "#f5f1e8", "opacity": 0.8, "position": "top",
                          "size": [72, 18], "rotation": -3 },
                        { "texture": "kraft", "colour": "#c8a878", "opacity": 0.5, "position": "bottom",
-                         "size": ["full", 6] }] }
+                         "size": ["full", 6] }],
+               "tab": { "text": "{name}", "font": "labels", "size": 11, "colour": "#141414" } }
   },
   "content": {
     "media": { "tint": { "colour": "#7aa2ff", "amount": 0.2 } },
@@ -151,8 +163,11 @@
   },
   "chrome": {
     "labels": { "members_group": "{role} — {n}", "new": "New", "composer": "Message #{channel}",
-                "typing": "{name} typing…", "reaction": "(+{n})" },
-    "prefix": { "channel": "", "author": "" },
+                "typing": "{name} typing…", "reaction": "(+{n})",
+                "topic": "{topic}", "member_count": "", "day": "{date}" },
+    "prefix": { "channel": "", "author": "", "member_by_role": [""] },
+    "system": { "join": "", "leave": "", "notice": "" },
+    "status": { "text": "{channel} · {typing}", "position": "below" },
     "suffix": { "author": "" },
     "time": "HH:MM",
     "hide": [],
@@ -170,6 +185,7 @@
   "variants": {
     "dark": {
       "base": "yap",
+      "content": { "names": { "palette": ["#7aa2ff", "#93e0b3", "#f5c27a", "#e79bd8"] } },
       "colours": {
         "accent": "#7aa2ff",
         "accent-hover": "#93b4ff",
@@ -182,7 +198,8 @@
         "row-selected-text": "#eef0f4",
         "card-button": "#00000080",
         "card-button-hover": "#000000b3",
-        "card-button-icon": "#ffffff"
+        "card-button-icon": "#ffffff",
+        "mention-chip": "#93b4ff"
       }
     },
     "light": {
