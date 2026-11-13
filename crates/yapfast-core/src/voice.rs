@@ -106,9 +106,14 @@ pub struct StreamQuality {
     /// Frames a second: 15, 30 or 60.
     pub fps: u32,
     /// A sharper picture from more of the encoder's work, at about twice
-    /// the CPU.
+    /// the CPU, for the encoder on the processor: a GPU's has one tuning, which
+    /// the measurements leave it.
     #[serde(default)]
     pub high_quality: bool,
+    /// What the share may take from the uplink, which is what its ceiling is
+    /// declared as.
+    #[serde(default)]
+    pub ceiling: Ceiling,
 }
 
 impl Default for StreamQuality {
@@ -117,6 +122,48 @@ impl Default for StreamQuality {
             resolution: Resolution::P1080,
             fps: 30,
             high_quality: false,
+            ceiling: Ceiling::default(),
+        }
+    }
+}
+
+/// What a share may take from the uplink: bits per pixel a frame, which is what
+/// its ceiling is declared as. Measured at 3440x1440 and 60 fps
+/// (`docs/measurements/README.md`): 0.03 is transparent on a desktop at 57.2 dB
+/// of PSNR-Y and 40.4 dB on motion, 0.07 is what the picture is worth (59.0 and
+/// 43.5), and 0.12 is 48.2 dB on motion for the uplink to carry.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Ceiling {
+    /// 0.03 bits a pixel a frame: for a slow or busy uplink.
+    Lean,
+    /// 0.07, what the picture is worth, and the share's unless it asks
+    /// otherwise.
+    #[default]
+    Balanced,
+    /// 0.12: for motion, at the dearest to the uplink.
+    Sharp,
+}
+
+impl Ceiling {
+    /// The menu's choices, in the order it lists them.
+    pub const ALL: [Self; 3] = [Self::Lean, Self::Balanced, Self::Sharp];
+
+    /// Bits per pixel a frame a share of this ceiling declares.
+    pub const fn bits_per_pixel(self) -> f64 {
+        match self {
+            Self::Lean => 0.03,
+            Self::Balanced => 0.07,
+            Self::Sharp => 0.12,
+        }
+    }
+
+    /// How the choice is written, in the log and the menu.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Lean => "lean",
+            Self::Balanced => "balanced",
+            Self::Sharp => "sharp",
         }
     }
 }

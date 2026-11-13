@@ -1393,10 +1393,6 @@ struct Layout {
     /// Screen sharing encodes on the GPU where it has an encoder; on unless
     /// turned off.
     gpu_encoding: Option<bool>,
-    /// Whether a share declares the experimental ceiling instead of the safe
-    /// one; see `AdvancedSettings::high-bitrate`.
-    #[serde(default)]
-    high_bitrate: Option<bool>,
     /// The codec a share asks Discord for first; see [`StreamCodec`] and
     /// `AdvancedSettings::stream-codec`.
     #[serde(default)]
@@ -1718,11 +1714,9 @@ impl Layout {
         window.set_gpu_rendering(self.gpu_rendering);
         window.set_share_on_the_card(yapfast_core::gpu::shares_on_the_card());
         window.set_gpu_encoding(self.gpu_encoding.unwrap_or(true));
-        window.set_high_bitrate(self.high_bitrate.unwrap_or(false));
         window.set_stream_codec(choice(&StreamCodec::ALL, self.stream_codec));
         #[cfg(feature = "discord")]
         yapfast_core::stream_worker::set_hardware_encoding(self.gpu_encoding.unwrap_or(true));
-        yapfast_core::stream_worker::set_high_bitrate(self.high_bitrate.unwrap_or(false));
         yapfast_core::stream_worker::set_stream_codec(self.stream_codec);
         // Before any share opens, which is what asks: a capture already
         // running keeps the way it started with.

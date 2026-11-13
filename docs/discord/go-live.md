@@ -203,13 +203,18 @@ trials 1080p30 at 3.5 or 5 Mbit/s for them. The worker converts captured
 frames to I420 with libyuv, scales them with libyuv's filtering scaler, and
 encodes those; the preview is the same picture scaled down to 720p.
 
-9 Mbit/s is the safe cap because it is already well above what Discord's own
-web client asks for: its screen-share ladder is `desktopBitrate {min: 500_000,
-max: 3_500_000, target: 600_000}`, its 1080p30 overrides are 3.5 or 5 Mbit/s
-and its tier-1 720p60 one is 9. Settings, Advanced's "Raise the stream's
-bitrate cap (experimental)" lifts the cap to 35 Mbit/s, what 3840x2160 at 60 is
-worth and far past anything Discord Web declares, for the next share started: a
-stream already running declared its ceiling when it began, and keeps it.
+9 Mbit/s was the safe cap while the menu had no ceiling of its own: it is
+already well above what Discord's own web client asks for — its screen-share
+ladder is `desktopBitrate {min: 500_000, max: 3_500_000, target: 600_000}`, its
+1080p30 overrides are 3.5 or 5 Mbit/s and its tier-1 720p60 one is 9 — and it cut
+every picture larger than 1080p to it. The share menu now asks the question the
+cap was standing in for, as **Quality**: `Lean` declares 0.03 bits a pixel a
+frame, `Balanced` 0.07, and `Sharp` 0.12, each capped at 35 Mbit/s, which is what
+3840x2160 at 60 is worth. A stream already running declared its ceiling when it
+began, and keeps it; the next share declares what the menu says. What each choice
+measures is in [the measurements](../measurements/README.md): at 3440x1440 and 60
+fps a desktop is transparent at `Lean` (57.2 dB of PSNR-Y against the source) and
+motion gains 4.7 dB from `Balanced` to `Sharp`, which spends the uplink for it.
 
 Those numbers are measured here rather than copied: four-second clips at the p4
 low-latency setting a stream opens with, VMAF against the source. Busy
@@ -1154,13 +1159,13 @@ and 64 a turn of 15.6 ms is 41 Mbit/s. The controller still limits the encoded
 bitrate; a larger batch does not raise the encoder's target or promise that an
 uplink can carry it.
 
-For high-resolution testing, enable **Raise the stream's bitrate cap
-(experimental)** in Settings. This retains the resolution-based ceiling up to
-35 Mbit/s. The `YAPFAST_STREAM_MAX_BITRATE` override is in kbit/s and overrides
-that formula; for example, `35000` declares a 35 Mbit/s ceiling at any resolution.
-Overrides below 500 kbit/s or too large for the 32-bit declaration are ignored
-with a warning. The declared ceiling is not a constant rate: still screens
-should use fewer bits and congestion can reduce the target.
+For high-resolution testing, the share menu's **Quality** row is what declares the
+ceiling: `Lean`, `Balanced` or `Sharp`, 0.03, 0.07 and 0.12 bits a pixel a frame,
+up to 35 Mbit/s. The `YAPFAST_STREAM_MAX_BITRATE` override is in kbit/s and
+overrides that choice; for example, `35000` declares a 35 Mbit/s ceiling at any
+resolution. Overrides below 500 kbit/s or too large for the 32-bit declaration
+are ignored with a warning. The declared ceiling is not a constant rate: still
+screens take fewer bits and congestion can reduce the target.
 
 The worker's incoming control queue holds at most 64 messages. If capture stalls,
 backpressure preserves their order instead of retaining an unlimited sequence of

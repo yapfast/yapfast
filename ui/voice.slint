@@ -1383,15 +1383,20 @@ export component ShareMenu inherits Rectangle {
     in-out property <int> pick-source;
     in-out property <int> pick-resolution;
     in-out property <int> pick-fps;
+    /// What the share may take from the uplink, as an index into
+    /// `yapfast_core::voice::Ceiling::ALL`: Lean, Balanced or Sharp. It is what
+    /// its ceiling is declared as, and the only choice that measurably changes
+    /// the picture: 0.03, 0.07 and 0.12 bits a pixel a frame.
+    in-out property <int> pick-quality;
     /// The processor's encoder's slower preset: a sharper picture for about
-    /// twice the CPU. Presets are the processor's encoder's to choose between;
-    /// see `card-encoding`.
+    /// twice the CPU. Presets are the processor's encoder's to choose between,
+    /// and a GPU's has one tuning that measures the same for half again the
+    /// encode time, so this row is the processor's alone; see `card-encoding`.
     in-out property <bool> pick-high-quality;
-    /// Whether the graphics card's encoder takes this share. It has one tuning —
-    /// the slower presets measure the same for half again the encode time — so
-    /// the row above says that here and can't be ticked.
+    /// Whether the graphics card's encoder takes this share. The menu then
+    /// offers the share's ceiling where the preset row would be.
     in property <bool> card-encoding;
-    callback go-live(int, int, int, bool);
+    callback go-live(int, int, int, int, bool);
     /// The menu's height with every choice showing. In a window too short for
     /// it, the menu is as tall as it gets and the choices scroll, above the
     /// button that starts the stream, which stays.
@@ -1478,15 +1483,38 @@ export component ShareMenu inherits Rectangle {
                 }
                 if !root.switching: HorizontalLayout {
                     padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
+                    Text { text: "QUALITY"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                }
+                // What the share may take from the uplink. Measured at
+                // 3440x1440 and 60 fps: the same desktop is transparent at 0.03
+                // (57 dB), and motion gains 4.7 dB from 0.07 to 0.12.
+                if !root.switching: VerticalLayout {
+                    spacing: 2px;
+                    MenuItem {
+                        text: "Lean"; subtitle: "0.03 bits a pixel: for a slow uplink";
+                        checked: root.pick-quality == 0;
+                        clicked => { root.pick-quality = 0; }
+                    }
+                    MenuItem {
+                        text: "Balanced"; subtitle: "0.07: what the picture is worth";
+                        checked: root.pick-quality == 1;
+                        clicked => { root.pick-quality = 1; }
+                    }
+                    MenuItem {
+                        text: "Sharp"; subtitle: "0.12: for motion, at the uplink's expense";
+                        checked: root.pick-quality == 2;
+                        clicked => { root.pick-quality = 2; }
+                    }
+                }
+                if !root.switching && !root.card-encoding: HorizontalLayout {
+                    padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
                     Text { text: "ENCODING"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
                 }
-                if !root.switching: MenuItem {
-                    text: "Higher quality";
-                    subtitle: root.card-encoding
-                        ? "The card's encoder has one tuning"
-                        : "Sharper, at twice the CPU";
+                // A GPU's encoder has one tuning, so the ceiling above is its
+                // choice and this row is the processor's alone.
+                if !root.switching && !root.card-encoding: MenuItem {
+                    text: "Higher quality"; subtitle: "Sharper, at twice the CPU";
                     checkbox: true; checked: root.pick-high-quality;
-                    disabled: root.card-encoding;
                     clicked => { root.pick-high-quality = !root.pick-high-quality; }
                 }
             }
@@ -1496,7 +1524,7 @@ export component ShareMenu inherits Rectangle {
             padding: 4px; padding-top: 10px;
             ActionButton {
                 text: root.switching ? "Switch" : "Go Live"; icon: @image-url("icons/screen-share.svg"); primary: true; horizontal-stretch: 1;
-                clicked => { root.go-live(root.pick-source, root.pick-resolution, root.pick-fps, root.pick-high-quality); }
+                clicked => { root.go-live(root.pick-source, root.pick-resolution, root.pick-fps, root.pick-quality, root.pick-high-quality); }
             }
         }
     }

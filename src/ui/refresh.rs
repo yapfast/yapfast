@@ -4459,6 +4459,12 @@ impl Adapter {
             .clamp(1, 60);
         window.set_stream_tick_ms((1000 / fps) as i32);
         window.set_share_high_quality(voice.quality.high_quality);
+        window.set_share_quality(
+            voice::Ceiling::ALL
+                .iter()
+                .position(|ceiling| *ceiling == voice.quality.ceiling)
+                .unwrap_or(1) as i32,
+        );
         window.set_share_live(
             voice
                 .sharing

@@ -69,13 +69,11 @@ const MAX_BATCH: usize = 64;
 /// picture needs, which is bits per pixel per frame, measured here.
 ///
 /// A share's quality is bits per pixel per frame and nothing else, so the
-/// declaration follows the picture rather than a step at 720 lines:
-/// [`BITS_PER_PIXEL`] times the pixels times the frames a second, floored at
-/// what a small picture is worth and capped at [`MOST_SAFE`] — or at
-/// [`MOST_EXPERIMENTAL`], which is what 3840x2160 at 60 is worth, with
-/// Settings' switch on. 1080p60 declares 8.7 Mbit/s, which the measurements
-/// below put at the same quality; a 3440x1440 share at 60 asks for 20.8 and is
-/// declared 9 unless the switch raises the cap.
+/// declaration follows the picture rather than a step at 720 lines: the share's
+/// ceiling choice — [`LEAN`], [`WORTH`] or [`SHARP`] — times the pixels times the
+/// frames a second, floored at what a small picture is worth and capped at
+/// [`MOST`]. 1080p60 declares 8.7 Mbit/s at [`WORTH`], which the measurements
+/// below put at the same quality; a 3440x1440 share at 60 asks for 20.8.
 ///
 /// Measured here, four-second clips at the p4 low-latency setting the stream
 /// uses, VMAF against the source: busy 3840x2160@60 through AV1 scores 92.9 at
@@ -111,7 +109,7 @@ const MAX_BATCH: usize = 64;
 /// a Go Live stream opens at 1280x720 with those bounds, and the overrides it
 /// computes per resolution are 3.5 or 5 Mbit/s at 1080p30 (the
 /// `2026-05-frontier-tuning` guild trial) and 9 Mbit/s for 720p60 in a tier-1
-/// guild under `2026-06-server-ladder`. So even [`MOST_SAFE`] is above what the
+/// guild under `2026-06-server-ladder`. So even [`MOST`] is above what the
 /// client it copies would use, and that is the direction to err in: a 1080p
 /// share at 3.5 Mbit/s is soft, and the congestion control holds the rate below
 /// whatever is declared anyway.
@@ -120,47 +118,48 @@ pub fn max_bitrate(width: u32, height: u32, fps: u32) -> u32 {
         return bits;
     }
     let pixels = f64::from(width) * f64::from(height) * f64::from(fps);
-    let most = if HIGH_BITRATE.load(Ordering::Relaxed) {
-        MOST_EXPERIMENTAL
-    } else {
-        MOST_SAFE
-    };
-    ((pixels * BITS_PER_PIXEL) as u64).clamp(u64::from(LEAST), u64::from(most)) as u32
+    let bits = f64::from_bits(BITS_PER_PIXEL.load(Ordering::Relaxed));
+    ((pixels * bits) as u64).clamp(u64::from(LEAST), u64::from(MOST)) as u32
 }
 
-/// Whether a stream may declare more than [`MOST_SAFE`]: Settings' switch, off
-/// until the UI says otherwise. It's read on every declaration rather than kept,
-/// so a share started after the switch is flipped declares the new ceiling.
-static HIGH_BITRATE: AtomicBool = AtomicBool::new(false);
+/// What a share may take from the uplink, in bits per pixel a frame, as the
+/// share menu's quality choice asked for: [`LEAN`], [`WORTH`] or [`SHARP`]. It is
+/// read on every declaration rather than kept, so a share started after the
+/// choice is made declares the new ceiling.
+static BITS_PER_PIXEL: AtomicU64 = AtomicU64::new(f64::to_bits(WORTH));
 
-/// Raises what a stream declares its picture worth to 35 Mbit/s, from 9.
+/// Sets what a share may take from the uplink, in bits per pixel a frame; see
+/// [`BITS_PER_PIXEL`].
 ///
-/// The worker is a process of its own and op 12 carries the ceiling once, when
-/// a share starts, so this has to be set in the process that declares the
-/// stream: a choice made in Yapfast's own means nothing where the stream is
-/// actually sent from. A stream already running declared its own ceiling when it
-/// started and keeps it; the next one declares this.
-pub fn set_high_bitrate(on: bool) {
-    HIGH_BITRATE.store(on, Ordering::Relaxed);
+/// The worker is a process of its own and op 12 carries the ceiling once, when a
+/// share starts, so this has to be set in the process that declares the stream: a
+/// choice made in Yapfast's own means nothing where the stream is actually sent
+/// from. A stream already running declared its own ceiling when it started and
+/// keeps it; the next one declares this.
+pub fn set_ceiling(bits_per_pixel: f64) {
+    BITS_PER_PIXEL.store(bits_per_pixel.to_bits(), Ordering::Relaxed);
 }
 
+/// What a share takes when it asks for the least: measured at 3440x1440, 60 fps,
+/// 0.03 bits a pixel a frame is transparent on a desktop (57.2 dB of PSNR-Y) and
+/// 40.4 dB on motion, for an uplink with little to spare.
+pub const LEAN: f64 = 0.03;
 /// Bits per pixel per frame a share is worth: measured, see [`max_bitrate`].
-const BITS_PER_PIXEL: f64 = 0.07;
+pub const WORTH: f64 = 0.07;
+/// What a share takes when it asks for the most: 0.12 bits a pixel a frame is
+/// 48.2 dB on motion at 3440x1440, 60 fps — 4.7 dB over [`WORTH`] — and costs the
+/// uplink that much.
+pub const SHARP: f64 = 0.12;
 /// The least a share is declared, so a small or still picture isn't starved by
 /// a formula: a screen's own floor is 500 kbit/s, and this is above it.
 const LEAST: u32 = 3_500_000;
-/// The most a stream declares by default, which is above 1080p60's 8.7
-/// Mbit/s: Discord's own web client asks for far less — 5 Mbit/s at 1080p30
-/// and 9 at 720p60 — and what lies past this is unmeasured against a real
-/// viewer's machine and shared with everything else on the uplink, which is why
-/// raising it is a setting rather than the default.
-const MOST_SAFE: u32 = 9_000_000;
-/// And the most a stream may declare with Settings' switch on: 3840x2160 at 60
-/// through [`BITS_PER_PIXEL`], the largest share the interface offers, which is
-/// far past what Discord Web declares. A probe accepted more than this from
-/// Discord's server, so it's the path's to carry or not, and the measurement
-/// that makes it worth asking for is above.
-const MOST_EXPERIMENTAL: u32 = 35_000_000;
+/// The most a stream may declare: 35 Mbit/s, which is 0.12 bits a pixel a frame
+/// at 3840x2160 and 60 — the largest share the interface offers, a little past
+/// what 4K60 at [`WORTH`] asks for. A probe accepted more than this from
+/// Discord's server, so it is the path's to carry or not; past it nothing has
+/// been measured, and the rate the stream really sends is the controller's to
+/// hold.
+const MOST: u32 = 35_000_000;
 
 /// The bit/s a stream declares when a measurement overrides the cap, from
 /// `YAPFAST_STREAM_MAX_BITRATE` in kbit/s: the only way to try a declaration
@@ -2091,11 +2090,12 @@ mod tests {
 
     #[test]
     fn a_stream_starts_at_its_declared_ceiling() {
-        // The declaration is the picture's worth, 0.07 bit/pixel/frame between
-        // 3.5 and 9 Mbit/s, and the controller opens the stream there: that is
-        // what an encoder is opened at mid-stream, and what the first frame is
-        // encoded at before a report has said anything about the path. A path
-        // that can't carry it makes the controller come down.
+        // The declaration is the ceiling the share chose: 0.07 bit/pixel/frame
+        // unless it asked for another, floored at 3.5 Mbit/s and capped at 35,
+        // and the controller opens the stream there — what an encoder is opened
+        // at mid-stream, and what the first frame is encoded at before a report
+        // has said anything about the path. A path that can't carry it makes the
+        // controller come down.
         let (frames, _queued) = mpsc::channel(4);
         let (sounds, _heard) = mpsc::channel(8);
         let sender = |(width, height), fps| StreamSender {
@@ -2104,10 +2104,22 @@ mod tests {
             buffers: Arc::default(),
             shared: Shared::new((width, height), fps),
         };
-        assert_eq!(max_bitrate(1920, 1080, 60), 8_709_120, "under the cap");
-        assert_eq!(max_bitrate(3840, 2160, 60), MOST_SAFE, "4K60 is cut to it");
-        assert_eq!(max_bitrate(3440, 1440, 60), MOST_SAFE, "and so is 1440p60");
+        assert_eq!(
+            max_bitrate(1920, 1080, 60),
+            8_709_120,
+            "the worth, uncapped"
+        );
+        assert_eq!(max_bitrate(3440, 1440, 60), 20_805_120, "and at 1440p60");
+        assert_eq!(max_bitrate(3840, 2160, 60), 34_836_480, "and at 4K60");
         assert_eq!(max_bitrate(640, 360, 30), 3_500_000, "the floor");
+        // The share's own ceiling is what changes it, and 4K60 at the dearest
+        // choice asks for more than the most a stream may declare.
+        assert_eq!(
+            (3840.0 * 2160.0 * 60.0 * SHARP) as u32,
+            59_719_680,
+            "what 4K60 at SHARP would ask for"
+        );
+        assert!(MOST < (3840.0 * 2160.0 * 60.0 * SHARP) as u32);
         for (size, fps) in [((1920, 1080), 60), ((1280, 720), 30), ((3840, 2160), 30)] {
             let ceiling = u64::from(max_bitrate(size.0, size.1, fps));
             let sender = sender(size, fps);
@@ -2118,11 +2130,6 @@ mod tests {
                 "and not under the floor a screen is given"
             );
         }
-        // The experimental cap is what the formula gives 4K60, and the safe one
-        // is under it, so the switch is the only thing that spends the rest.
-        let four_k = (3840.0 * 2160.0 * 60.0 * BITS_PER_PIXEL) as u32;
-        assert!(MOST_EXPERIMENTAL >= four_k);
-        assert!(MOST_SAFE < four_k);
     }
 
     /// Growing the pool gives back the idle buffers of the size it leaves.

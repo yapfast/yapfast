@@ -175,12 +175,13 @@ pub enum Job {
         /// Encoding on the GPU's encoder, where it has one.
         #[serde(default)]
         hardware: bool,
-        /// Whether the stream may declare more than 9 Mbit/s for its picture,
-        /// Settings' experimental switch. It travels with the job for the same
+        /// What the stream may take from the uplink, in bits per pixel a frame:
+        /// the share menu's quality choice, 0.03, 0.07 or 0.12; see
+        /// [`crate::voice::Ceiling`]. It travels with the job for the same
         /// reason the capture's preference does: the worker is a process of its
         /// own, and it is where the stream is declared.
-        #[serde(default)]
-        high_bitrate: bool,
+        #[serde(default = "worth_a_pixel")]
+        ceiling: f64,
         /// The codec Settings' experimental choice asks Discord for first; see
         /// [`StreamCodec`]. It travels with the job for the same reason again:
         /// the worker is a process of its own, and it is where the codecs are
@@ -551,7 +552,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
             fps,
             effort,
             hardware,
-            high_bitrate,
+            ceiling,
             codec,
             capture: preference,
         } => {
@@ -559,7 +560,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
             // The stream is declared from here, so the ceiling comes with the
             // job: op 12 goes out once, with the rate this process was told to
             // allow, and the controller is seeded from it.
-            stream_connection::set_high_bitrate(high_bitrate);
+            stream_connection::set_ceiling(ceiling);
             // The codecs are offered from here too, so the setting's choice
             // comes with the job as well: it is this process that offers them.
             set_stream_codec(codec);
@@ -5553,17 +5554,10 @@ mod base64_pixels {
     }
 }
 
-/// Whether a stream may declare more than the safe cap for its picture:
-/// Settings' switch, off until the UI says. It travels with the job because the
-/// worker is a process of its own, and it is the worker that declares the
-/// stream: op 12 carries the ceiling once, when a share starts, so a share
-/// already running keeps the ceiling it declared.
-static HIGH_BITRATE: AtomicBool = AtomicBool::new(false);
-
-/// Raises the ceiling the next share declares, from 9 Mbit/s to 35; see
-/// [`stream_connection::set_high_bitrate`].
-pub fn set_high_bitrate(on: bool) {
-    HIGH_BITRATE.store(on, Ordering::Relaxed);
+/// The bits per pixel a frame a share declares when its job names none, which
+/// is what the menu offers by default; see [`crate::voice::Ceiling`].
+fn worth_a_pixel() -> f64 {
+    crate::voice::Ceiling::default().bits_per_pixel()
 }
 
 /// The codec Settings' experimental choice asks a share to offer first, as an
@@ -5688,7 +5682,7 @@ impl Worker {
                 Effort::Light
             },
             hardware: crate::encode::hardware(),
-            high_bitrate: HIGH_BITRATE.load(Ordering::Relaxed),
+            ceiling: quality.ceiling.bits_per_pixel(),
             codec: stream_codec(),
             capture: crate::capture::preference(),
         };
@@ -6439,7 +6433,7 @@ mod tests {
             fps: 30,
             effort: Effort::Light,
             hardware: false,
-            high_bitrate: false,
+            ceiling: 0.07,
             codec: StreamCodec::Automatic,
             capture: crate::capture::Preference::Auto,
         };
@@ -7178,7 +7172,7 @@ mod tests {
             fps: 30,
             effort: Effort::Light,
             hardware,
-            high_bitrate: false,
+            ceiling: 0.07,
             codec: StreamCodec::Automatic,
             capture: crate::capture::Preference::Auto,
         };
@@ -7892,7 +7886,7 @@ root.mainloop()
             fps: 60,
             effort: Effort::Light,
             hardware: false,
-            high_bitrate: false,
+            ceiling: 0.07,
             codec: StreamCodec::Automatic,
             capture: crate::capture::Preference::Auto,
         };
@@ -7951,7 +7945,7 @@ root.mainloop()
             fps: 30,
             effort: Effort::Light,
             hardware: false,
-            high_bitrate: false,
+            ceiling: 0.07,
             codec: StreamCodec::Automatic,
             capture: crate::capture::Preference::Auto,
         };
@@ -8096,7 +8090,7 @@ root.mainloop()
                 fps: 30,
                 effort: Effort::Light,
                 hardware: false,
-                high_bitrate: false,
+                ceiling: 0.07,
                 codec: StreamCodec::Automatic,
                 capture: crate::capture::Preference::Auto,
             };
@@ -8152,7 +8146,7 @@ root.mainloop()
             fps: 30,
             effort: Effort::Light,
             hardware: false,
-            high_bitrate: false,
+            ceiling: 0.07,
             codec: StreamCodec::Automatic,
             capture: crate::capture::Preference::Auto,
         };
@@ -8190,7 +8184,7 @@ root.mainloop()
             fps: 1,
             effort: Effort::Light,
             hardware: false,
-            high_bitrate: false,
+            ceiling: 0.07,
             codec: StreamCodec::Automatic,
             capture: crate::capture::Preference::Auto,
         };

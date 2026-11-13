@@ -1353,9 +1353,9 @@ export component YapfastWindow inherits Window {
     /// Whether the machine's card can share without a copy of each picture; the
     /// settings' note is shown only where it can.
     in property <bool> share-on-the-card: false;
-    /// Whether a share declares the experimental ceiling: 35 Mbit/s rather than
-    /// the safe 9, far above what Discord's own clients ask for.
-    in-out property <bool> high-bitrate: false;
+    /// Which ceiling a share declares, as an index into
+    /// `yapfast_core::voice::Ceiling::ALL`: Lean, Balanced or Sharp.
+    in-out property <int> share-quality: 1;
     /// Which codec a share asks Discord for first, as an index into
     /// `yapfast_core::stream_worker::StreamCodec::ALL`: Automatic unless
     /// chosen.
@@ -1474,10 +1474,11 @@ export component YapfastWindow inherits Window {
     callback toggle-share;
     /// Share what share-screens, share-windows, then share-cameras, list at
     /// this index, or the screen when they list none, at this resolution, as
-    /// in share-resolution, frame rate, and quality, as in share-high-quality.
+    /// in share-resolution, frame rate, the ceiling as in share-quality, and
+    /// the processor's preset, as in share-high-quality.
     /// Where the system's dialog picks a screen or window (!share-lists), a
     /// choice of it comes before the cameras.
-    callback go-live(int, int, int, bool);
+    callback go-live(int, int, int, int, bool);
     /// While sharing, share what the share menu lists at this index in place
     /// of what's shared, as go-live counts them.
     callback switch-live(int);
@@ -1959,6 +1960,7 @@ export component YapfastWindow inherits Window {
     property <int> pick-source;
     property <int> pick-resolution;
     property <int> pick-fps;
+    property <int> pick-quality;
     property <bool> pick-high-quality;
     // The menu switches what's shared, as it was when it opened.
     property <bool> pick-switch;
@@ -1967,6 +1969,7 @@ export component YapfastWindow inherits Window {
         root.pick-source = 0;
         root.pick-resolution = root.share-resolution;
         root.pick-fps = root.share-fps;
+        root.pick-quality = root.share-quality;
         root.pick-high-quality = root.share-high-quality;
         root.pick-switch = root.sharing;
         // Shown once the list is in, so it opens at its full height.
@@ -2003,15 +2006,16 @@ export component YapfastWindow inherits Window {
             screens: root.share-screens; windows: root.share-windows; cameras: root.share-cameras;
             dialog: !root.share-lists; switching: root.pick-switch;
             pick-source <=> root.pick-source; pick-resolution <=> root.pick-resolution; pick-fps <=> root.pick-fps;
+            pick-quality <=> root.pick-quality;
             pick-high-quality <=> root.pick-high-quality;
-            // The card's encoder is one setting, so the menu doesn't offer a
-            // slower preset where that's what will encode the share.
+            // The card's encoder has one tuning, so the menu offers the share's
+            // ceiling instead where that's what will encode it.
             card-encoding: root.gpu-encoding;
-            go-live(source, resolution, fps, high-quality) => {
+            go-live(source, resolution, fps, quality, high-quality) => {
                 if root.pick-switch {
                     root.switch-live(source);
                 } else {
-                    root.go-live(source, resolution, fps, high-quality);
+                    root.go-live(source, resolution, fps, quality, high-quality);
                 }
                 share-menu.close();
             }
@@ -4355,7 +4359,6 @@ export component YapfastWindow inherits Window {
             gpu-rendering <=> root.gpu-rendering; gpu-running: root.gpu-running;
             gpu-encoding <=> root.gpu-encoding;
             share-on-the-card: root.share-on-the-card;
-            high-bitrate <=> root.high-bitrate;
             stream-codec <=> root.stream-codec;
             close-to-tray <=> root.close-to-tray; tray-available: root.tray-available;
             multiple-windows <=> root.multiple-windows;

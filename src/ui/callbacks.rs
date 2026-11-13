@@ -2291,8 +2291,6 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.adjust_each_sound = window.get_adjust_each_sound();
         layout.gpu_rendering = window.get_gpu_rendering();
         layout.gpu_encoding = Some(window.get_gpu_encoding());
-        layout.high_bitrate = Some(window.get_high_bitrate());
-        yapfast_core::stream_worker::set_high_bitrate(window.get_high_bitrate());
         layout.stream_codec = chosen(&StreamCodec::ALL, window.get_stream_codec());
         yapfast_core::stream_worker::set_stream_codec(layout.stream_codec);
         #[cfg(feature = "discord")]
@@ -3140,7 +3138,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     });
     let state = adapter.clone();
     let weak = window.as_weak();
-    window.on_go_live(move |source, resolution, fps, high_quality| {
+    window.on_go_live(move |source, resolution, fps, ceiling, high_quality| {
         if let Some(window) = weak.upgrade() {
             #[cfg(feature = "discord")]
             {
@@ -3161,6 +3159,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 resolution,
                 fps: fps.clamp(1, 60) as u32,
                 high_quality,
+                ceiling: *voice::Ceiling::ALL
+                    .get(ceiling.max(0) as usize)
+                    .unwrap_or(&voice::Ceiling::Balanced),
             };
             state
                 .borrow_mut()
