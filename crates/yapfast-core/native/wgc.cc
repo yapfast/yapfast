@@ -16,10 +16,19 @@
  *     and no DispatcherQueue or message pump is needed: frames are polled with
  *     `TryGetNextFrame`. That is what makes a capture thread possible at all,
  *     since none of the stream's threads pump anything.
- *   - the pixel format is BGRA whatever the monitor is set to. WGC tonemaps an
- *     HDR desktop to SDR for the caller, so the same texture format encodes
- *     correctly on an HDR screen, where Desktop Duplication hands over scRGB
- *     half-floats that NVENC misreads.
+ *   - the pixel format is asked for, not assumed. A screen showing SDR is
+ *     captured as BGRA, which is the one format NVENC takes without a
+ *     conversion; a screen showing HDR is captured as `R16G16B16A16_FLOAT`,
+ *     which is the scRGB picture the compositor really draws it as, so that the
+ *     encoder's video processor can tone-map it on the card. Asking for BGRA on
+ *     an HDR screen instead gets the compositor's own tone map, already burnt
+ *     into 8 bits, and nothing downstream can tell what it was.
+ *     Whether the screen shows HDR is the caller's answer, from the system's
+ *     display configuration; nothing here guesses it from pixels. A driver that
+ *     won't make a pool of the float picture is not a failed capture: the 8-bit
+ *     one is asked for instead and the refusal is reported in the line
+ *     `yapfast_wgc_describe` writes, which is the 8-bit behaviour this file had
+ *     before the float picture existed.
  *   - the capture is of one display, by HMONITOR, or of one window, by HWND, and
  *     not of a desktop: a caller with several screens says which, and a caller
  *     that means a window says which window. The two are different doors into
@@ -219,8 +228,17 @@ struct yapfast_wgc {
   LONG closed;
 
   /* The size the pool is at, which is the size of the frames it hands out until
-   * the thing captured is resized. */
+   * the thing captured is resized, and the format it holds: BGRA, or the
+   * half-float scRGB picture of an HDR screen, which the pool is remade in when
+   * the captured thing is resized. */
   unsigned width, height;
+  DXGI_FORMAT format;
+
+  /* What the frames are, and which call refused the float picture when one was
+   * asked for and didn't take, as one clause of the report: a share that ended
+   * up on the 8-bit picture says so here rather than looking like one whose
+   * screen never showed HDR. */
+  char pixels[192];
 
   /* Whether the item is of a window rather than a display, and which window: a
    * window capture has an identity of its own to ask about on every frame, where
@@ -644,11 +662,26 @@ static void include_pointer(yapfast_wgc *capture) {
 
 /* ---------------------------------------------------------------- the capture */
 
+/* The format a pool asks Windows for, from the DXGI format the capture is in: the
+ * two are the same picture under two names, one DXGI's and one WinRT's. */
+static directx_abi::DirectXPixelFormat pixel_format(DXGI_FORMAT format) {
+  if (format == DXGI_FORMAT_R16G16B16A16_FLOAT)
+    return directx_abi::DirectXPixelFormat_R16G16B16A16Float;
+  return directx_abi::DirectXPixelFormat_B8G8R8A8UIntNormalized;
+}
+
 /* The pool a capture's frames arrive in: free-threaded so that no thread owns it
  * and TryGetNextFrame can be called from the capture thread, two buffers so that
- * one can be read while the compositor fills the other, and BGRA because that is
- * the format Windows Graphics Capture delivers and the one NVENC takes without a
- * conversion. */
+ * one can be read while the compositor fills the other, and in the format the
+ * capture was opened for: BGRA, which is what NVENC takes without a conversion,
+ * or the half-float scRGB picture of an HDR screen, which the encoder's video
+ * processor tone-maps on the card.
+ *
+ * A pool that won't hold the float picture is answered by asking for the 8-bit
+ * one, which is what this file delivered before it asked for anything else: an
+ * HDR share whose driver refuses the float picture is a share on the same
+ * picture as before with a sentence saying which call refused, not a capture
+ * that fails. */
 static HRESULT make_pool(yapfast_wgc *capture, ABI::Windows::Graphics::SizeInt32 size) {
   capture_abi::IDirect3D11CaptureFramePoolStatics2 *statics = NULL;
   HSTRING_HEADER header;
@@ -662,9 +695,18 @@ static HRESULT make_pool(yapfast_wgc *capture, ABI::Windows::Graphics::SizeInt32
   if (FAILED(status)) return status;
   status = RoGetActivationFactory(name, IID_PPV_ARGS(&statics));
   if (FAILED(status)) return status;
-  status = statics->CreateFreeThreaded(
-      (direct3d11_abi::IDirect3DDevice *)capture->graphics_device,
-      directx_abi::DirectXPixelFormat_B8G8R8A8UIntNormalized, 2, size, &capture->pool);
+  status = statics->CreateFreeThreaded((direct3d11_abi::IDirect3DDevice *)capture->graphics_device,
+                                      pixel_format(capture->format), 2, size, &capture->pool);
+  if (FAILED(status) && capture->format == DXGI_FORMAT_R16G16B16A16_FLOAT) {
+    snprintf(capture->pixels, sizeof capture->pixels,
+             "the screen shows HDR, and the frame pool refused the 16-bit float picture "
+             "(CreateFreeThreaded, 0x%08lX): the frames are BGRA8, which Windows tone-maps "
+             "itself",
+             (unsigned long)status);
+    capture->format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    status = statics->CreateFreeThreaded((direct3d11_abi::IDirect3DDevice *)capture->graphics_device,
+                                        pixel_format(capture->format), 2, size, &capture->pool);
+  }
   statics->Release();
   return status;
 }
@@ -780,8 +822,10 @@ static void name_window(yapfast_wgc *capture) {
  * NULL, or of `target` as a window when `want_window` is set, and starts it: the
  * device (made here, or the one handed in), the frame pool on it, the session,
  * the request that it draw no border, and the subscription to the item ending.
- * NULL with `why` filled in when anything refused. */
-static yapfast_wgc *open_capture(void *given, int want_window, void *target, char *why,
+ * `hdr` is the caller's answer to whether the display shows HDR, which decides
+ * the format the frames arrive in: the half-float scRGB picture where it does,
+ * and BGRA where it doesn't. NULL with `why` filled in when anything refused. */
+static yapfast_wgc *open_capture(void *given, int want_window, void *target, int hdr, char *why,
                                  size_t size) {
   yapfast_wgc *capture = NULL;
   DXGI_OUTPUT_DESC output;
@@ -818,6 +862,14 @@ static yapfast_wgc *open_capture(void *given, int want_window, void *target, cha
   }
   capture->is_window = want_window;
   capture->window = want_window ? (HWND)target : NULL;
+  /* The format is the caller's answer to what the display shows, and it is what
+   * every pool this capture makes holds: the scRGB picture an HDR screen
+   * composes in, or the 8-bit one everything reads. */
+  capture->format = hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_B8G8R8A8_UNORM;
+  snprintf(capture->pixels, sizeof capture->pixels, "%s",
+           capture->format == DXGI_FORMAT_R16G16B16A16_FLOAT
+               ? "the frames are the 16-bit float scRGB picture an HDR screen hands over"
+               : "the frames are BGRA8, which the encoder reads as they are");
   if (capture->is_window) {
     /* A window is composited on the adapter that drives the display it mostly
      * sits on, so that display answers which card to make the device on — the
@@ -886,6 +938,20 @@ static yapfast_wgc *open_capture(void *given, int want_window, void *target, cha
           "D3D11_CREATE_DEVICE_BGRA_SUPPORT can",
           (unsigned long)status, (unsigned long)support);
       goto failed;
+    }
+    /* The float picture is held by the same device, and a device that can't hold
+     * it is not a reason to refuse the capture: the 8-bit picture is asked for
+     * instead, and the sentence the report carries names what refused. */
+    if (capture->format == DXGI_FORMAT_R16G16B16A16_FLOAT) {
+      status = capture->device->CheckFormatSupport(DXGI_FORMAT_R16G16B16A16_FLOAT, &support);
+      if (FAILED(status) || !(support & D3D11_FORMAT_SUPPORT_TEXTURE2D)) {
+        snprintf(capture->pixels, sizeof capture->pixels,
+                 "the screen shows HDR, and the device handed in can't hold the 16-bit float "
+                 "picture (CheckFormatSupport, 0x%08lX, formats 0x%08lX): the frames are BGRA8, "
+                 "which Windows tone-maps itself",
+                 (unsigned long)status, (unsigned long)support);
+        capture->format = DXGI_FORMAT_B8G8R8A8_UNORM;
+      }
     }
   } else {
     status = D3D11CreateDevice((IDXGIAdapter *)capture->adapter, D3D_DRIVER_TYPE_UNKNOWN, NULL,
@@ -985,9 +1051,10 @@ failed:
 }
 
 /* Opens a capture of `monitor` with a device of its own, made on the adapter
- * that drives that display. NULL with `why` filled in when anything refused. */
-extern "C" yapfast_wgc *yapfast_wgc_open(void *monitor, char *why, size_t size) {
-  return open_capture(NULL, 0, monitor, why, size);
+ * that drives that display, `hdr` asking for the display's own HDR picture rather
+ * than SDR's. NULL with `why` filled in when anything refused. */
+extern "C" yapfast_wgc *yapfast_wgc_open(void *monitor, int hdr, char *why, size_t size) {
+  return open_capture(NULL, 0, monitor, hdr, why, size);
 }
 
 /* Opens a capture of `monitor` on `device`, a D3D11 device the caller already
@@ -1001,8 +1068,9 @@ extern "C" yapfast_wgc *yapfast_wgc_open(void *monitor, char *why, size_t size) 
  * name, since either would otherwise show up as a pool that wouldn't be created
  * or as a frame that encodes as noise. NULL with `why` filled in when anything
  * refused. */
-extern "C" yapfast_wgc *yapfast_wgc_open_on(void *device, void *monitor, char *why, size_t size) {
-  return open_capture(device, 0, monitor, why, size);
+extern "C" yapfast_wgc *yapfast_wgc_open_on(void *device, void *monitor, int hdr, char *why,
+                                            size_t size) {
+  return open_capture(device, 0, monitor, hdr, why, size);
 }
 
 /* Opens a capture of one window, `window` being that window's own HWND, with a
@@ -1011,17 +1079,17 @@ extern "C" yapfast_wgc *yapfast_wgc_open_on(void *device, void *monitor, char *w
  * window, and the desktop itself are each refused with the reason in `why`, since
  * a caller that asked for one window must never be handed a picture of its
  * screen. NULL with `why` filled in when anything refused. */
-extern "C" yapfast_wgc *yapfast_wgc_open_window(void *window, char *why, size_t size) {
-  return open_capture(NULL, 1, window, why, size);
+extern "C" yapfast_wgc *yapfast_wgc_open_window(void *window, int hdr, char *why, size_t size) {
+  return open_capture(NULL, 1, window, hdr, why, size);
 }
 
 /* Opens a capture of one window on `device`, borrowed exactly as
  * `yapfast_wgc_open_on` borrows it and checked the same way: a device made on
  * another card than the window's display is refused by name rather than copying
  * every frame between cards. The window is checked the same way as above. */
-extern "C" yapfast_wgc *yapfast_wgc_open_window_on(void *device, void *window, char *why,
-                                                  size_t size) {
-  return open_capture(device, 1, window, why, size);
+extern "C" yapfast_wgc *yapfast_wgc_open_window_on(void *device, void *window, int hdr, char *why,
+                                                   size_t size) {
+  return open_capture(device, 1, window, hdr, why, size);
 }
 
 /* The next frame, if the compositor has made one. */
@@ -1125,9 +1193,8 @@ extern "C" int yapfast_wgc_frame(yapfast_wgc *capture, void **texture, char *why
      * pool, because the session is bound to this one. */
     capture->width = (unsigned)content.Width;
     capture->height = (unsigned)content.Height;
-    status = capture->pool->Recreate(
-        (direct3d11_abi::IDirect3DDevice *)capture->graphics_device,
-        directx_abi::DirectXPixelFormat_B8G8R8A8UIntNormalized, 2, content);
+    status = capture->pool->Recreate((direct3d11_abi::IDirect3DDevice *)capture->graphics_device,
+                                     pixel_format(capture->format), 2, content);
     frame->Release();
     if (FAILED(status)) {
       refused(why, size, "Direct3D11CaptureFramePool::Recreate", status);
@@ -1185,6 +1252,15 @@ extern "C" void yapfast_wgc_content_size(yapfast_wgc *capture, unsigned *width, 
  * otherwise; releasing it is that owner's business, and never a reader's. */
 extern "C" void *yapfast_wgc_device(yapfast_wgc *capture) {
   return capture ? (void *)capture->device : NULL;
+}
+
+/* Whether this capture's frames are the 16-bit float scRGB picture an HDR screen
+ * hands over, rather than BGRA8: what a caller that encodes them has to know to
+ * tone-map them on the card. It is not what was asked for — it is what the pool
+ * took, so an HDR screen whose driver refused the float picture answers 0 here
+ * and says in `yapfast_wgc_describe` what refused it. */
+extern "C" int yapfast_wgc_hdr(yapfast_wgc *capture) {
+  return capture && capture->format == DXGI_FORMAT_R16G16B16A16_FLOAT;
 }
 
 /* Whether this capture's yellow border is actually off: 1 only when
@@ -1251,22 +1327,22 @@ extern "C" void yapfast_wgc_describe(yapfast_wgc *capture, char *text, size_t si
   if (capture->is_window) {
     snprintf(text, size,
              "the window \"%s\" (class %s, window %p) on %s, %ux%u, through %s (LUID "
-             "%08lX:%08lX, output %u); %s; %s",
+             "%08lX:%08lX, output %u); %s; %s; %s",
              capture->window_title[0] ? capture->window_title : "(untitled)",
              capture->window_class[0] ? capture->window_class : "(an unnamed class)",
              (void *)capture->window,
              capture->display[0] ? capture->display : "(an unnamed display)", capture->width,
              capture->height, capture->card[0] ? capture->card : "(an unnamed adapter)",
              (unsigned long)capture->luid.HighPart, (unsigned long)capture->luid.LowPart,
-             capture->output, capture->border, capture->pointer);
+             capture->output, capture->border, capture->pointer, capture->pixels);
     return;
   }
-  snprintf(text, size, "%s %s, %ux%u, through %s (LUID %08lX:%08lX, output %u); %s; %s",
+  snprintf(text, size, "%s %s, %ux%u, through %s (LUID %08lX:%08lX, output %u); %s; %s; %s",
            capture->primary ? "the primary display" : "a display",
            capture->display[0] ? capture->display : "(unnamed)", capture->width, capture->height,
            capture->card[0] ? capture->card : "(an unnamed adapter)",
            (unsigned long)capture->luid.HighPart, (unsigned long)capture->luid.LowPart,
-           capture->output, capture->border, capture->pointer);
+           capture->output, capture->border, capture->pointer, capture->pixels);
 }
 
 /* Stops the capture and lets everything go. A capture whose end has already come

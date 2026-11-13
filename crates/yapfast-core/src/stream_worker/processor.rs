@@ -257,6 +257,12 @@ pub(crate) struct Scratch {
 /// Windows 11 uses Graphics Capture. Reading a tone would take the picture's
 /// format from the capture rather than the display's setting, which is the
 /// question `picture::tone_of_screen` asks and the wrong one to ask it of.
+///
+/// What the display's setting is good for is the format a capture asks Windows
+/// for: the card's rung asks it exactly that, so a screen showing HDR is captured
+/// as the half-floats and tone-mapped by the encoder's video processor, where this
+/// returns a curve for a picture the processor captured in memory. Two questions
+/// about one answer, and only this one is about pixels.
 pub(crate) fn tone_of(source: &Source) -> Tone {
     match source {
         Source::Display(monitor) => picture::tone_of_screen(*monitor),

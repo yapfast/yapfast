@@ -45,17 +45,29 @@ struct Raw {
 // SAFETY: the shim's own declarations; every pointer passed is one it returned,
 // and the buffers are as large as their sizes say.
 unsafe extern "C" {
-    fn yapfast_wgc_open(monitor: *mut c_void, why: *mut c_char, why_size: usize) -> *mut Raw;
-    fn yapfast_wgc_open_window(window: *mut c_void, why: *mut c_char, why_size: usize) -> *mut Raw;
+    fn yapfast_wgc_open(
+        monitor: *mut c_void,
+        hdr: c_int,
+        why: *mut c_char,
+        why_size: usize,
+    ) -> *mut Raw;
+    fn yapfast_wgc_open_window(
+        window: *mut c_void,
+        hdr: c_int,
+        why: *mut c_char,
+        why_size: usize,
+    ) -> *mut Raw;
     fn yapfast_wgc_open_on(
         device: *mut c_void,
         monitor: *mut c_void,
+        hdr: c_int,
         why: *mut c_char,
         why_size: usize,
     ) -> *mut Raw;
     fn yapfast_wgc_open_window_on(
         device: *mut c_void,
         window: *mut c_void,
+        hdr: c_int,
         why: *mut c_char,
         why_size: usize,
     ) -> *mut Raw;
@@ -67,6 +79,7 @@ unsafe extern "C" {
     ) -> c_int;
     fn yapfast_wgc_content_size(capture: *mut Raw, width: *mut c_uint, height: *mut c_uint);
     fn yapfast_wgc_device(capture: *mut Raw) -> *mut c_void;
+    fn yapfast_wgc_hdr(capture: *mut Raw) -> c_int;
     fn yapfast_wgc_borderless(capture: *mut Raw) -> c_int;
     fn yapfast_wgc_can_ask_border(capture: *mut Raw) -> c_int;
     fn yapfast_wgc_border(capture: *mut Raw, text: *mut c_char, text_size: usize);
@@ -208,8 +221,9 @@ impl Target {
     }
 }
 
-/// A capture of a display or a window, delivering BGRA textures on one D3D11
-/// device.
+/// A capture of a display or a window, delivering textures on one D3D11 device:
+/// BGRA where the display shows SDR, and the half-float scRGB picture where it
+/// shows HDR and the driver gave one.
 ///
 /// It owns the frame pool and everything under it, and lets them go when it is
 /// dropped: one texture borrowed at a time, released by the next frame or by the
@@ -242,27 +256,23 @@ impl Capture {
     /// a failure naming what was looked at, since a share that asked for one window
     /// must never be handed a picture of the screen it sits on.
     pub fn open(target: impl Into<Target>) -> Result<Self> {
-        let (window, handle) = target.into().named()?.split();
-        let mut why = [0u8; 256];
-        let size = why.len();
-        let said = why.as_mut_ptr().cast();
-        // SAFETY: the buffer is as large as its size says, and the shim ends it
-        // with a zero. The handle is only compared against the system's own — a
-        // display's, or a window's — and never read through.
-        let raw = unsafe {
-            if window {
-                yapfast_wgc_open_window(handle, said, size)
-            } else {
-                yapfast_wgc_open(handle, said, size)
-            }
-        };
-        if raw.is_null() {
-            bail!("no Windows Graphics Capture opened: {}", text(&why));
-        }
-        Ok(Self {
-            raw,
-            texture: std::ptr::null_mut(),
-        })
+        Self::opened(None, target.into(), false)
+    }
+
+    /// Opens a capture of `target` asking for the picture an HDR display really
+    /// draws, rather than the 8-bit one Windows would tone-map itself: frames in
+    /// `R16G16B16A16_FLOAT`, which is scRGB, and which an encoder's video
+    /// processor turns back into an SDR picture on the card — see
+    /// [`Light`](crate::d3d11::Light).
+    ///
+    /// Whether the display shows HDR is the caller's answer, from the system's own
+    /// display configuration: nothing here reads a pixel to guess it, because a
+    /// curve over a screen showing SDR is a share darker than the screen. What the
+    /// pool took is what answers [`Capture::hdr`], so a driver that refused the
+    /// float picture is a capture of the 8-bit one with the refusal in
+    /// [`Capture::describe`], not a capture that failed.
+    pub fn open_hdr(target: impl Into<Target>) -> Result<Self> {
+        Self::opened(None, target.into(), true)
     }
 
     /// Opens a capture of `target` on `device`, an `ID3D11Device` somebody has
@@ -286,25 +296,49 @@ impl Capture {
     // encoder is how a stream keeps.
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn open_on(device: *mut c_void, target: impl Into<Target>) -> Result<Self> {
-        let (window, handle) = target.into().named()?.split();
+        Self::opened(Some(device), target.into(), false)
+    }
+
+    /// [`Capture::open_hdr`] on a device somebody has already made, borrowed
+    /// exactly as [`Capture::open_on`] borrows it: an HDR picture on the device
+    /// an encoder reads, so that neither the capture nor the tone map that
+    /// follows it copies a frame.
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
+    pub fn open_hdr_on(device: *mut c_void, target: impl Into<Target>) -> Result<Self> {
+        Self::opened(Some(device), target.into(), true)
+    }
+
+    /// The open all four constructors are: `device` where the caller brought one,
+    /// and `hdr` where the display shows HDR and the caller wants its own picture
+    /// rather than an 8-bit copy of it.
+    fn opened(device: Option<*mut c_void>, target: Target, hdr: bool) -> Result<Self> {
+        let (window, handle) = target.named()?.split();
         let mut why = [0u8; 256];
         let size = why.len();
-        let named = why.as_mut_ptr().cast();
-        // SAFETY: the buffer is as large as its size says and the shim ends it
-        // with a zero; the device is the caller's and outlives the call, which is
-        // what borrowing it means; the handle is only compared, never read.
+        let said = why.as_mut_ptr().cast();
+        // SAFETY: the buffer is as large as its size says, and the shim ends it
+        // with a zero; the device, where there is one, is the caller's and outlives
+        // the call, which is what borrowing it means. The handle is only compared
+        // against the system's own — a display's, or a window's — and never read
+        // through.
         let raw = unsafe {
-            if window {
-                yapfast_wgc_open_window_on(device, handle, named, size)
-            } else {
-                yapfast_wgc_open_on(device, handle, named, size)
+            match (device, window) {
+                (None, true) => yapfast_wgc_open_window(handle, c_int::from(hdr), said, size),
+                (None, false) => yapfast_wgc_open(handle, c_int::from(hdr), said, size),
+                (Some(device), true) => {
+                    yapfast_wgc_open_window_on(device, handle, c_int::from(hdr), said, size)
+                }
+                (Some(device), false) => {
+                    yapfast_wgc_open_on(device, handle, c_int::from(hdr), said, size)
+                }
             }
         };
         if raw.is_null() {
-            bail!(
-                "no Windows Graphics Capture opened on that device: {}",
-                text(&why)
-            );
+            let refusal = text(&why);
+            match device {
+                Some(_) => bail!("no Windows Graphics Capture opened on that device: {refusal}"),
+                None => bail!("no Windows Graphics Capture opened: {refusal}"),
+            }
         }
         Ok(Self {
             raw,
@@ -351,9 +385,10 @@ impl Capture {
     }
 
     /// The picture the last [`Arrival::Frame`] brought: an `ID3D11Texture2D` on
-    /// [`Capture::device`], in BGRA, **borrowed** — the pool's, valid until the
-    /// next frame or this capture being dropped, and never to be released by the
-    /// caller. Null until a frame comes, and once the capture has ended.
+    /// [`Capture::device`], **borrowed** — the pool's, valid until the next frame
+    /// or this capture being dropped, and never to be released by the caller. It
+    /// is in BGRA, or in `R16G16B16A16_FLOAT` where [`Capture::hdr`] is true, and
+    /// null until a frame comes and once the capture has ended.
     ///
     /// A caller that has to hold one longer AddRefs the texture and Releases that
     /// reference itself, which is also the only way to feed an encoder that keeps
@@ -380,6 +415,19 @@ impl Capture {
     pub fn device(&self) -> *mut c_void {
         // SAFETY: raw is an open capture.
         unsafe { yapfast_wgc_device(self.raw) }
+    }
+
+    /// Whether the frames are the half-float scRGB picture an HDR screen hands
+    /// over, rather than BGRA: what a caller that encodes them has to be told, so
+    /// that the encoder's video processor tone-maps them instead of reading the
+    /// linear light as if it were sRGB's.
+    ///
+    /// It is what the pool took rather than what [`Capture::open_hdr`] asked for,
+    /// so a driver that refused the float picture answers false here and says in
+    /// [`Capture::describe`] which call refused it.
+    pub fn hdr(&self) -> bool {
+        // SAFETY: raw is an open capture.
+        unsafe { yapfast_wgc_hdr(self.raw) != 0 }
     }
 
     /// What this capture is and how it went, in one line: the display, or the

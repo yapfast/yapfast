@@ -89,7 +89,8 @@ impl Sink {
         if self.footage != Footage::InMemory {
             return Ok(());
         }
-        let Some((pts, keyframe)) = self.ready((picture.width(), picture.height()), None)? else {
+        let Some((pts, keyframe)) = self.ready((picture.width(), picture.height()), None, false)?
+        else {
             return Ok(());
         };
         let video = self.video.as_mut().expect("ready has opened the stream");
@@ -131,7 +132,7 @@ impl Sink {
         sent: (u32, u32),
         scratch: &mut Scratch,
     ) -> Result<Taken> {
-        let Some((pts, keyframe)) = self.ready(sent, None)? else {
+        let Some((pts, keyframe)) = self.ready(sent, None, false)? else {
             return Ok(Taken::Held);
         };
         let time_ms = u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -250,8 +251,9 @@ impl Sink {
         content: (u32, u32),
         size: (u32, u32),
         device: *mut c_void,
+        hdr: bool,
     ) -> Result<()> {
-        let Some((pts, keyframe)) = self.ready(size, Some(device))? else {
+        let Some((pts, keyframe)) = self.ready(size, Some(device), hdr)? else {
             return Ok(());
         };
         let video = self.video.as_mut().expect("ready has opened the stream");
@@ -276,7 +278,7 @@ impl Sink {
                         .is_some_and(|converter| converter.fits(content, size));
                     if !fits {
                         video.converter = Some(
-                            d3d11::Converter::new(device, content, size)
+                            d3d11::Converter::new(device, content, size, d3d11::Light::of(hdr))
                                 .map_err(|error| anyhow::anyhow!("{error:#}"))?,
                         );
                     }
@@ -469,9 +471,10 @@ impl Sink {
         &mut self,
         (width, height): (u32, u32),
         device: Option<*mut c_void>,
+        hdr: bool,
     ) -> Result<Option<(u64, bool)>> {
         if let Some(server) = self.server.take() {
-            let (offers, encoder) = self.offers(width, height, device)?;
+            let (offers, encoder) = self.offers(width, height, device, hdr)?;
             let sender = StreamSender::start(server, width, height, self.fps, offers)?;
             let sound = if self.sound {
                 stream_audio::Capture::start(sender.sound())
@@ -523,7 +526,7 @@ impl Sink {
             if let Some(video) = self.video.as_mut() {
                 video.encoder = None;
             }
-            let opened = self.encoder(codec, width, height, device);
+            let opened = self.encoder(codec, width, height, device, hdr);
             let video = self.video.as_mut().expect("checked above");
             match opened {
                 Ok(encoder) => {
@@ -763,6 +766,7 @@ impl Sink {
         width: u32,
         height: u32,
         device: Option<*mut c_void>,
+        hdr: bool,
     ) -> Result<(Vec<Codec>, Encoding)> {
         // The settings' codec is asked for first, so the encoder opened for the
         // stream is that codec's. H264 joins the probe only where the setting
@@ -777,14 +781,14 @@ impl Sink {
             .into_iter()
             .filter(|_| self.hardware)
         {
-            if let Ok(encoder) = self.open(codec, width, height, device) {
+            if let Ok(encoder) = self.open(codec, width, height, device, hdr) {
                 first = Some(encoder);
                 break;
             }
         }
         let encoder = match first {
             Some(encoder) => encoder,
-            None => self.open(stream_connection::SEND_CODEC, width, height, device)?,
+            None => self.open(stream_connection::SEND_CODEC, width, height, device, hdr)?,
         };
         let mut offers = match &encoder {
             // The codecs the session's driver encodes, which is what the card
@@ -800,7 +804,7 @@ impl Sink {
                     .copied()
                     .filter(|codec| self.hardware && *codec != encoder.codec())
                 {
-                    if self.open(codec, width, height, device).is_ok() {
+                    if self.open(codec, width, height, device, hdr).is_ok() {
                         offers.push(codec);
                     }
                 }
@@ -833,8 +837,9 @@ impl Sink {
         width: u32,
         height: u32,
         device: Option<*mut c_void>,
+        hdr: bool,
     ) -> Result<Encoding> {
-        let encoder = self.open(codec, width, height, device)?;
+        let encoder = self.open(codec, width, height, device, hdr)?;
         log_encoder(&encoder);
         Ok(encoder)
     }
@@ -849,6 +854,7 @@ impl Sink {
         width: u32,
         height: u32,
         _device: Option<*mut c_void>,
+        _hdr: bool,
     ) -> Result<Encoding> {
         // Where the controller has got to, so an encoder opened mid-stream
         // starts at the rate the stream sends at; a stream's first encoder,
@@ -895,6 +901,7 @@ impl Sink {
                     self.fps,
                     aimed,
                     d3d11::Surfaces::Ring,
+                    d3d11::Light::of(_hdr),
                 )?))
             }
             // A picture the desktop's compositor drew is a descriptor the encoder

@@ -452,6 +452,11 @@ struct scale {
    * does. */
   ID3D11VideoDevice *video;
   ID3D11VideoContext *video_context;
+  /* D3D11.1's context, which is the one that names a colour space by its DXGI
+   * name: an HDR picture is tone-mapped by telling the processor what it is and
+   * what the frame it becomes is, and that call exists nowhere else. Asked for
+   * when it is needed and kept with the processor it belongs to. */
+  ID3D11VideoContext1 *video_context1;
   ID3D11VideoProcessorEnumerator *enumerator;
   ID3D11VideoProcessor *processor;
   ID3D11VideoProcessorOutputView *output;
@@ -507,6 +512,11 @@ struct yapfast_d3d11enc {
   NV_ENC_INITIALIZE_PARAMS init;
   NV_ENC_CONFIG settings;
   unsigned codec_id, width, height, fps, kbps;
+  /* Whether the textures this reads are the 16-bit float scRGB picture an HDR
+   * screen hands over, which never reaches the encoder: the video processor
+   * tone-maps it into the BGRA picture the encoder registers. Zero for every
+   * session a caller didn't open for one, which is every SDR share. */
+  int hdr;
   /* Which of the codecs the driver offered this session, as bits of codec ids:
    * AV1 needs an RTX 40 series or newer, and what a card refuses is worth
    * saying in the open's report rather than leaving to a status number. */
@@ -891,11 +901,40 @@ static void describe_open(struct yapfast_d3d11enc *e, char *report, size_t repor
   char card[128] = "";
   if (e->adapter && SUCCEEDED(e->adapter->lpVtbl->GetDesc1(e->adapter, &desc)))
     snprintf(card, sizeof card, "%ls, ", desc.Description);
-  snprintf(e->config, sizeof e->config, "%sBGRA in, NV12 4:2:0 out, bt601 limited range", card);
+  snprintf(e->config, sizeof e->config, "%s%s, NV12 4:2:0 out, bt601 limited range", card,
+           e->hdr ? "scRGB half-floats tone-mapped on the card to BGRA" : "BGRA in");
   snprintf(e->tuning_text, sizeof e->tuning_text,
            "%s preset, %s rate control, keyframe every %u frames", e->tuning->preset,
            e->tuning->rc, e->settings.gopLength);
   if (report_size) snprintf(report, report_size, "%s_nvenc/d3d11", CODECS[e->codec_id].short_name);
+}
+
+/* The two halves of the scaler an HDR open asks for before it answers: the
+ * picture it writes into, and the video processor that tone-maps as it scales.
+ * Declared here because `tone_map_ready` runs at the open and they are made
+ * further down with the rest of the scaler. */
+static int destination(struct yapfast_d3d11enc *e, unsigned width, unsigned height, char *why,
+                       size_t size);
+static int video_processor(struct yapfast_d3d11enc *e, unsigned source_width,
+                           unsigned source_height, DXGI_FORMAT format, char *why, size_t size);
+
+/* Whether this device can tone-map an HDR picture at all, asked before a stream
+ * starts: the video processor is made for the stream's own size in and out, the
+ * half-float picture is checked as one it takes, and both colour spaces are set
+ * and read back. That is the whole of what a frame will ask of it, so a driver
+ * that would answer the first frame with a refusal answers the open instead,
+ * and a share goes to the processor's capture before a viewer is watching it
+ * rather than a frame into the stream. The textures this makes are the ones the
+ * first frame would have made anyway, so nothing is paid for twice. */
+static int tone_map_ready(struct yapfast_d3d11enc *e, char *why, size_t size) {
+  char said[128] = "the video processor wasn't tried";
+  if (destination(e, e->width, e->height, why, size)) return -1;
+  if (video_processor(e, e->width, e->height, DXGI_FORMAT_R16G16B16A16_FLOAT, said, sizeof said)) {
+    if (size)
+      snprintf(why, size, "this card won't tone-map an HDR picture on the card: %s", said);
+    return -1;
+  }
+  return 0;
 }
 
 /* Opens an encoder for one codec on a new D3D11 device, `width` by `height` at
@@ -975,11 +1014,17 @@ failed:
  * hands back a ring and registering each surface per frame would cost more than
  * the encode, and one for a session that reads a frame in ten to show a preview
  * and has no ring to keep up with. Every surface held is a full-size one the
- * capture can't fill while it is held, which at 4K is 33 MB apiece. */
+ * capture can't fill while it is held, which at 4K is 33 MB apiece.
+ *
+ * `hdr` says the capture's textures are the half-float scRGB picture an HDR
+ * screen hands over rather than BGRA, which makes this session's video processor
+ * the tone map: it is verified here, before the open answers, so a card that
+ * can't is refused in words rather than three frames into a stream. */
 struct yapfast_d3d11enc *yapfast_d3d11enc_new_on(void *device, unsigned codec_id, unsigned width,
                                                  unsigned height, unsigned fps, unsigned kbps,
-                                                 unsigned surfaces, const char *tuning_name,
-                                                 char *report, size_t report_size) {
+                                                 unsigned surfaces, int hdr,
+                                                 const char *tuning_name, char *report,
+                                                 size_t report_size) {
   struct yapfast_d3d11enc *e;
   DXGI_ADAPTER_DESC1 desc;
   char why[192] = "";
@@ -1006,6 +1051,7 @@ struct yapfast_d3d11enc *yapfast_d3d11enc_new_on(void *device, unsigned codec_id
   e->fps = fps;
   e->kbps = kbps;
   e->tuning = tuning;
+  e->hdr = hdr ? 1 : 0;
   /* One surface is the least a session can keep, and `SLOTS` the most: what a
    * caller asks for is what it reads, and a count outside that range is one of
    * the two ends rather than a session that remembers nothing or writes past
@@ -1023,6 +1069,11 @@ struct yapfast_d3d11enc *yapfast_d3d11enc_new_on(void *device, unsigned codec_id
     snprintf(why, sizeof why, "the device handed in has no immediate context");
     goto failed;
   }
+  /* The tone map is the video processor this session already scales with, so it
+   * is the one that is checked: a session opened for an HDR picture that can
+   * only be read by copying every frame back to the processor is not this
+   * encoder's to offer. */
+  if (e->hdr && tone_map_ready(e, why, sizeof why)) goto failed;
   if (start_session(e, why, sizeof why)) goto failed;
   describe_open(e, report, report_size);
   return e;
@@ -1187,6 +1238,7 @@ static void close_scale(struct yapfast_d3d11enc *e) {
   if (e->scaler.output) e->scaler.output->lpVtbl->Release(e->scaler.output);
   if (e->scaler.processor) e->scaler.processor->lpVtbl->Release(e->scaler.processor);
   if (e->scaler.enumerator) e->scaler.enumerator->lpVtbl->Release(e->scaler.enumerator);
+  if (e->scaler.video_context1) e->scaler.video_context1->lpVtbl->Release(e->scaler.video_context1);
   if (e->scaler.video_context) e->scaler.video_context->lpVtbl->Release(e->scaler.video_context);
   if (e->scaler.video) e->scaler.video->lpVtbl->Release(e->scaler.video);
   if (e->scaler.planes_of) e->scaler.planes_of->lpVtbl->Release(e->scaler.planes_of);
@@ -1364,6 +1416,18 @@ int yapfast_d3d11enc_set_bitrate(struct yapfast_d3d11enc *e, unsigned kbps) {
  * than a courtesy: a video processor input view needs the surface to have been
  * made with one of a few bind flags, and a capture source's surfaces are the
  * capture source's to make. `yapfast_d3d11enc_filter` says which one ran. */
+/* Whether this session reads a texture of `format` at all: the three the encoder
+ * registers where they lie, and the half-float scRGB picture of an HDR screen
+ * where the session was opened for one. That picture never reaches the encoder —
+ * the video processor tone-maps it into the BGRA picture the encoder does
+ * register — so its format has no buffer format of its own, and a session not
+ * opened for one keeps refusing it by name. */
+static int reads(const struct yapfast_d3d11enc *e, DXGI_FORMAT format) {
+  NV_ENC_BUFFER_FORMAT registered;
+  if (texture_format(format, &registered)) return 1;
+  return e->hdr && format == DXGI_FORMAT_R16G16B16A16_FLOAT;
+}
+
 /* The entry for the caller's texture, made on the first frame it arrives and
  * kept while it keeps arriving: the same least-recently-used rotation as the
  * encoder's slots, since a capture source hands back a few surfaces in rotation
@@ -1525,6 +1589,63 @@ static int video_processor(struct yapfast_d3d11enc *e, unsigned source_width,
   if (FAILED(status)) {
     hr_failure(why, size, "CreateVideoProcessor", status);
     return -1;
+  }
+  if (e->hdr) {
+    /* What this picture is, and what the frame it becomes is. Windows Graphics
+     * Capture hands over scRGB for an HDR display: linear light with BT.709's
+     * primaries and 1.0 at 80 nits, which is DXGI's
+     * `RGB_FULL_G10_NONE_P709`. It is not PQ — that is what an HDR10 surface's
+     * 10-bit codes carry (`RGB_FULL_G2084_NONE_P2020`), and reading linear light
+     * through that curve is a picture that comes out nearly black. The frame
+     * that goes to the encoder is sRGB over BT.709's primaries, which is what
+     * the stream declares and what NVENC reads, so the two calls below are the
+     * whole of the tone map: the driver's conversion takes 80 nits to white and
+     * rolls off what is above it, in the same blit that already scaled the
+     * picture, and nothing else in this file changes. */
+    DXGI_COLOR_SPACE_TYPE wanted = DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
+    DXGI_COLOR_SPACE_TYPE shown = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
+    if (!e->scaler.video_context1) {
+      status = e->context->lpVtbl->QueryInterface(e->context, &IID_ID3D11VideoContext1,
+                                                 (void **)&e->scaler.video_context1);
+      if (FAILED(status) || !e->scaler.video_context1) {
+        e->scaler.video_context1 = NULL;
+        hr_failure(why, size,
+                   "this device has no video context that names a colour space "
+                   "(ID3D11VideoContext1)",
+                   status);
+        return -1;
+      }
+    }
+    e->scaler.video_context1->lpVtbl->VideoProcessorSetStreamColorSpace1(
+        e->scaler.video_context1, e->scaler.processor, 0, wanted);
+    /* Both calls answer nothing, so what they did is read back: a processor that
+     * quietly kept its default colour spaces would hand the encoder an untone-
+     * mapped picture that looks like a working stream, and a share told it is on
+     * the 8-bit path is the better answer. */
+    wanted = DXGI_COLOR_SPACE_CUSTOM;
+    e->scaler.video_context1->lpVtbl->VideoProcessorGetStreamColorSpace1(
+        e->scaler.video_context1, e->scaler.processor, 0, &wanted);
+    if (wanted != DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709) {
+      if (size)
+        snprintf(why, size,
+                 "the video processor wouldn't take scRGB as what its input is "
+                 "(VideoProcessorSetStreamColorSpace1, it says %u)",
+                 (unsigned)wanted);
+      return -1;
+    }
+    e->scaler.video_context1->lpVtbl->VideoProcessorSetOutputColorSpace1(
+        e->scaler.video_context1, e->scaler.processor, shown);
+    shown = DXGI_COLOR_SPACE_CUSTOM;
+    e->scaler.video_context1->lpVtbl->VideoProcessorGetOutputColorSpace1(
+        e->scaler.video_context1, e->scaler.processor, &shown);
+    if (shown != DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709) {
+      if (size)
+        snprintf(why, size,
+                 "the video processor wouldn't take sRGB as what its output is "
+                 "(VideoProcessorSetOutputColorSpace1, it says %u)",
+                 (unsigned)shown);
+      return -1;
+    }
   }
   /* The whole source into the whole destination, said rather than left to the
    * defaults: the whole of one to the whole of the other is the stretch that is
@@ -1937,6 +2058,14 @@ static int scale_picture(struct yapfast_d3d11enc *e, ID3D11Texture2D *texture, u
     e->scaler.filter = "the video processor";
     return 0;
   }
+  /* An HDR picture is tone-mapped by the video processor and by nothing else
+   * here: the shader would write scRGB's linear light into an sRGB picture,
+   * which is a curve off rather than a frame, so a driver that won't take the
+   * colour spaces leaves the share on the processor's capture instead. */
+  if (e->hdr && format == DXGI_FORMAT_R16G16B16A16_FLOAT) {
+    if (size) snprintf(why, size, "%s", processor_why);
+    return -1;
+  }
   if (!shader_ready(e, shader_why, sizeof shader_why) &&
       !shader_blit(e, texture, subresource, format, source_width, source_height, shader_why,
                    sizeof shader_why)) {
@@ -1961,7 +2090,6 @@ void *yapfast_d3d11enc_scale(struct yapfast_d3d11enc *e, void *texture, unsigned
                              unsigned width, unsigned height, int upscale) {
   ID3D11Texture2D *source = texture;
   D3D11_TEXTURE2D_DESC desc;
-  NV_ENC_BUFFER_FORMAT registered;
   char why[192] = "";
   if (!e) return NULL;
   if (!source) return nothing(e, "the scaler was given nothing to scale");
@@ -1970,9 +2098,10 @@ void *yapfast_d3d11enc_scale(struct yapfast_d3d11enc *e, void *texture, unsigned
   source->lpVtbl->GetDesc(source, &desc);
   if (subresource >= desc.MipLevels * desc.ArraySize)
     return nothing(e, "the texture has no subresource %u", subresource);
-  if (!texture_format(desc.Format, &registered))
+  if (!reads(e, desc.Format))
     return nothing(e,
-                   "the texture is DXGI format %u, and this scales BGRA, RGBA or NV12; a "
+                   "the texture is DXGI format %u, and this scales BGRA, RGBA or NV12, and "
+                   "the half-float picture of an HDR screen where it was opened for one; a "
                    "typeless texture has no format to scale from",
                    (unsigned)desc.Format);
   if (!upscale && (width > desc.Width || height > desc.Height))
@@ -2039,7 +2168,6 @@ long yapfast_d3d11enc_readback(struct yapfast_d3d11enc *e, void *texture, unsign
   D3D11_TEXTURE2D_DESC desc;
   D3D11_MAPPED_SUBRESOURCE mapped;
   HRESULT status;
-  NV_ENC_BUFFER_FORMAT registered;
   char why[192] = "";
   size_t needed;
   ID3D11Texture2D *from;
@@ -2055,10 +2183,10 @@ long yapfast_d3d11enc_readback(struct yapfast_d3d11enc *e, void *texture, unsign
   source->lpVtbl->GetDesc(source, &desc);
   if (subresource >= desc.MipLevels * desc.ArraySize)
     return fail(e, -1, "the texture has no subresource %u", subresource);
-  if (!texture_format(desc.Format, &registered))
-    return fail(e,
-                -1,
-                "the texture is DXGI format %u, and this reads BGRA, RGBA or NV12",
+  if (!reads(e, desc.Format))
+    return fail(e, -1,
+                "the texture is DXGI format %u, and this reads BGRA, RGBA or NV12, and the "
+                "half-float picture of an HDR screen where it was opened for one",
                 (unsigned)desc.Format);
   if (width > desc.Width || height > desc.Height)
     return fail(e, -1,
@@ -2652,7 +2780,6 @@ int yapfast_d3d11enc_shared_draw(struct yapfast_d3d11enc *e, struct yapfast_d3d1
                                  unsigned long long *handle, unsigned long long *value) {
   ID3D11Texture2D *source = texture;
   D3D11_TEXTURE2D_DESC desc;
-  NV_ENC_BUFFER_FORMAT registered;
   char why[192] = "";
   HRESULT status;
   if (!e) return -1;
@@ -2663,10 +2790,11 @@ int yapfast_d3d11enc_shared_draw(struct yapfast_d3d11enc *e, struct yapfast_d3d1
   source->lpVtbl->GetDesc(source, &desc);
   if (subresource >= desc.MipLevels * desc.ArraySize)
     return fail(e, -1, "the texture has no subresource %u", subresource);
-  if (!texture_format(desc.Format, &registered))
+  if (!reads(e, desc.Format))
     return fail(e, -1,
-                "the texture is DXGI format %u, and a shared picture is drawn from BGRA, RGBA or "
-                "NV12",
+                "the texture is DXGI format %u, and a shared picture is drawn from BGRA, RGBA "
+                "or NV12, and the half-float picture of an HDR screen where the session was "
+                "opened for one",
                 (unsigned)desc.Format);
   if (s->mutexes[at]->lpVtbl->AcquireSync(s->mutexes[at], 0, INFINITE) != S_OK)
     return fail(e, -1, "a shared picture couldn't be taken for drawing");
