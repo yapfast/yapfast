@@ -1669,6 +1669,210 @@ fn call_volumes_play_while_dragged_and_are_remembered() {
 }
 
 #[test]
+fn private_call_alone_timeout_defaults_and_is_remembered() {
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let window = classic_window();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        &window,
+    )
+    .unwrap();
+    bind_callbacks(&window, &adapter);
+
+    let defaults: Layout = serde_json::from_str("{}").unwrap();
+    assert_eq!(
+        defaults.alone_timeout(),
+        Some(std::time::Duration::from_secs(10 * 60))
+    );
+    defaults.apply(&window);
+    assert_eq!(window.get_alone_timeout(), 10);
+
+    window.set_alone_timeout(25);
+    window.invoke_preferences_changed();
+    assert_eq!(Layout::read(directory.path()).alone_timeout, Some(25));
+
+    let never: Layout = serde_json::from_value(serde_json::json!({ "alone_timeout": 0 })).unwrap();
+    assert_eq!(never.alone_timeout(), None);
+    let capped: Layout =
+        serde_json::from_value(serde_json::json!({ "alone_timeout": 1000 })).unwrap();
+    assert_eq!(
+        capped.alone_timeout(),
+        Some(std::time::Duration::from_secs(120 * 60))
+    );
+    capped.apply(&window);
+    assert_eq!(window.get_alone_timeout(), 120);
+}
+
+fn alone_participant(local: bool) -> voice::Participant {
+    voice::Participant {
+        id: if local { "me" } else { "sam" }.into(),
+        user: "Sam".into(),
+        person: "sam".into(),
+        local,
+        muted: false,
+        deafened: false,
+        server_muted: false,
+        server_deafened: false,
+        speaking: false,
+        connected: true,
+        problem: None,
+        streaming: false,
+        video: None,
+        avatar: None,
+    }
+}
+
+fn alone_test_adapter(window: &YapfastWindow) -> (tempfile::TempDir, Rc<RefCell<Adapter>>) {
+    let directory = tempfile::tempdir().unwrap();
+    let adapter = Adapter::new(
+        Arc::new(BackgroundRuntime::new().unwrap()),
+        directory.path().into(),
+        window,
+    )
+    .unwrap();
+    adapter.borrow_mut().app.dispatch(Action::Preview);
+    let mut borrowed = adapter.borrow_mut();
+    let room = borrowed
+        .app
+        .state
+        .rooms
+        .iter_mut()
+        .map(Arc::make_mut)
+        .find(|room| room.id == "sam")
+        .unwrap();
+    room.network = Network::Discord;
+    room.capabilities = Network::Discord.capabilities();
+    drop(borrowed);
+    (directory, adapter)
+}
+
+fn alone_test_call(adapter: &Rc<RefCell<Adapter>>, room: &str, others: usize) {
+    let mut adapter = adapter.borrow_mut();
+    adapter.app.state.voice = voice::State {
+        phase: Phase::Connected,
+        room: Some(room.into()),
+        participants: std::iter::once(alone_participant(true))
+            .chain((0..others).map(|_| alone_participant(false)))
+            .collect(),
+        ..Default::default()
+    };
+}
+
+#[test]
+fn a_private_discord_call_leaves_after_its_alone_timeout() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = classic_window();
+    let (_directory, adapter) = alone_test_adapter(&window);
+    alone_test_call(&adapter, "sam", 0);
+
+    let mut adapter = adapter.borrow_mut();
+    adapter.sync_alone_timer();
+    assert_eq!(
+        adapter
+            .alone
+            .started
+            .as_ref()
+            .map(|(room, _)| room.as_str()),
+        Some("sam")
+    );
+    adapter.fire_alone_timeout();
+    assert!(adapter.app.state.voice.active());
+    assert!(adapter.alone.started.is_some());
+
+    adapter.alone.started = Some((
+        "sam".into(),
+        std::time::Instant::now() - std::time::Duration::from_secs(10 * 60 + 1),
+    ));
+    adapter.fire_alone_timeout();
+    assert!(!adapter.app.state.voice.active());
+    assert!(adapter.alone.started.is_none());
+}
+
+#[test]
+fn the_alone_timeout_arms_only_for_a_private_discord_call_with_no_one_else() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = classic_window();
+    let (_directory, adapter) = alone_test_adapter(&window);
+
+    alone_test_call(&adapter, "sam", 1);
+    adapter.borrow_mut().sync_alone_timer();
+    assert!(adapter.borrow().alone.started.is_none());
+
+    alone_test_call(&adapter, "sam", 0);
+    adapter.borrow_mut().sync_alone_timer();
+    assert!(adapter.borrow().alone.started.is_some());
+
+    alone_test_call(&adapter, "sam", 1);
+    adapter.borrow_mut().sync_alone_timer();
+    assert!(adapter.borrow().alone.started.is_none());
+    adapter.borrow_mut().fire_alone_timeout();
+    assert!(adapter.borrow().app.state.voice.active());
+
+    alone_test_call(&adapter, "lounge", 0);
+    adapter.borrow_mut().sync_alone_timer();
+    assert!(adapter.borrow().alone.started.is_none());
+
+    alone_test_call(&adapter, "sam", 0);
+    adapter
+        .borrow_mut()
+        .app
+        .state
+        .rooms
+        .iter_mut()
+        .map(Arc::make_mut)
+        .find(|room| room.id == "sam")
+        .unwrap()
+        .network = Network::Matrix;
+    adapter.borrow_mut().sync_alone_timer();
+    assert!(adapter.borrow().alone.started.is_none());
+
+    adapter
+        .borrow_mut()
+        .app
+        .state
+        .rooms
+        .iter_mut()
+        .map(Arc::make_mut)
+        .find(|room| room.id == "sam")
+        .unwrap()
+        .network = Network::Discord;
+    adapter.borrow_mut().layout.alone_timeout = Some(0);
+    adapter.borrow_mut().sync_alone_timer();
+    adapter.borrow_mut().fire_alone_timeout();
+    assert!(adapter.borrow().alone.started.is_none());
+    assert!(adapter.borrow().app.state.voice.active());
+}
+
+#[test]
+fn accepting_another_call_cancels_the_previous_alone_deadline() {
+    i_slint_backend_testing::init_no_event_loop();
+    let window = classic_window();
+    let (_directory, adapter) = alone_test_adapter(&window);
+    alone_test_call(&adapter, "sam", 0);
+
+    let mut adapter = adapter.borrow_mut();
+    adapter.sync_alone_timer();
+    assert!(adapter.alone.started.is_some());
+    let room = adapter
+        .app
+        .state
+        .rooms
+        .iter_mut()
+        .map(Arc::make_mut)
+        .find(|room| room.id == "riley")
+        .unwrap();
+    room.network = Network::Discord;
+    room.capabilities = Network::Discord.capabilities();
+    adapter.app.state.discord_online = true;
+    // A real backend leaves the old state in place until its events arrive.
+    adapter.app.state.preview = false;
+    adapter.action(&window, Action::AcceptCall("riley".into()));
+    assert!(adapter.alone.started.is_none());
+}
+
+#[test]
 fn the_share_menu_fits_a_short_window_and_keeps_its_button() {
     use slint::platform::{PointerEventButton, WindowEvent};
     i_slint_backend_testing::init_no_event_loop();
