@@ -68,9 +68,10 @@ do commands, run in order; the first error stops the rest:
   window close|open|destroy|create|hide|show|trim|stats   acts on the window:
       close as its close button does (to the tray, or quit without one),
       open as the tray's Open Yapfast; stats writes glibc's heap to yapfast.log
-  tray activate | menu | click LABEL | icon NAME | off | on   with --tray:
-      clicks the icon, prints or chooses its menu's items, saves its picture
-      to shots/NAME.png, or stops and starts the stand-in tray
+  tray activate [TOKEN [after]] | menu | click LABEL | icon NAME | off | on
+      with --tray: clicks the icon (with an xdg-activation token sent before
+      the click, or 5 ms after), prints or chooses its menu's items, saves
+      its picture to shots/NAME.png, or stops and starts the stand-in tray
   control NAME | get NAME   POST or GET /_control/NAME on the fake Discord
   record start NAME | record stop   records the display at 60 frames a second
       to .local/ui-session/videos/NAME.mp4 (H.264); stop prints its length and

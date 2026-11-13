@@ -512,12 +512,11 @@ pub(super) fn rendered(
     let mentions = mentions
         .into_iter()
         .map(|mention| {
-            // @everyone and @here take the colour of mentions.
+            // Only a role's mention has a colour of its own, as in Discord's
+            // client. A member's, like @everyone's and @here's, takes the
+            // colour of mentions, not that of the member's highest role.
             let (target, color) = match mention.target {
-                MentionTarget::User(id) => {
-                    let color = server.and_then(|server| discord.color(server, &id));
-                    (Target::User(id), color)
-                }
+                MentionTarget::User(id) => (Target::User(id), None),
                 MentionTarget::Role(id) => {
                     let color = server
                         .and_then(|server| server.role_colors.get(&id))
@@ -636,6 +635,9 @@ pub(super) fn chat_profile(
             .style(Some(guild), &profile.user_id)
             .map(|style| Arc::new(style.into())),
         effect: profile.effect,
+        // `chat_profile`'s caller adds the frame's layers, which the shop
+        // describes.
+        frame: Default::default(),
         theme: profile.theme,
         banner: profile.banner,
         accent: profile.accent,
@@ -650,8 +652,18 @@ pub(super) fn chat_profile(
             .into_iter()
             .map(|(name, color)| ProfileRole { name, color })
             .collect(),
-        created: Some(crate::clock::day(profile.created / 1000)),
-        joined: profile.joined.map(|ms| crate::clock::day(ms / 1000)),
+        created: Some(crate::clock::profile_day(profile.created / 1000)),
+        joined: profile
+            .joined
+            .map(|ms| crate::clock::profile_day(ms / 1000)),
+        // The server whose date `joined` is, drawn beside it.
+        server_name: server
+            .filter(|_| profile.joined.is_some())
+            .map(|server| server.name.clone())
+            .unwrap_or_default(),
+        server_icon: server
+            .filter(|_| profile.joined.is_some())
+            .and_then(|server| server.icon.clone()),
         servers: profile
             .mutual_servers
             .into_iter()
@@ -725,6 +737,7 @@ pub(super) fn chat_profile(
         board_named: false,
         recent: Vec::new(),
         recent_asked: false,
+        recent_came: false,
         handle: profile.username,
         id: profile.user_id,
         // What the member list knows; the profile doesn't say.

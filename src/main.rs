@@ -47,6 +47,8 @@ mod twemoji;
 #[cfg(feature = "desktop")]
 mod ui;
 #[cfg(feature = "desktop")]
+mod update;
+#[cfg(feature = "desktop")]
 mod zoom;
 
 use anyhow::{Context, Result, bail};
@@ -266,6 +268,28 @@ fn launch(
             relaunch(start.arguments, Some(&reason), start.open_link.as_deref())
         }
         ui::Exit::Restart => relaunch(start.arguments, None, None),
+        ui::Exit::Update(prepared) => finish_update(prepared, start.arguments),
+    }
+}
+
+/// Starts the program an update put in place. An AppImage is replaced already,
+/// so its new file starts; an installer runs once this process is gone, and
+/// starts the program again itself. If it can't run, the old program starts
+/// again, which is what the update promised on failure.
+#[cfg(feature = "desktop")]
+fn finish_update(prepared: update::install::Prepared, arguments: &[String]) -> Result<()> {
+    use update::install::Prepared;
+    match prepared {
+        Prepared::Replaced(program) => relaunch_program(&program, arguments, None, None),
+        Prepared::Installer { installer, program } => {
+            match update::install::run_installer(&installer, &program, arguments) {
+                Ok(()) => Ok(()),
+                Err(error) => {
+                    tracing::error!(%error, "could not run the installer; starting the old version");
+                    relaunch(arguments, None, None)
+                }
+            }
+        }
     }
 }
 
@@ -275,9 +299,20 @@ fn launch(
 /// so a restart follows the setting, nor `--background`: the window shows.
 #[cfg(feature = "desktop")]
 fn relaunch(arguments: &[String], gpu_failure: Option<&str>, link: Option<&str>) -> Result<()> {
-    let mut command = std::process::Command::new(
-        std::env::current_exe().context("could not find Yapfast to restart it")?,
-    );
+    let program = std::env::current_exe().context("could not find Yapfast to restart it")?;
+    relaunch_program(&program, arguments, gpu_failure, link)
+}
+
+/// [`relaunch`] with another file, such as the AppImage an update replaced the
+/// running one with, whose old path inside its mount is gone.
+#[cfg(feature = "desktop")]
+fn relaunch_program(
+    program: &std::path::Path,
+    arguments: &[String],
+    gpu_failure: Option<&str>,
+    link: Option<&str>,
+) -> Result<()> {
+    let mut command = std::process::Command::new(program);
     command.args(arguments);
     match gpu_failure {
         Some(reason) => command

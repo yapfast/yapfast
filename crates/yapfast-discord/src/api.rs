@@ -12,7 +12,6 @@ use crate::{
     client,
     limits::{self, Limits, Refusals, Stopped},
     mfa, scheduled_event,
-    settings::{self, CustomStatus},
 };
 
 const API: &str = "https://discord.com/api/v9";
@@ -264,7 +263,7 @@ pub struct Api {
     /// Empty without a login; Discord may refresh it in READY.
     token: RwLock<String>,
     /// The API's base URL: Discord's, or the test server's.
-    base: String,
+    pub(crate) base: String,
     limits: Limits,
     refusals: Refusals,
     /// When each stream key's preview last went out, so a stream started again
@@ -855,6 +854,18 @@ impl Api {
             .map(drop)
     }
 
+    /// Marks a channel unread from the message after `message`, with
+    /// `mentions` of those after it calling on this account, as Mark Unread
+    /// in Discord's client does: a manual acknowledgement, which Discord
+    /// sends back as `MESSAGE_ACK` with `manual`.
+    pub async fn ack_manual(&self, channel: &str, message: &str, mentions: u64) -> Result<()> {
+        let path = format!("/channels/{channel}/messages/{message}/ack");
+        let body = json!({"manual": true, "mention_count": mentions});
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+            .map(drop)
+    }
+
     /// Marks channels read, each up to its message, in one request, as the
     /// official client does for a whole server; at most [`ACK_BULK_LIMIT`].
     pub async fn ack_bulk(&self, reads: &[(String, String)]) -> Result<()> {
@@ -1167,17 +1178,6 @@ impl Api {
             .await
     }
 
-    /// Sets the custom status, or clears it with `None`, in the account's settings.
-    pub async fn set_custom_status(&self, custom: Option<&CustomStatus>) -> Result<()> {
-        let body = json!({"settings": settings::write_custom(custom)});
-        self.json(with_json(
-            self.request(Method::PATCH, "/users/@me/settings-proto/1"),
-            &body,
-        ))
-        .await
-        .map(drop)
-    }
-
     /// The GIF picker's home: trending terms, each with a GIF, and trending GIFs.
     pub async fn gifs_trending(&self) -> Result<Value> {
         let path = format!(
@@ -1265,27 +1265,20 @@ impl Api {
         .map(drop)
     }
 
-    /// Sets the status: `online`, `idle`, `dnd` or `invisible`.
-    pub async fn set_status(&self, status: &str) -> Result<()> {
-        let body = json!({"settings": settings::write_status(status)});
-        self.json(with_json(
-            self.request(Method::PATCH, "/users/@me/settings-proto/1"),
-            &body,
-        ))
-        .await
-        .map(drop)
+    /// The services linked to this account, as READY's `connected_accounts`.
+    pub(crate) async fn connections(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/users/@me/connections"))
+            .await
     }
 
-    /// Shares the game this account plays, everywhere it's signed in, or
-    /// stops sharing it.
-    pub async fn set_show_game(&self, shown: bool) -> Result<()> {
-        let body = json!({"settings": settings::write_show_game(shown)});
-        self.json(with_json(
-            self.request(Method::PATCH, "/users/@me/settings-proto/1"),
-            &body,
-        ))
-        .await
-        .map(drop)
+    /// A token for the linked Spotify account `id`, which Discord renews.
+    pub(crate) async fn spotify_access_token(&self, id: &str) -> Result<String> {
+        let path = format!("/users/@me/connections/spotify/{}/access-token", encode(id));
+        let answer = self.json(self.request(Method::GET, &path)).await?;
+        answer["access_token"]
+            .as_str()
+            .map(str::to_owned)
+            .context("Discord's answer had no token")
     }
 
     /// Ignores a friend request, cancels one, or ends a friendship.
