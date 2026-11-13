@@ -15,18 +15,16 @@ cargo run --locked
 ```
 
 `path:./nix` also works before files are tracked and keeps Cargo output out of
-the Nix source snapshot. The shell provides Clang 21, Protobuf, desktop
-libraries, and checksum-pinned libwebrtc and Skia archives. The Skia archive
-keeps the verified JPEG symbol namespace needed to link it alongside WebRTC.
-Rustup uses the version in `rust-toolchain.toml`. Run the `cargo` commands
-below inside the shell.
+the Nix source snapshot. Run the `cargo` commands below inside the shell;
+[the shells](building.md#shells) says what each one provides. Local work
+builds with `--profile fast`.
 
 ```sh
 scripts/check --fast
 cargo build --locked --release
 ```
 
-`scripts/check` enters the Nix shell itself; [building](building.md#checks)
+`scripts/check` enters the Nix shell itself when Nix is installed; [building](building.md#checks)
 lists what it covers.
 
 ## Try the UI without an account
@@ -47,11 +45,11 @@ Closing the window leaves Yapfast running in the system tray, with any call,
 where its icon opens it again or quits; without a tray it quits Yapfast
 ([the tray](tray.md)). For Yapfast's icon on its window and in the launcher,
 run `scripts/install-desktop-entry` once after a release build
-([the app icon](building.md#the-app-icon)).
+([the app icon](packaging.md#the-app-icon)).
 
 Discord runs only against the fake server, `testing/fake_discord.ts`, in
 development; `scripts/ui-session start --discord` starts both on a private
-display ([building](building.md)).
+display ([seeing the app](building.md#seeing-the-app)).
 
 ## Renderer
 
@@ -63,7 +61,8 @@ nix develop path:./nix --command cargo run --locked -- --preview --renderer gpu
 ```
 
 Omit `--preview` to sign in or restore your real account. If the GPU cannot
-start, Yapfast restarts itself with Skia Software and explains why. Renderer
+start, Yapfast restarts itself with Skia Software and explains why
+([renderers](slint-client.md#renderers-and-native-builds)). Renderer
 selection does not change session storage, encryption or the native audio
 backend.
 
@@ -92,11 +91,10 @@ cargo test --locked -p yapfast-core matrix_chat::tests::encrypted_chat_restore_s
 
 This creates disposable accounts and checks session restoration, encrypted
 delivery, duplicate-free retry, Space membership and live channel removal, and
-refusal of plaintext rooms and unverified devices. Current native UI
-validation is in [the Slint client report](slint-client.md); the earlier GPUI
-checks remain in [the chat UI report](chat-ui.md).
+refusal of plaintext rooms and unverified devices. The UI's own checks are in
+[the Slint client's validation notes](slint-client.md#validation-and-limits).
 
-The headless build still includes the Matrix and native media libraries. The
+The headless build includes the Matrix and native media libraries. The
 smoke check allocates a synthetic audio source. It does not sign in, connect
 to a server, or access the microphone.
 
@@ -152,7 +150,7 @@ Inside the development shell:
 
 ```sh
 scripts/test-stack up
-cargo run --locked -- --voice-demo
+cargo run --locked --features matrix -- --voice-demo
 ```
 
 The demo prints commands for two saved test accounts. Open them in separate
@@ -173,8 +171,8 @@ nix develop path:./nix#windows --command scripts/build-windows full   # full pre
 The ZIP and an installer appear in `target/dist/discord` or
 `target/dist/full`. The full preview's sign-in screen defaults to
 `https://matrix.org`. See the [Windows guide](windows-beta.md) for
-two-machine checks, and [building](building.md) for native Windows
-prerequisites.
+two-machine checks, and [building](building.md#windows) for the options and
+native Windows prerequisites.
 
 ## Measurements
 

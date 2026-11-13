@@ -2,7 +2,8 @@
 //! trending terms, a search, the trending GIFs and the account's favourites.
 //! A click sends a GIF's page as a message; Shift puts it in the composer.
 //! The picker keeps pictures only for the GIFs on screen, or about to be,
-//! and none once it closes.
+//! and none once it closes. A picture whose tile grows, as the picker widens,
+//! is fetched again larger, the smaller one showing until it comes.
 
 use super::*;
 use crate::chat::{FavoriteGif, Gif, GifCategory};
@@ -25,6 +26,29 @@ pub enum GifPicture {
     Loading,
     Shown(Arc<Picture>),
     Failed,
+}
+
+/// A picture the picker shows, and the size it was last asked for at.
+#[derive(Clone, Debug)]
+pub struct AskedPicture {
+    pub picture: GifPicture,
+    size: (u32, u32),
+}
+
+impl AskedPicture {
+    /// Its tile has grown past a tenth over the size it was asked for at, and
+    /// the picture filled that: a larger one would be sharper. A picture
+    /// smaller than its tile keeps its own size, larger or not.
+    fn outgrown(&self, width: u32, height: u32) -> bool {
+        let GifPicture::Shown(picture) = &self.picture else {
+            return false;
+        };
+        let (asked_width, asked_height) = self.size;
+        let filled = picture.width + 1 >= asked_width || picture.height + 1 >= asked_height;
+        filled
+            && u64::from(width) * 10 > u64::from(asked_width) * 11
+            && u64::from(height) * 10 > u64::from(asked_height) * 11
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -50,11 +74,14 @@ pub struct GifPicker {
     /// Terms to try instead, for the search shown.
     pub suggestions: Vec<String>,
     suggested: Option<String>,
-    pub pictures: HashMap<String, GifPicture>,
+    pub pictures: HashMap<String, AskedPicture>,
     /// The favourites were asked for, and those shown are Discord's rather
     /// than those kept on disk.
     favorites_asked: bool,
     favorites_fresh: bool,
+    /// This start asked for what the picker fetches ahead.
+    #[cfg(feature = "discord")]
+    prefetched: bool,
     /// Stars used before Discord's favourites came, each adding a GIF or
     /// taking one out: they show at once and reach Discord's once they come,
     /// so a change made elsewhere meanwhile stays.
@@ -126,6 +153,28 @@ impl Application {
             && let Some(asked) = picker.results_for.clone()
         {
             effects.extend(self.ask_gifs(asked));
+        }
+        effects.extend(self.load_favorite_gifs());
+        effects
+    }
+
+    /// Asks for the favourite GIFs and the picker's home once, at a start, so
+    /// their pictures are fetched ahead before the picker is ever opened.
+    /// Opening the picker finds both answered, or tries again if one failed.
+    #[cfg(feature = "discord")]
+    pub(super) fn prefetch_gifs(&mut self) -> Vec<Effect> {
+        if self.state.preview || std::mem::replace(&mut self.state.gifs.prefetched, true) {
+            return vec![];
+        }
+        // The home's answer first: it is one small request, and its terms' pictures
+        // are what the home draws. The favourites' list is the larger call, and
+        // the GIFs it leads to take the longest to fetch, so it follows.
+        let mut effects = vec![];
+        if self.state.gifs.categories.is_empty() && !self.state.gifs.home_loading {
+            self.state.gifs.home_loading = true;
+            effects.push(Effect::Backend(Command::Discord(
+                DiscordCommand::GifCategories,
+            )));
         }
         effects.extend(self.load_favorite_gifs());
         effects
@@ -233,10 +282,20 @@ impl Application {
             .retain(|url, _| shown.iter().any(|(shown, _, _)| shown == url));
         let mut effects = vec![];
         for (url, width, height) in shown {
-            if url.is_empty() || picker.pictures.contains_key(&url) {
+            if url.is_empty() {
                 continue;
             }
-            picker.pictures.insert(url.clone(), GifPicture::Loading);
+            match picker.pictures.get_mut(&url) {
+                Some(asked) if asked.outgrown(width, height) => asked.size = (width, height),
+                Some(_) => continue,
+                None => {
+                    let asked = AskedPicture {
+                        picture: GifPicture::Loading,
+                        size: (width, height),
+                    };
+                    picker.pictures.insert(url.clone(), asked);
+                }
+            }
             let favorite = self
                 .state
                 .favorite_gifs
@@ -422,13 +481,14 @@ impl Application {
                 }
                 self.state.favorite_gifs = Some(favorites);
                 self.state.favorite_gifs_changed += 1;
-                if !starred {
-                    return vec![];
+                let mut effects: Vec<Effect> = self.prefetch_favorites().into_iter().collect();
+                if starred {
+                    let favorites = self.state.favorite_gifs.clone().unwrap_or_default();
+                    effects.push(Effect::Backend(Command::Discord(
+                        DiscordCommand::SetFavoriteGifs(favorites),
+                    )));
                 }
-                let favorites = self.state.favorite_gifs.clone().unwrap_or_default();
-                vec![Effect::Backend(Command::Discord(
-                    DiscordCommand::SetFavoriteGifs(favorites),
-                ))]
+                effects
             }
             // The stars used meanwhile wait for the next try.
             Err(error) => {
@@ -452,9 +512,37 @@ impl Application {
         self.state.favorite_gifs_changed += 1;
     }
 
+    /// Fetches ahead what's cheap to keep of Discord's list of favourite GIFs,
+    /// on Discord's worker, keeping the cache to the list as it does. Nothing
+    /// is held: the files go to the disk, and a tile decodes one when it shows
+    /// it. The list kept on disk may be out of date, so it doesn't ask.
+    fn prefetch_favorites(&self) -> Option<Effect> {
+        let mut seen = HashSet::new();
+        let urls = self
+            .state
+            .favorite_gifs
+            .as_ref()?
+            .iter()
+            .filter(|favorite| !favorite.src.is_empty() && seen.insert(favorite.src.as_str()))
+            .map(|favorite| favorite.src.clone())
+            .collect();
+        Some(Effect::Backend(Command::Discord(
+            DiscordCommand::PrefetchFavorites(urls),
+        )))
+    }
+
     pub(super) fn gif_picture_came(&mut self, url: String, picture: Option<Arc<Picture>>) {
-        if let Some(shown) = self.state.gifs.pictures.get_mut(&url) {
-            *shown = picture.map_or(GifPicture::Failed, GifPicture::Shown);
+        let Some(asked) = self.state.gifs.pictures.get_mut(&url) else {
+            return;
+        };
+        match (picture, &asked.picture) {
+            // A larger picture that didn't come, or one no larger than that
+            // shown, as an earlier ask's coming late, leaves it.
+            (None, GifPicture::Shown(_)) => {}
+            (Some(picture), GifPicture::Shown(shown)) if picture.width <= shown.width => {}
+            (picture, _) => {
+                asked.picture = picture.map_or(GifPicture::Failed, GifPicture::Shown);
+            }
         }
     }
 }

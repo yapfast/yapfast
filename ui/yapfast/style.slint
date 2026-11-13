@@ -1,0 +1,37 @@
+// Yapfast presentation values. Keep shared widget behavior in the shared components.
+// Disabled for comparisons with the inherited interface.
+export global ClientStyle {
+    in-out property <bool> enabled: true;
+    // An open-licensed, bundled face gives every platform the same text metrics.
+    in-out property <string> native-font: "DM Sans";
+    out property <string> font-family: self.enabled ? self.native-font : "Atkinson Hyperlegible Next";
+    out property <length> text-size: self.enabled ? 15px : 16px;
+    out property <length> sidebar-width: self.enabled ? 304px : 240px;
+    // Discord's header rows: 48px between its outline and the line under them, 50px with both.
+    out property <length> header-height: self.enabled ? 50px : 48px;
+    out property <length> account-inset: self.enabled ? 8px : 0px;
+    out property <length> account-height: self.enabled ? 57px : 56px;
+    out property <length> rail-tile: self.enabled ? 40px : 48px;
+    // Discord's folders are 48px tiles between its 40px servers, 8px apart in both.
+    out property <length> folder-tile: 48px;
+    out property <length> folder-radius: self.enabled ? 16px : 16px;
+    // Discord's member list: its 1px edge and 264px of rows.
+    out property <length> members-width: self.enabled ? 265px : 240px;
+    out property <length> profile-width: self.enabled ? 320px : 300px;
+    out property <length> dm-row-height: 42px;
+    out property <length> channel-row-height: self.enabled ? 32px : 34px;
+    out property <length> message-gap: self.enabled ? 0px : 3px;
+    out property <length> message-group-gap: self.enabled ? 16px : 14px;
+    out property <length> profile-inset: self.enabled ? 8px : 0px;
+    out property <length> composer-height: self.enabled ? 58px : 48px;
+    out property <length> composer-padding: self.enabled ? 18px : 12px;
+    out property <length> composer-gutter: self.enabled ? 8px : 16px;
+    out property <length> composer-button-inset: self.enabled ? 14px : 8px;
+    // What opens a channel's history in Discord: its welcome block, in the
+    // server's first channel and in any other.
+    out property <length> intro-server-height: 167px;
+    out property <length> intro-channel-height: 203px;
+    out property <length> settings-width: self.enabled ? 1400px : 1080px;
+    out property <length> settings-height: self.enabled ? 100000px : 800px;
+    out property <length> settings-margin: self.enabled ? 96px : 80px;
+}

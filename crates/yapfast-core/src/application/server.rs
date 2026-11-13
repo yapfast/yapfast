@@ -4,7 +4,10 @@
 //! roles and settings into every room or member.
 
 use super::*;
-use crate::chat::{NotificationChange, Notifications, Permission, ServerNotifications, ServerRole};
+use crate::chat::{
+    DiscordCommand, NotificationChange, Notifications, Permission, ServerNotifications,
+    ServerPreview, ServerRole,
+};
 
 #[cfg(feature = "discord")]
 use crate::chat::NotifyLevel;
@@ -58,6 +61,8 @@ fn bits(permission: Permission) -> u64 {
         Permission::ViewAuditLog => permission::VIEW_AUDIT_LOG,
         Permission::ManageExpressions => permission::MANAGE_GUILD_EXPRESSIONS,
         Permission::CreateExpressions => permission::CREATE_GUILD_EXPRESSIONS,
+        Permission::UseExternalEmojis => permission::USE_EXTERNAL_EMOJIS,
+        Permission::UseExternalStickers => permission::USE_EXTERNAL_STICKERS,
     }
 }
 
@@ -73,6 +78,28 @@ impl Application {
         let (guild, channel) = place(at)?;
         let server = snapshot.servers.iter().find(|server| server.id == guild)?;
         Some((server, channel, snapshot.user_id.as_deref()?))
+    }
+
+    /// The user id of the owner of the Discord server a place is in, when
+    /// it's known.
+    pub fn server_owner(&self, place: &str) -> Option<String> {
+        #[cfg(feature = "discord")]
+        if let Some((server, _, _)) = self.discord_place(place) {
+            return server.owner_id.clone();
+        }
+        // A group DM's creator, whom its member list crowns, as Discord's does.
+        #[cfg(feature = "discord")]
+        if let Some((_, Some(channel))) = self::place(place)
+            && let Some(snapshot) = self.discord.as_ref()
+        {
+            return snapshot
+                .conversations
+                .iter()
+                .find(|conversation| conversation.id == channel && conversation.group)
+                .and_then(|conversation| conversation.owner.clone());
+        }
+        let _ = place;
+        None
     }
 
     /// A Discord server's roles, highest first, without @everyone; empty for
@@ -119,6 +146,34 @@ impl Application {
         }
         let _ = (place, permission);
         false
+    }
+
+    /// Whether the open room lets this account use another server's emoji or
+    /// stickers, as `permission` names them: anywhere outside a server, as a
+    /// DM is, and in a server's channel as its roles and overwrites say,
+    /// which Discord's client asks even of Nitro. Until the server's roles
+    /// are known, it may.
+    pub(super) fn may_use_external(&self, permission: Permission) -> bool {
+        let Some(room) = self.state.selected.as_deref() else {
+            return true;
+        };
+        #[cfg(feature = "discord")]
+        if let Some((server, Some(_), _)) = self.discord_place(room) {
+            return server.roles.is_empty() || self.may(room, permission);
+        }
+        let _ = (room, permission);
+        true
+    }
+
+    /// Whether this account may do what `permission` names in the Discord
+    /// server a place is in, whatever that channel's overwrites say, as
+    /// Discord's member menu asks for Manage Roles.
+    pub fn may_in_server(&self, place: &str, permission: Permission) -> bool {
+        #[cfg(feature = "discord")]
+        if let Some((server, _, _)) = self.discord_place(place) {
+            return self.may(&discord::server_id(&server.id), permission);
+        }
+        self.may(place, permission)
     }
 
     /// Whether this account outranks `user`, holding `roles`, in the Discord
@@ -256,6 +311,39 @@ impl Application {
                 ))]
             }
             _ => vec![],
+        }
+    }
+
+    /// Asks Discord what a server's card shows, for the card an emoji of it
+    /// opens: how many of its members are online, and whether Discover lists
+    /// it. A server's answer stands, so a card opened again asks nothing.
+    pub(super) fn preview_server(&mut self, server: String) -> Vec<Effect> {
+        if self.state.preview
+            || !self.state.discord_online
+            || self.state.server_previews.contains_key(&server)
+            || Network::of(&server) != Network::Discord
+        {
+            return vec![];
+        }
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::ServerPreview { server },
+        ))]
+    }
+
+    /// Keeps what Discord said a server's card shows, for the cards that open
+    /// again, or says it didn't answer.
+    pub(super) fn show_server_preview(
+        &mut self,
+        server: String,
+        result: Result<ServerPreview, String>,
+    ) {
+        match result {
+            Ok(preview) => {
+                self.state.server_previews.insert(server, preview);
+            }
+            Err(error) => {
+                tracing::warn!(%error, "could not show what a server's card shows");
+            }
         }
     }
 }

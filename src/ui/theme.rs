@@ -76,6 +76,9 @@ theme! {
     row_hover(get_row_hover, set_row_hover),
     line(get_line, set_line),
     edge(get_edge, set_edge),
+    outline(get_outline, set_outline),
+    outline_chat(get_outline_chat, set_outline_chat),
+    outline_field(get_outline_field, set_outline_field),
     text(get_text, set_text),
     secondary(get_secondary, set_secondary),
     muted(get_muted, set_muted),
@@ -115,6 +118,9 @@ pub const YAP: Theme = Theme {
     active: rgb(0x2c2d35),
     row_hover: rgb(0x1a1b20),
     line: rgb(0x2c2d34),
+    outline: rgb(0x2c2d34),
+    outline_chat: rgb(0x2c2d34),
+    outline_field: rgb(0x2c2d34),
     edge: rgb(0x0c0d0f),
     text: rgb(0xeef0f4),
     secondary: rgb(0xb5b8c1),
@@ -129,7 +135,7 @@ pub const YAP: Theme = Theme {
     on_danger: rgb(0xffffff),
     live: rgb(0x3ecf7e),
     loud: rgb(0xff8c42),
-    link: rgb(0x7cc4ff),
+    link: rgb(0x64adf6),
     button_default: rgb(0x33343c),
     button_default_hover: rgb(0x3c3d46),
     overlay: rgb(0xffffff),
@@ -154,8 +160,11 @@ const BONFIRE: Theme = Theme {
     hover: rgb(0x222225),
     active: rgb(0x2d2d30),
     row_hover: rgb(0x242428),
-    line: rgb(0x29292e),
-    edge: rgb(0x222225),
+    line: rgb(0x38383f),
+    outline: rgb(0x222225),
+    outline_chat: rgb(0x29292d),
+    outline_field: rgb(0x27282b),
+    edge: rgb(0x303036),
     text: rgb(0xefeff1),
     secondary: rgb(0xabacb2),
     muted: rgb(0x96979e),
@@ -194,6 +203,9 @@ const CATPPUCCIN_MOCHA: Theme = Theme {
     active: rgb(0x45475a),
     row_hover: rgb(0x1a1a29),
     line: rgb(0x313244),
+    outline: rgb(0x313244),
+    outline_chat: rgb(0x313244),
+    outline_field: rgb(0x313244),
     edge: rgb(0x11111b),
     text: rgb(0xcdd6f4),
     secondary: rgb(0xbac2de),
@@ -233,6 +245,9 @@ const CATPPUCCIN_LATTE: Theme = Theme {
     active: rgb(0xccd0da),
     row_hover: rgb(0xeaedf2),
     line: rgb(0xccd0da),
+    outline: rgb(0xccd0da),
+    outline_chat: rgb(0xccd0da),
+    outline_field: rgb(0xccd0da),
     edge: rgb(0xbcc0cc),
     text: rgb(0x4c4f69),
     secondary: rgb(0x5c5f77),
@@ -272,6 +287,9 @@ const DRACULA: Theme = Theme {
     active: rgb(0x44475a),
     row_hover: rgb(0x242631),
     line: rgb(0x343746),
+    outline: rgb(0x343746),
+    outline_chat: rgb(0x343746),
+    outline_field: rgb(0x343746),
     edge: rgb(0x191a21),
     text: rgb(0xf8f8f2),
     secondary: rgb(0xcbd0db),
@@ -312,6 +330,9 @@ const NORD: Theme = Theme {
     active: rgb(0x434c5e),
     row_hover: rgb(0x2b313c),
     line: rgb(0x3b4252),
+    outline: rgb(0x3b4252),
+    outline_chat: rgb(0x3b4252),
+    outline_field: rgb(0x3b4252),
     edge: rgb(0x1f232c),
     text: rgb(0xeceff4),
     secondary: rgb(0xd8dee9),
@@ -351,6 +372,9 @@ const GRUVBOX_DARK: Theme = Theme {
     active: rgb(0x504945),
     row_hover: rgb(0x222424),
     line: rgb(0x3c3836),
+    outline: rgb(0x3c3836),
+    outline_chat: rgb(0x3c3836),
+    outline_field: rgb(0x3c3836),
     edge: rgb(0x141617),
     text: rgb(0xebdbb2),
     secondary: rgb(0xd5c4a1),
@@ -390,6 +414,9 @@ const TOKYO_NIGHT: Theme = Theme {
     active: rgb(0x292e42),
     row_hover: rgb(0x181822),
     line: rgb(0x292e42),
+    outline: rgb(0x292e42),
+    outline_chat: rgb(0x292e42),
+    outline_field: rgb(0x292e42),
     edge: rgb(0x0f0f15),
     text: rgb(0xc0caf5),
     secondary: rgb(0xa9b1d6),
@@ -429,6 +456,9 @@ const ROSE_PINE_DAWN: Theme = Theme {
     active: rgb(0xdfdad9),
     row_hover: rgb(0xf4ede8),
     line: rgb(0xdfdad9),
+    outline: rgb(0xdfdad9),
+    outline_chat: rgb(0xdfdad9),
+    outline_field: rgb(0xdfdad9),
     edge: rgb(0xcecacd),
     text: rgb(0x575279),
     secondary: rgb(0x797593),
@@ -468,6 +498,9 @@ const SAKURA: Theme = Theme {
     active: rgb(0xf2d1de),
     row_hover: rgb(0xfdf1f6),
     line: rgb(0xf2d6e1),
+    outline: rgb(0xf2d6e1),
+    outline_chat: rgb(0xf2d6e1),
+    outline_field: rgb(0xf2d6e1),
     edge: rgb(0xe9c6d3),
     text: rgb(0x4a3541),
     secondary: rgb(0x6d5361),
@@ -756,7 +789,7 @@ thread_local! {
     /// The colour of a mention without one of its own, as `0xrrggbb`: the
     /// theme's link colour. Rows build their markup with it, outside the
     /// window, on the window's thread.
-    static MENTION: Cell<u32> = const { Cell::new(0x7cc4ff) };
+    static MENTION: Cell<u32> = const { Cell::new(0x64adf6) };
     /// The theme's text and muted colours, the same way, for a notice's
     /// name, links and time.
     static TEXT: Cell<u32> = const { Cell::new(0xf2f3f5) };
@@ -781,7 +814,14 @@ impl Theme {
     pub fn apply(&self, window: &YapfastWindow) -> bool {
         self.set(&window.global::<yapfast_ui::Theme>());
         let rgb = |colour: Color| colour.as_argb_encoded() & 0xff_ffff;
-        let mention = MENTION.replace(rgb(self.link)) != rgb(self.link);
+        // Bonfire draws a mention's text as Discord's dark theme does, a light
+        // blurple; the other themes use their link colour.
+        let mention_colour = if self.dark && rgb(self.link) == rgb(BONFIRE.link) {
+            0xc9cdfb
+        } else {
+            rgb(self.link)
+        };
+        let mention = MENTION.replace(mention_colour) != mention_colour;
         let text = TEXT.replace(rgb(self.text)) != rgb(self.text);
         let muted = MUTED.replace(rgb(self.muted)) != rgb(self.muted);
         mention || text || muted

@@ -1,29 +1,38 @@
 # Persistent voice channels
 
-Yapfast can join one encrypted voice channel at a time, wait alone, and keep the
-connection while browsing text channels, other servers and DMs. Each join starts
-muted. The dock under the rail and sidebar exposes mute, deafen, audio devices and Leave.
-A caret beside mute and beside deafen opens a menu that chooses the input or
-output device and links to the full settings. Deafen
-also mutes the microphone; undeafening keeps it muted, while unmuting when
-deafened undeafens too. The voice view shows the
-participants and their mute, deafen and speaking state; a deafened person shows
-crossed-out microphone and headphones in the channel list, and only the red
-crossed-out headphones on their tile in the call. MatrixRTC doesn't share
-deafening, so in Yapfast calls only your own shows. Clicking a voice channel joins it.
-Clicking another one during a call opens a dialog that asks before leaving the
-current one. Coming back to a server that had a voice channel selected shows it
-without joining.
+Yapfast can join one encrypted voice channel at a time, wait alone, and keep
+the connection while browsing text channels, other servers and DMs. Each join
+starts muted and turns the microphone on as the call connects, unless Settings
+› Voice & video turns that off. The dock under the rail and sidebar exposes
+mute, deafen, audio devices and Leave. A caret beside mute and beside deafen
+opens a menu, as Vesktop's: the input or output device chosen, which a click
+opens into the list of devices in place, the microphone or speaker volume
+(the same as Settings › Voice & video, saved as the slider is let go), and a
+way into the voice settings. The input menu adds the microphone's level, and
+with Discord linked, its noise suppression. Deafen also mutes the microphone;
+undeafening keeps it muted, while unmuting when deafened undeafens too. The
+voice view shows the participants and their mute, deafen and speaking state; a
+deafened person shows crossed-out
+microphone and headphones in the channel list, and only the red crossed-out
+headphones on their tile in the call. MatrixRTC doesn't share deafening, so in
+Yapfast calls only your own shows. Clicking a voice channel joins it and leaves
+what's on screen as it was, as Discord's client does: the call shows in the
+dock, and clicking the channel again, or the channel's line in the dock, opens
+it. A voice channel whose chat mentions you opens on its chat as it joins, as
+in Discord, and one you can't join opens without joining. Clicking another one
+during a call opens a dialog that asks before leaving the current one, and
+confirming joins it the same way. Coming back to a server that had a voice
+channel selected shows it without joining.
 
-The native LiveKit audio engine captures and plays audio through system devices.
-The gear button opens a popover to select microphone and speakers,
-without hiding the channel list in small windows. Yapfast remembers the choice in
-`devices.json` in its data folder; it never leaves the machine. A remembered
-device that is unplugged gives way to the system default until it returns.
-Refresh devices after plugging in hardware. No microphone track is
-created until Unmute. Leaving releases the audio handle, and restarting Yapfast
-requires joining again. Preview calls are simulated, but the preview lists and
-chooses real devices without remembering them.
+The native LiveKit audio engine captures and plays audio through system
+devices. Settings › Voice & video selects the microphone and speakers too.
+Yapfast remembers the choice in `devices.json` in its data folder; it never
+leaves the machine. A remembered device that is unplugged gives way to the
+system default until it returns. Refresh devices in Settings after plugging in
+hardware. No microphone track is created until Unmute. Leaving releases the
+audio handle, and restarting Yapfast requires joining again. Preview calls are
+simulated, but the preview lists and chooses real devices without remembering
+them.
 
 ## Cameras
 
@@ -34,22 +43,20 @@ gives way to the first one listed until it returns, as audio devices do.
 `--audio-devices` lists cameras too.
 
 Yapfast films through libwebrtc's own capture module, which its libwebrtc
-archive already holds (`native/camera.cc`, about 16 KB of code), through V4L2
-on Linux and DirectShow on Windows. The module reads the device on a thread
-of its own. Yapfast registers for the device's raw frames, so the module hands
-over the driver's buffer without converting it, and libyuv converts each one
-(YUY2, MJPEG, NV12, RGB and the rest) into the same I420 buffer, frame after
-frame. It asks for 1280×720 at 30
-frames a second, as Discord's client films without Nitro and as LiveKit's
-default camera does, and scales down a camera that can't film that small.
+archive already holds (`crates/yapfast-core/native/camera.cc`), through V4L2 on
+Linux and DirectShow on Windows. The module reads the device on a thread of its
+own. Yapfast registers for the device's raw frames, so the module hands over
+the driver's buffer without converting it, and libyuv converts each one (YUY2,
+MJPEG, NV12, RGB and the rest) into the same I420 buffer, frame after frame. It
+asks for 1280×720 at 30 frames a second, as Discord's client films without
+Nitro and as LiveKit's default camera does, and scales down a camera that can't
+film that small.
 
 A picture on screen, such as the preview, is a `picture::Feed`: whoever makes
 the frames converts each straight to RGBA at the size it shows, in one of at
 most four Slint pixel buffers the feed reuses, and the window shows that
 buffer without a copy. Off screen, a feed converts nothing and lets go of its
-buffers. On 2026-10-13 the settings preview, a 1280×720 YUY2 camera shown at
-400×225, took 4.4% of a core and 3.5 MiB of RSS, including Slint drawing it 30
-times a second with Skia Software. One capture thread came and went with it.
+buffers.
 
 In a call that carries video, the camera button in the call's controls turns
 the camera on and off. Each participant whose camera is on has a feed of
@@ -84,13 +91,13 @@ same way, after the old one closes. Listing the cameras looks at the devices
 once, rather than once for each camera listed.
 
 In a Matrix call, Yapfast publishes the camera to LiveKit as a simulcast VP8
-track, asking for 1280×720, so each receiver can take the layer its tile
-needs. Each picture goes to WebRTC through `capture_i420`, a Yapfast patch to
+track, asking for 1280×720, so each receiver can take the layer its tile needs.
+Each picture goes to WebRTC through `capture_i420`, a Yapfast patch to
 `webrtc-sys` that copies it into one of four pooled buffers rather than a new
 one each frame (`vendor/webrtc-sys/README.yapfast.md`). Turning the camera off
 mutes the track and closes the camera, as Element does. Unpublishing would
-leave the track's sender and encoder in LiveKit's connection, about 17 MiB
-and nine threads each time, measured. The track goes when the call ends.
+leave the track's sender and encoder in LiveKit's connection each time. The
+track goes when the call ends.
 
 Each remote camera arrives as WebRTC's decoded I420 frame, and its feed
 scales and converts it straight into the tile's buffer, with no copy in
@@ -98,21 +105,16 @@ between. The tile's size goes to LiveKit (`set_constraints`), so the server
 sends the smallest layer that fills it, and a camera whose tile is out of
 sight, or muted, is paused at the server: nothing arrives to decode, and its
 buffers go. `testing/measure_cameras.py` measures a five-person call as the
-others' cameras and then Alice's turn on; see `docs/measurements/README.md`.
+others' cameras and then Alice's turn on.
 
 In a Discord call, Yapfast encodes the camera in H264 itself and sends it over
 the call's own voice connection, and decodes each remote camera on one
-thread, into its tile's feed; [Camera video](discord.md#camera-video) in
-docs/discord.md has the details.
+thread, into its tile's feed; [Camera video](discord/voice.md#camera-video)
+has the details.
 
-The other ways to film, compared before choosing:
-
-| | libwebrtc's module | V4L2 directly | PipeWire's camera portal | nokhwa |
-| --- | --- | --- | --- | --- |
-| New dependencies | None | A V4L2 crate, and an MJPEG decoder | None in libwebrtc's module; a portal dialog | The crate, its backends and image decoders |
-| Copies per frame | One conversion into a reused buffer | The same, written by Yapfast | The same | A new buffer per frame |
-| Windows | DirectShow, in the same module | No | No | Media Foundation |
-| Sandboxes such as Flatpak | V4L2 needs the device | The same | Yes | The same as V4L2 |
+libwebrtc's module was chosen over V4L2 directly, PipeWire's camera portal
+and nokhwa: it adds no dependency, converts once into a reused buffer where
+nokhwa makes a new one each frame, and films on Windows too.
 
 The portal is in the same module: `VideoCaptureOptions` with PipeWire allowed
 asks it over D-Bus, as screen sharing asks its own portal. Yapfast will turn it
@@ -157,22 +159,44 @@ and quieter, as Discord's client sounds a stream's viewers; a call sound at the
 same moment wins, and a stream starting or ending makes no viewer sound.
 
 `sounds.rs` makes each sound as it plays. The six sets are New Kalimba, the
-default, Felt piano, Soft marimba, Mellow Rhodes, Glow and Flute, all in F major
-pentatonic so any two sound well together. Felt piano, Soft marimba, Mellow
-Rhodes and Glow are synthesized; New Kalimba and Flute play the same notes on one recorded note each, made with ElevenLabs'
-sound generator and kept as 24 kHz samples in `crates/yapfast-core/sounds/`
-(38 KB each), played faster or slower for each note. They play on the call's speakers through
-`audio_io.rs`, on Linux and Windows, like ringing. Settings › Sounds chooses
-the set and the volume, from 0% to 200%. A slider's percentage becomes a gain
-by its square, which spreads the quiet settings along more of it. At 100%, the
-default, the loudest sounds peak 12 dB under full scale, and at 200% they reach
-it. Each sound can also have its own volume up to 100%, as a share of that one. `layout.json` remembers them. Desktop
-notifications ask the desktop to stay quiet, since Yapfast sounds itself; someone
-who had turned the desktop's sound off starts with messages and mentions at 0%.
+default, Felt piano, Soft marimba, Mellow Rhodes, Glow and Flute, all in F
+major pentatonic so any two sound well together. Felt piano, Soft marimba,
+Mellow Rhodes and Glow are synthesized; New Kalimba and Flute play the same
+notes on one recorded note each, made with ElevenLabs' sound generator and kept
+as 24 kHz samples in `crates/yapfast-core/sounds/`, played faster or slower for
+each note. They play on the call's speakers through `audio_io.rs`, on Linux and
+Windows, like ringing. Settings › Sounds chooses the set and the volume, from
+0% to 200%. A slider's percentage becomes a gain by its square, which spreads
+the quiet settings along more of it. At 100%, the default, the loudest sounds
+peak 12 dB under full scale, and at 200% they reach it. Each sound can also
+have its own volume up to 100%, as a share of that one. `layout.json` remembers
+them. Desktop notifications ask the desktop to stay quiet, since Yapfast sounds
+itself; someone who had turned the desktop's sound off starts with messages and
+mentions at 0%.
 
 WebRTC's PulseAudio devices report no GUID, and LiveKit selects devices only by
-GUID, which always chose the first device. Yapfast names such devices `name:` and
-their reported name, and selects them by their current index instead.
+GUID, which would always choose the first device. Yapfast names such devices
+`name:` and their reported name, and selects them by their current index
+instead.
+
+A call's own speakers and microphone, and a watched stream's sound, outlast
+their device (`audio_io::LastingOutput` and `LastingInput`). Bluetooth
+headphones that drop out end the stream on Windows, and on PulseAudio the
+server moves it to another device and leaves it there when they return.
+So a stream that fails opens again, on its device or on the default while
+that's gone, and every 2 s it checks which endpoint it would open now and
+moves there if that's another one. On PulseAudio that endpoint is the
+sink's or source's name with its index, which a device gets anew each time
+it comes back, so even a short gap brings the stream back. On Windows it's
+the endpoint id, the default's while the chosen device is gone, so the
+default also follows Windows when it changes. While nothing opens, the
+stream keeps time with silence and tries again every half second. Settings
+show a chosen device that isn't connected last in its list, as "(not
+connected)", by the name it was last listed with; the call plays on the
+default meanwhile. Each picker's selection is bound both ways, since a
+ComboBox sets its own index as it's used, which undoes a one-way binding
+and left it showing another device once the list changed. Yapfast calls'
+own audio goes through WebRTC's device module, which these don't cover.
 
 Right-clicking someone in a call, in the sidebar or on their tile, sets how
 loud they sound from 0% to 200%, and their stream's sound too while they're
@@ -188,6 +212,20 @@ scales its sound. Yapfast calls play remote audio inside WebRTC, which LiveKit's
 Rust API can't adjust per track, so Yapfast's patch to `webrtc-sys` sets each
 track's volume through WebRTC's `SetVolume` by track id.
 
+Settings › Voice & video has a volume under each device, as Discord's
+does: "Microphone volume" sets how loud every call sends you, and "Speaker
+volume" how loud every call plays, both from 0% to 200% on the same curve
+as a person's volume, with 100% marked. Dragging plays each step at once,
+and letting go saves the value in `layout.json` (`microphone_volume`,
+`speaker_volume`). Everyone in a call, and their stream's sound, plays at
+their own volume times the speakers' (`volume::heard`), so Yapfast calls
+set it on each track as above and Discord voice mixes with it. The
+microphone's volume applies with leveling, as one gain ramped across each
+10 ms block, and like leveling it never pushes a peak past 90% of full
+scale, so a boosted microphone doesn't clip on a shout; leveling hears the
+voice before the volume, so changing it doesn't move your usual level.
+Yapfast's own sounds keep their volume in Settings › Sounds.
+
 Settings' "Even out your voice", on unless turned off, levels the microphone
 after WebRTC's processing. Yapfast follows your usual speaking level over the last
 half minute or so, and undoes up to 8 dB of drift from it as you lean towards
@@ -201,7 +239,7 @@ lift noise past it.
 
 Yapfast calls suppress noise with WebRTC's own suppressor, inside LiveKit's
 WebRTC. Discord calls use DeepFilterNet, which also takes out typing; see the
-Microphone section of [Discord](discord.md#microphone). Yapfast calls could share
+Microphone section of [Discord](discord/voice.md#microphone). Yapfast calls could share
 it through the capture hook, which now only returns a gain for each block.
 
 The input menu's level meter reads the chosen microphone locally through
@@ -222,16 +260,17 @@ To test on one machine, from the project folder, enter the development shell and
 ```sh
 nix develop path:./nix
 scripts/test-stack up
-cargo run --locked -- --voice-demo
+cargo run --locked --features matrix -- --voice-demo
 ```
 
-The demo creates two disposable cross-signed accounts, a Matrix Space, an encrypted
-text channel and an encrypted voice channel. It prints two commands with separate
-data directories. Run each in a separate terminal. Select **Yapfast voice test** in
-the server rail, then **Lounge → Join voice**. Both accounts join with the
-microphone on, as Yapfast does unless Settings → Voice & video turns that off, so mute
-one. Select devices using the gear button. Use separate machines or headphones
-for a conversation; two windows on one computer share its audio.
+The demo creates two disposable cross-signed accounts, a Matrix Space, an
+encrypted text channel and an encrypted voice channel. It prints two commands
+with separate data directories. Run each in a separate terminal. Select
+**Yapfast voice test** in the server rail, then **Lounge → Join voice**. Both
+accounts join with the microphone on, as Yapfast does unless Settings → Voice &
+video turns that off, so mute one. Select devices from the carets beside mute
+and deafen. Use separate machines or headphones for a conversation; two windows
+on one computer share its audio.
 
 List native devices without publishing a microphone:
 
@@ -263,35 +302,26 @@ policy.
 
 With the stack running, `scripts/test-voice` exercises encrypted native audio
 using isolated Linux virtual devices and a generated signal. It does not record
-the physical microphone or change the system's default devices. Its Linux run covered
-a 30-second wait alone, a muted late join, native encrypted audio in both
-directions, mute, deafen, undeafen staying muted and clean leave. It also stalls
-authorization after membership publication, cancels with Leave, checks membership
-removal and then joins again. The two clients
-run in separate processes because LiveKit shares its audio engine within a
-process. A regression exposed stale key indices on native tracks first published
-after rotation; the [pinned dependency patch](../vendor/matrix-rtc-livekit/README.yapfast.md)
-reuses the SDK's active-index handling. The call experiment
-(`--call-experiment`) separately covers recovery,
-invalid keys and departure key rotation.
-
-Linux UI captures cover the preview and real accounts at 1120×760 and 800×560,
-including persistent controls, device selection and channel switching. Closing
-one native window removed its participant from the other account. Release
-performance remains unverified.
-
-On 2026-10-02 the user confirmed audio in both directions between Linux and the
-Windows x64 build on a test homeserver, along with mute/deafen and browsing text
-channels while voice stays connected. This is a manual user report; exact Windows,
-GPU/driver and audio-device models remain unrecorded. See [the Windows report](windows-beta.md).
+the physical microphone or change the system's default devices. It covers a
+30-second wait alone, a muted late join, native encrypted audio in both
+directions, mute, deafen, undeafen staying muted and clean leave. It also
+stalls authorization after membership publication, cancels with Leave, checks
+membership removal and then joins again. The two clients run in separate
+processes because LiveKit shares its audio engine within a process. The [pinned
+dependency patch](../vendor/matrix-rtc-livekit/README.yapfast.md) reuses the
+SDK's active-index handling, so native tracks first published after a key
+rotation don't carry stale key indices. The call experiment
+(`--call-experiment`) separately covers recovery, invalid keys and departure
+key rotation. Release performance remains unverified.
 
 Continue manual checks with the [Windows package](windows-beta.md) and two verified
 accounts in the same encrypted channel:
 
 1. Join alone and wait at least ten minutes. Join from the other machine; both
-   users should appear, initially muted.
-2. Yapfast in both directions. Mute and deafen, then undeafen; the microphone should
-   stay muted. Change both devices and confirm sound follows the selection.
+   users should appear.
+2. Talk in both directions. Mute and deafen, then undeafen; the microphone
+   should stay muted. Change both devices and confirm sound follows the
+   selection.
 3. Browse text channels and DMs during the call. Return to voice and leave;
    check that the other participant disappears.
 4. Interrupt and restore the connection. Record whether voice resumes, or shows
@@ -300,13 +330,13 @@ accounts in the same encrypted channel:
 5. Record OS, GPU, device models, resource measurements and any audible glitches.
 
 The controller shows reconnecting and allows up to 60 seconds before ending a
-degraded connection. A joining request has a 35-second deadline. Leave cancels a pending join
-immediately and waits up to ten seconds for membership cleanup; normal leaving
-has the same cleanup deadline. Crash membership expiry uses a five-minute sticky lifetime.
-Ringing DM/group calls, video, screenshare, and input and output volume are
-later slices. Push-to-talk works as in Discord calls; see
-[Discord's microphone](discord.md#push-to-talk). A call goes on with the window closed to the
-[tray](tray.md), whose menu can disconnect it.
+degraded connection. A joining request has a 35-second deadline. Leave cancels
+a pending join immediately and waits up to ten seconds for membership cleanup;
+normal leaving has the same cleanup deadline. Crash membership expiry uses a
+five-minute sticky lifetime. Ringing DM/group calls and screen sharing are
+later slices. Push-to-talk works as in
+Discord calls; see [Discord's microphone](discord/voice.md#push-to-talk). A call goes
+on with the window closed to the [tray](tray.md), whose menu can disconnect it.
 
 ## Reliability
 
@@ -338,21 +368,5 @@ network loss for Bob only. Run it from the development shell after
 python3 testing/test_voice_reliability.py --report .local/voice-reliability.json
 ```
 
-The full run on 2026-10-03:
-
-| Scenario | Result |
-| --- | --- |
-| Wait alone, then a late join | Passed after 600 s alone |
-| 20 s network loss | Recovered 1.1 s after the network returned |
-| 75 s network loss | Ended after 60 s with an error; rejoined 2.0 s after the network returned, with no stale entry |
-| Full reconnect after a key rotation | Bob's tone still decoded (amplitude 107.7 before, 126.0 after) |
-| Unverified participant | Labelled, with a warning; Alice's audio unaffected |
-| Killed, then restarted | Stale membership removed 0.2 s after restart |
-| Killed, not restarted | Shown as connection lost after 21 s; removed by expiry after 298.7 s |
-| Homeserver without sticky events | Refused with the MSC4354 explanation (rerun, see below) |
-
-The first full run failed only the last check: the test proxied a homeserver
-that hides MSC4354, but Synapse's login response pointed the SDK back to the
-real address. Yapfast now keeps the homeserver address the user entered, which
-also stops a login response from moving Yapfast to an unchecked plain-HTTP
-address. Rerun on its own after that fix, the scenario passed.
+Yapfast keeps the homeserver address the user entered, so a login response
+can't move it to another address, such as an unchecked plain-HTTP one.

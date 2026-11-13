@@ -14,6 +14,30 @@ fn message(id: &str, nonce: Option<&str>) -> Message {
 }
 
 #[test]
+fn unavailable_discord_fails_the_interaction_with_its_nonce() {
+    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+    without(
+        Command::Discord(DiscordCommand::Interact(Box::new(
+            crate::chat::Interaction::Modal {
+                nonce: "click".into(),
+                guild: None,
+                channel: "1".into(),
+                application: "2".into(),
+                id: "3".into(),
+                custom_id: "form".into(),
+                components: serde_json::json!([]),
+                files: Vec::new(),
+            },
+        ))),
+        "Offline",
+        &events,
+    );
+    assert!(
+        matches!(received.try_recv(), Ok(Event::InteractionFailed { nonce, reason }) if nonce == "click" && reason == "Offline")
+    );
+}
+
+#[test]
 fn answers_discord_commands_while_discord_is_away() {
     let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
     let why = "Discord couldn't start: the credential store is locked";
@@ -26,6 +50,8 @@ fn answers_discord_commands_while_discord_is_away() {
         DiscordCommand::Profile {
             room: "discord:10:11".into(),
             user: "2".into(),
+            effect: false,
+            frame: false,
         },
     ] {
         without(Command::Discord(command), why, &events);
@@ -137,6 +163,7 @@ fn shown(messages: Vec<Message>) -> Page {
     Page {
         oldest: messages.first().map(Message::order),
         full: messages.len() >= yapfast_discord::api::PAGE,
+        newest: false,
         messages,
     }
 }
@@ -192,6 +219,7 @@ fn messages_yapfast_does_not_show_still_fill_a_page() {
         messages,
         oldest: Some(1050),
         full: true,
+        newest: false,
     };
     open.loaded(Load::Latest, boosted(page(1051..1100)));
     assert!(
@@ -211,6 +239,7 @@ fn messages_yapfast_does_not_show_still_fill_a_page() {
             messages: vec![],
             oldest: Some(1000),
             full: true,
+            newest: false,
         },
     );
     assert!(!open.shown.complete);
@@ -242,6 +271,7 @@ fn closed_channels_keep_metadata_without_pinning_previews() {
             link_url: None,
             animated: false,
             spoiler: false,
+            description: None,
         }],
         ..message(&id.to_string(), None)
     };
@@ -291,6 +321,7 @@ fn changes_render_again_only_the_messages_they_change() {
             link_url: None,
             animated: false,
             spoiler: false,
+            description: None,
         }],
         ..message("9", None)
     };
@@ -384,6 +415,88 @@ fn votes_count_live_and_last_through_an_update_without_them() {
     assert_eq!(votes(&open), [(0, false), (1, true)]);
     assert!(open.live(&Live::Updated(asked(poll(true, [4, 2])))));
     assert_eq!(votes(&open), [(4, false), (2, false)]);
+}
+
+#[test]
+fn a_reply_keeps_its_original_through_an_update_that_leaves_it_out() {
+    use yapfast_discord::message::Reply;
+    let reply = |reply, content: &str| Message {
+        reply: Some(reply),
+        content: content.into(),
+        ..message("5", None)
+    };
+    let original = Reply::Message {
+        id: "4".into(),
+        author_id: "2".into(),
+        author: "ann".into(),
+        content: "lunch?".into(),
+    };
+    let mut open = OpenChannel::new("discord:10:11").unwrap();
+    open.loaded(Load::Latest, shown(vec![reply(original.clone(), "a gif")]));
+    // The update that brings a link's preview doesn't say what became of the
+    // original; it's still there.
+    let unknown = Reply::Unknown { id: "4".into() };
+    assert!(open.live(&Live::Updated(reply(unknown, "a gif, previewed"))));
+    assert_eq!(open.shown.messages[&5].reply, Some(original));
+    assert_eq!(open.shown.messages[&5].content, "a gif, previewed");
+    // One that says it was deleted is believed.
+    assert!(open.live(&Live::Updated(reply(Reply::Deleted, "a gif, previewed"))));
+    assert_eq!(open.shown.messages[&5].reply, Some(Reply::Deleted));
+}
+
+#[test]
+fn a_reply_on_screen_looks_its_original_up_once() {
+    use yapfast_discord::message::Reply;
+    let unknown = |id: &str, original: &str| Message {
+        reply: Some(Reply::Unknown {
+            id: original.into(),
+        }),
+        ..message(id, None)
+    };
+    let shows = |open: &OpenChannel, order: u64| open.shown.messages[&order].reply.clone();
+    let mut open = OpenChannel::new("discord:10:11").unwrap();
+    open.loaded(
+        Load::Latest,
+        shown(vec![
+            message("4", None),
+            unknown("5", "4"),
+            unknown("6", "1"),
+            unknown("7", "1"),
+            unknown("8", "2"),
+            unknown("9", ""),
+        ]),
+    );
+    // Nothing is asked for until a reply shows.
+    assert!(open.originals_wanted().is_empty());
+    open.visible(["5", "6", "7"].map(|id| format!("d:{id}")).to_vec());
+    // The one loaded is quoted without asking; two replies share one question.
+    assert_eq!(open.originals_wanted(), ["1"]);
+    assert!(matches!(shows(&open, 5), Some(Reply::Message { id, .. }) if id == "4"));
+    assert!(open.originals_wanted().is_empty(), "asked once");
+    // The answer quotes it in every reply to it, and no other.
+    let original = Reply::Message {
+        id: "1".into(),
+        author_id: "2".into(),
+        author: "ann".into(),
+        content: "lunch?".into(),
+    };
+    open.original("1", Ok(Some(original.clone())));
+    assert_eq!(shows(&open, 6), Some(original.clone()));
+    assert_eq!(shows(&open, 7), Some(original));
+    assert_eq!(shows(&open, 8), Some(Reply::Unknown { id: "2".into() }));
+    // A reply to it that comes later isn't left waiting.
+    assert!(open.live(&Live::Created(unknown("10", "1"))));
+    open.visible(["10"].map(|id| format!("d:{id}")).to_vec());
+    assert_eq!(open.originals_wanted(), ["1"]);
+    open.original("1", Err("refused".into()));
+    // One that's gone says so; a failure leaves the reply as it was, unasked again.
+    open.visible(["8", "9"].map(|id| format!("d:{id}")).to_vec());
+    assert_eq!(open.originals_wanted(), ["2"], "not one with no id");
+    open.original("2", Err("refused".into()));
+    assert_eq!(shows(&open, 8), Some(Reply::Unknown { id: "2".into() }));
+    assert!(open.originals_wanted().is_empty());
+    open.original("2", Ok(None));
+    assert_eq!(shows(&open, 8), Some(Reply::Deleted));
 }
 
 #[test]
@@ -482,6 +595,44 @@ fn channels_go_to_disk_once_they_change() {
             .collect::<Vec<_>>(),
         ["1", "3"]
     );
+}
+
+#[test]
+fn an_answer_only_this_account_sees_stays_off_disk_and_goes_when_dismissed() {
+    let mut open = OpenChannel::new("discord:10:11").unwrap();
+    open.loaded(Load::Latest, shown(page(1..=3)));
+    open.take_changes();
+    let ephemeral = |id: &str, loading: bool| Message {
+        ephemeral: true,
+        loading,
+        content: if loading {
+            String::new()
+        } else {
+            "Noted".into()
+        },
+        ..message(id, None)
+    };
+    // The app thinks, then answers, only to this account.
+    assert!(open.live(&Live::Created(ephemeral("4", true))));
+    assert!(open.live(&Live::Updated(ephemeral("4", false))));
+    let (_, saved) = open.take_changes().unwrap();
+    assert_eq!(
+        saved
+            .iter()
+            .map(|message| message.id.as_str())
+            .collect::<Vec<_>>(),
+        ["1", "2", "3"],
+        "never on disk"
+    );
+    // Discord's history never lists it; it stays till dismissed.
+    open.loaded(Load::Latest, shown(page([1, 2, 3, 5])));
+    assert!(open.message(4).is_some_and(|kept| kept.content == "Noted"));
+    assert!(!open.dismiss("d:3"), "only an ephemeral one is dismissed");
+    assert!(open.dismiss("d:4"));
+    assert!(open.message(4).is_none());
+    // An update the app sends after doesn't bring it back.
+    assert!(!open.live(&Live::Updated(ephemeral("4", false))));
+    assert!(open.message(4).is_none());
 }
 
 #[test]
@@ -601,9 +752,17 @@ fn a_window_of_older_messages_shows_in_place_of_the_newest_until_it_reaches_them
             .map(|latest| latest.messages.keys().copied().collect())
             .unwrap_or_default()
     };
+    assert!(!open.synced);
     open.loaded(Load::Latest, shown(page(1000..1050)));
+    assert!(open.synced, "the latest page came");
+    // Around a message among the newest shown, they're what shows around
+    // it, without asking.
+    assert!(open.reaches(1020) && open.reaches(1000));
+    assert!(!open.reaches(999));
     open.loaded(Load::Around(900), shown(page(875..925)));
+    assert!(!open.reaches(900), "not while a window shows");
     assert!(open.detached());
+    assert!(!open.shown.complete, "a whole half before the snowflake");
     assert_eq!(ids(&open), (875..925).collect::<Vec<_>>());
     assert_eq!(newest(&open), (1000..1050).collect::<Vec<_>>(), "kept");
 
@@ -656,9 +815,27 @@ fn a_window_of_older_messages_shows_in_place_of_the_newest_until_it_reaches_them
     let mut fresh = OpenChannel::new("discord:10:11").unwrap();
     fresh.loaded(Load::Around(10), shown(page(5..15)));
     assert!(fresh.detached());
+    assert!(
+        fresh.shown.complete,
+        "too few before the snowflake: the start"
+    );
     fresh.loaded(Load::Later, shown(page(15..20)));
     assert!(!fresh.detached());
     assert_eq!(ids(&fresh), (5..20).collect::<Vec<_>>());
+
+    // Less than half a page from the snowflake on reaches the newest
+    // message, so it isn't a window, and the newest kept join it.
+    let mut opened = OpenChannel::new("discord:10:11").unwrap();
+    opened.loaded(Load::Latest, shown(page(100..150)));
+    opened.loaded(
+        Load::Around(130),
+        Page {
+            newest: true,
+            ..shown(page(105..140))
+        },
+    );
+    assert!(!opened.detached());
+    assert_eq!(ids(&opened), (100..150).collect::<Vec<_>>());
 
     // Closing lets the window go.
     fresh.loaded(Load::Latest, shown(page(100..150)));
@@ -762,6 +939,25 @@ async fn until<T>(
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn the_sticker_picker_lists_the_servers_own_stickers() {
+    // READY gives each server's own stickers, as Discord's client reads them
+    // there: the picker asks for no server's list.
+    let discord = fake_discord().await;
+    let snapshot = discord.snapshots().borrow().clone();
+    let server = snapshot
+        .servers
+        .iter()
+        .find(|server| server.id == FAKE_GUILD)
+        .expect("the fake's server");
+    assert!(
+        server.stickers.iter().any(|sticker| sticker.name == "Wave"),
+        "the server's own stickers come with it: {:?}",
+        server.stickers
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
 async fn earlier_history_loads_a_page_at_a_time_until_the_first_message() {
     let discord = fake_discord().await;
     let (done, mut finished) = tokio::sync::mpsc::unbounded_channel();
@@ -812,7 +1008,11 @@ async fn earlier_history_loads_a_page_at_a_time_until_the_first_message() {
             &mut finished,
             &mut received,
             |event| match event {
-                Event::HistoryLoaded { history, .. } => Some(*history),
+                Event::HistoryLoaded {
+                    direction: Direction::Earlier,
+                    history,
+                    ..
+                } => Some(*history),
                 _ => None,
             },
         )
@@ -869,6 +1069,81 @@ async fn earlier_history_loads_a_page_at_a_time_until_the_first_message() {
     assert!(matches!(
         received.try_recv(),
         Ok(Event::HistoryLoaded { history, .. }) if history == start
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn a_channel_reopened_in_step_with_live_events_asks_for_nothing() {
+    let discord = fake_discord().await;
+    let (done, mut finished) = tokio::sync::mpsc::unbounded_channel();
+    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let mut channels = Channels::default();
+    let room = discord::room_id(FAKE_GUILD, FAKE_GENERAL);
+    let run = |command: Command, channels: &mut Channels| {
+        super::command(command, Ok(&discord), channels, &done, &events);
+    };
+    run(Command::Open(room.clone()), &mut channels);
+    until(
+        &discord,
+        &mut channels,
+        &done,
+        &mut finished,
+        &mut received,
+        |event| match event {
+            Event::HistoryLoaded {
+                direction: Direction::Latest,
+                ..
+            } => Some(()),
+            _ => None,
+        },
+    )
+    .await;
+    // Closed and opened again, it shows what it kept and says its newest
+    // messages are in, without asking Discord.
+    let reopen = |channels: &mut Channels, received: &mut UnboundedReceiver<Event>| {
+        run(Command::CloseRoom, channels);
+        while received.try_recv().is_ok() {}
+        run(Command::Open(room.clone()), channels);
+        std::iter::from_fn(|| received.try_recv().ok()).any(|event| {
+            matches!(
+                event,
+                Event::HistoryLoaded {
+                    direction: Direction::Latest,
+                    history: History::Loaded { present: true, .. },
+                    ..
+                }
+            )
+        })
+    };
+    assert!(reopen(&mut channels, &mut received), "said at once");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    while let Ok(work) = finished.try_recv() {
+        assert!(
+            !matches!(
+                work,
+                Done::History {
+                    load: Load::Latest,
+                    ..
+                }
+            ),
+            "the latest page wasn't asked for again"
+        );
+    }
+    // Once live events may have gone by without it, it asks again.
+    run(Command::CloseRoom, &mut channels);
+    channels.missed();
+    assert!(!reopen(&mut channels, &mut received), "not until it came");
+    let work = tokio::time::timeout(Duration::from_secs(5), finished.recv())
+        .await
+        .expect("the latest page loads")
+        .unwrap();
+    assert!(matches!(
+        work,
+        Done::History {
+            load: Load::Latest,
+            ..
+        }
     ));
 }
 
@@ -939,6 +1214,110 @@ async fn a_thread_beside_the_open_channel_shows_its_own_pages() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn a_thread_beside_the_open_channel_plays_its_videos() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let mut chat = Chat::start().unwrap().expect("the fake's account");
+    let mut snapshots = chat.discord.snapshots();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        snapshots.wait_for(|snapshot| snapshot.status == Status::Online),
+    )
+    .await
+    .expect("the fake Discord answers")
+    .unwrap();
+    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let general = discord::room_id(FAKE_GUILD, FAKE_GENERAL);
+    let (plans, plans_id) = chat
+        .discord
+        .snapshots()
+        .borrow()
+        .servers
+        .iter()
+        .flat_map(|server| &server.threads)
+        .find(|thread| thread.name == "Plans")
+        .map(|thread| (discord::room_id(FAKE_GUILD, &thread.id), thread.id.clone()))
+        .expect("the fake's Plans thread");
+    // The clip is there before the thread opens, so its first page has it.
+    let server = yapfast_discord::client::test_server().unwrap();
+    let address = server.trim_start_matches("http://").trim_end_matches('/');
+    let mut control = tokio::net::TcpStream::connect(address).await.unwrap();
+    control
+        .write_all(
+            format!(
+                "POST /_control/clip?channel={plans_id} HTTP/1.1\r\nHost: {address}\r\n\
+                 Content-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
+    let mut answer = String::new();
+    control.read_to_string(&mut answer).await.unwrap();
+    assert!(answer.contains("video posted"), "{answer}");
+
+    chat.command(Command::Open(general), &events);
+    chat.command(Command::Aside(Some(plans.clone())), &events);
+    let (item, index) = until(
+        &chat.discord,
+        &mut chat.channels,
+        &chat.done,
+        &mut chat.finished,
+        &mut received,
+        |event| match event {
+            Event::Timeline { room, messages } if *room == plans => {
+                messages.iter().find_map(|message| {
+                    let index = message
+                        .attachments
+                        .iter()
+                        .position(|attachment| attachment.video)?;
+                    Some((message.item.clone(), index))
+                })
+            }
+            _ => None,
+        },
+    )
+    .await;
+    // A test binary can't be the video's worker, which is no matter here: what
+    // this asks is whether the thread's video was found.
+    chat.command(
+        Command::PlayVideo {
+            room: plans.clone(),
+            item: item.clone(),
+            index,
+            width: 320,
+            height: 180,
+            speakers: None,
+        },
+        &events,
+    );
+    let playing = std::iter::from_fn(|| received.try_recv().ok())
+        .find_map(|event| match event {
+            Event::Video(video) => video,
+            _ => None,
+        })
+        .expect("the video started");
+    assert_eq!(
+        (playing.room.as_str(), playing.item.as_str()),
+        (plans.as_str(), item.as_str())
+    );
+    assert_ne!(
+        playing.error.as_deref(),
+        Some("This video is no longer available.")
+    );
+
+    // Closing the thread stops its video.
+    chat.command(Command::Aside(None), &events);
+    assert!(chat.video.is_none());
+    assert!(
+        std::iter::from_fn(|| received.try_recv().ok())
+            .any(|event| matches!(event, Event::Video(None)))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
 async fn a_jump_shows_the_messages_around_one_then_newer_pages_to_the_present() {
     let discord = fake_discord().await;
     let (done, mut finished) = tokio::sync::mpsc::unbounded_channel();
@@ -980,10 +1359,12 @@ async fn a_jump_shows_the_messages_around_one_then_newer_pages_to_the_present() 
                 history,
                 ..
             } => {
+                // The window starts at the first message, which Discord
+                // tells by sending less than half a page from before it.
                 assert_eq!(
                     *history,
                     History::Loaded {
-                        start: false,
+                        start: true,
                         present: false
                     }
                 );
@@ -1027,7 +1408,7 @@ async fn a_jump_shows_the_messages_around_one_then_newer_pages_to_the_present() 
         pages += 1;
         if history
             != (History::Loaded {
-                start: false,
+                start: true,
                 present: false,
             })
             || pages > 5
@@ -1259,6 +1640,7 @@ fn changing_the_view_drops_old_previews_and_ignores_late_downloads() {
                     link_url: None,
                     animated: false,
                     spoiler: false,
+                    description: None,
                 }],
                 ..message("1", None)
             },
@@ -1327,6 +1709,7 @@ async fn previews_follow_the_view_and_share_cache_across_channels() {
             link_url: None,
             animated: false,
             spoiler: false,
+            description: None,
         }],
         ..message(id, None)
     };
@@ -1383,6 +1766,36 @@ async fn previews_follow_the_view_and_share_cache_across_channels() {
             .preview
             .is_none()
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn a_members_mention_has_no_colour_of_its_own_but_a_roles_has() {
+    let discord = fake_discord().await;
+    // The channel's history tells whose roles Bob's are.
+    discord
+        .history(FAKE_GUILD, FAKE_GENERAL, yapfast_discord::api::Span::Latest)
+        .await
+        .unwrap();
+    let snapshot = discord.snapshots().borrow().clone();
+    let server = snapshot
+        .servers
+        .iter()
+        .find(|server| server.id == FAKE_GUILD)
+        .expect("the fake's server");
+    let bob = "1400000000000000002";
+    let mods = "1400000000000000110";
+    // Bob's name is in the Mods colour, which his mention doesn't take.
+    assert_eq!(discord.color(server, bob), Some(0x3498db), "Bob is a Mod");
+    let (_, mentions) = rendered(&discord, Some(server), &format!("<@{bob}> and <@&{mods}>"));
+    let colour = |target: &Target| {
+        mentions
+            .iter()
+            .find(|mention| &mention.target == target)
+            .map(|mention| mention.color)
+    };
+    assert_eq!(colour(&Target::User(bob.into())), Some(None));
+    assert_eq!(colour(&Target::Role(mods.into())), Some(Some(0x3498db)));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1517,7 +1930,11 @@ async fn forwards_with_the_message_added_and_refuses_what_cant_go() {
     let mut shown = vec![];
     while shown.len() < 2 {
         match live.recv().await {
-            Ok(Live::Created(message)) if message.forwarded => shown.push(message),
+            Ok(Live::Created(message))
+                if message.forwarded && message.content == original.content =>
+            {
+                shown.push(message)
+            }
             Ok(Live::Created(message)) if message.content == "look at this" => shown.push(message),
             _ => {}
         }
@@ -1536,4 +1953,107 @@ async fn forwards_with_the_message_added_and_refuses_what_cant_go() {
     // Nor a message Discord doesn't have.
     forward("d:1".into(), &room, None);
     assert!(matches!(answer().await, Err(ForwardFailure::Forward(_))));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn a_servers_card_shows_how_many_of_its_members_are_online() {
+    let discord = fake_discord().await;
+    let (done, _finished) = tokio::sync::mpsc::unbounded_channel();
+    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let mut channels = Channels::default();
+    let server = discord::server_id(FAKE_GUILD);
+    command(
+        Command::Discord(DiscordCommand::ServerPreview {
+            server: server.clone(),
+        }),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    let answer = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Event::ServerPreview {
+                server: asked,
+                result,
+            } = received.recv().await.unwrap()
+                && asked == server
+            {
+                return result;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for Discord");
+    let preview = answer.expect("what the server's card shows");
+    assert_eq!(preview.online, Some(3), "Dave is offline");
+    assert!(!preview.discoverable, "the fake lists no DISCOVERABLE");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn an_apps_answer_says_who_used_which_command() {
+    use yapfast_discord::message::{CHAT_INPUT, Interaction, USER_COMMAND};
+    let discord = fake_discord().await;
+    let snapshot = discord.snapshots().borrow().clone();
+    let server = snapshot
+        .servers
+        .iter()
+        .find(|server| server.id == FAKE_GUILD)
+        .map(|server| &*server.server);
+    let answer = |interaction: Interaction| Message {
+        interaction: Some(interaction),
+        ..message("9", None)
+    };
+    // Names come from the server, not the interaction's own copy.
+    let used = |interaction| {
+        found(&discord, server, &answer(interaction))
+            .used
+            .expect("a line above it")
+    };
+    let slash = used(Interaction {
+        id: "8".into(),
+        user_id: "1400000000000000001".into(),
+        user: "alice".into(),
+        name: Some("config set".into()),
+        command_type: Some(CHAT_INPUT),
+        ..Default::default()
+    });
+    assert_eq!(
+        (
+            slash.user.as_str(),
+            slash.name.as_str(),
+            slash.slash.as_deref()
+        ),
+        ("Alice", "/config set", Some("config"))
+    );
+    assert_eq!(slash.sender, discord::sender_id("1400000000000000001"));
+    let user = used(Interaction {
+        id: "8".into(),
+        user_id: "1400000000000000001".into(),
+        user: "alice".into(),
+        name: Some("High five".into()),
+        command_type: Some(USER_COMMAND),
+        target_user: Some(("1400000000000000002".into(), "bob".into())),
+        ..Default::default()
+    });
+    assert_eq!(
+        (user.name.as_str(), user.slash, user.target.as_deref()),
+        ("High five", None, Some("Bob"))
+    );
+    // A button's answer, or one that quotes a message, has none.
+    let button = answer(Interaction {
+        id: "8".into(),
+        ..Default::default()
+    });
+    assert!(found(&discord, server, &button).used.is_none());
+    let quoting = Message {
+        reply: Some(yapfast_discord::message::Reply::Deleted),
+        ..answer(Interaction {
+            name: Some("Quote".into()),
+            ..Default::default()
+        })
+    };
+    assert!(found(&discord, server, &quoting).used.is_none());
 }

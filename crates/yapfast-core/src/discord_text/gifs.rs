@@ -25,7 +25,9 @@ pub(super) fn command(
             | DiscordCommand::GifPicked { .. }
             | DiscordCommand::FavoriteGifs
             | DiscordCommand::SetFavoriteGifs(_)
-            | DiscordCommand::GifPicture { .. },
+            | DiscordCommand::SetFavoriteEmojis(_)
+            | DiscordCommand::GifPicture { .. }
+            | DiscordCommand::PrefetchFavorites(_),
             Ok(discord),
         ) => discord.clone(),
         (DiscordCommand::GifCategories, Err(why)) => {
@@ -47,7 +49,9 @@ pub(super) fn command(
             DiscordCommand::GifSuggestions(_)
             | DiscordCommand::GifPicked { .. }
             | DiscordCommand::SetFavoriteGifs(_)
-            | DiscordCommand::GifPicture { .. },
+            | DiscordCommand::SetFavoriteEmojis(_)
+            | DiscordCommand::GifPicture { .. }
+            | DiscordCommand::PrefetchFavorites(_),
             Err(_),
         ) => return None,
         _ => return Some(Command::Discord(command)),
@@ -56,22 +60,67 @@ pub(super) fn command(
     match command {
         DiscordCommand::GifCategories => {
             tokio::spawn(async move {
-                let result = discord
-                    .gifs_trending()
+                // The home Discord last answered shows at once, and one answered
+                // within a day is shown without asking again: its terms are
+                // trending ones, which move daily.
+                let kept = tokio::task::spawn_blocking(yapfast_discord::cache::gif_home_answer)
                     .await
-                    .map(|trending| {
+                    .ok()
+                    .flatten();
+                if let Some(home) = &kept {
+                    let (categories, preview) = kept_home(home);
+                    let _ = events.send(Event::GifCategories(Ok((categories, preview))));
+                    if yapfast_discord::cache::gif_home_is_fresh(home.fetched) {
+                        let urls = home.terms.iter().map(|term| term.src.clone()).collect();
+                        keep_home_pictures(&discord, urls).await;
+                        return;
+                    }
+                }
+                match discord.gifs_trending().await {
+                    Ok(trending) => {
                         let categories = trending
                             .categories
-                            .into_iter()
+                            .iter()
                             .map(|category| GifCategory {
-                                name: category.name,
-                                src: category.src,
+                                name: category.name.clone(),
+                                src: category.src.clone(),
                             })
                             .collect();
-                        (categories, trending.preview.map(gif))
-                    })
-                    .map_err(|error| format!("Couldn't load GIFs: {error}"));
-                let _ = events.send(Event::GifCategories(result));
+                        let home = yapfast_discord::cache::KeptHome {
+                            fetched: now_ms(),
+                            terms: trending
+                                .categories
+                                .iter()
+                                .map(|category| yapfast_discord::cache::KeptTerm {
+                                    name: category.name.clone(),
+                                    src: category.src.clone(),
+                                })
+                                .collect(),
+                            preview: trending.preview.as_ref().map(kept_gif),
+                        };
+                        let _ = tokio::task::spawn_blocking(move || {
+                            yapfast_discord::cache::keep_gif_home_answer(&home)
+                        })
+                        .await;
+                        let preview = trending.preview.map(gif);
+                        let _ = events.send(Event::GifCategories(Ok((categories, preview))));
+                        let urls = trending
+                            .categories
+                            .into_iter()
+                            .map(|category| category.src)
+                            .collect();
+                        keep_home_pictures(&discord, urls).await;
+                    }
+                    // A kept home still shows when Discord can't be asked.
+                    Err(error) if kept.is_some() => {
+                        tracing::debug!(%error, "could not refresh the GIF picker's home");
+                    }
+                    Err(error) => {
+                        let _ = events.send(Event::GifCategories(Err(format!(
+                            "Couldn't load GIFs: {error}"
+                        ))));
+                    }
+                }
             });
         }
         DiscordCommand::Gifs(query) => {
@@ -110,11 +159,13 @@ pub(super) fn command(
                     let kept = kept.into_iter().map(favorite).collect();
                     let _ = events.send(Event::KeptFavoriteGifs(kept));
                 }
-                let result = discord
-                    .favorite_gifs()
-                    .await
-                    .map(|favorites| favorites.into_iter().map(favorite).collect())
-                    .map_err(|error| format!("Couldn't load your favourite GIFs: {error}"));
+                let result = match discord.favorite_gifs_and_emojis().await {
+                    Ok((favorites, emojis)) => {
+                        let _ = events.send(Event::DiscordEmojis(super::account::emojis(emojis)));
+                        Ok(favorites.into_iter().map(favorite).collect())
+                    }
+                    Err(error) => Err(format!("Couldn't load your favourite GIFs: {error}")),
+                };
                 let _ = events.send(Event::FavoriteGifs(result));
             });
         }
@@ -136,6 +187,80 @@ pub(super) fn command(
                         "Couldn't save your favourite GIFs: {error}"
                     )));
                 }
+            });
+        }
+        DiscordCommand::SetFavoriteEmojis(favorites) => {
+            tokio::spawn(async move {
+                if let Err(error) = discord.set_favorite_emojis(&favorites).await {
+                    let _ = events.send(Event::Error(format!(
+                        "Couldn't save your favourite emoji: {error}"
+                    )));
+                }
+            });
+        }
+        DiscordCommand::PrefetchFavorites(urls) => {
+            tokio::spawn(async move {
+                // The favourites are exactly these, so the cache lets the others go.
+                let Ok((urls, room)) = tokio::task::spawn_blocking(move || {
+                    yapfast_discord::cache::retain_gif_thumbnails(&urls);
+                    (urls, yapfast_discord::cache::gif_room())
+                })
+                .await
+                else {
+                    return;
+                };
+                let favorites = urls.len();
+                let tenor = urls
+                    .iter()
+                    .filter(|url| yapfast_discord::gifs::small_video(url).is_some())
+                    .count();
+                let ahead = Arc::new(std::sync::Mutex::new(FetchedAhead::default()));
+                // Four at a time: nobody is waiting on these.
+                let turns = Arc::new(tokio::sync::Semaphore::new(FETCHES_AHEAD));
+                for url in urls {
+                    let Ok(turn) = turns.clone().acquire_owned().await else {
+                        return;
+                    };
+                    // Discord's files have no limit to keep to until one answers
+                    // 429, and then the rest can wait for the next start.
+                    let (bytes, limited) = {
+                        let ahead = ahead
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        (ahead.bytes, ahead.rate_limited > 0)
+                    };
+                    if bytes >= room || limited {
+                        break;
+                    }
+                    let discord = discord.clone();
+                    let ahead = ahead.clone();
+                    tokio::spawn(async move {
+                        let _turn = turn;
+                        let fetched = fetch_favorite_ahead(&discord, &url).await;
+                        ahead
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                            .count(fetched);
+                    });
+                }
+                // Every turn back means every download ended.
+                let _ = turns.acquire_many(FETCHES_AHEAD as u32).await;
+                let ahead = ahead
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                tracing::info!(
+                    favorites,
+                    tenor,
+                    already_kept = ahead.already_kept,
+                    skipped = ahead.skipped,
+                    fetched = ahead.fetched,
+                    megabytes = ahead.bytes / 1_000_000,
+                    left_for_tiles = ahead.left_for_tiles,
+                    gone = ahead.gone,
+                    failed = ahead.failed,
+                    rate_limited = ahead.rate_limited,
+                    "fetched favourite GIFs ahead"
+                );
             });
         }
         DiscordCommand::GifPicture {
@@ -163,6 +288,21 @@ pub(super) fn command(
 
 /// The GIF picture at `url`, fit to `width` by `height`.
 async fn picture(discord: &Discord, url: &str, width: u32, height: u32) -> Option<Picture> {
+    // The home's pictures are fetched ahead into the home's cache, and its tiles
+    // read them from there.
+    let lookup = url.to_owned();
+    let kept = tokio::task::spawn_blocking(move || yapfast_discord::cache::kept_gif_home(&lookup))
+        .await
+        .ok()
+        .flatten();
+    if let Some(kept) = kept {
+        return tokio::task::spawn_blocking(move || {
+            crate::chat::decode_picture_at(&kept, width, height)
+        })
+        .await
+        .ok()
+        .flatten();
+    }
     match discord.download(url, MAX_GIF_BYTES).await {
         Ok(data) => {
             tokio::task::spawn_blocking(move || crate::chat::decode_picture(&data, width, height))
@@ -206,47 +346,298 @@ async fn favorite_picture(
 const MAX_FAVORITE_BYTES: u64 = 40 * 1024 * 1024;
 /// A favourite's picture this small, or a video, is its own thumbnail. A
 /// small GIF keeps its transparency, which VP9 can't.
-const KEPT_AS_IS: u64 = 64 * 1024;
-/// A picture no thumbnail could be made of is kept if it's no larger.
+const KEPT_AS_IS: u64 = 256 * 1024;
+/// A picture no thumbnail could be made of is kept if it's no larger, and a
+/// start fetches a favourite's video ahead if it's no larger.
 const KEPT_UNMADE: u64 = 8 * 1024 * 1024;
 
-/// Makes the thumbnail of the favourite whose picture is at `url`, for tiles
-/// `width` wide, from Tenor's small MP4 when it's Tenor's, or from the
-/// picture itself, which downloads to disk as it arrives.
-async fn make_thumbnail(discord: &Discord, url: &str, width: u32) -> Option<PathBuf> {
+/// Why [`download_gif`] has no file to give.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NoDownload {
+    TooLarge,
+    RateLimited,
+    Gone,
+    Failed,
+}
+
+impl NoDownload {
+    fn of(error: &anyhow::Error) -> Self {
+        use yapfast_discord::api::{Refused, TooLarge};
+        let refused = error.downcast_ref::<Refused>();
+        if error.is::<TooLarge>() {
+            Self::TooLarge
+        } else if refused.is_some_and(Refused::rate_limited) {
+            Self::RateLimited
+        } else if refused.is_some_and(Refused::gone) {
+            Self::Gone
+        } else {
+            Self::Failed
+        }
+    }
+}
+
+/// Downloads the GIF at `url` to a new file: Tenor's small MP4 when it's
+/// Tenor's, up to `video_limit`, or else the picture itself, up to `limit`.
+/// A host answering 429 isn't asked for the other.
+async fn download_gif(
+    discord: &Discord,
+    url: &str,
+    video_limit: u64,
+    limit: u64,
+) -> Result<PathBuf, NoDownload> {
     use std::io::Seek;
     let target = url.to_owned();
     let (download, mut file) =
         tokio::task::spawn_blocking(move || yapfast_discord::cache::gif_download(&target))
             .await
-            .ok()??;
-    let mut downloaded = false;
-    for source in yapfast_discord::gifs::small_video(url)
-        .into_iter()
-        .chain([url.to_owned()])
-    {
+            .ok()
+            .flatten()
+            .ok_or(NoDownload::Failed)?;
+    let video = yapfast_discord::gifs::small_video(url).map(|video| (video, video_limit));
+    let mut end = NoDownload::Failed;
+    for (source, limit) in video.into_iter().chain([(url.to_owned(), limit)]) {
         if file.set_len(0).and_then(|()| file.rewind()).is_err() {
             break;
         }
-        match discord
-            .download_into(&source, &mut file, MAX_FAVORITE_BYTES)
-            .await
-        {
-            Ok(_) => {
-                downloaded = true;
-                break;
+        match discord.download_into(&source, &mut file, limit).await {
+            Ok(_) => return Ok(download),
+            Err(error) => {
+                tracing::debug!(%error, %source, "could not download a GIF");
+                end = NoDownload::of(&error);
+                if end == NoDownload::RateLimited {
+                    break;
+                }
             }
-            Err(error) => tracing::debug!(%error, %source, "could not download a favourite GIF"),
         }
     }
     drop(file);
+    let _ = std::fs::remove_file(&download);
+    Err(end)
+}
+
+/// Makes the thumbnail of the favourite whose picture is at `url`, for tiles
+/// `width` wide, from what [`download_gif`] downloads.
+async fn make_thumbnail(discord: &Discord, url: &str, width: u32) -> Option<PathBuf> {
+    let download = download_gif(discord, url, MAX_FAVORITE_BYTES, MAX_FAVORITE_BYTES)
+        .await
+        .ok()?;
     let url = url.to_owned();
     tokio::task::spawn_blocking(move || {
-        let made = downloaded
-            .then(|| thumbnail(&url, &download, width))
-            .flatten();
+        let made = thumbnail(&url, &download, width);
         let _ = std::fs::remove_file(&download);
         made
+    })
+    .await
+    .ok()?
+}
+
+/// How many favourites a start fetches ahead at once.
+const FETCHES_AHEAD: usize = 4;
+
+/// What one favourite's fetching ahead came to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Ahead {
+    AlreadyKept,
+    /// An earlier start found it too large, or gone.
+    Skipped,
+    /// Kept, at this many bytes.
+    Fetched(u64),
+    /// Larger than is cheap to keep: a tile makes its thumbnail.
+    LeftForTile,
+    Gone,
+    RateLimited,
+    Failed,
+}
+
+/// What a start's fetching ahead came to, which the log reports.
+#[derive(Default)]
+struct FetchedAhead {
+    already_kept: usize,
+    skipped: usize,
+    fetched: usize,
+    bytes: u64,
+    left_for_tiles: usize,
+    gone: usize,
+    rate_limited: usize,
+    failed: usize,
+}
+
+impl FetchedAhead {
+    fn count(&mut self, ahead: Ahead) {
+        match ahead {
+            Ahead::AlreadyKept => self.already_kept += 1,
+            Ahead::Skipped => self.skipped += 1,
+            Ahead::Fetched(size) => {
+                self.fetched += 1;
+                self.bytes += size;
+            }
+            Ahead::LeftForTile => self.left_for_tiles += 1,
+            Ahead::Gone => self.gone += 1,
+            Ahead::RateLimited => self.rate_limited += 1,
+            Ahead::Failed => self.failed += 1,
+        }
+    }
+}
+
+/// Whether the address at `url` names a video, whose file is its own thumbnail
+/// however large: most favourites' are Discord's proxy of one.
+fn names_video(url: &str) -> bool {
+    let path = url.split(['?', '#']).next().unwrap_or_default();
+    path.ends_with(".mp4") || path.ends_with(".webm")
+}
+
+/// Keeps the favourite whose picture is at `url` if that's cheap. A picture that
+/// isn't a video gives up as soon as it passes [`KEPT_AS_IS`], for a tile to make
+/// its thumbnail when it first shows, since encoding every favourite at a start
+/// would cost far more than waiting. One too large or gone isn't asked for again
+/// at a start.
+async fn fetch_favorite_ahead(discord: &Discord, url: &str) -> Ahead {
+    use yapfast_discord::cache::{gif_ahead_skipped, has_gif, skip_gif_ahead};
+    let known = url.to_owned();
+    let found = tokio::task::spawn_blocking(move || {
+        if has_gif(&known) {
+            Some(Ahead::AlreadyKept)
+        } else {
+            gif_ahead_skipped(&known).then_some(Ahead::Skipped)
+        }
+    })
+    .await;
+    if let Ok(Some(found)) = found {
+        return found;
+    }
+    let limit = if names_video(url) {
+        KEPT_UNMADE
+    } else {
+        KEPT_AS_IS
+    };
+    let download = match download_gif(discord, url, KEPT_UNMADE, limit).await {
+        Ok(download) => download,
+        Err(NoDownload::TooLarge) => {
+            skip_gif_ahead(url);
+            return Ahead::LeftForTile;
+        }
+        Err(NoDownload::Gone) => {
+            skip_gif_ahead(url);
+            return Ahead::Gone;
+        }
+        Err(NoDownload::RateLimited) => return Ahead::RateLimited,
+        Err(NoDownload::Failed) => return Ahead::Failed,
+    };
+    let url = url.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let ahead = match std::fs::metadata(&download).map(|file| file.len()) {
+            Ok(size) if !is_own_thumbnail(&download, size) => {
+                skip_gif_ahead(&url);
+                Ahead::LeftForTile
+            }
+            Ok(size) => yapfast_discord::cache::keep_gif(
+                &url,
+                yapfast_discord::cache::KeptGif::File(&download),
+            )
+            .map_or(Ahead::Failed, |_| Ahead::Fetched(size)),
+            Err(_) => Ahead::Failed,
+        };
+        let _ = std::fs::remove_file(&download);
+        ahead
+    })
+    .await
+    .unwrap_or(Ahead::Failed)
+}
+
+/// Whether the picture in `file`, `size` bytes, needs no thumbnail made of it.
+fn is_own_thumbnail(file: &std::path::Path, size: u64) -> bool {
+    let mut start = [0; 8];
+    size <= KEPT_AS_IS
+        || std::fs::File::open(file)
+            .and_then(|mut opened| std::io::Read::read_exact(&mut opened, &mut start))
+            .is_ok_and(|()| crate::video::is_video(&start))
+}
+
+/// Keeps the home's pictures at `urls`, each trending term's first GIF, so its
+/// tiles animate from the disk, and lets go of those it no longer offers.
+async fn keep_home_pictures(discord: &Discord, mut urls: Vec<String>) {
+    urls.retain(|url| !url.is_empty());
+    urls.sort_unstable();
+    urls.dedup();
+    let Ok(urls) = tokio::task::spawn_blocking(move || {
+        yapfast_discord::cache::retain_gif_home(&urls);
+        urls
+    })
+    .await
+    else {
+        return;
+    };
+    let turns = Arc::new(tokio::sync::Semaphore::new(4));
+    for url in urls {
+        let Ok(turn) = turns.clone().acquire_owned().await else {
+            return;
+        };
+        let discord = discord.clone();
+        tokio::spawn(async move {
+            let _turn = turn;
+            keep_home_picture(&discord, &url).await;
+        });
+    }
+}
+
+/// The home Discord last answered, as the picker shows it.
+fn kept_home(home: &yapfast_discord::cache::KeptHome) -> (Vec<GifCategory>, Option<Gif>) {
+    let categories = home
+        .terms
+        .iter()
+        .map(|term| GifCategory {
+            name: term.name.clone(),
+            src: term.src.clone(),
+        })
+        .collect();
+    let preview = home.preview.as_ref().map(|kept| Gif {
+        id: kept.id.clone(),
+        url: kept.url.clone(),
+        src: kept.src.clone(),
+        gif_src: kept.gif_src.clone(),
+        width: kept.width,
+        height: kept.height,
+    });
+    (categories, preview)
+}
+
+/// One of the home's GIFs as it is kept.
+fn kept_gif(gif: &yapfast_discord::gifs::Gif) -> yapfast_discord::cache::KeptHomeGif {
+    yapfast_discord::cache::KeptHomeGif {
+        id: gif.id.clone(),
+        url: gif.url.clone(),
+        src: gif.src.clone(),
+        gif_src: gif.gif_src.clone(),
+        width: gif.width,
+        height: gif.height,
+    }
+}
+
+/// The time now, in Unix milliseconds.
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_millis() as u64)
+        .unwrap_or_default()
+}
+
+/// Keeps the home's picture at `url` in the home's own cache, unless it's there
+/// already.
+async fn keep_home_picture(discord: &Discord, url: &str) -> Option<()> {
+    let known = url.to_owned();
+    let kept = tokio::task::spawn_blocking(move || yapfast_discord::cache::kept_gif_home(&known))
+        .await
+        .ok()?;
+    if kept.is_some() {
+        return None;
+    }
+    let limit = MAX_GIF_BYTES as u64;
+    let download = download_gif(discord, url, limit, limit).await.ok()?;
+    let url = url.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let kept = yapfast_discord::cache::keep_gif_home(&url, &download);
+        let _ = std::fs::remove_file(&download);
+        kept.map(|_| ())
     })
     .await
     .ok()?
@@ -258,11 +649,7 @@ async fn make_thumbnail(discord: &Discord, url: &str, width: u32) -> Option<Path
 fn thumbnail(url: &str, download: &std::path::Path, width: u32) -> Option<PathBuf> {
     use yapfast_discord::cache::{KeptGif, keep_gif};
     let size = std::fs::metadata(download).ok()?.len();
-    let mut start = [0; 8];
-    let video = std::io::Read::read_exact(&mut std::fs::File::open(download).ok()?, &mut start)
-        .is_ok()
-        && crate::video::is_video(&start);
-    if video || size <= KEPT_AS_IS {
+    if is_own_thumbnail(download, size) {
         return keep_gif(url, KeptGif::File(download));
     }
     let made = crate::chat::decode_picture_at(download, width, width.saturating_mul(4))
@@ -490,7 +877,7 @@ mod tests {
 
         // A large GIF becomes a WebM at the tiles' width, its frames timed
         // as they were.
-        let large = noisy_gif(30);
+        let large = noisy_gif(100);
         assert!(large.len() as u64 > KEPT_AS_IS);
         let url = "https://media.tenor.com/abc/large.gif";
         let kept = thumbnail(url, &download(url, &large), 32).unwrap();
@@ -499,8 +886,8 @@ mod tests {
         assert!(crate::video::is_video(&webm) && webm.len() < large.len() / 4);
         let picture = crate::chat::decode_picture_at(&kept, 32, 128).unwrap();
         assert_eq!((picture.width, picture.height), (32, 24));
-        assert_eq!(picture.animation.as_ref().unwrap().delays, [80; 30]);
-        assert_eq!(picture.frames().count(), 30);
+        assert_eq!(picture.animation.as_ref().unwrap().delays, [80; 100]);
+        assert_eq!(picture.frames().count(), 100);
 
         // A small one stays as it is.
         let small = noisy_gif(2);
@@ -508,5 +895,59 @@ mod tests {
         let url = "https://media.tenor.com/abc/small.gif";
         let kept = thumbnail(url, &download(url, &small), 32).unwrap();
         assert_eq!(std::fs::read(kept).unwrap(), small);
+
+        // Only what needs no encoding is fetched ahead.
+        let (mp4, mut file) = yapfast_discord::cache::gif_download("video").unwrap();
+        let start = [0, 0, 0, 24, b'f', b't', b'y', b'p'];
+        std::io::Write::write_all(&mut file, &start).unwrap();
+        assert!(is_own_thumbnail(&mp4, KEPT_AS_IS + 1));
+        let large_file = download("large", &large);
+        assert!(!is_own_thumbnail(&large_file, large.len() as u64));
+        assert!(is_own_thumbnail(&large_file, KEPT_AS_IS));
+    }
+
+    #[test]
+    fn tells_why_a_download_gave_up() {
+        use yapfast_discord::api::TooLarge;
+        assert_eq!(NoDownload::of(&TooLarge.into()), NoDownload::TooLarge);
+        assert_eq!(NoDownload::of(&anyhow::anyhow!("gone")), NoDownload::Failed);
+    }
+
+    #[test]
+    fn knows_a_video_by_its_address() {
+        assert!(names_video(
+            "https://images-ext-1.discordapp.net/external/a/https/media.tenor.com/b/c.mp4"
+        ));
+        assert!(names_video(
+            "https://media.discordapp.net/a/b.webm?ex=1&is=2"
+        ));
+        assert!(!names_video(
+            "https://media.discordapp.net/a/b.gif?name=c.mp4"
+        ));
+        assert!(!names_video("https://static.klipy.com/a.webp"));
+    }
+
+    #[test]
+    fn counts_what_a_start_fetched_ahead() {
+        let mut ahead = FetchedAhead::default();
+        ahead.count(Ahead::Fetched(10));
+        ahead.count(Ahead::Fetched(5));
+        ahead.count(Ahead::LeftForTile);
+        ahead.count(Ahead::AlreadyKept);
+        ahead.count(Ahead::Skipped);
+        ahead.count(Ahead::Gone);
+        ahead.count(Ahead::RateLimited);
+        ahead.count(Ahead::Failed);
+        assert_eq!((ahead.fetched, ahead.bytes), (2, 15));
+        assert_eq!((ahead.skipped, ahead.gone), (1, 1));
+        assert_eq!(
+            (
+                ahead.already_kept,
+                ahead.left_for_tiles,
+                ahead.rate_limited,
+                ahead.failed
+            ),
+            (1, 1, 1, 1)
+        );
     }
 }

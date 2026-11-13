@@ -3,6 +3,7 @@
 
 use super::{channels::SharedPreviews, *};
 use yapfast_discord::message::MentionTarget;
+use yapfast_discord::ready::Access;
 
 /// A new Discord message as a notification: who wrote it, by their name in the server,
 /// and what it says, or what it carries when it has no text.
@@ -97,9 +98,15 @@ pub(super) fn found(
     ChatMessage {
         id: format!("d:{}", message.id),
         item: format!("d:{}", message.id),
+        application_id: message.application_id.clone(),
+        flags: message.flags,
         sender: discord::sender_id(&message.author_id),
         spoilers: true,
         avatar: Some(discord.avatar(guild, &message.author_id)),
+        decoration: discord.decoration(guild, &message.author_id),
+        style: discord
+            .style(guild, &message.author_id)
+            .map(|style| Arc::new(style.into())),
         color: server.and_then(|server| discord.color(server, &message.author_id)),
         bot: message.bot,
         body,
@@ -129,15 +136,73 @@ pub(super) fn found(
                         .clone()
                         .unwrap_or_else(|| attachment.url.clone()),
                 ),
+                description: attachment.description.clone(),
             })
             .collect(),
         mentions,
         emoji: custom_emoji(message),
         // Shown, not voted in: its author can't end it from here either.
         poll: message.poll.as_ref().map(|poll| chat_poll(poll, false)),
+        voice: chat_voice(message),
         notice: chat_notice(message),
+        used: used_command(discord, guild, server, message),
         ..Default::default()
     }
+}
+
+/// The line above an app's answer: who used which command, in `guild`'s
+/// names and `server`'s colours, unless it quotes a message instead, as
+/// one to a message's command or a button does.
+pub(super) fn used_command(
+    discord: &Discord,
+    guild: Option<&str>,
+    server: Option<&yapfast_discord::ready::Server>,
+    message: &Message,
+) -> Option<crate::chat::UsedCommand> {
+    if message.reply.is_some() {
+        return None;
+    }
+    let interaction = message.interaction.as_ref()?;
+    let name = interaction.name.as_deref()?;
+    let user = interaction.user_id.as_str();
+    let named = |user: &str, fallback: &str| {
+        discord
+            .name(guild.unwrap_or(yapfast_discord::ready::PRIVATE), user)
+            .unwrap_or_else(|| fallback.to_owned())
+    };
+    // The deprecated object, without a type, answers a slash command.
+    let slash = interaction
+        .command_type
+        .is_none_or(|kind| kind == yapfast_discord::message::CHAT_INPUT);
+    Some(crate::chat::UsedCommand {
+        user: named(user, &interaction.user),
+        sender: discord::sender_id(user),
+        avatar: (!user.is_empty()).then(|| discord.avatar(guild, user)),
+        color: server.and_then(|server| discord.color(server, user)),
+        name: if slash {
+            format!("/{name}")
+        } else {
+            name.to_owned()
+        },
+        // The picker finds a command by its own name, without its
+        // subcommands'.
+        slash: slash.then(|| name.split(' ').next().unwrap_or(name).to_owned()),
+        target: interaction
+            .target_user
+            .as_ref()
+            .map(|(target, fallback)| named(target, fallback)),
+    })
+}
+
+/// A Discord voice message's recording, as its card shows it.
+pub(super) fn chat_voice(message: &Message) -> Option<crate::chat::VoiceMessage> {
+    message
+        .voice
+        .as_ref()
+        .map(|voice| crate::chat::VoiceMessage {
+            duration_ms: voice.duration_ms,
+            waveform: voice.waveform.clone(),
+        })
 }
 
 /// A Discord message's notice, as the timeline marks it.
@@ -255,13 +320,30 @@ pub(super) async fn preview(discord: &Discord, url: &str) -> Option<Arc<Picture>
         .await
         .ok()?;
     let url = url.to_owned();
-    tokio::task::spawn_blocking(move || {
-        decode_preview(&data).map(|picture| crate::discord::read_kept(&url, picture))
-    })
-    .await
-    .ok()
-    .flatten()
-    .map(Arc::new)
+    // A sticker is decoded at the size a message shows it, as Discord draws
+    // it, whatever the timeline's preview size is.
+    let size = if yapfast_discord::ready::is_sticker(url.as_str()) {
+        let side = yapfast_discord::stickers::MESSAGE_SIZE;
+        (side, side)
+    } else {
+        (crate::chat::PREVIEW_WIDTH, crate::chat::PREVIEW_HEIGHT)
+    };
+    tokio::task::spawn_blocking(move || decode(&url, &data, size))
+        .await
+        .ok()
+        .flatten()
+        .map(Arc::new)
+}
+
+/// A picture downloaded from `url`, decoded to fit `width` by `height`: as
+/// Lottie when `url` is a Lottie sticker's, which nothing else is.
+pub(super) fn decode(url: &str, data: &[u8], (width, height): (u32, u32)) -> Option<Picture> {
+    let picture = if yapfast_discord::ready::lottie_sticker(url) {
+        crate::chat::decode_lottie(data, width, height)
+    } else {
+        crate::chat::decode_picture(data, width, height)
+    };
+    picture.map(|picture| crate::discord::read_kept(url, picture))
 }
 
 /// Messages found in a room, as [`found`] shows them, with the room's server.
@@ -324,6 +406,7 @@ pub(super) fn custom_emoji(message: &Message) -> Vec<CustomEmoji> {
                 text: key.clone(),
                 id: id.to_owned(),
                 animated: false,
+                usable: true,
                 picture: yapfast_discord::ready::custom_emoji(
                     id,
                     false,
@@ -341,13 +424,16 @@ fn emoji_in(content: &str) -> Vec<CustomEmoji> {
         .into_iter()
         .map(|emoji| CustomEmoji {
             text: format!(":{}:", emoji.name),
+            // Its address says whether it moves, which is how its frames come:
+            // Discord serves an animated emoji as a GIF and a still one as a PNG.
             picture: yapfast_discord::ready::custom_emoji(
                 &emoji.id,
-                false,
+                emoji.animated,
                 crate::chat::EMOJI_PICTURE_SIZE,
             ),
             id: emoji.id,
             animated: emoji.animated,
+            usable: true,
         })
         .collect()
 }
@@ -426,17 +512,20 @@ pub(super) fn rendered(
     let mentions = mentions
         .into_iter()
         .map(|mention| {
-            // @everyone and @here take the colour of mentions.
+            // Only a role's mention has a colour of its own, as in Discord's
+            // client. A member's, like @everyone's and @here's, takes the
+            // colour of mentions, not that of the member's highest role.
             let (target, color) = match mention.target {
-                MentionTarget::User(id) => {
-                    let color = server.and_then(|server| discord.color(server, &id));
-                    (Target::User(id), color)
-                }
+                MentionTarget::User(id) => (Target::User(id), None),
                 MentionTarget::Role(id) => {
                     let color = server
                         .and_then(|server| server.role_colors.get(&id))
                         .map(|(_, color)| *color);
                     (Target::Role(id), color)
+                }
+                MentionTarget::Channel(id) => {
+                    let guild = server.map_or("", |server| server.id.as_str());
+                    (Target::Channel(discord::room_id(guild, &id)), None)
                 }
                 MentionTarget::Everyone => (Target::Everyone, None),
             };
@@ -452,7 +541,7 @@ pub(super) fn rendered(
 }
 
 /// The roles a message in a server channel may mention, after @everyone and @here
-/// for those allowed them.
+/// for those allowed them, then the channels it may link with `#`.
 pub(super) fn mention_groups(discord: &Discord, room: &str) -> Vec<MentionGroup> {
     let Some((guild, channel)) = discord::parse_room(room) else {
         return vec![];
@@ -472,6 +561,8 @@ pub(super) fn mention_groups(discord: &Discord, room: &str) -> Vec<MentionGroup>
                 name: name.into(),
                 mention: format!("@{name}"),
                 color: None,
+                channel: false,
+                voice: false,
             });
         }
     }
@@ -483,6 +574,22 @@ pub(super) fn mention_groups(discord: &Discord, room: &str) -> Vec<MentionGroup>
                 name,
                 mention: format!("<@&{id}>"),
                 color,
+                channel: false,
+                voice: false,
+            }),
+    );
+    // Its text and voice channels this account can see, in Discord's order.
+    let text = server.text_channels().map(|known| (known, false));
+    let voice = server.voice_channels().map(|known| (known, true));
+    groups.extend(
+        text.chain(voice)
+            .filter(|(known, _)| known.marks.access != Access::Hidden)
+            .map(|(known, voice)| MentionGroup {
+                name: known.channel.name.clone(),
+                mention: format!("<#{}>", known.channel.id),
+                color: None,
+                channel: true,
+                voice,
             }),
     );
     groups
@@ -490,6 +597,24 @@ pub(super) fn mention_groups(discord: &Discord, room: &str) -> Vec<MentionGroup>
 
 /// A Discord profile as Yapfast's profile card shows it, with the server's role
 /// names, colours and names known now.
+/// A profile's badges, as the card shows them.
+pub(super) fn chat_badges(badges: Vec<yapfast_discord::profile::Badge>) -> Vec<ProfileBadge> {
+    badges
+        .into_iter()
+        .map(|badge| ProfileBadge {
+            description: badge.description,
+            icon: badge.icon,
+            link: badge.link,
+            level: badge.level.map(|level| ProfileBadgeLevel {
+                kind: level.kind,
+                title: level.title,
+                progress: level.progress,
+                picture: level.picture,
+            }),
+        })
+        .collect()
+}
+
 pub(super) fn chat_profile(
     discord: &Discord,
     guild: &str,
@@ -501,9 +626,19 @@ pub(super) fn chat_profile(
         .iter()
         .find(|server| server.id == guild)
         .map(|server| &*server.server);
+    let bio_emoji = profile.bio.as_deref().map(emoji_in).unwrap_or_default();
     Profile {
         name: profile.name,
         avatar: Some(profile.avatar),
+        decoration: discord.decoration(Some(guild), &profile.user_id),
+        style: discord
+            .style(Some(guild), &profile.user_id)
+            .map(|style| Arc::new(style.into())),
+        effect: profile.effect,
+        // `chat_profile`'s caller adds the frame's layers, which the shop
+        // describes.
+        frame: Default::default(),
+        theme: profile.theme,
         banner: profile.banner,
         accent: profile.accent,
         pronouns: profile.pronouns.unwrap_or_default(),
@@ -517,8 +652,18 @@ pub(super) fn chat_profile(
             .into_iter()
             .map(|(name, color)| ProfileRole { name, color })
             .collect(),
-        created: Some(yapfast_discord::message::date(profile.created)),
-        joined: profile.joined.map(yapfast_discord::message::date),
+        created: Some(crate::clock::profile_day(profile.created / 1000)),
+        joined: profile
+            .joined
+            .map(|ms| crate::clock::profile_day(ms / 1000)),
+        // The server whose date `joined` is, drawn beside it.
+        server_name: server
+            .filter(|_| profile.joined.is_some())
+            .map(|server| server.name.clone())
+            .unwrap_or_default(),
+        server_icon: server
+            .filter(|_| profile.joined.is_some())
+            .and_then(|server| server.icon.clone()),
         servers: profile
             .mutual_servers
             .into_iter()
@@ -547,6 +692,52 @@ pub(super) fn chat_profile(
                 avatar: Some(friend.avatar),
             })
             .collect(),
+        tag: discord::server_tag(profile.tag),
+        badges: chat_badges(profile.badges),
+        bio_emoji,
+        // The note comes with its own request; see `fill_profile`.
+        note: String::new(),
+        connections: profile
+            .connections
+            .into_iter()
+            .map(|connection| ProfileConnection {
+                kind: connection.kind,
+                name: connection.name,
+                verified: connection.verified,
+                url: connection.url,
+                since: connection.since.map(|ms| crate::clock::day(ms / 1000)),
+            })
+            .collect(),
+        widgets: profile
+            .widgets
+            .into_iter()
+            .map(|widget| crate::chat::ProfileWidget {
+                title: widget.title,
+                application: widget.application,
+                lists_games: widget.lists_games,
+                games: widget
+                    .games
+                    .into_iter()
+                    .map(|game| crate::chat::ProfileGame {
+                        id: game.id,
+                        name: game.name,
+                        icon: game.icon,
+                        comment: game.comment,
+                    })
+                    .collect(),
+            })
+            .collect(),
+        wishlist_place: profile.wishlist.map(|place| crate::chat::WishlistPlace {
+            id: place.id,
+            private: place.private,
+        }),
+        // Each tab of the full profile asks for its own when it opens.
+        wishlist: Default::default(),
+        board_asked: false,
+        board_named: false,
+        recent: Vec::new(),
+        recent_asked: false,
+        recent_came: false,
         handle: profile.username,
         id: profile.user_id,
         // What the member list knows; the profile doesn't say.
@@ -556,9 +747,15 @@ pub(super) fn chat_profile(
     }
 }
 
-/// The emoji of a row's buttons, in Discord's markup.
+/// The emoji of a row's buttons and menu options, in Discord's markup.
 fn button_emoji(row: &yapfast_discord::components::Row) -> Vec<&str> {
     use yapfast_discord::components::{Beside, Row};
+    if let Row::Select { options, .. } = row {
+        return options
+            .iter()
+            .filter_map(|option| option.emoji.as_deref())
+            .collect();
+    }
     let buttons = match row {
         Row::Buttons(buttons) => buttons.iter().collect(),
         Row::Text {
@@ -594,8 +791,11 @@ pub(super) fn chat_card(
             Style::Success => ButtonStyle::Success,
             Style::Danger => ButtonStyle::Danger,
             Style::Link => ButtonStyle::Link,
+            Style::Premium => ButtonStyle::Premium,
         },
         url: button.url.clone(),
+        custom_id: button.custom_id.clone(),
+        sku_id: button.sku_id.clone(),
         disabled: button.disabled,
     };
     Card {
@@ -618,9 +818,38 @@ pub(super) fn chat_card(
                     large: *large,
                 },
                 Row::Buttons(buttons) => CardRow::Buttons(buttons.iter().map(button).collect()),
-                Row::Select { text, disabled } => CardRow::Select {
-                    text: text.clone(),
+                Row::Select {
+                    text,
+                    disabled,
+                    kind,
+                    custom_id,
+                    options,
+                    defaults,
+                    channel_types,
+                    min_values,
+                    max_values,
+                } => CardRow::Select {
+                    text: discord.render(server, text),
                     disabled: *disabled,
+                    kind: *kind,
+                    custom_id: custom_id.clone(),
+                    options: options
+                        .iter()
+                        .map(|option| crate::chat::CardOption {
+                            label: option.label.clone(),
+                            value: option.value.clone(),
+                            description: option.description.clone(),
+                            default: option.default,
+                            emoji: option
+                                .emoji
+                                .as_ref()
+                                .map(|emoji| discord.render(server, emoji)),
+                        })
+                        .collect(),
+                    defaults: defaults.clone(),
+                    channel_types: channel_types.clone(),
+                    min_values: *min_values,
+                    max_values: *max_values,
                 },
                 Row::Unknown => CardRow::Unknown,
             })
@@ -662,18 +891,26 @@ pub(super) fn chat_embed(
 
 pub(super) fn chat_member(member: ListedMember) -> ChatMember {
     ChatMember {
+        bot: member.bot,
         id: member.user_id,
         name: member.name,
         username: member.username,
         role: Role::Member,
         avatar: Some(member.avatar),
+        decoration: member.decoration,
+        nameplate: member.nameplate.map(Into::into),
+        style: member.style.map(|style| Arc::new(style.into())),
         group: Some(member.group),
+        group_icon: member.group_icon,
+        role_icon: member.role_icon,
         presence: Some(discord::presence(member.presence)),
         color: member.color,
         activity: member.activity,
         activities: member.activities,
         roles: member.roles,
         timed_out_until: member.timed_out_until,
+        tag: discord::server_tag(member.tag),
+        boosting_since: member.boosting_since,
     }
 }
 
@@ -698,4 +935,29 @@ pub(super) fn publish(
 /// The Discord message id of a sent message's timeline item.
 pub(super) fn sent_id(item: &str) -> Option<&str> {
     item.strip_prefix("d:")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Discord serves an animated emoji as a GIF and a still one as a PNG, so
+    /// the address is what gives Yapfast an animation to draw at all.
+    #[test]
+    fn an_animated_emoji_is_asked_for_as_a_gif() {
+        let moving = emoji_in("hi <a:party:7>");
+        assert!(moving[0].animated);
+        assert!(
+            moving[0].picture.contains("/emojis/7.gif"),
+            "{}",
+            moving[0].picture
+        );
+        let still = emoji_in("hi <:talk:8>");
+        assert!(!still[0].animated);
+        assert!(
+            still[0].picture.contains("/emojis/8.png"),
+            "{}",
+            still[0].picture
+        );
+    }
 }

@@ -21,7 +21,7 @@ use yapfast_discord::{
     stream_connection::{Sound, SoundSender},
 };
 
-use crate::audio_io::{Heard, Output, RATE};
+use crate::audio_io::{Heard, LastingOutput, RATE};
 
 const CHANNELS: usize = 2;
 /// Samples of every channel in one 20 ms frame.
@@ -274,7 +274,7 @@ fn play(
         .name("yapfast-stream-player".into())
         .spawn(move || {
             // About 100 ms queued, which rides out the network's jitter.
-            let output = Output::<i16>::open_or_default(
+            let output = LastingOutput::<i16>::open(
                 speakers.as_deref(),
                 "Stream sound",
                 RATE,
@@ -313,13 +313,7 @@ fn play(
                     Ok(samples) => {
                         let pcm = &mut pcm[..samples * CHANNELS];
                         scale(pcm, volume.get());
-                        if let Err(error) = output.write(pcm) {
-                            tracing::warn!(
-                                error = format!("{error:#}"),
-                                "stopped playing the stream's sound"
-                            );
-                            break;
-                        }
+                        output.write(pcm);
                     }
                     Err(error) => tracing::debug!(%error, "a stream sound frame didn't decode"),
                 }
@@ -413,7 +407,8 @@ mod tests {
         let inputs = Inputs::default();
         let stop = Arc::new(AtomicBool::new(false));
         let capture = listen(inputs.clone(), stop.clone()).unwrap();
-        let mut player = Output::<f32>::open(None, "Discord voice", RATE, 2, None).unwrap();
+        let mut player =
+            crate::audio_io::Output::<f32>::open(None, "Discord voice", RATE, 2, None).unwrap();
         // A second of a 440 Hz tone at about -56 dB.
         let tone: Vec<f32> = (0..RATE)
             .flat_map(|at| {

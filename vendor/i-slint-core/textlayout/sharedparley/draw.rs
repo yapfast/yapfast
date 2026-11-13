@@ -40,6 +40,17 @@ pub trait GlyphRenderer: crate::item_rendering::ItemRenderer {
         size: LogicalSize,
     ) -> Option<Self::PlatformBrush>;
 
+    /// Snaps a selection edge for both its highlight and glyph clip.
+    /// The input and result are physical x coordinates relative to the item.
+    fn snap_selection_x(&self, x: f32) -> f32 {
+        x.round()
+    }
+
+    /// Snaps a physical y coordinate relative to the item to the device pixel grid.
+    fn snap_y(&self, y: f32) -> f32 {
+        y.round()
+    }
+
     /// Draws the glyphs provided by glyphs_it with the specified font, font_size, and brush at the
     /// given y offset. The `normalized_coords` are F2Dot14 values in fvar axis order for variable
     /// font rendering. The `synthesis` contains design-space variation settings and faux
@@ -94,6 +105,28 @@ pub(super) fn visible_x_range(item_renderer: &impl GlyphRenderer) -> Range<Physi
 }
 
 impl TextParagraph {
+    /// Returns whether each glyph of `line` belongs to a control character, in the order its
+    /// glyph runs yield them, or an empty vector when the line has no control character.
+    /// Fonts have no glyph for control characters, so drawing them shows the missing-glyph box.
+    pub(super) fn control_glyphs(
+        &self,
+        line: &parley::layout::Line<'_, Brush>,
+    ) -> alloc::vec::Vec<bool> {
+        let text_range = line.text_range();
+        let first = self.control_characters.partition_point(|&index| index < text_range.start);
+        if self.control_characters.get(first).is_none_or(|&index| index >= text_range.end) {
+            return alloc::vec::Vec::new();
+        }
+        line.runs()
+            .flat_map(|run| run.visual_clusters())
+            .flat_map(|cluster| {
+                let is_control =
+                    self.control_characters.binary_search(&cluster.text_range().start).is_ok();
+                cluster.glyphs().map(move |_| is_control)
+            })
+            .collect()
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn draw<R: GlyphRenderer>(
         &self,
@@ -108,8 +141,14 @@ impl TextParagraph {
         default_stroke_brush: &Option<<R as GlyphRenderer>::PlatformBrush>,
         default_text_color: Color,
         selection: Option<&SelectionRendering<'_, R>>,
+        hovered_link: Option<usize>,
     ) {
         let para_y = layout.y_offset + self.y;
+        // Yapfast: the link under the pointer, in this paragraph's own offsets.
+        let hovered_link = hovered_link
+            .and_then(|end| end.checked_sub(self.range.start))
+            .and_then(|end| self.links.iter().find(|(range, _)| range.end == end))
+            .map(|(range, _)| range.clone());
 
         let line_count = self.layout.lines().len();
 
@@ -181,9 +220,28 @@ impl TextParagraph {
             // Padded for ink overhanging the advance, like the vertical filtering of lines.
             let padded_x_range = visible_x_range
                 .map(|x_range| (x_range.start - line_height)..(x_range.end + line_height));
+            let control_glyphs = self.control_glyphs(&line);
+            let elision = last_line
+                .then(|| layout.line_elision(&line, self.layout.is_rtl(), vertically_truncated))
+                .flatten();
+            let mut glyph_index = 0;
+            let mut run_index = 0;
             for item in line.items() {
                 match item {
                     parley::PositionedLayoutItem::GlyphRun(glyph_run) => {
+                        let this_run = run_index;
+                        run_index += 1;
+                        let run_control_glyphs: &[bool] = if control_glyphs.is_empty() {
+                            &[]
+                        } else {
+                            let start = glyph_index;
+                            glyph_index += glyph_run.glyphs().count();
+                            &control_glyphs[start..glyph_index]
+                        };
+                        let mut run_control_glyphs = run_control_glyphs.iter();
+                        let mut is_printable = move |_: &parley::layout::Glyph| {
+                            run_control_glyphs.next() != Some(&true)
+                        };
                         let mut glyph_x_range = None;
                         if let Some(x_range) = &padded_x_range {
                             let run_start = PhysicalLength::new(glyph_run.offset());
@@ -196,13 +254,22 @@ impl TextParagraph {
                                 glyph_x_range = Some(x_range);
                             }
                         }
-                        let ellipsis = if last_line {
-                            let (truncated_glyphs, ellipsis) = layout.glyphs_with_elision(
-                                &glyph_run,
-                                vertically_truncated,
-                                metrics.trailing_whitespace,
-                            );
-
+                        // Yapfast: an emoji whose animation plays draws the
+                        // frame it is on over the glyph it would show, so the
+                        // text keeps its wrapping, its selection and its caret.
+                        let run_range = glyph_run.run().text_range();
+                        if let Some(link) = &hovered_link
+                            && link.start < run_range.end
+                            && run_range.start < link.end
+                        {
+                            Self::draw_link_underline(&glyph_run, item_renderer, para_y);
+                        }
+                        let frame = self
+                            .pictures
+                            .iter()
+                            .find(|(range, _)| *range == run_range)
+                            .and_then(|(_, glyph)| crate::yapfast_emoji::frame_of_glyph(*glyph));
+                        let ellipsis = if let Some(elision) = &elision {
                             Self::draw_glyph_run_with_selection(
                                 &glyph_run,
                                 item_renderer,
@@ -210,11 +277,15 @@ impl TextParagraph {
                                 default_stroke_brush,
                                 para_y,
                                 glyph_x_range,
-                                &mut truncated_glyphs.into_iter(),
+                                &mut elision.glyphs(&glyph_run).filter(&mut is_printable),
                                 selection.map(|selection| &selection.foreground),
                                 line_spans.unwrap_or_default(),
+                                frame.clone().filter(|_| {
+                                    elision.glyphs(&glyph_run).count()
+                                        == glyph_run.positioned_glyphs().count()
+                                }),
                             );
-                            ellipsis
+                            elision.ellipsis_for_run(this_run)
                         } else {
                             Self::draw_glyph_run_with_selection(
                                 &glyph_run,
@@ -223,9 +294,10 @@ impl TextParagraph {
                                 default_stroke_brush,
                                 para_y,
                                 glyph_x_range,
-                                &mut glyph_run.positioned_glyphs(),
+                                &mut glyph_run.positioned_glyphs().filter(&mut is_printable),
                                 selection.map(|selection| &selection.foreground),
                                 line_spans.unwrap_or_default(),
+                                frame,
                             );
                             None
                         };
@@ -235,8 +307,14 @@ impl TextParagraph {
                             item_renderer.draw_glyph_run(
                                 &ellipsis_font,
                                 font_size,
-                                run.normalized_coords(),
-                                &run.synthesis(),
+                                bytemuck::cast_slice(run.normalized_coords()),
+                                // Never synthesize italic for the ellipsis itself: it's a
+                                // narrow, low-value case (a punctuation-like glyph, not a
+                                // language's own text) not worth the complexity of tracking a
+                                // separate font/synthesis for the ellipsis's own standalone
+                                // "…" layout, so it always renders upright regardless of the
+                                // elided run's style.
+                                &fontique::Synthesis::default(),
                                 default_fill_brush.clone(),
                                 para_y,
                                 &mut core::iter::once(ellipsis_glyph),
@@ -315,7 +393,7 @@ impl TextParagraph {
                     continue;
                 }
 
-                let metrics = run.metrics();
+                let metrics = run.font_metrics();
                 let ascent = metrics.ascent;
                 let descent = metrics.descent;
                 let cap_height = metrics.cap_height.unwrap_or(ascent * 0.72);
@@ -459,6 +537,66 @@ impl TextParagraph {
         }
     }
 
+    /// Yapfast: underlines a run of the link under the pointer, in the link's colour.
+    fn draw_link_underline<R: GlyphRenderer>(
+        glyph_run: &parley::layout::GlyphRun<Brush>,
+        item_renderer: &mut R,
+        para_y: PhysicalLength,
+    ) {
+        let brush = &glyph_run.style().brush;
+        let Some(color) = brush.link_color.filter(|_| brush.underline_on_hover) else {
+            return;
+        };
+        let Some(link_brush) = item_renderer.platform_brush_for_color(&color) else {
+            return;
+        };
+        let metrics = glyph_run.run().font_metrics();
+        let rect = decoration_rect(
+            glyph_run,
+            item_renderer,
+            para_y,
+            metrics.underline_offset,
+            metrics.underline_size,
+        );
+        item_renderer.fill_rectangle(rect, link_brush, PhysicalLength::zero(), None);
+    }
+
+    /// Yapfast: draws an animated emoji's frame in the box its glyph fills: the
+    /// font's 1.36em square, its top 1.02em above the baseline. The glyph the run
+    /// shaped stays in the layout, so wrapping and the caret do not move.
+    fn draw_emoji_frame<R: GlyphRenderer>(
+        glyph_run: &parley::layout::GlyphRun<Brush>,
+        item_renderer: &mut R,
+        para_y: PhysicalLength,
+        frame: &crate::graphics::Image,
+        glyphs_it: &mut dyn Iterator<Item = parley::layout::Glyph>,
+    ) {
+        let Some(glyph) = glyphs_it.next() else {
+            return;
+        };
+        // The item being drawn depends on the clock, so the next tick draws it
+        // again, as a selection's does.
+        crate::yapfast_emoji::track();
+        let scale_factor = item_renderer.scale_factor().get();
+        let width = frame.size().width as f32;
+        if width <= 0.0 || scale_factor <= 0.0 {
+            return;
+        }
+        let font_size = glyph_run.run().font_size();
+        let side = font_size * crate::yapfast_emoji::EMOJI_EM;
+        let top = glyph.y + para_y.get() - font_size * crate::yapfast_emoji::EMOJI_TOP_EM;
+        let logical = |physical: f32| physical / scale_factor;
+        item_renderer.save_state();
+        item_renderer.translate(crate::lengths::LogicalVector::new(
+            logical(glyph.x),
+            logical(top),
+        ));
+        let scale = logical(side) / width;
+        item_renderer.scale(scale, scale);
+        item_renderer.draw_image_direct(frame.clone());
+        item_renderer.restore_state();
+    }
+
     /// Draws one glyph run, splitting it where the selection starts or ends inside it.
     ///
     /// The overwhelmingly common cases -- a run that is entirely selected or entirely unselected
@@ -479,6 +617,8 @@ impl TextParagraph {
         // there is no selection, which `run_coverage` reports as `Unselected`.
         selection_brush: Option<&<R as GlyphRenderer>::PlatformBrush>,
         line_spans: &[SelectionSpan],
+        // Yapfast: the frame an animated emoji draws, in place of its glyphs.
+        frame: Option<crate::graphics::Image>,
     ) {
         let run_x = glyph_run.offset()..glyph_run.offset() + glyph_run.advance();
 
@@ -502,6 +642,7 @@ impl TextParagraph {
                 para_y,
                 glyphs_it,
                 None,
+                frame,
             ),
             RunCoverage::Full => Self::draw_glyph_run(
                 glyph_run,
@@ -511,6 +652,7 @@ impl TextParagraph {
                 para_y,
                 glyphs_it,
                 selection_brush,
+                frame,
             ),
             RunCoverage::Partial => {
                 // The run has to be rasterized once per segment, so the glyphs can't stay behind
@@ -603,6 +745,7 @@ impl TextParagraph {
                 para_y,
                 &mut glyphs.iter().cloned(),
                 override_fill_brush,
+                None,
             );
         }
 
@@ -618,9 +761,15 @@ impl TextParagraph {
         glyphs_it: &mut dyn Iterator<Item = parley::layout::Glyph>,
         // Forced fill for selected glyphs, overriding the run's own brush.
         override_fill_brush: Option<&<R as GlyphRenderer>::PlatformBrush>,
+        // Yapfast: the frame an animated emoji draws, in place of its glyphs.
+        frame: Option<crate::graphics::Image>,
     ) {
         let run = glyph_run.run();
-        let normalized_coords = run.normalized_coords();
+        if let Some(frame) = frame {
+            Self::draw_emoji_frame(glyph_run, item_renderer, para_y, &frame, glyphs_it);
+            return;
+        }
+        let normalized_coords: &[i16] = bytemuck::cast_slice(run.normalized_coords());
         let synthesis = run.synthesis();
         let brush = &glyph_run.style().brush;
 
@@ -709,20 +858,18 @@ impl TextParagraph {
             }
         }
 
-        let metrics = run.metrics();
+        let metrics = run.font_metrics();
 
         // A decoration spans the whole run. Where a selection boundary cuts through it, the
         // renderer clip that cuts the glyphs cuts the rectangle too.
+
+        let decoration = |item_renderer: &R, offset: f32, size: f32| {
+            decoration_rect(glyph_run, item_renderer, para_y, offset, size)
+        };
+
         if glyph_run.style().underline.is_some() {
             item_renderer.fill_rectangle(
-                PhysicalRect::new(
-                    PhysicalPoint::from_lengths(
-                        PhysicalLength::new(glyph_run.offset()),
-                        para_y
-                            + PhysicalLength::new(glyph_run.baseline() - metrics.underline_offset),
-                    ),
-                    PhysicalSize::new(glyph_run.advance(), metrics.underline_size),
-                ),
+                decoration(item_renderer, metrics.underline_offset, metrics.underline_size),
                 fill_brush.clone(),
                 PhysicalLength::zero(),
                 None,
@@ -731,16 +878,7 @@ impl TextParagraph {
 
         if glyph_run.style().strikethrough.is_some() {
             item_renderer.fill_rectangle(
-                PhysicalRect::new(
-                    PhysicalPoint::from_lengths(
-                        PhysicalLength::new(glyph_run.offset()),
-                        para_y
-                            + PhysicalLength::new(
-                                glyph_run.baseline() - metrics.strikethrough_offset,
-                            ),
-                    ),
-                    PhysicalSize::new(glyph_run.advance(), metrics.strikethrough_size),
-                ),
+                decoration(item_renderer, metrics.strikethrough_offset, metrics.strikethrough_size),
                 fill_brush,
                 PhysicalLength::zero(),
                 None,
@@ -757,6 +895,8 @@ impl Layout {
         default_stroke_brush: Option<<R as GlyphRenderer>::PlatformBrush>,
         default_text_color: Color,
         selection: Option<&SelectionRendering<'_, R>>,
+        // Yapfast: where the link under the pointer ends, as `RenderText::hovered_link` gives it.
+        hovered_link: Option<usize>,
     ) {
         // Compute the cut once: explicit `\n` breaks produce one paragraph each, but they must
         // elide as a single block (drop lines below the box, ellipsis on the last visible one).
@@ -798,7 +938,27 @@ impl Layout {
                 &default_stroke_brush,
                 default_text_color,
                 selection,
+                hovered_link,
             );
         }
     }
+}
+
+/// A decoration line across `glyph_run`, `offset` above its baseline. It is snapped to the pixel
+/// grid and is at least one pixel thick, like in browsers: font metrics often make it thinner than
+/// a pixel, and a renderer that rounds the rectangle's edges then drops it on some lines.
+fn decoration_rect<R: GlyphRenderer>(
+    glyph_run: &parley::layout::GlyphRun<Brush>,
+    item_renderer: &R,
+    para_y: PhysicalLength,
+    offset: f32,
+    size: f32,
+) -> PhysicalRect {
+    PhysicalRect::new(
+        PhysicalPoint::new(
+            glyph_run.offset(),
+            item_renderer.snap_y(para_y.get() + glyph_run.baseline() - offset),
+        ),
+        PhysicalSize::new(glyph_run.advance(), size.round().max(1.)),
+    )
 }

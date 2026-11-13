@@ -5,9 +5,6 @@ It comes in two flavours. The release is Discord-only; the full preview adds
 Matrix, with the homeserver prefilled as `https://matrix.org` and editable,
 and goes out as a separate pre-release. Both install as the same app, so
 installing one replaces the other, and both keep one data folder.
-The current build uses Slint with Skia. Its cross-build and command-line checks
-are recorded below. The 2026-10-02 manual and Wine reports describe the previous
-GPUI package. Recheck the new UI on the tester's PC.
 
 ## Run the package
 
@@ -34,18 +31,27 @@ For the ZIP:
 The package needs no Rust or Visual Studio installation. It includes the native
 media code and Skia renderer. Opened from Explorer, Yapfast shows only its
 window and writes its diagnostics to `yapfast.log` in its data folder,
-`%LOCALAPPDATA%\Yapfast\Yapfast\data`, or the `--data-dir` folder. The log grows
-across starts and starts over past 4 MiB.
-Started from a console, as `run-yapfast.cmd` does, Yapfast writes there instead.
-If it closes immediately, run `run-yapfast.cmd` to keep the error visible.
-Yapfast renders with Skia Software. Use `run-yapfast.cmd --renderer gpu` to try the
-GPU; if it cannot start, Yapfast switches back to Skia Software and says so in the
-window.
+`%LOCALAPPDATA%\Yapfast\Yapfast\data`, or the `--data-dir` folder. The log
+grows across starts and starts over past 4 MiB. Started from a console, as
+`run-yapfast.cmd` does, Yapfast writes there instead. If it closes immediately,
+run `run-yapfast.cmd` to keep the error visible. `run-yapfast.cmd --renderer
+gpu` or `--renderer software` picks the renderer for one start; see [Rendering
+on Windows](#rendering-on-windows).
 
 Passwords, recovery keys and saved sessions are excluded from the package.
 Session secrets use Windows Credential Manager. Encrypted SDK stores live under
 the user's application-data directory. Keep the first verified session while
 device verification and recovery are being tested.
+
+## Rendering on Windows
+
+Yapfast renders with Skia Software unless "Render with the GPU" in Settings →
+Advanced is on. On Windows that setting asks Slint for Skia with Direct3D
+required, which draws through wgpu's Direct3D 12; Linux uses OpenGL. NVIDIA's
+OpenGL driver on Windows kept about one core busy while it waited for the
+screen, which is why Windows doesn't. If the GPU can't start, Yapfast restarts
+itself with Skia Software, says so in the window and turns the setting off
+(`src/graphics.rs`, `src/ui.rs`).
 
 ## First two-machine check
 
@@ -62,22 +68,6 @@ With Alice signed in on Linux and Bob on Windows:
 7. Record Windows version, GPU/driver, audio devices, cameras, input/copy/paste behavior,
    window resizing, and any error text. Never include passwords or recovery keys.
 
-The user confirmed basic messaging and voice with the earlier GPUI package.
-Repeat these checks with Slint. Exact Windows, GPU/driver and audio-device details
-still need to be recorded.
-
-## User-reported two-machine check on 2026-10-02
-
-After launching Alice on Linux and the packaged Windows build for Bob, the user
-confirmed message exchange, audio in both directions, mute/deafen and voice
-remaining connected while browsing text channels. The Windows build also opened
-successfully on the tester's Intel/AMD x64 PC.
-
-These are user-reported manual results. Windows release, GPU/driver and audio
-device models were not supplied. Restart behavior, extended waiting alone,
-network interruption, forced crashes, resizing and copy/paste were not covered
-by this confirmation.
-
 ## Discord voice on Windows
 
 Discord voice, the input meter and the Discord input sensitivity meter,
@@ -92,33 +82,32 @@ each device by its endpoint id (`{0.0.0.00000000}.{…}` for speakers,
 by that id; none is the console default. Go Live's sound is in
 [Go Live on Windows](#go-live-on-windows).
 
-Checked under Wine 10.0 on 2026-10-13, with Wine's audio going to a private
-PulseAudio of null sinks, so nothing reached real speakers:
+Microphones open in raw mode (`AUDCLNT_STREAMOPTIONS_RAW`, through
+`IAudioClient2::SetClientProperties`), which skips the effects Windows and the
+sound driver run on them: what Sound settings calls "device default effects"
+or "audio enhancements", often the driver's own noise suppression or
+beamforming. Under Yapfast's suppressor they muffled a voice that Discord's
+client left clear. A device without raw mode opens with its effects. Settings ›
+Voice's "Let Windows process your microphone in Discord calls"
+(`windows_microphone_effects`, off unless turned on, shown on Windows only)
+keeps them, for a laptop microphone that needs its driver's beamforming; a
+call's microphone opens again within 2 s of the switch. Matrix calls record
+through LiveKit's WebRTC, which opens the microphone itself, with the effects.
 
-- `audio_io::tests::hears_what_it_plays`: a second of a 440 Hz tone played
-  through WASAPI is heard back whole (876–879 zero crossings for 880).
-- `audio_io::tests::opens_every_listed_device`: every microphone and speaker
-  LiveKit lists opens by its id, and an unknown id is refused.
-- `discord_audio::processes_a_recording`: the Discord microphone's processing,
-  WebRTC's echo cancellation and gain control with DeepFilterNet, gives the
-  same bytes as on Linux.
-- `discord_audio::tests::a_call_sends_what_the_microphone_hears`, against
-  `testing/fake_discord.ts`: Yapfast joins the Lounge, unmutes, and the fake
-  receives 56–91 Opus packets that aren't silence from two seconds of beeps,
-  with the speaking flag, in three runs out of three.
-- The rest of `yapfast-core`'s tests pass, except
-  `frames::tests::frames_pass_from_writer_to_reader`, which
-  [Go Live on Windows](#go-live-on-windows) fixed.
-
-Run them from the Windows shell with `cargo xwin test --no-run --profile fast
---target x86_64-pc-windows-msvc -p yapfast-core --lib`, then run the test
-executable under Wine with `PULSE_SERVER` naming the private PulseAudio.
+A Discord call's threads join MMCSS tasks, the microphone's "Audio" and the
+call's and speakers' "Pro Audio", and while the call goes on the process opts
+out of power throttling and asks for a 1 ms timer; see
+[Voice](discord/voice.md#playing-what-others-say). Whether that keeps the
+microphone whole on a weak processor sharing its screen through x264, with
+Yapfast's window minimized, needs checking on real Windows.
 
 Wine's capture starts 0.3–1 s after it's opened, so the first moments a
 microphone hears are lost there. Real Windows needs checking for that, along
 with Bluetooth headsets, a device unplugged during a call, a default device
 changed during a call, exclusive-mode applications, and whether the
-communications ducking setting turns other sound down during a call.
+communications ducking setting turns other sound down during a call. Wine has
+no microphone effects, so raw mode, and a device without it, need checking on
+Windows too.
 
 ## Go Live on Windows
 
@@ -131,15 +120,16 @@ a mapped file, so there Yapfast creates it with `FILE_FLAG_DELETE_ON_CLOSE` and
 Windows removes it once both processes close it. On Linux it's still unlinked once the worker has it open.
 
 Windows has no screen sharing dialog for Yapfast to use, so the share menu
-lists what there is to share above the resolution: the screens as pictures,
-two to a row, named "Entire screen" (or "Screen 1", "Screen 2", … with
-several), then each window with a title. Yapfast's own windows aren't listed.
-libwebrtc's capturers make the list, on a short-lived thread as the menu
-opens, and the worker finds the picked one by its id. The menu opens with
-the screens' names; their pictures come from a worker job (`Job::Glance`)
-that takes one frame of each screen, scaled down to its card, and exits, so
-capturing them takes memory only until they're in. A window closed after it was listed ends sharing with "That screen
-or window is gone." Without a pick, Yapfast shares the first screen, as before.
+lists what there is to share above the resolution: the screens as pictures, two
+to a row, named "Entire screen" (or "Screen 1", "Screen 2", … with several),
+then each window with a title. Yapfast's own windows aren't listed. libwebrtc's
+capturers make the list, on a short-lived thread as the menu opens, and the
+worker finds the picked one by its id. The menu opens with the screens' names;
+their pictures come from a worker job (`Job::Glance`) that takes one frame of
+each screen, scaled down to its card, and exits, so capturing them takes memory
+only until they're in. A window closed after it was listed ends sharing with
+"That screen or window is gone." Without a pick, Yapfast shares the first
+screen.
 
 Go Live's sound comes from WASAPI process loopback: one stream of everything
 Windows plays except Yapfast's own process tree, the Yapfast window and its
@@ -149,78 +139,27 @@ Windows mixes every other application into one stream and can leave out only
 Yapfast. Where Windows refuses process loopback, Yapfast shares without sound and
 logs why, as it does on Linux without a PulseAudio server.
 
-Checked under Wine 11.18 Staging on 2026-10-13:
-
-- `frames::tests::frames_pass_from_writer_to_reader` passes, and the file is
-  gone once both sides close it.
-- `stream_worker::tests::shares_a_listed_screen_and_window`, on a private X
-  display with Notepad open: the list holds the screen and "Untitled -
-  Notepad". The screen shares at 1280×720 with Notepad in the picture (35% of
-  it not black). The window shares at Notepad's own 684×512, though black:
-  Wine's GDI window capture gives no pixels without a compositor, where
-  Windows uses Windows Graphics Capture. A window id that's gone ends with
-  the message above.
-- `audio_io::tests::hears_other_applications` shows only the fallback: Wine
-  has no `VAD\Process_Loopback` device, so starting the capture fails with
-  "File not found" and sharing goes on without sound. On Linux the same test
-  hears a tone played by another process (880 zero crossings for 880) and
-  not the one it plays itself.
-- The Discord-only `yapfast.exe` (`--no-default-features --features
-  desktop,discord`) on `scripts/ui-session --discord`, whose `--bin` was a
-  script that unsets `DISPLAY`, so Wine uses its Wayland driver, starts
-  Notepad and Yapfast with `wine explorer /desktop=yapfast,1280x800`, and waits on
-  `wineserver -w`. Without the Wine desktop, Weston's kiosk shell gives
-  Notepad the pointer from behind Yapfast. Yapfast joins the
-  Lounge on the fake Discord, and the share menu opens above the button with
-  "Entire screen" and "Untitled - Notepad", leaving out Yapfast's console.
-  Going live with Notepad starts the worker; the fake receives 1,064 H264
-  frames at 1280×800 with 12 keyframes and none undecryptable, and no sound.
-  Stopping ends the worker and leaves no frames file in the temporary folder.
-  The preview is black there too, since Wine's Wayland driver can't read
-  windows back.
-
-Under Wine with only an X server, Slint panics before the window opens:
-Xvfb reports its monitor at 0 Hz, and Slint's winit backend divides by the
-refresh rate (`frame_throttle.rs`). A Windows display that reports no
-refresh rate would hit the same, so check one under remote desktop or in a
-virtual machine.
+The stream's H264 goes to NVIDIA's NVENC, then AMD's AMF, through FFmpeg in
+`crates/yapfast-core/native/hwenc.c`, while "Encode streams with the GPU" is
+on, and to x264 when neither opens or the setting is off. Intel graphics
+encode with x264 on Windows. Where the card encodes AV1 or H265, the stream
+offers those first, in the same way. The camera always uses x264. AMF has
+run on AMD hardware only in a test of `native/hwenc.c` on its own, on an
+RX 7900 XTX. [Encoding on the GPU](discord/go-live.md#encoding-on-the-gpu) has
+the rest.
 
 Real Windows needs checking for: the window list's contents and titles,
 sharing a window that's minimized, moved to another screen or closed while
 shared, screens on mixed-DPI setups, Windows Graphics Capture's yellow
 border, process loopback hearing other applications and leaving out Yapfast's
-own voices, and the worker's start-up time from a packaged build.
+own voices, AMF on an AMD card in a whole Yapfast (AV1 on an RX 7000 or
+newer), and the worker's start-up time from a
+packaged build.
 
 ## Cameras on Windows
 
 Cameras film through libwebrtc's DirectShow capture; see
 [Cameras](voice.md#cameras) for how, and how a camera's id is kept.
-
-Checked under Wine 10.0 on 2026-10-14. That Wine is built without libv4l2,
-so its DirectShow reads only a V4L2 device that supports `read()` and BGR24:
-a v4l2loopback device fed by `ffmpeg -re -f lavfi -i
-testsrc2=size=1280x720:rate=30 -pix_fmt bgr24 -f v4l2 /dev/videoN`. It also
-lists a USB webcam, which then fails to open.
-
-- `camera::tests::the_test_pattern_films_until_dropped` passes.
-- `films_a_real_camera` with `YAPFAST_TEST_CAMERA` naming the loopback films 32–34
-  frames in a second at 1280×720. A frame dumped from it shows the picture
-  the right way up, not mirrored, and in its colours.
-- The packaged `yapfast.exe` passes `--help` and `--smoke-test`, and
-  `--audio-devices` lists the test pattern, the webcam and the loopback.
-- The Discord-only `yapfast.exe` on `scripts/ui-session --discord`, through a
-  `--bin` script like Go Live's below. Settings list the cameras, "Test
-  video" shows the loopback, and the choice is still there after Yapfast
-  restarts. In a DM call with Bob on the fake Discord, the webcam that won't
-  open says "Could not start your camera" and the call goes on. With the
-  loopback, the fake receives 671 H264 frames at 1280×720 with 8 keyframes
-  and none undecryptable; Bob's camera shows in his tile; turning the camera
-  off stops it, and the `yapfast-camera` thread and Wine's capture threads go.
-- The full `yapfast.exe` in a Matrix call on the local stack (`scripts/test-stack
-  up`), signed in as a new account whose first device it is, so it's
-  verified: the camera publishes a 1280×720 VP8 track with three simulcast
-  layers to LiveKit, and a Linux Yapfast in the same call shows it moving. The
-  Windows build shows the Linux participant's camera too.
 
 Only real Windows can check a real camera through DirectShow's kernel
 streaming (MJPEG, YUY2 and NV12, and the capability chosen for 1280×720 at 30
@@ -235,137 +174,77 @@ takes.
 The notification-area icon is `Shell_NotifyIconW` on a hidden window of the
 UI thread; see [the tray](tray.md#windows).
 
-Checked under Wine 11.18 Staging on 2026-10-14, with the Discord-only
-`fast` `yapfast.exe` on `scripts/ui-session --discord`, through a `--bin`
-script that runs it in `wine explorer /desktop=yapfast,1120x760` and sends its
-output to a file. Without the Wine desktop, winit can't create its window
-there (OS error 14007).
-
-- Closing the window drops it, and Wine's notification area, a window of its
-  own in Weston's kiosk shell, shows the marigold logo with the unread dot.
-- A left click on the icon opens the window again.
-- A right click reaches Yapfast (`WM_RBUTTONDOWN`, `WM_RBUTTONUP`) and
-  `TrackPopupMenu` runs, but Wine's Wayland driver never shows the menu,
-  most likely because its owner is a window that was never shown. Until the
-  menu closes, its loop holds Yapfast's UI thread, as every Win32 menu does; on
-  Windows a click anywhere else closes it. So Open Yapfast, Disconnect and Quit
-  in the menu are untested on Windows.
+Under Wine, closing the window to the tray and opening it again from the
+icon work. A right click reaches Yapfast (`WM_RBUTTONDOWN`, `WM_RBUTTONUP`) and
+`TrackPopupMenu` runs, but Wine's Wayland driver never shows the menu,
+most likely because its owner is a window that was never shown. Until the
+menu closes, its loop holds Yapfast's UI thread, as every Win32 menu does; on
+Windows a click anywhere else closes it. So Open Yapfast, Disconnect and Quit
+in the menu are untested on Windows.
 
 [The tray](tray.md#windows) lists what to check on real Windows.
 
+## Notifications on Windows
+
+Desktop notifications are WinRT toasts, shown from a thread of their own
+(`src/notify.rs`). Windows shows a toast only from an app ID it knows. Setting
+one on the process would also have to go on the Start menu shortcut, or the
+taskbar would group the window apart from it, and a portable copy has no
+shortcut. So each start registers `io.github.yapfast.Yapfast` under
+`HKCU\Software\Classes\AppUserModelId` instead, with Yapfast's name and the
+256-pixel picture from its icon, written to `notifications\icon.png` in the
+data folder; uninstalling removes the key. Each toast's author picture goes in
+`notifications\0.png` to `19.png`, in turn. Toasts are silent, since Yapfast
+plays its own sounds.
+
+Clicking a toast while Yapfast runs opens its conversation, through the toast's
+`Activated` event, for the last 20 shown: as many as the notification center
+keeps of an app's. Yapfast registers no COM activator, so a toast clicked after
+it quit doesn't start it.
+
+Wine has no toast service: Yapfast logs `starting toasts: 0x80040154` (class
+not registered) as it starts and goes on without notifications. The app ID's
+registry key and `icon.png` are still written, so that much can be checked
+there.
+
+Real Windows needs checking for: a toast's name, icon and picture; a click
+bringing the window forward from behind another and from the tray; Focus
+assist and Do Not Disturb; and Yapfast in Settings > System > Notifications.
+
 ## Dragging the window
 
-From the press on the title bar or a border until the release, Windows
-moves or sizes a window in a message loop of its own. winit still passes
-window messages on, but its own loop doesn't run, and Slint advances its
-timers and animation clock only when it does, so the window looked frozen
-while dragged: animations stood still, and pictures that arrived waited.
-`src/ui/move_loop.rs` starts a Win32 timer with the first move or resize
-winit reports while Windows is moving or sizing the window
-(`GetGUIThreadInfo`, `GUI_INMOVESIZE`). Windows calls it from its own loop
-every 16 ms, and it advances Slint's timers and animations and redraws what
-animates, until the window stops moving. `YAPFAST_LOG=yapfast=debug` logs when it
-starts and stops.
+From the press on the title bar or a border until the release, Windows moves or
+sizes a window in a message loop of its own. winit still passes window messages
+on, but its own loop doesn't run, and Slint advances its timers and animation
+clock only when it does, so without help the window looks frozen while dragged:
+animations stand still, and pictures that arrive wait. `src/ui/move_loop.rs`
+starts a Win32 timer with the first move or resize winit reports while Windows
+is moving or sizing the window (`GetGUIThreadInfo`, `GUI_INMOVESIZE`). Windows
+calls it from its own loop every 16 ms, and it advances Slint's timers and
+animations and redraws what animates, until the window stops moving.
+`YAPFAST_LOG=yapfast=debug` logs when it starts and stops.
 
-Wine doesn't reproduce the freeze. In its own desktop (`wine explorer
-/desktop=…`), the typing indicator kept pulsing while the old build was
-dragged by its title bar. So check on real Windows: while the window is
+Wine doesn't reproduce the freeze. So check on real Windows: while the window is
 held by its title bar, still and moving, "… is typing" should keep pulsing
 and its dots rising; the same while resizing by a border.
 
 ## The window's size and place
 
-Yapfast starts where it was left; see [Layout and look](chat-ui.md#layout-and-look).
-Slint makes the native window only once its event loop runs, and shows it
-straight away, so there's no window to give `SetWindowPlacement` before it
-shows. Yapfast gives Slint the size and place before `show()` instead, and
-keeps the un-maximized ones itself while the window is maximized.
-`MonitorFromRect` and `GetMonitorInfoW` check them against the monitors.
-
-Checked under Wine 10.0 on 2026-10-18, with the Discord-only `fast`
-`yapfast.exe` on `scripts/ui-session --discord --size 1500x950`, through a
-`--bin` script that runs a rootful `Xwayland :58 -geometry 1500x950`, then
-`wine explorer /desktop=yapfast,1500x950` on Wine's X11 driver, again each
-time Yapfast ends. Under Wine's Wayland driver, Weston's kiosk shell ignores
-moves and resizes.
-
-- Moved by its title bar and resized by its corner to 895×624 at (200, 105),
-  then killed, Yapfast started there at that size.
-- Maximized and killed, it started maximized; un-maximized, it went back to
-  895×624 at (200, 105).
-- Closed to the tray and opened from the icon, it came back in the same place.
-- With `layout.json` naming 2400×1600 at (3000, 2000), off the 1500×950
-  desktop, it started at (0, 0) at 1492×916, its frame filling the desktop.
+Yapfast starts where it was left; see [Layout and
+look](chat-ui.md#layout-and-look). Slint makes the native window only once its
+event loop runs, and shows it straight away, so there's no window to give
+`SetWindowPlacement` before it shows. Yapfast gives Slint the size and place
+before `show()` instead, and keeps the un-maximized ones itself while the
+window is maximized. `MonitorFromRect` and `GetMonitorInfoW`
+(`src/ui/placement.rs`) check them against the monitors: if the title bar would
+show on no monitor, Yapfast forgets the place and Windows puts the window on
+the primary monitor, and a window too big for its monitor's work area shrinks
+to it.
 
 Check on real Windows: two monitors at different scales, starting on the
 one that isn't the primary, maximized and not; a monitor unplugged while
 Yapfast is closed; a window snapped to half the screen, which comes back at
 the snapped size; and the taskbar at the top or the left.
-
-## Build validation on 2026-10-13
-
-The first cross-build since Discord voice, Go Live's native codecs and
-DeepFilterNet landed failed in one place: songbird's `opus2` builds its own
-libopus, which clang-cl couldn't compile (its SSE4.1 files need flags CMake
-gives only GCC-style compilers) and whose symbols would clash with the libopus
-inside libwebrtc's archive. The Windows Nix shell now gives `opus2` an empty
-`opus.lib` through `LIBOPUS_LIB_DIR`, so it uses libwebrtc's copy and the
-executable holds one libopus. Linux is unchanged. Since Discord calls moved
-onto Yapfast's own voice connection, nothing builds `opus2`: Yapfast calls
-libwebrtc's libopus directly (`yapfast_discord::opus`), and the shell's empty
-library is gone.
-
-`--smoke-test` now encodes 100 ms of a tone with Opus, now through
-`yapfast_discord::opus`, and decodes it again. It and `--help` passed under Wine 10.0 in a private prefix
-without a display, for both the `fast` and the release build. The release
-executable is 211.3 MiB and the portable ZIP 141.3 MiB; Discord voice,
-DeepFilterNet's model and Go Live's codecs account for the growth since
-2026-10-03. The executable's SHA-256 was
-`a8d11fbea3c369b963d4c8c513cf422c5239f06e97005b0d069eba0aca2f5286`.
-
-## Slint build validation on 2026-10-03
-
-The all-target Windows MSVC compilation check and release link passed. Skia was
-built from pinned source with the static release CRT used by WebRTC; runtime,
-symbol and native section checks passed before linking. The AMD64 PE import
-table contains Windows system DLLs and no separate Visual C++ runtime DLL.
-
-`--help` and `--smoke-test` passed under Wine 10.0 in a private prefix with private
-XDG directories and no desktop display. The smoke check uses synthetic native
-media and opens no microphone. These checks do not validate the Slint window,
-Windows device selection, restored credentials or Linux–Windows audio.
-
-The executable is 158.4 MiB, the source ZIP 64.4 MiB, and the portable ZIP about
-121.5 MiB. The source includes the accumulated framework measurement artifacts.
-Its implementation files, ZIP CRCs, embedded executable/source hashes, Skia
-notices and exclusion of credential/session paths were checked. The executable
-SHA-256 is `c381f8b5f734a68ab9b466f07582752dcf53b7ba9e387905afc7f039a4cc1847`.
-`SHA256SUMS.txt` supplies the archive hashes, which change when documentation is
-repackaged.
-
-## Build validation on 2026-10-02
-
-The release cross-build linked successfully as an AMD64 PE executable, with
-static CRT linkage and all 18 GPUI shaders embedded. Its import table contains
-Windows system DLLs and no separate Visual C++ runtime DLL. The portable ZIP
-is about 52 MiB; its executable is about 139 MiB before compression.
-
-Under Wine 11.12 Staging, `--help`, the native smoke check, password sign-in,
-same-device restoration and audio-device enumeration all exited successfully.
-The isolated check account signed in to the deployed homeserver, cross-signed
-its device and stored credentials through Windows Credential Manager. Bob's
-first SDK sign-in was preserved for the tester. Device enumeration opened no
-microphone track.
-
-The window check hit Wine's unimplemented font-matching API. The trace identifies
-`dwritefontset_GetMatchingFonts_`, which returns `E_NOTIMPL` in the
-[Wine 11.12 source](https://github.com/wine-mirror/wine/blob/wine-11.12/dlls/dwrite/font.c#L7071).
-GPUI then cannot select a font. This prevents validating the Windows UI under
-this Wine version. The subsequent manual Windows check is recorded above.
-
-The full Linux check script passed after both dependency patches. ZIP CRCs,
-executable/source hashes, patched-source inclusion and credential exclusion
-were checked. The package includes no saved sessions, passwords or recovery keys.
 
 ## Rebuild from Linux
 
@@ -378,18 +257,26 @@ nix develop path:./nix#windows --command scripts/build-windows full   # full pre
 
 Both flavours build to the same `yapfast.exe`, so each run packages straight
 away; the packaging script tells them apart by the Matrix SDK's source paths
-and refuses the wrong one. This installs the pinned Rust toolchain's Windows target, cross-compiles with
-cargo-xwin and Clang, then packages the executable. The first run downloads the
-Microsoft CRT/SDK and compiles the C++ media bindings. Cargo uses two jobs.
+and refuses the wrong one. This installs the pinned Rust toolchain's Windows
+target, cross-compiles with cargo-xwin and Clang, then packages the executable.
+The first run downloads the Microsoft CRT/SDK and compiles the C++ media
+bindings.
 
 The Windows Nix shell supplies the matching `webrtc-51ef663` archive, LLVM 21,
-GN, Protobuf and checksum-pinned Skia 0.153.3 source with its dependencies.
-`scripts/build-windows` builds Skia with `/MT` to match WebRTC; the upstream Skia
-Windows archive uses an incompatible dynamic CRT. This source build uses two
-native jobs and is cached. Preparation then gives Skia's JPEG table a private
-symbol name. It checks runtime directives and symbols, and preserves every
-native section's code/data and relocations through the rename. The GPUI FXC/Wine
-shader build is no longer part of this client.
+GN, Protobuf, NASM, Wine and checksum-pinned Skia 0.157.0 source with its
+dependencies. `scripts/build-windows` builds Skia with `/MT` to match WebRTC;
+the upstream Skia Windows archive uses an incompatible dynamic CRT. This source
+build uses two native jobs and is cached. Preparation then gives Skia's JPEG
+table a private symbol name. It checks runtime directives and symbols, and
+preserves every native section's code/data and relocations through the rename.
+The executable links the C runtime statically, so it needs no separate Visual
+C++ runtime DLL.
+
+`scripts/build-windows` sources `scripts/release-env x86_64-pc-windows-msvc`
+before `cargo build --release`: it takes `cargo xwin env`'s environment and
+remaps source paths, so a binary people download names no folder of this
+machine ([Building](building.md#windows)). Source it the same way before any
+Windows binary you hand to someone.
 
 A [one-line WebRTC patch](../vendor/webrtc-sys/README.yapfast.md) also fixes an
 MSVC class/struct declaration mismatch, matching the upstream resolution.
@@ -407,3 +294,126 @@ the flavour builds. The snapshot holds only what git tracks; the full
 preview's adds the exact upstream source of the AGPL MatrixRTC crates, which
 the Discord release doesn't build. It excludes `.local`, ignored private material, account credentials, sessions,
 logs and the Wine prefixes.
+
+## Build for development
+
+For work on Windows code, build with the `fast` profile in the Windows shell,
+with cargo-xwin's environment. The app crate needs the prepared Skia archive,
+as `scripts/build-windows` makes it, and thorvg-sys's bindgen the target that
+`scripts/release-env` adds, which `cargo xwin build` would overwrite:
+
+```sh
+nix develop path:./nix#windows --command bash -c '
+  export SKIA_BINARIES_URL="file://$(python3 nix/prepare-windows-skia.py)"
+  eval "$(cargo xwin env --target x86_64-pc-windows-msvc)"
+  export BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc="$BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc --target=x86_64-pc-windows-msvc"
+  cargo build --profile fast --target x86_64-pc-windows-msvc \
+    --no-default-features --features desktop,discord'
+```
+
+Drop the two feature flags for the full build. The executable is
+`target/x86_64-pc-windows-msvc/fast/yapfast.exe`. `yapfast.exe --help` and
+`--smoke-test` run under Wine without a display; `--audio-devices` lists the
+microphones, speakers and cameras Wine sees.
+
+## Test under Wine
+
+Build the test executable without running it, then run it with Wine.
+`yapfast-core` needs no Skia:
+
+```sh
+nix develop path:./nix#windows --command \
+  cargo xwin test --no-run --profile fast --target x86_64-pc-windows-msvc -p
+  yapfast-core --lib
+```
+
+Cargo prints the path,
+`target/x86_64-pc-windows-msvc/fast/deps/yapfast_core-HASH.exe`. Run it in its
+own prefix, with the usual test filter and flags:
+
+```sh
+nix develop path:./nix#windows --command env WINEPREFIX=/tmp/wine-test
+WINEDEBUG=-all \
+  DISPLAY= WAYLAND_DISPLAY= wine
+  target/x86_64-pc-windows-msvc/fast/deps/yapfast_core-HASH.exe frames
+```
+
+A new prefix takes `wineboot -i` first. The device tests are `#[ignore]`d;
+run each by name with `--ignored`, and give it what its ignore reason asks
+for:
+
+- Sound (`audio_io` and `discord_audio` tests): `PULSE_SERVER` naming a private
+  PulseAudio of null sinks, whose default input hears its default output, so
+  nothing reaches real speakers. `a_call_sends_what_the_microphone_hears` also
+  needs `bun testing/fake_discord.ts` and `YAPFAST_DISCORD_TEST_SERVER`.
+- Screens and windows
+  (`stream_worker::tests::shares_a_listed_screen_and_window`): an X display,
+  such as `Xvfb`, with `wine notepad` open on it. Wine's GDI window capture
+  gives black windows without a compositor; Windows uses Windows Graphics
+  Capture.
+- Cameras (`camera::tests::films_a_real_camera`, with `YAPFAST_TEST_CAMERA`
+  naming it): Wine's DirectShow, built without libv4l2, reads only a V4L2
+  device that supports `read()` and BGR24, such as a v4l2loopback device fed
+  by `ffmpeg -re -f lavfi -i testsrc2=size=1280x720:rate=30 -pix_fmt bgr24 -f
+  v4l2 /dev/videoN`. It lists a USB webcam too, which then fails to open.
+
+`audio_io::tests::hears_other_applications` can only show the fallback under
+Wine: Wine has no `VAD\Process_Loopback` device, so the capture fails with
+"File not found" and sharing goes on without sound. AMF can't open either,
+since Wine has no `amfrt64.dll`, so streams encode with x264 there.
+
+## Run the app under Wine
+
+`scripts/ui-session` runs a Windows build through `--bin`, a script that
+starts Wine and waits on `wineserver -w`. Start the session from the Windows
+shell, which has Wine, with `TMPDIR=/tmp`: the shell's own `TMPDIR` makes the
+Wayland socket's path longer than its 108-byte limit.
+
+```sh
+nix develop path:./nix#windows --command env TMPDIR=/tmp \
+  scripts/ui-session start --discord --desktop --bin /tmp/wine-yapfast.sh
+```
+
+There are two ways to show the window, and each misses something:
+
+- Wine's Wayland driver, on the session's Weston: the script unsets `DISPLAY`
+  and runs plain `wine yapfast.exe "$@"`. This is enough for most UI checks.
+  `wine explorer /desktop=…` fails here with "xdg_surface geometry … is
+  larger than the configured fullscreen state", since the desktop's frame
+  doesn't fit the kiosk window. Screen capture gets no frames, the preview of
+  a share is black, Weston's kiosk shell ignores moves and resizes, and the
+  tray's menu never shows. Start the session with `--desktop`: Yapfast's own
+  title bar leaves the window frameless, so the kiosk shell sizes it to the
+  whole display. Wine then confines the pointer to it, as to any fullscreen
+  window, and moving that lock trips an assertion in Weston 14
+  (`weston_coord_surface_to_global`). Weston quits, and Wine's Wayland driver
+  ends every process with exit code 1 ("Failed to read events from the
+  compositor"), a few seconds after Yapfast starts.
+- Wine's X11 driver, on a rootful Xwayland inside the session: the script
+  starts `Xwayland :58 -geometry 1120x760` (the session's size; not
+  `-fullscreen`, which gives 640×480 stretched), then, with `DISPLAY=:58`,
+  `WAYLAND_DISPLAY` unset and `SLINT_SCALE_FACTOR=1`, runs `wine explorer
+  /desktop=yapfast,1120x760 yapfast.exe "$@"`. GDI then captures the real
+  screen, and the window can be moved, resized and maximized. Stop the extra
+  Xwayland by its PID after `scripts/ui-session stop`.
+
+Wine on a bare X server such as Xvfb can't show the window: Xvfb reports its
+monitor at 0 Hz, and Slint's winit backend divides by the refresh rate
+(`frame_throttle.rs`), so it panics before the window opens. A Windows
+display that reports no refresh rate would hit the same.
+
+`--renderer gpu` draws Direct3D 12 through vkd3d on Mesa's software Vulkan,
+which shows the path works but nothing about a real card. To check the
+fallback to Skia Software, hide Vulkan with `VK_DRIVER_FILES=/nonexistent.json
+VK_ICD_FILENAMES=/nonexistent.json`. Don't use `WINEDLLOVERRIDES=d3d12=d`:
+`yapfast.exe` imports `d3d12.dll`, so it then won't start at all.
+
+## What's open
+
+Most of what this guide describes was checked under Wine, and each section
+above ends with what real Windows still needs. Beyond those: text entry,
+selection, copy/paste, keyboard focus, resizing, both renderers, restarts,
+network interruptions and crashes on a tester's PC; whether Direct3D 12 keeps
+an NVIDIA card's CPU use low; a display that reports no refresh rate, under
+remote desktop or in a virtual machine; and Intel GPU encoding. The packages
+are unsigned.

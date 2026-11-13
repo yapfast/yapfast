@@ -7,20 +7,28 @@ impl Application {
         let Some(room) = self.state.room_of(&item).cloned() else {
             return vec![];
         };
-        if !self.state.can_write_in(&room)
-            || !self
-                .state
-                .message(&item)
-                .is_some_and(|message| message.can_react)
-        {
+        let Some(message) = self
+            .state
+            .message(&item)
+            .filter(|message| message.can_react)
+        else {
+            return vec![];
+        };
+        let there = message
+            .reactions
+            .iter()
+            .find(|reaction| reaction.key == key);
+        let adding = !there.is_some_and(|reaction| reaction.mine);
+        // A reaction nobody added yet needs leave to add any; adding to one
+        // there, or taking one's own back, doesn't.
+        let allowed = match self.state.reacts_in(&room) {
+            Reacts::Any => true,
+            Reacts::Existing => there.is_some(),
+            Reacts::None => false,
+        };
+        if !allowed {
             return vec![];
         }
-        let adding = !self.state.message(&item).is_some_and(|message| {
-            message
-                .reactions
-                .iter()
-                .any(|reaction| reaction.key == key && reaction.mine)
-        });
         if adding {
             *self.reaction_uses.entry(key.clone()).or_default() += 1;
         }
@@ -66,6 +74,20 @@ impl Application {
         vec![]
     }
 
+    pub(super) fn delete_now(&mut self, item: String) -> Vec<Effect> {
+        if !self
+            .state
+            .message(&item)
+            .is_some_and(|message| message.can_delete)
+        {
+            return vec![];
+        }
+        if self.state.confirm_delete.as_ref() == Some(&item) {
+            self.state.confirm_delete = None;
+        }
+        self.delete_message(item)
+    }
+
     pub(super) fn pin_message(&mut self, item: String) -> Vec<Effect> {
         let Some(room) = self.state.room_of(&item).cloned() else {
             return vec![];
@@ -108,14 +130,8 @@ impl Application {
             });
         // Discord's dialog ranks places by how much they're used, which
         // Discord's settings count.
-        if self.state.forwarding.is_some()
-            && discord
-            && !self.state.preview
-            && self.state.places_used.ask()
-        {
-            return vec![Effect::Backend(Command::Discord(
-                DiscordCommand::PlacesUsed,
-            ))];
+        if self.state.forwarding.is_some() && discord {
+            return self.ask_places_used();
         }
         vec![]
     }
@@ -161,6 +177,10 @@ impl Application {
         let Some(item) = self.state.confirm_delete.take() else {
             return vec![];
         };
+        self.delete_message(item)
+    }
+
+    fn delete_message(&mut self, item: String) -> Vec<Effect> {
         let Some(room) = self.state.room_of(&item).cloned() else {
             return vec![];
         };
@@ -168,13 +188,18 @@ impl Application {
             .state
             .compose
             .get(&room)
-            .is_some_and(|compose| match compose {
-                Compose::Reply { item: target, .. } | Compose::Edit { item: target, .. } => {
-                    target == &item
-                }
-            })
+            .is_some_and(|Compose::Reply { item: target, .. }| target == &item)
         {
             self.finish_compose(&room);
+        }
+        // A deleted message can't be edited.
+        if self
+            .state
+            .edit
+            .as_ref()
+            .is_some_and(|edit| edit.item == item)
+        {
+            self.state.edit = None;
         }
         if self.state.preview {
             self.update_sample(&room, &item, |message| {
@@ -260,6 +285,101 @@ impl Application {
             height,
             speakers: self.state.voice.speaker.clone(),
         })]
+    }
+
+    /// Plays a voice message, from where it paused, or pauses it while it
+    /// plays. The button changes at once; the backend's
+    /// [`Event::VoiceMessage`] follows.
+    pub(super) fn toggle_voice_message(&mut self, item: String) -> Vec<Effect> {
+        let voice = self
+            .state
+            .message(&item)
+            .is_some_and(|message| message.voice.is_some());
+        let Some(room) = self.state.room_of(&item).cloned().filter(|_| voice) else {
+            return vec![];
+        };
+        let playback = &mut self.state.voice_message;
+        if let Some(playing) = playback
+            .as_mut()
+            .filter(|playing| playing.item == item && playing.playing)
+        {
+            playing.playing = false;
+            return vec![Effect::Backend(Command::PauseVoiceMessage)];
+        }
+        // Where it paused, when it's this one.
+        let paused = playback
+            .as_ref()
+            .filter(|paused| paused.item == item && paused.error.is_none())
+            .map(|paused| paused.position_ms);
+        *playback = Some(chat::VoicePlayback {
+            room: room.clone(),
+            item: item.clone(),
+            loading: paused.is_none(),
+            playing: true,
+            position_ms: paused.unwrap_or(0),
+            error: None,
+        });
+        vec![Effect::Backend(Command::PlayVoiceMessage {
+            room,
+            item,
+            speakers: self.state.voice.speaker.clone(),
+            tuning: self.state.voice_tuning,
+        })]
+    }
+
+    /// Moves a voice message `fraction` of the way through, from 0 to 1, as
+    /// its waveform is clicked or dragged: the one playing or paused goes on
+    /// from there as it was, and another waits there paused in its place, as
+    /// in Discord. Its waveform and time follow at once; the backend's
+    /// [`Event::VoiceMessage`] follows.
+    pub(super) fn move_voice_message(&mut self, item: String, fraction: f32) -> Vec<Effect> {
+        let Some(duration) = self
+            .state
+            .message(&item)
+            .and_then(|message| message.voice.as_ref())
+            .map(|voice| voice.duration_ms)
+        else {
+            return vec![];
+        };
+        let Some(room) = self.state.room_of(&item).cloned() else {
+            return vec![];
+        };
+        let at_ms = (f64::from(fraction.clamp(0.0, 1.0)) * duration as f64) as u64;
+        let playback = &mut self.state.voice_message;
+        match playback
+            .as_mut()
+            .filter(|shown| shown.item == item && shown.error.is_none())
+        {
+            Some(shown) => shown.position_ms = at_ms,
+            None => {
+                *playback = Some(chat::VoicePlayback {
+                    room: room.clone(),
+                    item: item.clone(),
+                    loading: true,
+                    playing: false,
+                    position_ms: at_ms,
+                    error: None,
+                });
+            }
+        }
+        vec![Effect::Backend(Command::MoveVoiceMessage {
+            room,
+            item,
+            at_ms,
+            speakers: self.state.voice.speaker.clone(),
+            tuning: self.state.voice_tuning,
+        })]
+    }
+
+    /// Plays the voice message playing, if one is, as fast and loud as now
+    /// chosen.
+    pub(super) fn tune_voice_message(&self) -> Vec<Effect> {
+        match &self.state.voice_message {
+            Some(_) => vec![Effect::Backend(Command::TuneVoiceMessage(
+                self.state.voice_tuning,
+            ))],
+            None => vec![],
+        }
     }
 
     pub(super) fn view_image(&mut self, item: String, index: usize) -> Vec<Effect> {
@@ -580,7 +700,7 @@ impl Application {
     /// Asks for the messages around an item of the selected room, which show
     /// in place of its timeline. Pages on their way are for what shows now,
     /// which the backend drops.
-    fn focus(&mut self, item: String) -> Vec<Effect> {
+    pub(super) fn focus(&mut self, item: String) -> Vec<Effect> {
         let Some(room) = self
             .state
             .selected_room()
@@ -646,11 +766,24 @@ impl Application {
         history: chat::History,
     ) -> Vec<Effect> {
         match direction {
+            chat::Direction::Latest => return self.latest_loaded(history),
             chat::Direction::Earlier => self.state.loading_history = false,
             chat::Direction::Later => self.state.loading_later = false,
             // The window comes next, as a timeline.
             chat::Direction::Around if !self.focusing => return vec![],
-            chat::Direction::Around => self.focusing = false,
+            chat::Direction::Around => {
+                self.focusing = false;
+                self.divider_waits = false;
+            }
+            chat::Direction::Kept => {
+                self.focusing = false;
+                self.divider_waits = true;
+                // Should the newest page not reach the last read message, the
+                // messages around it are still to be asked for.
+                if let Some((_, asked)) = &mut self.read_marker {
+                    *asked = false;
+                }
+            }
         }
         match history {
             chat::History::Loaded { start, present } => {
@@ -661,14 +794,39 @@ impl Application {
                 chat::Direction::Earlier => self.state.history_failed = true,
                 chat::Direction::Later => self.state.later_failed = true,
                 chat::Direction::Around => self.seeking = None,
+                chat::Direction::Kept | chat::Direction::Latest => {}
             },
         }
         // What the window shows is said when it comes.
-        if direction == chat::Direction::Around {
+        if matches!(direction, chat::Direction::Around | chat::Direction::Kept) {
             return vec![];
         }
         let mut effects = self.place_unread();
         effects.extend(self.seek());
+        effects
+    }
+
+    /// The newest messages came. When none after the last read one shows,
+    /// as when they were deleted, are of a kind Yapfast doesn't show or are
+    /// hidden as blocked, there's no divider to wait for: the channel
+    /// reads like any other once its newest message is in view, as in
+    /// Discord's client. A divider that waited for them is placed now, or
+    /// without them, from what's kept.
+    fn latest_loaded(&mut self, history: chat::History) -> Vec<Effect> {
+        let mut effects = if std::mem::take(&mut self.divider_waits) {
+            self.place_unread()
+        } else {
+            vec![]
+        };
+        if history == chat::History::Failed
+            || self.state.detached
+            || self.focusing
+            || self.read_marker.is_none()
+        {
+            return effects;
+        }
+        self.read_marker = None;
+        effects.extend(self.read_latest());
         effects
     }
 
@@ -787,6 +945,9 @@ impl Application {
                 }),
         };
         match first {
+            // Messages newer than those kept may be missing. A divider placed
+            // now would end what shows, and the view would follow past them.
+            Some(_) if self.divider_waits => self.read_marker = Some((marker, asked)),
             Some(first) => {
                 self.state.first_unread = Some(messages[first].item.clone());
                 if !jumping {

@@ -1,7 +1,7 @@
 """Puts the noise comparison's speech through synthetic rooms, and scores the
 Discord microphone with and without taking the room's echo out.
 scripts/compare-room-echo runs it; see the Microphone section of
-docs/discord.md.
+docs/discord/voice.md.
 
   room_echo.py make SPEECH OUT   SPEECH is the noise comparison's speech.f32
   room_echo.py score OUT NOISE   NOISE holds the noise comparison's mixes

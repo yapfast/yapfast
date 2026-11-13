@@ -13,5 +13,5 @@ mkdir -p "$data/applications"
 # NixOS keeps the GPU's libraries out of the default search path.
 command=$executable
 [ -d /run/opengl-driver/lib ] && command="env LD_LIBRARY_PATH=/run/opengl-driver/lib $executable"
-sed "s|^Exec=.*|Exec=$command|" "packaging/linux/$id.desktop" > "$data/applications/$id.desktop"
+sed "s|^Exec=yapfast|Exec=$command|" "packaging/linux/$id.desktop" > "$data/applications/$id.desktop"
 echo "installed $data/applications/$id.desktop, running $executable"

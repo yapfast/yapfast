@@ -3,7 +3,7 @@
 //! the open page's settings are held, from when it opens to when it
 //! closes. Each page edits a draft against what Discord has; once the draft
 //! differs, Discord's bar offers to reset or save it, and leaving the page
-//! waits until one is chosen. See "Server settings" in docs/discord.md.
+//! waits until one is chosen. See "Server settings" in docs/discord/server-settings.md.
 
 use super::*;
 use crate::{

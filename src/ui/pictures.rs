@@ -93,17 +93,59 @@ pub(super) fn cached_picture(
     image
 }
 
+/// How many revisions `PictureStore` keeps; see [`picture_slot`].
+const PICTURE_SLOTS: u32 = 32;
+
+/// The `PictureStore` slot whose revision a picture's binding reads: a
+/// picture that comes, changes or goes draws again only those that share its
+/// slot, not every picture in the window.
+pub(super) fn picture_slot(url: &str) -> u32 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::hash::DefaultHasher::new();
+    url.hash(&mut hasher);
+    (hasher.finish() % u64::from(PICTURE_SLOTS)) as u32
+}
+
 /// The UI asks for avatars only as virtualized components use them. Weak
 /// sources do not pin decoded core pictures; conversions share the bounded
-/// preview cache rather than living in every off-screen row.
-pub(super) fn refresh_avatar_sources(state: &AppState) {
+/// preview cache rather than living in every off-screen row. Returns the
+/// slots of the pictures that came, changed or went, a bit for each.
+pub(super) fn refresh_avatar_sources(state: &AppState) -> u32 {
     AVATAR_SOURCES.with_borrow_mut(|sources| {
-        *sources = state
-            .pictures
-            .iter()
-            .map(|(url, picture)| (url.clone(), Arc::downgrade(picture)))
-            .collect();
-    });
+        let mut changed = 0;
+        sources.retain(|url, _| {
+            let kept = state.pictures.contains_key(url);
+            if !kept {
+                changed |= 1 << picture_slot(url);
+            }
+            kept
+        });
+        for (url, picture) in &state.pictures {
+            match sources.get_mut(url) {
+                Some(source) if std::ptr::eq(source.as_ptr(), Arc::as_ptr(picture)) => {}
+                Some(source) => {
+                    *source = Arc::downgrade(picture);
+                    changed |= 1 << picture_slot(url);
+                }
+                None => {
+                    sources.insert(url.clone(), Arc::downgrade(picture));
+                    changed |= 1 << picture_slot(url);
+                }
+            }
+        }
+        changed
+    })
+}
+
+/// Moves the revisions of the slots in `changed`, from
+/// [`refresh_avatar_sources`].
+pub(super) fn bump_picture_slots(window: &YapfastWindow, changed: u32) {
+    let store = window.global::<PictureStore>();
+    for slot in 0..PICTURE_SLOTS {
+        if changed & (1 << slot) != 0 {
+            store.invoke_bump(slot as i32);
+        }
+    }
 }
 
 pub(super) fn avatar_picture(url: &str) -> slint::Image {
@@ -112,6 +154,51 @@ pub(super) fn avatar_picture(url: &str) -> slint::Image {
     source.map_or_else(slint::Image::default, |source| {
         PREVIEWS.with_borrow_mut(|cache| cache.image(&source, false))
     })
+}
+
+/// The address of the animated version of a collectible's still picture:
+/// Discord serves a decoration's or nameplate's `/static` PNG and, beside it,
+/// an `/animated` APNG. Any other address is its own. While the profile
+/// switches hold collectibles still, a collectible has none, so its APNG is
+/// never asked for.
+pub(super) fn animated_url(url: &str) -> String {
+    match url.strip_suffix("/static") {
+        Some(base) if url.contains("/collectibles-shop/") => {
+            if MOVING_COLLECTIBLES.get() {
+                format!("{base}/animated")
+            } else {
+                String::new()
+            }
+        }
+        _ => url.to_owned(),
+    }
+}
+
+/// Whether decorations and nameplates may play; see [`animated_url`].
+pub(super) fn set_moving_collectibles(moving: bool) {
+    MOVING_COLLECTIBLES.set(moving);
+}
+
+thread_local! {
+    static MOVING_COLLECTIBLES: Cell<bool> = const { Cell::new(true) };
+}
+
+/// The frames and delays of the animation at `url`, once it has arrived and
+/// the frames decode as they show; empty for a still picture or one on its
+/// way.
+pub(super) fn avatar_animation(url: &str) -> (ModelRc<slint::Image>, ModelRc<i32>) {
+    let source =
+        AVATAR_SOURCES.with_borrow(|sources| sources.get(url).and_then(std::sync::Weak::upgrade));
+    source.map_or_else(Default::default, |source| animation(&source))
+}
+
+/// How many times the animation at `url` plays before holding its last
+/// frame; 0 for ever, or until it has arrived.
+pub(super) fn picture_plays(url: &str) -> i32 {
+    AVATAR_SOURCES
+        .with_borrow(|sources| sources.get(url).and_then(std::sync::Weak::upgrade))
+        .and_then(|source| source.animation.as_ref().map(|animation| animation.plays))
+        .map_or(0, |plays| i32::try_from(plays).unwrap_or(0))
 }
 
 thread_local! {
@@ -452,7 +539,7 @@ impl Model for Frames {
         if row >= self.row_count() {
             return None;
         }
-        let now = Duration::from_millis(i_slint_core::animations::current_tick().0);
+        let now = Duration::from(i_slint_core::animations::current_tick());
         let image = {
             let mut decoding = self.decoding.borrow_mut();
             decoding.used = Some(now);
@@ -461,9 +548,7 @@ impl Model for Frames {
         FRAME_SWEEP.with(|timer| {
             if !timer.running() {
                 timer.start(slint::TimerMode::Repeated, IDLE_FRAMES, || {
-                    if !sweep(Duration::from_millis(
-                        i_slint_core::animations::current_tick().0,
-                    )) {
+                    if !sweep(i_slint_core::animations::current_tick().into()) {
                         FRAME_SWEEP.with(slint::Timer::stop);
                     }
                 });
@@ -637,11 +722,13 @@ pub(super) fn gallery_within(
 type Cells = Vec<(ImageCell, Option<Arc<Picture>>)>;
 
 fn gallery_cells(previews: &[Preview<'_>], covered: &dyn Fn(usize) -> bool) -> (Cells, i32, i32) {
-    const TILE: i32 = 178;
+    const TILE: i32 = 273;
     const GAP: i32 = 4;
     let cell = |index: usize,
                 attachment: &yapfast_core::chat::Attachment,
                 preview: Option<&Arc<Picture>>| {
+        let description: SharedString =
+            attachment.description.as_deref().unwrap_or_default().into();
         // A video whose poster didn't come plays all the same.
         let Some(preview) = preview else {
             return ImageCell {
@@ -649,6 +736,7 @@ fn gallery_cells(previews: &[Preview<'_>], covered: &dyn Fn(usize) -> bool) -> (
                 name: attachment.name.clone().into(),
                 loading: loading(attachment),
                 video: attachment.video,
+                description: description.clone(),
                 ..Default::default()
             };
         };
@@ -659,6 +747,7 @@ fn gallery_cells(previews: &[Preview<'_>], covered: &dyn Fn(usize) -> bool) -> (
                 name: attachment.name.clone().into(),
                 spoiler,
                 video: attachment.video,
+                description: description.clone(),
                 ..Default::default()
             };
         }
@@ -674,6 +763,7 @@ fn gallery_cells(previews: &[Preview<'_>], covered: &dyn Fn(usize) -> bool) -> (
                 .as_ref()
                 .map(|gif| gif.url.as_str().into())
                 .unwrap_or_default(),
+            description,
             ..Default::default()
         }
     };
@@ -739,6 +829,7 @@ mod tests {
                 spoiler: false,
                 video: false,
                 url: None,
+                description: None,
             })
             .collect();
         let row = message_row(
@@ -798,6 +889,7 @@ mod tests {
                 spoiler: false,
                 video: false,
                 url: None,
+                description: None,
             }
         };
         let one = found_row(
@@ -834,6 +926,53 @@ mod tests {
     }
 
     #[test]
+    fn rows_fit_their_pictures_and_previews_to_a_narrow_panel() {
+        PREVIEWS.set(Previews::default());
+        let picture = Arc::new(Picture {
+            width: 400,
+            height: 300,
+            rgba: yapfast_core::chat::Pixels::new(400, 300, vec![0; 400 * 300 * 4]),
+            ..Default::default()
+        });
+        let attachment = |placement| yapfast_core::chat::Attachment {
+            name: "bridge.png".into(),
+            size: None,
+            image: true,
+            dimensions: Some((400, 300)),
+            preview: Some(picture.clone()),
+            preview_failed: false,
+            placement,
+            gif: None,
+            spoiler: false,
+            video: false,
+            url: None,
+            description: None,
+        };
+        let message = ChatMessage {
+            attachments: vec![
+                attachment(Placement::Message),
+                attachment(Placement::Embed(0)),
+            ],
+            embeds: vec![yapfast_core::chat::Embed {
+                title: "City opens its first bridge for bikes only".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        // Beside the avatar in the timeline, as they came.
+        let wide = message_row(&message, &HashSet::new());
+        assert_eq!((wide.gallery_width, wide.gallery_height), (400, 300));
+        let card = wide.embeds.row_data(0).unwrap();
+        assert_eq!((card.gallery_width, card.gallery_height), (400, 300));
+        // In 232px, the picture fits it, and the card's within its padding.
+        let narrow = message_row_within(&message, &HashSet::new(), Some(232));
+        assert_eq!((narrow.gallery_width, narrow.gallery_height), (232, 174));
+        let card = narrow.embeds.row_data(0).unwrap();
+        assert_eq!((card.gallery_width, card.gallery_height), (200, 150));
+        PREVIEWS.set(Previews::default());
+    }
+
+    #[test]
     fn avatar_sources_are_weak_and_pixels_are_converted_only_when_requested() {
         PREVIEWS.set(Previews::default());
         let mut state = AppState::default();
@@ -863,6 +1002,29 @@ mod tests {
         );
         AVATAR_SOURCES.with_borrow_mut(HashMap::clear);
         PREVIEWS.set(Previews::default());
+    }
+
+    #[test]
+    fn a_picture_that_comes_changes_or_goes_moves_only_its_own_slot() {
+        AVATAR_SOURCES.with_borrow_mut(HashMap::clear);
+        let picture = || {
+            Arc::new(Picture {
+                width: 1,
+                height: 1,
+                rgba: yapfast_core::chat::Pixels::new(1, 1, vec![255; 4]),
+                ..Default::default()
+            })
+        };
+        let slot = 1 << picture_slot("avatar");
+        let mut state = AppState::default();
+        state.pictures.insert("avatar".into(), picture());
+        assert_eq!(refresh_avatar_sources(&state), slot, "it came");
+        assert_eq!(refresh_avatar_sources(&state), 0, "nothing changed");
+        state.pictures.insert("avatar".into(), picture());
+        assert_eq!(refresh_avatar_sources(&state), slot, "it changed");
+        state.pictures.clear();
+        assert_eq!(refresh_avatar_sources(&state), slot, "it went");
+        AVATAR_SOURCES.with_borrow_mut(HashMap::clear);
     }
 
     #[test]
@@ -899,6 +1061,35 @@ mod tests {
         assert!(model.decoding.borrow().cursors.is_empty());
         FRAME_SWEEP.with(|timer| assert!(!timer.running()));
         assert_eq!(shown.size(), frames.row_data(0).unwrap().size());
+    }
+
+    #[test]
+    fn collectibles_play_from_their_animated_address_once_it_arrives() {
+        i_slint_backend_testing::init_no_event_loop();
+        let still = "https://cdn.discordapp.com/media/v1/collectibles-shop/5/static";
+        let animated = "https://cdn.discordapp.com/media/v1/collectibles-shop/5/animated";
+        // Held still by the profile switches, a collectible has none to ask for.
+        set_moving_collectibles(false);
+        assert_eq!(animated_url(still), "");
+        set_moving_collectibles(true);
+        assert_eq!(animated_url(still), animated);
+        assert_eq!(animated_url(animated), animated);
+        let avatar = "https://cdn.discordapp.com/avatars/5/abc.png/static";
+        assert_eq!(animated_url(avatar), avatar, "only collectibles have one");
+        // Until it arrives, no frames.
+        AVATAR_SOURCES.with_borrow_mut(HashMap::clear);
+        assert_eq!(avatar_animation(animated).0.row_count(), 0);
+        let file = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("testing/fixtures/gif-h264.mp4"),
+        )
+        .unwrap();
+        let picture = Arc::new(yapfast_core::chat::decode_picture(&file, 32, 32).unwrap());
+        AVATAR_SOURCES.with_borrow_mut(|sources| {
+            sources.insert(animated.to_owned(), Arc::downgrade(&picture));
+        });
+        let (frames, delays) = avatar_animation(animated);
+        assert_eq!((frames.row_count(), delays.row_count()), (10, 10));
+        AVATAR_SOURCES.with_borrow_mut(HashMap::clear);
     }
 
     #[test]

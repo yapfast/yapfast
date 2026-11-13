@@ -81,6 +81,23 @@ pub unsafe fn make_dx12_surface(
     }
 }
 
+/// Yapfast: records the transition back to `D3D12_RESOURCE_STATE_PRESENT` and flushes it.
+///
+/// wgpu's tracker still believes the swapchain buffer is in `PRESENT`, because that is where wgpu
+/// itself left it before Skia took over, so it emits no barrier of its own. `Present` requires
+/// that state, and Skia's D3D backend only moves there when told the flush is for presenting: it
+/// ignores the texture state Vulkan's counterpart passes.
+pub fn release_dx12_swapchain_surface(
+    gr_context: &mut skia_safe::gpu::DirectContext,
+    skia_surface: &mut skia_safe::Surface,
+) {
+    gr_context.flush_surface_with_access(
+        skia_surface,
+        skia_safe::surfaces::BackendSurfaceAccess::Present,
+        &skia_safe::gpu::FlushInfo::default(),
+    );
+}
+
 #[cfg_attr(not(feature = "unstable-wgpu-30"), allow(dead_code))]
 #[allow(non_snake_case)]
 pub unsafe fn import_dx12_texture(

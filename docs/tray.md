@@ -8,7 +8,7 @@ Quit.
 
 Settings → Advanced has "Close to tray", on unless turned off
 (`close_to_tray` in `layout.json`). Off, or with no tray to show the icon,
-closing the window quits Yapfast, as it did before; the setting's description
+closing the window quits Yapfast; the setting's description
 says when there's no tray. A tray that starts after Yapfast, or comes back,
 still gets the icon.
 
@@ -16,8 +16,9 @@ still gets the icon.
 
 Starting Yapfast while it runs on the same data folder brings the running
 one's window forward, making it again if it was closed to the tray, and the
-new start ends (`src/instance.rs`). A start with `--background`, as at
-sign-in, just ends. Settings → Advanced → "Allow multiple windows"
+new start ends (`src/instance.rs`). A start can carry one link (see
+[Links from other apps](#links-from-other-apps)), which the running Yapfast
+opens. A start with `--background`, as at sign-in, just ends. Settings → Advanced → "Allow multiple windows"
 (`multiple_windows` in `layout.json`, off unless turned on) starts another
 Yapfast instead, with its own window and tray icon. Each folder is its own:
 another `--data-dir` always starts. The preview never asks.
@@ -29,11 +30,58 @@ named event, `Local\yapfast-` and a hash of the folder's path. A later start
 that finds the lock taken asks for the window there, trying for 5 seconds
 while the first may still be starting or restarting with another renderer,
 and starts anyway if nothing answers. On Linux it passes on the activation
-token the desktop launched it with (`XDG_ACTIVATION_TOKEN` on Wayland,
+token and link the desktop launched it with (`XDG_ACTIVATION_TOKEN` on Wayland,
 `DESKTOP_STARTUP_ID` on X11), so the window can take the focus: a window made
 again takes it through winit, and a shown one through Yapfast's own
 `xdg_activation_v1` on winit's Wayland connection. On Windows the later start
-lets any process take the foreground, which the first then does.
+lets any process take the foreground, which the first then does. Its link
+waits as a small file in `instance-links` for the first to take and remove;
+a new first start clears any left there by one that has gone.
+
+## Links from other apps
+
+The desktop hands Yapfast a link after `--open-link`: Windows runs
+`"…\yapfast.exe" --open-link "%1"`, and the desktop entry
+`yapfast --open-link %u`. Windows puts the link into that command line as it
+comes, quotes included, so one link can split into several arguments. Nothing
+after `--open-link` is read as an option, and when more than one argument
+follows it, Yapfast starts, or shows the running one's window, without the
+link (`src/main.rs`). A link given on its own, as in
+`yapfast https://discord.com/channels/…`, opens too. Every argument under
+`discord:` or `yapfast:` counts as a link; one naming no place Yapfast has,
+such as Discord's library or settings, only starts Yapfast or shows its
+window, as every link does in a Matrix-only build. The link passes on as the
+URL standard writes it, a space percent-encoded, so it stays one word on the
+socket. Yapfast opens the place once Discord is online, and a first start
+waits for its snapshot in the same way. A link that comes while a dialog is
+open waits until it closes, so a link from another app or a web page never
+swaps what an Authorize, Redeem or Join click is for. The restart a changed renderer setting
+makes doesn't open it again; the one after a failed GPU start does, as nothing
+opened it yet.
+
+Settings → Advanced → "Open Discord links in Yapfast" claims `discord://`
+for this Yapfast, and its own `yapfast://` with it; turning it off gives each
+back as it was (`src/protocol.rs`). Showing the switch reads a file or the
+registry and starts no process.
+
+- **Windows**: the switch is the current user's
+  `Software\Classes\discord` command. The one there before is kept, in its
+  own registry type, under `Software\Yapfast\DiscordProtocol`. The installer
+  registers only `yapfast://`; uninstalling runs `yapfast.exe
+  --release-discord-links`, which gives `discord://` back, and removes the key.
+- **Linux**: the switch is the person's own `mimeapps.list`, in
+  `$XDG_CONFIG_HOME` or `~/.config`, and it's on while its
+  `[Default Applications]` name Yapfast's entry first for
+  `x-scheme-handler/discord`. Claiming keeps each scheme's line as it was, or
+  that there was none, in `discord-protocol-previous` in the data folder;
+  turning the switch off puts that line back or takes Yapfast's out, and
+  leaves a default someone chose since. The list is written where a link to
+  it points, as home-manager or a dotfiles folder links it, keeping its
+  permissions; one that can't be written, as in a read-only store, fails the
+  switch and stays as it was. Yapfast's desktop entry declares only
+  `x-scheme-handler/yapfast`. gio and xdg-open follow a default to an entry
+  that doesn't declare the scheme, so the claim works, and without a Discord
+  app installed the desktop doesn't fall back to Yapfast for Discord's links.
 
 ## Starting at sign-in
 
@@ -74,13 +122,9 @@ Task Manager's Memory column is the private working set, which the window's
 pages would otherwise stay in; they come back from the standby list if
 touched.
 
-With Skia Software, closing saves 2.3 MiB of anonymous memory in a channel
-(18.6 to 16.3 MiB) and 0.9 MiB in a call; with the GPU, 24 MiB on the first
-close ([measurements](measurements/README.md#2026-10-14-closing-the-window-to-the-tray)).
 The models stay with the adapter, so a new window shows them without building
 them again. Releasing the timeline's rows, the window's copies of pictures and
-Skia's caches as well saved 0.25 MiB of heap and no anonymous memory, so they
-stay.
+Skia's caches as well saved almost nothing, so they stay.
 
 Opening makes the window again with the size, place and maximized state of
 the last one (Wayland ignores the place), the same conversation scrolled to
@@ -130,7 +174,7 @@ The bar is a cross-build and Wine (`scripts/build-windows`, see
 - Task Manager's Memory column drops when the window closes, and stays down
   for a minute;
 - after restarting Explorer, the icon comes back;
-- the icon goes when Yapfast quits, and doesn't linger until hovered.
+- the icon goes when Yapfast quits, and doesn't linger until hovered;
 - with "Start when you sign in" on, signing out and in starts Yapfast in the
   tray with no window, and Task Manager's Startup apps lists it; turning it
   off there shows as off in Settings;

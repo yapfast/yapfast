@@ -12,11 +12,11 @@ license = "GPL-3.0-or-later"
 doctest = false
 
 [features]
-default = ["matrix", "discord"]
+default = ["discord"]
 # Matrix: sign-in, encrypted rooms and MatrixRTC voice.
 matrix = ["dep:keyring", "dep:matrix-sdk", "dep:matrix-sdk-ui", "dep:matrix-sdk-crypto", "dep:matrix-rtc-livekit", "dep:matrix-rtc-core", "dep:matrix-rtc-media", "dep:mime", "dep:url"]
-# Discord through the account linked on this device; see docs/discord.md.
-discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "dep:deep_filter", "dep:ndarray", "dep:x264-src", "dep:ffmpeg-src"]
+# Discord through the account linked on this device; see docs/discord/README.md.
+discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "dep:deep_filter", "dep:ndarray", "dep:x264-src", "dep:ffmpeg-src", "dep:thorvg-sys"]
 # Sample states other crates' tests start from, such as a Discord server
 # whose member menu they check.
 test-fixtures = []
@@ -35,6 +35,8 @@ directories.workspace = true
 futures-util.workspace = true
 # Decode received images with bounded dimensions before the UI sees them.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+# Discord's large badge pictures are SVGs; Slint already builds it.
+resvg = { version = "0.49", default-features = false }
 # An animated GIF's frame timings, read without decoding its pictures; the
 # version the image crate decodes with.
 gif = "0.14"
@@ -71,6 +73,8 @@ tempfile.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+# CPU rendering of Discord's Lottie stickers, without file access or expressions.
+thorvg-sys = { version = "0.4", default-features = false, features = ["vendored", "lottie", "threads"], optional = true }
 uuid.workspace = true
 url = { workspace = true, optional = true }
 # Levels the voice in LiveKit's calls, and sends the camera from pooled
@@ -86,6 +90,8 @@ cc = "1"
 webrtc-sys-build = "0.3.18"
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# Real-time priority for the audio threads.
+libc = "0.2"
 # The input meter reads the microphone locally through PulseAudio, the sound
 # server WebRTC already uses on Linux, without involving a call.
 libpulse-binding = { version = "2", default-features = false }

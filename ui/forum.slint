@@ -41,7 +41,7 @@ export struct PostRow {
 // shows.
 component StoredImage inherits Image {
     in property <string> url;
-    source: PictureStore.picture(root.url, PictureStore.revision);
+    source: PictureStore.picture(root.url, PictureStore.revision(root.url));
     function request() {
         if root.url != "" && self.source.width == 0 { PictureStore.request(root.url); }
     }
@@ -386,7 +386,10 @@ component NewPostForm inherits Rectangle {
             drop-shadow-blur: 16px; drop-shadow-color: #00000060;
             VerticalLayout {
                 padding: 6px;
-                Text { text: "Select up to 5 tags"; color: Theme.muted; font-size: 12px; font-weight: 700; height: 28px; vertical-alignment: center; x: 8px; }
+                HorizontalLayout {
+                    padding-left: 8px;
+                    Text { text: "Select up to 5 tags"; color: Theme.muted; font-size: 12px; font-weight: 700; height: 28px; vertical-alignment: center; }
+                }
                 for choice in root.tag-choices: tag-row := Rectangle {
                     property <bool> enabled: choice.chosen || root.more-tags;
                     height: 36px; border-radius: 4px;

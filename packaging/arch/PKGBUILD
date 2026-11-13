@@ -4,12 +4,12 @@
 
 pkgname=yapfast
 # The release to build, by its tag; scripts/set-version keeps it at Cargo.toml's version.
-pkgver=0.2.0
+pkgver=0.3.0
 pkgrel=1
 _id=io.github.yapfast.Yapfast
 # The prebuilt native parts nix/native.nix pins.
 _webrtc=webrtc-51ef663
-_skia=skia-binaries-b7f043e0b1e2a850e702-$CARCH-unknown-linux-gnu-ftembed-ganesh-gl-jpegd-jpege-pdf-textlayout.tar.gz
+_skia=skia-binaries-30669978c3f39a73e8a7-$CARCH-unknown-linux-gnu-ftembed-ganesh-gl-jpegd-jpege-pdf-textlayout.tar.gz
 pkgdesc='Native Discord client that stays light on memory'
 arch=(x86_64)
 url='https://github.com/yapfast/yapfast'
@@ -46,13 +46,13 @@ options=(!lto)
 source=(
   "$pkgname::git+https://github.com/yapfast/yapfast.git#tag=v$pkgver"
   "$_webrtc-linux-x64-release.zip::https://github.com/livekit/rust-sdks/releases/download/$_webrtc/webrtc-linux-x64-release.zip"
-  "https://github.com/rust-skia/skia-binaries/releases/download/0.153.3/$_skia"
+  "https://github.com/rust-skia/skia-binaries/releases/download/0.157.0/$_skia"
 )
 noextract=("$_skia")
 # The tag's commit holds this file, so it can't hold its own checksum; git checks the objects.
 sha256sums=('SKIP'
             'dce9d9414cd8e2cc9a471c054481851b257ad2a879112ce5be56369b4fefdaed'
-            'ef41a8ff85bebeb06238df88e144eb04778a368fc1672a63155155d97f0caf10')
+            'd5ea4666b67f4ff74a2c9dccf9cbb069fc991552caa9ed26fd4379572ddfe3b1')
 
 prepare() {
   cd "$pkgname"
@@ -68,6 +68,8 @@ build() {
   cd "$pkgname"
   export RUSTUP_TOOLCHAIN=stable CARGO_HOME="$srcdir/.cargo" CARGO_TARGET_DIR=target
   export CC=clang CXX=clang++ PROTOC=/usr/bin/protoc
+  # This is the release's own build, not a development build (src/build_info.rs).
+  export YAPFAST_RELEASE=1
   export LK_CUSTOM_WEBRTC="$srcdir/linux-x64-release"
   export SKIA_BINARIES_URL="file://$srcdir/skia/$_skia"
   # Rust's panic locations and C's __FILE__ would name the build directory, the builder's home

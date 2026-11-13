@@ -5,16 +5,16 @@ edition = "2024"
 rust-version = "1.97"
 publish = false
 license = "GPL-3.0-or-later"
-description = "No code: scripts/check selects it with each network alone, so Slint and the UI crate resolve as in the full build and compile once"
+description = "No code: scripts/check --matrix selects it with Matrix alone, so Slint and the UI crate resolve as in the build with both networks and compile once"
 
 [lib]
 doctest = false
 test = false
 
-# The features the full workspace build enables on crates below Slint, which
-# Discord or Matrix alone would leave off. Each enabled here already is in the
-# full build, so selecting this crate there changes nothing. When the network
-# steps of scripts/check compile yapfast-ui again, a crate here has drifted.
+# The features the workspace build with Matrix enables on crates below Slint,
+# which Matrix alone would leave off. Each enabled here already is in that
+# build, so selecting this crate there changes nothing. When the Matrix steps
+# of scripts/check compile yapfast-ui again, a crate here has drifted.
 [dependencies]
 arrayvec = { version = "0.7", features = ["serde"] }
 bitflags = { version = "2", features = ["serde"] }

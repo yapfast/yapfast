@@ -32,6 +32,14 @@ pub fn command(
         send_poll(discord, room, poll, events);
         return;
     }
+    if let Command::Discord(DiscordCommand::DismissEphemeral { room, item }) = &command {
+        if let (Ok(discord), Some(channel)) = (discord, channels.shown_mut(room))
+            && channel.dismiss(item)
+        {
+            publish(channel, discord, done, events);
+        }
+        return;
+    }
     if let Command::MarkRead { room, sync } = &command {
         if let (Ok(discord), Some((guild, channel))) = (discord, discord::parse_room(room)) {
             discord.mark_read(guild, channel, *sync);
@@ -94,7 +102,19 @@ pub fn command(
     let Some(command) = super::expressions::command(command, discord, events) else {
         return;
     };
+    let Some(command) = super::stickers::command(command, discord, events) else {
+        return;
+    };
+    let Some(command) = super::interactions::command(command, discord, events) else {
+        return;
+    };
     let Some(command) = super::ownership::command(command, discord, events) else {
+        return;
+    };
+    let Some(command) = super::interactions::command(command, discord, events) else {
+        return;
+    };
+    let Some(command) = super::app_commands::command(command, discord, events) else {
         return;
     };
     let room = match &command {
@@ -164,12 +184,29 @@ pub fn command(
             tokio::time::sleep(MEMBERS_WAIT).await;
             let _ = waiting.send(Done::MembersLate { room: late });
         });
-        // Shown at once as it was kept, while the latest page loads.
+        // Shown at once as it was kept. Its latest page loads again only
+        // when it may have missed live events since it closed.
         if let Some(mut channel) = channels.reopen(&room) {
             discord.view(&channel.guild, Some(&channel.channel));
-            channel.refresh(discord, done);
+            if !channel.synced {
+                channel.refresh(discord, done);
+            }
+            if channel.latest_due(discord) {
+                let _ = events.send(Event::HistoryLoaded {
+                    room: room.clone(),
+                    direction: Direction::Kept,
+                    history: channel.history(),
+                });
+            }
             if channel.loaded {
                 publish(&mut channel, discord, done, events);
+            }
+            if channel.synced {
+                let _ = events.send(Event::HistoryLoaded {
+                    room: room.clone(),
+                    direction: Direction::Latest,
+                    history: channel.history(),
+                });
             }
             send_topic(&mut channel, discord, events, true);
             channels.open = Some(channel);
@@ -308,7 +345,20 @@ pub fn command(
             });
         }
         Command::Around { room, item } => match discord::item_order(&item) {
-            Some(order) => channel.around(discord, done, order),
+            Some(order) => {
+                if !channel.around(discord, done, order) {
+                    let _ = events.send(Event::HistoryLoaded {
+                        room,
+                        direction: if channel.latest_due(discord) {
+                            Direction::Kept
+                        } else {
+                            Direction::Around
+                        },
+                        history: channel.history(),
+                    });
+                    publish(channel, discord, done, events);
+                }
+            }
             None => {
                 let _ = events.send(Event::RoomError {
                     room: room.clone(),
@@ -352,11 +402,14 @@ fn aside(
     let (Some(room), Ok(discord)) = (room, discord) else {
         return;
     };
-    // Shown at once as it was kept, while the latest page loads.
+    // Shown at once as it was kept, while the latest page loads, unless
+    // it kept up with live events since it closed.
     let channel = match channels.reopen(&room) {
         Some(mut channel) => {
             discord.beside(&channel.guild, Some(&channel.channel));
-            channel.refresh(discord, done);
+            if !channel.synced {
+                channel.refresh(discord, done);
+            }
             Some(channel)
         }
         None => OpenChannel::open(discord, &room, true, done, channels.previews.clone()),
@@ -394,6 +447,7 @@ pub fn finished(
 ) {
     let room = match &finished {
         Done::History { room, .. }
+        | Done::Original { room, .. }
         | Done::Sent { room, .. }
         | Done::Edited { room, .. }
         | Done::Deleted { room, .. }
@@ -470,10 +524,10 @@ pub fn finished(
             channel,
         ) => {
             let mut direction = match load {
-                Load::Latest => None,
-                Load::Earlier => Some(Direction::Earlier),
-                Load::Later => Some(Direction::Later),
-                Load::Around(_) => Some(Direction::Around),
+                Load::Latest => Direction::Latest,
+                Load::Earlier => Direction::Earlier,
+                Load::Later => Direction::Later,
+                Load::Around(_) => Direction::Around,
             };
             let history = match (result, channel) {
                 // Asked for before what shows was replaced; it's dropped.
@@ -487,7 +541,7 @@ pub fn finished(
                     // The latest page reached the window, which shows with
                     // the newest messages now, as when a later page does.
                     if detached && !channel.detached() && load == Load::Latest {
-                        direction = Some(Direction::Later);
+                        direction = Direction::Later;
                     }
                     Some(channel.history())
                 }
@@ -512,9 +566,7 @@ pub fn finished(
                     Some(History::Failed)
                 }
             };
-            history_loaded = direction
-                .zip(history)
-                .map(|(direction, history)| (room, direction, history));
+            history_loaded = history.map(|history| (room, direction, history));
         }
         (_, None) => {}
         (Done::Sent { nonce, result, .. }, Some(channel)) => {
@@ -555,6 +607,10 @@ pub fn finished(
                 });
             }
         },
+        (Done::Original { id, result, .. }, Some(channel)) => {
+            channel.original(&id, result);
+            changed = true;
+        }
         (Done::Picture { url, picture, .. }, Some(channel)) => {
             channel.picture(url, picture);
             changed = true;
@@ -589,7 +645,7 @@ pub fn finished(
 }
 
 /// Applies a gateway event to the open channel and those kept. Missed
-/// events reload the open one; the others load again when opened.
+/// events reload the open one; the others load again when next opened.
 pub fn live(
     event: Result<Live, RecvError>,
     discord: &Discord,
@@ -597,6 +653,20 @@ pub fn live(
     done: &UnboundedSender<Done>,
     events: &UnboundedSender<Event>,
 ) {
+    let event = match event.map(|live| super::interactions::live(live, events)) {
+        Ok(Some(live)) => Ok(live),
+        Ok(None) => return,
+        Err(missed) => Err(missed),
+    };
+    if let Ok(Live::ActivityFeedStale { refresh_after_ms }) = &event {
+        let wait = discord.activity_feed_stale_wait(*refresh_after_ms);
+        let events = events.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(wait).await;
+            let _ = events.send(Event::ActivityFeedDue);
+        });
+        return;
+    }
     if let Ok(Live::FavoriteGifs(favorites)) = &event {
         let _ = events.send(Event::FavoriteGifs(Ok(gifs::favorites(favorites))));
         tokio::spawn(yapfast_discord::service::keep_favorite_gifs(
@@ -659,6 +729,10 @@ pub fn live(
         let _ = events.send(Event::PlacesUsed(Ok(places)));
         return;
     }
+    if let Ok(Live::Emojis(emojis)) = &event {
+        let _ = events.send(Event::DiscordEmojis(account::emojis(emojis.clone())));
+        return;
+    }
     if let Ok(Live::Notify { guild, message }) = &event {
         let _ = events.send(Event::Notify(notification(
             discord,
@@ -711,13 +785,19 @@ pub fn live(
             channels.typing_changed(&room, events);
         }
     }
-    if let Ok(event) = &event {
-        channels.follow(event);
+    match &event {
+        Ok(event) => channels.follow(event),
+        // Behind on live events, the kept channels load again when opened.
+        Err(_) => channels.missed(),
     }
     // The thread beside the open channel follows as it does.
     if let Some(aside) = channels.aside.as_mut() {
         match &event {
-            Ok(Live::Members { .. }) => {}
+            Ok(Live::Members { .. }) => {
+                if aside.names_changed(discord) {
+                    publish(aside, discord, done, events);
+                }
+            }
             Ok(event) => {
                 if aside.live(event) {
                     publish(aside, discord, done, events);
@@ -739,6 +819,11 @@ pub fn live(
                     room: channel.room.clone(),
                     members: Ok(members.into_iter().map(chat_member).collect()),
                 });
+            }
+            // The list taught Names its members' roles and nicknames, which
+            // the messages show: their authors' colours follow.
+            if channel.names_changed(discord) {
+                publish(channel, discord, done, events);
             }
         }
         Ok(event) => {

@@ -17,11 +17,16 @@ fn owned(mfa: bool, email: bool) -> Application {
 fn account(app: &mut Application, mfa: bool, email: bool) {
     let mut snapshot = yapfast_discord::service::Snapshot::clone(app.discord.as_ref().unwrap());
     snapshot.account = Some(yapfast_discord::service::Account {
+        username: String::new(),
         name: "Alice".into(),
         avatar: String::new(),
+        decoration: None,
+        nameplate: None,
         premium_type: 0,
         mfa_enabled: mfa,
         has_email: email,
+        nsfw_allowed: false,
+        nsfw_commands_in_dms: false,
     });
     app.apply(discord_event(snapshot));
 }

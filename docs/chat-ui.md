@@ -1,17 +1,22 @@
 # Chat UI
 
-The first chat UI was implemented on 2026-10-02 and moved to Slint on
-2026-10-03. The Milestone 2 conversation features followed on 2026-10-03; they
-add the SDK's Markdown feature, `image` for bounded decoding, `mime`,
-`pulldown-cmark` for plain reply snippets, and `rfd` for native file dialogs.
-The same day the window was redesigned after Discord's layout, set in Satoshi.
+A refined presentation of these widgets is the default; see
+[Yapfast UI](yapfast-ui.md) for its metrics and the switch back to
+the earlier look.
+
+The chat window for Matrix and Discord, laid out after Discord's client.
+Matrix messages are sent through the SDK's Markdown feature, and Slint's
+Markdown draws formatted text. `pulldown-cmark` in `yapfast-core` reads
+Markdown for links, spoilers, reply snippets and notification text
+(`links.rs`, `spoiler.rs`, `chat.rs`). `image` decodes pictures within bounds,
+and `rfd` opens native file dialogs.
 
 ## Try it
 
 From the repository folder:
 
 ```sh
-nix develop path:./nix --command cargo run --locked -- --preview
+nix develop path:./nix --command cargo run --locked --profile fast -- --preview
 ```
 
 The preview has two sample servers, DMs and a group DM. The upper-left button
@@ -23,7 +28,8 @@ the preview. They never connect to Matrix.
 
 Launch without `--preview` for password sign-in and automatic restoration.
 `--data-dir PATH` selects an isolated session directory. Passwords and recovery
-keys are masked and cleared after submission. SSO and OAuth are still pending.
+keys are masked and cleared after submission. The sign-in form scrolls when
+errors make it taller than the minimum window. SSO and OAuth are still pending.
 
 ## Implemented behavior
 
@@ -33,6 +39,20 @@ keys are masked and cleared after submission. SSO and OAuth are still pending.
 - Flatten channels in joined subspaces, deduplicate shared links, and tolerate
   cyclic Space relationships. A shared channel can appear in multiple servers.
   Removed child links update the channel list during sync.
+- Ctrl+K opens the quick switcher, "Where would you like to go?", as in
+  Discord, wherever the focus is, but not over the settings or a dialog;
+  Ctrl+K again, Escape or a click outside closes it, and the composer has
+  the focus again. A keyboard layout without Latin letters uses the key in
+  K's place. Before a search it lists the last eight conversations opened
+  this session, of either network, then the Discord places this account
+  uses most, fifteen at most and not the one open. A search lists up to 50
+  conversations and servers, ranked as Forward To ranks them
+  ([Forwarding](discord/messages.md#forwarding)), and those as good by name;
+  `@` finds people, `#` text channels, `!` voice channels and `*` servers.
+  Channels this account may not read stay out, and so do message requests.
+  The arrow keys or Tab choose, and Enter or a click goes there: a server
+  opens on its channel shown last. Unread places show bold, and mentions as
+  a count.
 - Restore each server's last selected channel and the last selected DM. Yapfast
   keeps each server's channel in `layout.json`, so after a restart a server
   opens its last channel; a server opened for the first time shows its top one.
@@ -42,15 +62,27 @@ keys are masked and cleared after submission. SSO and OAuth are still pending.
   since sync loads members lazily, and membership changes refresh it. Voice
   channels and one-to-one DMs have no member list; a one-to-one DM shows the
   other person's profile there instead, which the person icon in its header
-  hides or shows. A Discord text channel
+  hides or shows. Dragging the list's edge makes it 200 to 480px wide,
+  leaving the conversation 420px, and Yapfast keeps the width
+  (`members_width` in `layout.json`); a double click on the edge goes back to
+  the style's width. A Discord text channel
   lists whoever can read it, grouped as in Discord: under hoisted roles, then
   ONLINE and OFFLINE, with counts, avatars, status dots, role colours,
-  custom statuses, and a red clock beside someone timed out. Yapfast subscribes to the list's
+  custom statuses, and a red clock beside someone timed out. An app has an APP
+  tag after its name and the server's owner a crown, in that order, as in
+  Discord. Above a server channel's list, an Activity panel shows Discord's
+  feed of what people there are doing and did lately; see
+  [the Activity panel](discord/people.md#the-activity-panel). Yapfast subscribes to the list's
   first 100 rows while the channel is open, and Discord keeps them current.
-- Read live text messages. Earlier history loads as the timeline scrolls
-  within a screen of its top, a page at a time (30 events for Matrix, 50
-  messages for Discord), until the conversation's first message, which "This
-  is the start of #general." marks. While a page is on its way a pill above
+  The list shows a change at once, then holds for half a second and shows
+  the changes from that time together, so a busy server's list draws at most
+  twice a second.
+- Read live text messages. Earlier history loads once the timeline has
+  stayed within a screen of its top for 50 ms, a page at a time (30 events
+  for Matrix, 50 messages for Discord), until the conversation's first
+  message, which "This is the start of #general." marks. A room opening
+  shows its list at the top for a moment, before it moves to the newest
+  message or the "New" divider, and that moment loads nothing. While a page is on its way a pill above
   the oldest message says "Loading earlier messages..."; if it fails, the pill
   offers Retry, and pages load again only when asked. The messages shown
   stay where they are on screen as older ones go in above them, even when
@@ -72,9 +104,26 @@ keys are masked and cleared after submission. SSO and OAuth are still pending.
 - Recover encryption keys or recheck verification performed in another client.
 - Send only from a cross-signed device into a joined encrypted room. Existing
   plaintext rooms are read-only.
-- Write Markdown. Messages with formatting render bold, italic, code and links;
-  Slint's subset has no headings, so those show as typed. Formatted text isn't
-  selectable, so every message has a Copy action.
+- Write Markdown. Messages with formatting render bold, italic, strikethrough,
+  inline code, lists and links through Slint's Markdown, and headings, subtext,
+  quotes and fenced code as blocks that `crates/yapfast-core/src/blocks.rs`
+  splits out by Discord's rules (`TextBlocks` in `ui/messages.slint`); see
+  [Discord](discord/README.md) for the details. Message text, authors and times are
+  selectable across messages through Yapfast's patched Slint
+  ([building](building.md#dependencies)); Ctrl+C or the menu's Copy selection
+  copies it, and Copy text copies a whole message.
+- Fold long messages, a Yapfast addition that Discord doesn't have. With
+  "Collapse long messages" on in Settings > Messages (`collapse_long` in
+  `layout.json`, off by default), a message whose text, code blocks and all,
+  runs past fifteen lines shows its first twelve, cut off, with Show more
+  under it; Show more shows it whole, and Show less folds it again. Its
+  pictures, embeds and reactions show under it either way. Each message
+  keeps its own choice while Yapfast runs, in the timeline and the thread
+  beside it, and starts folded again after a restart. Folding measures the
+  text as laid out, so it follows the window's width and the text size.
+  Clicking either stops the view following the newest message, so the
+  message's top stays where it is as it grows, and Show less on a message
+  whose top is above the view brings its top back into view.
 - Start a DM from the pen in the DM list's header: type a name to search the
   homeserver's user directory, or a full Matrix id. Yapfast opens the DM you
   already have with them, or starts an encrypted one and opens it once sync
@@ -83,34 +132,195 @@ keys are masked and cleared after submission. SSO and OAuth are still pending.
   message; Alt+Up moves into the messages, where arrows step, Enter opens the
   menu, + reacts, R replies, E edits, Delete deletes, C copies, F forwards and
   Escape returns to the composer.
+- Type where no field takes it, as after a menu closes, and the key goes to the
+  end of the composer used last, the channel's or the thread's beside it, which
+  takes the focus, as in Discord; Backspace and Delete too, and Tab with nothing
+  focused. Enter doesn't send from there, unlike Discord. Not while the settings,
+  a profile, a card, a dialog, a panel such as the pins, the image viewer, a
+  ringing call or the call in full screen is open, nor on the friends list or a
+  call, nor with Ctrl, Alt or Super held, nor for the push-to-talk key while
+  unmuted in a call. Stepping through the messages, only letters and digits go.
 - Clicking a mention, a link to a Matrix user, opens their profile card.
+- Emoji in message text are drawn by Twemoji's picture of them, as the picker's
+  are, in a colour bitmap font made of them when Yapfast is built
+  (`src/emoji_text.rs`); see [Discord](discord/messages.md) for
+  how that font is made. A glyph whose emoji is animated has the emoji's
+  current frame drawn over it as the text draws, so the text, its wrapping and
+  its selection are untouched: a custom emoji moves in message text, in a
+  reaction chip and in the picker's grid, and Twemoji's Unicode emoji have no
+  animation, so they stay as they are. The still first frame is what shows
+  until frames arrive, and if they never do. A picture is drawn 22px in the
+  message text and 48px in the large text a message of emoji alone shows, and
+  the composer shows one as a picture too, since each glyph also answers to
+  the emoji's own code point. A `:shortcode:` sent without taking its
+  completion draws as its emoji. A link is underlined only while the pointer is
+  on it, as in Discord's client. An emoji is a link, but one whose text is the
+  picture alone is never underlined: the line would show across the bottom of
+  it. Clicking one opens its card, 288px wide and opening
+  below it: its name such as `:sob:`, a line saying what it is, and, for a
+  server's emoji, the server it is from, with how many of its members are
+  online and whether Discover lists it, whose icon and name open that server.
 - Mention someone by typing `@` and picking from the room's members. The
   message links to them (`[Name](https://matrix.to/#/@user:server)`) and lists
   them in `m.mentions`, so their client notifies them. Who else is typing
   shows just above the composer, gently pulsing, after three dots under the
   avatars that rise in turn, and Yapfast tells the room while you type unless a
   setting turns it off.
-- Hover or click a message for its toolbar: your three most used reactions,
-  Add reaction, Edit on your own message or Reply on someone else's, and More.
+- Hover or click a message for its toolbar: your three most used reactions, Add
+  reaction, Edit on your own message or Reply on someone else's, Forward on a
+  message that can be forwarded, and More.
   More, or a right click on the message, opens a menu with your four most used
-  reactions, Add reaction, View Reactions, Edit, Reply, Forward, Copy text and
-  Delete; View Reactions appears once a message has reactions, and Edit and
-  Delete appear on your own messages only. Until you have reacted, the most used
-  reactions are 👍, ❤️, 😂 and 🎉. Yapfast counts the reactions you add, not the
-  ones you remove, in `layout.json` on this computer. The icons have tooltips and
-  accessible names. Add reaction opens a picker with a search field, frequently
-  used emoji and every category of the `emojis` crate up to Unicode 15.0, which
-  Noto Color Emoji and Windows 11 draw; Enter picks the first match. Clicking an
-  existing reaction adds or removes yours.
+  reactions, Add reaction, View Reactions, Edit, Reply, Forward, Create Thread
+  or View Thread, Copy text, Copy selection, Pin or Unpin, and Delete, with
+  Copy Image, Save Image, Copy Link and Open Link on a picture or link
+  (`ui/messages.slint`). View Reactions appears once a message has reactions,
+  Copy selection while text is selected, and Edit on your own messages only.
+  Delete appears on your own messages, and on anyone's for a Discord moderator
+  with Manage Messages. Until you have reacted, the most used reactions are 👍,
+  ❤️, 😂 and 🎉. Yapfast counts the reactions you add, not the ones you remove,
+  in `layout.json` on this computer. A custom emoji among them shows the
+  picture the application keeps of it, fetched for the toolbar when it isn't
+  there yet, as after a restart, rather than the picker's own, which goes when
+  the picker closes. The icons have tooltips and accessible
+  names. Add reaction opens a picker with a search field, favourite emoji,
+  frequently used emoji and every category of the `emojis` crate up to
+  Unicode 15.0, which Noto Color
+  Emoji and Windows 11 draw; Enter picks the first match. Clicking an existing
+  reaction adds or removes yours. A message's reactions wrap onto as many
+  lines as its width needs, as in Discord's client.
+- Holding Shift turns the toolbar into quick actions, as in Discord's
+  client: the reactions give way to Pin or Unpin, Create Thread, and on your
+  own message Reply, before Add reaction and Edit or Reply; Forward follows;
+  and More gives way to Delete where you may delete, which deletes at once
+  without asking. Shift and a click on Delete message in the message's menu
+  deletes at once too, where a plain click asks. The thread beside a channel
+  does the same, without Create Thread. Shift is read from the window's modifier keys wherever the focus
+  is, and counts as let go when the window loses the focus, so it can't stick
+  on after being let go elsewhere. It leaves a bar alone while its picker or
+  menu is open. A pointer that stays put is told what's under it as the
+  buttons change, so its tooltip and highlight match what a click does.
 - A GIF picker next to the emoji button, on Discord: a search over Klipy,
   trending terms and favourites, as in Discord's client. A click sends a GIF,
   Shift and a click puts it in the message, and a star keeps it among the
-  favourites; GIFs and moving pictures in messages have the star too. See
-  [Discord](discord.md#gifs).
+  favourites; GIFs and moving pictures in messages have the star too. A
+  favourite's small thumbnail is kept on disk for as long as the GIF is
+  favourited, up to 200 MiB. A start fetches ahead the ones that cost little,
+  videos and small files; a larger GIF's is made when its tile first shows. Each of the home's trending terms shows one GIF, and those are fetched
+  ahead into a cache of their own, so the home paints at once. Its left
+  edge drags it wider, as Discord's does: the right edge and the height stay,
+  and the edge stops 8px past the server list. The GIFs and the Emoji share
+  that window and its width: the GIFs' grid fits another column for every
+  212px, and the emoji's another of Discord's 56px buttons a row. The buttons
+  keep their size and their spacing as it widens, so what the width has over
+  stays at the row's end. Each emoji is drawn from Twemoji's picture of it,
+  which is the artwork Discord's client uses and which the program carries
+  (`vendor/twemoji`, CC-BY 4.0), decoded once and shrunk to the pixels a cell
+  draws, averaging the part of the 72px picture each covers, alpha
+  premultiplied as Skia draws it, so a frame copies it: drawn at 72px into the
+  cell, Skia scaled every picture again on every frame of a scroll. Drawing
+  the system emoji font instead cost a colour font's paint graph
+  for every emoji on screen, every frame, and made a stretched picker scroll
+  slowly. It lists only the emoji Twemoji has a picture for. A screen of rows either side of those shown is drawn with them, and
+  the custom emoji's pictures of three screens either side are asked for,
+  nearest first, the ones this account may not use too. A cold cache or a
+  scroll beyond that margin can still show placeholders until downloads finish. A
+  picture asked for again moves ahead of those asked for since, so what shows
+  now downloads and decodes before what a scroll passed, and one that arrives
+  shows within a few frames without laying the rest of the window out again;
+  asking changes nothing on screen, so a scroll lays nothing out either. A
+  section's rail button and heading are a quiet square until its server's
+  icon, or for a server without one its first emoji, comes, which every
+  section asks for as the picker opens. A row further than those three
+  screens lets go of its custom emoji's pictures and the application's copies
+  and pending requests at the same time, even when none has arrived yet, so
+  scrolling through every server's emoji holds a few screens of them however far it goes; a
+  row scrolled back to reads them from the disk cache again. Downloads of
+  pictures let go of before they came are called off, and one that comes all
+  the same isn't kept. Startup queues the account's custom emoji pictures for
+  the disk cache, even when avatars or some emoji were cached already. Later
+  snapshots queue newly added emoji too; opening the picker shares that URL
+  tracking rather than repeating startup's requests. Background downloads run
+  behind visible pictures and decode nothing. Up to eight background workers
+  drain a deduplicated URL queue; a visible request promotes an active background
+  job instead of downloading the same picture twice. Cancelling a foreground
+  request returns its URL to background warming instead of abandoning it. At most twelve encoded
+  pictures read from the disk or downloaded are held waiting for the four
+  decode turns, and eight downloads run at once; a picture the disk doesn't
+  hold lets its turn go while it downloads, so one the disk holds never waits
+  behind downloads waiting out a backoff. Cancelling a queued request
+  releases its turn waiter, and a blocking decode keeps its permits until it
+  actually finishes. A picture Discord says isn't there, or that doesn't
+  decode, isn't asked for again that session; one that failed only while
+  Discord or the network was down is tried again when next asked for. Once
+  cached, emoji load from disk rather than waiting for the CDN. A second after
+  the emoji or the sticker picker closes, Skia lets go of the textures and
+  copies it kept to draw their pictures, and the heap gives back what that
+  freed (`let_go_after_picker`). On Windows that is `HeapOptimizeResources`,
+  which returns the low-fragmentation heaps a burst of pictures grew; `HeapCompact`
+  joins freed blocks but gives none of their memory back. What the close
+  called off frees more as it finishes, so the heap is asked again half a
+  second later and twice more after, and a fast scroll over hundreds of
+  emoji leaves no more behind than it found. An
+  animated one starts as soon as its picture arrives. A row a screen past
+  those shown lets go of its Twemoji pictures, and a picker that closes lets
+  go of its grid and of every custom emoji's picture but those the messages
+  on screen, the topic and the hover bar's reactions show; the disk cache
+  keeps them, and the next look reads them from there. The grid itself holds buttons
+  for the rows in sight and two either side, placed where each row starts, as
+  the sticker picker's tiles are: a button whose emoji scrolls out shows one
+  that scrolls in, so a scroll sets a few buttons' data and makes none, however
+  wide the picker. A cell whose custom emoji is animated keeps that still as its
+  placeholder until the emoji's frames arrive, which decode at 48px times the
+  screen's scale factor, up to 96px, off the thread that draws. The 6 MiB frame
+  budget covers the renderer's registry too: eviction unregisters the animation,
+  and closing the picker unregisters all its unpinned frames. Queued work for
+  rows left behind is discarded, and late decodes cannot register them again;
+  message animations keep their own pins. Every server's emoji show,
+  as Discord's picker shows them: the sections down its left jump to each of
+  them, a server's button drawing its icon as its heading draws it beside the
+  server's name, Frequently Used's a clock and Favorites' a star, each heading
+  in a row of its own, tighter than a row of emoji and at the grid's top as the
+  rail's buttons are, and the ones
+  this account may not use where it
+  is looking — another server's without Nitro, or in a channel that denies
+  Use External Emojis even with it, or an animated one without Nitro — are
+  greyed with a lock in their corner, and pressing one opens Discord's Nitro
+  page. A cell's star, in both pickers, adds the emoji to the Discord
+  account's favourites or takes it out, as Discord's client's does: they are
+  `favorite_emojis` in the second settings protobuf, a custom emoji by its id
+  and a Unicode one by its Discord name without a skin tone, at most 250, which
+  every client of the account shares, and Favorites lists them. The grid is
+  built as a picker opens, not at a start. Cache warming runs off the thread that draws and does not decode
+  pictures; a section reached before warming finishes can still show placeholders.
+  A drag that changed the width keeps it in
+  `layout.json` (`picker_width`), written once the drags have stopped for a
+  second, and it comes back at the next start. See
+  [Discord](discord/messages.md#gifs).
+- A Stickers tab in the same picker, and a sticker button of its own, on
+  Discord: a search field, then the collections down the left to jump between
+  — Frequently Used with a clock's own icon, the open server's, whose icon
+  leads its name, then Discord's default packs — and their stickers as 96px
+  tiles in the picker's columns under the collection's name, as the emoji's
+  own are. A click sends the sticker as a message of its own. Discord's packs
+  and the open server's stickers are anyone's; another server's need Nitro,
+  as Discord's client has them. Its pictures are
+  kept on disk and fetched ahead, so the tab shows them at once. The left edge
+  drags it wider as it does for the GIFs and the emoji, and the grid takes
+  another 96px column for every 104px. Its tiles are those in sight and a
+  screen either side, and a scroll that brings one in hands it the element of
+  one that went out. See
+  [Discord](discord/messages.md#stickers).
 - GIFs, animated emoji, stickers and the picker's tiles play only while
   Yapfast's window has the focus, as in Discord: on another screen they hold
   still on the frame they were showing, and go on from there when the
-  window has the focus again.
+  window has the focus again. Animated emoji stop too when nobody has
+  touched the window for 15 seconds and while it is minimised, and go on
+  from the frame they stopped on. Settings' "Play GIFs, emoji and stickers",
+  at Always, plays them unfocused, but not while minimised, and at Never
+  keeps them all still. The clock they share ticks at the pace of the
+  fastest, and only a tick that shows some animation a new frame draws
+  again; in the emoji picker only an animated emoji's button follows it, so
+  a frame redraws that button, not the grid.
 - Who reacted, as in Discord's client: half a second on a reaction shows a
   tooltip, ":tada: reacted by Ann, Bo, Cy, and 2 others", naming the first
   three by their name there, once they come (`Command::Reactors`, three at a
@@ -129,13 +339,28 @@ keys are masked and cleared after submission. SSO and OAuth are still pending.
   encrypted conversations and sends the message's current content as a new
   message, without its reply quote. An encrypted attachment keeps its uploaded
   file, and its key travels in the new encrypted event. On Discord it forwards
-  as Discord's client does ([Forwarding](discord.md#forwarding)). The message
+  as Discord's client does ([Forwarding](discord/messages.md#forwarding)). The message
   added goes after the forward as a message of its own. If a forward fails
   somewhere, the dialog opens again with those conversations chosen and why.
   Delete asks for confirmation, then
   redacts the message for everyone. Replies quote the original; edits are marked
-  "(edited)". Reply and edit modes show above the composer, with Cancel.
-  Cancelling an edit restores the draft it replaced.
+  "(edited)". A reply shows a bar above the composer, with Cancel; Escape
+  cancels it wherever the focus is, once no suggestions or anything over the
+  conversation are open: first the search, then the channel's reply, then
+  the thread's beside it, then the new thread's form.
+- Edit a message in its own row, as Discord's client does: the text becomes a
+  field there, tinted as the row is while edited, with "escape to cancel •
+  enter to save" under it, and the cursor after the text. Enter saves, Shift+Enter
+  breaks the line, and Escape or the hint's cancel closes it, changing nothing.
+  The field takes `@` and `:name` suggestions and the emoji button's picker. It
+  is its own text, apart from the composer's draft and a reply being written,
+  which stay as they were; one message is edited at a time. Saving text that
+  is empty asks whether to delete the message, as Delete does, unless the
+  message has files, and saving text that changed nothing just closes the
+  field. The thread beside the channel edits its messages the same way.
+  Starting an edit, from the message's Edit button, its menu, E, or Up in an empty
+  composer, gives the field the keys and scrolls the row into view, and keeps
+  it there as the field grows.
 - Attach files with the system file dialog, paste them with Ctrl+V: files
   copied in a file manager, or a picture copied from a browser or a screenshot
   tool, or drop them on the window from a file manager. A drag over the
@@ -155,11 +380,20 @@ keys are masked and cleared after submission. SSO and OAuth are still pending.
   X to take each out, until the message is sent; text can be typed beside
   them, and the message may be the files alone. A message carries up to ten
   files. Each must fit the conversation's limit, and a file that doesn't is
-  refused with its size and the limit. On Wayland the clipboard is read
-  through the data-control protocol, so a picture keeps its copied bytes and a
-  GIF stays animated; elsewhere arboard reads it, and pixels are saved as PNG.
-  Pasted pictures are saved as `image.png` in a temporary folder removed when
-  Yapfast closes. Text on the clipboard pastes as text. A right click in the
+  refused with its size and the limit. A pasted picture keeps the bytes it
+  was copied as, PNG, GIF, WebP or JPEG in that order of preference, so a GIF
+  stays animated. Wayland's clipboard is read through the data-control
+  protocol, and X11's by asking the CLIPBOARD selection's owner, taking large
+  pictures in parts (INCR). Windows apps offer a picture under a name they
+  register, "PNG", "GIF", "JFIF" or the MIME type, which Yapfast takes when
+  the bytes are of that type; one copied only as a bitmap (`CF_DIB` or
+  `CF_DIBV5`, whichever the app put) is decoded by Yapfast and saved as PNG,
+  keeping alpha in a 32-bit bitmap's fourth byte as Chromium writes it, and
+  opaque when that byte is zero throughout. On X11 and Windows, text on the
+  clipboard wins over a picture beside it, since office suites put a picture
+  of the cells or text they copy there too. Pasted pictures are saved as
+  `image.<extension>` in a temporary folder removed when Yapfast closes. Text
+  on the clipboard pastes as text. A right click in the
   composer opens Discord's menu for the field, without its spelling
   suggestions: Cut and Copy while text is selected, Paste, which pastes as
   Ctrl+V does, and Select All, which Discord's lacks. A thread's composer
@@ -169,18 +403,22 @@ keys are masked and cleared after submission. SSO and OAuth are still pending.
   360×270, decoded with dimension and memory limits, with a save button over the
   picture on hover. Other files show a card with a save button. Saving writes the
   decrypted file where you choose. A Discord message with several images shows
-  them as square tiles, two to a row.
+  them as square tiles, two to a row. Where the timeline is narrower than a
+  message's pictures, or a link preview's, they shrink to its width, keeping
+  their shape, as in Discord's client; they never grow past their size.
 - Click an image to see it large over the window. It opens at the image's full
   proportions with the preview, then sharpens when Yapfast has downloaded it at up
   to 1920×1200. The left and right arrow keys or the side buttons step through
   the message's other images, a counter shows which one it is, and Escape, the
   close button or a click outside the image closes it. It can save the image
   too.
-- Send through the SDK's persistent send queue. A message appears at once with
-  "Sending...". After a connection problem it shows "Not sent yet" and goes out
-  by itself when sync recovers. Sync now uses the SDK's offline mode, which keeps
-  probing the homeserver. A refused message shows "Not sent" with Retry. Queued
-  messages can be cancelled, and they survive closing Yapfast.
+- Send through the SDK's persistent send queue. A message appears at once,
+  faint until the server has it, with nothing under it; one with files says
+  "Sending..." with Cancel while they upload. After a connection problem it
+  shows "Not sent yet" and goes out by itself when sync recovers. Sync uses
+  the SDK's offline mode, which keeps probing the homeserver. A refused
+  message shows "Not sent" with Retry. Queued messages can be cancelled, and
+  they survive closing Yapfast.
 - Save each room's draft in the encrypted session store, so drafts survive
   restarts. Sending clears the saved draft.
 - Show unread channels in bold with a short pill at the sidebar edge, and the
@@ -244,7 +482,20 @@ On Linux desktops that give their windows title bars, Yapfast draws its own
 in place of the desktop's, as Discord does (`src/ui/title_bar.rs`,
 `ui/title_bar.slint`): a 32px bar on the rail's ground across the top, with
 the server's name, "Direct messages" or "Yapfast" in the middle and
-minimize, maximize or restore, and close at the right. Pressing on it and
+minimize, maximize or restore, and close at the right. Signed in, it also has
+back and forward arrows at the left, which walk the places visited as
+Alt+Left and Alt+Right and a mouse's back and forward buttons do, up to 50 of
+them and past any that are gone, and Inbox and Help before the window's
+buttons. A place is a conversation, a screen of the direct messages (Friends,
+or the requests) or a server's Browse Channels, as in Discord's client; the
+settings open over the window and are not one. A thread beside a channel isn't
+one either. Help opens Discord's support site.
+Inbox opens a popout with Discord's first two tabs: Unreads, the channels and
+conversations with unread messages, muted ones only for a mention, and
+Mentions, those that mention this account, each with its count; Discord's own
+Mentions tab lists the messages themselves. A row opens its conversation, and
+clicking outside or Escape closes it. Its rows exist only while it shows.
+Pressing on it and
 moving moves the window, a double click maximizes it, and close does what
 the desktop's close button did. Without the desktop's frame, the window's
 outer 5px resize it, its 8px corners both ways, except while maximized. The
@@ -266,7 +517,10 @@ Weston's desktop shell, whose windows move and resize, where its kiosk shell
 makes the window full screen, which hides the bar. A window
 without the desktop's frame gets no shadow from KWin or Mutter, and the
 desktop's title bar menu isn't offered: winit can't show it on Linux. In
-full screen, as a call's stage is, the bar goes. Windows keeps its own frame.
+full screen, as a call's stage is, the bar goes. The earlier
+presentation on Windows keeps its own frame. The refined presentation
+defaults to an integrated Windows bar, with the same saved system-frame
+setting; see [Yapfast UI](yapfast-ui.md).
 
 The window follows Discord's arrangement:
 
@@ -280,8 +534,9 @@ The window follows Discord's arrangement:
   key or Shift+F10 on a focused one, opens its menu: Mark as read when any of
   its channels is unread, then Copy link and Copy ID. A Discord server's
   menu also has, while Discord is connected, Invite to server where the
-  account may invite; Mute server, whose submenu
-  mutes for the DM menu's times, or Unmute server with when the mute ends;
+  account may invite; Mute server, which mutes until it's turned back on
+  when clicked itself, with the DM menu's times in its submenu, or Unmute
+  server with when the mute ends;
   Notification settings, whose submenu picks All messages, Only @mentions
   or Nothing, with the level that applies under it, and ticks Suppress
   @everyone and @here and Suppress all role @mentions; Hide muted
@@ -314,7 +569,8 @@ The window follows Discord's arrangement:
   "Connected on another client". Every row takes the hover tone, and clicking
   someone opens their profile card beside the row, as Discord's popout does;
   someone listed only in a voice channel gets one from the name and avatar the
-  channel gives, which their Discord profile fills in. Clicking someone's LIVE
+  channel gives, which their Discord profile fills in. A profile's name and
+  username select, to copy; its picture opens the full profile. Clicking someone's LIVE
   tag opens their channel's call and watches them. Outside that call it asks
   first, "Join <channel> to watch <name>'s stream?", or in another call the
   switch prompt asks, and the stream opens once the call connects and shows
@@ -330,12 +586,13 @@ The window follows Discord's arrangement:
   DM stays at the top of the list, with a pin, on this device. A
   Discord DM's menu also has Add note, Add or Change friend nickname, Close DM,
   Remove friend, Ignore and Block, each undone by its opposite, and Mute, whose
-  submenu mutes for 15 minutes, 1, 3, 8 or 24 hours, or until unmuted. A
-  Discord server's text channel offers "Mute channel", with the same times,
-  or "Unmute channel", and "Notification settings", whose submenu picks which
-  messages notify; a right click on a category's heading offers the same for
-  the category. A muted
-  DM or Discord channel shows faint, and a Discord server set to hide muted
+  submenu mutes for 15 minutes, 1, 3, 8 or 24 hours, or until unmuted, and
+  which clicked itself mutes until it's turned back on. A Discord server's
+  text channel offers "Mute channel", with the same times and the same
+  click, or "Unmute channel", and "Notification settings", whose submenu
+  picks which messages notify; a right click on a category's heading offers
+  the same for the category. A muted DM or Discord channel shows faint, and a
+  Discord server set to hide muted
   channels leaves them out, but for the open one and those that mention you.
   Removing a friend and blocking ask first. Matrix links go through
   matrix.to. Arrow keys, Home and End move through the menu, Right opens a
@@ -365,11 +622,14 @@ The window follows Discord's arrangement:
   ticks a box when it's chosen.
 - A dock across the rail and sidebar: the voice panel, whose signal icon
   and status show a Discord call's ping on hover and its connection details
-  on a click (see [Connection details](discord.md#connection-details)), then the account panel
-  with avatar, status, mute and deafen during a call, and settings (account,
-  theme, audio devices, message text size, clock and link previews, notifications,
+  on a click (see [Connection details](discord/voice.md#connection-details)),
+  and whose channel line under them opens the call, as Discord's does (see
+  [The call's channel line](discord/voice.md#the-calls-channel-line)); then
+  the account panel with avatar, status, mute and deafen during a call, and settings (account,
+  theme, audio devices, message text size, clock, link previews and folding long messages, notifications,
   sounds, reconnect, sign out). A caret beside mute and deafen opens a
-  device menu; the input menu shows a local level meter. While you speak in
+  device menu (see [Persistent voice channels](voice.md)); the input menu
+  shows a local level meter. While you speak in
   a call, unmuted, the panel's avatar has the same green ring as your row in
   the call.
 - A conversation with a 48px header: the conversation's icon and name, and
@@ -386,8 +646,8 @@ The window follows Discord's arrangement:
   a date divider starts each day. The top of the history shows what's
   before it: earlier messages loading, a way to retry them, or the start of
   the conversation. The composer is a rounded field with attach, the
-  message ("Message #general"), and a send button; reply and edit modes attach
-  a bar above it. With no conversation selected, the area shows "Pick a
+  message ("Message #general"), and a send button; a reply attaches a bar
+  above it. With no conversation selected, the area shows "Pick a
   conversation" and hides the composer. The local preview labels itself in a
   strip under the header.
 - A 240px member sidebar right of the conversation, under its header, on the
@@ -402,15 +662,23 @@ The window follows Discord's arrangement:
   their menu as a member, as Discord's: Mention, Call, a note and nickname,
   their roles in a submenu of checkboxes, and Time out, Kick and Ban last, in
   red, as this account's permissions and its rank against theirs allow, then
-  Copy ID; see [Discord](discord.md#a-server-members-menu). In a Discord
+  Copy ID; see [Discord](discord/servers.md#a-server-members-menu). In a Discord
   server's call, or under a voice channel, their volume sits above that
   menu, which adds a Mute just for you, Move to and, in red, Server mute,
   Server deafen and Disconnect; see
-  [Discord](discord.md#someones-menu-in-a-voice-channel). Time out and Ban ask how long
+  [Discord](discord/servers.md#someones-menu-in-a-voice-channel). Where Move
+  to is offered, they can also be dragged onto another voice channel in the
+  channel list; see
+  [Discord](discord/servers.md#dragging-someone-to-another-voice-channel). Time out and Ban ask how long
   or how much in their dialog, and each asks a reason. In a one-to-one DM, the
   other person's menu is the DM's own, less Mark as read and Copy link, and
   Copy ID copies theirs. Clicking an author's avatar or name, which underlines while
   pointed at, shows their card beside it.
+- Copy ID, in every menu that has it, shows only with Settings → Advanced →
+  Developer Mode on, as in Discord, where the setting shows the same "Copy …
+  ID" items. It's off unless turned on, and kept in `layout.json` on this
+  device: Discord syncs it with its appearance settings, which Yapfast
+  doesn't read.
 - A voice stage with participant tiles, a green border while someone speaks,
   and round mute, deafen and leave controls.
 
@@ -421,92 +689,51 @@ marigold accent for selection and primary actions, red only for mentions and
 destructive actions, and green only for live voice. Avatars get one of eight
 tints from the person's name.
 
-Network operations run on the existing two-worker Tokio runtime. The UI receives
-SDK events, and the message list virtualizes its rows. Rows keep their place by
-message id: a change rebuilds only the rows of the messages it changed, and
-older messages go in above the rows shown, which stay where they are on screen.
-There is no UI polling loop.
-Only joined Spaces and their joined channels appear. DMs stay in the DM list even
-if linked to a Space. Standalone rooms outside Spaces, channel discovery, room
-creation, mentions with autocomplete,
-threads, a full emoji picker, Matrix video and audio playback, drag and drop, and deleting
-other people's messages remain later work. Message actions need a pointer;
-keyboard access to them is still missing. Closing the last window exits Yapfast.
+Network operations run on the existing two-worker Tokio runtime. The UI
+receives SDK events, and the message list virtualizes its rows. Rows keep their
+place by message id: a change rebuilds only the rows of the messages it
+changed, and older messages go in above the rows shown, which stay where they
+are on screen. There is no UI polling loop. On Matrix, only joined Spaces and
+their joined channels appear. DMs stay in the DM list even if linked to a
+Space. Matrix standalone rooms outside Spaces, channel discovery, room
+creation, threads, video and audio playback, and deleting other people's
+messages remain later work. Closing the last window exits Yapfast.
 
 ## Validation
 
-The local chat integration tests create disposable accounts:
-
-- `encrypted_chat_restore_send_retry_and_security_gates` checks restoration,
-  live delivery, wire encryption and decryption, plaintext-room and
-  unverified-device refusal, logout cleanup, server channel lists, nested and
-  cyclic Spaces, and live channel removal.
-- `markdown_replies_reactions_edits_attachments_and_drafts` sends Markdown, a
-  reply, a reaction and its removal, an edit and a deletion. It uploads an image
-  and checks the server only stores an encrypted event with an encrypted file,
-  that the preview decodes, and that Save writes the original bytes. It also
-  sends a text file and checks that a draft survives a restart.
-- `offline_messages_wait_survive_restart_and_send_once` cuts the network with a
-  local relay, sends and cancels messages offline, closes and restarts Yapfast,
-  then restores the network. The queued message went out 0.6 s later, once; the
-  cancelled one never reached the server.
-- `opening_a_room_shows_messages_missed_while_it_was_closed` checks that eight
-  messages from another account appear in order after reopening the room, and
-  that the room then reads as read.
-
-Run them after `scripts/test-stack up`:
+The Matrix chat integration tests in `crates/yapfast-core/src/matrix_chat.rs`
+create disposable accounts and cover restoration, encryption and its gates,
+Spaces, Markdown, replies, reactions, edits, deletion, attachments, drafts,
+offline sending across a restart, and messages missed while a room was
+closed. Run them after `scripts/test-stack up`:
 
 ```sh
-cargo test --locked -p yapfast-core matrix_chat::tests -- --ignored --test-threads=1
+nix develop path:./nix --command cargo test --locked --profile fast -p
+yapfast-core matrix_chat::tests -- --ignored --test-threads=1
 ```
 
-On 2026-10-03 the conversation features were also driven through the real
-window on the private desktop with two fixture accounts. Hover actions, the
-reaction picker, a reaction chip, a reply, an edit, delete confirmation, the
-Markdown and link rendering, an image preview, file cards, and the unread dot
-clearing on open all worked. The native file dialogs need an XDG portal, which
-the private desktop doesn't run, so Attach and Save were checked only through
-the integration test. Slint's Skia renderer drew nothing for the COLRv1 build
-of Noto Color Emoji; the CBDT build, which most distributions ship, rendered in
-color. Fontconfig can prefer the COLRv1 build when both are installed, which
-left reactions blank. On Linux Yapfast now finds an installed emoji font with CBDT
-or sbix bitmaps and no COLR table, maps it and registers it with Slint as "Yapfast
-Color Emoji". That font also leads the sans-serif and UI fallback lists, ahead
-of display fonts that carry a few monochrome emoji, so emoji in message text
-draw in color too; symbols the UI typeface lacks that have an emoji form, such as ♥,
-then show as emoji. Windows uses "Segoe UI Emoji".
+To check the window by hand, see [Seeing the app](building.md#seeing-the-app).
+The native file dialogs need an XDG portal, which `scripts/ui-session` doesn't
+run, so Attach and Save are checked only through the integration test.
 
-The prebuilt Skia that drew nothing for COLRv1 was built for a FreeType
-without COLRv1. Fedora installs only the COLRv1 build, so reactions and emoji
-in text were blank there (issue #32). Since 2026-10-22 Linux uses the prebuilt
-Skia with Skia's own FreeType, which draws it, as `skia_draws_colrv1_glyphs_in_colour`
-checks. Yapfast still takes a bitmap emoji font if one is installed, and a COLR
-one otherwise.
+Every emoji is Twemoji's, on every platform, as Discord's client draws them:
+the font `build.rs` makes of Twemoji's pictures is registered as "Yapfast
+Twemoji" (`emoji_text::register`), and is the generic emoji family alone and
+the first of the sans-serif and UI fallback lists, from which the system's
+emoji fonts are taken out (`emoji_font::register_emoji`). So an emoji in any
+text, a name, a status or the composer's draft, draws Twemoji's picture, a
+flag, a keycap or a skin tone joined into its one picture by the font's
+ligatures; symbols the UI typeface lacks that have an emoji form, such as ♥,
+show as Twemoji's. Reactions, poll answers and an emoji shown on its own pass
+their text through `Twemoji.text` (`ui/theme.slint`), which rewrites each emoji
+to its picture's glyph as message text is. Linux uses the prebuilt Skia with
+Skia's own FreeType, which draws COLRv1 (issue #32), as
+`skia_draws_colrv1_glyphs_in_colour` checks; custom emoji fonts are CBDT.
 
 On Windows, fontique falls back by script, with a sample of each script, and
 its sans-serif and UI lists are only Arial and Segoe UI. Emoji, most symbols
 and the styled letters of Unicode's mathematical alphabets that Discord names
-use, such as 𝓯𝓪𝓷𝓬𝔂, are all of the Common script, so they showed as boxes.
-Yapfast puts Segoe UI Emoji, Segoe UI, Segoe UI Symbol, Cambria Math and Segoe
-UI Historic at the front of both lists (`emoji::WINDOWS_FALLBACK`). Under Wine
-10.0 on 2026-10-16, with free fonts renamed to those names standing in for
-them, the styled letters, small capitals, ✗ and text faces such as
-( ͡° ͜ʖ ͡°) drew where they had been boxes. Wine draws no emoji from the
-bitmap font standing in for Segoe UI Emoji, so color emoji in message text
-need a check on real Windows.
-
-Linux native checks cover sign-in, restoration, device trust, encrypted sending,
-local preview input, Enter submission, room switching, draft retention, DM and
-name filtering, sign-out, and resize. The navigation refinement checks switching
-between two servers and DMs, scoped channels, resetting filters, and restoring the
-last channel and its draft. Captures use 1120 by 760 and 800 by 560.
-The sign-in form scrolls when errors make it taller than the minimum window.
-Windows build and rendering still require the tester's machine. The previous
-empty-window resource baseline does not measure this chat UI.
-
-The navigation refinement was checked on Linux with two preview servers. Switching
-to DMs hid server channels; switching servers replaced the channel list. Returning
-to Friends restored `games` and its draft, and returning to Co-op crew restored
-`looking-for-group` and a separate draft. A `games` search cleared on leaving
-Friends. The composer and both navigation columns stayed usable at 800 by 560.
-Review captures are in `.impeccable/review/nav-*.png`.
+use, such as 𝓯𝓪𝓷𝓬𝔂, are all of the Common script, so they would show as boxes.
+Yapfast puts Segoe UI, Segoe UI Symbol, Cambria Math and Segoe UI Historic at
+the front of both lists (`emoji::WINDOWS_FALLBACK`), after Twemoji's font, and
+not Segoe UI Emoji.

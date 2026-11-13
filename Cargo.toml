@@ -1,23 +1,29 @@
 [package]
 name = "yapfast"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.97"
 publish = false
 license = "GPL-3.0-or-later"
 
 [workspace]
-members = ["crates/feature-union", "crates/yapfast-core", "crates/yapfast-discord", "crates/yapfast-ui"]
+members = ["crates/feature-union", "crates/yapfast-core", "crates/yapfast-discord"]
 default-members = ["."]
-exclude = ["vendor/matrix-rtc-livekit", "vendor/webrtc-sys", "vendor/davey", "vendor/x264-src", "vendor/ffmpeg-src"]
+# crates/yapfast-ui is a path dependency outside the workspace: Clippy lints
+# every workspace member it compiles, even one --exclude leaves out, and
+# linting Slint's generated code took 190 s of a 253 s check after a UI change.
+# Outside, rustc checks it in 37 s.
+exclude = ["crates/yapfast-ui", "vendor/matrix-rtc-livekit", "vendor/webrtc-sys", "vendor/davey", "vendor/x264-src", "vendor/ffmpeg-src"]
 resolver = "3"
 
 [features]
-default = ["desktop", "matrix", "discord"]
-# Each network is optional, so a build can carry Matrix, Discord or both.
+# The release's features: Discord on the desktop. Matrix is optional, as is
+# each network, so a build can carry Matrix, Discord or both; scripts/check
+# --matrix checks the builds with Matrix.
+default = ["desktop", "discord"]
 matrix = ["yapfast-core/matrix"]
 discord = ["yapfast-core/discord", "dep:qrcode"]
-desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:ksni", "dep:windows-sys", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym"]
+desktop = ["dep:slint", "dep:yapfast-ui", "dep:skia-safe", "dep:rfd", "dep:memmap2", "dep:emojis", "dep:webbrowser", "dep:i-slint-core", "dep:zbus", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:ksni", "dep:windows-sys", "dep:windows", "dep:i-slint-renderer-skia", "dep:futures-util", "dep:x11rb", "dep:xkeysym", "dep:reqwest", "dep:rustls", "dep:sha2"]
 # The desktop app with a window that reloads ui/ on each save, for UI work;
 # see docs/building.md.
 live-preview = ["desktop", "yapfast-ui/live-preview"]
@@ -28,7 +34,7 @@ serde.workspace = true
 serde_json.workspace = true
 slint = { workspace = true, optional = true }
 # Reject an unpinned native source build if the prepared Skia archive is unavailable.
-skia-safe = { version = "=0.153.3", default-features = false, features = ["binary-cache", "no-compile"], optional = true }
+skia-safe = { version = "=0.157.0", default-features = false, features = ["binary-cache", "no-compile"], optional = true }
 # Native open and save dialogs: XDG portals on Linux, common dialogs on Windows.
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"], optional = true }
 # Names and categories for the emoji picker.
@@ -37,19 +43,24 @@ emojis = { version = "0.9", optional = true }
 memmap2 = { version = "0.9", optional = true }
 # Slint's internals, for the selection of text across messages Yapfast patches in; see
 # docs/building.md. Tests also read the testing backend's clipboard through it.
-i-slint-core = { version = "=1.18.1", optional = true }
+i-slint-core = { version = "=1.19.0", optional = true }
 yapfast-core = { path = "crates/yapfast-core", default-features = false }
 yapfast-ui = { path = "crates/yapfast-ui", optional = true }
 # Opens links clicked in messages in the default browser.
 webbrowser = { version = "1", optional = true }
-# Files and pictures pasted into the composer, and pictures copied from
-# messages. Slint already carries arboard for text.
+# Pictures copied from messages. Slint already carries arboard for text.
 arboard = { version = "3.6", default-features = false, features = ["image-data", "wayland-data-control"], optional = true }
-# Saves pictures pasted as pixels to PNG files to attach, and reads pictures
-# copied from messages.
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"], optional = true }
+# Saves pictures pasted as pixels to PNG files to attach, after decoding the
+# bitmaps Windows pastes, and reads pictures copied from messages.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"], optional = true }
 tempfile = { workspace = true, optional = true }
 tracing.workspace = true
+# The About page's one request, for the list of releases; the same TLS as the
+# Discord connection, which is already in the tree.
+reqwest = { version = "0.13", default-features = false, features = ["http2", "rustls-no-provider"], optional = true }
+rustls = { workspace = true, optional = true }
+# Checks a downloaded release against the SHA256SUMS.txt it was published with.
+sha2 = { version = "0.10", optional = true }
 # The code the Discord phone app scans to link an account.
 qrcode = { version = "0.14", default-features = false, optional = true }
 
@@ -71,20 +82,33 @@ wayland-protocols = { version = "0.32.13", features = ["client", "staging"], opt
 ksni = { version = "0.3.7", default-features = false, features = ["async-io", "blocking"], optional = true }
 # The push-to-talk key in any app: the GlobalShortcuts portal's signals as a
 # stream, XInput 2's raw key events on X11, and keysym names for the portal's
-# trigger. All three are already in the tree, through zbus and winit.
+# trigger. All three are already in the tree, through zbus and winit. x11rb
+# also reads the X11 clipboard for a paste.
 futures-util = { workspace = true, optional = true }
 x11rb = { version = "0.13.2", default-features = false, features = ["xinput"], optional = true }
 xkeysym = { version = "0.2.1", optional = true }
 
-# The tray icon, giving memory back while the window is closed, and the event a
-# later start sets to show the window. Already in the tree through winit.
+# The tray icon, giving memory back while the window is closed, the event a
+# later start sets to show the window, and the clipboard's files and pictures
+# for a paste. Already in the tree through winit.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Console", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_Security", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"], optional = true }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Console", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_Security", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"], optional = true }
+# Toasts, through WinRT, in the version Slint and yapfast-core already build.
+windows = { version = "0.62", features = ["Data_Xml_Dom", "UI_Notifications"], optional = true }
 # The GPU setting draws through Direct3D 12 on Windows: NVIDIA's OpenGL driver
 # spins a core while it waits for the screen. See src/graphics.rs.
-i-slint-renderer-skia = { version = "=1.18.1", features = ["wgpu-30"], optional = true }
+i-slint-renderer-skia = { version = "=1.19.0", features = ["wgpu-30"], optional = true }
+
+# Slint's renderer, which a closed picker asks to let go of its caches.
+[target.'cfg(not(windows))'.dependencies]
+i-slint-renderer-skia = { version = "=1.19.0", optional = true }
 
 # A stand-in tray on the private test bus; see testing/tray_host.rs.
+[build-dependencies]
+emojis = "0.9"
+image = { version = "0.25", default-features = false, features = ["png"] }
+png = "0.18"
+
 [[example]]
 name = "tray_host"
 path = "testing/tray_host.rs"
@@ -97,11 +121,13 @@ path = "testing/record_host.rs"
 required-features = ["desktop"]
 
 [dev-dependencies]
-i-slint-backend-testing = "=1.18.1"
+i-slint-backend-testing = "=1.19.0"
 yapfast-core = { path = "crates/yapfast-core", default-features = false, features = ["test-fixtures"] }
 # Builds a Discord server's snapshot for the menus' tests.
 yapfast-discord = { path = "crates/yapfast-discord" }
 tempfile.workspace = true
+# Shapes text with Twemoji's font, as Slint's text does, for its ligatures' test.
+harfrust = "0.12"
 
 # Types keys for the push-to-talk hook's test.
 [target.'cfg(windows)'.dev-dependencies]
@@ -131,7 +157,7 @@ matrix-rtc-media = { git = "https://github.com/element-hq/matrix-rust-rtc", rev 
 rustls = { version = "0.23", features = ["aws_lc_rs"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
-slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-skia", "renderer-skia-opengl", "accessibility", "unstable-winit-030", "unstable-fontique-011"] }
+slint = { version = "=1.19.0", default-features = false, features = ["std", "compat-1-18", "backend-winit", "renderer-skia", "renderer-skia-opengl", "accessibility", "unstable-winit-030", "unstable-fontique-012"] }
 tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net"] }
 tracing = "0.1"
@@ -144,9 +170,23 @@ url = "2"
 webrtc-sys = { path = "vendor/webrtc-sys" }
 i-slint-core = { path = "vendor/i-slint-core" }
 i-slint-renderer-skia = { path = "vendor/i-slint-renderer-skia" }
+# Slint's master until 1.19 is released: its generated code compiles in half
+# the time, or better. See docs/building.md.
+slint = { git = "https://github.com/slint-ui/slint", rev = "ac7d423f294ae12bda32c577b075a0f139457d1d" }
+slint-build = { git = "https://github.com/slint-ui/slint", rev = "ac7d423f294ae12bda32c577b075a0f139457d1d" }
+i-slint-backend-testing = { git = "https://github.com/slint-ui/slint", rev = "ac7d423f294ae12bda32c577b075a0f139457d1d" }
+i-slint-common = { git = "https://github.com/slint-ui/slint", rev = "ac7d423f294ae12bda32c577b075a0f139457d1d" }
+i-slint-core-macros = { git = "https://github.com/slint-ui/slint", rev = "ac7d423f294ae12bda32c577b075a0f139457d1d" }
+vtable = { git = "https://github.com/slint-ui/slint", rev = "ac7d423f294ae12bda32c577b075a0f139457d1d" }
+const-field-offset = { git = "https://github.com/slint-ui/slint", rev = "ac7d423f294ae12bda32c577b075a0f139457d1d" }
 davey = { path = "vendor/davey" }
 tungstenite = { path = "vendor/tungstenite" }
 const_panic = { git = "https://github.com/jplatte/const_panic", rev = "e0b317a9a7bde2d48a7d15b6a60d70e4a41d3b5f" }
+
+# The crates of that commit reach these two by path, so they're patched there too.
+[patch."https://github.com/slint-ui/slint"]
+i-slint-core = { path = "vendor/i-slint-core" }
+i-slint-renderer-skia = { path = "vendor/i-slint-renderer-skia" }
 
 [profile.dev]
 debug = "line-tables-only"
@@ -187,8 +227,8 @@ strip = false
 incremental = true
 
 # Like measure with the Slint interface unoptimized: for tests, local runs and
-# checks. A one-line edit to a .slint file rebuilt yapfast-ui in 122 s at
-# opt-level 3, 113 s at 1 and 36 s at 0.
+# checks. An edit that adds an element to a .slint file rebuilt yapfast-ui in
+# 102 s at opt-level 3 and 81 s at 0; one that changes a value took 32 s and 34 s.
 [profile.fast]
 inherits = "measure"
 

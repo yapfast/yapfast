@@ -1,6 +1,6 @@
 //! A Discord server's settings, as its Server Settings pages show them,
 //! read from Discord's answers. Each page's are fetched when it opens and
-//! dropped when it closes; see "Server settings" in docs/discord.md.
+//! dropped when it closes; see "Server settings" in docs/discord/server-settings.md.
 
 use serde_json::Value;
 

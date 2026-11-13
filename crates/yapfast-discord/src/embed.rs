@@ -5,10 +5,7 @@
 
 use serde_json::Value;
 
-use crate::message::{
-    Attachment, PREVIEW_HEIGHT, PREVIEW_WIDTH, Shown, VIEW_HEIGHT, VIEW_WIDTH, date, iso_ms,
-    scaled_url,
-};
+use crate::message::{Attachment, Shown, VIEW_HEIGHT, VIEW_WIDTH, date, iso_ms, scaled_url};
 
 /// The size thumbnails beside an embed's text are downloaded at: twice what
 /// they show at, for high-DPI displays.
@@ -53,6 +50,11 @@ fn text(value: &Value) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// The most an embed's picture shows at; Discord keeps these smaller than an
+/// attached picture.
+const EMBED_WIDTH: u64 = 360;
+const EMBED_HEIGHT: u64 = 270;
+
 /// A picture of an embed as an attachment, when Discord's proxy has it.
 fn picture(value: &Value, shown: Shown, thumbnail: bool) -> Option<Attachment> {
     let proxy = value["proxy_url"].as_str()?;
@@ -61,7 +63,7 @@ fn picture(value: &Value, shown: Shown, thumbnail: bool) -> Option<Attachment> {
     let (width, height) = if thumbnail {
         (THUMBNAIL_SIZE, THUMBNAIL_SIZE)
     } else {
-        (PREVIEW_WIDTH, PREVIEW_HEIGHT)
+        (EMBED_WIDTH, EMBED_HEIGHT)
     };
     // A video's poster is its first frame alone.
     let animated = !matches!(shown, Shown::Poster(_));
@@ -81,6 +83,7 @@ fn picture(value: &Value, shown: Shown, thumbnail: bool) -> Option<Attachment> {
         animated: crate::message::animated(value),
         shown,
         spoiler: false,
+        description: None,
     })
 }
 

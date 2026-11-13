@@ -1,5 +1,5 @@
 //! Developer probe for Discord voice, run by hand with a test account.
-//! It is not part of Yapfast. See docs/discord.md#testing.
+//! It is not part of Yapfast. See docs/discord/README.md#testing.
 
 use std::{
     collections::HashMap,

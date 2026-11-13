@@ -15,16 +15,16 @@ use slint::{
 use yapfast_core::{
     application::{
         Action, AddFriend, AppState, Application, BAN_HISTORY, ChannelAsk, ChannelInput,
-        ClearAfter, Compose, DmScreen, Effect, INVITE_AGES, INVITE_USES, ListedCategory,
-        MenuChoice, Navigation, NewDm, PersonAsk, ProfileText, ProfileView, Relation, RoleInput,
-        Search, TIMEOUT_TIMES,
+        ClearAfter, Compose, Cosmetics, DmScreen, Effect, INVITE_AGES, INVITE_USES, ListedCategory,
+        MenuChoice, Navigation, NewDm, PersonAsk, Place, ProfileText, ProfileView, Relation,
+        RoleInput, Search, StickerUse, TIMEOUT_TIMES,
     },
     backend::Backend,
     chat::{
         ChannelKind, ChannelSettings, ChatMessage, Command, Delivery, EmbedField, Event, Picture,
-        Placement, Presence, ProfilePicture, ProfileRole, Role, VideoCommand,
+        Placement, Presence, ProfilePicture, ProfileRole, Reacts, Role, VideoCommand,
     },
-    discord, links, mention,
+    clock, discord, links, mention,
     meter::{self, InputMeter},
     network::Network,
     runtime::BackgroundRuntime,
@@ -34,8 +34,9 @@ use yapfast_core::{
 };
 
 use crate::drop::Drag;
-use crate::{autostart, custom_emoji, emoji, graphics, zoom};
+use crate::{autostart, custom_emoji, emoji, emoji_text, graphics, zoom};
 
+mod app_commands;
 mod appearance;
 mod away;
 mod browser;
@@ -43,12 +44,16 @@ mod call_link;
 mod call_timer;
 mod callbacks;
 mod channel_settings;
+mod emoji_animation;
+mod emoji_grid;
 mod games;
 mod gifs;
 mod menus;
 mod messages;
 #[cfg(windows)]
 mod move_loop;
+mod name_style;
+mod new_tags;
 mod pictures;
 mod placement;
 mod polls;
@@ -56,16 +61,19 @@ mod profile;
 mod refresh;
 mod server_settings;
 mod shell;
+mod stickers;
 mod theme;
 mod tiles;
 mod title_bar;
+mod updates;
+mod yapfast;
 
 use callbacks::bind_callbacks;
 use messages::*;
 pub(crate) use pictures::picture as slint_image;
 use pictures::*;
 use profile::*;
-use refresh::{Reach, SidebarShown};
+use refresh::{AccountCardShown, Reach, RosterShown, SidebarShown, SwitcherShown};
 use tiles::{Focus, Pip, Stage, Tiles};
 use yapfast_ui::*;
 
@@ -76,6 +84,8 @@ pub enum Exit {
     UseSoftware(String),
     /// The renderer setting changed; restart to use it.
     Restart,
+    /// An update was downloaded and checked; finish it and start the new program.
+    Update(crate::update::install::Prepared),
 }
 
 /// Slint releases the first window after at most 500 ms of desktop appearance
@@ -91,13 +101,19 @@ pub fn run(
     renderer: Option<graphics::Renderer>,
     gpu_failure: Option<String>,
     background: bool,
+    open_link: Option<String>,
 ) -> Result<Exit> {
     let (plan, placement, system_title_bar, mut instance) = {
         let mut layout = Layout::read(&root);
         let instance = if preview {
             crate::instance::Instance::default()
         } else {
-            match crate::instance::claim(&root, !layout.multiple_windows, background) {
+            match crate::instance::claim(
+                &root,
+                !layout.multiple_windows,
+                background,
+                open_link.clone(),
+            ) {
                 crate::instance::Start::Run(instance) => instance,
                 crate::instance::Start::Handed => return Ok(Exit::Closed),
             }
@@ -146,13 +162,14 @@ pub fn run(
     };
     // Started at sign-in, Yapfast goes to the tray with the saved session.
     // Without one there's nothing to do there but sign in, which needs the window.
-    let hidden = background && !preview && yapfast_core::chat::can_restore(&root);
+    let hidden =
+        background && open_link.is_none() && !preview && yapfast_core::chat::can_restore(&root);
     // Before the window maps, as the desktop looks up its icon then.
     #[cfg(target_os = "linux")]
     if !preview {
         crate::desktop_entry::install();
     }
-    let window = match YapfastWindow::new() {
+    let window = match yapfast::window() {
         Ok(window) => window,
         Err(error) => return failed(error, "could not create the Yapfast window"),
     };
@@ -165,14 +182,24 @@ pub fn run(
     }
     if !preview {
         AUTOSTART.set(autostart::SUPPORTED);
+        PROTOCOL.set(cfg!(feature = "discord") && crate::protocol::SUPPORTED);
+        if PROTOCOL.get() {
+            crate::protocol::refresh(&root);
+        }
         autostart::refresh();
     }
     prepare(&window);
     let adapter = Adapter::new(Arc::new(runtime), root, &window)?;
     bind_callbacks(&window, &adapter);
+    updates::start(&adapter, &window);
+    new_tags::start(&adapter);
     watch_window(&window, &adapter);
     adapter.borrow_mut().watch_away();
     adapter.borrow_mut().watch_talk_key(&window);
+    adapter.borrow().show_protocol(&window);
+    if !preview {
+        adapter.borrow_mut().pending_link = open_link;
+    }
     adapter.borrow_mut().refresh(&window);
     if preview {
         adapter.borrow_mut().action(&window, Action::Preview);
@@ -206,8 +233,8 @@ pub fn run(
     if hidden {
         shell.start_in_tray();
     }
-    instance.listen(|token| {
-        let _ = slint::invoke_from_event_loop(move || shell::launched(token));
+    instance.listen(|launch| {
+        let _ = slint::invoke_from_event_loop(move || shell::launched(launch));
     });
     tracing::info!(renderer, hidden, "starting the Slint desktop window");
     let _control = test_control().map(|path| control(path, shell.clone()));
@@ -217,6 +244,7 @@ pub fn run(
     let late_gpu_failure = shell.gpu_failure();
     drop(shell);
     let mut adapter = adapter.borrow_mut();
+    let updated = adapter.updates.prepared.take();
     placement::flush(&adapter);
     // The icon goes before Yapfast does, not when Windows next looks at it.
     adapter.tray = None;
@@ -234,8 +262,11 @@ pub fn run(
             "the window did not appear".into(),
             "Yapfast's window did not appear",
         ),
-        Ok(()) if restart => Ok(Exit::Restart),
-        Ok(()) => Ok(Exit::Closed),
+        Ok(()) => Ok(match updated {
+            Some(prepared) => Exit::Update(prepared),
+            None if restart => Exit::Restart,
+            None => Exit::Closed,
+        }),
     }
 }
 
@@ -265,8 +296,13 @@ fn prepare(window: &YapfastWindow) {
             .set_size(slint::PhysicalSize::new(width, height));
     }
     window.set_emoji_font(emoji::family().into());
+    emoji_text::register();
+    window
+        .global::<Twemoji>()
+        .on_text(|text| emoji_text::text(&text).into());
     copy_whole_messages(window);
     mark_autoscrolls(window);
+    type_anywhere(window);
 }
 
 /// The most backend events applied together before the window refreshes, so
@@ -276,17 +312,53 @@ const EVENT_BATCH: usize = 256;
 /// How long the zoom level shows after it changes.
 const ZOOM_NOTE: Duration = Duration::from_millis(1200);
 
+/// What the mouse's back and forward buttons do, as Alt+Left and Alt+Right
+/// do.
+fn side_button_action(button: slint::winit_030::winit::event::MouseButton) -> Option<Action> {
+    use slint::winit_030::winit::event::MouseButton;
+    match button {
+        MouseButton::Back => Some(Action::NavigateBack),
+        MouseButton::Forward => Some(Action::NavigateForward),
+        _ => None,
+    }
+}
+
+/// Carries out `action` once the event that asked for it is done.
+fn navigate(
+    adapter: &std::rc::Weak<RefCell<Adapter>>,
+    window: &slint::Weak<YapfastWindow>,
+    action: Action,
+) {
+    let (adapter, window) = (adapter.clone(), window.clone());
+    slint::Timer::single_shot(Duration::ZERO, move || {
+        if let (Some(adapter), Some(window)) = (adapter.upgrade(), window.upgrade()) {
+            adapter.borrow_mut().action(&window, action);
+        }
+    });
+}
+
 /// Follows the native window's focus, for notifications, zooms the window
 /// with Ctrl and +, - and 0 or the scroll wheel, keeping the level in the
-/// layout, and takes files dropped on it.
+/// layout, opens the quick switcher with Ctrl+K, and takes files dropped on
+/// it.
 fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     use slint::winit_030::{
         EventResult,
         winit::{
-            event::{ElementState, WindowEvent},
-            keyboard::{Key, NamedKey},
+            event::{ElementState, KeyEvent, MouseButton, WindowEvent},
+            keyboard::{Key, KeyCode, NamedKey, PhysicalKey},
         },
     };
+    /// The K key: the letter K in the keyboard's layout, or in a layout
+    /// without Latin letters, the key in its place.
+    fn is_k(key: &KeyEvent) -> bool {
+        match &key.logical_key {
+            Key::Character(text) if text.chars().all(|letter| letter.is_ascii_alphabetic()) => {
+                text.eq_ignore_ascii_case("k")
+            }
+            _ => key.physical_key == PhysicalKey::Code(KeyCode::KeyK),
+        }
+    }
     let saved = zoom::saved(adapter.borrow().layout.zoom);
     let adapter = Rc::downgrade(adapter);
     let (to, weak) = (adapter.clone(), window.as_weak());
@@ -299,7 +371,17 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
     let weak = window.as_weak();
     slint::Timer::single_shot(Duration::ZERO, move || {
         let Some(window) = weak.upgrade() else { return };
-        FOCUSED.set(false);
+        // A window that opens focused gets no event saying so, and animation
+        // would wait for one; ask it instead.
+        let focused = {
+            use slint::winit_030::WinitWindowAccessor as _;
+            window
+                .window()
+                .with_winit_window(|winit| winit.has_focus())
+                .unwrap_or(false)
+        };
+        FOCUSED.set(focused);
+        show_motion(&window);
         // The display's own scale factor, which the zoom multiplies.
         let base = Rc::new(Cell::new(window.window().scale_factor()));
         let level = Rc::new(Cell::new(
@@ -310,6 +392,7 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
         zoom::apply(window.window(), base.get(), level.get());
         let note = Rc::new(slint::Timer::default());
         let mut keys = zoom::Keys::default();
+        let mut cursor = None;
         // The winit window exists by the first event it sends.
         #[cfg(target_os = "linux")]
         let mut watching = false;
@@ -417,6 +500,11 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                         if *focused {
                             attention(&window, false);
                         }
+                        if let Some(adapter) = adapter.upgrade()
+                            && let Ok(mut adapter) = adapter.try_borrow_mut()
+                        {
+                            adapter.action(&window, Action::WindowFocused(*focused));
+                        }
                     }
                 }
                 if matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
@@ -451,6 +539,21 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     });
                 }
                 crate::push_to_talk::window_event(event);
+                // Windows' two side buttons are recordable shortcuts too.
+                #[cfg(windows)]
+                if let Some(window) = weak.upgrade()
+                    && window.get_talk_recording()
+                    && let Some(recorded) = crate::push_to_talk::Keybind::recorded_mouse(event)
+                {
+                    window.set_talk_recording(false);
+                    let (adapter, weak) = (adapter.clone(), weak.clone());
+                    slint::Timer::single_shot(Duration::ZERO, move || {
+                        if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
+                            adapter.borrow_mut().set_talk_key(&window, recorded);
+                        }
+                    });
+                    return EventResult::PreventDefault;
+                }
                 // While recording the push-to-talk key, the next key becomes
                 // it, and Escape stops; either way only the recorder sees it.
                 if let WindowEvent::KeyboardInput { event: key, .. } = event
@@ -476,7 +579,138 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                     }
                     return EventResult::PreventDefault;
                 }
-                let step = match keys.event(event) {
+                // Escape lets go of someone dragged from a voice channel,
+                // wherever the focus is, and does nothing else; see RoomList.
+                if let WindowEvent::KeyboardInput { event: key, .. } = event
+                    && key.state == ElementState::Pressed
+                    && key.logical_key == Key::Named(NamedKey::Escape)
+                    && let Some(window) = weak.upgrade()
+                    && window.get_person_moving()
+                {
+                    window.set_person_moving(false);
+                    let (adapter, weak) = (adapter.clone(), weak.clone());
+                    slint::Timer::single_shot(Duration::ZERO, move || {
+                        if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
+                            adapter.borrow_mut().stop_moving_person(&window);
+                        }
+                    });
+                    return EventResult::PreventDefault;
+                }
+                // Someone dragged whose row went away, as when the list
+                // scrolled or their channel's people changed, can be let go
+                // where no row hears the button go up. Once Slint has taken
+                // the release, which drops them if it can, nothing is dragged.
+                if let WindowEvent::MouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                    ..
+                } = event
+                    && let Some(window) = weak.upgrade()
+                    && window.get_person_moving()
+                {
+                    let (adapter, weak) = (adapter.clone(), weak.clone());
+                    slint::Timer::single_shot(Duration::ZERO, move || {
+                        if let (Some(adapter), Some(window)) = (adapter.upgrade(), weak.upgrade()) {
+                            adapter.borrow_mut().stop_moving_person(&window);
+                        }
+                    });
+                }
+                // Ctrl+K opens the quick switcher, or closes it, wherever the
+                // focus is, as in Discord; not over the settings or a link
+                // that asks before it opens, which the window keeps. Those
+                // the application keeps, it checks itself.
+                if let WindowEvent::KeyboardInput { event: key, .. } = event
+                    && key.state == ElementState::Pressed
+                    && keys.control_only()
+                    && is_k(key)
+                    && let Some(window) = weak.upgrade()
+                    && window.get_workspace()
+                    && !window.get_settings_open()
+                    && window.get_leaving_link().is_empty()
+                {
+                    if !key.repeat {
+                        let (adapter, weak) = (adapter.clone(), weak.clone());
+                        slint::Timer::single_shot(Duration::ZERO, move || {
+                            if let (Some(adapter), Some(window)) =
+                                (adapter.upgrade(), weak.upgrade())
+                            {
+                                adapter.borrow_mut().action(&window, Action::ToggleSwitcher);
+                            }
+                        });
+                    }
+                    return EventResult::PreventDefault;
+                }
+                let outcome = keys.event(event);
+                // Shift turns a message's hover bar into its quick actions,
+                // as in Discord's client, wherever the focus is.
+                match event {
+                    WindowEvent::CursorMoved { position, .. } => cursor = Some(*position),
+                    WindowEvent::CursorLeft { .. } => cursor = None,
+                    _ => {}
+                }
+                if let Some(window) = weak.upgrade()
+                    && window.get_shift_held() != keys.shift()
+                {
+                    window.set_shift_held(keys.shift());
+                    // The buttons change under a pointer that stays put, and
+                    // Slint looks again only when it moves; ask it to now, so
+                    // the tooltip and highlight belong to what a click does.
+                    // Not while the keyboard walks the messages, whose choice
+                    // a row newly under the pointer would take.
+                    if let Some(position) = cursor
+                        && !window.get_browsing()
+                    {
+                        let position =
+                            position.to_logical::<f32>(f64::from(slint_window.scale_factor()));
+                        let position = slint::LogicalPosition::new(position.x, position.y);
+                        let weak = weak.clone();
+                        slint::Timer::single_shot(Duration::ZERO, move || {
+                            if let Some(window) = weak.upgrade() {
+                                window.window().dispatch_event(
+                                    slint::platform::WindowEvent::PointerMoved { position },
+                                );
+                            }
+                        });
+                    }
+                }
+                // Alt+Left and Alt+Right go back and forward through the
+                // conversations visited, as in Discord.
+                if let WindowEvent::KeyboardInput { event: key, .. } = event
+                    && key.state == ElementState::Pressed
+                    && keys.alt_only()
+                    && let Key::Named(named @ (NamedKey::ArrowLeft | NamedKey::ArrowRight)) =
+                        key.logical_key
+                    && let Some(window) = weak.upgrade()
+                    && window.get_workspace()
+                    && !window.get_settings_open()
+                {
+                    if !key.repeat {
+                        navigate(
+                            &adapter,
+                            &weak,
+                            if named == NamedKey::ArrowLeft {
+                                Action::NavigateBack
+                            } else {
+                                Action::NavigateForward
+                            },
+                        );
+                    }
+                    return EventResult::PreventDefault;
+                }
+                // So do the mouse's back and forward buttons. The release is
+                // kept from the window too, so that it isn't taken for a click.
+                if let WindowEvent::MouseInput { state, button, .. } = event
+                    && let Some(action) = side_button_action(*button)
+                    && let Some(window) = weak.upgrade()
+                    && window.get_workspace()
+                    && !window.get_settings_open()
+                {
+                    if *state == ElementState::Pressed {
+                        navigate(&adapter, &weak, action);
+                    }
+                    return EventResult::PreventDefault;
+                }
+                let step = match outcome {
                     zoom::Outcome::Pass => return EventResult::Propagate,
                     zoom::Outcome::Taken => return EventResult::PreventDefault,
                     zoom::Outcome::Step(step) => step,
@@ -553,6 +787,9 @@ thread_local! {
     static FOCUSED: Cell<bool> = const { Cell::new(false) };
     /// Settings offer starting at sign-in: the platform can, and this isn't the preview.
     static AUTOSTART: Cell<bool> = const { Cell::new(false) };
+    /// Settings offer claiming Discord's protocol links: the platform
+    /// can, this build speaks Discord, and this isn't the preview.
+    static PROTOCOL: Cell<bool> = const { Cell::new(false) };
     /// When animations play, as the settings say.
     static ANIMATE: Cell<Animate> = const { Cell::new(Animate::Focused) };
     /// Opens a conversation from a clicked notification, in the current window.
@@ -567,6 +804,31 @@ fn open_from_notification(room: String) {
         if let Some(open) = open.borrow().as_ref() {
             open(room);
         }
+    });
+}
+
+/// Sends keys nothing took, such as after a menu closes, to the composer, as Discord does.
+fn type_anywhere(window: &YapfastWindow) {
+    let window = window.as_weak();
+    i_slint_core::yapfast_typing::on_unclaimed(move |text| {
+        let Some(window) = window.upgrade() else {
+            return false;
+        };
+        if text.chars().eq([char::from(slint::platform::Key::Escape)]) {
+            return window.invoke_escape_composing();
+        }
+        // Stepping through the messages, only letters and digits leave them.
+        if window.get_browsing() && !text.chars().all(|c| c.is_ascii_alphanumeric()) {
+            return false;
+        }
+        // Holding the key to talk shouldn't also write it.
+        if window.get_voice_active()
+            && !window.get_muted()
+            && crate::push_to_talk::pressed_talk_key()
+        {
+            return false;
+        }
+        window.invoke_type_into_composer()
     });
 }
 
@@ -843,6 +1105,66 @@ fn trim() {
         // SAFETY: malloc_trim only releases free memory held by the allocator.
         unsafe { malloc_trim(0) };
     }
+    // Windows keeps what a burst of allocations freed, ready for the next
+    // burst, in heaps the low-fragmentation heap makes for those sizes.
+    // `HeapCompact` joins freed blocks but returns none of the heaps;
+    // `HeapOptimizeResources` gives back what they hold, which is what lets a
+    // closed picker's memory go.
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Memory::{HeapOptimizeResources, HeapSetInformation};
+        // HEAP_OPTIMIZE_RESOURCES_INFORMATION, which windows-sys doesn't name.
+        #[repr(C)]
+        struct OptimizeResources {
+            version: u32,
+            flags: u32,
+        }
+        // HEAP_OPTIMIZE_RESOURCES_CURRENT_VERSION.
+        const CURRENT_VERSION: u32 = 1;
+        let info = OptimizeResources {
+            version: CURRENT_VERSION,
+            flags: 0,
+        };
+        // SAFETY: the information is the one HeapOptimizeResources takes, a
+        // null heap handle means every heap of the process, and optimizing
+        // them moves nothing in use.
+        unsafe {
+            HeapSetInformation(
+                std::ptr::null_mut(),
+                HeapOptimizeResources,
+                std::ptr::from_ref(&info).cast(),
+                std::mem::size_of::<OptimizeResources>(),
+            );
+        }
+    }
+}
+
+/// A picker of many pictures closed: once the frame without it is drawn,
+/// Skia lets go of what it kept to draw them, and then the heap gives back
+/// what that and the picker freed. Without this the memory stays with the
+/// process until something else needs it.
+pub(super) fn let_go_after_picker(window: &YapfastWindow) {
+    let weak = window.as_weak();
+    slint::Timer::single_shot(Duration::from_secs(1), move || {
+        i_slint_renderer_skia::yapfast_let_go_of_caches();
+        if let Some(window) = weak.upgrade() {
+            window.window().request_redraw();
+        }
+        trim_over(&[500, 2_000, 5_000]);
+    });
+}
+
+/// Trim now, then again after each of `delays` milliseconds: the last
+/// downloads, decodes and animations of a closed picker free their memory as
+/// they finish, after the trim the close itself made.
+fn trim_over(delays: &'static [u64]) {
+    let Some((&delay, rest)) = delays.split_first() else {
+        return;
+    };
+    slint::Timer::single_shot(Duration::from_millis(delay), move || {
+        trim();
+        trim_over(rest);
+    });
 }
 
 /// Print the allocator's per-arena totals to standard error: memory held from
@@ -861,12 +1183,43 @@ fn allocator_stats() {
 /// The layout a person chose, such as the sidebar width, kept beside the session.
 const LAYOUT: &str = "layout.json";
 
+/// A sticker this device kept, as `layout.json` keeps it.
+#[derive(Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+struct KeptSticker {
+    id: String,
+    name: String,
+    /// Discord's `format_type`, which its picture's address takes.
+    format: u64,
+    /// Its picture at the picker's tile size.
+    picture: String,
+}
+
+/// A sticker this device sent, and how often, as `layout.json` keeps it.
+#[derive(Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+struct KeptStickerUse {
+    id: String,
+    name: String,
+    /// Discord's `format_type`, which its picture's address takes.
+    format: u64,
+    /// Its picture at the picker's tile size.
+    picture: String,
+    uses: u32,
+}
+
 #[derive(Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 struct Layout {
     sidebar_width: Option<f32>,
     /// The width of a Discord thread shown beside its channel.
     aside_width: Option<f32>,
+    /// The member list's width, as its edge was last dragged; none for the
+    /// style's own.
+    members_width: Option<f32>,
+    /// The expression picker's width, the GIFs and the emoji alike, as its
+    /// left edge last dragged it wider. `gif_picker_width` named it while only
+    /// the GIFs took it.
+    #[serde(alias = "gif_picker_width")]
+    picker_width: Option<f32>,
     /// The member list shows until someone closes it.
     members_hidden: bool,
     /// So does the profile beside a one-to-one DM.
@@ -883,6 +1236,10 @@ struct Layout {
     open_folders: std::collections::BTreeSet<String>,
     /// How often this device added each reaction, for the frequent reactions.
     reactions: HashMap<String, u32>,
+    /// The stickers this device sent, and how often, for Frequently Used.
+    sticker_uses: Vec<KeptStickerUse>,
+    /// The stickers this device keeps, for Favorites.
+    sticker_favorites: Vec<KeptSticker>,
     /// List Discord channels hidden from this account, locked.
     show_hidden_channels: bool,
     /// Reading in Yapfast marks Discord channels read on Discord; on unless turned off.
@@ -895,6 +1252,10 @@ struct Layout {
     game_executables: Vec<(String, String)>,
     /// Messages from people this account blocked don't show at all.
     hide_blocked: bool,
+    /// A call from someone's menu starts without asking first.
+    skip_call_prompt: bool,
+    /// The member list's Activity panel shows only its header.
+    activity_cards_hidden: bool,
     /// A message that notifies while Yapfast isn't in front flashes the
     /// taskbar; on unless turned off.
     flash_taskbar: Option<bool>,
@@ -904,16 +1265,33 @@ struct Layout {
     twelve_hour_clock: bool,
     /// Message times with their seconds, as 21:41:05.
     clock_seconds: bool,
+    /// The order of day, month and year, as an index into
+    /// [`yapfast_core::clock::DateFormat::ALL`]; follows the clock unless chosen.
+    date_format: Option<i32>,
     /// Message text: 0 small, 1 default, 2 large.
     text_size: Option<i32>,
     /// Link previews under messages; on unless turned off.
     link_previews: Option<bool>,
+    /// A gem by each server booster in the member list; on unless turned off.
+    boost_gems: Option<bool>,
     /// Replies mention the person they reply to; on unless turned off.
     reply_ping: Option<bool>,
     /// Tracking comes out of links in sent messages; on unless turned off.
     strip_tracking: Option<bool>,
+    /// Nameplates show; on unless turned off.
+    nameplates: Option<bool>,
+    /// Long messages fold to a few lines, with Show more; off unless turned
+    /// on.
+    collapse_long: bool,
     /// When animations play.
     animate: Animate,
+    /// The profile switches, each as [`Cosmetics`] starts it unless changed.
+    profile_effects: Option<bool>,
+    decorations: Option<bool>,
+    moving_cosmetics: Option<bool>,
+    name_styles: Option<bool>,
+    server_tags: Option<bool>,
+    profile_frames: Option<bool>,
     /// Joining a call turns the microphone on; on unless turned off.
     unmute_on_join: Option<bool>,
     /// Joining a call deafens.
@@ -926,6 +1304,9 @@ struct Layout {
     noise_strength: yapfast_core::noise::Strength,
     /// Discord calls take the room's reverb out of the microphone.
     reduce_room_echo: bool,
+    /// Windows runs its microphone effects on Discord calls' microphone;
+    /// off, Yapfast skips them. See [`yapfast_core::set_windows_effects`].
+    windows_microphone_effects: bool,
     /// The quietest speech Discord calls send, in dBFS; -60 unless changed.
     input_sensitivity: Option<i32>,
     /// Whether calls send the voice the gate hears or only while a key is
@@ -934,6 +1315,10 @@ struct Layout {
     input_mode: InputMode,
     push_to_talk_key: Option<crate::push_to_talk::Keybind>,
     push_to_talk_release_delay: Option<u32>,
+    /// How loud every call sends the microphone and plays, as sliders'
+    /// percentages from 0% to 200%; 100% unless changed.
+    microphone_volume: Option<u8>,
+    speaker_volume: Option<u8>,
     /// How loud people sound in calls, and their streams, by Discord or
     /// Matrix user id; see [`yapfast_core::volume`]. Unlisted people are as they
     /// come.
@@ -941,6 +1326,9 @@ struct Layout {
     stream_volumes: std::collections::BTreeMap<String, f32>,
     /// Those muted for this account alone, from their menu in a call.
     muted_people: std::collections::BTreeSet<String>,
+    /// Those whose soundboard sounds this account doesn't hear, from the
+    /// same menu.
+    soundboard_muted_people: std::collections::BTreeSet<String>,
     /// Others see when this account is typing; on unless turned off.
     share_typing: Option<bool>,
     /// Desktop notifications, and whether they say what messages say; on unless
@@ -974,6 +1362,26 @@ struct Layout {
     /// Starting Yapfast again on this folder starts another, rather than
     /// showing the running one's window; see [`crate::instance`].
     multiple_windows: bool,
+    /// Menus offer Copy ID, as Discord's Developer Mode does; off unless
+    /// turned on.
+    developer_mode: bool,
+    /// Settings' About page asks GitHub for the releases when Yapfast starts;
+    /// off unless turned on, and then Yapfast makes no request of its own.
+    /// See [`updates`].
+    check_for_updates: bool,
+    /// Nightly builds count as newer releases; off unless turned on.
+    update_nightlies: bool,
+    /// The tag of the release that Skip this version hid.
+    skipped_update: Option<String>,
+    /// The tag of the release a notification last told of, so each release is
+    /// announced once.
+    announced_update: Option<String>,
+    /// The version whose settings this person counts as having met: a fresh
+    /// install's own, or the release before NEW tags for an older layout. A
+    /// setting that arrived after it is NEW; see [`new_tags`].
+    first_version: Option<String>,
+    /// The NEW settings this person has looked at.
+    seen_new: Vec<String>,
     /// The desktop draws the window's title bar; unset, Yapfast draws its own
     /// on desktops that give windows one. See [`title_bar`].
     system_title_bar: Option<bool>,
@@ -1040,6 +1448,12 @@ fn show_motion(window: &YapfastWindow) {
         Animate::Never => false,
     };
     window.global::<Motion>().set_playing(playing);
+    window
+        .global::<Motion>()
+        .set_never(ANIMATE.get() == Animate::Never);
+    // Animated emoji hold still with everything else, at once rather than at
+    // the next refresh.
+    i_slint_core::yapfast_emoji::set_playing(playing);
 }
 
 /// Where a setting's value is among its choices.
@@ -1048,6 +1462,13 @@ fn choice<T: PartialEq>(choices: &[T], value: T) -> i32 {
         .iter()
         .position(|choice| *choice == value)
         .unwrap_or(0) as i32
+}
+
+/// Calls send the microphone and play at the volume sliders' values.
+fn play_call_volumes(window: &YapfastWindow) {
+    let gain = |value: i32| yapfast_core::volume::from_slider(value.clamp(0, 200) as f32);
+    yapfast_core::volume::set_microphone(gain(window.get_microphone_volume()));
+    yapfast_core::volume::set_speakers(gain(window.get_speaker_volume()));
 }
 
 /// The choice a setting shows at an index; the first if there's none.
@@ -1059,6 +1480,17 @@ fn chosen<T: Copy>(choices: &[T], index: i32) -> T {
 }
 
 impl Layout {
+    /// Hands the date format and the 12-hour clock to what formats times.
+    fn apply_date_format(&self) {
+        clock::set_date_format(self.date_format.and_then(|index| {
+            clock::DateFormat::ALL
+                .get(usize::try_from(index).ok()?)
+                .copied()
+        }));
+        // After the date format, which Discord's timestamps follow.
+        clock::set_twelve_hour_clock(self.twelve_hour_clock);
+    }
+
     /// The voice gate's sensitivity, in whole dBFS from -80 to 0.
     fn sensitivity(&self) -> i32 {
         self.input_sensitivity
@@ -1074,10 +1506,14 @@ impl Layout {
     }
 
     fn read(root: &std::path::Path) -> Self {
-        let mut layout: Self = std::fs::read(root.join(LAYOUT))
-            .ok()
+        let saved = std::fs::read(root.join(LAYOUT)).ok();
+        let fresh = saved.is_none();
+        let mut layout: Self = saved
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default();
+        if layout.first_version.is_none() {
+            layout.first_version = Some(new_tags::first_version(fresh));
+        }
         if layout.notification_sound.take() == Some(false) {
             layout.adjust_each_sound = true;
             layout.each_sound.insert(Sound::Message, 0);
@@ -1085,6 +1521,45 @@ impl Layout {
         }
         theme::tidy(&mut layout.custom_themes);
         layout
+    }
+
+    /// The profile switches, as saved.
+    fn cosmetics(&self) -> Cosmetics {
+        let default = Cosmetics::default();
+        Cosmetics {
+            effects: self.profile_effects.unwrap_or(default.effects),
+            decorations: self.decorations.unwrap_or(default.decorations),
+            moving: self.moving_cosmetics.unwrap_or(default.moving),
+            name_styles: self.name_styles.unwrap_or(default.name_styles),
+            server_tags: self.server_tags.unwrap_or(default.server_tags),
+            frames: self.profile_frames.unwrap_or(default.frames),
+        }
+    }
+
+    /// Sets Settings' profile switches as saved, and whether collectibles'
+    /// animated pictures may be asked for.
+    fn show_cosmetics(&self, window: &YapfastWindow) {
+        let cosmetics = self.cosmetics();
+        let looks = window.global::<Looks>();
+        looks.set_profile_effects(cosmetics.effects);
+        looks.set_decorations(cosmetics.decorations);
+        looks.set_moving(cosmetics.moving);
+        looks.set_name_styles(cosmetics.name_styles);
+        looks.set_server_tags(cosmetics.server_tags);
+        looks.set_profile_frames(cosmetics.frames);
+        pictures::set_moving_collectibles(cosmetics.moving);
+    }
+
+    /// Reads Settings' profile switches.
+    fn read_cosmetics(&mut self, window: &YapfastWindow) {
+        let looks = window.global::<Looks>();
+        self.profile_effects = Some(looks.get_profile_effects());
+        self.decorations = Some(looks.get_decorations());
+        self.moving_cosmetics = Some(looks.get_moving());
+        self.name_styles = Some(looks.get_name_styles());
+        self.server_tags = Some(looks.get_server_tags());
+        self.profile_frames = Some(looks.get_profile_frames());
+        pictures::set_moving_collectibles(self.cosmetics().moving);
     }
 
     /// Shows the custom games, and has detection use them.
@@ -1116,33 +1591,55 @@ impl Layout {
             * sounds::gain(self.each_sound(sound))
     }
 
-    fn apply(&self, window: &YapfastWindow) {
-        self.apply_custom_games(window);
-        window.set_show_idle(self.show_idle.unwrap_or(true));
-        window.set_hide_blocked(self.hide_blocked);
-        window.set_flash_taskbar(self.flash_taskbar.unwrap_or(true));
+    // Appearance checks can apply these preferences without changing global audio gains.
+    fn apply_appearance(&self, window: &YapfastWindow) {
         // Before the first frame, which the event loop draws. A window made
         // again, after closing to the tray, keeps the theme this way too.
-        let (id, chosen) = theme::chosen(self.theme.as_deref(), &self.custom_themes);
+        let default_theme = window
+            .global::<ClientStyle>()
+            .get_enabled()
+            .then_some("bonfire");
+        let (id, chosen) =
+            theme::chosen(self.theme.as_deref().or(default_theme), &self.custom_themes);
         chosen.apply(window);
         window.set_theme_id(id.into());
         window.set_themes(theme::cards(&self.custom_themes));
         if let Some(width) = self.sidebar_width {
             window.set_sidebar_width(width);
         }
+    }
+
+    fn apply(&self, window: &YapfastWindow) {
+        self.apply_custom_games(window);
+        window.set_show_idle(self.show_idle.unwrap_or(true));
+        window.set_hide_blocked(self.hide_blocked);
+        window.set_skip_call_prompt(self.skip_call_prompt);
+        window.set_activity_cards_hidden(self.activity_cards_hidden);
+        window.set_flash_taskbar(self.flash_taskbar.unwrap_or(true));
+        self.apply_appearance(window);
         if let Some(width) = self.aside_width {
             window.set_aside_width(width);
+        }
+        window.set_members_width(self.members_width.unwrap_or(0.));
+        if let Some(width) = self.picker_width {
+            window.set_picker_width(width);
         }
         window.set_member_list(!self.members_hidden);
         window.set_profile_panel(!self.profile_panel_hidden);
         window.set_twelve_hour_clock(self.twelve_hour_clock);
         window.set_clock_seconds(self.clock_seconds);
+        window.set_date_format(self.date_format.unwrap_or(-1));
+        self.apply_date_format();
         window.set_text_size(self.text_size.unwrap_or(1).clamp(0, 2));
         window.set_link_previews(self.link_previews.unwrap_or(true));
+        window.set_boost_gems(self.boost_gems.unwrap_or(true));
         window.set_reply_ping_default(self.reply_ping.unwrap_or(true));
         window.set_strip_tracking(self.strip_tracking.unwrap_or(true));
+        window.set_show_nameplates(self.nameplates.unwrap_or(true));
+        window.set_collapse_long(self.collapse_long);
         window.set_animate(choice(&ANIMATES, self.animate));
         ANIMATE.set(self.animate);
+        self.show_cosmetics(window);
         show_motion(window);
         window.set_unmute_on_join(self.unmute_on_join.unwrap_or(true));
         window.set_deafen_on_join(self.deafen_on_join);
@@ -1154,6 +1651,9 @@ impl Layout {
         yapfast_core::noise::set_strength(self.noise_strength);
         window.set_dereverb(self.reduce_room_echo);
         yapfast_core::noise::set_dereverb(self.reduce_room_echo);
+        window.set_windows_effects_choice(cfg!(windows));
+        window.set_windows_effects(self.windows_microphone_effects);
+        yapfast_core::set_windows_effects(self.windows_microphone_effects);
         let sensitivity = self.sensitivity();
         window.set_sensitivity(sensitivity);
         yapfast_core::noise::set_sensitivity(sensitivity as f32);
@@ -1168,6 +1668,9 @@ impl Layout {
         );
         window.set_talk_delay(self.release_delay() as i32);
         yapfast_core::push_to_talk::set_release_delay(self.release_delay());
+        window.set_microphone_volume(self.microphone_volume.unwrap_or(100).into());
+        window.set_speaker_volume(self.speaker_volume.unwrap_or(100).into());
+        play_call_volumes(window);
         for (person, volume) in &self.volumes {
             yapfast_core::volume::set(yapfast_core::volume::Kind::Voice, person, *volume);
         }
@@ -1176,6 +1679,9 @@ impl Layout {
         }
         for person in &self.muted_people {
             yapfast_core::volume::mute(person, true);
+        }
+        for person in &self.soundboard_muted_people {
+            yapfast_core::volume::mute_soundboard(person, true);
         }
         window.set_share_typing(self.share_typing.unwrap_or(true));
         window.set_notifications(self.notifications.unwrap_or(true));
@@ -1189,6 +1695,7 @@ impl Layout {
         yapfast_core::stream_worker::set_hardware_encoding(self.gpu_encoding.unwrap_or(true));
         window.set_close_to_tray(self.close_to_tray.unwrap_or(true));
         window.set_multiple_windows(self.multiple_windows);
+        window.set_developer_mode(self.developer_mode);
         title_bar::show(window, self.system_title_bar);
         let each: Vec<i32> = Sound::ALL
             .iter()
@@ -1198,8 +1705,17 @@ impl Layout {
     }
 
     /// A message's row as these preferences show it: its time on the chosen clock, with its
-    /// date when it's from another day, and its link previews only when they're on.
+    /// date when it's from another day, its link previews only when they're on, and its
+    /// author's name style and server tag only as the profile switches let them show.
     fn restyle(&self, message: &ChatMessage, mut row: MessageRow) -> MessageRow {
+        let cosmetics = self.cosmetics();
+        if !cosmetics.name_styles {
+            row.name_style = ModelRc::default();
+        }
+        if !cosmetics.server_tags {
+            row.tag = SharedString::default();
+            row.tag_badge = SharedString::default();
+        }
         if message.timestamp != 0 {
             let (twelve_hour, with_seconds) = (self.twelve_hour_clock, self.clock_seconds);
             let now = yapfast_core::clock::now_ms() / 1000;
@@ -1268,6 +1784,10 @@ struct Models {
     /// The messages of the thread beside the open channel.
     aside_messages: Rc<VecModel<MessageRow>>,
     roster: Rc<VecModel<MemberRow>>,
+    /// What the members are doing, in the panel above the member list.
+    roster_activity: Rc<VecModel<MemberActivityRow>>,
+    /// What waits in the title bar's inbox, while it is open.
+    inbox: Rc<VecModel<InboxRow>>,
     mentions: Rc<VecModel<MentionRow>>,
     new_dm_people: Rc<VecModel<ContactRow>>,
     /// The open DM's pinned messages, what its search found, and the
@@ -1291,13 +1811,25 @@ struct Models {
     bar_reactions: Rc<VecModel<EmojiCell>>,
     menu_reactions: Rc<VecModel<EmojiCell>>,
     emoji_rows: Rc<VecModel<EmojiRow>>,
+    /// What the picker's grid draws of `emoji_rows`: the emoji and headings
+    /// of the rows in sight and a row or two around them; see `emoji_grid`.
+    emoji_tiles: Rc<VecModel<EmojiTile>>,
+    emoji_headings: Rc<VecModel<EmojiRow>>,
     /// The picker's sidebar, built with the grid it jumps through.
     emoji_sections: Rc<VecModel<EmojiSection>>,
     emoji_suggestions: Rc<VecModel<EmojiCell>>,
-    forward_targets: Rc<VecModel<ForwardRow>>,
+    forward_targets: Rc<VecModel<PlaceRow>>,
+    switcher_places: Rc<VecModel<PlaceRow>>,
     participants: Rc<VecModel<PersonRow>>,
     /// The GIF picker's tiles.
     gif_tiles: Rc<VecModel<GifTile>>,
+    /// The sticker picker's tiles: its stickers and their collections'
+    /// headings.
+    sticker_tiles: Rc<VecModel<StickerGridTile>>,
+    /// The collections down each picker's left, which its rail jumps to: the
+    /// emoji picker's and the sticker picker's, the same rail's.
+    sticker_sections: Rc<VecModel<RailSection>>,
+    emoji_rail: Rc<VecModel<RailSection>>,
     /// Who watches this account's stream, and the one it watches, as rows of
     /// `participants`.
     share_viewers: Rc<VecModel<PersonRow>>,
@@ -1308,6 +1840,12 @@ struct Models {
     stream_tiles: Rc<VecModel<i32>>,
     /// Who is in the open DM's call, shown above its messages.
     call_people: Rc<VecModel<PersonRow>>,
+    /// The call's soundboard: headings and rows of sounds.
+    soundboard_rows: Rc<VecModel<SoundRow>>,
+    /// The sounds Settings offers as an entrance sound, likewise, and the
+    /// servers to choose one for.
+    entrance_rows: Rc<VecModel<SoundRow>>,
+    entrance_servers: Rc<VecModel<SharedString>>,
     /// Discord friends: all of them, and those around.
     friends: Rc<VecModel<FriendRow>>,
     friends_online: Rc<VecModel<FriendRow>>,
@@ -1318,6 +1856,9 @@ struct Models {
     microphones: Rc<VecModel<SharedString>>,
     speakers: Rc<VecModel<SharedString>>,
     cameras: Rc<VecModel<SharedString>>,
+    /// Each device's name as last listed, by id, for a chosen device that
+    /// isn't connected; see [`device_rows`].
+    device_names: HashMap<String, SharedString>,
     staged: Rc<VecModel<StagedFile>>,
     aside_staged: Rc<VecModel<StagedFile>>,
 }
@@ -1332,6 +1873,8 @@ impl Models {
         window.set_messages(ModelRc::from(self.messages.clone()));
         window.set_aside_messages(ModelRc::from(self.aside_messages.clone()));
         window.set_roster(ModelRc::from(self.roster.clone()));
+        window.set_roster_activity(ModelRc::from(self.roster_activity.clone()));
+        window.set_inbox_rows(ModelRc::from(self.inbox.clone()));
         window.set_mentions(ModelRc::from(self.mentions.clone()));
         window.set_new_dm_people(ModelRc::from(self.new_dm_people.clone()));
         window.set_pins(ModelRc::from(self.pins.clone()));
@@ -1348,16 +1891,25 @@ impl Models {
         window.set_bar_reactions(ModelRc::from(self.bar_reactions.clone()));
         window.set_menu_reactions(ModelRc::from(self.menu_reactions.clone()));
         window.set_emoji_rows(ModelRc::from(self.emoji_rows.clone()));
+        window.set_emoji_tiles(ModelRc::from(self.emoji_tiles.clone()));
+        window.set_emoji_headings(ModelRc::from(self.emoji_headings.clone()));
         window.set_emoji_sections(ModelRc::from(self.emoji_sections.clone()));
         window.set_emoji_suggestions(ModelRc::from(self.emoji_suggestions.clone()));
         window.set_forward_targets(ModelRc::from(self.forward_targets.clone()));
+        window.set_switcher_places(ModelRc::from(self.switcher_places.clone()));
         window.set_participants(ModelRc::from(self.participants.clone()));
         window.set_gif_tiles(ModelRc::from(self.gif_tiles.clone()));
+        window.set_sticker_tiles(ModelRc::from(self.sticker_tiles.clone()));
+        window.set_sticker_sections(ModelRc::from(self.sticker_sections.clone()));
+        window.set_emoji_rail_sections(ModelRc::from(self.emoji_rail.clone()));
         window.set_share_viewers(ModelRc::from(self.share_viewers.clone()));
         window.set_watch_viewers(ModelRc::from(self.watch_viewers.clone()));
         window.set_participant_frames(ModelRc::from(self.participant_frames.clone()));
         window.set_stream_tiles(ModelRc::from(self.stream_tiles.clone()));
         window.set_call_people(ModelRc::from(self.call_people.clone()));
+        window.set_soundboard_rows(ModelRc::from(self.soundboard_rows.clone()));
+        window.set_entrance_rows(ModelRc::from(self.entrance_rows.clone()));
+        window.set_entrance_servers(ModelRc::from(self.entrance_servers.clone()));
         window.set_friends(ModelRc::from(self.friends.clone()));
         window.set_friends_online(ModelRc::from(self.friends_online.clone()));
         window.set_blocked_people(ModelRc::from(self.blocked.clone()));
@@ -1370,13 +1922,39 @@ impl Models {
     }
 }
 
+/// A kind of Discord channel's icon, alone and with a lock or a warning
+/// sign at its top right, as Discord's client marks a channel @everyone is
+/// kept out of and an age-restricted one.
+struct ChannelIcon {
+    plain: slint::Image,
+    private: slint::Image,
+    age_restricted: slint::Image,
+}
+
+impl ChannelIcon {
+    fn load(plain: &[u8], private: &[u8], age_restricted: &[u8]) -> Result<Self> {
+        Ok(Self {
+            plain: slint::Image::load_from_svg_data(plain)?,
+            private: slint::Image::load_from_svg_data(private)?,
+            age_restricted: slint::Image::load_from_svg_data(age_restricted)?,
+        })
+    }
+}
+
 struct Icons {
     dm: slint::Image,
     chat: slint::Image,
-    text: slint::Image,
+    text: ChannelIcon,
+    /// A boxed ID, for Copy ID.
+    id: slint::Image,
     thread: slint::Image,
-    forum: slint::Image,
-    voice: slint::Image,
+    forum: ChannelIcon,
+    voice: ChannelIcon,
+    announcement: ChannelIcon,
+    media: ChannelIcon,
+    /// A stage channel's, which Discord doesn't mark age-restricted.
+    stage: ChannelIcon,
+    rules: slint::Image,
     lock: slint::Image,
     read: slint::Image,
     call: slint::Image,
@@ -1419,6 +1997,7 @@ struct Icons {
     leave: slint::Image,
     // Someone's menu in a voice channel.
     mic_off: slint::Image,
+    soundboard: slint::Image,
     deafen: slint::Image,
     move_to: slint::Image,
     disconnect: slint::Image,
@@ -1431,6 +2010,14 @@ struct Adapter {
     runtime: Arc<BackgroundRuntime>,
     root: PathBuf,
     layout: Layout,
+    /// What About knows of newer releases.
+    updates: updates::State,
+    /// The rows of the emoji picker's grid that may hold pictures it drew, first
+    /// and last: see `fill_shown_glyphs`.
+    emoji_rows_filled: (usize, usize),
+    /// Which of the picker's rows it shows, and which emoji each of its
+    /// buttons is showing.
+    emoji_grid: emoji_grid::EmojiGrid,
     app: Application,
     models: Models,
     icons: Icons,
@@ -1438,11 +2025,18 @@ struct Adapter {
     window: slint::Weak<YapfastWindow>,
     away: away::Away,
     call_timer: call_timer::CallTimer,
-    /// Ticks ActivityClock while a profile on screen times an activity.
+    /// Ticks ActivityClock while a profile on screen times an activity, or
+    /// the channel list a busy voice channel's call.
     activity_clock: slint::Timer,
+    /// A row of the channel list counts a voice channel's call time.
+    voice_timed: bool,
     navigation: Navigation,
     /// Whether the forward dialog was open at the last refresh.
     forwarding: bool,
+    /// What the message menu's Apps rows were built for: the room and its
+    /// command index, by address, and the app icons they still lack. A
+    /// menu opening builds them again; see `show_app_menu_commands`.
+    app_menu: Option<(String, usize, Vec<String>)>,
     selection_version: u64,
     /// The conversation just shown was still loading, when its composer is
     /// disabled and takes no focus; it takes it once the messages come.
@@ -1455,22 +2049,42 @@ struct Adapter {
     /// The same for the thread beside the open channel.
     aside_messages: Arc<Vec<Arc<ChatMessage>>>,
     aside_rows: Vec<MessageRow>,
+    /// The width the thread beside the channel last fitted its rows to.
+    aside_fit: i32,
     /// The thread's rows are built again at its next showing, as the
     /// timeline's were.
     aside_restyle: bool,
     /// What the sidebar showed last, so it's built again only once that changes.
     sidebar: Option<SidebarShown>,
+    /// What the member list showed last, so it's built again only once that changes.
+    roster_shown: Option<RosterShown>,
+    /// Runs for [`ROSTER_PAUSE`] after the member list was built; see
+    /// `show_members`.
+    roster_due: slint::Timer,
+    /// Whether the member list changed while `roster_due` ran, to show
+    /// once it ends.
+    roster_held: bool,
+    /// The account's own profile its card showed last, so the card is built
+    /// again only once that or one of its pictures changes.
+    account_profile_shown: Option<AccountCardShown>,
+    /// What the quick switcher listed last, while it's open.
+    switcher: Option<SwitcherShown>,
     /// The room ids of the rows a Discord server's channel list drags and
     /// drops, by their places; see RoomRow.
     places: Vec<String>,
     /// The channel or category being dragged there, by room id.
     arranging: Option<String>,
+    /// Someone being dragged from a voice channel to another, by the
+    /// channel's room id and their user id.
+    moving_person: Option<(String, String)>,
     /// The voice channel of the call the rail last showed, so a voice event
     /// builds the rail again only when the call moves.
     rail_call: Option<String>,
     /// A hash of what the friends picker's rows were built from, so they're
     /// built again only once that changes.
     picker_shown: Option<u64>,
+    /// The bot picker rows last shown; unchanged syncs keep their widgets.
+    bot_select_shown: Option<u64>,
     /// The same for the list of threads, and the minute it was built in,
     /// as its rows say how long ago each was active.
     threads_shown: Option<u64>,
@@ -1484,6 +2098,12 @@ struct Adapter {
     post_tags_shown: Option<(Vec<yapfast_core::chat::ForumTag>, Vec<String>)>,
     /// Shows pictures that arrived, together with those that follow them closely.
     pictures_due: slint::Timer,
+    /// A custom emoji's picture arrived for the emoji picker, shown with
+    /// those that come a few frames after it.
+    emoji_due: slint::Timer,
+    /// A layout change waiting to be written; see [`Adapter::write_layout_soon`].
+    layout_due: slint::Timer,
+    layout_dirty: bool,
     /// Writes the layout once the window holds still after moving or resizing.
     placement_due: slint::Timer,
     /// Stream ticks without a new picture of a video that isn't playing,
@@ -1494,8 +2114,22 @@ struct Adapter {
     video_cell: Cell<(u32, u32)>,
     /// Server icons and avatars already handed to Slint, by address.
     pictures: HashMap<String, slint::Image>,
+    /// The emoji the open card shows, so the card is built again as what
+    /// Discord says of its server arrives.
+    emoji_card: Option<emoji_text::Target>,
+    /// Pictures a picker's tiles draw, shown together once they settle.
+    picker_due: slint::Timer,
+    /// The sticker whose card is open, by its message's item and its
+    /// attachment's index.
+    sticker_card: Option<(String, usize)>,
+    /// The animated emoji on screen: the frames they need and the clock they
+    /// draw from, which stops while the window is unfocused, idle or minimised.
+    animations: emoji_animation::Animations,
     /// `AppState::picture_changes` when the message rows were last built.
     pictures_seen: u64,
+    /// `AppState::picture_changes` when `PictureStore` last caught up with
+    /// it; none before the first refresh.
+    pictures_sourced: Option<u64>,
     /// The last jump to a message the timeline made; see `AppState::jump`.
     jumped: Option<(String, u64)>,
     /// `AppState::unread_jump` when the timeline last brought the first
@@ -1518,7 +2152,7 @@ struct Adapter {
     /// Where the `@` of the word being mentioned is in the composer text.
     mention_at: Option<usize>,
     /// What the composer's mentions were last coloured for.
-    mentions_marked: Option<refresh::MentionsMarked>,
+    mentions_marked: [Option<refresh::MentionsMarked>; i_slint_core::yapfast_marks::SLOTS],
     /// Suggestions for the `@` here were closed with Escape; they stay closed until
     /// the cursor leaves the word.
     mention_dismissed: Option<usize>,
@@ -1526,6 +2160,13 @@ struct Adapter {
     emoji_word: Option<(usize, String)>,
     /// Like `mention_dismissed`, for the `:` here.
     emoji_dismissed: Option<usize>,
+    /// The composer typed in last, which the suggestions are for.
+    suggesting: Field,
+    /// The cursor's byte offset in the text of the message being edited.
+    edit_caret: Option<usize>,
+    /// The message whose field was last given the keys, so a new edit's
+    /// starts with its cursor after the text.
+    edit_focused: Option<(String, String)>,
     /// The room whose composer last reported its cursor, and the cursor's byte
     /// offset, where the picker's emoji go.
     caret: Option<(String, usize)>,
@@ -1545,6 +2186,15 @@ struct Adapter {
     preview_camera: Option<yapfast_core::camera::Camera>,
     /// Whose camera picture each place in the call's grid holds.
     frame_ids: Vec<String>,
+    /// The soundboard's sounds as its rows show them, and the pictures'
+    /// revision then, so the rows are made again only when either changes.
+    soundboard_shown: Option<(Arc<[voice::SoundGroup]>, u64)>,
+    /// The same for the entrance sounds Settings offers; the servers it
+    /// offers them for, "All servers" first as none; and the soundboard
+    /// volume shown, so the slider moves only when Discord's does.
+    entrance_shown: Option<(Arc<[voice::SoundGroup]>, u64)>,
+    entrance_servers: Vec<Option<String>>,
+    soundboard_volume_shown: Option<f32>,
     /// Where the call's tiles are, as the grid last said.
     tiles: Option<Tiles>,
     /// The call's tile shown large, and whose stream was watched when the
@@ -1581,9 +2231,43 @@ struct Adapter {
     link_code: Option<(String, slint::Image)>,
     /// What the GIF picker's grid shows.
     gifs: gifs::Shown,
+    /// What the sticker picker's grid shows.
+    stickers: stickers::Shown,
+    /// A Discord link handed to this start before Discord is online.
+    pending_link: Option<String>,
+}
+
+/// A place text is typed in: the channel's composer, the thread's beside it,
+/// or the field of the message being edited, in its row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Field {
+    Channel,
+    Aside,
+    Edit,
 }
 
 impl Adapter {
+    /// What `field` holds.
+    fn composer_text(&self, field: Field) -> String {
+        let state = &self.app.state;
+        match field {
+            Field::Channel => state.draft(),
+            Field::Aside => state.aside_draft(),
+            Field::Edit => state.edit().map_or("", |edit| edit.text.as_str()),
+        }
+        .to_owned()
+    }
+
+    /// Puts `text` in `field`.
+    fn set_composer_text(&mut self, window: &YapfastWindow, field: Field, text: String) {
+        let action = match field {
+            Field::Channel => Action::SetDraft(text),
+            Field::Aside => Action::SetAsideDraft(text),
+            Field::Edit => Action::SetEditText(text),
+        };
+        self.action(window, action);
+    }
+
     fn new(
         runtime: Arc<BackgroundRuntime>,
         root: PathBuf,
@@ -1594,12 +2278,39 @@ impl Adapter {
             chat: slint::Image::load_from_svg_data(include_bytes!(
                 "../ui/icons/message-square-text.svg"
             ))?,
-            text: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/hash.svg"))?,
+            text: ChannelIcon::load(
+                include_bytes!("../ui/icons/hash.svg"),
+                include_bytes!("../ui/icons/hash-lock.svg"),
+                include_bytes!("../ui/icons/hash-warning.svg"),
+            )?,
+            id: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/id-filled.svg"))?,
             thread: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/thread.svg"))?,
-            forum: slint::Image::load_from_svg_data(include_bytes!(
-                "../ui/icons/message-square-text.svg"
-            ))?,
-            voice: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/volume-2.svg"))?,
+            forum: ChannelIcon::load(
+                include_bytes!("../ui/icons/message-square-text.svg"),
+                include_bytes!("../ui/icons/message-square-text-lock.svg"),
+                include_bytes!("../ui/icons/message-square-text-warning.svg"),
+            )?,
+            voice: ChannelIcon::load(
+                include_bytes!("../ui/icons/volume-2.svg"),
+                include_bytes!("../ui/icons/volume-2-lock.svg"),
+                include_bytes!("../ui/icons/volume-2-warning.svg"),
+            )?,
+            announcement: ChannelIcon::load(
+                include_bytes!("../ui/icons/megaphone.svg"),
+                include_bytes!("../ui/icons/megaphone-lock.svg"),
+                include_bytes!("../ui/icons/megaphone-warning.svg"),
+            )?,
+            media: ChannelIcon::load(
+                include_bytes!("../ui/icons/image.svg"),
+                include_bytes!("../ui/icons/image-lock.svg"),
+                include_bytes!("../ui/icons/image-warning.svg"),
+            )?,
+            stage: ChannelIcon::load(
+                include_bytes!("../ui/icons/stage.svg"),
+                include_bytes!("../ui/icons/stage-lock.svg"),
+                include_bytes!("../ui/icons/stage.svg"),
+            )?,
+            rules: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/rules.svg"))?,
             lock: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/lock.svg"))?,
             read: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/check.svg"))?,
             call: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/phone.svg"))?,
@@ -1646,6 +2357,9 @@ impl Adapter {
             delete: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/trash-2.svg"))?,
             leave: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/log-out.svg"))?,
             mic_off: slint::Image::load_from_svg_data(include_bytes!("../ui/icons/mic-off.svg"))?,
+            soundboard: slint::Image::load_from_svg_data(include_bytes!(
+                "../ui/icons/soundboard.svg"
+            ))?,
             deafen: slint::Image::load_from_svg_data(include_bytes!(
                 "../ui/icons/headphone-off.svg"
             ))?,
@@ -1660,6 +2374,35 @@ impl Adapter {
         layout.apply(window);
         let mut app = Application::default();
         app.remember_reaction_uses(layout.reactions.clone());
+        app.remember_sticker_favorites(
+            layout
+                .sticker_favorites
+                .iter()
+                .map(|kept| yapfast_core::chat::Sticker {
+                    id: kept.id.clone(),
+                    name: kept.name.clone(),
+                    format: kept.format,
+                    picture: kept.picture.clone(),
+                    usable: true,
+                })
+                .collect(),
+        );
+        app.remember_sticker_uses(
+            layout
+                .sticker_uses
+                .iter()
+                .map(|used| StickerUse {
+                    sticker: yapfast_core::chat::Sticker {
+                        id: used.id.clone(),
+                        name: used.name.clone(),
+                        format: used.format,
+                        picture: used.picture.clone(),
+                        usable: true,
+                    },
+                    uses: used.uses,
+                })
+                .collect(),
+        );
         app.dispatch(Action::ShowHiddenChannels(layout.show_hidden_channels));
         app.dispatch(Action::ShowProfilePanel(!layout.profile_panel_hidden));
         app.dispatch(Action::SyncDiscordReads(
@@ -1667,8 +2410,13 @@ impl Adapter {
         ));
         app.dispatch(Action::ReplyPing(layout.reply_ping.unwrap_or(true)));
         app.dispatch(Action::HideBlocked(layout.hide_blocked));
+        app.dispatch(Action::SkipCallPrompt(layout.skip_call_prompt));
+        app.dispatch(Action::ActivityCardsHidden(layout.activity_cards_hidden));
+        app.dispatch(Action::SetCosmetics(layout.cosmetics()));
         app.dispatch(Action::StripTracking(layout.strip_tracking.unwrap_or(true)));
+        app.dispatch(Action::HideNameplates(!layout.nameplates.unwrap_or(true)));
         app.dispatch(Action::SetPinned(layout.pinned.clone()));
+        let notifier = crate::notify::Notifier::start(open_from_notification, &root);
         Ok(Rc::new_cyclic(|weak| {
             RefCell::new(Self {
                 events: None,
@@ -1676,6 +2424,9 @@ impl Adapter {
                 runtime,
                 root,
                 layout,
+                updates: Default::default(),
+                emoji_rows_filled: (0, 0),
+                emoji_grid: Default::default(),
                 app,
                 models,
                 icons,
@@ -1684,29 +2435,46 @@ impl Adapter {
                 away: away::Away::default(),
                 call_timer: call_timer::CallTimer::default(),
                 activity_clock: slint::Timer::default(),
+                voice_timed: false,
                 navigation: Navigation::default(),
                 forwarding: false,
+                app_menu: None,
                 selection_version: 0,
                 focus_when_ready: false,
                 reset_version: 0,
                 messages: Arc::new(Vec::new()),
                 rows: Vec::new(),
                 sidebar: None,
+                roster_shown: None,
+                roster_due: slint::Timer::default(),
+                roster_held: false,
+                account_profile_shown: None,
+                switcher: None,
                 places: Vec::new(),
                 arranging: None,
+                moving_person: None,
                 rail_call: None,
                 picker_shown: None,
+                bot_select_shown: None,
                 threads_shown: None,
                 forum_shown: None,
                 topic_shown: None,
                 guidelines_shown: None,
                 post_tags_shown: None,
                 pictures_due: slint::Timer::default(),
+                emoji_due: slint::Timer::default(),
+                layout_due: slint::Timer::default(),
+                layout_dirty: false,
                 placement_due: slint::Timer::default(),
                 video_quiet: Cell::new(0),
                 video_cell: Cell::new((0, 0)),
                 pictures: HashMap::new(),
+                emoji_card: None,
+                picker_due: slint::Timer::default(),
+                sticker_card: None,
+                animations: emoji_animation::Animations::new(),
                 pictures_seen: 0,
+                pictures_sourced: None,
                 jumped: None,
                 unread_jumped: 0,
                 latest_due: false,
@@ -1715,15 +2483,19 @@ impl Adapter {
                 restyle: false,
                 theme_editor: None,
                 aside_messages: Arc::new(Vec::new()),
+                aside_fit: 0,
                 aside_rows: Vec::new(),
                 aside_restyle: false,
                 mention_at: None,
-                mentions_marked: None,
+                mentions_marked: [None, None, None],
                 mention_dismissed: None,
                 emoji_word: None,
                 emoji_dismissed: None,
+                suggesting: Field::Channel,
+                edit_caret: None,
+                edit_focused: None,
                 caret: None,
-                notifier: crate::notify::Notifier::start(open_from_notification),
+                notifier,
                 viewer_image: None,
                 viewer_size: None,
                 dialog: None,
@@ -1731,6 +2503,10 @@ impl Adapter {
                 camera_test: None,
                 preview_camera: None,
                 frame_ids: vec![],
+                soundboard_shown: None,
+                entrance_shown: None,
+                entrance_servers: vec![],
+                soundboard_volume_shown: None,
                 tiles: None,
                 call_focus: None,
                 watched: None,
@@ -1750,6 +2526,8 @@ impl Adapter {
                 #[cfg(feature = "discord")]
                 link_code: None,
                 gifs: gifs::Shown::default(),
+                stickers: stickers::Shown::default(),
+                pending_link: None,
             })
         }))
     }
@@ -1792,11 +2570,21 @@ impl Adapter {
         self.watch_talk_key(window);
     }
 
+    /// Shows whether Discord protocol links open here, as the desktop
+    /// has it rather than as a setting remembers it.
+    fn show_protocol(&self, window: &YapfastWindow) {
+        let offered = PROTOCOL.get();
+        window.set_discord_links_available(offered);
+        window.set_discord_links(offered && crate::protocol::discord_enabled(&self.root));
+    }
+
     /// Present the existing models and state in a new window.
     fn attach(&mut self, window: &YapfastWindow) {
         self.models.attach(window);
         self.layout.apply(window);
+        updates::show(window, &self.layout, &self.updates);
         self.watch_talk_key(window);
+        self.show_protocol(window);
         // The theme being edited goes unsaved with the old window, and rows
         // may carry its mention colour; the refresh after attaching builds
         // them again.
@@ -1999,7 +2787,10 @@ impl Adapter {
                             // Without a window, a call still rings, and the tray shows
                             // what's unread and offers Disconnect in a call.
                             match window {
-                                Some(window) => adapter.show(&window, reach),
+                                Some(window) => {
+                                    adapter.show(&window, reach);
+                                    adapter.open_pending_link(&window);
+                                }
                                 None => adapter.ring(),
                             }
                             adapter.show_tray();
@@ -2194,11 +2985,42 @@ impl Adapter {
         );
     }
 
+    /// Opens a Discord link handed to this start once Discord is online
+    /// and no dialog is open. Any app or web page can hand Yapfast a
+    /// link, so one never takes an open dialog's place: an Authorize or
+    /// Join click meant for what the dialog showed would otherwise land
+    /// on what the link opened instead. The opening is scheduled, as its
+    /// callback borrows this adapter.
+    fn open_pending_link(&mut self, window: &YapfastWindow) {
+        if !self.app.state.discord_online || self.app.state.dialog_open() {
+            return;
+        }
+        let Some(link) = self.pending_link.take() else {
+            return;
+        };
+        let window = window.as_weak();
+        slint::Timer::single_shot(Duration::ZERO, move || {
+            if let Some(window) = window.upgrade() {
+                window.invoke_open_link(link.into());
+            }
+        });
+    }
+
     fn action(&mut self, window: &YapfastWindow, action: Action) {
         // A keystroke in the composer changes only the composer, and one in
         // the profile editor only the editor; the rest of the window
         // stays as it is.
-        let composing = matches!(action, Action::SetDraft(_) | Action::MentionQuery(_));
+        let composing = matches!(
+            action,
+            Action::SetDraft(_) | Action::SetEditText(_) | Action::MentionQuery(_)
+        );
+        let bot_input = matches!(
+            action,
+            Action::SetModalField { .. }
+                | Action::SearchSelect(_)
+                | Action::ToggleSelect(_)
+                | Action::RemoveModalFile { .. }
+        );
         let profiling = matches!(action, Action::WriteProfile { .. });
         // Typing on Roles changes only the settings, too.
         let setting = matches!(
@@ -2220,12 +3042,24 @@ impl Adapter {
                 ChannelInput::Name(_) | ChannelInput::Topic(_) | ChannelInput::FindMembers(_)
             )
         );
+        // Pictures asked for change nothing on screen until they come.
+        let quiet = matches!(
+            action,
+            Action::LoadPicturesFirst(_)
+                | Action::KeepEmojiPictures(_)
+                | Action::CacheEmojiPictures
+        );
         let effects = self.app.dispatch(action);
         self.execute(effects);
+        if quiet {
+            return;
+        }
         if channel_setting {
             self.show_channel_settings(window);
         } else if composing {
             self.show_composer(window);
+        } else if bot_input {
+            self.show_bot_interactions(window);
         } else if profiling {
             self.show_profile_editor(window);
         } else if setting {
@@ -2234,6 +3068,8 @@ impl Adapter {
         } else {
             self.refresh(window);
         }
+        // A handed link may have waited for the dialog this closed.
+        self.open_pending_link(window);
     }
 
     /// Applies a backend event; the caller shows what it can have changed after.
@@ -2255,8 +3091,37 @@ impl Adapter {
     }
 }
 
+/// How long a layout change waits for the next before `layout.json` is
+/// written, so changes that come together write the file once.
+const LAYOUT_WRITE: Duration = Duration::from_millis(1000);
+
+impl Adapter {
+    /// Writes the layout once changes to it have stopped for [`LAYOUT_WRITE`]:
+    /// each change starts the wait over. Dropping the adapter writes one
+    /// still waiting.
+    fn write_layout_soon(&mut self) {
+        self.layout_dirty = true;
+        let weak = self.weak.clone();
+        self.layout_due
+            .start(slint::TimerMode::SingleShot, LAYOUT_WRITE, move || {
+                if let Some(adapter) = weak.upgrade() {
+                    adapter.borrow_mut().flush_layout();
+                }
+            });
+    }
+
+    /// Writes a layout change still waiting, at once.
+    fn flush_layout(&mut self) {
+        self.layout_due.stop();
+        if std::mem::take(&mut self.layout_dirty) {
+            self.layout.write(&self.root);
+        }
+    }
+}
+
 impl Drop for Adapter {
     fn drop(&mut self) {
+        self.flush_layout();
         self.stop_backend();
     }
 }
@@ -2356,7 +3221,7 @@ fn display_part(name: &str) -> &str {
         .map_or(name, |(local, _)| local)
 }
 
-/// A server icon shows the first letter of up to three words, as in "Co-op crew" → "Cc".
+/// A server icon shows the first letter of up to three words, as in "Co-op crew" → "CC", in capitals like Discord.
 fn initials(name: &str) -> SharedString {
     let mut words = name
         .split_whitespace()
@@ -2365,7 +3230,7 @@ fn initials(name: &str) -> SharedString {
         .next()
         .map(|first| first.to_uppercase().collect())
         .unwrap_or_else(|| "?".into());
-    text.extend(words.take(2).flat_map(char::to_lowercase));
+    text.extend(words.take(2).flat_map(char::to_uppercase));
     text.into()
 }
 
@@ -2403,6 +3268,19 @@ fn count_of(count: u64, one: &str, many: &str) -> String {
     format!("{count} {}", if count == 1 { one } else { many })
 }
 
+/// `count` with its thousands marked, as Discord writes "3,999".
+fn grouped(count: u64) -> String {
+    let digits = count.to_string();
+    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
+    for (at, digit) in digits.char_indices() {
+        if at > 0 && (digits.len() - at).is_multiple_of(3) {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    grouped
+}
+
 /// A status on one line, as Discord shows it under a name; the profile keeps
 /// its own line breaks.
 fn one_line(text: &str) -> String {
@@ -2423,9 +3301,6 @@ fn same_list<T: Clone + PartialEq + 'static>(old: &ModelRc<T>, new: ModelRc<T>) 
 const PROFILE_CARD_WIDTH: f32 = 300. - 2. * 16.;
 const PROFILE_LARGE_WIDTH: f32 = 600. - 2. * 24.;
 
-/// The most custom emoji the picker fetches pictures for at once.
-const MAX_PICKER_EMOJI: usize = 600;
-
 /// How many emoji the composer suggests for a `:name` word.
 const EMOJI_SUGGESTIONS: usize = 10;
 
@@ -2442,6 +3317,10 @@ fn initial(text: &str) -> SharedString {
 }
 
 /// WebRTC names its default entry "default: Device"; show it as "Default (Device)".
+/// How a PulseAudio device list's default entry's id starts: the default
+/// device's name, as WebRTC lists it, after `default: `.
+const DEFAULT_DEVICE: &str = "name:default: ";
+
 fn device_label(name: &str) -> SharedString {
     match name.strip_prefix("default: ") {
         Some(device) => format!("Default ({device})").into(),
@@ -2449,15 +3328,91 @@ fn device_label(name: &str) -> SharedString {
     }
 }
 
-/// Without a choice, voice uses WebRTC's default device, which it lists first.
-fn device_index(devices: &[voice::Device], selected: Option<&str>) -> i32 {
-    let index = match selected {
-        Some(selected) => devices.iter().position(|device| device.id == selected),
+/// A device picker's rows, and the chosen one's index. Without a choice,
+/// voice uses WebRTC's default device, which it lists first. A chosen device
+/// that isn't connected, such as Bluetooth headphones that went away, shows
+/// last as not connected, by the name it was last listed with, rather than
+/// as no device or as another one. `names` keeps those names. The default
+/// entry's id names the device that was the default, and the default it
+/// plays on may have changed since, so it stays the default entry.
+fn device_rows(
+    devices: &[voice::Device],
+    chosen: Option<&str>,
+    names: &mut HashMap<String, SharedString>,
+) -> (Vec<SharedString>, i32) {
+    let mut rows: Vec<SharedString> = devices
+        .iter()
+        .map(|device| device_label(&device.name))
+        .collect();
+    for (device, row) in devices.iter().zip(&rows) {
+        if names.get(&device.id) != Some(row) {
+            names.insert(device.id.clone(), row.clone());
+        }
+    }
+    let index = match chosen {
         None => (!devices.is_empty()).then_some(0),
+        Some(chosen) => Some(
+            devices
+                .iter()
+                .position(|device| device.id == chosen)
+                .or_else(|| {
+                    let default = |id: &str| id.starts_with(DEFAULT_DEVICE);
+                    default(chosen)
+                        .then(|| devices.iter().position(|device| default(&device.id)))
+                        .flatten()
+                })
+                .unwrap_or_else(|| {
+                    let name = names
+                        .get(chosen)
+                        .cloned()
+                        .or_else(|| chosen.strip_prefix(voice::NAMED).map(device_label))
+                        .unwrap_or_else(|| "Chosen device".into());
+                    rows.push(format!("{name} (not connected)").into());
+                    rows.len() - 1
+                }),
+        ),
     };
-    index
+    let index = index
         .and_then(|index| i32::try_from(index).ok())
-        .unwrap_or(-1)
+        .unwrap_or(-1);
+    (rows, index)
+}
+
+/// Repaints the popup on top and the shadow around it, telling Slint they're
+/// dirty: it repaints the regions it is told of otherwise, which a popup's
+/// contents moving or resizing leaves short of the shadow they draw outside
+/// it. A popup in a window of its own repaints the window whole.
+fn repaint_popup(window: &YapfastWindow) {
+    use i_slint_core::lengths::{LogicalPoint, LogicalRect, LogicalSize};
+    use i_slint_core::window::{PopupWindowLocation, WindowInner};
+    /// How far a popup's shadow reaches past it: its 24px blur and 8px drop.
+    const SHADOW: f32 = 32.;
+    let native = window.window();
+    let inner = WindowInner::from_pub(native);
+    let size = native.size().to_logical(native.scale_factor());
+    let whole = LogicalRect::new(
+        LogicalPoint::new(0., 0.),
+        LogicalSize::new(size.width, size.height),
+    );
+    let dirty = inner
+        .active_popups()
+        .last()
+        .and_then(|popup| match &popup.location {
+            PopupWindowLocation::ChildWindow(place) => {
+                let geometry = i_slint_core::item_tree::ItemTreeRc::borrow_pin(&popup.component)
+                    .as_ref()
+                    .item_geometry(0);
+                Some(LogicalRect::new(*place, geometry.size).inflate(SHADOW, SHADOW))
+            }
+            PopupWindowLocation::TopLevel(_) => None,
+        })
+        .and_then(|popup| popup.intersection(&whole))
+        .unwrap_or(whole);
+    inner
+        .window_adapter()
+        .renderer()
+        .mark_dirty_region(i_slint_core::partial_renderer::DirtyRegion::from(dirty));
+    native.request_redraw();
 }
 
 fn update_model<T: Clone + PartialEq + 'static>(model: &VecModel<T>, rows: Vec<T>) {
@@ -2472,6 +3427,72 @@ fn update_model<T: Clone + PartialEq + 'static>(model: &VecModel<T>, rows: Vec<T
     }
     for row in rows.into_iter().skip(common) {
         model.push(row);
+    }
+}
+
+/// Shows `rows` on the model's rows as on slots, each named by its key: a row
+/// that a slot already shows stays in it, and is set only where it changed; one
+/// new takes the slot of one gone. `slots` names the key each slot shows. So a
+/// grid given the tiles in sight sets the slots of those that scrolled in, and
+/// its elements stay, where a model shifted along would set every row, and a
+/// list view would make the new ones and drop the old.
+fn update_model_by_slot<K: Copy + Eq + std::hash::Hash, T: Clone + PartialEq + 'static>(
+    model: &VecModel<T>,
+    slots: &mut Vec<K>,
+    rows: Vec<(K, T)>,
+) {
+    // A model set apart from the slots, as one emptied, starts them over.
+    if slots.len() != model.row_count() {
+        slots.clear();
+        model.set_vec(Vec::new());
+    }
+    let wanted: HashMap<K, usize> = rows
+        .iter()
+        .enumerate()
+        .map(|(index, (key, _))| (*key, index))
+        .collect();
+    let mut placed = vec![false; rows.len()];
+    let mut free = Vec::new();
+    for (slot, key) in slots.iter().enumerate() {
+        match wanted.get(key) {
+            Some(&index) if !placed[index] => {
+                placed[index] = true;
+                if model.row_data(slot).as_ref() != Some(&rows[index].1) {
+                    model.set_row_data(slot, rows[index].1.clone());
+                }
+            }
+            _ => free.push(slot),
+        }
+    }
+    let mut free = free.into_iter();
+    for ((key, row), placed) in rows.into_iter().zip(placed) {
+        if placed {
+            continue;
+        }
+        if let Some(slot) = free.next() {
+            slots[slot] = key;
+            model.set_row_data(slot, row);
+        } else {
+            slots.push(key);
+            model.push(row);
+        }
+    }
+    // Slots left over go from the end, the last ones moving into those left
+    // empty before them.
+    let mut left: std::collections::VecDeque<usize> = free.collect();
+    while let Some(&hole) = left.front() {
+        let last = slots.len() - 1;
+        if left.back() == Some(&last) {
+            left.pop_back();
+        } else {
+            slots[hole] = slots[last];
+            if let Some(row) = model.row_data(last) {
+                model.set_row_data(hole, row);
+            }
+            left.pop_front();
+        }
+        slots.pop();
+        model.remove(last);
     }
 }
 

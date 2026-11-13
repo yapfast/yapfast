@@ -12,7 +12,7 @@ import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
 WORK = ROOT / '.local/windows/skia-static-production'
-KEY = 'b7f043e0b1e2a850e702-x86_64-pc-windows-msvc-d3d-ganesh-gl-jpegd-jpege-pdf-static'
+KEY = '30669978c3f39a73e8a7-x86_64-pc-windows-msvc-d3d-ganesh-gl-jpegd-jpege-pdf-static'
 PACKAGE = 'skia-binaries-' + KEY + '.tar.gz'
 
 
@@ -38,14 +38,17 @@ def main():
     if '21.1.7' not in compiler:
         raise SystemExit('Windows Skia requires pinned Clang 21.1.7')
     inputs = {
-        'skia_source': str(source), 'skia_revision': '61e7ca4e99062cdd0ab69445d5963fb3365778f6',
+        'skia_source': str(source), 'skia_revision': '6a8fe80eadfac737c12e64229a1b9530bc78f3d1',
         'compiler': compiler, 'clang': str(clang), 'lld': str(lld), 'headers': str(headers),
         'xwin': str(xwin), 'helper_sha256': digest(__file__),
         'namespace_helper_sha256': digest(ROOT / 'nix/prepare-skia-native.py'),
         'builder_lock_sha256': digest(ROOT / 'nix/skia-windows-builder/Cargo.lock'),
         'builder_manifest_sha256': digest(ROOT / 'nix/skia-windows-builder/Cargo.toml'),
-        'crt': 'MT_StaticRelease', 'trivial_abi': False, 'ninja_jobs': 2,
+        'crt': 'MT_StaticRelease', 'trivial_abi': False,
     }
+    # Two jobs fit a CI runner's memory; a bigger machine sets more with
+    # YAPFAST_SKIA_JOBS. The count doesn't change what's built.
+    jobs = max(1, int(os.environ.get('YAPFAST_SKIA_JOBS', '2')))
     sdk_files = [(str(p.relative_to(xwin)), p.stat().st_size, p.stat().st_mtime_ns)
                  for p in sorted(xwin.rglob('*')) if p.is_file()]
     inputs['sdk_fingerprint'] = hashlib.sha256(json.dumps(sdk_files).encode()).hexdigest()
@@ -71,7 +74,7 @@ def main():
     link(llvm / 'bin/lld-link', lld)
     link(llvm / 'lib/clang/21/include', headers)
     ninja = WORK / 'ninja'
-    ninja.write_text('#!/bin/sh\nexec "' + shutil.which('ninja') + '" -j2 "$@"\n')
+    ninja.write_text('#!/bin/sh\nexec "' + shutil.which('ninja') + f'" -j{jobs} "$@"\n')
     ninja.chmod(0o755)
     args = ' '.join([
         'target_os="win"', 'target_cpu="x64"',
@@ -87,7 +90,7 @@ def main():
     for name in ['SKIA_BINARIES_URL', 'SKIA_DEBUG', 'SKIA_LIB_SEARCH_PATH',
                  'SKIA_USE_SYSTEM_LIBRARIES']:
         env.pop(name, None)
-    print('Building pinned Windows Skia with /MT (two native jobs)', file=sys.stderr)
+    print(f'Building pinned Windows Skia with /MT ({jobs} native jobs)', file=sys.stderr)
     result = subprocess.run(['cargo', 'xwin', 'build', '--locked', '--manifest-path',
                              str(ROOT / 'nix/skia-windows-builder/Cargo.toml'),
                              '--target', 'x86_64-pc-windows-msvc',
@@ -96,7 +99,7 @@ def main():
     messages = [json.loads(line) for line in result.stdout.splitlines() if line.startswith('{')]
     outputs = [Path(m['out_dir']) / 'skia' for m in messages
                if m.get('reason') == 'build-script-executed'
-               and '#skia-bindings@0.153.3' in m.get('package_id', '')]
+               and '#skia-bindings@0.157.0' in m.get('package_id', '')]
     if len(outputs) != 1:
         raise SystemExit('Could not identify the pinned Skia build output')
     native = WORK / 'export/skia-binaries'
@@ -107,7 +110,7 @@ def main():
         shutil.copy2(outputs[0] / name, native / name)
     shutil.copy2(source / 'LICENSE', native / 'LICENSE_SKIA')
     (native / 'key.txt').write_text(KEY)
-    (native / 'tag.txt').write_text('0.153.3')
+    (native / 'tag.txt').write_text('0.157.0')
     raw = WORK / PACKAGE
     with raw.open('wb') as out:
         with gzip.GzipFile(filename='', mode='wb', fileobj=out, mtime=0) as compressed:

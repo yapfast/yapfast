@@ -8,6 +8,9 @@ use crate::{message, ready};
 
 /// A forum's channel type.
 pub const GUILD_FORUM: u64 = 15;
+/// A media channel's: a forum whose posts Discord's client shows as a
+/// gallery, with the same fields.
+pub const GUILD_MEDIA: u64 = 16;
 
 /// A forum channel's flag that each post takes a tag.
 const REQUIRE_TAG: u64 = 1 << 4;
@@ -71,9 +74,10 @@ impl Emoji {
     }
 }
 
-/// What a forum channel object says of its posts; none for another channel.
+/// What a forum or media channel object says of its posts; none for
+/// another channel.
 pub fn parse(channel: &Value) -> Option<Box<Forum>> {
-    if channel["type"].as_u64() != Some(GUILD_FORUM) {
+    if !matches!(channel["type"].as_u64(), Some(GUILD_FORUM | GUILD_MEDIA)) {
         return None;
     }
     let tags = channel["available_tags"]
@@ -238,6 +242,8 @@ mod tests {
         assert!(parse(&json!({"id": "2", "type": 0})).is_none());
         let plain = parse(&json!({"id": "3", "type": 15})).unwrap();
         assert!(!plain.require_tag && !plain.by_creation && plain.reaction.is_none());
+        let media = parse(&json!({"id": "4", "type": 16, "flags": 16})).unwrap();
+        assert!(media.require_tag);
     }
 
     #[test]

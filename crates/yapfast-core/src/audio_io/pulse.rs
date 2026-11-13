@@ -16,6 +16,34 @@ use libpulse_simple_binding::Simple;
 use super::Format;
 use crate::voice::NAMED;
 
+/// Real-time priority for Yapfast's audio threads: above every ordinary
+/// thread, and below PipeWire's own, which run at 88 or more. A
+/// microphone's thread runs a step below those that play.
+const REALTIME: i32 = 10;
+
+/// Says how it raised the calling thread, or why it couldn't.
+pub fn raise_priority(priority: super::Priority) -> Result<&'static str, String> {
+    let (sched_priority, how) = match priority {
+        super::Priority::Playback => (REALTIME, "SCHED_FIFO 10"),
+        super::Priority::Capture => (REALTIME - 1, "SCHED_FIFO 9"),
+    };
+    let param = libc::sched_param { sched_priority };
+    // SAFETY: 0 is the calling thread, and `param` outlives the call. Threads
+    // it starts later begin at normal priority again.
+    let raised = unsafe {
+        libc::sched_setscheduler(0, libc::SCHED_FIFO | libc::SCHED_RESET_ON_FORK, &param)
+    };
+    if raised != 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    Ok(how)
+}
+
+/// Linux neither throttles a background window's process nor needs a
+/// finer timer.
+#[cfg(feature = "discord")]
+pub fn full_speed(_: bool) {}
+
 pub struct Output(Simple);
 
 impl Output {
@@ -143,14 +171,44 @@ fn device(id: Option<&str>, sink: bool) -> Result<Option<String>> {
     }
     list(sink)?
         .into_iter()
-        .find(|(_, found)| found == description)
-        .map(|(name, _)| Some(name))
+        .find(|found| found.description == description)
+        .map(|found| Some(found.name))
         .context("device not found")
 }
 
-/// Every sink, or every source that is not a monitor, as its name and
-/// description.
-fn list(sinks: bool) -> Result<Vec<(String, String)>> {
+/// The sink or source a stream for `id` would open now, by its name and
+/// index, which a device gets anew each time it comes back: the server moves
+/// a stream to another device when its own goes away, and leaves it there
+/// when that returns. Empty for the default, which streams follow anyway.
+#[cfg(feature = "discord")]
+pub fn endpoint(id: Option<&str>, sink: bool) -> String {
+    let Some(description) = id
+        .and_then(|id| id.strip_prefix(NAMED))
+        .filter(|description| !description.starts_with("default: "))
+    else {
+        return String::new();
+    };
+    list(sink)
+        .ok()
+        .and_then(|devices| {
+            devices
+                .into_iter()
+                .find(|found| found.description == description)
+        })
+        .map(|found| format!("{}#{}", found.name, found.index))
+        .unwrap_or_default()
+}
+
+/// A sink or source as the server lists it.
+struct Listed {
+    name: String,
+    description: String,
+    #[cfg_attr(not(feature = "discord"), allow(dead_code))]
+    index: u32,
+}
+
+/// Every sink, or every source that is not a monitor.
+fn list(sinks: bool) -> Result<Vec<Listed>> {
     let mut mainloop = Mainloop::new().context("no PulseAudio main loop")?;
     let mut context = Context::new(&mainloop, "Yapfast").context("no PulseAudio context")?;
     context
@@ -177,9 +235,11 @@ fn list(sinks: bool) -> Result<Vec<(String, String)>> {
         introspect.get_sink_info_list(move |result| match result {
             ListResult::Item(info) => {
                 if let (Some(name), Some(description)) = (&info.name, &info.description) {
-                    found
-                        .borrow_mut()
-                        .push((name.to_string(), description.to_string()));
+                    found.borrow_mut().push(Listed {
+                        name: name.to_string(),
+                        description: description.to_string(),
+                        index: info.index,
+                    });
                 }
             }
             ListResult::End | ListResult::Error => *done.borrow_mut() = true,
@@ -191,9 +251,11 @@ fn list(sinks: bool) -> Result<Vec<(String, String)>> {
         introspect.get_source_info_list(move |result| match result {
             ListResult::Item(info) if info.monitor_of_sink.is_none() => {
                 if let (Some(name), Some(description)) = (&info.name, &info.description) {
-                    found
-                        .borrow_mut()
-                        .push((name.to_string(), description.to_string()));
+                    found.borrow_mut().push(Listed {
+                        name: name.to_string(),
+                        description: description.to_string(),
+                        index: info.index,
+                    });
                 }
             }
             ListResult::Item(_) => {}

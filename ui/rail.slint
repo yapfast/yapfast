@@ -1,8 +1,11 @@
+import { DmHeading } from "yapfast/dm-heading.slint";
+import { NewTag } from "yapfast/new-tags.slint";
+import { ClientStyle } from "yapfast/style.slint";
 import { ListView } from "scrollview.slint";
 import { Theme, Tip, Middle, Label } from "theme.slint";
-import { Avatar, PictureStore, StatusText, VoiceSpot } from "controls.slint";
+import { Avatar, Nameplate, PictureStore, StatusText, StyledName, NameStyleRow, VoiceSpot, ServerTagChip, ActivityClock } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
-import { PersonRow, LivePill } from "voice.slint";
+import { PersonRow, LivePill, VoiceCard } from "voice.slint";
 
 /// A server in a closed folder's tile: its icon, or its initial.
 export struct FolderServer { initial: string, picture-url: string }
@@ -40,14 +43,29 @@ export struct RoomRow {
     /// A DM's avatar or group icon, and whether it's a Discord DM.
     picture: image, discord: bool,
     picture-url: string,
+    /// The address of the decoration around a one-to-one DM's avatar, its
+    /// person's nameplate's picture with its palette's colours on a dark theme
+    /// and a light one, and how their name is drawn.
+    decoration-url: string, nameplate-url: string, nameplate-color: color, nameplate-light: color, name-style: [NameStyleRow],
     /// Listed but not open to join, such as a Discord channel the account's roles keep it out of.
     locked: bool,
     /// A one-to-one DM, whose other person has a profile.
     person: bool,
-    /// Who is in a Discord voice channel, shown without joining it.
+    /// Who is in a Discord voice channel, shown without joining it, and when
+    /// its session started, in ActivityClock's seconds; 0 when unknown.
     people: [PersonRow],
+    voice-started: int,
+    /// The line summing them up on its card, such as "3 people · 1 live".
+    voice-summary: string,
     /// A DM with a call going on.
     call: bool,
+    /// The server tag a one-to-one DM's person wears, and its badge's address.
+    tag: string, tag-badge: string,
+    /// Discord's own account, marked OFFICIAL.
+    official: bool,
+    /// The person's id when no one has written in this one-to-one DM yet, so a
+    /// Wave button is offered; empty otherwise.
+    wave: string,
     /// A one-to-one Discord DM's other person: "online", "mobile", "idle",
     /// "dnd" or "offline", empty when unknown; and their custom status or what
     /// they're doing, or a group DM's size, and the address of the picture of
@@ -112,7 +130,7 @@ export component RailItem inherits Rectangle {
     /// The server's own icon, filling the item instead of the initial.
     in property <image> picture;
     in property <string> picture-url;
-    property <image> shown-picture: root.picture-url != "" ? PictureStore.picture(root.picture-url, PictureStore.revision) : root.picture;
+    property <image> shown-picture: root.picture-url != "" ? PictureStore.picture(root.picture-url, PictureStore.revision(root.picture-url)) : root.picture;
     function request-picture() {
         if root.picture-url != "" && root.shown-picture.width == 0 {
             PictureStore.request(root.picture-url);
@@ -133,7 +151,9 @@ export component RailItem inherits Rectangle {
     /// A right click, or the Menu key or Shift+F10 when focused: where to open
     /// a menu in the window.
     callback context-menu(length, length);
-    width: 72px; height: 48px;
+    property <length> tile-size: ClientStyle.rail-tile;
+    property <length> tile-left: (root.width - root.tile-size) / 2;
+    width: 72px; height: root.tile-size;
     accessible-role: button;
     accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
@@ -144,29 +164,29 @@ export component RailItem inherits Rectangle {
         height: root.selected ? 40px : pointer.has-hover ? 20px : root.unread ? 8px : 0px;
         border-top-right-radius: 4px; border-bottom-right-radius: 4px;
         background: Theme.text;
-        animate height { duration: 160ms; easing: ease-out; }
+        animate height { duration: 200ms; easing: ease-out; }
     }
     // A picture only changes shape when lit, as in Discord.
     tile := Rectangle {
-        x: 12px; width: 48px; height: 48px;
-        border-radius: root.lit ? 16px : 24px;
+        x: root.tile-left; width: root.tile-size; height: root.tile-size;
+        border-radius: ClientStyle.enabled ? 12px : root.lit ? 16px : 24px;
         background: root.lit && root.shown-picture.width == 0 ? Theme.accent : Theme.raised;
         animate border-radius, background { duration: 160ms; easing: ease-out; }
         clip: true;
         if root.shown-picture.width > 0: Image {
-            source: root.shown-picture; width: 48px; height: 48px; image-fit: cover;
+            source: root.shown-picture; width: root.tile-size; height: root.tile-size; image-fit: cover;
         }
         if root.icon.width > 0: Image {
             source: root.icon; width: root.icon-size; height: root.icon-size;
             colorize: root.lit ? Theme.on-accent : root.icon-color;
         }
         if root.icon.width == 0 && root.shown-picture.width == 0: Text {
-            text: root.initial; font-size: 17px; font-weight: 700;
+            text: root.initial; font-size: ClientStyle.enabled ? 16px : 17px; font-weight: ClientStyle.enabled ? 500 : 700;
             color: root.lit ? Theme.on-accent : Theme.text;
         }
         // The focus ring, drawn over the picture.
         Rectangle {
-            width: 48px; height: 48px; border-radius: tile.border-radius;
+            width: root.tile-size; height: root.tile-size; border-radius: tile.border-radius;
             border-width: focus.has-focus ? 2px : 0px;
             border-color: Theme.text;
         }
@@ -174,13 +194,13 @@ export component RailItem inherits Rectangle {
     // Discord's logo on its blurple, at the top left on a ring of the rail's
     // colour so it reads as a tag.
     if root.discord: DiscordBadge {
-        x: 12px - 2px; y: (parent.height - 48px) / 2 - 2px;
+        x: root.tile-left - 2px; y: (parent.height - root.tile-size) / 2 - 2px;
         size: 16px; ring: Theme.rail;
     }
-    if root.call: CallBubble { x: 12px + 48px + 3px - self.width; y: (parent.height - 48px) / 2 - 3px; }
+    if root.call: CallBubble { x: root.tile-left + root.tile-size + 3px - self.width; y: (parent.height - root.tile-size) / 2 - 3px; }
     // The mention count, on a ring of the rail's colour.
     if root.badge != "": Rectangle {
-        x: 12px + 48px + 4px - self.width; y: (parent.height + 48px) / 2 + 4px - self.height;
+        x: root.tile-left + root.tile-size + 4px - self.width; y: (parent.height + root.tile-size) / 2 + 4px - self.height;
         width: max(16px, badge-text.preferred-width + 8px) + 6px; height: 16px + 6px; border-radius: self.height / 2;
         background: Theme.rail;
         Rectangle {
@@ -241,7 +261,9 @@ component FolderItem inherits Rectangle {
     /// A right click, or the Menu key or Shift+F10 when focused: where to open
     /// a menu in the window.
     callback context-menu(length, length);
-    width: 72px; height: 48px;
+    property <length> tile-size: ClientStyle.folder-tile;
+    property <length> tile-left: (root.width - root.tile-size) / 2;
+    width: 72px; height: root.tile-size;
     accessible-role: button;
     accessible-label: root.label;
     accessible-expandable: true;
@@ -254,10 +276,10 @@ component FolderItem inherits Rectangle {
         height: root.open ? 0px : root.selected ? 40px : pointer.has-hover ? 20px : root.unread ? 8px : 0px;
         border-top-right-radius: 4px; border-bottom-right-radius: 4px;
         background: Theme.text;
-        animate height { duration: 160ms; easing: ease-out; }
+        animate height { duration: 200ms; easing: ease-out; }
     }
     tile := Rectangle {
-        x: 12px; width: 48px; height: 48px; border-radius: 16px;
+        x: root.tile-left; width: root.tile-size; height: root.tile-size; border-radius: ClientStyle.folder-radius;
         background: root.open ? transparent : root.tint.with-alpha(pointer.has-hover ? 0.55 : 0.4);
         animate background { duration: 160ms; easing: ease-out; }
         if root.open: Image {
@@ -265,24 +287,27 @@ component FolderItem inherits Rectangle {
         }
         if !root.open: Rectangle {
             for server[index] in root.servers: Avatar {
-                x: 6px + Math.mod(index, 2) * 20px; y: 6px + floor(index / 2) * 20px;
-                size: 16px; initial: server.initial; picture-url: server.picture-url; tint: Theme.raised;
+                x: (ClientStyle.enabled ? 4px : 6px) + Math.mod(index, 2) * (ClientStyle.enabled ? 21px : 20px); y: (ClientStyle.enabled ? 4px : 6px) + floor(index / 2) * (ClientStyle.enabled ? 21px : 20px);
+                size: ClientStyle.enabled ? 19px : 16px; corner: ClientStyle.enabled ? 4px : -1px;
+                corner-tl: ClientStyle.enabled && index == 0 ? 13px : -1px; corner-tr: ClientStyle.enabled && index == 1 ? 13px : -1px;
+                corner-bl: ClientStyle.enabled && index == 2 ? 13px : -1px; corner-br: ClientStyle.enabled && index == 3 ? 13px : -1px;
+                initial: server.initial; picture-url: server.picture-url; tint: Theme.raised;
             }
         }
         Rectangle {
-            width: 48px; height: 48px; border-radius: 16px;
+            width: root.tile-size; height: root.tile-size; border-radius: ClientStyle.folder-radius;
             border-width: focus.has-focus ? 2px : 0px;
             border-color: Theme.text;
         }
     }
     // Its servers are Discord's, so it carries Discord's mark as they do.
     if !root.open: DiscordBadge {
-        x: 12px - 2px; y: (parent.height - 48px) / 2 - 2px;
+        x: root.tile-left - 2px; y: (parent.height - root.tile-size) / 2 - 2px;
         size: 16px; ring: Theme.rail;
     }
-    if root.call && !root.open: CallBubble { x: 12px + 48px + 3px - self.width; y: (parent.height - 48px) / 2 - 3px; }
+    if root.call && !root.open: CallBubble { x: root.tile-left + root.tile-size + 3px - self.width; y: (parent.height - root.tile-size) / 2 - 3px; }
     if root.badge != "" && !root.open: Rectangle {
-        x: 12px + 48px + 4px - self.width; y: (parent.height + 48px) / 2 + 4px - self.height;
+        x: root.tile-left + root.tile-size + 4px - self.width; y: (parent.height + root.tile-size) / 2 + 4px - self.height;
         width: max(16px, badge-text.preferred-width + 8px) + 6px; height: 16px + 6px; border-radius: self.height / 2;
         background: Theme.rail;
         Rectangle {
@@ -337,15 +362,16 @@ export component StatusDot inherits Rectangle {
     background: root.mobile ? transparent : root.ring;
     accessible-role: image;
     accessible-label: root.presence == "dnd" ? "Do not disturb" : root.presence == "idle" ? "Idle" : root.presence == "online" ? "Online" : root.mobile ? "Online on mobile" : "Offline";
+    // Idle is Discord's yellow whatever the accent is, and its moon a size larger.
     if !root.mobile: Rectangle {
-        width: 10px; height: 10px; border-radius: 5px;
-        background: root.presence == "dnd" ? Theme.danger : root.presence == "idle" ? Theme.accent : root.presence == "online" ? Theme.live : Theme.faint;
+        width: root.presence == "idle" ? 12px : 10px; height: self.width; border-radius: self.width / 2;
+        background: root.presence == "dnd" ? #f23f43 : root.presence == "idle" ? #f0b232 : root.presence == "online" ? Theme.live : Theme.faint;
     }
     if !root.online: Rectangle {
         width: 4px; height: 4px; border-radius: 2px; background: root.ring;
     }
     if root.presence == "idle": Rectangle {
-        x: 2px; y: 2px; width: 6px; height: 6px; border-radius: 3px; background: root.ring;
+        x: 1px; y: 1px; width: 7px; height: 7px; border-radius: 3.5px; background: root.ring;
     }
     if root.presence == "dnd": Rectangle {
         width: 6px; height: 2px; border-radius: 1px; background: root.ring;
@@ -372,6 +398,12 @@ export component ChannelRow inherits Rectangle {
     in property <color> tint;
     in property <image> picture;
     in property <string> picture-url;
+    in property <string> decoration-url;
+    in property <[NameStyleRow]> name-style;
+    /// As RoomRow has them.
+    in property <string> nameplate-url;
+    in property <color> nameplate-color;
+    in property <color> nameplate-light;
     /// Marks a Discord DM, as the rail marks Discord servers.
     in property <bool> discord;
     in property <bool> selected;
@@ -379,10 +411,19 @@ export component ChannelRow inherits Rectangle {
     in property <bool> danger;
     in property <bool> unread;
     in property <string> badge;
+    /// Marks a settings page with something new on it.
+    in property <bool> fresh;
     /// A channel this account may not join: drawn faint.
     in property <bool> locked;
     /// A DM with a call going on.
     in property <bool> call;
+    /// Their person's server tag, as RoomRow has it, whether they are Discord's
+    /// own account, and a Wave button for an empty DM (the person's id).
+    in property <string> tag;
+    in property <string> tag-badge;
+    in property <bool> official;
+    in property <string> wave;
+    callback waved;
     /// A DM pinned to the top of the list.
     in property <bool> pinned;
     /// A DM or channel whose notifications are muted: drawn faint until it's selected or pointed at.
@@ -398,6 +439,40 @@ export component ChannelRow inherits Rectangle {
     in property <bool> thread;
     /// A voice channel with a chat, which a button on the row opens.
     in property <bool> chat;
+    /// When a busy voice channel's session started, in ActivityClock's
+    /// seconds, which the row counts from; 0 for none.
+    in property <int> voice-started;
+    /// A busy voice channel's room id, who is in it and the line summing
+    /// them up, which a card beside the row shows while the pointer is on it.
+    in property <string> voice-id;
+    in property <[PersonRow]> voice-people;
+    in property <string> voice-summary;
+    // Clicked, dragged or its menu opened, the card stays away until the pointer leaves.
+    property <bool> card-dismissed;
+    property <bool> card-wanted: pointer.has-hover && !root.dragging && !root.card-dismissed;
+    // Where the card points, which moves as people above join or leave.
+    property <length> card-y: root.voice-people.length > 0 ? root.absolute-position.y + root.height / 2 : 0px;
+    /// Shows the voice card for this row, or with `false` hides it if it's
+    /// this row's.
+    function show-voice-card(shown: bool) {
+        if shown && root.voice-people.length > 0 {
+            VoiceCard.channel = root.voice-id;
+            VoiceCard.people = root.voice-people;
+            VoiceCard.summary = root.voice-summary;
+            VoiceCard.x = root.absolute-position.x + root.width;
+            VoiceCard.y = root.card-y;
+        } else if VoiceCard.channel == root.voice-id || pointer.has-hover {
+            // Under the pointer, this row may be showing another channel
+            // than it did, the rows above having changed.
+            VoiceCard.people = [];
+        }
+    }
+    // Who is there may change while the card shows.
+    changed voice-people => { root.show-voice-card(root.card-wanted); }
+    changed voice-summary => { root.show-voice-card(root.card-wanted); }
+    changed card-y => {
+        if VoiceCard.channel == root.voice-id && VoiceCard.people.length > 0 { VoiceCard.y = root.card-y; }
+    }
     /// It may be dragged: once the pointer has moved a few pixels with the
     /// button down, `start-drag` asks whether it may, given how far down
     /// the row it was pressed, `dragged` says where the pointer is in the
@@ -423,7 +498,8 @@ export component ChannelRow inherits Rectangle {
     callback context-menu(length, length);
     property <bool> in-voice: root.voice-channel != "";
     property <bool> has-detail: root.detail != "" || root.detail-emoji != "";
-    height: root.person ? 42px : 34px;
+    property <bool> offers-wave: root.wave != "" && (pointer.has-hover || root.selected);
+    height: root.person ? ClientStyle.dm-row-height : ClientStyle.channel-row-height;
     border-radius: 6px;
     background: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : transparent;
     animate background { duration: 90ms; }
@@ -434,6 +510,18 @@ export component ChannelRow inherits Rectangle {
     accessible-action-default => { root.clicked(); }
     forward-focus: focus;
     property <color> ink: root.danger ? Theme.danger : root.locked ? (root.selected ? Theme.muted : Theme.faint) : root.selected || root.unread ? Theme.text : pointer.has-hover ? Theme.secondary : Theme.muted;
+    // Discord's client draws a DM row's plate only while the row is selected,
+    // pointed at or focused, so a long list holds none. It stops short of the
+    // focus ring.
+    if root.nameplate-url != "" && (root.selected || pointer.has-hover || focus.has-focus): Nameplate {
+        x: root.border-width; y: root.border-width;
+        width: root.width - root.border-width * 2; height: root.height - root.border-width * 2;
+        radius: root.border-radius - root.border-width; channel: true;
+        picture-url: root.nameplate-url; palette: Theme.dark ? root.nameplate-color : root.nameplate-light;
+        hovered: pointer.has-hover; selected: root.selected; animate: pointer.has-hover;
+        ground: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : Theme.sidebar;
+        content-width: text-column.x + min(text-column.preferred-width, text-column.width);
+    }
     // Unread activity is marked at the sidebar's edge, as on the server rail.
     if root.unread && !root.selected: Rectangle {
         // A thread sits further in, past the line from its channel.
@@ -446,6 +534,9 @@ export component ChannelRow inherits Rectangle {
                 root.clicked(); return accept;
             }
             if event.text == Key.Menu || (event.text == Key.F10 && event.modifiers.shift) {
+                // From the keyboard, the pointer may be elsewhere, and its next visit shows the card.
+                root.card-dismissed = pointer.has-hover;
+                root.show-voice-card(false);
                 root.context-menu(self.absolute-position.x + 16px, self.absolute-position.y + self.height);
                 return accept;
             }
@@ -456,17 +547,26 @@ export component ChannelRow inherits Rectangle {
             // Slint reports the click before the button going up, which
             // ends a drag.
             clicked => {
+                root.card-dismissed = true;
+                root.show-voice-card(false);
                 if !root.dragging { root.clicked(); }
+            }
+            changed has-hover => {
+                if !self.has-hover { root.card-dismissed = false; }
+                root.show-voice-card(root.card-wanted);
             }
             moved => {
                 if self.pressed && root.draggable && !root.dragging && !root.refused && abs(self.mouse-y - self.pressed-y) > 4px {
                     root.dragging = root.start-drag(self.pressed-y);
                     root.refused = !root.dragging;
+                    if root.dragging { root.card-dismissed = true; root.show-voice-card(false); }
                 }
                 if root.dragging { root.dragged(self.absolute-position.y + self.mouse-y); }
             }
             pointer-event(event) => {
                 if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                    root.card-dismissed = true;
+                    root.show-voice-card(false);
                     root.context-menu(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
                 }
                 if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
@@ -488,6 +588,7 @@ export component ChannelRow inherits Rectangle {
                 if root.person: Middle {
                     Avatar {
                         size: 32px; initial: root.initial; tint: root.tint; picture: root.picture; picture-url: root.picture-url;
+                        decoration-url: root.decoration-url; animate: pointer.has-hover;
                         if root.discord: DiscordBadge {
                             x: -2px; y: -2px; size: 13px;
                             ring: root.selected ? Theme.active : pointer.has-hover ? Theme.hover : Theme.sidebar;
@@ -498,12 +599,34 @@ export component ChannelRow inherits Rectangle {
                         }
                     }
                 }
-                if !root.person && !root.thread: Image { source: root.icon; width: 20px; image-fit: contain; colorize: root.danger ? Theme.danger : root.selected || root.unread ? Theme.secondary : Theme.faint; }
-                VerticalLayout {
+                if !root.person && !root.thread: Image { source: root.icon; width: 20px; image-fit: contain; colorize: root.danger ? Theme.danger : root.selected && ClientStyle.enabled ? Theme.text : root.selected || root.unread ? Theme.secondary : Theme.faint; }
+                text-column := VerticalLayout {
                     alignment: center; spacing: 0px; horizontal-stretch: 1;
-                    Text {
-                        text: root.text; color: root.ink; font-size: 16px; font-weight: root.unread || root.selected ? 700 : 500;
-                        vertical-alignment: center; overflow: elide;
+                    HorizontalLayout {
+                        alignment: start; spacing: 4px;
+                        if root.name-style.length == 0: Text {
+                            text: root.text; color: root.ink; font-size: ClientStyle.text-size; font-weight: ClientStyle.enabled ? 500 : root.unread ? 700 : root.selected ? 700 : 500;
+                            vertical-alignment: center; overflow: elide; horizontal-stretch: 0;
+                        }
+                        if root.name-style.length > 0: StyledName {
+                            text: root.text; styles: root.name-style; ink: root.ink; font-size: ClientStyle.text-size; font-weight: ClientStyle.enabled ? 500 : root.unread ? 700 : root.selected ? 700 : 500;
+                        }
+                        if root.tag != "": Middle { ServerTagChip { text: root.tag; badge: root.tag-badge; } }
+                        if root.official: Middle {
+                            Rectangle {
+                                // Discord's verified-style badge: blurple, 16px, a check and OFFICIAL.
+                                height: 16px; width: official-text.preferred-width + 24px; border-radius: 4px; background: Theme.accent;
+                                accessible-role: AccessibleRole.text; accessible-label: "OFFICIAL";
+                                HorizontalLayout {
+                                    padding-left: 4px; padding-right: 4px; spacing: 2px; alignment: center;
+                                    Middle { Image { source: @image-url("icons/check.svg"); width: 12px; height: 12px; colorize: Theme.on-accent; accessible-role: none; } }
+                                    official-text := Text { text: "OFFICIAL"; color: Theme.on-accent; font-size: 10px; font-weight: 700; vertical-alignment: center; }
+                                }
+                            }
+                        }
+                    }
+                    if root.official && !root.has-detail && !root.in-voice: Text {
+                        text: "Official Discord Message"; color: Theme.muted; font-size: 12px; overflow: elide;
                     }
                     // Their voice channel in full when nothing else is said here,
                     // else a speaker before what is, as the friends list has it.
@@ -523,12 +646,38 @@ export component ChannelRow inherits Rectangle {
                         StatusText { text: root.detail; emoji-url: root.detail-emoji; font-size: 12px; }
                     }
                 }
+                // Discord offers to wave at someone in a DM nobody has written in yet.
+                if root.offers-wave: Middle {
+                    Rectangle {
+                        height: 24px; width: wave-label.preferred-width + 40px; border-radius: 4px;
+                        background: wave-touch.has-hover ? Theme.accent-hover : Theme.accent;
+                        accessible-role: button; accessible-label: "Wave";
+                        accessible-action-default => { root.waved(); }
+                        HorizontalLayout {
+                            padding-left: 8px; padding-right: 8px; spacing: 4px; alignment: center;
+                            Middle { Image { source: @image-url("icons/hand.svg"); width: 14px; height: 14px; colorize: Theme.on-accent; accessible-role: none; } }
+                            wave-label := Text { text: "Wave"; color: Theme.on-accent; font-size: 12px; font-weight: 500; vertical-alignment: center; }
+                        }
+                        wave-touch := TouchArea {
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.waved(); }
+                        }
+                    }
+                }
                 if root.call: Image {
                     source: @image-url("icons/phone.svg"); width: 16px; image-fit: contain; colorize: Theme.live;
                     accessible-role: image; accessible-label: "In a call";
                 }
                 if root.pinned: Image {
                     source: @image-url("icons/pin.svg"); width: 14px; image-fit: contain; colorize: Theme.faint;
+                }
+                if root.fresh: Middle { NewTag { } }
+                // How long a busy voice channel's call has gone on, as
+                // Discord's client counts it from its first person in.
+                if root.voice-started > 0: Text {
+                    text: ActivityClock.lasted(root.voice-started, ActivityClock.minute * 60);
+                    color: Theme.muted; font-size: 12px; vertical-alignment: center;
+                    accessible-role: none;
                 }
                 if root.badge != "": Middle {
                     Rectangle {
@@ -572,11 +721,101 @@ export component ChannelRow inherits Rectangle {
     }
 }
 
+// Who is in the busy voice channel under the pointer, beside its row, as
+// Discord's client shows it: a line summing them up, then each person with
+// their camera and LIVE marks, the first eight and how many more. This
+// account on another client is dimmed, without its marks, as under the row.
+export component VoiceCardView inherits Rectangle {
+    /// The window's size, which the card stays within.
+    in property <length> bounds;
+    in property <length> bounds-width;
+    property <int> shown: min(8, VoiceCard.people.length);
+    property <int> more: VoiceCard.people.length - self.shown;
+    width: 232px;
+    height: card-layout.preferred-height;
+    x: min(VoiceCard.x + 8px, root.bounds-width - self.width - 8px);
+    y: max(8px, min(root.bounds - self.height - 8px, VoiceCard.y - self.height / 2));
+    border-radius: 8px; background: Theme.tooltip;
+    drop-shadow-blur: 12px; drop-shadow-color: #00000080; drop-shadow-offset-y: 3px;
+    card-layout := VerticalLayout {
+        padding: 12px; padding-top: 10px; spacing: 4px;
+        Text {
+            text: VoiceCard.summary; color: Theme.secondary;
+            font-size: 12px; font-weight: 700; overflow: elide;
+        }
+        for index in root.shown: card-row := HorizontalLayout {
+            property <PersonRow> person: VoiceCard.people[index];
+            height: 26px;
+            spacing: 8px;
+            opacity: card-row.person.elsewhere ? 0.5 : 1;
+            Middle { Avatar { size: 20px; initial: card-row.person.initial; tint: card-row.person.tint; picture: card-row.person.picture; } }
+            Text {
+                text: card-row.person.name; color: Theme.text; font-size: 14px; font-weight: 500;
+                vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+            }
+            if card-row.person.video && !card-row.person.elsewhere: Image {
+                source: @image-url("icons/video.svg"); width: 16px; image-fit: contain;
+                colorize: Theme.muted; accessible-role: image; accessible-label: card-row.person.name + "'s camera is on";
+            }
+            if card-row.person.live && !card-row.person.elsewhere: Middle { LivePill { clickable: false; } }
+        }
+        if root.more > 0: Text {
+            text: "and " + root.more + " more"; color: Theme.muted; font-size: 12px;
+        }
+    }
+}
+
 // Where a channel or category dragged in the channel list would drop: a
 // line across the edge of the row it's over, as Discord draws it.
 component DropLine inherits Rectangle {
     height: 4px; border-radius: 2px; background: Theme.live;
     drop-shadow-blur: 3px; drop-shadow-color: #00000066;
+}
+
+// Someone listed under a voice channel: a click opens their profile and a
+// right click their menu. They may be dragged as ChannelRow may, once the
+// pointer has moved a few pixels with the button down: `start-drag` asks
+// whether they may, `dragged` says where the pointer is in the window, and
+// `dropped` that the button went up, which doesn't click. While another
+// row or person is dragged, `tracking` reports the pointer over this one,
+// as ChannelRow's does.
+component PersonTouch inherits TouchArea {
+    callback open-profile;
+    callback open-menu(length, length);
+    callback start-drag() -> bool;
+    callback dragged(length, length);
+    callback dropped;
+    in property <bool> tracking;
+    property <bool> dragging;
+    // Asked and refused, until the button goes down again.
+    property <bool> refused;
+    mouse-cursor: root.dragging ? MouseCursor.grabbing : MouseCursor.pointer;
+    // Slint reports the click before the button going up, which ends a drag.
+    clicked => {
+        if !root.dragging { root.open-profile(); }
+    }
+    moved => {
+        if self.pressed && !root.dragging && !root.refused && abs(self.mouse-y - self.pressed-y) > 4px {
+            root.dragging = root.start-drag();
+            root.refused = !root.dragging;
+        }
+        if root.dragging { root.dragged(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); }
+    }
+    pointer-event(event) => {
+        if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+            root.open-menu(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+        }
+        if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+            root.refused = false;
+        }
+        if event.button == PointerEventButton.left && event.kind == PointerEventKind.up && (root.dragging || root.tracking) {
+            root.dragging = false;
+            root.dropped();
+        }
+        if event.kind == PointerEventKind.move && root.tracking && !root.dragging {
+            root.dragged(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+        }
+    }
 }
 
 // A channel category's heading. Clicking it collapses the category, or opens
@@ -594,22 +833,30 @@ component CategoryHeading inherits Rectangle {
     property <bool> refused;
     callback toggled;
     callback context-menu(length, length);
-    height: 36px;
+    // Discord keeps 17px above a category's name, then 21px for its line.
+    height: 38px;
     accessible-role: button;
     accessible-label: root.text + (root.collapsed ? ", collapsed" : ", expanded");
     accessible-action-default => { root.toggled(); }
     forward-focus: focus;
+    /// This account may create a channel in it, which a "+" offers while the
+    /// pointer is over it.
+    in property <bool> can-create;
+    callback create;
     property <color> ink: touch.has-hover ? Theme.secondary : Theme.muted;
     HorizontalLayout {
-        padding-left: 2px; spacing: 2px;
-        Image {
-            source: root.collapsed ? @image-url("icons/chevron-right.svg") : @image-url("icons/chevron-down.svg");
-            width: 12px; image-fit: contain; colorize: root.ink;
-        }
+        padding-left: 16px; padding-right: 8px; padding-top: 17px; spacing: 4px;
         Text {
-            text: root.text; color: root.ink; font-size: 12px; font-weight: 700; letter-spacing: 0.6px;
-            vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+            text: root.text; color: root.ink; font-size: 14px; font-weight: 600; letter-spacing: 0px;
+            vertical-alignment: center; overflow: elide; horizontal-stretch: 0;
         }
+        Image {
+            source: @image-url("icons/chevron-down.svg");
+            width: 12px; image-fit: contain; colorize: root.ink;
+            transform-rotation: root.collapsed ? -90deg : 0deg;
+            animate transform-rotation { duration: 120ms; easing: ease-out; }
+        }
+        Rectangle { horizontal-stretch: 1; }
     }
     focus := FocusScope {
         key-pressed(event) => {
@@ -653,6 +900,21 @@ component CategoryHeading inherits Rectangle {
             }
         }
     }
+    // Discord's "+", at the right while the pointer is over the heading.
+    add := Rectangle {
+        x: parent.width - self.width - 8px; y: 16px; width: 24px; height: 24px;
+        opacity: root.can-create && (touch.has-hover || add-touch.has-hover) ? 1 : 0;
+        Image {
+            source: @image-url("icons/plus.svg"); width: 16px; height: 16px;
+            x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+            colorize: add-touch.has-hover ? Theme.text : Theme.muted; accessible-role: none;
+        }
+        add-touch := TouchArea {
+            enabled: root.can-create;
+            mouse-cursor: MouseCursor.pointer;
+            clicked => { root.create(); }
+        }
+    }
     Rectangle {
         border-radius: 4px; border-width: focus.has-focus ? 2px : 0px; border-color: Theme.accent;
     }
@@ -664,6 +926,13 @@ component CategoryHeading inherits Rectangle {
 export component ServerHeader inherits Rectangle {
     in property <string> name;
     in property <bool> open;
+    /// A Community server, whose header starts with Discord's badge.
+    in property <bool> community;
+    /// Verified or partnered, which Discord marks with a green badge before
+    /// the name.
+    in property <bool> verified;
+    /// The name sits over the server's banner, in white.
+    in property <bool> on-banner;
     callback clicked;
     border-radius: 6px;
     background: touch.has-hover || root.open ? Theme.hover : transparent;
@@ -680,15 +949,32 @@ export component ServerHeader inherits Rectangle {
         }
     }
     HorizontalLayout {
-        padding-left: 8px; padding-right: 8px; spacing: 6px; alignment: start;
-        Text {
-            text: root.name; font-size: 16px; font-weight: 700; color: Theme.text;
-            vertical-alignment: center; overflow: elide;
+        padding-left: ClientStyle.enabled && (root.verified || root.community) ? 10px : 8px; padding-right: 8px;
+        spacing: ClientStyle.enabled ? 10px : 6px; alignment: start;
+        // Discord marks a verified server with its green badge, and one that is
+        // only a Community server with the Community badge.
+        if root.community && !(ClientStyle.enabled && root.verified): VerticalLayout {
+            alignment: center;
+            Image { source: @image-url("icons/community.svg"); width: ClientStyle.enabled ? 16px : 20px; height: ClientStyle.enabled ? 16px : 20px; colorize: Theme.text; accessible-role: none; }
         }
-        Image {
-            source: @image-url("icons/chevron-down.svg"); width: 16px; height: 16px; y: (parent.height - self.height) / 2;
-            colorize: Theme.muted; transform-rotation: root.open ? 180deg : 0deg;
-            animate transform-rotation { duration: 120ms; easing: ease-out; }
+        if ClientStyle.enabled && root.verified: VerticalLayout {
+            alignment: center;
+            Image { source: @image-url("icons/verified.svg"); width: 16px; height: 16px; accessible-role: none; }
+        }
+        // Discord's chevron follows the name closely, small and light.
+        HorizontalLayout {
+            spacing: ClientStyle.enabled ? 0px : 6px;
+            Text {
+                text: root.name; font-size: ClientStyle.text-size;
+                font-weight: ClientStyle.enabled ? 600 : 700;
+                color: root.on-banner ? #ffffff : Theme.text;
+                vertical-alignment: center; overflow: elide;
+            }
+            Image {
+                source: @image-url("icons/chevron-down.svg"); width: ClientStyle.enabled ? 16px : 20px; height: ClientStyle.enabled ? 16px : 20px; y: (parent.height - self.height) / 2;
+                colorize: root.on-banner ? #ffffff : ClientStyle.enabled ? Theme.secondary : Theme.muted; transform-rotation: root.open ? 180deg : 0deg;
+                animate transform-rotation { duration: 120ms; easing: ease-out; }
+            }
         }
     }
     touch := TouchArea {
@@ -722,31 +1008,37 @@ export component ServerRail inherits Rectangle {
     callback join-server;
     width: 72px; background: Theme.rail;
     VerticalLayout {
-        padding-top: 12px; padding-bottom: 12px; spacing: 8px;
+        padding-top: ClientStyle.enabled ? 0px : 12px; padding-bottom: 12px; spacing: 8px;
         RailItem {
             // The app's logo, as Discord puts its own here.
-            icon: @image-url("icons/logo.svg"); icon-color: Theme.accent; icon-size: 32px;
+            icon: @image-url("icons/logo.svg"); icon-color: Theme.accent; icon-size: ClientStyle.enabled ? 24px : 32px;
             label: "Direct messages" + (root.dms-badge != "" ? ", " + root.dms-badge + " waiting" : root.dms-unread ? ", unread" : "");
             tip: "Direct messages";
             selected: root.dms-selected; unread: root.dms-unread; badge: root.dms-badge;
             clicked => { root.navigate-dms(); }
         }
+        if ClientStyle.enabled: Rectangle {
+            height: 1px;
+            Rectangle { width: 32px; height: 1px; background: Theme.outline; }
+        }
         // A list view makes only the servers in sight, which
         // matters on accounts in many servers. Unread DMs scroll with them.
         ListView {
             vertical-stretch: 1;
-            for server in root.servers: Rectangle {
-                height: server.divider ? 2px + 8px : 48px + 8px;
-                if server.divider: Rectangle {
-                    x: (72px - self.width) / 2; y: 0px; width: 32px; height: 2px; border-radius: 1px; background: Theme.line;
+            for server[index] in root.servers: Rectangle {
+                // Home already has a pinned separator. Keep the model's line
+                // only when it separates unread DMs from servers below them.
+                height: server.divider ? (ClientStyle.enabled && index == 0 ? 0px : (ClientStyle.enabled ? 1px : 2px) + 8px) : (server.folder ? ClientStyle.folder-tile : ClientStyle.rail-tile) + (ClientStyle.enabled && ((server.folder && server.open) || (server.nested && server.last)) ? 4px : 0px) + (ClientStyle.enabled && server.folder && server.open ? 0px : 8px);
+                if server.divider && (!ClientStyle.enabled || index > 0): Rectangle {
+                    x: (72px - self.width) / 2; y: 0px; width: 32px; height: ClientStyle.enabled ? 1px : 2px; border-radius: ClientStyle.enabled ? 0px : 1px; background: ClientStyle.enabled ? Theme.outline : Theme.line;
                 }
                 // An open folder's servers sit on a strip of its colour,
                 // from its folder down to its last server.
                 if server.open || server.nested: Rectangle {
-                    x: 12px; y: 0px; width: 48px; height: server.last ? 48px : parent.height;
-                    border-top-left-radius: server.open ? 16px : 0px;
+                    x: (72px - ClientStyle.folder-tile) / 2; y: 0px; width: ClientStyle.folder-tile; height: server.last ? ClientStyle.rail-tile + (ClientStyle.enabled ? 4px : 0px) : parent.height;
+                    border-top-left-radius: server.open ? (ClientStyle.enabled ? 12px : 16px) : 0px;
                     border-top-right-radius: self.border-top-left-radius;
-                    border-bottom-left-radius: server.last ? 16px : 0px;
+                    border-bottom-left-radius: server.last ? (ClientStyle.enabled ? 12px : 16px) : 0px;
                     border-bottom-right-radius: self.border-bottom-left-radius;
                     background: server.tint.with-alpha(0.16);
                 }
@@ -851,8 +1143,12 @@ export component RoomList inherits Rectangle {
     callback select-room(string);
     /// A DM person's voice channel was clicked: its room id.
     callback open-voice(string);
+    /// Wave at a DM's person (their id), by the button an empty DM offers.
+    callback wave(string);
     /// A voice channel's chat button was clicked: its room id.
     callback open-chat(string);
+    callback open-add-friend;
+    callback open-new-dm;
     callback open-friends;
     callback open-requests;
     /// A Community server's list opens Browse Channels, which is on screen
@@ -874,6 +1170,9 @@ export component RoomList inherits Rectangle {
     /// A category's heading was clicked, by the row's category: collapse or
     /// open it.
     callback toggle-category(string);
+    /// Whether this account may create a channel in a category heading's category, by room id, and a "+" asking to.
+    pure callback may-create(string) -> bool;
+    callback create-channel(string);
     /// A category's menu was asked for, by its first channel's id.
     callback open-category-menu(string, length, length);
     /// Dragging a Discord server's channels and categories, by their rows'
@@ -886,6 +1185,17 @@ export component RoomList inherits Rectangle {
     callback start-arranging(int) -> bool;
     callback arrange(int);
     callback stop-arranging;
+    /// Dragging someone from under a voice channel onto another, which
+    /// moves them as their menu's Move to does: `start-moving` asks whether
+    /// they may be dragged, by the channel's room id and their user id, and
+    /// `moving` says they are, with the rows they may drop on, by index, in
+    /// `move-droppable`. `move-person` drops them on a voice channel, by
+    /// room id, and `stop-moving` nowhere.
+    in property <bool> moving;
+    in property <[bool]> move-droppable;
+    callback start-moving(string, string) -> bool;
+    callback move-person(string);
+    callback stop-moving;
     // Where the pointer is in the window while dragging, the place it's
     // over, and whether a voice channel or a category is dragged, which
     // dims the rows it can't drop among. Each step of scrolling counts,
@@ -899,6 +1209,34 @@ export component RoomList inherits Rectangle {
     // held where it was pressed.
     property <RoomRow> dragged-row;
     property <length> grab-y;
+    // A row or someone is being dragged, and the rows that aren't follow it.
+    property <bool> dragging: root.arranging > 0 || root.moving;
+    // Who is dragged from a voice channel, and the row they're over, by
+    // index from 1.
+    property <PersonRow> dragged-person;
+    property <int> move-hovered;
+    // Across, too, for someone dragged, who drops only over the list. A
+    // channel's row reports only how far down the pointer is, over itself,
+    // so in the list.
+    property <length> drag-x;
+    pure function over-list() -> bool {
+        return root.drag-x >= list.absolute-position.x && root.drag-x < list.absolute-position.x + list.width
+            && root.drag-y >= list.absolute-position.y && root.drag-y < list.absolute-position.y + list.height;
+    }
+    function follow(x: length, y: length) {
+        root.drag-x = x;
+        root.drag-y = y;
+    }
+    function begin-moving(room: string, person: PersonRow) -> bool {
+        if person.person == "" { return false; }
+        root.dragged-person = person;
+        root.move-hovered = 0;
+        if !root.start-moving(room, person.person) { return false; }
+        // Their tooltip, such as "Connected on another client", would
+        // cover the list for the rest of the drag.
+        Tip.text = "";
+        return true;
+    }
     function begin(place: int, row: RoomRow, category: bool, grab-y: length) -> bool {
         root.dragged-voice = row.voice && !category;
         root.dragged-category = category;
@@ -910,13 +1248,20 @@ export component RoomList inherits Rectangle {
     // Drops what's dragged on the place it's over, if it may drop there and
     // the pointer is still over the list.
     function finish() {
-        if root.hovered > 0 && root.hovered != root.arranging && root.droppable[root.hovered - 1]
+        if root.moving {
+            if root.move-hovered > 0 && root.move-droppable[root.move-hovered - 1] && root.over-list() {
+                root.move-person(root.rooms[root.move-hovered - 1].id);
+            } else {
+                root.stop-moving();
+            }
+        } else if root.hovered > 0 && root.hovered != root.arranging && root.droppable[root.hovered - 1]
             && root.drag-y >= list.absolute-position.y && root.drag-y < list.absolute-position.y + list.height {
             root.arrange(root.hovered);
         } else {
             root.stop-arranging();
         }
         root.hovered = 0;
+        root.move-hovered = 0;
     }
     pure function aimed(place: int) -> bool {
         return root.arranging > 0 && place > 0 && root.hovered == place && place != root.arranging && root.droppable[place - 1];
@@ -924,10 +1269,18 @@ export component RoomList inherits Rectangle {
     pure function dimmed(voice: bool) -> bool {
         return root.arranging > 0 && (root.dragged-category || voice != root.dragged-voice);
     }
+    // Someone dragged may drop on the row at this index, which the pointer
+    // is over; the rows they may not drop on dim.
+    pure function move-aimed(index: int) -> bool {
+        return root.moving && root.move-hovered == index + 1 && root.move-droppable[index];
+    }
+    pure function unfit(index: int) -> bool {
+        return root.moving && !root.move-droppable[index];
+    }
     // Near the list's top or bottom, it scrolls while dragging.
     Timer {
         interval: 16ms;
-        running: root.arranging > 0 && (root.drag-y < list.absolute-position.y + 40px || root.drag-y > list.absolute-position.y + list.height - 40px);
+        running: root.dragging && (root.drag-y < list.absolute-position.y + 40px || root.drag-y > list.absolute-position.y + list.height - 40px);
         triggered => {
             if root.drag-y < list.absolute-position.y + 40px {
                 list.content-y = min(0px, list.content-y + 8px);
@@ -948,6 +1301,11 @@ export component RoomList inherits Rectangle {
                 open-friends => { root.open-friends(); }
                 open-requests => { root.open-requests(); }
             }
+            if ClientStyle.enabled && root.dms-selected && !root.preview: DmHeading {
+                discord-linked: root.discord-linked;
+                add-friend => { root.open-add-friend(); }
+                new-message => { root.open-new-dm(); }
+            }
             if root.browse-offered: BrowseLink {
                 browsing: root.browsing;
                 open-browse => { root.open-browse(); }
@@ -955,7 +1313,9 @@ export component RoomList inherits Rectangle {
             if root.sidebar-empty != "": HorizontalLayout { padding: 8px; Label { text: root.sidebar-empty; } }
         }
         // A list view makes only the rows in sight, which matters with hundreds of DMs.
+        // Scrolled, it moves the row a voice card is beside from under the pointer.
         list := ListView {
+            changed content-y => { VoiceCard.people = []; }
             vertical-stretch: 1;
             for room[index] in root.rooms: VerticalLayout {
                 padding-left: 8px; padding-right: 8px;
@@ -965,6 +1325,11 @@ export component RoomList inherits Rectangle {
                     friends-open: root.friends-open; requests-current: root.requests-current; requests-badge: root.requests-badge;
                     open-friends => { root.open-friends(); }
                     open-requests => { root.open-requests(); }
+                }
+                if index == 0 && ClientStyle.enabled && root.dms-selected && !root.preview: DmHeading {
+                    discord-linked: root.discord-linked;
+                    add-friend => { root.open-add-friend(); }
+                    new-message => { root.open-new-dm(); }
                 }
                 if index == 0 && root.browse-offered: BrowseLink {
                     browsing: root.browsing;
@@ -985,11 +1350,13 @@ export component RoomList inherits Rectangle {
                 }
                 if room.heading != "" && !(room.pinned && !room.direct): CategoryHeading {
                     text: room.heading; collapsed: room.collapsed;
+                    can-create: root.may-create(room.id);
+                    create => { root.create-channel(room.id); }
                     toggled => { root.toggle-category(room.category); }
                     context-menu(x, y) => { root.open-category-menu(room.id, x, y); }
-                    draggable: room.heading-place > 0; tracking: root.arranging > 0;
+                    draggable: room.heading-place > 0; tracking: root.dragging;
                     start-drag(y) => { return root.begin(room.heading-place, room, true, y); }
-                    dragged(y) => { root.drag-y = y; }
+                    dragged(y) => { root.follow(list.absolute-position.x, y); }
                     dropped => { root.finish(); }
                     // The pointer is over it, or the gap above it.
                     property <bool> over: root.arranging > 0 && room.heading-place > 0 && root.scrolled >= 0
@@ -1020,9 +1387,9 @@ export component RoomList inherits Rectangle {
                     }
                     ChannelRow {
                         text: room.name; thread: true;
-                        opacity: root.dimmed(false) ? 0.3 : 1;
-                        tracking: root.arranging > 0;
-                        dragged(y) => { root.drag-y = y; }
+                        opacity: root.dimmed(false) || root.unfit(index) ? 0.3 : 1;
+                        tracking: root.dragging;
+                        dragged(y) => { root.follow(list.absolute-position.x, y); }
                         dropped => { root.finish(); }
                         label: room.name + ", thread" + (room.muted ? ", muted" : "")
                             + (room.badge != "" ? ", " + room.badge + " mentions" : room.unread ? ", unread" : "");
@@ -1038,11 +1405,20 @@ export component RoomList inherits Rectangle {
                         + (room.voice-room != "" ? ", in " + room.voice-channel + " in " + room.voice-server : "")
                         + (room.detail != "" ? ", " + room.detail : "")
                         + (room.pinned ? ", pinned" : "") + (room.muted ? ", muted" : "")
-                        + (room.locked ? ", locked" : "") + (room.call ? ", in a call" : "") + (room.badge != "" ? ", " + room.badge + " mentions" : room.unread ? ", unread" : "");
+                        + (room.locked ? ", locked" : "") + (room.call ? ", in a call" : "")
+                        + (room.voice-started > 0 ? ", call going for " + ActivityClock.lasted(room.voice-started, ActivityClock.minute * 60) : "")
+                        + (room.badge != "" ? ", " + room.badge + " mentions" : room.unread ? ", unread" : "");
                     icon: room.icon; person: room.direct; initial: room.initial; tint: room.tint;
-                    chat: room.chat;
+                    chat: room.chat; voice-started: room.voice-started;
+                    voice-id: room.id;
+                    voice-people: room.voice && !room.direct ? room.people : [];
+                    voice-summary: room.voice-summary;
                     open-chat => { root.open-chat(room.id); }
                     picture: room.picture; picture-url: room.picture-url; discord: room.discord;
+                    decoration-url: room.decoration-url; nameplate-url: room.nameplate-url;
+                    nameplate-color: room.nameplate-color; nameplate-light: room.nameplate-light; name-style: room.name-style;
+                    tag: room.tag; tag-badge: room.tag-badge; official: room.official; wave: room.wave;
+                    waved => { root.wave(room.wave); }
                     selected: room.selected; unread: room.unread; badge: room.badge; locked: room.locked;
                     call: room.call; presence: room.presence; detail: room.detail; detail-emoji: room.detail-emoji;
                     voice-channel: room.voice-channel; voice-server: room.voice-server;
@@ -1051,10 +1427,10 @@ export component RoomList inherits Rectangle {
                     clicked => { root.select-room(room.id); }
                     open-voice => { root.open-voice(room.voice-room); }
                     context-menu(x, y) => { root.open-room-menu(room.id, x, y); }
-                    opacity: root.dimmed(room.voice) ? 0.3 : 1;
-                    draggable: room.place > 0; tracking: root.arranging > 0;
+                    opacity: root.dimmed(room.voice) || root.unfit(index) ? 0.3 : 1;
+                    draggable: room.place > 0; tracking: root.dragging;
                     start-drag(y) => { return root.begin(room.place, room, false, y); }
-                    dragged(y) => { root.drag-y = y; }
+                    dragged(y) => { root.follow(list.absolute-position.x, y); }
                     dropped => { root.finish(); }
                     // Who is in a voice channel lists under it, as part of it.
                     property <length> people: !room.voice ? 0px
@@ -1065,6 +1441,17 @@ export component RoomList inherits Rectangle {
                     changed over => {
                         if self.over { root.hovered = room.place; }
                         else if root.hovered == room.place { root.hovered = 0; }
+                    }
+                    // The same, for someone dragged from a voice channel.
+                    property <bool> move-over: root.moving && root.scrolled >= 0 && root.over-list()
+                        && root.drag-y >= self.absolute-position.y - 2px && root.drag-y < self.absolute-position.y + self.height + self.people;
+                    changed move-over => {
+                        if self.move-over { root.move-hovered = index + 1; }
+                        else if root.move-hovered == index + 1 { root.move-hovered = 0; }
+                    }
+                    // Where someone dragged would drop, outlined in the drop line's colour.
+                    if root.move-aimed(index): Rectangle {
+                        border-radius: 6px; border-width: 2px; border-color: Theme.live;
                     }
                     if root.aimed(room.place): DropLine {
                         x: 8px; width: parent.width - 8px;
@@ -1080,6 +1467,7 @@ export component RoomList inherits Rectangle {
                         // click their menu, as in Discord; their LIVE tag watches
                         // their stream. This account in the call on another
                         // client is dimmed until hovered, without its icons.
+                        // They may be dragged onto another voice channel.
                         property <string> tip: person.elsewhere ? "Connected on another client" : "";
                         height: 30px; border-radius: 4px;
                         background: person-touch.has-hover ? Theme.hover : transparent;
@@ -1091,16 +1479,15 @@ export component RoomList inherits Rectangle {
                         accessible-action-default => {
                             root.open-voice-profile(person, self.absolute-position.x, self.absolute-position.y, self.width, self.height);
                         }
-                        person-touch := TouchArea {
-                            mouse-cursor: MouseCursor.pointer;
-                            clicked => {
+                        person-touch := PersonTouch {
+                            tracking: root.dragging;
+                            open-profile => {
                                 root.open-voice-profile(person, parent.absolute-position.x, parent.absolute-position.y, parent.width, parent.height);
                             }
-                            pointer-event(event) => {
-                                if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
-                                    root.open-voice-menu(room.id, person, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
-                                }
-                            }
+                            open-menu(x, y) => { root.open-voice-menu(room.id, person, x, y); }
+                            start-drag => { return root.begin-moving(room.id, person); }
+                            dragged(x, y) => { root.follow(x, y); }
+                            dropped => { root.finish(); }
                             changed has-hover => {
                                 if self.has-hover && parent.tip != "" {
                                     Tip.text = parent.tip; Tip.side = 0;
@@ -1144,7 +1531,7 @@ export component RoomList inherits Rectangle {
                     padding-left: 32px; padding-bottom: 4px; spacing: 0px;
                     for person in root.participants: Rectangle {
                         // A click opens their profile and a right click their
-                        // menu, as above.
+                        // menu, and they may be dragged, as above.
                         height: 30px; border-radius: 4px;
                         background: participant-touch.has-hover ? Theme.hover : transparent;
                         animate background { duration: 90ms; }
@@ -1153,16 +1540,15 @@ export component RoomList inherits Rectangle {
                         accessible-action-default => {
                             root.open-voice-profile(person, self.absolute-position.x, self.absolute-position.y, self.width, self.height);
                         }
-                        participant-touch := TouchArea {
-                            mouse-cursor: MouseCursor.pointer;
-                            clicked => {
+                        participant-touch := PersonTouch {
+                            tracking: root.dragging;
+                            open-profile => {
                                 root.open-voice-profile(person, parent.absolute-position.x, parent.absolute-position.y, parent.width, parent.height);
                             }
-                            pointer-event(event) => {
-                                if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
-                                    root.open-voice-menu(root.voice-channel, person, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
-                                }
-                            }
+                            open-menu(x, y) => { root.open-voice-menu(root.voice-channel, person, x, y); }
+                            start-drag => { return root.begin-moving(root.voice-channel, person); }
+                            dragged(x, y) => { root.follow(x, y); }
+                            dropped => { root.finish(); }
                         }
                         HorizontalLayout {
                             spacing: 8px; padding-left: 4px; padding-right: 8px;
@@ -1198,10 +1584,25 @@ export component RoomList inherits Rectangle {
             }
         }
     }
+    // Someone dragged follows the pointer the same way, just below it, so the
+    // name of the channel they'd drop on stays readable.
+    if root.moving: Rectangle {
+        x: 40px; y: root.drag-y - root.absolute-position.y + 12px;
+        width: root.width - 48px; height: 30px; border-radius: 4px;
+        background: Theme.active; opacity: 0.6;
+        HorizontalLayout {
+            spacing: 8px; padding-left: 4px; padding-right: 8px;
+            Middle { Avatar { size: 22px; initial: root.dragged-person.initial; tint: root.dragged-person.tint; picture: root.dragged-person.picture; } }
+            Text {
+                text: root.dragged-person.name; font-size: 15px; font-weight: 500; color: Theme.text;
+                vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
+            }
+        }
+    }
     // What's dragged follows the pointer, faint, as a browser draws it.
     if root.arranging > 0: Rectangle {
         x: 8px; y: root.drag-y - root.absolute-position.y - root.grab-y;
-        width: root.width - 16px; height: root.dragged-category ? 36px : 34px;
+        width: root.width - 16px; height: root.dragged-category ? 36px : (root.dragged-row.person ? ClientStyle.dm-row-height : ClientStyle.channel-row-height);
         border-radius: root.dragged-category ? 4px : 6px;
         background: Theme.active; opacity: 0.6;
         if root.dragged-category: HorizontalLayout {

@@ -1,6 +1,6 @@
 //! Roles in a Discord server's settings: the page as it opens, saving its
 //! draft, and what Discord's client does at once, as its requests go. See
-//! "Roles" in docs/discord.md.
+//! "Roles" in docs/discord/server-settings.md.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 

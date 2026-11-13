@@ -3,7 +3,7 @@
 //! topic, slowmode and age restriction; and Permissions, its overwrites,
 //! which allow or deny each permission to a role or member there. Each page
 //! edits a draft against what Discord has, with Discord's unsaved changes
-//! bar, as server settings do. See "Channel settings" in docs/discord.md.
+//! bar, as server settings do. See "Channel settings" in docs/discord/server-settings.md.
 
 use super::*;
 use crate::chat::{

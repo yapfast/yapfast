@@ -1,7 +1,7 @@
 //! A Discord server's settings: fetching a page as it opens, reading a
 //! picture chosen for the server, and saving what changed; and the
 //! two-factor prompts Discord asks of moderation and of the settings. See
-//! "Server settings" in docs/discord.md.
+//! "Server settings" in docs/discord/server-settings.md.
 
 use serde_json::{Map, Value};
 use yapfast_discord::{

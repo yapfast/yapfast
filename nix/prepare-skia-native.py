@@ -5,59 +5,80 @@ import hashlib
 import io
 import json
 import os
-from pathlib import Path
+import re
 import shutil
 import struct
 import subprocess
 import sys
 import tarfile
 import tempfile
-native_target = os.environ.get('YAPFAST_SKIA_TARGET', 'linux')
-pins = {
+from pathlib import Path
+
+# What the checks below compare before and after the rename: an archive's
+# members by name, and for each member its sections by name. A section entry
+# holds the section's identity and flags with the digests of what it carries;
+# an ELF member and a COFF member describe one differently, and a member the
+# helpers do not parse keeps one digest of all its bytes.
+Payloads = dict[str, object]
+ArchiveMembers = dict[str, Payloads]
+
+native_target: str = os.environ.get('YAPFAST_SKIA_TARGET', 'linux')
+pins: dict[str, tuple[str, str | None]] = {
     'linux': ('x86_64-unknown-linux-gnu-ftembed-ganesh-gl-jpegd-jpege-pdf-textlayout',
-              'ef41a8ff85bebeb06238df88e144eb04778a368fc1672a63155155d97f0caf10'),
+              'd5ea4666b67f4ff74a2c9dccf9cbb069fc991552caa9ed26fd4379572ddfe3b1'),
     'windows': ('x86_64-pc-windows-msvc-d3d-ganesh-gl-jpegd-jpege-pdf-static',
                 os.environ.get('YAPFAST_SKIA_STATIC_SHA256')),
 }
 suffix, source_sha256 = pins[native_target]
 if not source_sha256:
     raise SystemExit('Windows preparation requires the verified source-build archive')
-key = 'b7f043e0b1e2a850e702-' + suffix
-package = 'skia-binaries-' + key + '.tar.gz'
-old_symbol = 'jpeg_natural_order'
-new_symbol = 'yapfast_skia_jpeg_natural_order'
-target = Path(os.environ['YAPFAST_SKIA_OUTPUT'])
-archive_path = target / package
-upstream_path = target / 'upstream' / package
-stamp_path = target / 'yapfast-skia-native.json'
-script_sha256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
-objcopy = os.environ.get('YAPFAST_SKIA_OBJCOPY') or shutil.which('llvm-objcopy')
+key: str = '30669978c3f39a73e8a7-' + suffix
+package: str = 'skia-binaries-' + key + '.tar.gz'
+old_symbol: str = 'jpeg_natural_order'
+new_symbol: str = 'yapfast_skia_jpeg_natural_order'
+target: Path = Path(os.environ['YAPFAST_SKIA_OUTPUT'])
+archive_path: Path = target / package
+upstream_path: Path = target / 'upstream' / package
+stamp_path: Path = target / 'yapfast-skia-native.json'
+script_sha256: str = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+objcopy: str | None = os.environ.get('YAPFAST_SKIA_OBJCOPY') or shutil.which('llvm-objcopy')
 if not objcopy:
-    raise SystemExit('Needs LLVM 21 objcopy, from the development shell or YAPFAST_SKIA_OBJCOPY')
-objcopy_version = subprocess.check_output([objcopy, '--version'], text=True).strip()
-# Nix pins 21.1.7; a distribution's package may be a later 21.x, which the
-# checks below hold to the same result: only the one symbol renamed.
-if 'LLVM version 21.' not in objcopy_version:
+    raise SystemExit('Needs LLVM 21 or later objcopy, from the development shell or YAPFAST_SKIA_OBJCOPY')
+objcopy_version: str = subprocess.check_output([objcopy, '--version'], text=True).strip()
+# Nix pins 21.1.7, but a native host's LLVM is often newer; the checks for the
+# symbols and sections below, not the version string, are what keep the
+# rename to Skia's one JPEG table.
+version: re.Match[str] | None = re.search(r'LLVM version ([0-9]+)', objcopy_version)
+objcopy_major: int
+try:
+    objcopy_major = int(version.group(1)) if version else 0
+except ValueError:
+    objcopy_major = 0
+if objcopy_major < 21:
     raise SystemExit('Unexpected objcopy version: ' + objcopy_version)
-stamp = {
-    'tag': '0.153.3', 'key': key, 'upstream_sha256': source_sha256,
+stamp: dict[str, object] = {
+    'tag': '0.157.0', 'key': key, 'upstream_sha256': source_sha256,
     'helper_sha256': script_sha256, 'objcopy_version': objcopy_version,
     'rename': {old_symbol: new_symbol},
 }
 if stamp_path.is_file() and archive_path.is_file() and upstream_path.is_file():
-    previous = json.loads(stamp_path.read_text())
+    # A stamp an interrupted run left is no stamp: build it again.
+    try:
+        previous: dict[str, object] = json.loads(stamp_path.read_text())
+    except (OSError, ValueError):
+        previous = {}
     if (all(previous.get(k) == v for k, v in stamp.items())
         and hashlib.sha256(archive_path.read_bytes()).hexdigest() == previous.get('private_archive_sha256')
         and hashlib.sha256(upstream_path.read_bytes()).hexdigest() == source_sha256):
         print(archive_path)
         raise SystemExit(0)
 
-def symbols(path):
+def symbols(path: Path) -> list[str]:
     result = subprocess.run([os.environ.get('YAPFAST_SKIA_NM', 'nm'), '-A', str(path)], check=True, text=True, capture_output=True)
     # Ignore the varying archive path; preserve each member and its symbol table.
     return sorted(line[len(str(path)):] for line in result.stdout.splitlines())
 
-def elf_payloads(data):
+def elf_payloads(data: bytes) -> Payloads:
     """Executable/data/relocation bytes must remain identical after the rename."""
     if data[:6] != b'\x7fELF\x02\x01':
         raise SystemExit('Expected little-endian ELF64 archive member')
@@ -66,7 +87,7 @@ def elf_payloads(data):
     sections = [struct.unpack_from('<IIQQQQIIQQ', data, table_offset + i * entry_size) for i in range(count)]
     strings = sections[string_index]
     names = data[strings[4]:strings[4] + strings[5]]
-    result = {}
+    result: Payloads = {}
     for section in sections:
         name = names[section[0]:].split(b'\0', 1)[0].decode()
         # Only symbol and string tables may change. NOBITS has no file bytes.
@@ -75,7 +96,7 @@ def elf_payloads(data):
             result[name] = (section[1:4], section[5:10], hashlib.sha256(payload).hexdigest())
     return result
 
-def coff_payloads(data):
+def coff_payloads(data: bytes) -> Payloads:
     """COFF code, data and relocations must also survive the symbol rename."""
     if data[:4] == b'\x00\x00\xff\xff' and struct.unpack_from('<H', data, 4)[0] >= 2:
         header = struct.unpack_from('<HHHHI16sIIIIIII', data)
@@ -88,7 +109,7 @@ def coff_payloads(data):
     strings_offset = symbols_offset + symbols_count * symbol_size
     strings_length = struct.unpack_from('<I', data, strings_offset)[0] if symbols_offset else 0
     strings = data[strings_offset:strings_offset + strings_length]
-    result = {}
+    result: Payloads = {}
     for index in range(count):
         section = struct.unpack_from('<8sIIIIIIHHI', data, section_offset + index * 40)
         name = section[0].rstrip(b'\0')
@@ -109,11 +130,13 @@ def coff_payloads(data):
                                 hashlib.sha256(lines).hexdigest())
     return result
 
-def archive_members(path):
+def archive_members(path: Path) -> ArchiveMembers:
     data = path.read_bytes()
     if data[:8] != b'!<arch>\n':
         raise SystemExit('Expected a regular native archive')
-    members, names, position = {}, b'', 8
+    members: ArchiveMembers = {}
+    names: bytes = b''
+    position: int = 8
     while position < len(data):
         header = data[position:position + 60]
         if len(header) != 60 or header[58:] != b'`\n':
@@ -135,18 +158,20 @@ def archive_members(path):
     return members
 
 target.parent.mkdir(parents=True, exist_ok=True)
-with tempfile.TemporaryDirectory(prefix='skia-native-prepare-', dir=target.parent) as temporary:
-    temporary = Path(temporary)
+with tempfile.TemporaryDirectory(prefix='skia-native-prepare-', dir=target.parent) as temporary_directory:
+    temporary: Path = Path(temporary_directory)
     # Download from the upstream release, rather than modifying a Cargo build output.
-    source = Path(os.environ['YAPFAST_SKIA_SOURCE']).read_bytes()
+    source: bytes = Path(os.environ['YAPFAST_SKIA_SOURCE']).read_bytes()
     if hashlib.sha256(source).hexdigest() != source_sha256:
         raise SystemExit('Pinned Skia native archive checksum mismatch')
     with tarfile.open(fileobj=io.BytesIO(source)) as archive:
         archive.extractall(temporary, filter='data')
     native_root = temporary / 'skia-binaries'
-    if (native_root / 'key.txt').read_text().strip() != key or (native_root / 'tag.txt').read_text().strip() != '0.153.3':
+    if (native_root / 'key.txt').read_text().strip() != key or (native_root / 'tag.txt').read_text().strip() != '0.157.0':
         raise SystemExit('Pinned Skia native archive key/tag mismatch')
-    original_symbols, original_payloads, hashes = {}, {}, {}
+    original_symbols: dict[str, list[str]] = {}
+    original_payloads: dict[str, ArchiveMembers] = {}
+    hashes: dict[str, dict[str, str]] = {}
     libraries = sorted(native_root.glob('*.a' if native_target == 'linux' else '*.lib'))
     if native_target == 'windows':
         for library in libraries:
@@ -157,7 +182,7 @@ with tempfile.TemporaryDirectory(prefix='skia-native-prepare-', dir=target.paren
         original_symbols[library.name] = symbols(library)
         original_payloads[library.name] = archive_members(library)
         hashes[library.name] = {'upstream_sha256': hashlib.sha256(library.read_bytes()).hexdigest()}
-    references = [line for lines in original_symbols.values() for line in lines if line.split()[-1:] == [old_symbol]]
+    references: list[str] = [line for lines in original_symbols.values() for line in lines if line.split()[-1:] == [old_symbol]]
     if len(references) != 9 or sum(' R ' in line for line in references) != 1:
         raise SystemExit('Unexpected pinned JPEG table definitions/references: ' + repr(references))
     for library in libraries:
@@ -177,18 +202,20 @@ with tempfile.TemporaryDirectory(prefix='skia-native-prepare-', dir=target.paren
         hashes[library.name]['private_sha256'] = hashlib.sha256(library.read_bytes()).hexdigest()
     prepared = temporary / package
     # Deterministic tar/gzip metadata keeps the private archive reproducible.
-    with prepared.open('wb') as output:
-        with gzip.GzipFile(filename='', mode='wb', fileobj=output, mtime=0) as compressed:
-            with tarfile.open(fileobj=compressed, mode='w', format=tarfile.USTAR_FORMAT) as archive:
-                for path in [native_root] + sorted(native_root.rglob('*')):
-                    info = archive.gettarinfo(str(path), str(path.relative_to(temporary)))
-                    info.uid = info.gid = info.mtime = 0
-                    info.uname = info.gname = ''
-                    if path.is_file():
-                        with path.open('rb') as content:
-                            archive.addfile(info, content)
-                    else:
-                        archive.addfile(info)
+    with (
+        prepared.open('wb') as output,
+        gzip.GzipFile(filename='', mode='wb', fileobj=output, mtime=0) as compressed,
+        tarfile.open(fileobj=compressed, mode='w', format=tarfile.USTAR_FORMAT) as archive,
+    ):
+        for path in [native_root] + sorted(native_root.rglob('*')):
+            info = archive.gettarinfo(str(path), str(path.relative_to(temporary)))
+            info.uid = info.gid = info.mtime = 0
+            info.uname = info.gname = ''
+            if path.is_file():
+                with path.open('rb') as content:
+                    archive.addfile(info, content)
+            else:
+                archive.addfile(info)
     stamp.update({'libraries': hashes, 'renamed_references': len(references), 'private_archive_sha256': hashlib.sha256(prepared.read_bytes()).hexdigest()})
     target.mkdir(parents=True, exist_ok=True)
     upstream_path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,7 +1,7 @@
 //! Decoding a watched Go Live stream: VP8 with libvpx and H264 with FFmpeg,
-//! both inside libwebrtc, through native/decode.c; and H265 with the HEVC
-//! decoder of vendor/ffmpeg-src's FFmpeg, through native/hevc.c, where it's
-//! built.
+//! both inside libwebrtc, through native/decode.c; AV1 with libwebrtc's
+//! dav1d, through native/av1.c; and H265 with the HEVC decoder of
+//! vendor/ffmpeg-src's FFmpeg, through native/hevc.c, where it's built.
 
 use std::ffi::{c_int, c_uchar, c_uint};
 
@@ -35,6 +35,14 @@ unsafe extern "C" {
         picture: *mut RawPicture,
     ) -> c_int;
     fn yapfast_decoder_free(decoder: *mut Raw);
+    fn yapfast_av1_new(threads: c_uint) -> *mut Raw;
+    fn yapfast_av1_decode(
+        decoder: *mut Raw,
+        data: *const c_uchar,
+        size: usize,
+        picture: *mut RawPicture,
+    ) -> c_int;
+    fn yapfast_av1_free(decoder: *mut Raw);
 }
 
 #[cfg(hevcdec)]
@@ -52,12 +60,13 @@ unsafe extern "C" {
 type DecodeFn = unsafe extern "C" fn(*mut Raw, *const c_uchar, usize, *mut RawPicture) -> c_int;
 type FreeFn = unsafe extern "C" fn(*mut Raw);
 
-/// The codecs a viewer tells Discord it decodes, most wanted first: H265
-/// only where FFmpeg's HEVC decoder is built in, on Linux and Windows.
+/// The codecs a viewer tells Discord it decodes, most wanted first: AV1
+/// everywhere, H265 only where FFmpeg's HEVC decoder is built in, on Linux
+/// and Windows.
 pub const DECODES: &[Codec] = if cfg!(hevcdec) {
-    &[Codec::H265, Codec::H264, Codec::Vp8]
+    &[Codec::Av1, Codec::H265, Codec::H264, Codec::Vp8]
 } else {
-    &[Codec::H264, Codec::Vp8]
+    &[Codec::Av1, Codec::H264, Codec::Vp8]
 };
 
 pub struct Decoder {
@@ -111,6 +120,11 @@ impl Decoder {
             // Not in DECODES, so Discord sends this viewer H264.
             #[cfg(not(hevcdec))]
             Codec::H265 => bail!("this build of Yapfast can't decode H265"),
+            Codec::Av1 => (
+                unsafe { yapfast_av1_new(threads) },
+                yapfast_av1_decode,
+                yapfast_av1_free,
+            ),
         };
         if raw.is_null() {
             bail!("could not start the {codec:?} decoder");
@@ -258,6 +272,25 @@ mod tests {
         &file[..second]
     }
 
+    /// The first temporal unit of an AV1 recording: its OBUs, each giving
+    /// its size, up to the second temporal delimiter (type 2).
+    fn first_temporal_unit(file: &[u8]) -> Vec<u8> {
+        let mut at = 0;
+        loop {
+            let (mut size, mut used) = (0, 0);
+            while file[at + 1 + used] & 0x80 != 0 {
+                size |= usize::from(file[at + 1 + used] & 0x7f) << (7 * used);
+                used += 1;
+            }
+            size |= usize::from(file[at + 1 + used]) << (7 * used);
+            let next = at + 2 + used + size;
+            if at > 0 && (file[at] >> 3) & 0x0f == 2 {
+                return file[..at].to_vec();
+            }
+            at = next;
+        }
+    }
+
     #[test]
     fn decodes_the_recorded_streams() {
         let vp8 = fixture("stream-vp8.ivf");
@@ -265,6 +298,18 @@ mod tests {
         let size = u32::from_le_bytes(vp8[header..header + 4].try_into().unwrap()) as usize;
         check(Codec::Vp8, &vp8[header + 12..header + 12 + size]);
         check(Codec::H264, first_unit(&fixture("stream-h264.h264"), 9));
+        // AV1 as it comes, and as DAVE leaves it, the last OBU without its
+        // size.
+        let unit = first_temporal_unit(&fixture("stream-av1.obu"));
+        check(Codec::Av1, &unit);
+        let elements = yapfast_discord::rtp::obu_elements(&unit).unwrap();
+        let last = elements.last().unwrap();
+        // Its header, then a size of one LEB128 byte, or two from 128 on.
+        let sized_last = 1 + last.len() + usize::from(last.len() > 128);
+        check(
+            Codec::Av1,
+            &[&unit[..unit.len() - sized_last], last.as_slice()].concat(),
+        );
         // H265's delimiter is NAL type 35.
         if cfg!(hevcdec) {
             check(

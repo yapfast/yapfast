@@ -26,7 +26,7 @@ use tokio::{
     time::{Instant, timeout},
 };
 use tokio_tungstenite::{
-    MaybeTlsStream, WebSocketStream, connect_async,
+    MaybeTlsStream, WebSocketStream,
     tungstenite::{
         Message,
         client::IntoClientRequest,
@@ -35,7 +35,7 @@ use tokio_tungstenite::{
     },
 };
 
-use crate::{client, event::Event, member_list};
+use crate::{client, event::Event, member_list, websocket};
 
 const URL: &str = "wss://gateway.discord.gg";
 /// What the web client asks of the gateway: JSON, compressed as one zlib
@@ -59,7 +59,9 @@ const STREAM_CREATE: u64 = 18;
 const STREAM_DELETE: u64 = 19;
 const STREAM_WATCH: u64 = 20;
 const STREAM_SET_PAUSED: u64 = 22;
+const REQUEST_SOUNDBOARD_SOUNDS: u64 = 31;
 const GUILD_SUBSCRIPTIONS_BULK: u64 = 37;
+const REQUEST_CHANNEL_INFO: u64 = 43;
 
 /// Discord closed the gateway, with its close code.
 #[derive(Debug)]
@@ -116,10 +118,17 @@ const SEND_WINDOW: Duration = Duration::from_secs(60);
 /// Discord allows 5 presence updates in 20 seconds, which the web client
 /// keeps to.
 const PRESENCE_LIMIT: usize = 5;
-#[cfg(not(test))]
-const PRESENCE_WINDOW: Duration = Duration::from_secs(20);
-#[cfg(test)]
-const PRESENCE_WINDOW: Duration = Duration::from_millis(300);
+
+/// How long [`PRESENCE_LIMIT`] updates take: Discord's 20 seconds, or 300 ms
+/// in unit tests and against the test server, which has no such limit, so
+/// that tests changing the status don't wait out Discord's.
+fn presence_window() -> Duration {
+    if cfg!(test) || client::test_server().is_some() {
+        Duration::from_millis(300)
+    } else {
+        Duration::from_secs(20)
+    }
+}
 /// The longest Yapfast holds back member requests for a server when Discord
 /// asks it to wait.
 const MEMBERS_HELD: Duration = Duration::from_secs(5 * 60);
@@ -262,7 +271,7 @@ async fn open(url: &str) -> Result<Socket> {
         header::ORIGIN,
         HeaderValue::from_static("https://discord.com"),
     );
-    let (socket, _) = timeout(IO_TIMEOUT, connect_async(request))
+    let (socket, _) = timeout(IO_TIMEOUT, websocket::connect(request))
         .await
         .context("Discord's gateway didn't answer")?
         .context("could not reach Discord's gateway")?;
@@ -279,7 +288,6 @@ impl Gateway {
         presence: Value,
         reconnects: &mut Reconnects,
     ) -> Result<(Self, Value)> {
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         let url = match client::test_server() {
             Some(server) => {
                 let server = server
@@ -291,6 +299,13 @@ impl Gateway {
         };
         let limiter = Limiter::new(SEND_LIMIT, SEND_WINDOW);
         Self::connect_to(&url, token, presence, reconnects, limiter).await
+    }
+
+    /// Connects as [`Self::connect`] does, to a fake Discord at `url`.
+    #[cfg(test)]
+    pub(crate) async fn connect_at(url: &str, presence: Value) -> Result<(Self, Value)> {
+        let limiter = Limiter::new(SEND_LIMIT, SEND_WINDOW);
+        Self::connect_to(url, "token", presence, &mut Reconnects::default(), limiter).await
     }
 
     async fn connect_to(
@@ -311,7 +326,7 @@ impl Gateway {
             session_id: None,
             resume_url: None,
             limiter,
-            presences: Limiter::new(PRESENCE_LIMIT, PRESENCE_WINDOW),
+            presences: Limiter::new(PRESENCE_LIMIT, presence_window()),
             presence: None,
             resumes: 0,
         };
@@ -444,6 +459,26 @@ impl Gateway {
         self.send(
             STREAM_SET_PAUSED,
             json!({"stream_key": stream_key, "paused": paused}),
+        )
+        .await
+    }
+
+    /// Asks for these servers' soundboard sounds, which Discord sends as one
+    /// SOUNDBOARD_SOUNDS for each.
+    pub async fn request_soundboard_sounds(&mut self, guild_ids: &[String]) -> Result<()> {
+        self.send(REQUEST_SOUNDBOARD_SOUNDS, json!({"guild_ids": guild_ids}))
+            .await
+    }
+
+    /// Asks when the session of each of a server's busy voice channels
+    /// started, as the web client does when the server opens. Discord
+    /// answers with CHANNEL_INFO, and says when one starts or ends with
+    /// VOICE_CHANNEL_START_TIME_UPDATE. It asks for the channels' statuses
+    /// too, unused, as the web client always asks for both.
+    pub async fn request_channel_info(&mut self, guild_id: &str) -> Result<()> {
+        self.send(
+            REQUEST_CHANNEL_INFO,
+            json!({"guild_id": guild_id, "fields": ["status", "voice_start_time"]}),
         )
         .await
     }
@@ -1005,7 +1040,7 @@ mod tests {
             session_id: None,
             resume_url: None,
             limiter: limiter(),
-            presences: Limiter::new(PRESENCE_LIMIT, PRESENCE_WINDOW),
+            presences: Limiter::new(PRESENCE_LIMIT, presence_window()),
             presence: None,
             resumes: 0,
         };
@@ -1285,12 +1320,12 @@ mod tests {
         assert_eq!(next(&mut gateway).await.unwrap().event, Event::TypingStart);
 
         // An event Yapfast doesn't know passes through by name, with its data.
-        peer.dispatch("GUILD_SOUNDBOARD_SOUND_CREATE", json!({"id": "7"}))
+        peer.dispatch("GUILD_AUDIT_LOG_ENTRY_CREATE", json!({"id": "7"}))
             .await;
         let other = next(&mut gateway).await.unwrap();
         assert_eq!(
             other.event,
-            Event::Other("GUILD_SOUNDBOARD_SOUND_CREATE".into())
+            Event::Other("GUILD_AUDIT_LOG_ENTRY_CREATE".into())
         );
         assert_eq!(other.data["id"], "7");
     }
@@ -1442,7 +1477,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(peer.command().await["d"]["n"], "latest");
-        assert!(held.elapsed() >= PRESENCE_WINDOW / 2);
+        assert!(held.elapsed() >= presence_window() / 2);
     }
 
     /// Compresses payloads as Discord's gateway does, sharing one stream.

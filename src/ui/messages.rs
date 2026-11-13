@@ -12,8 +12,9 @@ pub(super) const JUMP_LINK: &str = "yapfast:jump/";
 pub(super) const PINS_LINK: &str = "yapfast:pins";
 
 /// A message continues the previous one's group when the same person sent it
-/// within seven minutes, without replying to something else. A notice, such
-/// as one that someone pinned a message, is a group of its own.
+/// within seven minutes, without replying to something else or answering a
+/// command. A notice, such as one that someone pinned a message, is a group
+/// of its own.
 pub(super) fn continues(before: &ChatMessage, message: &ChatMessage) -> bool {
     if before.notice.is_some() || message.notice.is_some() {
         return false;
@@ -28,7 +29,7 @@ pub(super) fn continues(before: &ChatMessage, message: &ChatMessage) -> bool {
     let close = before.timestamp == 0
         || message.timestamp == 0
         || message.timestamp.abs_diff(before.timestamp) <= 7 * 60;
-    message.reply.is_none() && sender(before) == sender(message) && close
+    message.reply.is_none() && message.used.is_none() && sender(before) == sender(message) && close
 }
 
 /// The local calendar date of a timestamp, such as "3 October 2026"; empty when unknown.
@@ -45,6 +46,8 @@ pub(super) struct Marks<'a> {
     pub revealed: &'a HashSet<String>,
     /// Every row is built again, as for a new layout.
     pub restyle: bool,
+    /// Decorations show around authors' avatars, as the profile switches say.
+    pub decorations: bool,
 }
 
 /// What a row shows of the messages around it, and of its author's picture.
@@ -53,6 +56,8 @@ struct Decoration<'a> {
     day: Option<String>,
     picture_url: &'a str,
     reply_picture_url: &'a str,
+    /// The decoration around the author's avatar, shown with it.
+    decoration_url: &'a str,
     unread_start: bool,
     highlighted: bool,
 }
@@ -65,6 +70,7 @@ impl Decoration<'_> {
             || row.day.as_str() != day
             || row.picture_url.as_str() != self.picture_url
             || row.reply_picture_url.as_str() != self.reply_picture_url
+            || row.decoration_url.as_str() != self.decoration_url
             || row.unread_start != self.unread_start
             || row.highlighted != self.highlighted;
         if changed {
@@ -72,6 +78,7 @@ impl Decoration<'_> {
             row.day = day.into();
             row.picture_url = self.picture_url.into();
             row.reply_picture_url = self.reply_picture_url.into();
+            row.decoration_url = self.decoration_url.into();
             row.unread_start = self.unread_start;
             row.highlighted = self.highlighted;
         }
@@ -132,6 +139,11 @@ pub(super) fn show_timeline(
                 .as_ref()
                 .and_then(|reply| reply.avatar.as_deref())
                 .unwrap_or_default(),
+            decoration_url: if collapsed(message, marks.revealed) || !marks.decorations {
+                ""
+            } else {
+                message.decoration.as_deref().unwrap_or_default()
+            },
             unread_start,
             highlighted: message.highlighted(index >= marks.first_new),
         };
@@ -193,7 +205,7 @@ pub(super) fn show_timeline(
 /// in it shows as typed: Slint draws `<font>` and `<u>`, which would let a
 /// sender colour text, hide it, or dress it up as a mention.
 pub(super) fn markdown(body: &str) -> slint::StyledText {
-    styled_or(&links::escape_html(body), body)
+    styled_or(&links::escape_html(&emoji_text::text(body)), body)
 }
 
 /// Someone's Markdown with its mentions linked, ready for [`styled`]. Its
@@ -448,20 +460,45 @@ pub(super) fn show_message(window: &YapfastWindow, index: usize, item: &str, lit
     });
 }
 
+/// The message flag of a Discord app's answer only this account sees.
+const EPHEMERAL: u64 = 1 << 6;
+/// The message flag of a Discord app's answer still to come.
+const LOADING: u64 = 1 << 7;
+
+/// How long Discord's client waits for a deferred answer before it says the
+/// app didn't respond: 15 minutes from the message's snowflake.
+const THINKING_SECS: u64 = 15 * 60;
+
 /// A message as the timeline shows it. `revealed` holds the spoilers clicked, as
 /// `{item}/{index}` for text and `{item}/a{index}` for attachments, and what
 /// was picked or shown on polls; see `polls`.
 pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> MessageRow {
+    message_row_within(message, revealed, None)
+}
+
+/// [`message_row`] with its pictures, and its link previews', shrunk to fit
+/// `fit` pixels beside the avatar, as the narrow thread beside a channel has.
+pub(super) fn message_row_within(
+    message: &ChatMessage,
+    revealed: &HashSet<String>,
+    fit: Option<i32>,
+) -> MessageRow {
+    let laid_out =
+        |previews: &[Preview<'_>], covered: &dyn Fn(usize) -> bool, room: Option<i32>| match room {
+            Some(room) => gallery_within(previews, covered, room.max(1)),
+            None => gallery(previews, covered),
+        };
     // Plain text shows as typed, its web addresses linked.
     // Mentions link to who they mention, which opens their card.
-    // Custom emoji show as their glyphs once they have them.
-    let linked = if message.formatted {
-        let linked = with_mentions(&message.body, &message.mentions);
-        custom_emoji::text(&linked, &message.emoji)
+    // Custom emoji show as their glyphs once they have them, and clicking any
+    // emoji, custom or Unicode, opens its card.
+    let mentioned = if message.formatted {
+        with_mentions(&message.body, &message.mentions)
     } else {
         String::new()
     };
-    let jumbo = message.formatted && custom_emoji::only_emoji(&linked);
+    let glyphs = custom_emoji::text(&mentioned, &message.emoji);
+    let jumbo = message.formatted && custom_emoji::only_emoji(&glyphs);
     // Headings, quotes and code each show apart; text alone shows as one.
     let blocks = if message.formatted && message.notice.is_none() {
         body_blocks(message, Some(revealed))
@@ -473,12 +510,13 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
     } else if let Some(notice) = &message.notice {
         notice_text(message, notice, &message.time)
     } else if message.formatted {
+        let carded = emoji_text::linked(&custom_emoji::linked(&mentioned, &message.emoji));
         if message.spoilers {
-            styled(&spoiler::mark(&linked, &message.item, 0, |index| {
+            styled(&spoiler::mark(&carded, &message.item, 0, |index| {
                 revealed.contains(&format!("{}/{index}", message.item))
             }))
         } else {
-            styled(&linked)
+            styled(&carded)
         }
     } else {
         plain_with_links(&message.body)
@@ -500,7 +538,8 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
             .collect()
     };
     let covered = |index: usize| !revealed.contains(&format!("{}/a{index}", message.item));
-    let (images, gallery_width, gallery_height) = gallery(&previews(Placement::Message), &covered);
+    let (images, gallery_width, gallery_height) =
+        laid_out(&previews(Placement::Message), &covered, fit);
     let stickers = previews(Placement::Sticker)
         .into_iter()
         .map(|(index, attachment, preview)| {
@@ -522,8 +561,10 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
                 ImageCell {
                     index: index as i32,
                     name: attachment.name.clone().into(),
-                    width: preview.width as i32,
-                    height: preview.height as i32,
+                    // Discord draws a message's sticker 160px square, whatever
+                    // its picture came at.
+                    width: STICKER_SIZE,
+                    height: STICKER_SIZE,
                     frames,
                     delays,
                     ..Default::default()
@@ -537,9 +578,18 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
         .iter()
         .enumerate()
         .map(|(index, embed)| {
-            let (images, gallery_width, gallery_height) =
-                gallery(&previews(Placement::Embed(index)), &covered);
             let thumbnail = previews(Placement::Thumbnail(index)).into_iter().next();
+            // A card's padding, and its thumbnail beside the text, take from it.
+            let room = fit.map(|fit| {
+                fit - EMBED_PADDING
+                    - if thumbnail.is_some() {
+                        EMBED_THUMBNAIL
+                    } else {
+                        0
+                    }
+            });
+            let (images, gallery_width, gallery_height) =
+                laid_out(&previews(Placement::Embed(index)), &covered, room);
             let description_blocks = markdown_blocks(&embed.description);
             EmbedCard {
                 color: role_color(embed.color),
@@ -593,10 +643,19 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
                     (_, _, Some(size)) => size,
                     _ => String::new(),
                 };
+                // A voice message's recording is its first attachment.
+                let voice = message.voice.as_ref().filter(|_| index == 0);
                 FileCell {
                     index: index as i32,
                     name: attachment.name.clone().into(),
                     detail: detail.into(),
+                    voice: voice.is_some(),
+                    waveform: voice.map_or_else(ModelRc::default, |voice| {
+                        ModelRc::new(VecModel::from(waveform_bars(&voice.waveform)))
+                    }),
+                    duration: voice
+                        .map(|voice| super::refresh::voice_time(voice.duration_ms).into())
+                        .unwrap_or_default(),
                 }
             })
             .collect()
@@ -624,6 +683,8 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
             false,
             true,
         ),
+        // An app's command, whose row says why.
+        Delivery::Failed if message.item.starts_with("c:") => ("Not sent.", true, true),
         Delivery::Failed => ("Not sent. The server refused this message.", true, true),
     };
     let reply_author = message
@@ -631,18 +692,41 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
         .as_ref()
         .map(|reply| reply.author.as_str())
         .unwrap_or_default();
+    let used_text = |text: fn(&yapfast_core::chat::UsedCommand) -> &String| -> SharedString {
+        message
+            .used
+            .as_ref()
+            .map(|used| text(used).as_str())
+            .unwrap_or_default()
+            .into()
+    };
     let row = MessageRow {
         picture_url: SharedString::default(),
         reply_picture_url: SharedString::default(),
+        decoration_url: SharedString::default(),
+        name_style: name_style::row(message.style.as_deref(), &message.author),
         id: message.id.clone().into(),
         item: message.item.clone().into(),
         author: message.author.clone().into(),
+        tag: tag_text(message.tag.as_ref()),
+        tag_badge: tag_badge(message.tag.as_ref()),
         sender: discord::sender_user(&message.sender)
             .unwrap_or(&message.sender)
             .into(),
         color: role_color(message.color),
         has_color: message.color.is_some(),
         bot: message.bot,
+        app_id: message
+            .application_id
+            .as_deref()
+            .or_else(|| {
+                message
+                    .bot
+                    .then(|| discord::sender_user(&message.sender))
+                    .flatten()
+            })
+            .unwrap_or_default()
+            .into(),
         initial: initial(&message.author),
         tint: tint(&message.author),
         // Virtualized avatars resolve their URLs when their components are built.
@@ -676,6 +760,11 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
         reply_author: reply_author.into(),
         reply_initial: initial(reply_author),
         reply_tint: tint(reply_author),
+        reply_color: role_color(message.reply.as_ref().and_then(|reply| reply.color)),
+        reply_has_color: message
+            .reply
+            .as_ref()
+            .is_some_and(|reply| reply.color.is_some()),
         // Virtualized avatars resolve their URLs when their components are built.
         reply_picture: slint::Image::default(),
         reply_body: message
@@ -688,6 +777,40 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
             .reply
             .as_ref()
             .and_then(|reply| reply.item.clone())
+            .unwrap_or_default()
+            .into(),
+        has_command: message.used.is_some(),
+        command_user: used_text(|used| &used.user),
+        command_sender: message
+            .used
+            .as_ref()
+            .map(|used| discord::sender_user(&used.sender).unwrap_or(&used.sender))
+            .unwrap_or_default()
+            .into(),
+        command_initial: initial(message.used.as_ref().map_or("", |used| &used.user)),
+        command_tint: tint(message.used.as_ref().map_or("", |used| &used.user)),
+        command_color: role_color(message.used.as_ref().and_then(|used| used.color)),
+        command_has_color: message
+            .used
+            .as_ref()
+            .is_some_and(|used| used.color.is_some()),
+        command_picture_url: message
+            .used
+            .as_ref()
+            .and_then(|used| used.avatar.as_deref())
+            .unwrap_or_default()
+            .into(),
+        command_name: used_text(|used| &used.name),
+        command_slash: message
+            .used
+            .as_ref()
+            .and_then(|used| used.slash.as_deref())
+            .unwrap_or_default()
+            .into(),
+        command_target: message
+            .used
+            .as_ref()
+            .and_then(|used| used.target.as_deref())
             .unwrap_or_default()
             .into(),
         reactions: ModelRc::new(VecModel::from(
@@ -712,11 +835,14 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
         blocks: blocks.map_or_else(ModelRc::default, |blocks| {
             ModelRc::new(VecModel::from(blocks))
         }),
+        expanded: expanded(&message.item, revealed),
         hidden_card: SharedString::default(),
         delivery: delivery.into(),
         delivery_failed: message.delivery == Delivery::Failed,
         can_retry,
         can_cancel,
+        // One with files keeps its line, with Cancel, while they upload.
+        sending: message.delivery == Delivery::Sending && message.attachments.is_empty(),
         can_reply: message.can_reply,
         can_edit: message.can_edit,
         can_delete: message.can_delete,
@@ -745,6 +871,11 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
             })
             .unwrap_or_default(),
         has_poll: message.poll.is_some(),
+        ephemeral: message.flags & EPHEMERAL != 0,
+        thinking: message.flags & LOADING != 0,
+        timed_out: message.flags & LOADING != 0
+            && message.timestamp != 0
+            && yapfast_core::clock::now_ms() / 1000 >= message.timestamp + THINKING_SECS,
     };
     if collapsed(message, revealed) {
         // Discord shows nothing of a blocked message until asked.
@@ -766,6 +897,7 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
             styled: slint::StyledText::from_markdown(&note)
                 .unwrap_or_else(|_| slint::StyledText::from_plain_text("Blocked message.")),
             has_reply: false,
+            has_command: false,
             reactions: ModelRc::default(),
             images: ModelRc::default(),
             gallery_width: 0,
@@ -783,6 +915,23 @@ pub(super) fn message_row(message: &ChatMessage, revealed: &HashSet<String>) -> 
         };
     }
     row
+}
+
+/// How many bars a voice message's waveform shows, as Discord's client
+/// draws it.
+const WAVEFORM_BARS: usize = 32;
+
+/// A voice message's waveform as its card's bars, each the loudest of its
+/// stretch of the points, from 0 to 1. Without a waveform they're flat.
+pub(super) fn waveform_bars(waveform: &[u8]) -> Vec<f32> {
+    (0..WAVEFORM_BARS)
+        .map(|bar| {
+            let start = bar * waveform.len() / WAVEFORM_BARS;
+            let end = ((bar + 1) * waveform.len() / WAVEFORM_BARS).max(start + 1);
+            let loudest = waveform.get(start..end.min(waveform.len()));
+            f32::from(loudest.into_iter().flatten().copied().max().unwrap_or(0)) / 255.0
+        })
+        .collect()
 }
 
 /// A row of a Discord app's card, its pictures and files found among the
@@ -823,6 +972,10 @@ fn card_row<'a>(
                 thumbnail_index: thumbnail.map_or(-1, |(index, _, _)| index as i32),
                 thumbnail_spoiler: thumbnail
                     .is_some_and(|(index, attachment, _)| attachment.spoiler && covered(index)),
+                thumbnail_description: thumbnail
+                    .and_then(|(_, attachment, _)| attachment.description.as_deref())
+                    .unwrap_or_default()
+                    .into(),
                 has_thumbnail: thumbnail.is_some(),
                 has_button: button.is_some(),
                 button: button.unwrap_or_default(),
@@ -858,9 +1011,18 @@ fn card_row<'a>(
             )),
             ..Default::default()
         },
-        Row::Select { text, .. } => CardRow {
+        Row::Select {
+            text,
+            disabled,
+            custom_id,
+            options,
+            ..
+        } => CardRow {
             kind: CardRowKind::Select,
-            select: text.as_str().into(),
+            select: custom_emoji::text(text, &message.emoji).into(),
+            select_id: custom_id.as_str().into(),
+            select_enabled: !disabled && !custom_id.is_empty(),
+            select_picked: options.iter().any(|option| option.default),
             ..Default::default()
         },
         Row::Unknown => CardRow {
@@ -872,6 +1034,11 @@ fn card_row<'a>(
 
 /// The widest a card's gallery shows, inside the card's padding.
 const CARD_GALLERY_WIDTH: i32 = 566;
+/// What a link preview's card takes across beside its pictures, as
+/// `EmbedView` in ui/messages.slint pads it: 16px each side.
+const EMBED_PADDING: i32 = 32;
+/// A card's thumbnail and the space before it, as `EmbedView` lays it out.
+const EMBED_THUMBNAIL: i32 = 96;
 
 fn card_button(
     button: &yapfast_core::chat::CardButton,
@@ -886,9 +1053,13 @@ fn card_button(
             ButtonStyle::Success => CardButtonStyle::Success,
             ButtonStyle::Danger => CardButtonStyle::Danger,
             ButtonStyle::Link => CardButtonStyle::Link,
+            ButtonStyle::Premium => CardButtonStyle::Premium,
         },
         url: button.url.clone().unwrap_or_default().into(),
-        enabled: button.url.is_some() && !button.disabled,
+        custom_id: button.custom_id.clone().unwrap_or_default().into(),
+        sku_id: button.sku_id.clone().unwrap_or_default().into(),
+        enabled: !button.disabled
+            && (button.url.is_some() || button.custom_id.is_some() || button.sku_id.is_some()),
     }
 }
 
@@ -940,19 +1111,19 @@ fn body_blocks(
                 })
             })
             .collect();
-        let linked = custom_emoji::text(&with_mentions(text, &mentions), &message.emoji);
+        let linked = custom_emoji::linked(&with_mentions(text, &mentions), &message.emoji);
         let Some(revealed) = revealed else {
-            return spoiler::hide(&linked);
+            return emoji_text::text(&spoiler::hide(&linked));
         };
         if !message.spoilers {
-            return linked;
+            return emoji_text::linked(&linked);
         }
         // Spoilers count on through the message, as clicking one reveals it.
         let marked = spoiler::mark(&linked, &message.item, spoilers, |index| {
             revealed.contains(&format!("{}/{index}", message.item))
         });
         spoilers += spoiler::count(&linked);
-        marked
+        emoji_text::linked(&marked)
     })
 }
 
@@ -1089,7 +1260,10 @@ pub(super) fn found_row(message: &ChatMessage, twelve_hour: bool) -> FoundRow {
         slint::StyledText::default()
     } else if message.formatted {
         let linked = with_mentions(&message.body, &message.mentions);
-        styled(&spoiler::hide(&custom_emoji::text(&linked, &message.emoji)))
+        styled(&emoji_text::text(&spoiler::hide(&custom_emoji::text(
+            &linked,
+            &message.emoji,
+        ))))
     } else {
         plain_with_links(&message.body)
             .unwrap_or_else(|| slint::StyledText::from_plain_text(&message.body))
@@ -1167,6 +1341,7 @@ pub(super) fn found_row(message: &ChatMessage, twelve_hour: bool) -> FoundRow {
 pub(super) fn topic_text(topic: &yapfast_core::chat::Topic, one_line: bool) -> slint::StyledText {
     let linked = with_mentions(&topic.body, &topic.mentions);
     let body = custom_emoji::text(&linked, &topic.emoji);
+    let body = emoji_text::text(&body);
     let body = if one_line {
         body.split_whitespace().collect::<Vec<_>>().join(" ")
     } else {
@@ -1175,7 +1350,225 @@ pub(super) fn topic_text(topic: &yapfast_core::chat::Topic, one_line: bool) -> s
     styled(&body)
 }
 
+/// Whether Show more was clicked on a long message, which shows it whole
+/// until Show less, while Yapfast runs.
+pub(super) fn expanded(item: &str, revealed: &HashSet<String>) -> bool {
+    revealed.contains(&fold_key(item))
+}
+
+/// What `revealed` holds for a long message shown whole.
+pub(super) fn fold_key(item: &str) -> String {
+    format!("{item}/more")
+}
+
 /// Whether a message shows collapsed, being from someone blocked.
 pub(super) fn collapsed(message: &ChatMessage, revealed: &HashSet<String>) -> bool {
     message.blocked && !revealed.contains(&format!("{}/blocked", message.item))
+}
+
+/// A Unicode emoji's card says it can be used anywhere.
+const DEFAULT_EMOJI: &str = "This is a default emoji. It can be used anywhere.";
+/// A server's emoji, in the card of one whose server this account knows.
+const SERVER_EMOJI: &str = "This emoji is from one of your servers.";
+/// A server's emoji, in the card of one whose server this account can't reach:
+/// one it never joined, or one that's gone. Its card says only this, with no
+/// count of who's online and no separator, since Discord tells it nothing.
+const OTHER_EMOJI: &str = "Invite-Only Server";
+
+/// The card a click on an emoji in a message's text opens: what the emoji is,
+/// and, for one of a server's, the server it is from.
+pub(super) fn emoji_card(
+    target: &emoji_text::Target,
+    server: Option<&yapfast_core::chat::ChatServer>,
+    state: &AppState,
+    pictures: &mut HashMap<String, slint::Image>,
+) -> EmojiCard {
+    let id = match target {
+        emoji_text::Target::Unicode(emoji) => {
+            return EmojiCard {
+                name: emoji::shortcode(emoji).into(),
+                glyph: emoji.as_str().into(),
+                // The font's own 136px rendition, so a larger card and a
+                // doubled display both draw it from more pixels than they show.
+                picture: emoji_text::picture(emoji).unwrap_or_default(),
+                description: DEFAULT_EMOJI.into(),
+                ..Default::default()
+            };
+        }
+        emoji_text::Target::Custom(id) => id,
+    };
+    // A custom emoji's name and picture come from the message that showed it:
+    // its server's list of emoji may not reach here, being another server's.
+    let listed = state
+        .messages
+        .iter()
+        .flat_map(|message| &message.emoji)
+        .find(|emoji| &emoji.id == id);
+    // The server its card shows: one this account is in, and can reach. One
+    // it left, or that's out of reach, shows no server at all, and says why.
+    let server = server.filter(|server| !server.unavailable);
+    let (server_id, server_name, server_letter, server_picture_url) = match server {
+        Some(server) => (
+            server.id.as_str().into(),
+            server.name.as_str().into(),
+            initial(&server.name),
+            server.icon.as_deref().unwrap_or_default().into(),
+        ),
+        None => Default::default(),
+    };
+    // What Discord said of the server, which its card's counts and note come
+    // from; before it answers, the note follows the features Yapfast has.
+    let preview = server.and_then(|server| state.server_previews.get(&server.id));
+    // Discover lists a server whose preview says so, and Yapfast keeps its own
+    // word for a Community server either way: a preview that answers without
+    // the feature would otherwise take the note away from a server that has it.
+    let discoverable = server.is_some_and(|server| server.community)
+        || preview.is_some_and(|preview| preview.discoverable);
+    // A custom emoji whose picture moves animates on its card too, by the
+    // name the rows register it under.
+    let picture_key = listed
+        .filter(|emoji| emoji.animated)
+        .map_or_else(String::new, emoji::custom_key);
+    EmojiCard {
+        name: listed
+            .map_or_else(String::new, |emoji| emoji.text.clone())
+            .into(),
+        picture_url: listed
+            .map_or_else(String::new, |emoji| emoji.picture.clone())
+            .into(),
+        picture_key: picture_key.into(),
+        picture: listed
+            .map(|emoji| cached_picture(pictures, state, Some(&emoji.picture)))
+            .unwrap_or_default(),
+        description: if server.is_some() {
+            SERVER_EMOJI
+        } else {
+            OTHER_EMOJI
+        }
+        .into(),
+        server: server_id,
+        server_name,
+        server_picture_url,
+        server_initial: server_letter,
+        server_online: preview
+            .and_then(|preview| preview.online)
+            .map_or_else(String::new, |online| format!("{} Online", grouped(online)))
+            .into(),
+        server_note: if discoverable {
+            "Discoverable Server"
+        } else {
+            ""
+        }
+        .into(),
+        ..Default::default()
+    }
+}
+
+/// A default sticker's card: Discord's own packs are usable anywhere.
+const DEFAULT_STICKER: &str = "This is a default sticker. It can be used anywhere.";
+
+/// A server's sticker's card, when the server is one this account can reach.
+const SERVER_STICKER: &str = "This sticker is from one of your servers.";
+
+/// The id of the sticker a message's attachment is, from its picture's
+/// address: `/stickers/{id}.png?size=160`, `.gif` or `.json`.
+fn sticker_id(url: &str) -> Option<&str> {
+    let name = url.rsplit('/').next()?;
+    name.split(['.', '?']).next().filter(|id| !id.is_empty())
+}
+
+/// The card a click on a sticker in a message opens: the sticker, its name as
+/// the message names it, and the server it is from when one of this account's
+/// lists it.
+pub(super) fn sticker_card(app: &Application, item: &str, index: usize) -> MessageStickerCard {
+    let Some(attachment) = app
+        .state
+        .message(item)
+        .and_then(|message| message.attachments.get(index))
+    else {
+        return MessageStickerCard::default();
+    };
+    let url = attachment.url.as_deref().unwrap_or_default();
+    // Which server lists it: Discord's packs are nobody's, and a message's
+    // sticker names no server itself.
+    let server = sticker_id(url)
+        .and_then(|id| {
+            app.state
+                .stickers
+                .servers
+                .iter()
+                .find(|server| server.stickers.iter().any(|sticker| sticker.id == id))
+        })
+        .and_then(|server| {
+            let id = yapfast_core::discord::server_id(&server.id);
+            app.state.servers.iter().find(|known| known.id == id)
+        });
+    // Its frames as the message plays them, and the still it shows until they
+    // come, or for a still sticker.
+    let still = attachment
+        .preview
+        .as_ref()
+        .map(|picture| pictures::picture(picture));
+    let (frames, delays) = attachment
+        .preview
+        .as_ref()
+        .map_or_else(Default::default, pictures::animation);
+    // What Discord said of the server, as the emoji card has it.
+    let preview = server.and_then(|server| app.state.server_previews.get(&server.id));
+    let discoverable = preview.map_or_else(
+        || server.is_some_and(|server| server.community),
+        |preview| preview.discoverable,
+    );
+    MessageStickerCard {
+        name: attachment.name.as_str().into(),
+        picture_url: url.into(),
+        picture: still.unwrap_or_default(),
+        frames,
+        delays,
+        server_online: preview
+            .and_then(|preview| preview.online)
+            .map_or_else(String::new, |online| format!("{} Online", grouped(online)))
+            .into(),
+        server_note: if discoverable {
+            "Discoverable Server"
+        } else {
+            ""
+        }
+        .into(),
+        description: if server.is_some() {
+            SERVER_STICKER
+        } else {
+            DEFAULT_STICKER
+        }
+        .into(),
+        server: server
+            .map(|server| server.id.clone())
+            .unwrap_or_default()
+            .into(),
+        server_name: server
+            .map(|server| server.name.clone())
+            .unwrap_or_default()
+            .into(),
+        server_picture_url: server
+            .and_then(|server| server.icon.clone())
+            .unwrap_or_default()
+            .into(),
+        server_initial: server
+            .map(|server| initial(&server.name))
+            .unwrap_or_default(),
+    }
+}
+
+/// The card an emoji opens, with the server the app knows it from: a custom
+/// emoji's is the one that lists it.
+pub(super) fn emoji_card_for(
+    app: &Application,
+    target: &emoji_text::Target,
+    pictures: &mut HashMap<String, slint::Image>,
+) -> EmojiCard {
+    let server = target
+        .custom()
+        .and_then(|id| app.emoji_server(id))
+        .and_then(|server| app.state.servers.iter().find(|known| known.id == server));
+    emoji_card(target, server.map(|server| &**server), &app.state, pictures)
 }

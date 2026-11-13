@@ -41,7 +41,7 @@ impl AppState {
             .map_or("", String::as_str)
     }
 
-    /// The message the thread beside's composer replies to or edits.
+    /// The message the thread beside's composer replies to.
     pub fn aside_compose(&self) -> Option<&Compose> {
         self.compose.get(&self.aside.as_ref()?.room)
     }
@@ -59,7 +59,6 @@ impl AppState {
         self.aside.as_ref().is_some_and(|aside| {
             self.can_write_in(&aside.room)
                 && !self.preview
-                && !matches!(self.aside_compose(), Some(Compose::Edit { .. }))
                 && self.aside_staged().len() < chat::MAX_FILES
         })
     }
@@ -75,6 +74,13 @@ impl AppState {
     pub fn aside_can_mark_spoilers(&self) -> bool {
         self.aside_room()
             .is_some_and(|room| room.capabilities.spoilers)
+    }
+
+    /// Whether a room's timeline is on screen: it's selected, or the thread
+    /// beside the open channel.
+    pub fn shows_room(&self, room: &str) -> bool {
+        self.selected.as_deref() == Some(room)
+            || self.aside.as_ref().is_some_and(|aside| aside.room == room)
     }
 
     /// The room whose timeline shows an item: the thread beside the open
@@ -104,17 +110,27 @@ impl AppState {
                 .is_some_and(|listed| self.writable(listed))
     }
 
+    /// What reacting this account may do in a room on screen, once its
+    /// timeline came, as [`Self::can_write_in`] asks of writing.
+    pub fn reacts_in(&self, room: &str) -> Reacts {
+        let ready = match &self.aside {
+            Some(aside) if aside.room == room => aside.ready,
+            _ => self.selected.as_deref() == Some(room) && self.room_ready,
+        };
+        match self.rooms.iter().find(|listed| listed.id == room) {
+            Some(listed) if ready && !self.busy => self.reactable(listed),
+            _ => Reacts::None,
+        }
+    }
+
     /// Whether the composer of a room on screen can send what it holds.
     pub fn can_send_in(&self, room: &str) -> bool {
         let draft = self.drafts.get(room).map_or("", String::as_str);
-        let editing = matches!(self.compose.get(room), Some(Compose::Edit { .. }));
         let staged = self
             .staged
             .get(room)
             .is_some_and(|staged| !staged.is_empty());
-        self.can_write_in(room)
-            && self.sending.is_none()
-            && (!draft.trim().is_empty() || (!editing && staged))
+        self.can_write_in(room) && self.sending.is_none() && (!draft.trim().is_empty() || staged)
     }
 }
 

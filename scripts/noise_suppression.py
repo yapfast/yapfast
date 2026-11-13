@@ -1,6 +1,6 @@
 """Mixes speech with keyboard and fan noise, and scores the Discord
 microphone's noise suppressors on the mixes. scripts/compare-noise-suppression
-runs it; see the Microphone section of docs/discord.md.
+runs it; see the Microphone section of docs/discord/voice.md.
 
   noise_suppression.py mix RAW MIXES     RAW holds the decoded sources
   noise_suppression.py score MIXES OUT   OUT holds the tests' outputs

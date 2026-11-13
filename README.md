@@ -56,7 +56,7 @@ because it shows the messages it saved last time and catches up while you read.
   <tr><td>Idle</td><td>724 MB</td><td>30 MB (−96%)</td><td>0.11%</td><td>0.015% (−86%)</td></tr>
   <tr><td>Image-heavy channel</td><td>706 MB</td><td>41 MB (−94%)</td><td>0.17%</td><td>0.008% (−95%)</td></tr>
   <tr><td>In a call</td><td>888 MB</td><td>44 MB (−95%)</td><td>0.46%</td><td>0.33% (−28%)</td></tr>
-  <tr><td>Sharing your screen¹</td><td>1,013 MB</td><td>126 MB (−88%)</td><td>2.15%</td><td>2.5% (+14%)</td></tr>
+  <tr><td>Sharing your screen¹</td><td>1,013 MB</td><td>113 MB (−89%)</td><td>2.15%</td><td>1.1% (−48%)</td></tr>
   <tr><th></th><th colspan="2">Discord</th><th colspan="2">Yapfast</th></tr>
   <tr><td>Opening the app²</td><td colspan="2" align="center">8 s</td><td colspan="2" align="center">0.22 s (36× faster)</td></tr>
 </table>
@@ -71,17 +71,18 @@ Electron, with Vencord on top. So its numbers stand in for Discord's. CPU counts
 the whole processor as 100%.
 
 ¹ Sharing a 1920×1080 monitor at 30 frames a second, while in the call.
-Yapfast uses more CPU here than Vesktop, as it converts and encodes each frame
-on the processor.
+Yapfast encodes on the graphics card when it has an encoder, here an NVIDIA
+RTX 3090 sending H264. Encoding on the processor with x264 instead, it takes
+2.5%, a little more than Vesktop.
 
 ² From clicking the icon to reading your messages, against Discord's own app
 rather than Vesktop, timed on my Windows PC. Yapfast shows the messages it saved
 last time and catches up while you read.
 
-Memory and CPU measured on 25 October 2026, both on the same PC. The machine,
-what "memory" counts and how each scenario ran are in
-[the measurements](docs/measurements/README.md). Your numbers will depend on how
-many servers and DMs you have.
+Memory and CPU measured on 25 October 2026, and screen sharing on 27 October,
+all on the same PC. The machine, what "memory" counts and how each scenario ran
+are in [the measurements](docs/measurements/README.md). Your numbers will depend
+on how many servers and DMs you have.
 
 </details>
 
@@ -100,8 +101,10 @@ GOATed GIF loads.
 Voice channels and DM calls, with mute, deafen, a volume for each person,
 noise suppression, echo removal, and a voice gate you can tune, or
 push-to-talk on any key you like, held in any app. Go Live, watch other
-people's streams and turn on your camera. The call stays up while you read
-other channels.
+people's streams, turn on your camera and play the soundboard. The call
+stays up while you read other channels, busy voice channels say how long
+their call has gone on, and pointing at a Discord voice channel shows who is
+in it, who is live and whose camera is on.
 
 The noise suppression could be better, though. Know an open source one that
 does a better job? PLEASE tell me.
@@ -136,8 +139,12 @@ with details, elapsed time, images and buttons.
 
 **Settings → Game activity** turns sharing on and off as Discord's own setting
 does, and names games Yapfast doesn't know. See
-[game detection](docs/discord.md#game-detection) and
-[Rich Presence](docs/discord.md#linux-rich-presence).
+[game detection](docs/discord/people.md#game-detection) and
+[Rich Presence](docs/discord/people.md#linux-rich-presence).
+
+What your linked Spotify account plays shows as "Listening to Spotify" with only
+Yapfast open, from any player, as Discord's own "Display Spotify as your status"
+setting says. See [Spotify](docs/discord/people.md#listening-to-spotify).
 
 <p align="center">
   <img src="docs/images/features/playing.webp" width="260" alt="A profile card saying Playing Deadlock, with the game's icon.">
@@ -148,10 +155,11 @@ does, and names games Yapfast doesn't know. See
 Server Settings with roles, emoji, stickers, bans, the audit log and the rest of
 the pages your roles let you use, and channel settings with their permissions.
 Make and edit channels and categories, invite people, hand out roles, change
-nicknames, time out, kick and ban. In voice, server mute, deafen and move
-people to another channel. Edit your server profile, and leave. Join a server
-by invite, from the + under your servers or a link in chat. Folders show up as
-they do in Discord.
+nicknames, time out, kick and ban. In voice, server mute, deafen and move people
+to another channel, from their menu or by dragging them there. Edit your server
+profile, and leave. Join a server by invite, from the + under your servers or a
+link in chat, and open a scheduled event from its link to mark yourself
+interested. Folders show up as they do in Discord.
 
 <p align="center">
   <img src="docs/images/features/server-settings.webp" width="640" alt="Server Settings on a role's Display page: its name, a gold color picked, and its icon.">
@@ -163,14 +171,23 @@ they do in Discord.
   mute or close a DM from its menu, leave a group DM, and accept or ignore
   message requests.
 - **Messages** you can send, reply to, edit, react to, pin, forward and attach
-  files to, with Markdown, embeds, custom emoji, stickers and spoilers.
+  files to, with Markdown, embeds, custom emoji, stickers and spoilers. Bots'
+  buttons, dropdown menus and forms work too, radio buttons, checkboxes and
+  file uploads included, and so do apps' slash commands: type `/`, pick one
+  and fill in its options, files and autocomplete included; an app's answer
+  says who used which command. Apps' message and user commands are under Apps
+  in a message's or a person's menu.
+  Discord's own links to servers, channels, messages and profiles open in
+  Yapfast, including one handed to it by the desktop.
 - **Threads**: start one from a message, browse a channel's threads, join or
   leave one, and read it beside its channel.
+- **Bots' buttons, menus and forms**: click a bot's buttons, choose from its
+  menus and fill in the forms it opens.
 - **Search** a whole server with Discord's filters, and browse a channel's pins.
 - **Friends**: requests, adding by username, nicknames, notes, profile cards,
   your status and custom status (custom emoji included). Block and ignore
-  people from their menu, hide what blocked people write, and unblock them from
-  a list in Settings.
+  people from their menu, block and unblock them from their profile, hide what
+  blocked people write, and unblock them from a list in Settings.
 - **Notifications** that follow your Discord settings, muting for channels,
   categories and servers, and unread markers.
 - **Soft sounds** for joining, leaving, muting and messages, in six sets.
@@ -178,18 +195,16 @@ they do in Discord.
 ### Not there yet
 
 - Media channels.
-- The soundboard.
 - Activities.
 - Making and changing server folders.
 - A server's form for new members, such as its rules, when you join. Yapfast
   sends you to Discord in your browser to fill it in.
-- Animated custom emoji in messages, which show their first frame.
 - Captchas, sort of. If Discord asks for one while you link or join a server,
   Yapfast opens it in your browser, but I haven't hit one against real
   Discord yet, so who knows..
 
 Use Discord in a browser for these until then; it has all of it, and you have a
-browser open anyway. [The Discord plan](docs/discord.md) has the rest, in the
+browser open anyway. [The Discord plan](docs/discord/README.md) has the rest, in the
 order I'm working on it.
 
 It's a beta, and it's what I use for Discord every day, so it had better
@@ -370,7 +385,7 @@ Serein draws with wgpu, which costs more memory before you've opened a single
 channel. Yapfast draws with Slint, on the processor by default (WAY lighter) or
 the GPU if you ask. It also does Matrix (from source, for now), DeepFilterNet
 noise suppression on top of RNNoise, voice gates, and the cached GIF picker.
-It's still missing a few things, like media channels and the soundboard.
+It's still missing a few things, like media channels and activities.
 
 </details>
 
@@ -409,12 +424,24 @@ nix develop path:./nix#windows --command scripts/build-windows
 scripts/check --fast
 ```
 
+### Without Nix
+
+On Linux, `cargo run --locked` works without Nix too, with rustup, which
+installs Rust 1.97.1 from `rust-toolchain.toml`, and the tools and libraries
+the Arch package builds with, in `packaging/arch/PKGBUILD`. Cargo downloads
+the same libwebrtc and Skia archives the Nix shell pins, except that the
+Nix shell renames one libjpeg table in Skia's (`nix/prepare-skia-native.py`).
+Without that, libwebrtc and Skia both define `jpeg_natural_order`, so
+`build.rs` links such a build with `--allow-multiple-definition`; the two
+tables are the same.
+
 | Read this | For |
 | --- | --- |
+| [Contributing](CONTRIBUTING.md) | What a pull request needs: checks, memory numbers, commit style |
 | [Development](docs/development.md) | Day-to-day work: the preview, local Matrix and LiveKit servers, voice tests |
 | [Architecture](docs/architecture.md) | How `yapfast-core` and the Slint client fit together |
 | [Building](docs/building.md) | Toolchain, Cargo features, checks, releases |
-| [Discord](docs/discord.md) | What's done, what's next, and the fake server the tests use |
+| [Discord](docs/discord/README.md) | What's done, what's next, and the fake server the tests use |
 | [Voice](docs/voice.md) | Calls, devices and audio processing |
 | [Windows](docs/windows-beta.md) | Packaging, the installer and Windows checks |
 | [Measurements](docs/measurements/README.md) | How memory and CPU are measured |

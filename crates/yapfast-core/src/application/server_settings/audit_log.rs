@@ -2,7 +2,7 @@
 //! first, with the lines each row's arrow opens. Each page Discord sends is
 //! put into Discord's sentences once, as it arrives, and only those are
 //! kept. The templates are Discord's own, from its web client; see "Audit
-//! Log" in docs/discord.md.
+//! Log" in docs/discord/server-settings.md.
 
 use std::collections::HashMap;
 

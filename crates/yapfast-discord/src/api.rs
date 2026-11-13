@@ -11,8 +11,7 @@ use crate::{
     captcha::Captcha,
     client,
     limits::{self, Limits, Refusals, Stopped},
-    mfa,
-    settings::{self, CustomStatus},
+    mfa, scheduled_event,
 };
 
 const API: &str = "https://discord.com/api/v9";
@@ -174,6 +173,30 @@ impl std::fmt::Display for Refused {
 
 impl std::error::Error for Refused {}
 
+impl Refused {
+    /// Whether the host asked to be asked less.
+    pub fn rate_limited(&self) -> bool {
+        self.0 == StatusCode::TOO_MANY_REQUESTS
+    }
+
+    /// Whether the file isn't there any more.
+    pub fn gone(&self) -> bool {
+        matches!(self.0, StatusCode::NOT_FOUND | StatusCode::GONE)
+    }
+}
+
+/// A download larger than it was allowed to be.
+#[derive(Debug)]
+pub struct TooLarge;
+
+impl std::fmt::Display for TooLarge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the file is too large")
+    }
+}
+
+impl std::error::Error for TooLarge {}
+
 /// A download that Discord stopped answering for [`STALL`], given up so it
 /// doesn't hold its turn.
 #[derive(Debug)]
@@ -240,7 +263,7 @@ pub struct Api {
     /// Empty without a login; Discord may refresh it in READY.
     token: RwLock<String>,
     /// The API's base URL: Discord's, or the test server's.
-    base: String,
+    pub(crate) base: String,
     limits: Limits,
     refusals: Refusals,
     /// Downloads going at once, so opening the emoji picker or a busy channel
@@ -289,9 +312,9 @@ impl Api {
     }
 
     /// Reads the web client's current build number from its page, as a
-    /// browser loads that page before the client connects. Once a run is
-    /// enough; until then, and if the page can't be read, Yapfast sends the
-    /// last one it knew.
+    /// browser loads that page before the client connects, and keeps it on
+    /// disk for the next start. Once a run is enough; until then, and if the
+    /// page can't be read, Yapfast sends the last one it knew.
     pub async fn learn_build_number(&self) {
         /// The page sets it near the top; the whole page is about 75 KiB.
         const READ: usize = 256 << 10;
@@ -316,7 +339,12 @@ impl Api {
             anyhow::Ok(())
         };
         match tokio::time::timeout(std::time::Duration::from_secs(10), read).await {
-            Ok(Ok(())) if client::knows_build_number() => {}
+            Ok(Ok(())) if client::knows_build_number() => {
+                let number = client::known_build_number();
+                let _ =
+                    tokio::task::spawn_blocking(move || crate::cache::keep_build_number(number))
+                        .await;
+            }
             Ok(Ok(())) => tracing::warn!("Discord's web page gave no build number"),
             Ok(Err(error)) => tracing::warn!(%error, "could not read Discord's web page"),
             Err(_) => tracing::warn!("Discord's web page didn't load"),
@@ -325,11 +353,19 @@ impl Api {
 
     fn request(&self, method: Method, path: &str) -> RequestBuilder {
         // Only the API gets the client's description, as in the web client;
-        // it changes through a run, so each request makes it again.
+        // it changes through a run, so each request makes it again. The
+        // web client sends its language and time zone with every request
+        // too, and a request without them looks less like it.
         let request = self
             .http
             .request(method, format!("{}{path}", self.base))
-            .header("X-Super-Properties", client::super_properties());
+            .header("X-Super-Properties", client::super_properties())
+            .header(header::ACCEPT_LANGUAGE, client::ACCEPT_LANGUAGE)
+            .header("X-Discord-Locale", client::LOCALE);
+        let request = match client::timezone() {
+            Some(zone) => request.header("X-Discord-Timezone", zone),
+            None => request,
+        };
         // A request sent again once confirmed carries what confirmed it.
         let request = match mfa::token() {
             Some(confirmed) => request.header("X-Discord-MFA-Authorization", confirmed),
@@ -475,6 +511,33 @@ impl Api {
         }
     }
 
+    /// A message of a channel, or none once it's gone. User accounts can't
+    /// ask for one message by its id, so this asks as Discord's client does,
+    /// for the one around it, which is another message when it's gone.
+    pub async fn message(&self, channel: &str, id: &str) -> Result<Option<Value>> {
+        let path = format!("/channels/{channel}/messages?limit=1&around={id}");
+        match self.json(self.request(Method::GET, &path)).await? {
+            Value::Array(messages) => Ok(messages
+                .into_iter()
+                .find(|message| message["id"].as_str() == Some(id))),
+            _ => bail!("could not understand Discord's answer"),
+        }
+    }
+
+    /// The signed-in account uses a bot's message component, submits its
+    /// modal, runs an app's command or asks for an autocomplete's choices.
+    /// Discord acknowledges this request before the app responds over the
+    /// gateway; a successful HTTP response alone is not the app's result.
+    /// Files go uploaded first, named in the body's `data.attachments`.
+    ///
+    /// After a 429 it goes again once, as Discord's client sends commands
+    /// and forms again, only with `again`: the client drops a click or an
+    /// autocomplete that was limited.
+    pub async fn interact(&self, body: &Value, again: bool) -> Result<()> {
+        let request = with_json(self.request(Method::POST, "/interactions"), body);
+        self.send_request(request, again).await.map(drop)
+    }
+
     /// Sends a message, as a reply when `options` names one in the same
     /// channel, with uploaded files.
     pub async fn send(
@@ -517,6 +580,16 @@ impl Api {
     pub async fn send_poll(&self, channel: &str, poll: &NewPoll, nonce: &str) -> Result<Value> {
         let mut body = message_body("", nonce);
         body["poll"] = poll.body();
+        let path = format!("/channels/{channel}/messages");
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+    }
+
+    /// Posts a sticker, a message with nothing else, as Discord's client
+    /// does when a sticker is clicked in its picker.
+    pub async fn send_sticker(&self, channel: &str, sticker: &str, nonce: &str) -> Result<Value> {
+        let mut body = message_body("", nonce);
+        body["sticker_ids"] = json!([sticker]);
         let path = format!("/channels/{channel}/messages");
         self.json(with_json(self.request(Method::POST, &path), &body))
             .await
@@ -585,6 +658,54 @@ impl Api {
         self.json(self.request(Method::GET, &path)).await
     }
 
+    /// The feed behind the member list's Activity panel, from where
+    /// `refresh_token` left off; see [`crate::activity_feed`].
+    pub async fn activity_feed(&self, refresh_token: Option<&str>) -> Result<Value> {
+        let mut path =
+            "/content-inventory/users/@me?for_game_profile=false&feature=inbox".to_owned();
+        if let Some(token) = refresh_token {
+            path.push_str(&format!("&refresh_token={}", encode(token)));
+        }
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// A user's levelling badges, with their levels and how far along they
+    /// are: `{"badges": [...]}`. The tooltips of a profile's badges show it.
+    pub async fn badges(&self, user: &str) -> Result<Value> {
+        self.json(self.request(Method::GET, &format!("/users/{user}/badges")))
+            .await
+    }
+
+    /// A shop product, such as the profile effect of a SKU, as the client
+    /// fetches it to show the effect.
+    pub async fn collectibles_product(&self, sku: &str) -> Result<Value> {
+        self.json(self.request(Method::GET, &format!("/collectibles-products/{sku}")))
+            .await
+    }
+
+    /// What someone did lately, as the client fetches it for their profile's
+    /// Activity tab: `{entries: [{content_type, extra, ...}]}`.
+    pub async fn outbox(&self, user: &str) -> Result<Value> {
+        let path = format!("/content-inventory/users/{user}/outbox");
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// Games by their ids, at most [`crate::widgets::GAMES_AT_ONCE`], as the
+    /// client fetches them for a profile's widgets: `[{id, name, media: {icon,
+    /// cover}, ...}]`, without those Discord doesn't know.
+    pub async fn games(&self, ids: &[&str]) -> Result<Value> {
+        let query: Vec<_> = ids.iter().map(|id| format!("game_ids={id}")).collect();
+        let path = format!("/games?{}", query.join("&"));
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// A wishlist, its owner's or anyone's, as the client fetches it for a
+    /// profile: `{id, user_id, wishlist_items: [{sku_id, sku_name, sku, ...}]}`.
+    pub async fn wishlist(&self, id: &str) -> Result<Value> {
+        let path = format!("/wishlists/{id}?source=user_profile");
+        self.json(self.request(Method::GET, &path)).await
+    }
+
     /// Applications' public objects, with their names and icons, as the
     /// client fetches them for activities: `[{id, name, icon, ...}]`.
     pub async fn public_applications(&self, ids: &[&str]) -> Result<Value> {
@@ -594,6 +715,25 @@ impl Api {
             .collect();
         let path = format!("/applications/public?{}", query.join("&"));
         self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// The apps' commands under `resource`, `guilds/{id}`, `channels/{id}`
+    /// or `users/@me`: `{applications, application_commands, version}`, or
+    /// None while Discord is still building it and answers 202, as its
+    /// client then asks again a while later. See [`crate::commands`].
+    pub async fn command_index(&self, resource: &str) -> Result<Option<Value>> {
+        let path = format!("/{resource}/application-command-index");
+        let response = self.execute(self.request(Method::GET, &path)).await?;
+        if response.status() == StatusCode::ACCEPTED {
+            return Ok(None);
+        }
+        let body = response
+            .bytes()
+            .await
+            .context("could not read Discord's answer")?;
+        Ok(Some(
+            serde_json::from_slice(&body).context("could not understand Discord's answer")?,
+        ))
     }
 
     /// The message that each of up to 25 message requests is waiting with,
@@ -988,12 +1128,24 @@ impl Api {
         self.empty(self.request(Method::POST, &path)).await
     }
 
-    /// Sends `user` a friend request, or accepts theirs. `place` is where in
-    /// Discord's client this happens, which it tells Discord with each change
-    /// to a relationship, such as "User Profile" or "Friends".
+    /// Sends `user` a friend request. `place` is where in Discord's client this
+    /// happens, which it tells Discord with each change to a relationship, such
+    /// as "User Profile" or "Friends".
     pub async fn add_friend(&self, user: &str, place: &str) -> Result<()> {
         let path = format!("/users/@me/relationships/{user}");
         let request = with_json(self.request(Method::PUT, &path), &json!({}));
+        self.empty(request.header("X-Context-Properties", context(place)))
+            .await
+    }
+
+    /// Accepts the friend request `user` sent this account. Discord wants it
+    /// said that a stranger's request is welcome: one from someone with no
+    /// friend and no small server in common needs `confirm_stranger_request`,
+    /// and is refused with 80013 without it.
+    pub async fn accept_friend(&self, user: &str, place: &str) -> Result<()> {
+        let path = format!("/users/@me/relationships/{user}");
+        let body = json!({ "confirm_stranger_request": true });
+        let request = with_json(self.request(Method::PUT, &path), &body);
         self.empty(request.header("X-Context-Properties", context(place)))
             .await
     }
@@ -1007,17 +1159,6 @@ impl Api {
         );
         self.empty(request.header("X-Context-Properties", context("Add Friend")))
             .await
-    }
-
-    /// Sets the custom status, or clears it with `None`, in the account's settings.
-    pub async fn set_custom_status(&self, custom: Option<&CustomStatus>) -> Result<()> {
-        let body = json!({"settings": settings::write_custom(custom)});
-        self.json(with_json(
-            self.request(Method::PATCH, "/users/@me/settings-proto/1"),
-            &body,
-        ))
-        .await
-        .map(drop)
     }
 
     /// The GIF picker's home: trending terms, each with a GIF, and trending GIFs.
@@ -1068,6 +1209,26 @@ impl Api {
             .await
     }
 
+    /// The account's settings, `PreloadedUserSettings`, in base64.
+    pub async fn user_settings(&self) -> Result<String> {
+        let answer = self
+            .json(self.request(Method::GET, "/users/@me/settings-proto/1"))
+            .await?;
+        Ok(answer["settings"].as_str().unwrap_or_default().to_owned())
+    }
+
+    /// Replaces the top-level fields `settings`, base64
+    /// `PreloadedUserSettings`, holds, each whole.
+    pub async fn set_user_settings(&self, settings: &str) -> Result<()> {
+        let body = json!({"settings": settings});
+        self.json(with_json(
+            self.request(Method::PATCH, "/users/@me/settings-proto/1"),
+            &body,
+        ))
+        .await
+        .map(drop)
+    }
+
     /// The account's second settings, `FrecencyUserSettings`, in base64.
     pub async fn frecency_settings(&self) -> Result<String> {
         let answer = self
@@ -1087,27 +1248,20 @@ impl Api {
         .map(drop)
     }
 
-    /// Sets the status: `online`, `idle`, `dnd` or `invisible`.
-    pub async fn set_status(&self, status: &str) -> Result<()> {
-        let body = json!({"settings": settings::write_status(status)});
-        self.json(with_json(
-            self.request(Method::PATCH, "/users/@me/settings-proto/1"),
-            &body,
-        ))
-        .await
-        .map(drop)
+    /// The services linked to this account, as READY's `connected_accounts`.
+    pub(crate) async fn connections(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/users/@me/connections"))
+            .await
     }
 
-    /// Shares the game this account plays, everywhere it's signed in, or
-    /// stops sharing it.
-    pub async fn set_show_game(&self, shown: bool) -> Result<()> {
-        let body = json!({"settings": settings::write_show_game(shown)});
-        self.json(with_json(
-            self.request(Method::PATCH, "/users/@me/settings-proto/1"),
-            &body,
-        ))
-        .await
-        .map(drop)
+    /// A token for the linked Spotify account `id`, which Discord renews.
+    pub(crate) async fn spotify_access_token(&self, id: &str) -> Result<String> {
+        let path = format!("/users/@me/connections/spotify/{}/access-token", encode(id));
+        let answer = self.json(self.request(Method::GET, &path)).await?;
+        answer["access_token"]
+            .as_str()
+            .map(str::to_owned)
+            .context("Discord's answer had no token")
     }
 
     /// Ignores a friend request, cancels one, or ends a friendship.
@@ -1407,6 +1561,14 @@ impl Api {
         self.json(self.request(Method::GET, &path)).await
     }
 
+    /// A server's preview: its name, its icon, how many of its members are
+    /// online, and the features it lists, as Discord's client asks for a
+    /// server's card.
+    pub async fn guild_preview(&self, guild: &str) -> Result<Value> {
+        let path = format!("/guilds/{guild}/preview");
+        self.json(self.request(Method::GET, &path)).await
+    }
+
     /// Adds a custom emoji: `image` is a data URI. Discord answers with
     /// the emoji.
     pub async fn create_emoji(&self, guild: &str, name: &str, image: &str) -> Result<Value> {
@@ -1427,6 +1589,12 @@ impl Api {
     pub async fn delete_emoji(&self, guild: &str, emoji: &str) -> Result<()> {
         let path = format!("/guilds/{guild}/emojis/{emoji}");
         self.empty(self.request(Method::DELETE, &path)).await
+    }
+
+    /// Discord's default sticker packs, as its own client offers them:
+    /// every account has them, so it takes no permission.
+    pub async fn sticker_packs(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/sticker-packs")).await
     }
 
     /// A server's stickers, each with who uploaded it.
@@ -1593,6 +1761,20 @@ impl Api {
         .await
     }
 
+    /// Chooses the server whose tag this account wears, or none, as Discord's
+    /// profile editor saves it. USER_UPDATE follows.
+    pub async fn set_server_tag(&self, server: Option<&str>) -> Result<()> {
+        let body = serde_json::json!({
+            "identity_guild_id": server,
+            "identity_enabled": server.is_some(),
+        });
+        self.empty(with_json(
+            self.request(Method::PUT, "/users/@me/clan"),
+            &body,
+        ))
+        .await
+    }
+
     /// Changes a member's voice state, as the voice menu does: `mute` and
     /// `deaf` for the server's, and `channel_id` to move them, which with
     /// null disconnects them. Discord answers with the member, and
@@ -1707,6 +1889,89 @@ impl Api {
             path.push_str(&format!("&inputValue={}", encode(typed)));
         }
         self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// A server's scheduled event, with how many people are interested
+    /// in it, as Discord's client asks before showing it.
+    pub async fn scheduled_event(&self, guild: &str, event: &str) -> Result<Value> {
+        let path = format!("/guilds/{guild}/scheduled-events/{event}?with_user_count=true");
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// This account's scheduled-event subscriptions in a server.
+    pub async fn own_scheduled_events(&self, guild: &str) -> Result<Value> {
+        let path = format!("/users/@me/scheduled-events?guild_ids={guild}");
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// Marks this account interested in a server's scheduled event, or
+    /// no longer interested in it.
+    pub async fn set_scheduled_event_interest(
+        &self,
+        guild: &str,
+        event: &str,
+        interested: bool,
+    ) -> Result<()> {
+        let path = format!("/guilds/{guild}/scheduled-events/{event}/users/@me");
+        let request = if interested {
+            with_json(
+                self.request(Method::PUT, &path),
+                &json!({ "response": scheduled_event::INTERESTED }),
+            )
+        } else {
+            self.request(Method::DELETE, &path)
+        };
+        self.empty(request).await
+    }
+
+    /// A gift code, with the subscription plan it grants, as Discord's
+    /// client asks for a gift link in a message: without the SKU's
+    /// application, which Yapfast doesn't show.
+    pub async fn gift_code(&self, code: &str) -> Result<Value> {
+        let path = format!(
+            "/entitlements/gift-codes/{}?with_application=false&with_subscription_plan=true",
+            encode(code)
+        );
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// Redeems a gift code for this account, in the channel its link was
+    /// opened in when it was one, as Discord's client sends it without a
+    /// payment source; the entitlement it grants.
+    pub async fn redeem_gift_code(&self, code: &str, channel: Option<&str>) -> Result<Value> {
+        let path = format!("/entitlements/gift-codes/{}/redeem", encode(code));
+        let body = json!({"channel_id": channel, "gateway_checkout_context": null});
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+    }
+
+    /// What authorizing an application would do, as Discord's client asks
+    /// before showing it; `query` is [`crate::oauth::Request::preview_query`].
+    pub async fn oauth_preview(&self, query: &str) -> Result<Value> {
+        let path = format!("/oauth2/authorize?{query}");
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// Authorizes an application, with the query
+    /// [`crate::oauth::Request::authorize_query`] makes, in the server
+    /// `guild` when it installs to one, with a bot's `permissions`; the
+    /// answer says where Discord sends the person next.
+    pub async fn authorize_oauth(
+        &self,
+        query: &str,
+        user_install: bool,
+        guild: Option<&str>,
+        permissions: Option<u64>,
+    ) -> Result<Value> {
+        let path = format!("/oauth2/authorize?{query}");
+        let body = json!({
+            "authorize": true,
+            "integration_type": u64::from(user_install),
+            "guild_id": guild,
+            "permissions": permissions.map(|bits| bits.to_string()),
+        });
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
     }
 
     /// Joins a server by an invite, from this gateway `session`, as
@@ -1830,6 +2095,46 @@ impl Api {
             .await
     }
 
+    /// Discord's own soundboard sounds, which every account may play.
+    pub async fn default_soundboard_sounds(&self) -> Result<Vec<crate::soundboard::Sound>> {
+        let sounds = self
+            .json(self.request(Method::GET, "/soundboard-default-sounds"))
+            .await?;
+        Ok(crate::soundboard::parse_all(&sounds))
+    }
+
+    /// Plays `sound` in the call `channel`, as Discord's client does: with
+    /// its emoji, and its server unless it's one of Discord's own. Discord
+    /// sends everyone there VOICE_CHANNEL_EFFECT_SEND, and plays nothing
+    /// itself.
+    pub async fn send_soundboard_sound(
+        &self,
+        channel: &str,
+        sound: &crate::soundboard::Sound,
+    ) -> Result<()> {
+        let path = format!("/channels/{channel}/send-soundboard-sound");
+        let mut body = json!({
+            "sound_id": sound.id,
+            "emoji_id": sound.emoji_id,
+            "emoji_name": sound.emoji_name,
+        });
+        if let Some(guild) = &sound.guild {
+            body["source_guild_id"] = json!(guild);
+        }
+        self.empty(with_json(self.request(Method::POST, &path), &body))
+            .await
+    }
+
+    /// Plays this account's join sound, which its settings name, for the
+    /// call `channel` it just joined, with one of Discord's emoji
+    /// animations, as Discord's client does: premium animations 10 to 15.
+    pub async fn custom_call_sound(&self, channel: &str, animation: u32) -> Result<()> {
+        let path = format!("/channels/{channel}/custom-call-sounds");
+        let body = json!({"animation_type": 0, "animation_id": animation});
+        self.empty(with_json(self.request(Method::POST, &path), &body))
+            .await
+    }
+
     /// Downloads a file from Discord's CDN or media proxy, or the test
     /// server, refusing anything over `limit` bytes. It waits its turn among
     /// [`DOWNLOADS`].
@@ -1871,11 +2176,14 @@ impl Api {
         use std::io::Write;
         allowed(url)?;
         let mut response = self.get_file(url).await?;
+        if response.content_length().is_some_and(|size| size > limit) {
+            return Err(TooLarge.into());
+        }
         let mut size = 0;
         while let Some(chunk) = self.next_chunk(&mut response).await? {
             size += chunk.len() as u64;
             if size > limit {
-                bail!("the file is too large");
+                return Err(TooLarge.into());
             }
             file.write_all(&chunk).context("could not keep the file")?;
         }
@@ -1924,10 +2232,15 @@ impl Api {
     /// A 429 means Discord didn't act on it, so it goes once more after the
     /// wait Discord asks for.
     async fn execute(&self, request: RequestBuilder) -> Result<Response> {
+        self.send_request(request, true).await
+    }
+
+    /// [`Self::execute`], sent again after a 429 only with `again`.
+    async fn send_request(&self, request: RequestBuilder, again: bool) -> Result<Response> {
         let (client, request) = request.build_split();
         let mut request = request.context("could not build the request")?;
         let route = limits::route(request.method(), request.url().path());
-        let mut retried = false;
+        let mut retried = !again;
         loop {
             match self.refusals.check() {
                 Ok(()) => {}
@@ -2033,6 +2346,7 @@ fn refusal(status: StatusCode, body: &Value) -> anyhow::Error {
             anyhow!("They don't take friend requests from people they don't know.")
         }
         (_, Some(ALREADY_FRIENDS)) => anyhow!("You're already friends."),
+        (_, Some(UNKNOWN_APPLICATION)) => anyhow!("Discord doesn't know that application."),
         (_, Some(UNKNOWN_INVITE | INVALID_INVITE)) => {
             anyhow!("This invite is invalid or has expired.")
         }
@@ -2042,6 +2356,21 @@ fn refusal(status: StatusCode, body: &Value) -> anyhow::Error {
         }
         (_, Some(SERVER_FULL)) => anyhow!("This server is full."),
         (_, Some(INVITES_PAUSED)) => anyhow!("This server has paused invites."),
+        (_, Some(UNKNOWN_GIFT)) => anyhow!("This gift code is invalid or has expired."),
+        (_, Some(GIFT_EXHAUSTED)) => anyhow!("This gift has already been redeemed."),
+        (_, Some(GIFT_OWNED)) => anyhow!("You already have what this gift grants."),
+        (_, Some(GIFT_SELF)) => anyhow!("You can't redeem a gift you made."),
+        (_, Some(GIFT_SUBSCRIPTION_MANAGED)) => anyhow!(
+            "You subscribe to Nitro through another provider, such as an app store, so you can't redeem Nitro gifts."
+        ),
+        (_, Some(GIFT_SUBSCRIPTION_INCOMPATIBLE)) => {
+            anyhow!("You can't redeem this gift while you're subscribed to Nitro.")
+        }
+        (_, Some(GIFT_INVOICE_OPEN)) => {
+            anyhow!("You can't redeem this gift while your subscription has an open invoice.")
+        }
+        (_, Some(GIFT_FRAUD_REJECTED)) => anyhow!("Discord won't let this account use this gift."),
+        (_, Some(UNKNOWN_EVENT)) => anyhow!("This event doesn't exist."),
         (_, Some(mfa::INVALID_MFA)) => anyhow!("That didn't work. Check it and try again."),
         (_, Some(mfa::MFA_REQUIRED)) => {
             anyhow!("Discord asks for two-factor authentication, which Yapfast can't do here.")
@@ -2128,12 +2457,22 @@ fn form_errors(body: &Value) -> Option<String> {
 const REQUESTS_CLOSED: u64 = 80000;
 const UNKNOWN_USERNAME: u64 = 80004;
 const ALREADY_FRIENDS: u64 = 80007;
+const UNKNOWN_APPLICATION: u64 = 10002;
 const UNKNOWN_INVITE: u64 = 10006;
 const INVALID_INVITE: u64 = 50020;
 const BANNED: u64 = 40007;
 const TOO_MANY_SERVERS: u64 = 30001;
 const SERVER_FULL: u64 = 30019;
+const UNKNOWN_GIFT: u64 = 10038;
+const GIFT_EXHAUSTED: u64 = 50050;
+const GIFT_OWNED: u64 = 50051;
+const GIFT_SELF: u64 = 50054;
+const GIFT_FRAUD_REJECTED: u64 = 50097;
+const GIFT_SUBSCRIPTION_MANAGED: u64 = 100021;
+const GIFT_SUBSCRIPTION_INCOMPATIBLE: u64 = 100023;
+const GIFT_INVOICE_OPEN: u64 = 100024;
 const INVITES_PAUSED: u64 = 40069;
+const UNKNOWN_EVENT: u64 = 10070;
 const MISSING_PERMISSIONS: u64 = 50013;
 const INVALID_FORM_BODY: u64 = 50035;
 
@@ -2428,6 +2767,71 @@ mod tests {
         }
     }
 
+    /// What reaches the server when a tag is chosen and when it's taken off.
+    #[tokio::test]
+    async fn a_server_tag_goes_to_its_own_endpoint() {
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::TcpListener,
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let requests = tokio::spawn(async move {
+            let mut requests = vec![];
+            for _ in 0..2 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut read = vec![];
+                let (head, body) = loop {
+                    let mut chunk = [0; 4096];
+                    let got = socket.read(&mut chunk).await.unwrap();
+                    read.extend_from_slice(&chunk[..got]);
+                    let text = String::from_utf8_lossy(&read).into_owned();
+                    let Some((head, body)) = text.split_once("\r\n\r\n") else {
+                        continue;
+                    };
+                    let length = head
+                        .lines()
+                        .find_map(|line| {
+                            line.to_lowercase()
+                                .strip_prefix("content-length: ")?
+                                .parse::<usize>()
+                                .ok()
+                        })
+                        .unwrap_or_default();
+                    if body.len() >= length {
+                        break (head.to_owned(), body.to_owned());
+                    }
+                };
+                socket
+                    .write_all(b"HTTP/1.1 204 No Content\r\nconnection: close\r\n\r\n")
+                    .await
+                    .unwrap();
+                let line = head.lines().next().unwrap().to_owned();
+                let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+                requests.push((line, body));
+            }
+            requests
+        });
+        let mut api = super::Api::anonymous().unwrap();
+        api.base = format!("http://{address}/api/v9");
+        api.set_server_tag(Some("9")).await.unwrap();
+        api.set_server_tag(None).await.unwrap();
+        let line = "PUT /api/v9/users/@me/clan HTTP/1.1".to_owned();
+        assert_eq!(
+            requests.await.unwrap(),
+            [
+                (
+                    line.clone(),
+                    serde_json::json!({"identity_guild_id": "9", "identity_enabled": true})
+                ),
+                (
+                    line,
+                    serde_json::json!({"identity_guild_id": null, "identity_enabled": false})
+                ),
+            ]
+        );
+    }
+
     #[test]
     fn downloads_only_from_discord() {
         assert!(super::discord_file(
@@ -2485,5 +2889,15 @@ mod tests {
             refusal(StatusCode::UNAUTHORIZED, &login).to_string(),
             super::UNAUTHORIZED
         );
+    }
+
+    #[test]
+    fn a_429_is_a_rate_limit_and_other_refusals_are_not() {
+        use super::{Refused, StatusCode};
+        assert!(Refused(StatusCode::TOO_MANY_REQUESTS).rate_limited());
+        assert!(!Refused(StatusCode::NOT_FOUND).rate_limited());
+        assert!(!Refused(StatusCode::FORBIDDEN).rate_limited());
+        assert!(Refused(StatusCode::NOT_FOUND).gone());
+        assert!(!Refused(StatusCode::TOO_MANY_REQUESTS).gone());
     }
 }

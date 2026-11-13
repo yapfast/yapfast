@@ -6,6 +6,7 @@ use anyhow::{Context, Result, bail};
 use matrix_sdk::{
     Client,
     config::RequestConfig,
+    cross_process_lock::CrossProcessLockConfig,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
 };
 use matrix_sdk_ui::sync_service::SyncService;
@@ -287,8 +288,11 @@ async fn build_client(homeserver: &str, path: PathBuf, passphrase: &str) -> Resu
         bail!("homeserver URLs must not contain credentials")
     }
     // Keep the URL checked above: a login response must not move Yapfast to
-    // another, possibly plain-HTTP, homeserver address.
+    // another, possibly plain-HTTP, homeserver address. The session lock keeps
+    // the stores to this process, so the SDK's cross-process lock, which
+    // rewrites its lease in the crypto store every 50 ms, stays off.
     Client::builder().homeserver_url(homeserver).respect_login_well_known(false).sqlite_store(path, Some(passphrase))
+        .cross_process_store_config(CrossProcessLockConfig::SingleProcess)
         .request_config(RequestConfig::new().timeout(Duration::from_secs(15)).retry_limit(1))
         .with_room_key_recipient_strategy(matrix_sdk_crypto::CollectStrategy::IdentityBasedStrategy)
         .with_encryption_settings(EncryptionSettings {

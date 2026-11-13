@@ -28,10 +28,15 @@ base64 = "0.22"
 # The gateway's zlib-stream compression, as the web client asks for it.
 flate2 = "1"
 futures-util.workspace = true
+# The time zone the web client names in X-Discord-Timezone; chrono
+# already builds it.
+iana-time-zone = "0.1.65"
 keyring.workspace = true
 reqwest = { version = "0.13", default-features = false, features = ["cookies", "http2", "rustls-no-provider"] }
 cookie_store = { version = "0.22", features = ["serde_json"] }
 rustls.workspace = true
+# Which certificates the WebSockets trust: the same as reqwest's HTTPS.
+rustls-platform-verifier = "0.7"
 serde.workspace = true
 serde_json.workspace = true
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
@@ -40,7 +45,7 @@ tempfile.workspace = true
 serenity-voice-model = "0.3"
 tokio = { workspace = true, features = ["macros", "signal", "io-util", "fs"] }
 # The voice gateway.
-tokio-tungstenite = { version = "0.26", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.26", default-features = false, features = ["connect", "__rustls-tls"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true

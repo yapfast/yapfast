@@ -8,7 +8,7 @@ use yapfast_discord::{
     ready::PRIVATE,
     service::{Discord, Live, Snapshot, Status, VoiceServer},
     stream::{self, StreamServer},
-    voice::{Call as DiscordCall, live_microphone},
+    voice::{Call as DiscordCall, MOVE_GRACE, live_microphone},
 };
 
 use crate::{
@@ -16,6 +16,7 @@ use crate::{
     discord_audio::{self, Capture, Hearing, Speakers},
     discord_video::{Filming, Watching as Cameras},
     ring::{Ringer, Tone},
+    soundboard::Soundboard,
     stream_worker::{self, Report, Worker},
     voice::{
         CameraPhase, Chosen, Command, Link, LinkStats, Participant, Phase, Quality, SharePhase,
@@ -126,8 +127,54 @@ async fn started(starting: &mut Starting) -> Result<StreamServer> {
     }
 }
 
+/// How long the join sound may wait for the sounds to come.
+const JOIN_SOUND_WAIT: Duration = Duration::from_secs(10);
+
+/// What the soundboard's requests came to.
+enum SoundEvent {
+    /// Discord's own sounds.
+    Defaults(Result<Arc<[yapfast_discord::soundboard::Sound]>>),
+    /// The account's favourite sounds.
+    Favorites(Result<Vec<String>>),
+    /// Discord didn't play a sound for the others.
+    Refused(String),
+}
+
 /// Joining the call: Discord's voice server, then connecting to it.
-type Joining<'a> = Pin<Box<dyn Future<Output = Result<(VoiceServer, DiscordCall)>> + 'a>>;
+type Joining<'a> =
+    Pin<Box<dyn Future<Output = Result<(VoiceServer, DiscordCall), (Step, anyhow::Error)>> + 'a>>;
+
+/// Where joining a call failed.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Step {
+    /// Asking Discord's gateway to join, until it names a voice server.
+    Asking,
+    /// Connecting to that voice server.
+    Connecting,
+}
+
+/// Logs why joining failed, and gives the error the call ends with, which
+/// the UI shows: the gateway's own sentence, or the voice server's step.
+fn join_failed(guild: &str, step: Step, error: anyhow::Error) -> anyhow::Error {
+    tracing::warn!(
+        error = format!("{error:#}"),
+        kind = kind(guild),
+        ?step,
+        "could not join the Discord call"
+    );
+    match step {
+        Step::Asking => error,
+        Step::Connecting => {
+            let shown = format!("Couldn't connect to Discord voice: {error}.");
+            error.context(shown)
+        }
+    }
+}
+
+/// A server's voice channel or a DM's call, for the log.
+fn kind(guild: &str) -> &'static str {
+    if guild == PRIVATE { "DM" } else { "server" }
+}
 
 /// Connects to the voice server Discord assigned for `channel`.
 fn connect<'a>(
@@ -137,8 +184,10 @@ fn connect<'a>(
     hearing: Arc<Hearing>,
 ) -> Joining<'a> {
     Box::pin(async move {
-        let call = DiscordCall::connect(&server, guild, &channel, hearing).await?;
-        Ok((server, call))
+        match DiscordCall::connect(&server, guild, &channel, hearing).await {
+            Ok(call) => Ok((server, call)),
+            Err(error) => Err((Step::Connecting, error)),
+        }
     })
 }
 
@@ -176,11 +225,12 @@ impl Watch {
         }
     }
 
-    /// Plays the stream's sound at the volume chosen for it.
+    /// Plays the stream's sound at the volume chosen for it, times the
+    /// speakers'.
     fn volume(watch: &mut Option<Self>) {
         if let Some(watching) = watch.as_mut()
             && let Some((worker, _)) = watching.worker.as_mut()
-            && let Err(error) = worker.volume(crate::volume::get(
+            && let Err(error) = worker.volume(crate::volume::heard(
                 crate::volume::Kind::Stream,
                 &watching.user,
             ))
@@ -219,7 +269,7 @@ impl Watch {
     /// the server it was on before.
     fn open(&mut self, server: &StreamServer, state: &mut State) -> Result<()> {
         self.opening = None;
-        let volume = crate::volume::get(crate::volume::Kind::Stream, &self.user);
+        let volume = crate::volume::heard(crate::volume::Kind::Stream, &self.user);
         let (worker, frames, reports) =
             Worker::watch(server, state.speaker.clone(), state.deafened, volume)?;
         self.worker = Some((worker, reports));
@@ -287,7 +337,10 @@ pub(crate) async fn call(
     // From before joining, so that a move while connecting is heard.
     let mut live = discord.live();
     let mut joining: Joining = Box::pin(async {
-        let server = discord.join(guild, channel).await?;
+        let server = discord
+            .join(guild, channel)
+            .await
+            .map_err(|error| (Step::Asking, error))?;
         connect(server, guild, channel.to_owned(), hearing.clone()).await
     });
     // Where this account is, which someone such as a bot may move it from.
@@ -310,6 +363,7 @@ pub(crate) async fn call(
                 _ => {}
             },
             () = &mut deadline => {
+                tracing::warn!(kind = kind(guild), "Discord voice took too long to connect");
                 discord.leave(guild);
                 bail!("Discord voice took too long to connect. Try again.");
             }
@@ -338,17 +392,21 @@ pub(crate) async fn call(
     };
     let (mut server, mut call) = match joined {
         Ok(joined) => joined,
-        Err(error) => {
+        Err((step, error)) => {
             discord.leave(guild);
-            return Err(error);
+            return Err(join_failed(guild, step, error));
         }
     };
+    // The call goes on at full speed with Yapfast's window minimized or
+    // hidden, behind a game or a shared screen.
+    let _full_speed = crate::audio_io::FullSpeed::hold();
     let (played, reverse) = std::sync::mpsc::sync_channel(8);
     let reverse = std::sync::Arc::new(std::sync::Mutex::new(reverse));
     let (microphone, input) = live_microphone();
     let track = call.play(input);
     let _ = track.pause();
     let mut capture: Option<Capture> = None;
+    let microphone_thread = discord_audio::MicrophoneThread::default();
     let mut filming: Option<Filming> = None;
     let mut opening: Opening = None;
     let mut cameras = Cameras::start(call.video_frames());
@@ -362,6 +420,29 @@ pub(crate) async fn call(
     let mut unrung = false;
     // How the shared screen last said it goes out, and when.
     let sending: Arc<std::sync::Mutex<Option<(std::time::Instant, StreamStats)>>> = Arc::default();
+    let mut soundboard = Soundboard::start(discord, guild);
+    let (sound_events, mut sounds) = mpsc::unbounded_channel();
+    {
+        let (discord, events) = (discord.clone(), sound_events.clone());
+        tokio::spawn(async move {
+            let _ = events.send(SoundEvent::Defaults(discord.default_sounds().await));
+            let _ = events.send(SoundEvent::Favorites(discord.favorite_sounds().await));
+        });
+    }
+    // The join sound plays once its sound has come, as the call connects,
+    // with Nitro, outside stage channels, as Discord's client does; it gives
+    // up after a while.
+    let mut join_sound = {
+        let snapshot = discord_states.borrow();
+        let stage = snapshot
+            .servers
+            .iter()
+            .filter(|server| server.id == guild)
+            .flat_map(|server| server.voice_channels.iter())
+            .any(|found| found.id == channel && found.stage);
+        (crate::soundboard::nitro(&snapshot) && !stage)
+            .then(|| std::time::Instant::now() + JOIN_SOUND_WAIT)
+    };
 
     let result = async {
         let mut speakers = Some(open_discord_speakers(state, &played, &hearing)?);
@@ -421,10 +502,44 @@ pub(crate) async fn call(
                 filming.as_ref().map(|filming| &filming.feed),
                 &mut cameras,
             );
-            cameras.ask(&mut call);
+            cameras.ask(&mut call, participants.iter().filter(|person| !person.local).count());
             if participants != state.participants {
                 state.participants = participants;
                 snapshots.send_replace(state.clone());
+            }
+            if let Some(groups) = soundboard.groups(&discord_states.borrow(), &me, guild, &channel) {
+                state.soundboard = groups;
+                snapshots.send_replace(state.clone());
+            }
+            if let Some(until) = join_sound {
+                let snapshot = discord_states.borrow().clone();
+                let server_muted = state.participants.iter().any(|person| person.local && person.server_muted);
+                let found = crate::soundboard::join_sound(&snapshot, guild).map(|join| {
+                    soundboard
+                        .find(&snapshot, &me, guild, &channel, &join.sound)
+                        .filter(|sound| sound.guild == join.guild)
+                });
+                match found {
+                    // None chosen, or not to be played here.
+                    None => join_sound = None,
+                    Some(Some(sound)) => {
+                        join_sound = None;
+                        if !state.deafened && !server_muted {
+                            soundboard.play(discord, &hearing, &sound.id, sound.volume * crate::soundboard::gain(&snapshot));
+                            let (discord, channel) = (discord.clone(), channel.clone());
+                            tokio::spawn(async move {
+                                if let Err(error) = discord.play_join_sound(&channel).await {
+                                    tracing::warn!(error = format!("{error:#}"), "Discord didn't play the join sound");
+                                }
+                            });
+                        }
+                    }
+                    Some(None) if std::time::Instant::now() > until => {
+                        tracing::info!("the join sound's sound didn't come; not playing it");
+                        join_sound = None;
+                    }
+                    Some(None) => {}
+                }
             }
             // The signal icon and the encryption it says change seldom; the
             // pings themselves the UI reads only while it shows them.
@@ -465,7 +580,7 @@ pub(crate) async fn call(
                                 hearing.set_deafened(false);
                                 Watch::hear(&mut watch, true);
                             }
-                            match open_discord_microphone(state, &reverse, &microphone, &track) {
+                            match open_discord_microphone(state, &reverse, &microphone, &track, &microphone_thread) {
                                 Ok(opened) => {
                                     capture = Some(opened);
                                     state.muted = false;
@@ -491,7 +606,7 @@ pub(crate) async fn call(
                             state.microphone = Some(id);
                             Chosen::write(remembered, state);
                             if capture.take().is_some() {
-                                match open_discord_microphone(state, &reverse, &microphone, &track) {
+                                match open_discord_microphone(state, &reverse, &microphone, &track, &microphone_thread) {
                                     Ok(opened) => capture = Some(opened),
                                     Err(_) => {
                                         state.muted = true;
@@ -575,6 +690,44 @@ pub(crate) async fn call(
                             if let Some(stopped) = watch.take() {
                                 stopped.stop(discord, state);
                             }
+                        }
+                        // Played here at once, as Discord's client does,
+                        // which leaves out the effect Discord sends back.
+                        Some(Command::Soundboard(id)) => {
+                            let server_muted = state.participants.iter().any(|person| person.local && person.server_muted);
+                            let found = soundboard.find(&discord_states.borrow(), &me, guild, &channel, &id);
+                            if let Some(sound) = found.filter(|_| !state.deafened && !server_muted) {
+                                let gain = crate::soundboard::gain(&discord_states.borrow());
+                                soundboard.play(discord, &hearing, &sound.id, sound.volume * gain);
+                                let (discord, channel, events) = (discord.clone(), channel.clone(), sound_events.clone());
+                                tokio::spawn(async move {
+                                    if let Err(error) = discord.send_sound(&channel, &sound).await {
+                                        tracing::warn!(error = format!("{error:#}"), "Discord didn't play a soundboard sound");
+                                        let _ = events.send(SoundEvent::Refused(format!("Discord didn't play {}: {error}", sound.name)));
+                                    }
+                                });
+                            }
+                            continue;
+                        }
+                        // Heard here only; Discord never hears of it.
+                        Some(Command::PreviewSound(id)) => {
+                            let snapshot = discord_states.borrow().clone();
+                            if let Some(sound) = soundboard.find(&snapshot, &me, guild, &channel, &id) {
+                                soundboard.play(discord, &hearing, &sound.id, sound.volume * crate::soundboard::gain(&snapshot));
+                            }
+                            continue;
+                        }
+                        Some(Command::FavoriteSound(id, favorite)) => {
+                            if let Some(favorites) = soundboard.favorite(&id, favorite) {
+                                let (discord, events) = (discord.clone(), sound_events.clone());
+                                tokio::spawn(async move {
+                                    if let Err(error) = discord.set_favorite_sounds(&favorites).await {
+                                        tracing::warn!(error = format!("{error:#}"), "could not change the favourite sounds");
+                                        let _ = events.send(SoundEvent::Refused(format!("Couldn't change your favorite sounds: {error}")));
+                                    }
+                                });
+                            }
+                            continue;
                         }
                         Some(Command::LeaveStale) => {}
                     }
@@ -669,6 +822,7 @@ pub(crate) async fn call(
                             }
                         }
                         Err(error) => {
+                            tracing::warn!(error = format!("{error:#}"), kind = kind(guild), "could not start the stream");
                             if let Some(stopped) = share.take() {
                                 stopped.stop(discord, state);
                             }
@@ -696,6 +850,22 @@ pub(crate) async fn call(
                         snapshots.send_replace(state.clone());
                     }
                 }
+                Some(event) = sounds.recv() => {
+                    match event {
+                        SoundEvent::Defaults(Ok(defaults)) => soundboard.set_defaults(defaults),
+                        SoundEvent::Defaults(Err(error)) => {
+                            tracing::warn!(error = format!("{error:#}"), "could not list Discord's soundboard sounds");
+                        }
+                        SoundEvent::Favorites(Ok(favorites)) => soundboard.set_favorites(favorites),
+                        SoundEvent::Favorites(Err(error)) => {
+                            tracing::warn!(error = format!("{error:#}"), "could not read the favourite sounds");
+                        }
+                        SoundEvent::Refused(error) => {
+                            state.error = Some(error);
+                            snapshots.send_replace(state.clone());
+                        }
+                    }
+                }
                 Ok(()) = volumes.changed() => Watch::volume(&mut watch),
                 event = watch_event(&mut watch) => {
                     let mut stop = None;
@@ -704,10 +874,14 @@ pub(crate) async fn call(
                             if let Some(watching) = watch.as_mut()
                                 && let Err(error) = watching.open(&server, state)
                             {
+                                tracing::warn!(error = format!("{error:#}"), "could not watch the stream");
                                 stop = Some(Some(format!("{error:#}")));
                             }
                         }
-                        WatchEvent::Opened(Err(error)) => stop = Some(Some(error.to_string())),
+                        WatchEvent::Opened(Err(error)) => {
+                            tracing::warn!(error = format!("{error:#}"), kind = kind(guild), "could not watch the stream");
+                            stop = Some(Some(error.to_string()));
+                        }
                         WatchEvent::Report(Some(Report::Ready)) => {
                             if let Some(frames) = state.watching.as_ref().and_then(|watching| watching.frames.as_ref()) {
                                 frames.unlink();
@@ -738,6 +912,23 @@ pub(crate) async fn call(
                     snapshots.send_replace(state.clone());
                 }
                 Ok(event) = live.recv() => match event {
+                    Live::SoundboardSounds { guild, sounds } => soundboard.set_server(guild, sounds),
+                    Live::SoundboardSound(sound) => soundboard.changed(sound),
+                    Live::SoundboardSoundDeleted { guild, sound } => soundboard.deleted(&guild, &sound),
+                    Live::FavoriteSounds(favorites) => soundboard.set_favorites(favorites),
+                    // Someone else played a sound here, unless muted for
+                    // the soundboard; this account's own played as it was
+                    // sent.
+                    Live::SoundPlayed(played) => {
+                        if played.channel == channel
+                            && played.user != me
+                            && !state.deafened
+                            && !crate::volume::soundboard_muted(&played.user)
+                        {
+                            let gain = crate::soundboard::gain(&discord_states.borrow());
+                            soundboard.play(discord, &hearing, &played.sound, played.volume * gain);
+                        }
+                    }
                     // Joined on another client, which takes the call over, as
                     // in Discord. Leaving below sends nothing then.
                     Live::VoiceElsewhere { .. } => {
@@ -879,9 +1070,6 @@ pub(crate) async fn call(
     result
 }
 
-/// How long a dropped voice connection waits for Discord to say it moved
-/// the call, before the call ends.
-const MOVE_GRACE: Duration = Duration::from_secs(5);
 /// How long connecting to the voice server a call moved to may take.
 const MOVE_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -910,9 +1098,16 @@ fn open_discord_microphone(
     reverse: &discord_audio::Reverse,
     microphone: &yapfast_discord::voice::Microphone,
     track: &yapfast_discord::voice::Track,
+    thread: &discord_audio::MicrophoneThread,
 ) -> Result<Capture> {
     let open = |id: Option<&str>| {
-        discord_audio::capture(id, reverse.clone(), microphone.clone(), track.clone())
+        discord_audio::capture(
+            thread,
+            id,
+            reverse.clone(),
+            microphone.clone(),
+            track.clone(),
+        )
     };
     match open(state.microphone.as_deref()) {
         Ok(capture) => Ok(capture),
@@ -1060,3 +1255,6 @@ fn alone(snapshot: &yapfast_discord::service::Snapshot, channel: &str, me: &str)
         .flatten()
         .all(|member| member.user_id == me)
 }
+
+#[cfg(test)]
+mod tests;

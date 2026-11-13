@@ -4,8 +4,7 @@
 # the dry speech, and its noise mixes, to see what it costs speech there; and
 # the time a 10 ms block takes.
 # Usage: scripts/compare-room-echo, after scripts/compare-noise-suppression
-# has made its mixes in .local/noise-suppression; docs/discord.md records the
-# results.
+# has made its mixes in .local/noise-suppression.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 

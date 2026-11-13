@@ -82,6 +82,9 @@ export component GifPicker inherits VerticalLayout {
     /// How far the grid is scrolled and how tall it shows, for the adapter
     /// to load the pictures in sight.
     callback scrolled-to(length, length);
+    /// The picker changed width, as its left edge dragged it: the grid's
+    /// columns are placed again.
+    callback resized;
     callback close;
     property <length> scrolled: -grid.content-y;
     property <length> shown-height: grid.height;
@@ -89,6 +92,7 @@ export component GifPicker inherits VerticalLayout {
     init => { root.report(); }
     changed scrolled => { root.report(); }
     changed shown-height => { root.report(); }
+    changed width => { root.resized(); }
     changed view => { grid.content-y = 0; root.report(); }
     // Typing searches after a quarter second's pause, as Discord's does.
     pause := Timer {

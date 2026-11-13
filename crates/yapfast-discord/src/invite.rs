@@ -60,7 +60,7 @@ pub fn typed_code(typed: &str) -> Option<&str> {
 }
 
 /// Discord's invite codes and vanity codes are letters, digits and `-`.
-fn valid(code: &str) -> bool {
+pub(crate) fn valid(code: &str) -> bool {
     !code.is_empty()
         && code.len() <= 64
         && code

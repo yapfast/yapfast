@@ -14,18 +14,21 @@ use serde_json::{Value, json};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
 use crate::{
-    activity,
+    activity, activity_feed,
     api::{self, Api, PAGE, Span},
-    cache, forum, invite, limits,
+    cache, commands, forum, gift, guild, interactions, invite, limits,
     marked::MarkedServer,
     member_list::{ListedMember, Presence},
-    message::{self, Message, Names, Page},
+    message::{self, Message, Names, Page, Reply},
     mfa,
     notifications::Change,
-    profile::{self, Profile},
+    oauth,
+    profile::{self, Badge, Profile},
+    profile_effect,
     ready::{self, PRIVATE, Server},
-    search, server_settings,
+    scheduled_event, search, server_settings,
     settings::{self, CustomStatus},
+    soundboard,
     stream::StreamServer,
 };
 
@@ -78,8 +81,17 @@ pub struct VoiceMember {
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Account {
     pub name: String,
+    /// Its username, such as `derfayberr`, which the account card shows
+    /// under the pointer; empty while unknown.
+    #[serde(default)]
+    pub username: String,
     /// The address of its avatar.
     pub avatar: String,
+    /// The decoration it wears around its avatar, and its nameplate.
+    #[serde(default)]
+    pub decoration: Option<Arc<str>>,
+    #[serde(default)]
+    pub nameplate: Option<crate::collectibles::Nameplate>,
     /// Its Nitro: 0 none, 1 Nitro Classic, 2 Nitro, 3 Nitro Basic; see
     /// [`crate::api::upload_limit`].
     pub premium_type: u8,
@@ -92,6 +104,14 @@ pub struct Account {
     /// not the address.
     #[serde(default)]
     pub has_email: bool,
+    /// Discord lets it see age-restricted content, as its `nsfw_allowed`
+    /// says: an adult's, by the birthday it gave. Apps' age-restricted
+    /// commands are offered to no other.
+    #[serde(default)]
+    pub nsfw_allowed: bool,
+    /// Its settings offer apps' age-restricted commands in DMs.
+    #[serde(default)]
+    pub nsfw_commands_in_dms: bool,
 }
 
 /// A DM or group DM, as the DM list shows it.
@@ -101,9 +121,31 @@ pub struct Conversation {
     pub name: String,
     /// The other person's avatar in a DM, or a group DM's icon.
     pub avatar: Option<String>,
+    /// The decoration the other person in a DM wears around their avatar.
+    #[serde(default)]
+    pub decoration: Option<Arc<str>>,
+    /// The nameplate the other person in a DM equips.
+    #[serde(default)]
+    pub nameplate: Option<crate::collectibles::Nameplate>,
+    /// The display name style of the other person in a DM.
+    #[serde(default)]
+    pub style: Option<crate::collectibles::Style>,
     pub group: bool,
+    /// The server tag the other person in a DM wears by their name.
+    #[serde(default)]
+    pub tag: Option<crate::message::Tag>,
+    /// The other person is Discord's own account, which is marked as official.
+    #[serde(default)]
+    pub official: bool,
+    /// A one-to-one DM nobody has written in yet, where the DM list offers to
+    /// wave.
+    #[serde(default)]
+    pub empty: bool,
     /// Everyone in it, this account included.
     pub people: usize,
+    /// Who made a group DM; its member list crowns them.
+    #[serde(default)]
+    pub owner: Option<String>,
     /// A message request, waiting to be accepted or ignored. Requests count
     /// no mentions, and spam isn't unread either.
     pub request: bool,
@@ -182,6 +224,10 @@ pub struct Friend {
     /// The nickname this account gave them.
     #[serde(default)]
     pub nickname: Option<String>,
+    /// When they became friends, in Unix milliseconds, from the
+    /// relationship's `since`.
+    #[serde(default)]
+    pub since: Option<u64>,
     /// Whether they're around and their custom status or what they're doing,
     /// when Discord says. Not saved, since it's stale by the next start.
     #[serde(skip)]
@@ -299,15 +345,37 @@ pub struct Snapshot {
     /// not before Discord has said.
     #[serde(default)]
     pub show_game: bool,
+    /// The settings' `status` as Discord last sent it, its protobuf bytes:
+    /// what this account's next change to it starts from. Not kept, as
+    /// READY sends it again.
+    #[serde(skip)]
+    pub status_settings: Option<Arc<[u8]>>,
     /// The game this account shows it plays now.
     #[serde(skip)]
     pub playing: Option<Arc<crate::own_activity::Playing>>,
+    /// What this account shows it's doing, here and on its other devices, as
+    /// its own profile shows it.
+    #[serde(skip)]
+    pub own_activities: crate::activity::Activities,
+    /// The soundboard's volume, from 0 to 100 on the power curve of the
+    /// other volumes, and the sounds that play as this account joins
+    /// voice, as its settings keep them; the volume is none until they say,
+    /// which is [`soundboard::DEFAULT_VOLUME`].
+    #[serde(skip)]
+    pub soundboard_volume: Option<f32>,
+    #[serde(skip)]
+    pub join_sounds: Arc<[soundboard::JoinSound]>,
     /// Friend requests waiting for an answer: those sent to this account
     /// first, then those it sent, the newest first in each.
     pub friend_requests: Arc<[FriendRequest]>,
     /// Who is in each voice channel, by channel id and then by name.
     #[serde(skip)]
     pub voice: HashMap<String, Vec<VoiceMember>>,
+    /// When each busy server voice channel's session started, in Unix
+    /// seconds, by channel id, as Discord says: the time its first person
+    /// joined, which a channel's row counts from.
+    #[serde(skip)]
+    pub voice_started: Arc<HashMap<String, u64>>,
     /// The channel whose member list is on screen, and how many people can
     /// read it.
     #[serde(skip)]
@@ -347,6 +415,45 @@ impl std::fmt::Debug for SharedNames {
 /// A message event from the gateway, for any channel.
 #[derive(Clone, Debug)]
 pub enum Live {
+    /// INTERACTION_CREATE: Discord passed this account's interaction to its
+    /// app, which gave it `id`. A message that answers it names that id in
+    /// its `interaction_metadata`.
+    InteractionCreated {
+        nonce: String,
+        id: String,
+    },
+    /// INTERACTION_MODAL_CREATE: an app answered with a form, as Discord
+    /// sends it, with the interaction's `nonce`.
+    InteractionModal(Value),
+    /// INTERACTION_IFRAME_MODAL_CREATE: an app answered with a web page to
+    /// show in a window, as Discord sends it. Yapfast doesn't show those.
+    InteractionPage(Value),
+    /// INTERACTION_FAILURE, with Discord's `reason_code`; see
+    /// [`interactions::failure_reason`].
+    InteractionFailure {
+        nonce: String,
+        reason: u64,
+    },
+    /// INTERACTION_SUCCESS: the app answered.
+    InteractionSuccess {
+        nonce: String,
+    },
+    /// APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE: an app's choices for the
+    /// option being typed, as Discord sends them; [`Discord::autocomplete`]
+    /// waits for its own.
+    AutocompleteChoices {
+        nonce: String,
+        choices: Value,
+    },
+    /// Kept command indexes are out of date, which
+    /// [`Discord::command_index`] then fetches again: a new gateway
+    /// session's, GUILD_APPLICATION_COMMAND_INDEX_UPDATE's or
+    /// USER_APPLICATION_UPDATE's.
+    CommandIndexStale(commands::Stale),
+    /// The Activity panel's feed has something new, to fetch after this long.
+    ActivityFeedStale {
+        refresh_after_ms: Option<u64>,
+    },
     Created(Message),
     /// A new message that should notify this account, by its notification settings,
     /// in a server or, with none, a DM.
@@ -401,6 +508,9 @@ pub enum Live {
     /// The servers and channels this account used, as another client counted
     /// them; see [`crate::frecency`].
     PlacesUsed(Vec<(String, crate::frecency::Uses)>),
+    /// The account's favourite emoji and the emoji it uses, as another
+    /// client changed them; see [`crate::frecency::Emojis`].
+    Emojis(crate::frecency::Emojis),
     /// Who watches a stream this account is in, and whether it's paused.
     StreamUpdated {
         stream_key: String,
@@ -473,6 +583,25 @@ pub enum Live {
         guild: String,
         stickers: Vec<server_settings::GuildSticker>,
     },
+    /// A server's soundboard sounds, all of them: Discord's answer to
+    /// [`Discord::request_soundboard`], or GUILD_SOUNDBOARD_SOUNDS_UPDATE.
+    SoundboardSounds {
+        guild: String,
+        sounds: Vec<soundboard::Sound>,
+    },
+    /// A server's sound was added or changed.
+    SoundboardSound(soundboard::Sound),
+    /// A server's sound was deleted, by id.
+    SoundboardSoundDeleted {
+        guild: String,
+        sound: String,
+    },
+    /// Someone played a sound in a call this account is in, this account
+    /// among them.
+    SoundPlayed(soundboard::Played),
+    /// The account's favourite sounds, all of them in order, as another
+    /// client or this one changed them.
+    FavoriteSounds(Vec<String>),
 }
 
 /// What a call needs to open the voice connection Discord assigned.
@@ -573,6 +702,10 @@ enum Request {
     Inactive(Option<u64>, bool),
     /// This gateway session's id, from READY.
     Session(oneshot::Sender<Option<String>>),
+    /// Asks for these servers' soundboard sounds.
+    Soundboard {
+        guilds: Vec<String>,
+    },
     /// Channels and categories moved, shown before Discord confirms it;
     /// `reply` gives where they were.
     Place {
@@ -606,6 +739,15 @@ impl ChannelSettings {
 }
 
 /// A handle to the connection. It ends when every handle is dropped.
+/// Where the Activity panel's feed last left off.
+#[derive(Default)]
+struct FeedPlace {
+    /// What the next request sends.
+    token: Option<String>,
+    /// How long after Discord says it's stale to ask again.
+    stale_after_ms: Option<u64>,
+}
+
 #[derive(Clone)]
 pub struct Discord {
     requests: mpsc::UnboundedSender<Request>,
@@ -615,6 +757,16 @@ pub struct Discord {
     names: Arc<RwLock<Names>>,
     /// Profiles fetched lately, oldest first.
     profiles: Arc<Mutex<Vec<Kept>>>,
+    /// Where the Activity panel's feed last left off.
+    feed_place: Arc<Mutex<FeedPlace>>,
+    /// This account's notes it has read, by user: none is an empty text. The
+    /// session keeps them current; see [`session::Shared::notes`].
+    notes: Notes,
+    /// Profile effects fetched lately, oldest first.
+    effects: Arc<Mutex<Vec<Arc<profile_effect::Effect>>>>,
+    /// The layers of the profile frames asked for, by SKU; none for one the
+    /// shop has no frame for. They're a few addresses each.
+    frames: Frames,
     /// The threads a list of a channel's threads found, by id, while it's
     /// open: one opens from what Discord gave rather than asking again.
     listed_threads: Arc<Mutex<HashMap<String, Value>>>,
@@ -626,6 +778,45 @@ pub struct Discord {
     /// Requests held back for two-factor authentication, waiting for the
     /// person; see [`Self::stepping_up`].
     mfa: Arc<mfa::Prompts>,
+    /// Discord's own soundboard sounds, once a call asked for them: Discord's
+    /// client asks once a session too.
+    default_sounds: Arc<tokio::sync::Mutex<Option<Arc<[soundboard::Sound]>>>>,
+    /// The command indexes fetched, until Discord says they changed; see
+    /// [`Self::command_index`].
+    commands: commands::Kept,
+    /// The newest autocomplete, the only one whose answer is wanted.
+    autocompletes: interactions::Autocompletes,
+    /// Changes to the status settings on their way; see
+    /// [`Self::change_status_settings`].
+    status_writes: Arc<StatusWrites>,
+}
+
+/// This account's changes to the settings' `status` on their way.
+#[derive(Default)]
+struct StatusWrites {
+    pending: std::sync::Mutex<PendingStatus>,
+    /// Held through each PATCH, so they go one at a time.
+    sending: tokio::sync::Mutex<()>,
+}
+
+#[derive(Default)]
+struct PendingStatus {
+    /// `status` with this session's changes, and the snapshot's it started
+    /// from: once Discord sends other settings, changes start from those.
+    status: Option<Vec<u8>>,
+    seen: Option<Arc<[u8]>>,
+    /// What the last PATCH that went through carried.
+    sent: Option<Vec<u8>>,
+    /// Changes made and not yet sent or refused.
+    writing: usize,
+}
+
+impl StatusWrites {
+    fn lock(&self) -> std::sync::MutexGuard<'_, PendingStatus> {
+        self.pending
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 }
 
 /// Discord allows starting 10 new DMs with people in 10 minutes, and treats
@@ -633,11 +824,16 @@ pub struct Discord {
 const NEW_DMS: usize = 8;
 const NEW_DM_SPAN: Duration = Duration::from_secs(10 * 60);
 
+/// The most profile effects kept: a few cards' worth.
+const EFFECTS: usize = 8;
+
 /// A profile fetched lately, for a user in a server.
 struct Kept {
     user: String,
     guild: String,
     at: Instant,
+    /// Whether [`Discord::badge_levels`] asked for its badges' levels.
+    levels_asked: bool,
     /// Their server nickname and avatar when it was fetched: once
     /// GUILD_MEMBER_UPDATE changes either, it's fetched again, with the
     /// rest of what they changed in their server profile.
@@ -649,6 +845,25 @@ const LIVE_BACKLOG: usize = 256;
 /// Profiles are fetched again after this long; Discord limits how often.
 const PROFILE_AGE: Duration = Duration::from_secs(5 * 60);
 const PROFILES: usize = 32;
+
+/// How many users' notes are kept before they're read afresh.
+const NOTES: usize = 256;
+
+type Notes = Arc<Mutex<HashMap<String, String>>>;
+
+/// Profile frames' layers by SKU, as [`Discord::kept_frame`] gives them.
+type Frames = Arc<Mutex<HashMap<String, Option<Arc<[profile::FrameLayer]>>>>>;
+
+/// Keeps a note this account has on `user`.
+fn keep_note(notes: &Notes, user: &str, note: &str) {
+    let mut notes = notes
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if notes.len() >= NOTES && !notes.contains_key(user) {
+        notes.clear();
+    }
+    notes.insert(user.to_owned(), note.to_owned());
+}
 
 impl Discord {
     /// Connects on the current Tokio runtime and keeps reconnecting until
@@ -680,9 +895,13 @@ impl Discord {
         cached.names = SharedNames::new(names.clone());
         let (snapshots, watcher) = watch::channel(Arc::new(cached));
         let (live, _) = broadcast::channel(LIVE_BACKLOG);
+        let notes = Notes::default();
         // Sharing waits for READY unless an earlier session's settings said.
         let (show_game, shown) = watch::channel(watcher.borrow().show_game);
         let activity = crate::own_activity::start(api.clone(), watcher.clone(), shown);
+        // Nothing is known of a linked Spotify until READY.
+        let (spotify, accounts) = watch::channel(crate::spotify::Accounts::default());
+        let music = crate::spotify::start(api.clone(), accounts);
         tokio::spawn(cache::keep(watcher.clone(), names.clone()));
         tokio::spawn(session::run(
             token,
@@ -691,6 +910,7 @@ impl Discord {
                 snapshots,
                 live: live.clone(),
                 names: names.clone(),
+                notes: notes.clone(),
                 api: api.clone(),
                 lists: MemberLists::new(
                     lists,
@@ -701,11 +921,14 @@ impl Discord {
                 presence,
                 activity,
                 show_game,
+                music,
+                spotify,
                 inactive: None,
                 viewing: None,
                 beside: None,
             },
         ));
+        let kept_commands = commands::Kept::watching(live.subscribe());
         Ok(Self {
             requests,
             snapshots: watcher,
@@ -713,10 +936,18 @@ impl Discord {
             api,
             names,
             profiles: Arc::default(),
+            feed_place: Arc::default(),
+            notes,
+            effects: Arc::default(),
+            frames: Arc::default(),
             listed_threads: Arc::default(),
             new_dms: Arc::new(Mutex::new(limits::Window::new(NEW_DMS, NEW_DM_SPAN))),
             application_icons: Arc::default(),
             mfa: Arc::default(),
+            default_sounds: Arc::default(),
+            commands: kept_commands,
+            autocompletes: interactions::Autocompletes::default(),
+            status_writes: Arc::default(),
         })
     }
 
@@ -727,6 +958,61 @@ impl Discord {
     /// Message events for every channel, from now on.
     pub fn live(&self) -> broadcast::Receiver<Live> {
         self.live.subscribe()
+    }
+
+    /// The apps' commands for a channel: its server's index, or the DM
+    /// with a bot's, merged with this account's own. Discord's client asks
+    /// for no other DM's or group DM's. Each index is fetched when first
+    /// asked for, which the person typing `/` or opening a menu with Apps
+    /// does, and kept until Discord's client would count it out of date
+    /// ([`commands::Stale`]). A DM's that can't be had leaves the account's
+    /// own.
+    pub async fn command_index(
+        &self,
+        guild: Option<&str>,
+        channel: &str,
+    ) -> Result<Arc<commands::CommandIndex>> {
+        let fetch = |resource: String| async move { self.api.command_index(&resource).await };
+        let place = match guild {
+            Some(guild) => {
+                let owner = commands::Owner::Guild(guild.to_owned());
+                Some(self.commands.get(owner, None, fetch).await?)
+            }
+            None => match self.dm_bot(channel) {
+                Some(bot) => {
+                    let owner = commands::Owner::Channel(channel.to_owned());
+                    self.commands
+                        .get(owner, Some(&bot), fetch)
+                        .await
+                        .inspect_err(|error| tracing::debug!(%error, "no command index for a DM"))
+                        .ok()
+                }
+                None => None,
+            },
+        };
+        let own = self
+            .commands
+            .get(commands::Owner::User, None, fetch)
+            .await?;
+        Ok(match place {
+            // The account's own come first: a command in both is theirs,
+            // as Discord's client takes it.
+            Some(place) => Arc::new(own.merged(&place)),
+            None => own,
+        })
+    }
+
+    /// The bot a one-to-one DM is with, if it's with one.
+    fn dm_bot(&self, channel: &str) -> Option<String> {
+        let person = self
+            .snapshots
+            .borrow()
+            .conversations
+            .iter()
+            .find(|dm| dm.id == channel && !dm.group)?
+            .person
+            .clone()?;
+        self.read_names().is_bot(&person).then_some(person)
     }
 
     /// Tells Discord a server's channel is on screen, so its messages arrive
@@ -751,18 +1037,48 @@ impl Discord {
 
     /// A page of a channel's messages.
     pub async fn history(&self, guild: &str, channel: &str, span: Span<'_>) -> Result<Page> {
+        let around = match span {
+            Span::Around(id) => id.parse::<u64>().ok(),
+            _ => None,
+        };
         let values = self.api.messages(channel, span).await?;
         // The open channel shows them again once their authors arrive.
         let (mut messages, _) = self.learn(guild, &values, false);
         messages.sort_by_key(Message::order);
+        let ids = || {
+            values
+                .iter()
+                .filter_map(|value| value["id"].as_str()?.parse::<u64>().ok())
+        };
+        // Discord sends up to half a page from before the snowflake and
+        // half from it on. Its client takes fewer than that before it, less
+        // one, as the channel's start, and fewer from it on as its newest.
+        let (full, newest) = match around {
+            Some(around) => {
+                let before = ids().filter(|&id| id < around).count();
+                (
+                    before + 1 >= PAGE.div_ceil(2),
+                    values.len() - before < PAGE / 2,
+                )
+            }
+            None => (values.len() >= PAGE, false),
+        };
         Ok(Page {
             messages,
-            oldest: values
-                .iter()
-                .filter_map(|value| value["id"].as_str()?.parse().ok())
-                .min(),
-            full: values.len() >= PAGE,
+            oldest: ids().min(),
+            full,
+            newest,
         })
+    }
+
+    /// The quote of the message `id` a reply answers, learning its author,
+    /// or none once it's gone.
+    pub async fn original(&self, guild: &str, channel: &str, id: &str) -> Result<Option<Reply>> {
+        let Some(original) = self.api.message(channel, id).await? else {
+            return Ok(None);
+        };
+        self.learn(guild, std::slice::from_ref(&original), false);
+        Ok(Some(Reply::of(&original)))
     }
 
     /// Messages from a server's channel, or with [`PRIVATE`] a DM, learning
@@ -849,6 +1165,164 @@ impl Discord {
     /// Votes for `answers` of a message's poll; none takes the vote back.
     pub async fn vote(&self, channel: &str, id: &str, answers: &[u64]) -> Result<()> {
         self.api.vote(channel, id, answers).await
+    }
+
+    /// Uses a bot's message component or submits its form in this gateway
+    /// session, as the person just did. Discord takes the request at once
+    /// and tells the app's answer over the gateway, as
+    /// [`Live::InteractionSuccess`], [`Live::InteractionFailure`] or
+    /// [`Live::InteractionModal`]; this waits for it, up to
+    /// [`interactions::UNANSWERED`], and says whether it came. It is never
+    /// sent again.
+    pub async fn interact(&self, interaction: &interactions::Interaction) -> Result<bool> {
+        self.interact_with_files(interaction, Vec::new()).await
+    }
+
+    /// Runs an app's command as the person just sent it, with the contents
+    /// of its files, in the order its `files` names them, uploaded first
+    /// as Discord's client does. Like [`Self::interact`], this waits for
+    /// the app's answer; the answer's message then comes as any other,
+    /// naming the [`Live::InteractionCreated`] id in its
+    /// `interaction_metadata`.
+    pub async fn run_command(
+        &self,
+        run: interactions::CommandUse,
+        files: Vec<Vec<u8>>,
+    ) -> Result<bool> {
+        if files.len() != run.files.len() {
+            bail!("Yapfast lost a file of this command. Choose it again.");
+        }
+        let files = run.files.iter().cloned().zip(files).collect();
+        self.interact_with_files(&interactions::Interaction::Command(run), files)
+            .await
+    }
+
+    /// Submits a bot's form as the person just did, with the contents of
+    /// the files its file uploads carry, in the order its `files` names
+    /// them, uploaded first. Like [`Self::interact`], this waits for the
+    /// app's answer.
+    pub async fn submit_form(
+        &self,
+        form: &interactions::Interaction,
+        files: Vec<Vec<u8>>,
+    ) -> Result<bool> {
+        let interactions::Interaction::Modal { files: names, .. } = form else {
+            bail!("Only a form carries files.");
+        };
+        if files.len() != names.len() {
+            bail!("Yapfast lost a file of this form. Choose it again.");
+        }
+        let files = names.iter().cloned().zip(files).collect();
+        self.interact_with_files(form, files).await
+    }
+
+    /// Asks an app for its choices for the option being typed: at once, or
+    /// within [`interactions::AUTOCOMPLETE_PAUSE`] of another, once typing
+    /// pauses that long, as Discord's client. Only the newest is answered:
+    /// this gives `None` for one a newer one replaced, before or after it
+    /// was sent, and for one Discord said nothing more of within
+    /// [`interactions::UNANSWERED`]. It is never sent again.
+    pub async fn autocomplete(&self, run: interactions::CommandUse) -> Result<Option<Value>> {
+        let (turn, at_once) = self.autocompletes.start(std::time::Instant::now());
+        if !at_once {
+            while let Some(due) = self.autocompletes.due()
+                && due > std::time::Instant::now()
+            {
+                tokio::time::sleep_until(due.into()).await;
+                if !self.autocompletes.newest(turn) {
+                    return Ok(None);
+                }
+            }
+            self.autocompletes.went(turn);
+        }
+        let session = self.session().await?;
+        let mut live = self.live.subscribe();
+        let interaction = interactions::Interaction::Autocomplete(run);
+        self.api
+            .interact(&interaction.body(&session, &[]), false)
+            .await?;
+        let nonce = interaction.nonce();
+        let answered = async {
+            loop {
+                match live.recv().await {
+                    Ok(Live::AutocompleteChoices {
+                        nonce: answered,
+                        choices,
+                    }) if answered == nonce => return Ok(choices),
+                    Ok(Live::InteractionFailure {
+                        nonce: answered,
+                        reason,
+                    }) if answered == nonce => {
+                        return Err(anyhow!(interactions::failure_reason(reason)));
+                    }
+                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => {
+                        std::future::pending::<()>().await;
+                    }
+                }
+            }
+        };
+        let Ok(choices) = tokio::time::timeout(interactions::UNANSWERED, answered).await else {
+            return Ok(None);
+        };
+        let choices = choices?;
+        Ok(self.autocompletes.newest(turn).then_some(choices))
+    }
+
+    /// This gateway session's id, which an interaction names.
+    async fn session(&self) -> Result<String> {
+        let (reply, answer) = oneshot::channel();
+        self.requests
+            .send(Request::Session(reply))
+            .map_err(|_| anyhow!("Discord isn't connected. Restart Yapfast and try again."))?;
+        answer
+            .await
+            .ok()
+            .flatten()
+            .context("Discord isn't connected yet. Try again in a moment.")
+    }
+
+    async fn interact_with_files(
+        &self,
+        interaction: &interactions::Interaction,
+        files: Vec<(String, Vec<u8>)>,
+    ) -> Result<bool> {
+        let session = self.session().await?;
+        let uploads = self.upload(interaction.channel(), files).await?;
+        // Listening before sending, so an answer that comes first is heard.
+        let mut live = self.live.subscribe();
+        let body = interaction.body(&session, &uploads);
+        let sent = self
+            .api
+            .interact(&body, interaction.again_when_limited())
+            .await;
+        if sent.is_err() {
+            self.discard(&uploads).await;
+        }
+        sent?;
+        let nonce = interaction.nonce();
+        let answered = async {
+            loop {
+                match live.recv().await {
+                    Ok(
+                        Live::InteractionSuccess { nonce: answered }
+                        | Live::InteractionFailure {
+                            nonce: answered, ..
+                        },
+                    ) if answered == nonce => return,
+                    Ok(Live::InteractionModal(form) | Live::InteractionPage(form))
+                        if form["nonce"] == nonce =>
+                    {
+                        return;
+                    }
+                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => std::future::pending::<()>().await,
+                }
+            }
+        };
+        Ok(tokio::time::timeout(interactions::UNANSWERED, answered)
+            .await
+            .is_ok())
     }
 
     /// Closes this account's poll now.
@@ -1053,30 +1527,39 @@ impl Discord {
     }
 
     /// Uploads files for a message in `channel`, given as their names and
-    /// contents; if one fails, the others are thrown away.
+    /// contents, all at once as Discord's client does; if one fails, the
+    /// others are thrown away.
     async fn upload(
         &self,
         channel: &str,
         files: Vec<(String, Vec<u8>)>,
     ) -> Result<Vec<crate::api::Upload>> {
-        let mut uploads = Vec::with_capacity(files.len());
-        for (name, data) in files {
-            match self.api.upload(channel, &name, data).await {
+        let results = futures_util::future::join_all(
+            files
+                .into_iter()
+                .map(|(name, data)| async move { self.api.upload(channel, &name, data).await }),
+        )
+        .await;
+        let mut uploads = Vec::with_capacity(results.len());
+        let mut failed = None;
+        for result in results {
+            match result {
                 Ok(upload) => uploads.push(upload),
-                Err(error) => {
-                    self.discard(&uploads).await;
-                    return Err(error);
-                }
+                Err(error) => failed = failed.or(Some(error)),
             }
         }
-        Ok(uploads)
+        match failed {
+            Some(error) => {
+                self.discard(&uploads).await;
+                Err(error)
+            }
+            None => Ok(uploads),
+        }
     }
 
     /// Throws away uploads no message took.
     async fn discard(&self, uploads: &[crate::api::Upload]) {
-        for upload in uploads {
-            let _ = self.api.discard(upload).await;
-        }
+        futures_util::future::join_all(uploads.iter().map(|upload| self.api.discard(upload))).await;
     }
 
     /// Posts in a server's forum, as Discord's client does: a post named
@@ -1219,8 +1702,32 @@ impl Discord {
             kept(earlier);
         }
         let value = self.api.profile(user, server(guild)).await?;
-        self.write_names().learn_user(&value["user"]);
-        let profile = profile::parse(&value, server(guild))
+        self.keep_profile(guild, user, &value)
+    }
+
+    /// Learns what a profile Discord sent says of names and roles, and keeps
+    /// it, in memory and on disk, as [`Self::profile`] gives it again.
+    fn keep_profile(&self, guild: &str, user: &str, value: &Value) -> Result<Profile> {
+        let same = |kept: &&Kept| kept.user == user && kept.guild == guild;
+        let learned = {
+            let mut names = self.write_names();
+            let before = names.version();
+            names.learn_user(&value["user"]);
+            // The profile carries the member's roles, which messages colour
+            // names by: messages fetched over HTTP left them unknown.
+            if let Some(guild) = server(guild)
+                && let Value::Object(member) = &value["guild_member"]
+            {
+                let mut member = member.clone();
+                member.insert("user_id".into(), user.into());
+                names.learn_member(guild, &Value::Object(member));
+            }
+            names.version() != before
+        };
+        if learned {
+            let _ = self.live.send(Live::Names);
+        }
+        let profile = profile::parse(value, server(guild))
             .ok_or_else(|| anyhow!("could not understand Discord's answer"))?;
         {
             let mut profiles = self.lock_profiles();
@@ -1230,6 +1737,7 @@ impl Discord {
                 guild: guild.to_owned(),
                 at: Instant::now(),
                 member: self.member_face(guild, user),
+                levels_asked: false,
                 profile: profile.clone(),
             });
             if profiles.len() > PROFILES {
@@ -1239,6 +1747,47 @@ impl Discord {
         let (guild, user, saving) = (guild.to_owned(), user.to_owned(), profile.clone());
         tokio::task::spawn_blocking(move || cache::save_profile(&guild, &user, &saving));
         Ok(profile)
+    }
+
+    /// Adds the levels of a profile's badges, the details its tooltips show,
+    /// to `badges` and to the copy kept of the profile. They come from a request
+    /// of their own, which Discord answers more slowly than the profile, so the
+    /// card doesn't wait for it: this runs once it is on screen. It asks once
+    /// for each kept profile, which then has the levels. Whether any badge has
+    /// a level now.
+    pub async fn badge_levels(&self, guild: &str, user: &str, badges: &mut [Badge]) -> bool {
+        if !badges
+            .iter()
+            .any(|badge| badge.level_icon.is_some() || badge.link.is_some())
+        {
+            return false;
+        }
+        let same = |kept: &&mut Kept| kept.user == user && kept.guild == guild;
+        if let Some(kept) = self.lock_profiles().iter_mut().find(same) {
+            if kept.levels_asked {
+                return false;
+            }
+            kept.levels_asked = true;
+        }
+        match self.api.badges(user).await {
+            Ok(levels) => profile::with_levels(badges, &levels),
+            Err(error) => {
+                tracing::debug!(%error, user, "could not fetch badge levels");
+                return false;
+            }
+        }
+        if !badges.iter().any(|badge| badge.level.is_some()) {
+            return false;
+        }
+        let saving = self.lock_profiles().iter_mut().find(same).map(|kept| {
+            kept.profile.badges = badges.to_vec();
+            kept.profile.clone()
+        });
+        if let Some(saving) = saving {
+            let (guild, user) = (guild.to_owned(), user.to_owned());
+            tokio::task::spawn_blocking(move || cache::save_profile(&guild, &user, &saving));
+        }
+        true
     }
 
     /// A member's nickname and avatar in a server, as Names knows them.
@@ -1317,14 +1866,30 @@ impl Discord {
     /// This account's own profile, for its editor, fetched afresh: in
     /// `guild`, or its main one.
     pub async fn own_profile(&self, guild: Option<&str>) -> Result<profile::OwnProfile> {
+        Ok(self.own_profile_and_card(guild).await?.0)
+    }
+
+    /// [`Self::own_profile`], and for the main profile also the profile the
+    /// account's card shows, from the same answer, kept as [`Self::profile`]
+    /// keeps it: after a save, the card shows what was saved without asking
+    /// Discord a second time.
+    pub async fn own_profile_and_card(
+        &self,
+        guild: Option<&str>,
+    ) -> Result<(profile::OwnProfile, Option<Profile>)> {
         let me = self.snapshots.borrow().user_id.clone();
         let me = me.ok_or_else(|| anyhow!("Discord hasn't said who this account is yet"))?;
         let value = self.api.profile(&me, guild).await?;
-        match guild {
+        let own = match guild {
             Some(guild) => profile::parse_server(&value, guild),
             None => profile::parse_main(&value),
         }
-        .ok_or_else(|| anyhow!("could not understand Discord's answer"))
+        .ok_or_else(|| anyhow!("could not understand Discord's answer"))?;
+        let card = match guild {
+            Some(_) => None,
+            None => self.keep_profile(PRIVATE, &me, &value).ok(),
+        };
+        Ok((own, card))
     }
 
     /// Changes this account's profile in a server as Discord's client
@@ -1338,14 +1903,19 @@ impl Discord {
         member: &Value,
         profile: &Value,
     ) -> Result<()> {
-        if some(member) {
-            self.api.modify_member_me(guild, member).await?;
+        // As for the main profile, what went through is kept no longer.
+        let saved = async {
+            if some(member) {
+                self.api.modify_member_me(guild, member).await?;
+            }
+            if some(profile) {
+                self.api.modify_guild_profile(guild, profile).await?;
+            }
+            Ok(())
         }
-        if some(profile) {
-            self.api.modify_guild_profile(guild, profile).await?;
-        }
+        .await;
         self.forget_own_profile(Some(guild));
-        Ok(())
+        saved
     }
 
     /// A server's profile, for its settings' Server Profile page.
@@ -1660,18 +2230,33 @@ impl Discord {
     }
 
     /// Changes this account's main profile as Discord's client does:
-    /// `user`'s fields, its display name and avatar, go to the user, then
-    /// `profile`'s, its bio, pronouns, banner and banner colour, to its
-    /// profile, each only when it has any. USER_UPDATE follows both.
-    pub async fn save_main_profile(&self, user: &Value, profile: &Value) -> Result<()> {
-        if some(user) {
-            self.api.modify_me(user).await?;
+    /// `user`'s fields, its display name, avatar and name style, go to the
+    /// user, then `profile`'s, its bio, pronouns, banner, colour and theme,
+    /// to its profile, each only when it has any, then the server whose tag
+    /// it wears, when that changed, to its own endpoint. USER_UPDATE follows.
+    /// The kept profiles go even when a request fails, as those before it
+    /// changed what Discord has.
+    pub async fn save_main_profile(
+        &self,
+        user: &Value,
+        profile: &Value,
+        server_tag: Option<Option<&str>>,
+    ) -> Result<()> {
+        let saved = async {
+            if some(user) {
+                self.api.modify_me(user).await?;
+            }
+            if some(profile) {
+                self.api.modify_profile_me(profile).await?;
+            }
+            if let Some(server) = server_tag {
+                self.api.set_server_tag(server).await?;
+            }
+            Ok(())
         }
-        if some(profile) {
-            self.api.modify_profile_me(profile).await?;
-        }
+        .await;
         self.forget_own_profile(None);
-        Ok(())
+        saved
     }
 
     /// Drops this account's kept profiles, so they're fetched afresh: in
@@ -1681,6 +2266,78 @@ impl Discord {
         self.lock_profiles().retain(|kept| {
             Some(&kept.user) != me.as_ref() || guild.is_some_and(|guild| kept.guild != guild)
         });
+    }
+
+    /// The layers of the profile frame sold as `sku`, if they were asked
+    /// for already: `Some(None)` for a SKU that isn't a frame.
+    pub fn kept_frame(&self, sku: &str) -> Option<Option<Arc<[profile::FrameLayer]>>> {
+        self.frames
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(sku)
+            .cloned()
+    }
+
+    /// The layers of the profile frame sold as `sku`, from the shop's
+    /// `GET /collectibles-products/{sku}`, asked for once and kept. None for
+    /// a SKU that isn't one.
+    pub async fn profile_frame(&self, sku: &str) -> Result<Option<Arc<[profile::FrameLayer]>>> {
+        if let Some(kept) = self.kept_frame(sku) {
+            return Ok(kept);
+        }
+        let product = self.api.collectibles_product(sku).await?;
+        let frame = profile::frame(&product).map(Arc::from);
+        if frame.is_none() {
+            tracing::info!(sku, "the shop has no profile frame with this SKU");
+        }
+        self.frames
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(sku.to_owned(), frame.clone());
+        Ok(frame)
+    }
+
+    /// The profile effect sold as `sku`: its layers, from the shop, asked for
+    /// once and kept for the next few cards. None for a SKU that isn't one.
+    pub async fn profile_effect(&self, sku: &str) -> Result<Option<Arc<profile_effect::Effect>>> {
+        let lock = || {
+            self.effects
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+        };
+        if let Some(kept) = lock().iter().find(|effect| effect.sku == sku) {
+            return Ok(Some(kept.clone()));
+        }
+        let asked = Instant::now();
+        let product = self.api.collectibles_product(sku).await?;
+        let pick = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.subsec_nanos() as usize);
+        let found = profile_effect::parse(sku, &product, pick);
+        let Some(effect) = found else {
+            tracing::info!(sku, "the shop has no profile effect with this SKU");
+            return Ok(None);
+        };
+        tracing::info!(
+            sku,
+            layers = effect.layers.len(),
+            ms = asked.elapsed().as_millis() as u64,
+            "fetched a profile effect"
+        );
+        let effect = Arc::new(effect);
+        let mut kept = lock();
+        kept.retain(|old| old.sku != sku);
+        kept.push(effect.clone());
+        if kept.len() > EFFECTS {
+            kept.remove(0);
+        }
+        Ok(Some(effect))
+    }
+
+    fn lock_feed_place(&self) -> std::sync::MutexGuard<'_, FeedPlace> {
+        self.feed_place
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn lock_profiles(&self) -> std::sync::MutexGuard<'_, Vec<Kept>> {
@@ -1752,27 +2409,104 @@ impl Discord {
     }
 
     /// Sets or clears the custom status, everywhere this account is signed
-    /// in, and shows it from this session.
-    pub async fn set_custom_status(&self, custom: Option<CustomStatus>) -> Result<()> {
-        self.api.set_custom_status(custom.as_ref()).await?;
-        let _ = self.requests.send(Request::CustomStatus(custom));
-        Ok(())
+    /// in, and shows it from this session. The change is made as this is
+    /// called, so changes go in the order they were asked for.
+    pub fn set_custom_status(
+        &self,
+        custom: Option<CustomStatus>,
+    ) -> impl Future<Output = Result<()>> + Send + 'static {
+        self.change_status_settings(
+            move |current| settings::write_custom(current, custom.as_ref(), now_ms()),
+            |now| Request::CustomStatus(now.custom.flatten()),
+        )
     }
 
     /// Sets the status, `online`, `idle`, `dnd` or `invisible`, everywhere
     /// this account is signed in, and shows it from this session.
-    pub async fn set_status(&self, status: &str) -> Result<()> {
-        self.api.set_status(status).await?;
-        let _ = self.requests.send(Request::Status(status.to_owned()));
-        Ok(())
+    pub fn set_status(&self, status: &str) -> impl Future<Output = Result<()>> + Send + 'static {
+        let status = status.to_owned();
+        self.change_status_settings(
+            move |current| settings::write_status(current, &status, now_ms()),
+            |now| Request::Status(now.status.unwrap_or_else(|| "online".into())),
+        )
     }
 
     /// Shares the game this account plays, everywhere it's signed in, or
     /// stops sharing it. Stopping ends game detection and Rich Presence.
-    pub async fn set_show_game(&self, shown: bool) -> Result<()> {
-        self.api.set_show_game(shown).await?;
-        let _ = self.requests.send(Request::ShowGame(shown));
-        Ok(())
+    pub fn set_show_game(&self, shown: bool) -> impl Future<Output = Result<()>> + Send + 'static {
+        self.change_status_settings(
+            move |current| settings::write_show_game(current, shown),
+            move |now| Request::ShowGame(now.show_game.unwrap_or(shown)),
+        )
+    }
+
+    /// Changes the settings' `status` with `change`, then has the session
+    /// show `then` of them. As Discord's client does, the change starts from
+    /// the settings Discord last sent, not from a request for them, and
+    /// joins those still on their way: each PATCH carries the whole `status`
+    /// as it now stands, since Discord resets what a write of it leaves out,
+    /// so however the writes are ordered the last carries every change.
+    fn change_status_settings(
+        &self,
+        change: impl FnOnce(&[u8]) -> Vec<u8>,
+        then: impl FnOnce(settings::StatusSettings) -> Request + Send + 'static,
+    ) -> impl Future<Output = Result<()>> + Send + 'static {
+        let changed = {
+            let sent = self.snapshots.borrow().status_settings.clone();
+            let mut pending = self.status_writes.lock();
+            // Discord's settings start it, unless this session's changes
+            // are still on their way or newer than what Discord last sent.
+            if pending.writing == 0 && (pending.status.is_none() || pending.seen != sent) {
+                pending.status = sent.as_deref().map(<[u8]>::to_vec);
+                pending.seen = sent;
+            }
+            match pending.status.as_deref().map(change) {
+                Some(status) => {
+                    pending.status = Some(status);
+                    pending.writing += 1;
+                    Ok(())
+                }
+                None => Err(anyhow!("Discord hasn't sent this account's settings yet")),
+            }
+        };
+        let (api, writes, requests) = (
+            self.api.clone(),
+            self.status_writes.clone(),
+            self.requests.clone(),
+        );
+        async move {
+            changed?;
+            let _turn = writes.sending.lock().await;
+            let (status, unsent) = {
+                let pending = writes.lock();
+                let status = pending.status.clone().unwrap_or_default();
+                let unsent = pending.sent.as_ref() != Some(&status);
+                (status, unsent)
+            };
+            // One before it sent this change with its own.
+            let result = if unsent {
+                api.set_user_settings(&settings::encode_status(&status))
+                    .await
+            } else {
+                Ok(())
+            };
+            {
+                let mut pending = writes.lock();
+                pending.writing -= 1;
+                match &result {
+                    Ok(()) => pending.sent = Some(status.clone()),
+                    // What didn't go through starts from Discord's again.
+                    Err(_) if pending.writing == 0 => {
+                        pending.status = None;
+                        pending.sent = None;
+                    }
+                    Err(_) => {}
+                }
+            }
+            result?;
+            let _ = requests.send(then(settings::read(&settings::encode_status(&status))));
+            Ok(())
+        }
     }
 
     /// Tells the session nobody has used Yapfast since `since`, in Unix
@@ -1820,6 +2554,34 @@ impl Discord {
         self.api.gif_select(id, query).await
     }
 
+    /// Discord's default sticker packs as Yapfast last saw them, to show
+    /// until [`Self::sticker_packs`] answers.
+    pub async fn kept_sticker_packs(&self) -> Option<cache::KeptStickerPacks> {
+        tokio::task::spawn_blocking(cache::sticker_packs)
+            .await
+            .ok()
+            .flatten()
+    }
+
+    /// Discord's default sticker packs, kept on disk too, for the picker's
+    /// pictures to be fetched ahead of it opening.
+    pub async fn sticker_packs(&self) -> Result<Vec<crate::stickers::Collection>> {
+        let answer = self.api.sticker_packs().await?;
+        let packs = crate::stickers::packs(&answer);
+        let kept = packs.clone();
+        let _ = tokio::task::spawn_blocking(move || cache::keep_sticker_packs(kept)).await;
+        Ok(packs)
+    }
+
+    /// Posts sticker `id` in `channel`, as Discord's client does when one is
+    /// clicked in the picker. The gateway shows the message.
+    pub async fn send_sticker(&self, guild: &str, channel: &str, id: &str) -> Result<()> {
+        let nonce = crate::message::nonce();
+        let sent = self.api.send_sticker(channel, id, &nonce).await?;
+        self.write_names().learn_message(server(guild), &sent);
+        Ok(())
+    }
+
     /// The account's favourite GIFs as Yapfast last saw them, to show until
     /// [`Self::favorite_gifs`] answers.
     pub async fn kept_favorite_gifs(&self) -> Option<Vec<crate::gifs::Favorite>> {
@@ -1831,10 +2593,21 @@ impl Discord {
 
     /// The account's favourite GIFs, kept on disk too.
     pub async fn favorite_gifs(&self) -> Result<Vec<crate::gifs::Favorite>> {
+        Ok(self.favorite_gifs_and_emojis().await?.0)
+    }
+
+    /// The account's favourite GIFs and its favourite and used emoji, which
+    /// the same settings hold: one request for both, at a start.
+    pub async fn favorite_gifs_and_emojis(
+        &self,
+    ) -> Result<(Vec<crate::gifs::Favorite>, crate::frecency::Emojis)> {
         let settings = self.api.frecency_settings().await?;
         let favorites = crate::gifs::read_favorites(&settings).unwrap_or_default();
         keep_favorite_gifs(favorites.clone()).await;
-        Ok(favorites)
+        Ok((
+            favorites,
+            crate::frecency::read_emojis(&settings).unwrap_or_default(),
+        ))
     }
 
     /// The servers and channels this account used, by id, as Discord's
@@ -1853,6 +2626,15 @@ impl Discord {
         Ok(())
     }
 
+    /// Puts the account's favourite emoji in Discord's settings, as its
+    /// client's star in the picker does: each a custom emoji's id or a
+    /// Unicode emoji's Discord name, in the order they were starred.
+    pub async fn set_favorite_emojis(&self, favorites: &[String]) -> Result<()> {
+        self.api
+            .set_frecency_settings(&crate::frecency::write_favorite_emojis(favorites))
+            .await
+    }
+
     /// Sends someone a friend request from their profile, or accepts theirs.
     /// The lists change when Discord confirms it.
     pub async fn befriend(&self, user: &str) -> Result<()> {
@@ -1863,8 +2645,11 @@ impl Discord {
             .iter()
             .any(|request| request.user_id == user && request.incoming);
         // Discord's client accepts from its friends list and sends from a profile.
-        let place = if incoming { "Friends" } else { "User Profile" };
-        self.api.add_friend(user, place).await
+        if incoming {
+            self.api.accept_friend(user, "Friends").await
+        } else {
+            self.api.add_friend(user, "User Profile").await
+        }
     }
 
     /// Ignores a friend request to this account, or cancels one it sent.
@@ -1873,16 +2658,18 @@ impl Discord {
     }
 
     /// Ends a friendship. The lists change when Discord confirms it.
-    pub async fn unfriend(&self, user: &str) -> Result<()> {
-        self.api.remove_relationship(user, "ContextMenu").await
+    /// `location` is where in Discord's client it happens, such as
+    /// "ContextMenu".
+    pub async fn unfriend(&self, user: &str, location: &str) -> Result<()> {
+        self.api.remove_relationship(user, location).await
     }
 
-    /// Blocks someone, or unblocks them.
-    pub async fn block(&self, user: &str, block: bool) -> Result<()> {
+    /// Blocks someone, or unblocks them, from `location` in Discord's client.
+    pub async fn block(&self, user: &str, block: bool, location: &str) -> Result<()> {
         if block {
-            self.api.block(user, "ContextMenu").await
+            self.api.block(user, location).await
         } else {
-            self.api.remove_relationship(user, "ContextMenu").await
+            self.api.remove_relationship(user, location).await
         }
     }
 
@@ -1896,14 +2683,72 @@ impl Discord {
         self.api.set_friend_nickname(user, nickname).await
     }
 
-    /// This account's note on someone; empty when it has none.
+    /// What someone did lately, for their full profile's Activity tab.
+    pub async fn recent_activity(&self, user: &str) -> Result<Vec<profile::RecentEntry>> {
+        Ok(profile::recent_entries(&self.api.outbox(user).await?))
+    }
+
+    /// Names a board's games and applications. What Discord doesn't say
+    /// stays as it is, and the board shows without it.
+    pub async fn name_widgets(&self, widgets: &mut [crate::widgets::Widget]) {
+        let mut games: Vec<&str> = widgets
+            .iter()
+            .flat_map(|widget| &widget.games)
+            .map(|game| game.id.as_str())
+            .collect();
+        games.sort_unstable();
+        games.dedup();
+        let mut known = Vec::new();
+        for ids in games.chunks(crate::widgets::GAMES_AT_ONCE) {
+            match self.api.games(ids).await {
+                Ok(answer) => known.extend(crate::widgets::parse_games(&answer)),
+                Err(error) => tracing::debug!(%error, "could not get a board's games"),
+            }
+        }
+        crate::widgets::name_games(widgets, &known);
+        let applications: Vec<String> = widgets
+            .iter()
+            .filter_map(|widget| widget.application.clone())
+            .collect();
+        if applications.is_empty() {
+            return;
+        }
+        let ids: Vec<&str> = applications.iter().map(String::as_str).collect();
+        match self.api.public_applications(&ids).await {
+            Ok(answer) => crate::widgets::name_applications(widgets, &answer),
+            Err(error) => tracing::debug!(%error, "could not get a board's applications"),
+        }
+    }
+
+    /// The items on a wishlist, by the id a profile gave, as Discord's client
+    /// fetches them for either its own account or someone else.
+    pub async fn wishlist(&self, id: &str) -> Result<Vec<crate::wishlist::Item>> {
+        crate::wishlist::parse(&self.api.wishlist(id).await?)
+            .ok_or_else(|| anyhow!("could not understand Discord's answer"))
+    }
+
+    /// This account's note on someone; empty when it has none. Discord is
+    /// asked once for each user, as its client does.
     pub async fn note(&self, user: &str) -> Result<String> {
-        self.api.note(user).await
+        let kept = self
+            .notes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(user)
+            .cloned();
+        if let Some(kept) = kept {
+            return Ok(kept);
+        }
+        let note = self.api.note(user).await?;
+        keep_note(&self.notes, user, &note);
+        Ok(note)
     }
 
     /// Sets this account's note on someone; empty removes it.
     pub async fn set_note(&self, user: &str, note: &str) -> Result<()> {
-        self.api.set_note(user, note).await
+        self.api.set_note(user, note).await?;
+        keep_note(&self.notes, user, note);
+        Ok(())
     }
 
     /// Sets the nickname of `user` in a server, this account's own included;
@@ -2096,6 +2941,87 @@ impl Discord {
         )
         .await?;
         Ok(invite::Joined::of(&answer, preview))
+    }
+
+    /// A server's preview, by its id; see [`Api::guild_preview`].
+    pub async fn guild_preview(&self, guild: &str) -> Result<guild::Preview> {
+        let preview = self.api.guild_preview(guild).await?;
+        guild::Preview::of(&preview).context("Discord didn't answer with a server.")
+    }
+
+    /// What a server's scheduled event shows from its link, and
+    /// whether this account is interested in it; see
+    /// [`Api::scheduled_event`].
+    pub async fn scheduled_event(
+        &self,
+        guild: &str,
+        event: &str,
+    ) -> Result<scheduled_event::Preview> {
+        let found = self.api.scheduled_event(guild, event).await?;
+        let own = self.api.own_scheduled_events(guild).await?;
+        let interested = scheduled_event::interested_in(&own, event);
+        scheduled_event::Preview::of(&found, interested)
+            .context("This event is not in that server.")
+    }
+
+    /// Marks this account interested in a server's scheduled event, or
+    /// no longer interested in it.
+    pub async fn set_event_interest(
+        &self,
+        guild: &str,
+        event: &str,
+        interested: bool,
+    ) -> Result<()> {
+        self.api
+            .set_scheduled_event_interest(guild, event, interested)
+            .await
+    }
+
+    /// What a gift shows before it is redeemed, by its code; see
+    /// [`Api::gift_code`]. An answer without a gift code is refused.
+    pub async fn gift(&self, code: &str) -> Result<gift::Preview> {
+        let gift = self.api.gift_code(code).await?;
+        gift::Preview::of(&gift).context("Discord didn't answer with a gift.")
+    }
+
+    /// Redeems the gift with this code for this account; `channel` is
+    /// where its link was opened, when it was a channel. Discord sends
+    /// the entitlement it grants over the gateway.
+    pub async fn redeem_gift(&self, code: &str, channel: Option<&str>) -> Result<()> {
+        self.api.redeem_gift_code(code, channel).await.map(drop)
+    }
+
+    /// What authorizing the application `request` names would do; see
+    /// [`Api::oauth_preview`].
+    pub async fn oauth_preview(&self, request: &oauth::Request) -> Result<oauth::Preview> {
+        let answer = self.api.oauth_preview(&request.preview_query()).await?;
+        oauth::Preview::of(&answer, request).context("Discord doesn't know that application.")
+    }
+
+    /// Authorizes the application `request` names, in the server
+    /// `guild` when it installs to one; the address Discord sends the
+    /// person to next.
+    pub async fn authorize_oauth(
+        &self,
+        request: &oauth::Request,
+        guild: Option<&str>,
+    ) -> Result<String> {
+        let answer = self
+            .api
+            .authorize_oauth(
+                &request.authorize_query(),
+                request.user_install,
+                guild,
+                request.permissions,
+            )
+            .await?;
+        // Discord's client reads `location`; docs.discord.food names it
+        // `url`.
+        answer["location"]
+            .as_str()
+            .or_else(|| answer["url"].as_str())
+            .map(str::to_owned)
+            .context("Discord authorized it without saying where to go next.")
     }
 
     /// A channel's name, topic, slowmode in seconds and whether it's
@@ -2414,6 +3340,84 @@ impl Discord {
             .collect()
     }
 
+    /// The Activity panel's feed, asked from where the last answer left off.
+    pub async fn activity_feed(&self) -> Result<activity_feed::Feed> {
+        let token = self.lock_feed_place().token.clone();
+        let value = self.api.activity_feed(token.as_deref()).await?;
+        let feed = activity_feed::parse(&value);
+        *self.lock_feed_place() = FeedPlace {
+            token: feed.refresh_token.clone(),
+            stale_after_ms: feed.stale_after_ms,
+        };
+        Ok(feed)
+    }
+
+    /// How long to wait before asking again once Discord says the feed went
+    /// stale: as it says then, else as the feed said.
+    pub fn activity_feed_stale_wait(&self, refresh_after_ms: Option<u64>) -> Duration {
+        Duration::from_millis(
+            refresh_after_ms
+                .or(self.lock_feed_place().stale_after_ms)
+                .unwrap_or(0),
+        )
+    }
+
+    /// Who of `users` a channel's Activity panel may show, with the name and
+    /// picture it shows them by: those in its server who can see it, as
+    /// Discord's client filters its feed. None for a server that doesn't
+    /// show the panel.
+    pub async fn activity_people(
+        &self,
+        guild: &str,
+        channel: &str,
+        users: &[Arc<str>],
+    ) -> Vec<activity_feed::Person> {
+        let shown = {
+            let snapshot = self.snapshots.borrow();
+            snapshot
+                .servers
+                .iter()
+                .find(|server| server.id == guild)
+                .is_some_and(|server| {
+                    activity_feed::shown_in(server.activity_feed, server.member_count)
+                })
+        };
+        if !shown {
+            return Vec::new();
+        }
+        self.ask_members(guild, users.iter().map(|user| &**user))
+            .await;
+        let snapshot = self.snapshots.borrow().clone();
+        let Some(server) = snapshot.servers.iter().find(|server| server.id == guild) else {
+            return Vec::new();
+        };
+        let Some(open) = server
+            .text_channels
+            .iter()
+            .chain(&server.voice_channels)
+            .find(|found| found.id == channel)
+        else {
+            return Vec::new();
+        };
+        let names = self.read_names();
+        users
+            .iter()
+            .filter(|user| names.knows_member(guild, user))
+            .filter(|user| {
+                server.channel_permissions(open, user, names.roles(guild, user))
+                    & ready::permission::VIEW_CHANNEL
+                    != 0
+            })
+            .filter_map(|user| {
+                Some(activity_feed::Person {
+                    id: user.clone(),
+                    name: names.name(guild, user)?.into(),
+                    avatar: names.avatar(Some(guild), user).into(),
+                })
+            })
+            .collect()
+    }
+
     /// Learns the names of these members of a server, asking the gateway
     /// for those Yapfast doesn't know yet.
     pub async fn learn_members(&self, guild: &str, users: &[String]) {
@@ -2591,9 +3595,16 @@ impl Discord {
     }
 
     /// Downloads a file as [`Self::download`] does, without waiting behind
-    /// the pictures downloading: one someone opened, saved or copied.
+    /// the pictures downloading: one someone opened, saved or copied, or
+    /// one whose caller keeps turns of its own, as avatars and icons do.
     pub async fn download_now(&self, url: &str, limit: usize) -> Result<Vec<u8>> {
         self.fetch(url, limit, false).await
+    }
+
+    /// The picture at `url` as it was kept on disk, if it was and it's
+    /// within `limit`: what [`Self::download`] finds without downloading.
+    pub async fn kept_picture(&self, url: &str, limit: usize) -> Option<Vec<u8>> {
+        cache::picture(url).await.filter(|kept| kept.len() <= limit)
     }
 
     async fn fetch(&self, url: &str, limit: usize, queued: bool) -> Result<Vec<u8>> {
@@ -2611,8 +3622,10 @@ impl Discord {
             None => url,
         };
         if let Some(kept) = cache::picture(url).await.filter(|kept| kept.len() <= limit) {
+            tracing::trace!(%url, bytes = kept.len(), "read a Discord picture from cache");
             return Ok(kept);
         }
+        tracing::trace!(%url, queued, "fetching a Discord picture from network");
         let data = if queued {
             self.api.download(url, limit).await?
         } else {
@@ -2673,6 +3686,32 @@ impl Discord {
     /// The address of a user's avatar, in a server or in DMs.
     pub fn avatar(&self, guild: Option<&str>, user: &str) -> String {
         self.read_names().avatar(guild.and_then(server), user)
+    }
+
+    /// The server tag a user wears beside their name, if they do.
+    pub fn server_tag(&self, user: &str) -> Option<crate::message::Tag> {
+        self.read_names().server_tag(user).cloned()
+    }
+
+    /// The address of the decoration a user wears around their avatar, in a
+    /// server or in DMs.
+    pub fn decoration(&self, guild: Option<&str>, user: &str) -> Option<Arc<str>> {
+        self.read_names().decoration(guild.and_then(server), user)
+    }
+
+    /// The nameplate a user equips, in a server or in DMs.
+    pub fn nameplate(
+        &self,
+        guild: Option<&str>,
+        user: &str,
+    ) -> Option<crate::collectibles::Nameplate> {
+        self.read_names().nameplate(guild.and_then(server), user)
+    }
+
+    /// The display name style a user draws their name with, in a server or
+    /// in DMs.
+    pub fn style(&self, guild: Option<&str>, user: &str) -> Option<crate::collectibles::Style> {
+        self.read_names().style(guild.and_then(server), user)
     }
 
     /// A member's roles in a server by id, as far as they're known, shared
@@ -2890,7 +3929,87 @@ impl Discord {
             paused,
         });
     }
+
+    /// Asks for these servers' soundboard sounds, which come as
+    /// [`Live::SoundboardSounds`], one for each.
+    pub fn request_soundboard(&self, guilds: Vec<String>) {
+        if !guilds.is_empty() {
+            let _ = self.requests.send(Request::Soundboard { guilds });
+        }
+    }
+
+    /// Discord's own soundboard sounds, asked for the first time only.
+    pub async fn default_sounds(&self) -> Result<Arc<[soundboard::Sound]>> {
+        let mut kept = self.default_sounds.lock().await;
+        if let Some(sounds) = kept.as_ref() {
+            return Ok(sounds.clone());
+        }
+        let sounds: Arc<[soundboard::Sound]> = self.api.default_soundboard_sounds().await?.into();
+        *kept = Some(sounds.clone());
+        Ok(sounds)
+    }
+
+    /// Plays `sound` for everyone in the call `channel`; see
+    /// [`Api::send_soundboard_sound`].
+    pub async fn send_sound(&self, channel: &str, sound: &soundboard::Sound) -> Result<()> {
+        self.api.send_soundboard_sound(channel, sound).await
+    }
+
+    /// The account's favourite sounds, in the order the picker shows them.
+    pub async fn favorite_sounds(&self) -> Result<Vec<String>> {
+        let settings = self.api.frecency_settings().await?;
+        Ok(soundboard::read_favorites(&settings).unwrap_or_default())
+    }
+
+    /// Keeps `favorites` as the account's favourite sounds, in place of
+    /// the old.
+    pub async fn set_favorite_sounds(&self, favorites: &[String]) -> Result<()> {
+        self.api
+            .set_frecency_settings(&soundboard::write_favorites(favorites))
+            .await
+    }
+
+    /// Sets how loud the soundboard plays, from 0 to 100, for every client
+    /// of the account. The settings come back in USER_SETTINGS_PROTO_UPDATE.
+    pub async fn set_soundboard_volume(&self, volume: f32) -> Result<()> {
+        let current = self.api.user_settings().await?;
+        self.api
+            .set_user_settings(&soundboard::write_volume(&current, volume))
+            .await
+    }
+
+    /// Sets the sound that plays as this account joins a voice channel of
+    /// `server`, or of any server without one of its own, or takes it away.
+    /// `sound` is its id and its own server's, none for Discord's own.
+    pub async fn set_join_sound(
+        &self,
+        server: Option<&str>,
+        sound: Option<(&str, Option<&str>)>,
+    ) -> Result<()> {
+        let current = self.api.user_settings().await?;
+        self.api
+            .set_user_settings(&soundboard::write_join_sound(&current, server, sound))
+            .await
+    }
+
+    /// Has Discord play this account's join sound for the others in the
+    /// call `channel`; see [`Api::custom_call_sound`].
+    pub async fn play_join_sound(&self, channel: &str) -> Result<()> {
+        let animation = rand::random_range(10..=15);
+        self.api.custom_call_sound(channel, animation).await
+    }
+
+    /// A sound's file, MP3 or Ogg, at once rather than behind the pictures
+    /// queued: it plays as soon as it's here.
+    pub async fn sound_file(&self, id: &str) -> Result<Vec<u8>> {
+        self.api
+            .download_now(&soundboard::file(id), SOUND_FILE_LIMIT)
+            .await
+    }
 }
+
+/// Discord takes sounds up to 512 KiB.
+const SOUND_FILE_LIMIT: usize = 1 << 20;
 
 /// The server a channel is in, or none for DMs.
 fn server(guild: &str) -> Option<&str> {

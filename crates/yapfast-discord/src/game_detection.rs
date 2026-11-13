@@ -20,8 +20,18 @@ pub mod custom_games;
 mod steam;
 use catalog::{Catalog, GameInfo};
 
-const INTERVAL: Duration = Duration::from_secs(15);
 const STEAM_INTERVAL: Duration = Duration::from_secs(60);
+
+/// How often the running processes are looked at: every 15 seconds, or
+/// every half second against the test server, where detection runs only
+/// for tests that ask for it, so they don't wait out the scans.
+fn interval() -> Duration {
+    if crate::client::test_server().is_some() {
+        Duration::from_millis(500)
+    } else {
+        Duration::from_secs(15)
+    }
+}
 
 pub(crate) fn start(api: Arc<Api>) -> watch::Receiver<Option<Arc<Value>>> {
     let (shown, receiver) = watch::channel(None);
@@ -67,7 +77,7 @@ async fn run(
     .await?;
     let mut detector = Detector::new(initial, steam::roots());
     detector.set_executables(&custom_games.borrow_and_update());
-    let mut ticks = tokio::time::interval(INTERVAL);
+    let mut ticks = tokio::time::interval(interval());
     ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     // A list from the cache is asked for again once it's a day old, and
     // comes again only if it changed.

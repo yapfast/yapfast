@@ -22,8 +22,8 @@ TICKS = os.sysconf('SC_CLK_TCK')
 
 def test_binary():
     """The yapfast-core test executable, which runs the other people."""
-    output = subprocess.run(['cargo', 'test', '--locked', '--profile', 'fast', '-p', 'yapfast-core', '--no-run',
-                             '--message-format=json'], check=True, capture_output=True, text=True, cwd=ROOT).stdout
+    output = subprocess.run(['cargo', 'test', '--locked', '--profile', 'fast', '-p', 'yapfast-core', '--features', 'matrix',
+                             '--no-run', '--message-format=json'], check=True, capture_output=True, text=True, cwd=ROOT).stdout
     for line in output.splitlines():
         message = json.loads(line)
         if message.get('reason') == 'compiler-artifact' and message.get('executable') \
@@ -34,7 +34,7 @@ def test_binary():
 
 def provision(env=None):
     """Create a voice-demo fixture: Alice, Bob, a Space, a text and a voice room."""
-    output = subprocess.run(['cargo', 'run', '--locked', '--profile', 'fast', '--', '--voice-demo'],
+    output = subprocess.run(['cargo', 'run', '--locked', '--profile', 'fast', '--features', 'matrix', '--', '--voice-demo'],
                             check=True, capture_output=True, text=True, cwd=ROOT, env=env).stdout
     for line in output.splitlines():
         if '--data-dir' in line and line.rstrip().endswith('/alice'):

@@ -2,7 +2,7 @@
 //! two-factor authentication: Discord offers its methods, the person
 //! confirms with one, and the request goes again. Several requests held at
 //! once each get a prompt, one after another. See "Two-factor
-//! authentication" in docs/discord.md.
+//! authentication" in docs/discord/server-settings.md.
 
 use super::*;
 use crate::chat::MfaMethod;

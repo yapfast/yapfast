@@ -79,7 +79,7 @@ export struct StickersPrompt {
 // A picture by its address, as the picture store has it.
 component UrlPicture inherits Image {
     in property <string> url;
-    source: root.url != "" ? PictureStore.picture(root.url, PictureStore.revision) : @image-url("");
+    source: root.url != "" ? PictureStore.picture(root.url, PictureStore.revision(root.url)) : @image-url("");
     image-fit: contain;
     init => { if root.url != "" && self.source.width == 0 { PictureStore.request(root.url); } }
 }

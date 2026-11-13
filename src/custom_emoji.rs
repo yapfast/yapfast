@@ -8,9 +8,7 @@
 //! reaction buttons show an emoji's picture as an image, so the hundreds a
 //! picker lists don't each add a font for text to fall back through.
 
-use std::{cell::RefCell, collections::HashMap, sync::Arc};
-
-use slint::fontique_011::{fontique, shared_collection};
+use std::{cell::RefCell, collections::HashMap};
 use yapfast_core::chat::{CustomEmoji, Picture};
 
 use crate::emoji_font;
@@ -41,6 +39,19 @@ pub fn glyph(id: &str) -> Option<char> {
 /// The emoji's picture, once it has arrived.
 pub fn image(id: &str) -> Option<slint::Image> {
     REGISTRY.with_borrow(|registry| registry.images.get(id).cloned())
+}
+
+/// Lets go of the pictures kept of emoji shown on their own, which the picker's
+/// cells hold while they show and the disk cache holds after; what a look shows
+/// next is put back by [`add_images`] from the pictures still in memory.
+pub fn forget_images() {
+    REGISTRY.with_borrow_mut(|registry| registry.images.clear());
+}
+
+/// Lets go of the pictures kept of emoji shown on their own but those whose
+/// ids `keep` holds, as the picker scrolls away from the rest.
+pub fn forget_images_except(keep: &std::collections::HashSet<String>) {
+    REGISTRY.with_borrow_mut(|registry| registry.images.retain(|id, _| keep.contains(id)));
 }
 
 /// Keeps the pictures that arrived of emoji shown on their own. True when
@@ -85,27 +96,9 @@ pub fn add<'a>(arrived: impl IntoIterator<Item = (&'a str, &'a Picture)>) -> boo
             return false;
         }
         let family = format!("Yapfast Custom Emoji {}", registry.fonts);
-        let font = emoji_font::build(&family, &glyphs);
-        let mut collection = shared_collection();
-        let registered = collection.register_fonts(
-            fontique::Blob::new(Arc::new(font)),
-            Some(fontique::FontInfoOverride {
-                family_name: Some(&family),
-                ..Default::default()
-            }),
-        );
-        let Some(&(family_id, _)) = registered.first() else {
+        if !emoji_font::register(&family, &glyphs, &[]) {
             tracing::warn!("could not register a font of custom emoji");
             return false;
-        };
-        // Text falls back from the UI typeface to these families first; see
-        // `emoji::prefer_for_text`.
-        for generic in [
-            fontique::GenericFamily::SansSerif,
-            fontique::GenericFamily::SystemUi,
-        ] {
-            let families: Vec<_> = collection.generic_families(generic).collect();
-            collection.set_generic_families(generic, std::iter::once(family_id).chain(families));
         }
         registry.fonts += 1;
         registry.glyphs.extend(ids);
@@ -116,12 +109,31 @@ pub fn add<'a>(arrived: impl IntoIterator<Item = (&'a str, &'a Picture)>) -> boo
 /// `markdown` with the name of each of `emoji` that has a glyph, such as
 /// `:pog:`, replaced by it.
 pub fn text(markdown: &str, emoji: &[CustomEmoji]) -> String {
+    replace(markdown, emoji, false)
+}
+
+/// [`text`], each glyph in a link that opens the emoji's card: what a message's
+/// body shows.
+pub fn linked(markdown: &str, emoji: &[CustomEmoji]) -> String {
+    replace(markdown, emoji, true)
+}
+
+fn replace(markdown: &str, emoji: &[CustomEmoji], link: bool) -> String {
     let mut out = markdown.to_owned();
     for each in emoji {
         if let Some(glyph) = glyph(&each.id)
             && out.contains(&each.text)
         {
-            out = out.replace(&each.text, glyph.encode_utf8(&mut [0; 4]));
+            let shown = if link {
+                format!(
+                    "[{}](<{}>)",
+                    glyph,
+                    crate::emoji_text::custom_link(&each.id)
+                )
+            } else {
+                glyph.to_string()
+            };
+            out = out.replace(&each.text, &shown);
         }
     }
     out
@@ -158,7 +170,8 @@ pub fn only_emoji(text: &str) -> bool {
     (1..=30).contains(&count)
 }
 
-/// A picture fitted into the font's square, centred, as a PNG.
+/// A picture fitted into the font's square, centred, as a PNG, with the margin the
+/// font's bitmaps have.
 fn square_png(picture: &Picture) -> Option<Vec<u8>> {
     use image::{ImageEncoder, RgbaImage, imageops};
     let side = emoji_font::SIDE;
@@ -169,16 +182,23 @@ fn square_png(picture: &Picture) -> Option<Vec<u8>> {
         ((picture.height as f32 * scale).round() as u32).clamp(1, side),
     );
     let fitted = imageops::resize(&source, width, height, imageops::FilterType::CatmullRom);
-    let mut square = RgbaImage::new(side, side);
+    let margin = crate::emoji_font_tables::MARGIN;
+    let bitmap = side + 2 * margin;
+    let mut square = RgbaImage::new(bitmap, bitmap);
     imageops::overlay(
         &mut square,
         &fitted,
-        i64::from((side - width) / 2),
-        i64::from((side - height) / 2),
+        i64::from(margin + (side - width) / 2),
+        i64::from(margin + (side - height) / 2),
     );
     let mut png = Vec::new();
     image::codecs::png::PngEncoder::new(&mut png)
-        .write_image(square.as_raw(), side, side, image::ExtendedColorType::Rgba8)
+        .write_image(
+            square.as_raw(),
+            bitmap,
+            bitmap,
+            image::ExtendedColorType::Rgba8,
+        )
         .ok()?;
     Some(png)
 }
@@ -186,6 +206,8 @@ fn square_png(picture: &Picture) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slint::fontique_012::fontique;
+    use std::sync::Arc;
 
     #[test]
     fn makes_fonts_that_load_with_their_glyphs() {
@@ -199,6 +221,7 @@ mod tests {
         let font = emoji_font::build(
             "Test Emoji",
             &[('\u{100000}', png.clone()), ('\u{100001}', png)],
+            &[],
         );
         let mut collection = fontique::Collection::new(fontique::CollectionOptions {
             shared: false,
@@ -219,7 +242,11 @@ mod tests {
             rgba: yapfast_core::chat::Pixels::new(4, 4, [255, 0, 0, 255].repeat(16)),
             ..Default::default()
         };
-        let font = emoji_font::build("Probe Emoji", &[('\u{100000}', square_png(&red).unwrap())]);
+        let font = emoji_font::build(
+            "Probe Emoji",
+            &[('\u{100000}', square_png(&red).unwrap())],
+            &[],
+        );
         let typeface = FontMgr::new()
             .new_from_data(Data::new_copy(&font), None)
             .expect("Skia loads the font");

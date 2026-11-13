@@ -8,13 +8,13 @@
 //! input, and reads [`Report`]s back from its standard output. Once Discord
 //! has started the stream, a [`Control::Send`] line hands the worker the
 //! stream's server, and it sends the video there; a [`Control::Switch`] line
-//! shares another screen or window on the same stream. A `stop` line, or
+//! shares another screen, window or camera on the same stream. A `stop` line, or
 //! closing its input, ends the job. Frames go to the UI through [`crate::frames`].
 
 use std::{
     io::{BufRead, BufReader, Write},
     path::PathBuf,
-    process::{Child, ChildStdin, Command, Stdio},
+    process::{Child, ChildStdin, Command, ExitStatus, Stdio},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -27,6 +27,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use yapfast_discord::{
+    congestion,
     rtp::Codec,
     stream::StreamServer,
     stream_connection::{self, Link, StreamReceiver, StreamSender},
@@ -130,7 +131,29 @@ pub enum Job {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+impl Job {
+    /// What the job is, for the log.
+    fn kind(&self) -> &'static str {
+        match self {
+            Self::Share { .. } => "share",
+            Self::Watch { .. } => "watch",
+            Self::Play { .. } => "play",
+            Self::Glance { .. } => "glance",
+        }
+    }
+
+    /// The size its pictures fit in.
+    fn bounds(&self) -> (u32, u32) {
+        match *self {
+            Self::Share { width, height, .. }
+            | Self::Watch { width, height, .. }
+            | Self::Play { width, height, .. }
+            | Self::Glance { width, height, .. } => (width, height),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Source {
     /// A screen or window the person picks in the system's dialog, or what
@@ -140,65 +163,89 @@ pub enum Source {
     Display(u64),
     /// A window by the id [`shareable`] listed it with.
     Window(u64),
+    /// A camera by its id in [`crate::camera::list`], such as OBS's virtual
+    /// camera.
+    Camera(String),
     /// Moving colour bars, for testing without a screen to capture.
     TestPattern,
 }
 
-/// Whether Yapfast lists screens and windows to share itself, where the system
-/// has no dialog to pick one: everywhere but Linux.
-pub const LISTS_SOURCES: bool = cfg!(not(target_os = "linux"));
+/// Whether the system's dialog, the screen sharing portal, picks the screen or
+/// window to share, rather than Yapfast listing them: in a Wayland session.
+/// libwebrtc captures through the portal only there, and through X11 in any
+/// other Linux session, as it decides by the same variables; its X11
+/// capturers list what there is, as Windows' do. XFCE, for one, has no
+/// screen sharing portal on X11.
+pub fn portal_picks() -> bool {
+    cfg!(target_os = "linux")
+        && wayland_session(
+            std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
+            std::env::var_os("WAYLAND_DISPLAY").is_some(),
+        )
+}
 
-/// A screen or window [`shareable`] lists.
+/// Whether a session of this `kind`, in `XDG_SESSION_TYPE`, with a Wayland
+/// display named or not, is one libwebrtc captures through the portal in.
+fn wayland_session(kind: Option<&str>, wayland_display: bool) -> bool {
+    kind.is_some_and(|kind| kind.starts_with("wayland")) && wayland_display
+}
+
+/// A screen, window or camera [`shareable`] lists.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Shareable {
     pub source: Source,
     pub title: String,
 }
 
-/// The screens, then the windows, Yapfast can share, when [`LISTS_SOURCES`].
-/// Yapfast's own windows aren't among them, nor its console's.
+/// What Yapfast can share: the screens, then the windows, unless
+/// [`portal_picks`], then the cameras. On Windows, Yapfast's own windows
+/// aren't among them, nor its console's.
 pub fn shareable() -> Vec<Shareable> {
-    #[cfg(target_os = "linux")]
-    {
-        Vec::new()
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        use livekit::webrtc::desktop_capturer::DesktopCaptureSourceType;
-        let screens = sources(DesktopCaptureSourceType::Screen);
-        let count = screens.len();
-        let screens = screens
-            .into_iter()
-            .enumerate()
-            .map(|(index, screen)| Shareable {
-                source: Source::Display(screen.id()),
-                title: if count == 1 {
-                    "Entire screen".to_owned()
-                } else {
-                    format!("Screen {}", index + 1)
-                },
-            });
-        // The console belongs to its host, so libwebrtc lists it as another
-        // application's window.
-        #[cfg(windows)]
-        // SAFETY: no arguments; it only reads this process's console.
-        let console = unsafe { windows::Win32::System::Console::GetConsoleWindow() }.0 as u64;
-        #[cfg(not(windows))]
-        let console = 0;
-        let windows = sources(DesktopCaptureSourceType::Window)
-            .into_iter()
-            .filter_map(|window| {
-                let title = window.title();
-                (!title.trim().is_empty() && window.id() != console).then(|| Shareable {
-                    source: Source::Window(window.id()),
-                    title,
-                })
-            });
-        screens.chain(windows).collect()
-    }
+    let mut listed = screens_and_windows();
+    listed.extend(crate::camera::list().into_iter().map(|device| Shareable {
+        source: Source::Camera(device.id),
+        title: device.name,
+    }));
+    listed
 }
 
-#[cfg(not(target_os = "linux"))]
+fn screens_and_windows() -> Vec<Shareable> {
+    if portal_picks() {
+        return Vec::new();
+    }
+    use livekit::webrtc::desktop_capturer::DesktopCaptureSourceType;
+    let screens = sources(DesktopCaptureSourceType::Screen);
+    let count = screens.len();
+    let screens = screens
+        .into_iter()
+        .enumerate()
+        .map(|(index, screen)| Shareable {
+            source: Source::Display(screen.id()),
+            title: if count == 1 {
+                "Entire screen".to_owned()
+            } else {
+                format!("Screen {}", index + 1)
+            },
+        });
+    // The console belongs to its host, so libwebrtc lists it as another
+    // application's window.
+    #[cfg(windows)]
+    // SAFETY: no arguments; it only reads this process's console.
+    let console = unsafe { windows::Win32::System::Console::GetConsoleWindow() }.0 as u64;
+    #[cfg(not(windows))]
+    let console = 0;
+    let windows = sources(DesktopCaptureSourceType::Window)
+        .into_iter()
+        .filter_map(|window| {
+            let title = window.title();
+            (!title.trim().is_empty() && window.id() != console).then(|| Shareable {
+                source: Source::Window(window.id()),
+                title,
+            })
+        });
+    screens.chain(windows).collect()
+}
+
 fn sources(
     kind: livekit::webrtc::desktop_capturer::DesktopCaptureSourceType,
 ) -> Vec<livekit::webrtc::desktop_capturer::CaptureSource> {
@@ -209,8 +256,9 @@ fn sources(
     .unwrap_or_default()
 }
 
-/// What [`Source::Screen`] shares where Yapfast lists what to share: the pick
-/// from [`shareable`] in the share menu, until another.
+/// What [`Source::Screen`] shares: the pick from [`shareable`] in the share
+/// menu, until another. Where [`portal_picks`], the pick may be
+/// [`Source::Screen`] itself, which the system's dialog picks.
 static PICKED: Mutex<Source> = Mutex::new(Source::Screen);
 
 /// Shares `source` from now on where [`Source::Screen`] is asked for.
@@ -223,9 +271,10 @@ pub fn pick(source: Source) {
 /// `source`, with [`Source::Screen`] as what was picked.
 fn picked(source: Source) -> Source {
     match source {
-        Source::Screen => *PICKED
+        Source::Screen => PICKED
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone(),
         source => source,
     }
 }
@@ -237,8 +286,9 @@ pub enum Control {
     /// Send the video to the server Discord started the stream on.
     Send(StreamServer),
     /// Share this screen or window in place of the one shared, once it gives
-    /// a picture; on Linux, what the system's dialog picks. The stream goes
-    /// on with the one shared until then, and when the dialog is cancelled.
+    /// a picture; where [`portal_picks`], what the system's dialog picks. The
+    /// stream goes on with the one shared until then, and when the dialog is
+    /// cancelled.
     Switch(Source),
     /// Play a watched stream's sound, or not, as being deafened changes.
     Hear(bool),
@@ -495,14 +545,19 @@ impl Video {
     }
 }
 
-/// The kbit/s to aim for, as Discord's client does: its cap for frames of
-/// `height` lines, or what its server estimates the path carries when
-/// that's less, but at least the 500 kbit/s it gives a screen.
-fn kbps(height: u32, estimate: Option<u64>) -> u32 {
-    let cap = stream_connection::max_bitrate(height) / 1000;
-    estimate.map_or(cap, |estimate| {
-        (estimate / 1000).clamp(500, u64::from(cap)) as u32
-    })
+/// The codecs only a GPU encodes, most wanted first, offered before H264
+/// where the GPU's encoder for them opens.
+const GPU_CODECS: [Codec; 2] = [Codec::Av1, Codec::H265];
+
+fn log_encoder(encoder: &Encoder) {
+    let (width, height) = encoder.size();
+    tracing::info!(
+        engine = encoder.engine(),
+        codec = ?encoder.codec(),
+        width,
+        height,
+        "encoding the stream"
+    );
 }
 
 impl Sink {
@@ -529,16 +584,7 @@ impl Sink {
             self.preview_due = Some(Instant::now() + THUMBNAIL_EVERY);
         }
         if let Some(server) = self.server.take() {
-            // The GPU's H265 encoder, when it has one: Discord then chooses
-            // H265 while every viewer decodes it, and H264 otherwise.
-            let hevc = self
-                .hardware
-                .then(|| self.encoder(Codec::H265, width, height).ok())
-                .flatten();
-            let offers = match hevc {
-                Some(_) => vec![Codec::H265, stream_connection::SEND_CODEC],
-                None => vec![stream_connection::SEND_CODEC],
-            };
+            let (offers, encoder) = self.offers(width, height)?;
             let sender = StreamSender::start(server, width, height, self.fps, offers)?;
             let sound = if self.sound {
                 stream_audio::Capture::start(sender.sound())
@@ -548,10 +594,6 @@ impl Sink {
                     .ok()
             } else {
                 None
-            };
-            let encoder = match hevc {
-                Some(encoder) => encoder,
-                None => self.encoder(stream_connection::SEND_CODEC, width, height)?,
             };
             self.video = Some(Video {
                 sender,
@@ -567,22 +609,39 @@ impl Sink {
         let codec = video.sender.codec().unwrap_or(video.encoder.codec());
         let resized = video.encoder.size() != (width, height);
         if resized || codec != video.encoder.codec() {
-            let encoder = self.encoder(codec, width, height)?;
+            let opened = self.encoder(codec, width, height);
             let video = self.video.as_mut().expect("checked above");
-            video.encoder = encoder;
-            if resized {
-                video.sender.resize(width, height);
+            match opened {
+                Ok(encoder) => {
+                    video.encoder = encoder;
+                    if resized {
+                        video.sender.resize(width, height);
+                    }
+                }
+                // A GPU codec that opened at the start may not open again,
+                // or at another size: Discord then chooses another, which
+                // the next frame opens.
+                Err(error) if codec != stream_connection::SEND_CODEC => {
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        ?codec,
+                        "the GPU's encoder didn't open again"
+                    );
+                    video.sender.withdraw(codec);
+                    return Ok(());
+                }
+                Err(error) => return Err(error),
             }
         }
         let Some(video) = self.video.as_mut() else {
             return Ok(());
         };
-        let wanted = kbps(height, video.sender.bandwidth_estimate());
+        let wanted = (video.sender.target() / 1000) as u32;
         let aimed = video.encoder.bitrate();
         // Not on every wobble, which would churn the rate control.
         if wanted.abs_diff(aimed) > aimed / 10 {
             match video.encoder.set_bitrate(wanted) {
-                Ok(()) => tracing::debug!(kbps = wanted, "following Discord's bandwidth estimate"),
+                Ok(()) => tracing::debug!(kbps = wanted, "the encoder follows the stream's target"),
                 Err(error) => {
                     tracing::warn!(error = format!("{error:#}"), "could not change the bitrate")
                 }
@@ -599,41 +658,66 @@ impl Sink {
                 keyframe: frame.keyframe,
             }),
             Ok(None) => {}
-            // Only the GPU encodes H265: Discord chooses H264 instead, which
-            // the next frame encodes.
-            Err(error) if codec == Codec::H265 => {
+            // Only the GPU encodes AV1 and H265: Discord chooses another
+            // codec instead, which the next frame encodes.
+            Err(error) if codec != stream_connection::SEND_CODEC => {
                 tracing::warn!(
                     error = format!("{error:#}"),
-                    "the GPU's H265 encoder failed"
+                    ?codec,
+                    "the GPU's encoder failed"
                 );
-                video.sender.withdraw(Codec::H265);
+                video.sender.withdraw(codec);
             }
             Err(error) => return Err(error),
         }
         Ok(())
     }
 
-    /// An encoder for the stream in `codec`, at the bitrate Discord's cap
-    /// for its height allows.
+    /// The codecs to offer Discord, most wanted first, and an encoder for
+    /// the first: AV1, then H265, where the GPU's encoder for each opens,
+    /// then H264. Discord streams the first every viewer decodes. Each is
+    /// opened to see that it opens, and only the first kept.
+    fn offers(&self, width: u32, height: u32) -> Result<(Vec<Codec>, Encoder)> {
+        let mut offers = vec![];
+        let mut first = None;
+        for codec in GPU_CODECS.iter().copied().filter(|_| self.hardware) {
+            if let Ok(encoder) = self.open(codec, width, height) {
+                offers.push(codec);
+                first.get_or_insert(encoder);
+            }
+        }
+        offers.push(stream_connection::SEND_CODEC);
+        let encoder = match first {
+            Some(encoder) => encoder,
+            None => self.open(stream_connection::SEND_CODEC, width, height)?,
+        };
+        log_encoder(&encoder);
+        Ok((offers, encoder))
+    }
+
+    /// An encoder for the stream in `codec`, as [`Self::open`] opens it.
     fn encoder(&self, codec: Codec, width: u32, height: u32) -> Result<Encoder> {
-        let kbps = kbps(height, None);
-        let encoder = Encoder::new(
+        let encoder = self.open(codec, width, height)?;
+        log_encoder(&encoder);
+        Ok(encoder)
+    }
+
+    /// An encoder in `codec`, at the stream's target, or what a stream of
+    /// `height` lines starts at before it has one.
+    fn open(&self, codec: Codec, width: u32, height: u32) -> Result<Encoder> {
+        let target = self.video.as_ref().map_or_else(
+            || congestion::start(stream_connection::max_bitrate(height).into()),
+            |video| video.sender.target(),
+        );
+        Encoder::new(
             codec,
             width,
             height,
             self.fps,
-            kbps,
+            (target / 1000) as u32,
             self.effort,
             self.hardware,
-        )?;
-        tracing::info!(
-            engine = encoder.engine(),
-            ?codec,
-            width,
-            height,
-            "encoding the stream"
-        );
-        Ok(encoder)
+        )
     }
 
     /// Takes Yapfast's controls, reports the stream starting, and fails once
@@ -951,21 +1035,22 @@ fn capture_screen(
     let fps = sink.fps;
     let sink = Arc::new(Mutex::new(sink));
     let mut capture = Capture::start(source, &sink, max_width, max_height)?;
-    // A screen or window to share in its place, until it gives a picture.
+    // A screen, window or camera to share in its place, until it gives a
+    // picture.
     let mut switching: Option<Capture> = None;
     let started = Instant::now();
     let mut frame = 0u64;
     let mut reported = None;
     while next_frame(started, frame, fps, stop) {
         run_glib();
-        capture.capturer.capture_frame();
+        capture.capture_frame();
         if let Some(next) = &mut switching {
-            next.capturer.capture_frame();
+            next.capture_frame();
         }
         frame += 1;
         let seen = capture.seen();
         if let Some(failure) = &seen.failed {
-            bail!(if reported.is_none() {
+            bail!(if reported.is_none() && portal_picks() {
                 "Screen sharing was cancelled, or this desktop has no screen sharing dialog."
                     .to_owned()
             } else {
@@ -1014,29 +1099,38 @@ fn capture_screen(
     Ok(())
 }
 
-/// A capturer sending a screen's or window's frames to the sink.
+/// A capturer sending a screen's, window's or camera's frames to the sink.
 struct Capture {
-    capturer: livekit::webrtc::desktop_capturer::DesktopCapturer,
+    /// A screen's or window's, which gives a frame when asked.
+    capturer: Option<livekit::webrtc::desktop_capturer::DesktopCapturer>,
+    /// A camera's, which sends its frames from its own thread.
+    _camera: Option<crate::camera::Camera>,
     captured: Arc<Mutex<Captured>>,
 }
 
 impl Capture {
     /// Starts capturing `source`, fitting its frames in `max_width` by
-    /// `max_height`; on Linux, what the system's dialog picks.
+    /// `max_height`; where [`portal_picks`], a screen or window the system's
+    /// dialog picks.
     fn start(
         source: Source,
         sink: &Arc<Mutex<Sink>>,
         max_width: u32,
         max_height: u32,
     ) -> Result<Self> {
+        if let Source::Camera(id) = &source {
+            return Self::camera(id, sink, max_width, max_height);
+        }
         use livekit::webrtc::desktop_capturer::{
             CaptureError, DesktopCaptureSourceType, DesktopCapturer, DesktopCapturerOptions,
         };
-        // On Linux the system's screen sharing dialog picks a screen or window.
-        #[cfg(target_os = "linux")]
-        let kind = DesktopCaptureSourceType::Generic;
-        #[cfg(not(target_os = "linux"))]
+        let portal = portal_picks();
         let kind = match source {
+            // The system's screen sharing dialog picks a screen or window.
+            // libwebrtc has the generic capturer only on Linux and macOS, and
+            // `portal_picks` is false elsewhere.
+            #[cfg(target_os = "linux")]
+            _ if portal => DesktopCaptureSourceType::Generic,
             Source::Window(_) => DesktopCaptureSourceType::Window,
             _ => DesktopCaptureSourceType::Screen,
         };
@@ -1046,13 +1140,9 @@ impl Capture {
             .context("Screen sharing isn't available on this system.")?;
         let captured = Arc::new(Mutex::new(Captured::default()));
         let (into, seen) = (sink.clone(), captured.clone());
-        #[cfg(target_os = "linux")]
-        let source = {
-            let _ = source;
+        let source = if portal {
             None
-        };
-        #[cfg(not(target_os = "linux"))]
-        let source = {
+        } else {
             let mut listed = capturer.get_source_list().into_iter();
             let found = match source {
                 Source::Display(id) | Source::Window(id) => listed.find(|listed| listed.id() == id),
@@ -1087,13 +1177,100 @@ impl Capture {
                 }
             }
         });
-        Ok(Self { capturer, captured })
+        Ok(Self {
+            capturer: Some(capturer),
+            _camera: None,
+            captured,
+        })
+    }
+
+    /// Films with the camera `id` into the sink, at the stream's size and
+    /// frame rate at most. Each picture goes into a buffer kept for the next.
+    fn camera(id: &str, sink: &Arc<Mutex<Sink>>, max_width: u32, max_height: u32) -> Result<Self> {
+        let fps = sink
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .fps;
+        let captured = Arc::new(Mutex::new(Captured::default()));
+        let (into, seen) = (sink.clone(), captured.clone());
+        let mut kept: Option<I420Buffer> = None;
+        let camera = crate::camera::Camera::open_at(
+            Some(id),
+            (max_width, max_height, fps),
+            Box::new(move |frame| {
+                let size = (frame.width, frame.height);
+                if kept
+                    .as_ref()
+                    .is_none_or(|picture| (picture.width(), picture.height()) != size)
+                {
+                    kept = Some(I420Buffer::new(frame.width, frame.height));
+                }
+                let picture = kept.as_mut().expect("made above");
+                copy_planes(frame, picture);
+                // The camera fits the stream already; an odd size, which
+                // codecs can't take, loses a row or a column.
+                let fitted = fit(size.0, size.1, max_width, max_height);
+                let taken = if fitted == size {
+                    into.lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .frame(picture)
+                } else {
+                    let mut scaled = picture.scale(fitted.0 as i32, fitted.1 as i32);
+                    into.lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .frame(&mut scaled)
+                };
+                let mut seen = seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                match taken {
+                    Ok(()) => seen.size = Some(fitted),
+                    Err(error) => seen.failed = Some(format!("{error:#}")),
+                }
+            }),
+        )?;
+        Ok(Self {
+            capturer: None,
+            _camera: Some(camera),
+            captured,
+        })
+    }
+
+    /// Asks a screen's or window's capturer for a frame; a camera sends its
+    /// own.
+    fn capture_frame(&mut self) {
+        if let Some(capturer) = &mut self.capturer {
+            capturer.capture_frame();
+        }
     }
 
     fn seen(&self) -> std::sync::MutexGuard<'_, Captured> {
         self.captured
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+/// Copies a camera's picture into `picture`, of the same size.
+fn copy_planes(frame: &crate::picture::I420<'_>, picture: &mut I420Buffer) {
+    let (width, height) = (frame.width as usize, frame.height as usize);
+    let (chroma_width, chroma_height) = (width.div_ceil(2), height.div_ceil(2));
+    let (y_stride, u_stride, v_stride) = picture.strides();
+    let into_strides = [y_stride, u_stride, v_stride];
+    let (y, u, v) = picture.data_mut();
+    for (plane, (from, into)) in [(frame.y, y), (frame.u, u), (frame.v, v)]
+        .into_iter()
+        .enumerate()
+    {
+        let (width, height) = if plane == 0 {
+            (width, height)
+        } else {
+            (chroma_width, chroma_height)
+        };
+        let rows = from
+            .chunks(frame.strides[plane] as usize)
+            .zip(into.chunks_mut(into_strides[plane] as usize));
+        for (from, into) in rows.take(height) {
+            into[..width].copy_from_slice(&from[..width]);
+        }
     }
 }
 
@@ -1121,7 +1298,6 @@ fn picture_of(frame: &livekit::webrtc::desktop_capturer::DesktopFrame) -> I420Bu
 
 /// How long [`glance`] waits for a picture of a screen that isn't black,
 /// before showing the last it took, or none.
-#[cfg(not(target_os = "linux"))]
 const GLANCE_WAIT: Duration = Duration::from_millis(1500);
 
 /// Takes a picture of each of `screens`, as [`Job::Glance`] asks. A screen
@@ -1133,10 +1309,6 @@ fn glance(
     stop: &AtomicBool,
     report: &mut dyn FnMut(Report),
 ) {
-    // On Linux the system's dialog shows what there is to share.
-    #[cfg(target_os = "linux")]
-    let _ = (screens, max_width, max_height, stop, report);
-    #[cfg(not(target_os = "linux"))]
     for &id in screens {
         if stop.load(Ordering::Relaxed) {
             return;
@@ -1163,7 +1335,6 @@ fn glance(
 }
 
 /// A picture of the screen listed by `id`, at its own size.
-#[cfg(not(target_os = "linux"))]
 fn glance_at(id: u64, stop: &AtomicBool) -> Result<Option<I420Buffer>> {
     use livekit::webrtc::desktop_capturer::{
         CaptureError, DesktopCaptureSourceType, DesktopCapturer, DesktopCapturerOptions,
@@ -1233,7 +1404,9 @@ pub fn set_hardware_encoding(on: bool) {
 
 /// Yapfast's handle on a running worker. Dropping it stops the worker.
 pub struct Worker {
-    child: Child,
+    /// Shared with the thread reading its reports, which waits on it when
+    /// it ends without saying so.
+    child: Arc<Mutex<Child>>,
     stdin: Option<ChildStdin>,
 }
 
@@ -1383,9 +1556,15 @@ impl Worker {
             Job::Play { .. } => "The video stopped unexpectedly.",
             _ => "Screen sharing stopped unexpectedly.",
         };
+        let child = Arc::new(Mutex::new(child));
+        let mut last = Last::new(job);
+        let waited = child.clone();
+        // The caller's, so a test's logger hears this thread too.
+        let dispatch = tracing::dispatcher::get_default(Clone::clone);
         std::thread::Builder::new()
             .name("yapfast-stream-reports".into())
             .spawn(move || {
+                let _logging = tracing::dispatcher::set_default(&dispatch);
                 let mut ended = false;
                 for line in stdout
                     .into_iter()
@@ -1394,6 +1573,7 @@ impl Worker {
                     match serde_json::from_str::<Report>(&line) {
                         Ok(report) => {
                             ended |= matches!(report, Report::Ended { .. });
+                            last.saw(&report);
                             if reports.send(report).is_err() {
                                 return;
                             }
@@ -1402,6 +1582,7 @@ impl Worker {
                     }
                 }
                 if !ended {
+                    last.log(exited(&waited));
                     let _ = reports.send(Report::Ended {
                         error: Some(unexpected.into()),
                     });
@@ -1423,28 +1604,242 @@ fn running_yapfast() -> Result<PathBuf> {
     std::env::current_exe().context("could not find Yapfast to start streaming")
 }
 
+/// What a worker's reports last said about its job, to log if it ends
+/// without saying why.
+struct Last {
+    job: &'static str,
+    /// The encoder's engine and codec, once a share reports how it goes out.
+    encoder: Option<(String, String)>,
+    /// The size reported, or the size the job fits in until one is.
+    size: (u32, u32),
+    reported: bool,
+}
+
+impl Last {
+    fn new(job: &Job) -> Self {
+        Self {
+            job: job.kind(),
+            encoder: None,
+            size: job.bounds(),
+            reported: false,
+        }
+    }
+
+    fn saw(&mut self, report: &Report) {
+        match report {
+            Report::Sharing { width, height } | Report::Opened { width, height, .. } => {
+                (self.size, self.reported) = ((*width, *height), true);
+            }
+            Report::Sending(stats) => {
+                (self.size, self.reported) = ((stats.width, stats.height), true);
+                self.encoder = Some((stats.engine.clone(), stats.codec.clone()));
+            }
+            _ => {}
+        }
+    }
+
+    /// Warns that the worker ended without a [`Report::Ended`], and how.
+    /// What it wrote to standard error before that is already in the log,
+    /// through [`crate::logging::for_worker`].
+    fn log(&self, exit: String) {
+        let (width, height) = self.size;
+        let (engine, codec) = self
+            .encoder
+            .as_ref()
+            .map_or(("unknown", "unknown"), |(engine, codec)| {
+                (engine.as_str(), codec.as_str())
+            });
+        let size = if self.reported {
+            format!("{width}x{height}")
+        } else {
+            format!("up to {width}x{height}")
+        };
+        tracing::warn!(
+            job = self.job,
+            engine,
+            codec,
+            size,
+            exit,
+            "the stream worker ended without saying why"
+        );
+    }
+}
+
+/// How the worker ended, once its output closed: it has exited by then, or
+/// is about to.
+fn exited(child: &Mutex<Child>) -> String {
+    let deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        let waited = child.lock().map(|mut child| child.try_wait());
+        match waited {
+            Ok(Ok(Some(status))) => return how(status),
+            Ok(Ok(None)) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Ok(Ok(None)) => return "still running".into(),
+            Ok(Err(error)) => return format!("unknown ({error})"),
+            Err(_) => return "unknown".into(),
+        }
+    }
+}
+
+/// An exit status for the log: the signal that killed it on Unix, such as
+/// `signal=11 (SIGSEGV)`, or its exit code.
+fn how(status: ExitStatus) -> String {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = status.signal() {
+            let core = if status.core_dumped() {
+                ", core dumped"
+            } else {
+                ""
+            };
+            return match signal_name(signal) {
+                Some(name) => format!("signal={signal} ({name}{core})"),
+                None => format!("signal={signal}{core}"),
+            };
+        }
+    }
+    match status.code() {
+        // Windows reports a crash as an NTSTATUS code, such as 0xC0000005
+        // for an access violation.
+        #[cfg(windows)]
+        Some(code) if code < 0 => format!("code={code} ({:#010X})", code as u32),
+        Some(code) => format!("code={code}"),
+        None => status.to_string(),
+    }
+}
+
+/// The name of a signal that commonly ends a process.
+#[cfg(unix)]
+fn signal_name(signal: i32) -> Option<&'static str> {
+    Some(match signal {
+        1 => "SIGHUP",
+        2 => "SIGINT",
+        3 => "SIGQUIT",
+        4 => "SIGILL",
+        5 => "SIGTRAP",
+        6 => "SIGABRT",
+        #[cfg(target_os = "linux")]
+        7 => "SIGBUS",
+        #[cfg(not(target_os = "linux"))]
+        10 => "SIGBUS",
+        8 => "SIGFPE",
+        9 => "SIGKILL",
+        11 => "SIGSEGV",
+        13 => "SIGPIPE",
+        15 => "SIGTERM",
+        _ => return None,
+    })
+}
+
 impl Drop for Worker {
     fn drop(&mut self) {
         if let Some(mut stdin) = self.stdin.take() {
             let _ = writeln!(stdin, "stop");
         }
+        let Ok(mut child) = self.child.lock() else {
+            return;
+        };
         // The worker checks for the stop between frames.
         let deadline = Instant::now() + Duration::from_secs(2);
         while Instant::now() < deadline {
-            if !matches!(self.child.try_wait(), Ok(None)) {
+            if !matches!(child.try_wait(), Ok(None)) {
                 return;
             }
             std::thread::sleep(Duration::from_millis(10));
         }
         tracing::warn!("the stream worker didn't stop; ending it");
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        let _ = child.kill();
+        let _ = child.wait();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A worker that dies without a [`Report::Ended`] logs a warning with
+    /// how it ended and the job it had, and the UI still gets the popup's
+    /// error.
+    #[cfg(unix)]
+    #[test]
+    fn a_worker_that_dies_says_how() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        let died = |script: &str| {
+            let worker = directory.path().join("worker");
+            std::fs::write(&worker, format!("#!/bin/sh\nread job\n{script}\n")).unwrap();
+            std::fs::set_permissions(&worker, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let logged = Arc::new(Mutex::new(Vec::new()));
+            let writer = logged.clone();
+            let logger = tracing_subscriber::fmt()
+                .with_ansi(false)
+                .with_writer(move || Logged(writer.clone()))
+                .finish();
+            let _logging = tracing::subscriber::set_default(logger);
+            // Only this test starts a worker.
+            unsafe { std::env::set_var("YAPFAST_STREAM_WORKER", &worker) };
+            let (worker, mut reports) = Worker::start(&Job::Glance {
+                screens: vec![],
+                width: 320,
+                height: 180,
+            })
+            .unwrap();
+            assert_eq!(
+                reports.blocking_recv(),
+                Some(Report::Ended {
+                    error: Some("Screen sharing stopped unexpectedly.".into())
+                })
+            );
+            drop(worker);
+            String::from_utf8(logged.lock().unwrap().clone()).unwrap()
+        };
+
+        // No core file: the shell's would be in the way.
+        let log = died("ulimit -c 0; kill -SEGV $$");
+        assert!(log.contains("WARN"), "{log}");
+        assert!(
+            log.contains("the stream worker ended without saying why"),
+            "{log}"
+        );
+        assert!(log.contains("exit=\"signal=11 (SIGSEGV"), "{log}");
+        assert!(log.contains("job=\"glance\""), "{log}");
+        assert!(log.contains("size=\"up to 320x180\""), "{log}");
+        assert!(log.contains("engine=\"unknown\""), "{log}");
+
+        let log = died("exit 3");
+        assert!(log.contains("exit=\"code=3\""), "{log}");
+    }
+
+    /// Collects a test's log.
+    #[cfg(unix)]
+    struct Logged(Arc<Mutex<Vec<u8>>>);
+
+    #[cfg(unix)]
+    impl Write for Logged {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn says_which_signal_ended_it() {
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(how(ExitStatus::from_raw(11)), "signal=11 (SIGSEGV)");
+        assert_eq!(
+            how(ExitStatus::from_raw(6 | 0x80)),
+            "signal=6 (SIGABRT, core dumped)"
+        );
+        assert_eq!(how(ExitStatus::from_raw(1 << 8)), "code=1");
+    }
 
     #[test]
     fn the_worker_is_the_running_yapfast() {
@@ -1465,13 +1860,39 @@ mod tests {
         assert_eq!(fit(801, 601, 1280, 720), (800, 600), "never larger");
     }
 
+    /// With the GPU, AV1 and H265 before H264 where they open, and an
+    /// encoder for the first; without it, H264 alone, on x264.
     #[test]
-    fn aims_for_discords_bitrates() {
-        assert_eq!(kbps(720, None), 3500);
-        assert_eq!(kbps(1080, None), 9000);
-        assert_eq!(kbps(1080, Some(4_000_000)), 4000, "what the path carries");
-        assert_eq!(kbps(720, Some(9_000_000)), 3500, "never past the cap");
-        assert_eq!(kbps(1080, Some(100_000)), 500, "nor below a screen's floor");
+    fn offers_the_gpus_codecs_first() {
+        let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
+        let (_controls, received) = channel::channel();
+        let mut sink = Sink {
+            writer: Writer::open(&frames.path().unwrap()).unwrap(),
+            controls: received,
+            server: None,
+            sound: false,
+            video: None,
+            fps: 30,
+            effort: Effort::Light,
+            hardware: true,
+            started: Instant::now(),
+            streaming: false,
+            preview_due: None,
+            thumbnail: None,
+            lost: None,
+        };
+        let (offers, encoder) = sink.offers(320, 180).unwrap();
+        eprintln!("offering {offers:?}, encoding with {}", encoder.engine());
+        assert_eq!(offers.last(), Some(&Codec::H264));
+        let mut order = [Codec::Av1, Codec::H265, Codec::H264].iter();
+        assert!(
+            offers.iter().all(|codec| order.any(|next| next == codec)),
+            "in order"
+        );
+        assert_eq!(encoder.codec(), offers[0]);
+        sink.hardware = false;
+        let (offers, encoder) = sink.offers(320, 180).unwrap();
+        assert_eq!((offers, encoder.engine()), (vec![Codec::H264], "x264"));
     }
 
     #[test]
@@ -1625,6 +2046,68 @@ mod tests {
     }
 
     #[test]
+    fn shares_a_camera_until_stopped() {
+        // SAFETY: tests that read this variable all set it the same way.
+        unsafe { std::env::set_var("YAPFAST_CAMERA_TEST_PATTERN", "1") };
+        let listed = shareable();
+        let camera = listed
+            .iter()
+            .find(|listed| listed.title == "Test pattern")
+            .expect("the test pattern camera is listed");
+        let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
+        let job = Job::Share {
+            source: camera.source.clone(),
+            frames: frames.path().unwrap(),
+            width: PREVIEW_WIDTH,
+            height: PREVIEW_HEIGHT,
+            fps: 30,
+            effort: Effort::Light,
+            hardware: false,
+        };
+        let (input, mut feed) = std::io::pipe().unwrap();
+        writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
+        let (sender, reports) = std::sync::mpsc::channel();
+        let serving = std::thread::spawn(move || {
+            serve(Box::new(BufReader::new(input)), &mut |report| {
+                sender.send(report).unwrap();
+            });
+        });
+        assert_eq!(reports.recv().unwrap(), Report::Ready);
+        assert_eq!(
+            reports.recv_timeout(Duration::from_secs(5)).unwrap(),
+            Report::Sharing {
+                width: 640,
+                height: 360
+            }
+        );
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let size = loop {
+            if let Some(size) = frames.take(|width, height, pixels| (width, height, pixels.len())) {
+                break size;
+            }
+            assert!(Instant::now() < deadline, "no frame arrived");
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        assert_eq!(size, (640, 360, 640 * 360 * 4));
+        writeln!(feed, "stop").unwrap();
+        serving.join().unwrap();
+        assert_eq!(reports.recv().unwrap(), Report::Ended { error: None });
+    }
+
+    /// The portal picks where libwebrtc captures through it: in a Wayland
+    /// session, and not on X11, as on XFCE, nor where no Wayland display is
+    /// named, where libwebrtc captures through X11.
+    #[test]
+    fn the_portal_picks_only_in_a_wayland_session() {
+        assert!(wayland_session(Some("wayland"), true));
+        assert!(!wayland_session(Some("x11"), false));
+        assert!(!wayland_session(Some("x11"), true));
+        assert!(!wayland_session(Some("tty"), false));
+        assert!(!wayland_session(None, true));
+        assert!(!wayland_session(Some("wayland"), false));
+    }
+
+    #[test]
     fn a_screen_picture_survives_its_report_line() {
         let report = Report::Screen {
             id: 7,
@@ -1638,6 +2121,9 @@ mod tests {
     }
 
     /// Takes a picture of each listed screen, as the share menu shows them.
+    /// On Linux, X11 lists them: a private X server, as from `env -u
+    /// WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run`, with a window as the
+    /// next test says.
     #[test]
     #[ignore = "needs a desktop where Yapfast lists what to share"]
     fn glances_at_the_listed_screens() {
@@ -1681,8 +2167,12 @@ mod tests {
         assert_eq!(reports.last(), Some(&Report::Ended { error: None }));
     }
 
-    /// Lists what there is to share, and shares the first screen and the
-    /// first window for a moment each.
+    /// Lists what there is to share, shares the first screen and the first
+    /// window for a moment each, then switches from the screen to the window.
+    /// Under Xvfb, as above, it needs a window with a title, and the
+    /// `WM_STATE` and `_NET_WM_WINDOW_TYPE` a window manager would give it:
+    /// without them libwebrtc's X11 capturer lists no window, or asks for a
+    /// property X doesn't know and Xlib ends the process.
     #[test]
     #[ignore = "needs a desktop where Yapfast lists what to share"]
     fn shares_a_listed_screen_and_window() {
@@ -1692,16 +2182,16 @@ mod tests {
             listed
                 .iter()
                 .find(|listed| matches!(listed.source, Source::Window(_)) == window)
-                .map(|listed| listed.source)
+                .map(|listed| listed.source.clone())
         };
         let sources = [
             first(false).expect("no screen"),
             first(true).expect("no window"),
         ];
-        for source in sources {
+        for source in sources.clone() {
             let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
             let job = Job::Share {
-                source,
+                source: source.clone(),
                 frames: frames.path().unwrap(),
                 width: PREVIEW_WIDTH,
                 height: PREVIEW_HEIGHT,
@@ -1750,6 +2240,42 @@ mod tests {
                 .find(|report| !matches!(report, Report::Sharing { .. }));
             assert_eq!(ended, Some(Report::Ended { error: None }));
         }
+        // Switching to the window while the screen is shared.
+        let [screen, window] = sources;
+        let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
+        let job = Job::Share {
+            source: screen,
+            frames: frames.path().unwrap(),
+            width: PREVIEW_WIDTH,
+            height: PREVIEW_HEIGHT,
+            fps: 30,
+            effort: Effort::Light,
+            hardware: false,
+        };
+        let (input, mut feed) = std::io::pipe().unwrap();
+        writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
+        let (sender, reports) = std::sync::mpsc::channel();
+        let serving = std::thread::spawn(move || {
+            serve(Box::new(BufReader::new(input)), &mut |report| {
+                sender.send(report).unwrap();
+            });
+        });
+        assert_eq!(reports.recv().unwrap(), Report::Ready);
+        let shared = reports.recv_timeout(Duration::from_secs(10)).unwrap();
+        let switch = Control::Switch(window.clone());
+        writeln!(feed, "{}", serde_json::to_string(&switch).unwrap()).unwrap();
+        // The screen's size may still settle first.
+        let switched = loop {
+            let report = reports.recv_timeout(Duration::from_secs(10)).unwrap();
+            if report != shared {
+                break report;
+            }
+        };
+        eprintln!("{shared:?}, then {window:?}: {switched:?}");
+        assert!(matches!(switched, Report::Sharing { .. }), "{switched:?}");
+        assert_ne!(switched, shared);
+        writeln!(feed, "stop").unwrap();
+        serving.join().unwrap();
         // A window closed since it was listed.
         let frames = Frames::create(16, 16).unwrap();
         let gone = Job::Share {
