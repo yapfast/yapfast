@@ -846,8 +846,10 @@ fn up_in_an_empty_composer_edits_the_newest_own_message() {
         ]),
     });
     app.dispatch(Action::EditLast);
-    assert!(matches!(app.state.compose(), Some(Compose::Edit { item, .. }) if item == "e:$mine"));
-    assert_eq!(app.state.draft(), "Body of e:$mine");
+    let editing = app.state.edit().expect("editing");
+    assert_eq!(editing.item, "e:$mine");
+    assert_eq!(editing.text, "Body of e:$mine");
+    assert_eq!(app.state.draft(), "", "the composer is left alone");
 }
 
 #[test]
@@ -904,7 +906,7 @@ fn a_reply_mentions_its_author_unless_switched_off() {
 }
 
 #[test]
-fn replies_edits_and_saved_drafts_share_one_composer() {
+fn replies_and_saved_drafts_share_one_composer() {
     let mut app = connected();
     app.apply(Event::Timeline {
         room: "dm".into(),
@@ -923,10 +925,7 @@ fn replies_edits_and_saved_drafts_share_one_composer() {
     assert_eq!(app.state.draft(), "Typed now");
 
     assert!(app.dispatch(Action::Edit("e:$bob".into())).is_empty());
-    assert!(
-        app.state.compose().is_none(),
-        "only own messages are editable"
-    );
+    assert!(app.state.edit().is_none(), "only own messages are editable");
     app.dispatch(Action::Reply("e:$bob".into()));
     assert!(matches!(app.state.compose(), Some(Compose::Reply { author, .. }) if author == "Bob"));
     assert!(matches!(
@@ -939,36 +938,195 @@ fn replies_edits_and_saved_drafts_share_one_composer() {
         result: Ok(()),
     });
     assert!(app.state.compose().is_none() && app.state.draft().is_empty());
+}
 
+/// A room with a message of Bob's and one of this account's. An open edit is
+/// its own field, as in Discord's inline editor, so the composer keeps its
+/// draft and its reply.
+fn editing_app() -> Application {
+    let mut app = connected();
+    app.apply(Event::Timeline {
+        room: "dm".into(),
+        messages: timeline(vec![message("e:$bob", false), message("e:$mine", true)]),
+    });
+    app
+}
+
+fn edit_command(effects: Vec<Effect>) -> (String, String) {
+    match effects.as_slice() {
+        [Effect::Backend(Command::Edit { item, body, .. })] => (item.clone(), body.clone()),
+        other => panic!("expected one edit command, got {} effects", other.len()),
+    }
+}
+
+#[test]
+fn an_edit_is_its_own_field_and_leaves_the_composer_alone() {
+    let mut app = editing_app();
     app.dispatch(Action::SetDraft("Unsent".into()));
     app.dispatch(Action::Edit("e:$mine".into()));
-    assert_eq!(app.state.draft(), "Body of e:$mine");
-    assert!(
-        app.dispatch(Action::SetDraft("Corrected".into()))
-            .is_empty(),
-        "edits are not saved as drafts"
+    let editing = app.state.edit().expect("editing");
+    assert_eq!(
+        (editing.item.as_str(), editing.text.as_str()),
+        ("e:$mine", "Body of e:$mine")
     );
-    let effects = app.dispatch(Action::Send);
-    assert!(matches!(
-        effects.as_slice(),
-        [Effect::Backend(Command::Edit { item, body, .. })] if item == "e:$mine" && body == "Corrected"
-    ));
+    assert_eq!(app.state.draft(), "Unsent", "the composer keeps its draft");
+    // Typing in either field goes to that field alone.
+    assert!(
+        app.dispatch(Action::SetEditText("Corrected".into()))
+            .is_empty(),
+        "an edit's text is not saved as a draft"
+    );
+    assert!(
+        !app.dispatch(Action::SetDraft("Unsent too".into()))
+            .is_empty()
+    );
+    assert_eq!(app.state.edit().unwrap().text, "Corrected");
+    assert_eq!(app.state.draft(), "Unsent too");
+    // Saving sends the edit's text and keeps it open until Discord has it.
+    assert_eq!(
+        edit_command(app.dispatch(Action::SaveEdit)),
+        ("e:$mine".into(), "Corrected".into())
+    );
     app.apply(Event::EditResult {
         room: "dm".into(),
         item: "e:$mine".into(),
         result: Err("refused".into()),
     });
-    assert_eq!(app.state.draft(), "Corrected");
-    app.dispatch(Action::Send);
+    assert_eq!(app.state.edit().expect("still open").text, "Corrected");
+    assert_eq!(app.state.draft(), "Unsent too");
+    app.dispatch(Action::SaveEdit);
     app.apply(Event::EditResult {
         room: "dm".into(),
         item: "e:$mine".into(),
         result: Ok(()),
     });
-    assert_eq!(app.state.draft(), "Unsent");
+    assert!(app.state.edit().is_none());
+    assert_eq!(app.state.draft(), "Unsent too", "the draft is still there");
+}
+
+#[test]
+fn cancelling_an_edit_drops_its_text_and_keeps_the_draft() {
+    let mut app = editing_app();
+    app.dispatch(Action::SetDraft("Unsent".into()));
     app.dispatch(Action::Edit("e:$mine".into()));
-    app.dispatch(Action::CancelCompose);
+    app.dispatch(Action::SetEditText("Never saved".into()));
+    assert!(app.dispatch(Action::CancelEdit).is_empty());
+    assert!(app.state.edit().is_none());
     assert_eq!(app.state.draft(), "Unsent");
+    // Editing again starts from the message, not from what was dropped.
+    app.dispatch(Action::Edit("e:$mine".into()));
+    assert_eq!(app.state.edit().unwrap().text, "Body of e:$mine");
+}
+
+#[test]
+fn a_reply_and_an_edit_are_open_together() {
+    let mut app = editing_app();
+    app.dispatch(Action::Reply("e:$bob".into()));
+    app.dispatch(Action::Edit("e:$mine".into()));
+    assert!(matches!(app.state.compose(), Some(Compose::Reply { .. })));
+    assert!(app.state.edit().is_some());
+    app.dispatch(Action::CancelCompose);
+    assert!(app.state.compose().is_none(), "cancelling the reply");
+    assert!(app.state.edit().is_some(), "leaves the edit open");
+    app.dispatch(Action::Reply("e:$bob".into()));
+    app.dispatch(Action::SetDraft("Hi".into()));
+    assert!(matches!(
+        send_command(app.dispatch(Action::Send)),
+        Command::Send { reply: Some(item), body, .. } if item == "e:$bob" && body == "Hi"
+    ));
+    assert!(app.state.edit().is_some(), "sending doesn't touch the edit");
+}
+
+#[test]
+fn only_one_message_is_edited_at_a_time_in_a_room() {
+    let mut app = editing_app();
+    app.apply(Event::Timeline {
+        room: "dm".into(),
+        messages: timeline(vec![message("e:$one", true), message("e:$two", true)]),
+    });
+    app.dispatch(Action::Edit("e:$one".into()));
+    app.dispatch(Action::SetEditText("half".into()));
+    app.dispatch(Action::Edit("e:$two".into()));
+    let editing = app.state.edit().unwrap();
+    assert_eq!(
+        (editing.item.as_str(), editing.text.as_str()),
+        ("e:$two", "Body of e:$two")
+    );
+}
+
+#[test]
+fn saving_an_edit_that_changed_nothing_just_closes_it() {
+    let mut app = editing_app();
+    app.dispatch(Action::Edit("e:$mine".into()));
+    assert!(app.dispatch(Action::SaveEdit).is_empty(), "nothing is sent");
+    assert!(app.state.edit().is_none());
+}
+
+#[test]
+fn saving_an_empty_edit_asks_whether_to_delete_the_message() {
+    let mut app = editing_app();
+    app.dispatch(Action::Edit("e:$mine".into()));
+    app.dispatch(Action::SetEditText("  \n".into()));
+    assert!(app.dispatch(Action::SaveEdit).is_empty(), "nothing is sent");
+    assert_eq!(app.state.confirm_delete.as_deref(), Some("e:$mine"));
+    assert!(
+        app.state.edit().is_some(),
+        "the edit stays open behind the question"
+    );
+    // Keeping the message goes back to editing it.
+    app.dispatch(Action::CancelDelete);
+    assert!(app.state.confirm_delete.is_none());
+    assert_eq!(app.state.edit().unwrap().item, "e:$mine");
+    // Deleting it ends the edit with the message.
+    app.dispatch(Action::SaveEdit);
+    let effects = app.dispatch(Action::ConfirmDelete);
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Delete { item, .. })] if item == "e:$mine"
+    ));
+    assert!(app.state.edit().is_none());
+}
+
+#[test]
+fn an_empty_edit_of_a_message_with_files_is_saved_not_deleted() {
+    let mut app = editing_app();
+    let mut with_file = message("e:$file", true);
+    with_file.attachments.push(chat::Attachment {
+        name: "a.png".into(),
+        description: None,
+        size: None,
+        image: true,
+        dimensions: None,
+        preview: None,
+        preview_failed: false,
+        placement: chat::Placement::Message,
+        gif: None,
+        spoiler: false,
+        video: false,
+        url: None,
+    });
+    app.apply(Event::Timeline {
+        room: "dm".into(),
+        messages: timeline(vec![with_file]),
+    });
+    app.dispatch(Action::Edit("e:$file".into()));
+    app.dispatch(Action::SetEditText(String::new()));
+    assert_eq!(
+        edit_command(app.dispatch(Action::SaveEdit)),
+        ("e:$file".into(), String::new())
+    );
+    assert!(app.state.confirm_delete.is_none());
+}
+
+#[test]
+fn an_edit_ends_with_its_message_or_its_room() {
+    let mut app = editing_app();
+    app.dispatch(Action::Edit("e:$mine".into()));
+    app.dispatch(Action::DeleteNow("e:$mine".into()));
+    assert!(
+        app.state.edit().is_none(),
+        "a deleted message can't be edited"
+    );
 }
 
 #[test]
@@ -2184,6 +2342,7 @@ fn someones_menu_blocks_and_unblocks_them_but_never_this_account() {
             name: "Annie".into(),
             avatar: String::new(),
             nickname: None,
+            since: None,
             presence: None,
             activity: None,
             activities: Default::default(),
@@ -2275,6 +2434,34 @@ fn someones_menu_blocks_and_unblocks_them_but_never_this_account() {
 
 #[test]
 #[cfg(feature = "discord")]
+fn a_group_dms_creator_is_its_owner_and_a_dm_has_none() {
+    use yapfast_discord::service::{Conversation, Snapshot, Status};
+    let mut app = connected();
+    app.apply(discord_event(Snapshot {
+        status: Status::Online,
+        conversations: vec![
+            Arc::new(Conversation {
+                id: "30".into(),
+                person: Some("2".into()),
+                people: 2,
+                ..Default::default()
+            }),
+            Arc::new(Conversation {
+                id: "31".into(),
+                group: true,
+                people: 3,
+                owner: Some("2".into()),
+                ..Default::default()
+            }),
+        ],
+        ..Default::default()
+    }));
+    assert_eq!(app.server_owner("discord:@me:31").as_deref(), Some("2"));
+    assert_eq!(app.server_owner("discord:@me:30"), None);
+}
+
+#[test]
+#[cfg(feature = "discord")]
 fn a_discord_dms_menu_manages_its_person_and_notifications() {
     use MenuChoice::*;
     use chat::{Muting, RelationshipChange};
@@ -2293,6 +2480,7 @@ fn a_discord_dms_menu_manages_its_person_and_notifications() {
                 name: "Annie".into(),
                 avatar: String::new(),
                 nickname: Some("Annie".into()),
+                since: None,
                 presence: None,
                 activity: None,
                 activities: Default::default(),
@@ -4523,9 +4711,9 @@ fn profile_switches_that_are_off_ask_for_nothing() {
         }));
         let effects = app.dispatch(Action::ShowDmProfile("discord:@me:30".into()));
         let effect = effects.iter().find_map(|effect| match effect {
-            Effect::Backend(Command::Discord(DiscordCommand::Profile { effect, .. })) => {
-                Some(*effect)
-            }
+            Effect::Backend(Command::Discord(DiscordCommand::Profile {
+                effect, frame, ..
+            })) => Some((*effect, *frame)),
             _ => None,
         });
         (app, effect)
@@ -4536,15 +4724,24 @@ fn profile_switches_that_are_off_ask_for_nothing() {
         moving: false,
         name_styles: false,
         server_tags: false,
+        frames: false,
     };
     let (app, effect) = open(off);
-    assert_eq!(effect, Some(false), "the effect isn't asked about");
+    assert_eq!(
+        effect,
+        Some((false, false)),
+        "neither the effect nor the frame is asked about"
+    );
     for url in ["ring.png", "mine.png", "plate.png"] {
         assert!(!app.requested_pictures.contains(url), "{url} isn't fetched");
     }
     // By default everything shows, as the stack draws it.
     let (app, effect) = open(Cosmetics::default());
-    assert_eq!(effect, Some(true), "the effect is asked about");
+    assert_eq!(
+        effect,
+        Some((true, true)),
+        "the effect and frame are asked about"
+    );
     assert!(app.requested_pictures.contains("ring.png"));
     if cfg!(not(feature = "matrix")) {
         assert!(app.requested_pictures.contains("mine.png"));
@@ -4557,7 +4754,7 @@ fn profile_switches_that_are_off_ask_for_nothing() {
     });
     assert_eq!(
         effect,
-        Some(false),
+        Some((false, true)),
         "an effect that may not play isn't asked about"
     );
     assert!(app.requested_pictures.contains("ring.png"));
@@ -4700,6 +4897,7 @@ fn discord_friends_are_listed_and_messaged() {
         name: name.into(),
         avatar: format!("{id}.png"),
         nickname: None,
+        since: None,
         presence,
         activity: None,
         activities: Default::default(),
@@ -4712,6 +4910,8 @@ fn discord_friends_are_listed_and_messaged() {
             Friend {
                 activity: Some("making tea".into()),
                 activities: Default::default(),
+                // Friends since 2026-09-01, in milliseconds.
+                since: Some(1_788_253_200_000),
                 ..friend("2", "Ann", Some(Discord::Idle))
             },
             friend("3", "Bob", None),
@@ -4742,6 +4942,7 @@ fn discord_friends_are_listed_and_messaged() {
             presence: Some(chat::Presence::Idle),
             activity: Some("making tea".into()),
             activities: Default::default(),
+            since: Some(1_788_253_200_000),
         }
     );
     let effects = app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
@@ -5928,6 +6129,47 @@ fn profile_effects_are_kept_a_few_at_a_time_and_their_pictures_go_with_the_card(
 }
 
 #[test]
+fn a_cards_frame_and_moving_banner_go_with_it() {
+    let mut app = connected();
+    let layer = "https://cdn.discordapp.com/media/v1/collectibles-shop/9/a/static";
+    let banner = "https://cdn.discordapp.com/banners/1/a_77.png?size=600";
+    let moving = "https://cdn.discordapp.com/banners/1/a_77.gif?size=600";
+    app.state.profile = Some(ProfileView {
+        profile: Profile {
+            id: "1".into(),
+            banner: Some(banner.into()),
+            frame: Arc::from([crate::chat::ProfileFrameLayer {
+                src: layer.into(),
+                kind: "staple".into(),
+                anchor: "top".into(),
+                front: true,
+            }]),
+            theme: None,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    for url in [layer, moving].into_iter().map(String::from) {
+        app.requested_pictures.insert(url.clone());
+        app.apply(Event::Picture {
+            url,
+            picture: Arc::new(Picture::default()),
+        });
+    }
+    // They stay while the card shows, and go as it closes, though the trim
+    // is far off: each is about the card's size.
+    app.dispatch(Action::CloseAside);
+    for shown in [layer, moving] {
+        assert!(app.state.pictures.contains_key(shown), "{shown} stays");
+    }
+    app.dispatch(Action::CloseProfile);
+    for gone in [layer, moving] {
+        assert!(!app.state.pictures.contains_key(gone), "{gone} goes");
+        assert!(!app.requested_pictures.contains(gone), "{gone} goes");
+    }
+}
+
+#[test]
 fn the_selected_dms_nameplate_stays_and_the_others_go() {
     let mut app = connected();
     let selected = app.state.selected.clone().unwrap();
@@ -6770,6 +7012,7 @@ fn discord_dms(extra: Vec<yapfast_discord::service::Conversation>) -> Applicatio
         name: name.into(),
         avatar: String::new(),
         nickname: None,
+        since: None,
         presence: None,
         activity: None,
         activities: Default::default(),
@@ -9034,7 +9277,7 @@ fn a_chosen_server_tag_saves_and_the_account_profile_is_fetched_again() {
                 DiscordCommand::OwnProfile { server: None }
             ))]
         ),
-        "the profile is read back once"
+        "the profile is read back once, and its answer fills the card too"
     );
     assert!(
         app.dispatch(Action::LoadOwnProfile).iter().any(|effect| matches!(

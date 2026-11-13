@@ -1037,6 +1037,12 @@ export component AppearanceSettings inherits VerticalLayout {
             checked <=> Looks.server-tags;
             toggled => { root.preferences-changed(); }
         }
+        SettingsSwitch {
+            text: "Show profile frames";
+            description: "The frames some people put around their profile cards.";
+            checked <=> Looks.profile-frames;
+            toggled => { root.preferences-changed(); }
+        }
     }
     if root.editor: form := VerticalLayout {
         property <bool> confirming;

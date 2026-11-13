@@ -499,8 +499,10 @@ Yapfast is back, rather than showing an error.
   Windows they're toasts ([Windows](../windows-beta.md#notifications-on-windows)).
   Each also plays Yapfast's message sound, or its mention sound, unless it's in
   the conversation in front; see [voice](../voice.md#sounds).
-- Mentions in messages are links on a light fill, in the role's colour or the
-  person's name colour, as Discord shows them. A person's opens their profile
+- Mentions in messages are links on a light fill, in the role's colour for a
+  role and the theme's mention colour for anyone else, as Discord shows them:
+  a person's mention is not in their role's colour, though their name in a
+  message and in the suggestions is. A person's opens their profile
   card beside the mention, and a role's lists the members Yapfast has seen with it (from member lists, messages
   and member requests), each opening their card in turn.
 - Typing `@` suggests who to mention: the channel's listed members, those who
@@ -533,10 +535,22 @@ Yapfast is back, rather than showing an error.
   (`PreloadedUserSettings`, field 11), which arrive in READY as
   `user_settings_proto` and change in USER_SETTINGS_PROTO_UPDATE. Yapfast reads
   only the status and custom status from it, and changes either with `PATCH
-  /users/@me/settings-proto/1`, whose body sets nothing else. Each session
-  shows the status to others itself, so Yapfast sends it with opcode 3 once
-  connected, whenever the settings change, and clears it when it ends. A
-  custom emoji in a status needs Nitro.
+  /users/@me/settings-proto/1`, whose body sets nothing else. Discord resets
+  what such a body leaves out of a top-level field, so each change of the
+  status, the custom status or [game sharing](people.md#game-detection)
+  sends the whole `StatusSettings` with the one field changed, fields
+  Yapfast doesn't know included: a new custom status keeps Do Not Disturb.
+  As in Discord's client, a change starts from the `StatusSettings` READY
+  or the last update brought, never from a GET, and joins the changes still
+  on their way, each PATCH carrying all of them, so changes made quickly
+  keep the order they were made in. A new status drops the old one's
+  `status_expires_at_ms`, so it stays until changed, and sets
+  `status_created_at_ms` to now, or keeps it for the same status; a new
+  custom status says when it was set in its `created_at_ms`. A cleared one
+  is left out, and an update whose `status` has no custom status clears it,
+  as when another device clears it or it runs out there. Each session shows the status to others itself, so Yapfast sends it with
+  opcode 3 once connected, whenever the settings change, and clears it when
+  it ends. A custom emoji in a status needs Nitro.
 
 ## Bots' buttons, menus and forms
 

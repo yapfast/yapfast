@@ -292,11 +292,13 @@ pub fn wire(text: &str, candidates: &[Candidate]) -> String {
 }
 
 /// Where `text` mentions a candidate, as [`wire`] finds them, each with the
-/// candidate's colour: the composer shows them as the message will.
+/// colour the message will draw it in: a role's own, and none for a person,
+/// who takes the colour of mentions, so the composer shows them as the message
+/// will.
 pub fn marks(text: &str, candidates: &[Candidate]) -> Vec<(Range<usize>, Option<u32>)> {
     found(text, candidates)
         .into_iter()
-        .map(|(range, candidate)| (range, candidate.color))
+        .map(|(range, candidate)| (range, candidate.color.filter(|_| candidate.group)))
         .collect()
 }
 
@@ -593,5 +595,16 @@ mod tests {
             [(6..10, None), (16..21, Some(0x3498db))]
         );
         assert!(marks("no one", &candidates).is_empty());
+    }
+
+    #[test]
+    fn a_person_is_marked_in_the_colour_of_mentions_whatever_their_role() {
+        // Ann's name is in her role's colour in the suggestions, as in
+        // Discord's client, but her mention isn't.
+        let candidates = [Candidate {
+            color: Some(0xe91e63),
+            ..person("Ann", "<@1>")
+        }];
+        assert_eq!(marks("hi @Ann", &candidates), [(3..7, None)]);
     }
 }

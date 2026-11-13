@@ -3203,6 +3203,8 @@ impl Adapter {
                 )),
                 created: fallback.and_then(|fallback| fallback.created.clone()),
                 joined: fallback.and_then(|fallback| fallback.joined.clone()),
+                server_name: fallback_text(fallback.map(|fallback| &fallback.server_name)),
+                server_icon: fallback.and_then(|fallback| fallback.server_icon.clone()),
                 theme: editor.theme().ok().flatten(),
                 style: editor.name_style().map(Arc::new),
                 widgets: fallback
@@ -3867,7 +3869,6 @@ impl Adapter {
             Some(Compose::Reply { author, body, .. }) => {
                 format!("Replying to {author}: {body}").into()
             }
-            Some(Compose::Edit { .. }) => "Editing your message".into(),
             None => SharedString::default(),
         });
         // Pictures and link previews fit the panel's width beside the avatar.
@@ -3911,19 +3912,19 @@ impl Adapter {
     /// show them. Who it may mention is found again only when the draft or
     /// what they come from changed.
     fn mark_mentions(&mut self) {
-        self.mark_mentions_of(false);
-        self.mark_mentions_of(true);
+        self.mark_mentions_of(Field::Channel);
+        self.mark_mentions_of(Field::Aside);
+        self.mark_mentions_of(Field::Edit);
     }
 
-    /// [`Self::mark_mentions`] of the channel's composer, or the thread's beside it.
-    fn mark_mentions_of(&mut self, aside: bool) {
+    /// [`Self::mark_mentions`] of what `field` holds.
+    fn mark_mentions_of(&mut self, field: Field) {
         let state = &self.app.state;
-        let draft = if aside {
-            state.aside_draft()
-        } else {
-            state.draft()
+        let (draft, slot) = match field {
+            Field::Channel => (state.draft(), 0),
+            Field::Aside => (state.aside_draft(), 1),
+            Field::Edit => (state.edit().map_or("", |edit| edit.text.as_str()), 2),
         };
-        let slot = usize::from(aside);
         let sources = MentionSources {
             messages: Arc::as_ptr(&state.messages) as usize,
             members: state
@@ -3962,8 +3963,48 @@ impl Adapter {
         self.mentions_marked[slot] = Some(marked);
     }
 
+    /// The field of the message being edited, in its row: what it holds, and
+    /// the keys when an edit starts, with the cursor after its text.
+    fn show_inline_edit(&mut self, window: &YapfastWindow) {
+        let state = &self.app.state;
+        let edit = state.edit();
+        let shown = window.global::<InlineEdit>();
+        let text = edit.map_or("", |edit| edit.text.as_str());
+        if shown.get_text() != text {
+            shown.set_text(text.into());
+        }
+        // In the thread beside the channel when its room is the one edited.
+        shown.set_aside(edit.is_some_and(|edit| {
+            state.selected.as_ref() != Some(&edit.room)
+                && state.aside_room().is_some_and(|room| room.id == edit.room)
+        }));
+        shown.set_item(edit.map_or("", |edit| edit.item.as_str()).into());
+        let started = edit.map(|edit| (edit.room.clone(), edit.item.clone()));
+        let end = edit.map(|edit| edit.text.len());
+        if started != self.edit_focused {
+            self.edit_focused = started;
+            if let Some(end) = end {
+                callbacks::focus_edit(window, end);
+            }
+        }
+        // Suggestions for a field that's gone go with it.
+        if self.suggesting == Field::Edit && edit.is_none() {
+            self.suggesting = Field::Channel;
+            self.mention_at = None;
+            self.emoji_word = None;
+            window.set_suggesting_edit(false);
+            shown.set_suggesting(false);
+            window.set_mention_index(0);
+            if self.app.state.mention_query.is_some() {
+                self.action(window, Action::MentionQuery(None));
+            }
+            self.show_emoji_suggestions(window);
+        }
+    }
+
     pub(super) fn show_composer(&mut self, window: &YapfastWindow) {
         self.mark_mentions();
+        self.show_inline_edit(window);
         let state = &self.app.state;
         let room = state.selected_room();
         window.set_voice_room(room.is_some_and(|room| room.voice));
@@ -4019,7 +4060,6 @@ impl Adapter {
             Some(Compose::Reply { author, body, .. }) => {
                 format!("Replying to {author}: {body}").into()
             }
-            Some(Compose::Edit { .. }) => "Editing your message".into(),
             None => SharedString::default(),
         });
         window.set_sending(state.sending.is_some());

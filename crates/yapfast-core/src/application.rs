@@ -436,8 +436,20 @@ pub enum Compose {
         /// Whether the reply notifies the person it replies to.
         ping: bool,
     },
-    /// Editing replaces the draft; cancelling or finishing restores it.
-    Edit { item: String, draft: String },
+}
+
+/// A message of this account's being edited in place, as Discord's inline
+/// editor does: its own field, apart from the room's draft and from a reply
+/// the composer has open. One message is edited at a time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Editing {
+    /// The room the message is in, which may be the thread beside.
+    pub room: String,
+    pub item: String,
+    /// The text as it stands in the field.
+    pub text: String,
+    /// The text the field started with, to tell an edit that changed nothing.
+    pub original: String,
 }
 
 #[derive(Default)]
@@ -517,6 +529,9 @@ pub struct AppState {
     /// it shows.
     pub discord_show_game: bool,
     pub discord_playing: Option<chat::Playing>,
+    /// What the Discord account shows it's doing, on this device and its
+    /// others, as its own profile shows it.
+    pub discord_activities: chat::Activities,
     /// How loud the Discord account's soundboard plays, as Discord keeps
     /// it: from 0 to 100, on its slider's curve.
     pub soundboard_volume: f32,
@@ -748,6 +763,7 @@ pub struct AppState {
     pub reset_version: u64,
     drafts: HashMap<String, String>,
     compose: HashMap<String, Compose>,
+    edit: Option<Editing>,
     /// Files waiting in each room's composer for the next message.
     staged: HashMap<String, Vec<chat::Staged>>,
 }
@@ -824,8 +840,9 @@ impl AppState {
             .map_or(&[], Vec::as_slice)
     }
 
-    fn editing(&self) -> bool {
-        matches!(self.compose(), Some(Compose::Edit { .. }))
+    /// The message being edited, in the selected room or the thread beside.
+    pub fn edit(&self) -> Option<&Editing> {
+        self.edit.as_ref()
     }
 
     pub fn compose(&self) -> Option<&Compose> {
@@ -1272,18 +1289,15 @@ impl AppState {
         people.into_iter().chain(groups).cloned().collect()
     }
 
-    /// Text, or files to go with it; an edit changes only the text.
+    /// Text, or files to go with it.
     pub fn can_send(&self) -> bool {
         self.can_write()
             && self.sending.is_none()
-            && (!self.draft().trim().is_empty() || (!self.editing() && !self.staged().is_empty()))
+            && (!self.draft().trim().is_empty() || !self.staged().is_empty())
     }
 
     pub fn can_attach(&self) -> bool {
-        self.can_write()
-            && !self.preview
-            && !self.editing()
-            && self.staged().len() < chat::MAX_FILES
+        self.can_write() && !self.preview && self.staged().len() < chat::MAX_FILES
     }
 
     /// Why files dropped on the window can't go with the next message, if
@@ -1608,7 +1622,14 @@ pub enum Action {
     CloseNewDm,
     Send,
     Reply(String),
+    /// Open this message of this account's for editing in place.
     Edit(String),
+    /// The text of the open edit's field changed.
+    SetEditText(String),
+    /// Save the open edit; an empty one asks whether to delete the message.
+    SaveEdit,
+    /// Close the open edit, dropping what was typed in it.
+    CancelEdit,
     CancelCompose,
     React {
         item: String,
@@ -2379,7 +2400,8 @@ pub struct Application {
     /// came: their downloads were called off, and one that comes all the same
     /// isn't kept.
     let_go_emoji: HashSet<String>,
-    /// The profile effects' pictures in `AppState::pictures`.
+    /// The profile cards' own large pictures in `AppState::pictures`: their
+    /// effects', frames' and moving banners'.
     effect_pictures: Vec<String>,
     /// Forwards sent, until each conversation they went to answers.
     forwards: Vec<ForwardSent>,
@@ -2727,6 +2749,12 @@ fn pictures_on_screen<'a>(
                         .filter_map(Option::as_deref)
                         .chain(cosmetics.decoration(profile.decoration.as_deref()))
                         .chain(tag_badge(cosmetics, &profile.tag))
+                        .chain(
+                            cosmetics
+                                .frame(Some(&profile.frame))
+                                .into_iter()
+                                .flat_map(|frame| frame.iter().map(|layer| layer.src.as_str())),
+                        )
                         .chain(profile.bio_emoji.iter().map(|emoji| emoji.picture.as_str()))
                         // Its layers are asked for when it first plays.
                         .chain(effect.into_iter().flat_map(move |effect| {
@@ -2860,7 +2888,10 @@ fn shelved(messages: &[Arc<ChatMessage>]) -> Vec<Arc<ChatMessage>> {
 impl Application {
     pub fn dispatch(&mut self, action: Action) -> Vec<Effect> {
         // A keystroke in the composer shows no picture that wasn't on screen.
-        let composing = matches!(action, Action::SetDraft(_) | Action::MentionQuery(_));
+        let composing = matches!(
+            action,
+            Action::SetDraft(_) | Action::SetEditText(_) | Action::MentionQuery(_)
+        );
         let mut effects = self.dispatch_action(action);
         effects.extend(self.send_pending_message());
         effects.extend(self.show_panel_profile());
@@ -2895,18 +2926,16 @@ impl Application {
         effects
     }
 
-    /// Lets a profile effect's pictures go with its card, rather than with
-    /// the next trim: each is the size of the card, as much as a few hundred
-    /// avatars.
+    /// Lets a profile effect's, frame's or moving banner's pictures go with
+    /// its card, rather than with the next trim: each is about the size of
+    /// the card, as much as a few hundred avatars.
     fn let_go_of_effect_pictures(&mut self) {
         if self.effect_pictures.is_empty() {
             return;
         }
         let state = &self.state;
-        let shown: Vec<&str> = state
-            .profile
-            .iter()
-            .chain(&state.panel_profile)
+        let views = || state.profile.iter().chain(&state.panel_profile);
+        let mut shown: Vec<&str> = views()
             .filter_map(|view| view.profile.effect.as_deref())
             .filter_map(|sku| {
                 state
@@ -2916,9 +2945,16 @@ impl Application {
             })
             .flat_map(|effect| effect.pictures())
             .collect();
+        shown.extend(
+            views().flat_map(|view| view.profile.frame.iter().map(|layer| layer.src.as_str())),
+        );
+        let banners: Vec<String> = views()
+            .filter_map(|view| view.profile.banner.as_deref())
+            .filter_map(chat::moving_banner)
+            .collect();
         let (kept, gone): (Vec<String>, Vec<String>) = std::mem::take(&mut self.effect_pictures)
             .into_iter()
-            .partition(|url| shown.contains(&url.as_str()));
+            .partition(|url| shown.contains(&url.as_str()) || banners.contains(url));
         self.effect_pictures = kept;
         for url in &gone {
             self.state.pictures.remove(url);
@@ -3126,7 +3162,11 @@ impl Application {
             return;
         }
         let emoji = is_custom_emoji(&url);
-        if url.ends_with(chat::EFFECT_PICTURE) {
+        // A card's own large pictures go with it.
+        if url.ends_with(chat::EFFECT_PICTURE)
+            || chat::is_frame_layer(&url)
+            || (url.contains("/banners/") && url.contains(".gif?"))
+        {
             self.effect_pictures.push(url.clone());
         }
         if self.state.pictures.insert(url, picture).is_none() && emoji {
@@ -3298,7 +3338,10 @@ impl Application {
             Action::SetDraft(body) => self.set_draft(body),
             Action::Send => self.send(),
             Action::Reply(item) => self.reply(item),
-            Action::Edit(item) => self.edit(item),
+            Action::Edit(item) => self.begin_edit(item),
+            Action::SetEditText(text) => self.set_edit_text(text),
+            Action::SaveEdit => self.save_edit(),
+            Action::CancelEdit => self.cancel_edit(),
             Action::CancelCompose => {
                 if let Some(id) = self.state.selected.clone() {
                     self.finish_compose(&id);
@@ -4223,6 +4266,7 @@ impl Application {
             Event::ProfileBoard { user, widgets } => self.profile_board_named(&user, widgets),
             Event::ProfileRecent { user, recent } => self.profile_recent_came(&user, recent),
             Event::BadgeLevels { user, badges } => self.show_badge_levels(&user, badges),
+            Event::ProfileFrame { user, frame } => self.show_profile_frame(&user, &frame),
             Event::ProfileEffect(effect) => {
                 // The few of the cards seen lately.
                 let profile_effects = &mut self.state.profile_effects;
@@ -4625,9 +4669,13 @@ impl Application {
                 }
                 match result {
                     Ok(()) => {
-                        if matches!(self.state.compose.get(&room), Some(Compose::Edit { item: target, .. }) if target == &item)
+                        if self
+                            .state
+                            .edit
+                            .as_ref()
+                            .is_some_and(|edit| edit.room == room && edit.item == item)
                         {
-                            self.finish_compose(&room);
+                            self.state.edit = None;
                         }
                         self.state.notice = None;
                     }

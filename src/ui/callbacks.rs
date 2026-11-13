@@ -1233,10 +1233,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         let weak = window.as_weak();
         window.on_edit_last(move || {
             let Some(window) = weak.upgrade() else { return };
+            // Showing the edit gives its field the keys, the cursor after the text.
             adapter.borrow_mut().action(&window, Action::EditLast);
-            // The message's text, with the cursor after it.
-            let end = window.get_draft().len();
-            window.invoke_place_composer_caret(i32::try_from(end).unwrap_or(i32::MAX));
         });
     }
     bind_item!(on_request_delete, Action::RequestDelete);
@@ -2683,7 +2681,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 .action(&window, Action::SelectRoom(id.into()));
         }
     });
-    for aside in [false, true] {
+    for field in [Field::Channel, Field::Aside, Field::Edit] {
         let state = adapter.clone();
         let weak = window.as_weak();
         let caret = move |text: SharedString, offset: i32| {
@@ -2692,14 +2690,15 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             let Ok(mut adapter) = state.try_borrow_mut() else {
                 return;
             };
-            composer_caret(&mut adapter, &window, &text, offset, aside);
+            composer_caret(&mut adapter, &window, &text, offset, field);
         };
-        if aside {
-            window.on_aside_composer_caret(caret);
-        } else {
-            window.on_composer_caret(caret);
+        match field {
+            Field::Channel => window.on_composer_caret(caret),
+            Field::Aside => window.on_aside_composer_caret(caret),
+            Field::Edit => window.global::<InlineEdit>().on_caret(caret),
         }
     }
+    inline_edit(adapter, window);
     let state = adapter.clone();
     let weak = window.as_weak();
     window.on_mention_chosen(move |index| {
@@ -2721,8 +2720,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             ) else {
                 return;
             };
-            let aside = adapter.suggesting_aside;
-            let text = adapter.composer_text(aside);
+            let field = adapter.suggesting;
+            let text = adapter.composer_text(field);
             let end = at + 1 + query.len();
             if text.get(at..end) != Some(format!("{sigil}{query}").as_str()) {
                 return;
@@ -2731,8 +2730,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             let text = format!("{}{inserted}{}", &text[..at], &text[end..]);
             adapter.mention_at = None;
             adapter.action(&window, Action::MentionQuery(None));
-            adapter.set_composer_text(&window, aside, text);
-            (aside, at + inserted.len())
+            adapter.set_composer_text(&window, field, text);
+            (field, at + inserted.len())
         };
         place_composer_caret(&window, caret);
     });
@@ -2750,16 +2749,16 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             let (Some(chosen), Some((at, name))) = (chosen, word) else {
                 return;
             };
-            let aside = adapter.suggesting_aside;
-            let text = adapter.composer_text(aside);
+            let field = adapter.suggesting;
+            let text = adapter.composer_text(field);
             let end = at + 1 + name.len();
             if text.get(at..end) != Some(format!(":{name}").as_str()) {
                 return;
             }
             let inserted = format!("{} ", emoji::composer_text(&chosen.key));
             let text = format!("{}{inserted}{}", &text[..at], &text[end..]);
-            adapter.set_composer_text(&window, aside, text);
-            (aside, at + inserted.len())
+            adapter.set_composer_text(&window, field, text);
+            (field, at + inserted.len())
         };
         place_composer_caret(&window, caret);
     });
@@ -3736,46 +3735,148 @@ thread_local! {
     static SHAREABLE: RefCell<Vec<yapfast_core::stream_worker::Source>> = const { RefCell::new(Vec::new()) };
 }
 
+/// What the field of the message being edited, in its row, asks of the
+/// application: its text, keys, suggestions and emoji.
+fn inline_edit(adapter: &Rc<RefCell<Adapter>>, window: &YapfastWindow) {
+    let edit = window.global::<InlineEdit>();
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    edit.on_edited(move |text| {
+        let Some(window) = weak.upgrade() else { return };
+        let Ok(mut adapter) = state.try_borrow_mut() else {
+            return;
+        };
+        // The caret's move usually took the text already.
+        if adapter.composer_text(Field::Edit) != text.as_str() {
+            adapter.set_composer_text(&window, Field::Edit, text.into());
+        }
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    edit.on_save(move || {
+        let Some(window) = weak.upgrade() else { return };
+        state.borrow_mut().action(&window, Action::SaveEdit);
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    edit.on_cancel(move || {
+        let Some(window) = weak.upgrade() else { return };
+        state.borrow_mut().action(&window, Action::CancelEdit);
+    });
+    // The suggestions are the window's, as the composers' are: only the keys
+    // that move among them and choose come from this field.
+    let weak = window.as_weak();
+    edit.on_suggestion_moved(move |step| {
+        let Some(window) = weak.upgrade() else { return };
+        let mentions = i32::try_from(window.get_mentions().row_count()).unwrap_or(i32::MAX);
+        if mentions > 0 {
+            window.set_mention_index((window.get_mention_index() + step).rem_euclid(mentions));
+        } else {
+            let emoji =
+                i32::try_from(window.get_emoji_suggestions().row_count()).unwrap_or(i32::MAX);
+            if emoji > 0 {
+                window.set_emoji_suggestion_index(
+                    (window.get_emoji_suggestion_index() + step).rem_euclid(emoji),
+                );
+            }
+        }
+    });
+    let weak = window.as_weak();
+    edit.on_suggestion_chosen(move || {
+        let Some(window) = weak.upgrade() else { return };
+        if window.get_mentions().row_count() > 0 {
+            window.invoke_mention_chosen(window.get_mention_index());
+        } else {
+            window.invoke_emoji_suggestion_chosen(window.get_emoji_suggestion_index());
+        }
+    });
+    let weak = window.as_weak();
+    edit.on_suggestion_dismissed(move || {
+        let Some(window) = weak.upgrade() else { return };
+        if window.get_mentions().row_count() > 0 {
+            window.invoke_mention_dismissed();
+        } else {
+            window.invoke_emoji_suggestion_dismissed();
+        }
+    });
+    let weak = window.as_weak();
+    edit.on_emoji(move |x, y, width, height| {
+        let Some(window) = weak.upgrade() else { return };
+        window.invoke_open_edit_picker(x, y, width, height);
+    });
+    let state = adapter.clone();
+    let weak = window.as_weak();
+    window.on_insert_edit_emoji(move |key| {
+        let Some(window) = weak.upgrade() else { return };
+        let caret = {
+            let mut adapter = state.borrow_mut();
+            let text = adapter.composer_text(Field::Edit);
+            // At the cursor the field last had, else at the end.
+            let at = adapter
+                .edit_caret
+                .filter(|&at| text.is_char_boundary(at))
+                .unwrap_or(text.len());
+            let inserted = emoji::composer_text(&key);
+            let text = format!("{}{inserted}{}", &text[..at], &text[at..]);
+            adapter.set_composer_text(&window, Field::Edit, text);
+            at + inserted.len()
+        };
+        focus_edit(&window, caret);
+    });
+}
+
 /// Puts the cursor at a byte offset in the channel's composer, or the
 /// thread's beside it, and the keyboard there.
-fn place_composer_caret(window: &YapfastWindow, (aside, caret): (bool, usize)) {
-    let caret = i32::try_from(caret).unwrap_or(i32::MAX);
-    if aside {
-        window.invoke_place_aside_composer_caret(caret);
-    } else {
-        window.invoke_place_composer_caret(caret);
-        window.invoke_focus_composer();
+fn place_composer_caret(window: &YapfastWindow, (field, caret): (Field, usize)) {
+    let offset = i32::try_from(caret).unwrap_or(i32::MAX);
+    match field {
+        Field::Aside => window.invoke_place_aside_composer_caret(offset),
+        Field::Channel => {
+            window.invoke_place_composer_caret(offset);
+            window.invoke_focus_composer();
+        }
+        Field::Edit => focus_edit(window, caret),
     }
 }
 
-/// The text and cursor of the channel's composer, or of the thread's beside
-/// it with `aside`: the `:name` and `@` or `#` words it suggests for.
+/// Gives the field of the message being edited the keys, with its cursor at
+/// a byte offset.
+pub(super) fn focus_edit(window: &YapfastWindow, caret: usize) {
+    let edit = window.global::<InlineEdit>();
+    edit.set_end(i32::try_from(caret).unwrap_or(i32::MAX));
+    edit.set_focus_tick(edit.get_focus_tick().wrapping_add(1));
+}
+
+/// The text and cursor of `field`: the `:name` and `@` or `#` words it
+/// suggests for.
 fn composer_caret(
     adapter: &mut Adapter,
     window: &YapfastWindow,
     text: &str,
     offset: i32,
-    aside: bool,
+    field: Field,
 ) {
     // The cursor moves before the edit is reported; take the text first, so the
     // refresh below doesn't put back the text before it.
-    if aside {
-        if adapter.app.state.aside_draft() != text {
-            adapter.action(window, Action::SetAsideDraft(text.to_owned()));
-        }
-    } else if adapter.app.state.draft() != text {
-        adapter.action(window, Action::SetDraft(text.to_owned()));
+    if adapter.composer_text(field) != text {
+        adapter.set_composer_text(window, field, text.to_owned());
     }
     let offset = usize::try_from(offset).ok();
-    if !aside {
-        adapter.caret = adapter.app.state.selected.clone().zip(offset);
+    match field {
+        Field::Channel => adapter.caret = adapter.app.state.selected.clone().zip(offset),
+        Field::Edit => adapter.edit_caret = offset,
+        Field::Aside => {}
     }
     // Suggestions follow the composer typed in last, as do what was closed.
-    if adapter.suggesting_aside != aside {
-        adapter.suggesting_aside = aside;
+    if adapter.suggesting != field {
+        adapter.suggesting = field;
         adapter.mention_dismissed = None;
         adapter.emoji_dismissed = None;
-        window.set_suggesting_aside(aside);
+        window.set_suggesting_aside(field == Field::Aside);
+        window.set_suggesting_edit(field == Field::Edit);
+        window
+            .global::<InlineEdit>()
+            .set_suggesting(field == Field::Edit);
     }
     // The `:name` word, unless its suggestions were closed.
     let word = offset.and_then(|offset| emoji::query(text, offset));
@@ -3811,7 +3912,7 @@ fn composer_caret(
         }
     }
     // An app command's option offers its own people, roles and channels.
-    let commanding = !aside && adapter.app.state.command_draft().is_some();
+    let commanding = field == Field::Channel && adapter.app.state.command_draft().is_some();
     let found = offset
         .filter(|_| !commanding)
         .and_then(|offset| mention::query(text, offset));
