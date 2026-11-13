@@ -963,6 +963,60 @@ detection found. The activity lasts through reconnecting to the gateway and
 is never saved. Presence updates keep to Discord's limit, as every other
 presence change does.
 
+## Listening to Spotify
+
+Spotify's apps and libraries don't tell Discord what they play; Discord's
+client follows the player itself, so it shows for any player on the account,
+librespot clients among them. Yapfast does the same, so no other Discord app
+needs to run. `spotify.rs` holds it.
+
+For each Spotify link in READY's `connected_accounts` with `show_activity` on,
+the setting Discord calls "Display Spotify as your status", Yapfast uses the
+link's `access_token`, or else asks
+`GET /users/@me/connections/spotify/{id}/access-token`. With no such link it
+does nothing. It asks `GET https://api.spotify.com/v1/me/player`, then opens
+`wss://dealer.spotify.com/?access_token=...`, pings it every 30 seconds, and
+answers the first message, `hm://pusher/v1/connections/{id}`, with
+`PUT /v1/me/notifications/player?connection_id={id}`. After that
+`PLAYER_STATE_CHANGED` says what plays, and `DEVICE_STATE_CHANGED` asks the
+player again, at most every 3 seconds. With more than one link, the first that
+plays shows.
+
+As Discord's client does, Yapfast renews a token only when Spotify answers 401,
+and reconnects with a wait that grows from half a second to a minute. It asks
+for the player before each connection, which is what finds a token expired,
+and replaces a socket that hears nothing for three pings. A link Discord
+refuses a token for, code 40012 for one revoked, is left until
+`USER_CONNECTIONS_UPDATE` changes the list, which comes from
+`GET /users/@me/connections`. Tokens stay in memory. Neither they nor the
+socket's address reach a log; a socket that fails logs why, such as a TLS
+error. The socket trusts the certificates the system trusts, as HTTPS and
+Discord's sockets do (`websocket.rs`). The tests' fake dealer speaks `ws://`,
+so the ignored `reaches_spotifys_real_dealer` test opens the real one with no
+token and expects its 401.
+
+The activity is what Discord's client sends, type 2 and named "Spotify":
+
+- `details`, the song; `state`, up to five artists joined with `; `. Each
+  text is cut past 128 characters, the most Discord takes.
+- `assets`, `spotify:{cover}` and the album's name; `timestamps`, its start
+  and end; `party.id`, `spotify:{user id}`.
+- `sync_id`, `flags` 48 (play and sync) and `metadata` with `album_id`,
+  `artist_ids`, `type`, `button_urls` and the album as `context_uri`. A local
+  file has none of these.
+
+It clears when the player pauses or stops, on an advert, in a private
+session, and 5 seconds past the song's end with no word. A status of
+invisible sends none. It joins the presence after the custom status and the
+game, whatever `show_current_game` says, as that setting covers games.
+
+Where it differs from Discord's client: an idle account keeps sharing, since
+Yapfast only sees input in its own window; a link with `show_activity` off has
+no socket, as Yapfast has no playing along; a Spotify private session shares
+nothing, where Discord's client doesn't look for one; and a playlist isn't
+given as `context_uri`, since telling a public one from a private one takes a
+request for each.
+
 ## Game detection
 
 Settings → Game activity → Share the game you play is the account's own

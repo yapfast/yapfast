@@ -50,6 +50,7 @@ pub mod server_settings;
 pub mod service;
 pub mod settings;
 pub mod soundboard;
+mod spotify;
 pub mod stickers;
 pub mod stream;
 pub mod stream_connection;

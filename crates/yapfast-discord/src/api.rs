@@ -263,7 +263,7 @@ pub struct Api {
     /// Empty without a login; Discord may refresh it in READY.
     token: RwLock<String>,
     /// The API's base URL: Discord's, or the test server's.
-    base: String,
+    pub(crate) base: String,
     limits: Limits,
     refusals: Refusals,
     /// Downloads going at once, so opening the emoji picker or a busy channel
@@ -1246,6 +1246,22 @@ impl Api {
         ))
         .await
         .map(drop)
+    }
+
+    /// The services linked to this account, as READY's `connected_accounts`.
+    pub(crate) async fn connections(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/users/@me/connections"))
+            .await
+    }
+
+    /// A token for the linked Spotify account `id`, which Discord renews.
+    pub(crate) async fn spotify_access_token(&self, id: &str) -> Result<String> {
+        let path = format!("/users/@me/connections/spotify/{}/access-token", encode(id));
+        let answer = self.json(self.request(Method::GET, &path)).await?;
+        answer["access_token"]
+            .as_str()
+            .map(str::to_owned)
+            .context("Discord's answer had no token")
     }
 
     /// Ignores a friend request, cancels one, or ends a friendship.
