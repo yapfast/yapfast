@@ -383,15 +383,90 @@ fn theme_files(value: &serde_json::Value, found: &mut Vec<String>) {
             let fits = extension
                 .as_deref()
                 .is_some_and(|extension| THEME_EXTENSIONS.contains(&extension));
-            if fits && !text.contains("://") && !found.contains(text) {
+            // A pattern such as `wait/{nn}.png` names frames: see `cursor_frames`.
+            if fits && !text.contains("://") && !text.contains('{') && !found.contains(text) {
                 found.push(text.clone());
             }
         }
         serde_json::Value::Array(items) => items.iter().for_each(|item| theme_files(item, found)),
         serde_json::Value::Object(fields) => {
-            fields.values().for_each(|item| theme_files(item, found))
+            for (key, item) in fields {
+                theme_files(item, found);
+                // Animated cursors name their frames by pattern: see
+                // `cursor_frames`.
+                if key == "cursors" {
+                    cursor_frames(item, None, found);
+                }
+            }
         }
         _ => {}
+    }
+}
+
+/// The frame files a theme's animated cursors name by pattern, as
+/// `yapfast_core::themes::cursors` reads them: `{nn}` up to a sequence's
+/// `count` (at most 64), `{dir}` for the eight directions, `{speed}` for
+/// slow and fast, and each frame's larger size by the `hidpi` suffix.
+fn cursor_frames(value: &serde_json::Value, hidpi: Option<&str>, found: &mut Vec<String>) {
+    let serde_json::Value::Object(fields) = value else {
+        return;
+    };
+    let hidpi = fields
+        .get("hidpi")
+        .and_then(serde_json::Value::as_str)
+        .or(hidpi);
+    let count = fields
+        .get("count")
+        .and_then(serde_json::Value::as_u64)
+        .filter(|count| *count <= 64)
+        .unwrap_or(0) as usize;
+    let mut add = |text: &str| {
+        let mut paths = vec![text.to_owned()];
+        for (mark, values) in [
+            ("{dir}", &["e", "se", "s", "sw", "w", "nw", "n", "ne"][..]),
+            ("{speed}", &["slow", "fast"][..]),
+        ] {
+            if text.contains(mark) {
+                paths = paths
+                    .iter()
+                    .flat_map(|path| values.iter().map(move |value| path.replace(mark, value)))
+                    .collect();
+            }
+        }
+        if text.contains("{nn}") {
+            paths = paths
+                .iter()
+                .flat_map(|path| {
+                    (0..count).map(move |index| path.replace("{nn}", &format!("{index:02}")))
+                })
+                .collect();
+        }
+        for path in paths {
+            let larger = hidpi
+                .zip(path.strip_suffix(".png"))
+                .map(|(suffix, stem)| format!("{stem}{suffix}.png"));
+            for name in std::iter::once(path).chain(larger) {
+                if !found.contains(&name) {
+                    found.push(name);
+                }
+            }
+            if found.len() > THEME_FILES {
+                return;
+            }
+        }
+    };
+    for key in ["frames", "move", "sheet"] {
+        match fields.get(key) {
+            Some(serde_json::Value::String(text)) => add(text),
+            Some(serde_json::Value::Array(items)) => items
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .for_each(&mut add),
+            _ => {}
+        }
+    }
+    for item in fields.values() {
+        cursor_frames(item, hidpi, found);
     }
 }
 
@@ -676,6 +751,27 @@ mod tests {
         let mut found = Vec::new();
         theme_files(&value, &mut found);
         assert_eq!(found, ["previews/chat.png", "fonts/Body.ttf"]);
+    }
+
+    #[test]
+    fn animated_cursors_name_their_frames_by_pattern() {
+        let value: serde_json::Value = serde_json::from_str(
+            r#"{ "cursors": { "hidpi": "@2x",
+                 "wait": { "frames": "c/wait/{nn}.png", "count": 2 },
+                 "motion": { "default": { "move": "c/move/{dir}-{speed}.png",
+                     "settle": { "frames": ["c/s/{dir}.png"] } } },
+                 "trail": { "sheet": "c/trail.png" } } }"#,
+        )
+        .expect("JSON");
+        let mut found = Vec::new();
+        theme_files(&value, &mut found);
+        assert!(found.contains(&"c/wait/01@2x.png".to_owned()));
+        assert!(found.contains(&"c/move/nw-fast.png".to_owned()));
+        assert!(found.contains(&"c/s/ne@2x.png".to_owned()));
+        assert!(found.contains(&"c/trail@2x.png".to_owned()));
+        assert!(!found.iter().any(|name| name.contains('{')), "{found:?}");
+        // 2 × 2 wait, 16 × 2 move, 8 × 2 settle, 2 trail.
+        assert_eq!(found.len(), 4 + 32 + 16 + 2);
     }
 
     #[test]

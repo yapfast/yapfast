@@ -1,0 +1,82 @@
+// A theme's top bar (`chrome.topbar`): a thin bar across the window's top,
+// as a tiling desktop's. On the left the first servers as numbered
+// workspaces, the open one underlined; a label in the middle and one on the
+// right, their placeholders filled by Rust (`Chrome.bar`). Each workspace is
+// a button named for its server, reached with Tab and pressed with Enter or
+// Space. src/ui/theme_chrome.rs keeps its model; with no theme the bar isn't
+// made at all.
+import { Theme, Look } from "theme.slint";
+import { Chrome, Workspace } from "theme_chrome.slint";
+
+component WorkspaceButton inherits Rectangle {
+    in property <Workspace> space;
+    callback chosen();
+    property <bool> lit: root.space.current || touch.has-hover || focus.has-focus;
+    width: max(Chrome.topbar-size * 1.6, number.preferred-width + Chrome.topbar-size);
+    accessible-role: button;
+    accessible-label: root.space.name + (root.space.current ? ", open" : root.space.unread ? ", unread" : "");
+    accessible-action-default => { root.chosen(); }
+    forward-focus: focus;
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Return || event.text == " " {
+                root.chosen();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.chosen(); }
+    }
+    number := Text {
+        text: root.space.number;
+        font-family: Chrome.face(Look.mono); font-size: Chrome.topbar-size;
+        font-weight: root.space.current || root.space.unread ? 700 : 400;
+        color: root.lit ? Chrome.topbar-current : Chrome.topbar-ink;
+        horizontal-alignment: center; vertical-alignment: center; accessible-role: none;
+    }
+    if root.space.current: Rectangle {
+        x: (parent.width - self.width) / 2; y: parent.height - 3px;
+        width: number.preferred-width + 4px; height: 2px;
+        background: Chrome.topbar-underline;
+    }
+    if focus.has-focus: Rectangle {
+        border-width: 1px; border-color: Theme.focus-ring; border-radius: 2px;
+    }
+}
+
+export component TopBar inherits Rectangle {
+    in property <string> account-name;
+    in property <string> server-name;
+    in property <string> channel-name;
+    callback chosen(string /* server id */);
+    property <string> now: Look.bar-text(Chrome.now-playing, Chrome.topbar-decrypt);
+    background: Chrome.topbar-ground;
+    // The workspaces.
+    HorizontalLayout {
+        x: 6px; height: parent.height; spacing: 0px; alignment: start;
+        for space in Chrome.workspaces: WorkspaceButton {
+            space: space;
+            chosen => { root.chosen(space.id); }
+        }
+    }
+    centre-label := Text {
+        x: (parent.width - self.width) / 2;
+        width: min(self.preferred-width, parent.width * 0.4); height: parent.height;
+        text: Chrome.bar(Chrome.topbar-centre, root.account-name, root.server-name, root.channel-name, Chrome.now-playing, Chrome.time);
+        font-family: Chrome.face(Look.mono); font-size: Chrome.topbar-size; color: Chrome.topbar-ink;
+        vertical-alignment: center; overflow: elide;
+    }
+    right-label := Text {
+        x: parent.width - self.width - 10px;
+        width: min(self.preferred-width, parent.width * 0.3); height: parent.height;
+        text: Chrome.bar(Chrome.topbar-right, root.account-name, root.server-name, root.channel-name, root.now, Chrome.time);
+        accessible-label: Chrome.bar(Chrome.topbar-right, root.account-name, root.server-name, root.channel-name, Chrome.now-playing, Chrome.time);
+        font-family: Chrome.face(Look.mono); font-size: Chrome.topbar-size; color: Chrome.topbar-ink;
+        horizontal-alignment: right; vertical-alignment: center; overflow: elide;
+    }
+    // The hairline under it.
+    Rectangle { y: parent.height - 1px; height: 1px; background: Chrome.topbar-line; }
+}

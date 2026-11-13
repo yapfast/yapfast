@@ -347,13 +347,13 @@ pub struct Particles {
 
 closed! {
     /// Effects on the fixed event slots.
-    EventEffect { Ripple = "ripple", Gloss = "gloss", Highlighter = "highlighter", Stamp = "stamp", None = "none" }
+    EventEffect { Ripple = "ripple", Gloss = "gloss", Highlighter = "highlighter", Stamp = "stamp", Decrypt = "decrypt", None = "none" }
 }
 
 closed! {
     /// The event slots: a click on a button, the pointer on a button or a
     /// server, a channel chosen, a reaction added.
-    EventSlot { Click = "click", Hover = "hover", Select = "select", Reaction = "reaction", Row = "row" }
+    EventSlot { Click = "click", Hover = "hover", Select = "select", Reaction = "reaction", Row = "row", NameHover = "name_hover" }
 }
 
 impl EventSlot {
@@ -365,6 +365,7 @@ impl EventSlot {
             Self::Select => EventEffect::Highlighter,
             Self::Reaction => EventEffect::Stamp,
             Self::Row => EventEffect::Highlighter,
+            Self::NameHover => EventEffect::Decrypt,
         }
     }
 }
@@ -1144,13 +1145,14 @@ fn read_event(
             EventSlot::Click => 0x40ff_ffff,
             EventSlot::Hover => 0x38ff_ffff,
             EventSlot::Select | EventSlot::Row => 0xffff_e45c,
-            EventSlot::Reaction => 0,
+            EventSlot::Reaction | EventSlot::NameHover => 0,
         },
         duration: match slot {
             EventSlot::Click => 450.0,
             EventSlot::Hover => 600.0,
             EventSlot::Select | EventSlot::Row => 260.0,
             EventSlot::Reaction => 320.0,
+            EventSlot::NameHover => 450.0,
         },
     };
     for (key, value) in fields.into_iter().flatten() {
@@ -1300,5 +1302,15 @@ mod tests {
         let names = &art.text[&TextRole::Names];
         assert_eq!(names.outline, Some((1.0, 0xff00_0000)));
         assert_eq!(names.glow.map(|glow| glow.1), Some(4.0));
+    }
+
+    #[test]
+    fn a_name_under_the_pointer_decrypts() {
+        let hover =
+            art(r#"{ "events": { "name_hover": { "effect": "decrypt", "duration": 600 } } }"#)
+                .unwrap();
+        assert_eq!(hover.events[&EventSlot::NameHover].duration, 600.0);
+        assert!(art(r#"{ "events": { "name_hover": "ripple" } }"#).is_err());
+        assert!(art(r#"{ "events": { "click": "decrypt" } }"#).is_err());
     }
 }

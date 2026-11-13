@@ -362,6 +362,13 @@ export global Look {
     public pure function profile-text(text: string) -> string { self.fx-profile ? self.fx(2, text, self.fx-tick) : text }
     public pure function settings-text(text: string) -> string { self.fx-settings ? self.fx(3, text, self.fx-tick) : text }
     public pure function welcome-text(text: string) -> string { self.fx-welcome ? self.fx(4, text, self.fx-tick) : text }
+    /// A name under the pointer decrypts once (`art.events.name_hover`):
+    /// `name-hover` starts it as the pointer comes onto the name.
+    in property <bool> fx-name;
+    callback name-hover(string);
+    public pure function name-text(text: string, hovered: bool) -> string { self.fx-name && hovered ? self.fx(5, text, self.fx-tick) : text }
+    /// What's playing in a theme's top bar, decrypting as it changes.
+    public pure function bar-text(text: string, on: bool) -> string { on && text != "" ? self.fx(6, text, self.fx-tick) : text }
 }
 
 // One tooltip for the whole window, drawn above everything else.

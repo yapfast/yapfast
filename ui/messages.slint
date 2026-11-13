@@ -5,7 +5,7 @@ import { ListView, ScrollView } from "scrollview.slint";
 import { Theme, Tip, ReactionHover, Middle, Label, Twemoji, Look } from "theme.slint";
 import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
 import { Arrange, DashedOutline, RansomName } from "theme_layout.slint";
-import { ThemeContent } from "theme_content.slint";
+import { ThemeContent, IlluminatedInitial } from "theme_content.slint";
 import { ActionButton, IconButton, Avatar, Motion, Picture, UprightVolumeSlider, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField, ContextMenu, MenuRow, StyledName, NameStyleRow, ServerTagChip } from "controls.slint";
 import { FavoriteStar, GifFavorites } from "gifs.slint";
 import { PluginPart, PluginWidgets } from "plugins.slint";
@@ -2397,6 +2397,7 @@ export component HistoryEdge inherits HorizontalLayout {
             : "This is the start of #" + root.room-name + ".";
         text: Chrome.start != "" && !root.room-direct && !root.room-thread ? Chrome.fill(Chrome.start, "channel", root.room-name) : self.stock;
         accessible-label: self.stock;
+        font-family: Chrome.start != "" ? Chrome.font : "";
         color: Theme.muted; font-size: 14px; vertical-alignment: center; overflow: elide;
     }
     if !root.start: Rectangle {
@@ -2941,6 +2942,12 @@ export component MessageContent inherits VerticalLayout {
                 x: 0px; y: root.header ? 24px : 2px; size: root.avatar;
                 initial: message.initial; tint: message.tint; picture: message.picture; picture-url: message.picture-url;
                 decoration-url: message.decoration-url; animate: root.active-item == message.item;
+                // A theme's illuminated initial stands in its place.
+                visible: !ThemeContent.initials || !ThemeContent.lettered(message.author, root.active-item == message.item);
+            }
+            if message.first && message.notice == "" && ThemeContent.initials
+                && ThemeContent.lettered(message.author, root.active-item == message.item): IlluminatedInitial {
+                x: 0px; y: root.header ? 24px : 2px; size: root.avatar; name: message.author;
             }
             // Clicking the author's avatar shows their card beside it;
             // a right click opens their menu. Their name does the same.
@@ -3079,7 +3086,8 @@ export component MessageContent inherits VerticalLayout {
                     author-plain := Text {
                         stroke: Art.outline(Art.names); stroke-width: Art.names.outline; stroke-style: outside;
                         width: parent.width; height: parent.height; visible: root.plain-name && !root.ransom-name && (message.name-style.length == 0);
-                        text: message.author; color: message.has-color ? message.color : Theme.text;
+                        text: Look.name-text(message.author, author-touch.has-hover); accessible-label: message.author;
+                        color: message.has-color ? message.color : Theme.text;
                         font-size: root.name-size; vertical-alignment: center; overflow: elide;
                         // A styled name measures in its own font.
                         font-family: message.name-style[0].family != "" ? message.name-style[0].family : Look.name-font("");
@@ -3106,6 +3114,7 @@ export component MessageContent inherits VerticalLayout {
                     }
                     author-touch := TouchArea {
                         enabled: message.sender != "";
+                        changed has-hover => { if self.has-hover && Look.fx-name { Look.name-hover(message.author); } }
                         mouse-cursor: self.enabled ? MouseCursor.pointer : MouseCursor.default;
                         clicked => { root.author-card(message.item, message.sender, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                         pointer-event(event) => {

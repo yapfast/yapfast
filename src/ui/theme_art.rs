@@ -436,6 +436,8 @@ pub fn apply(
                     global.set_row_highlighter_color(colour);
                     global.set_row_highlighter_time(time);
                 }
+                // `theme_look` plays it, as the text effects.
+                EventSlot::NameHover => {}
             }
         }
         if let Some(time) = hover.0 {

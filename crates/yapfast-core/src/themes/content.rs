@@ -13,7 +13,7 @@
 use serde_json::Value;
 
 use super::layout::closed;
-use super::package::{Error, colour_at, named, number, object};
+use super::package::{Error, Role, colour_at, named, number, object};
 
 closed! {
     /// The shape every avatar is cut to.
@@ -83,6 +83,54 @@ pub struct Avatars {
     /// A ring in the theme's colour around every avatar, in place of
     /// decorations: ARGB and width in pixels (1–4).
     pub ring: Option<(u32, f32)>,
+    /// `mode: "initial"`: the person's first letter beside their messages
+    /// in place of their picture, as an illuminated initial.
+    pub initials: Option<Initials>,
+}
+
+/// An illuminated initial: a person's first letter, drawn in one of the
+/// theme's faces, in place of their avatar beside messages. A name that
+/// starts with a letter without case, such as CJK or an emoji, keeps its
+/// picture.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Initials {
+    /// The type role whose face draws it, such as a blackletter `headings`.
+    pub font: Role,
+    /// The letter's colour, ARGB; the theme's `accent-text` when not set.
+    pub colour: Option<u32>,
+    /// Its size against the avatar's, 0.4–1.2.
+    pub size: f32,
+    /// A ground under it, ARGB; none when not set.
+    pub ground: Option<u32>,
+    /// An outline round it, ARGB and pixels (1–4).
+    pub border: Option<(u32, f32)>,
+    /// The picture shows while the pointer is on the message.
+    pub reveal: bool,
+    /// The member list draws initials too.
+    pub members: bool,
+}
+
+impl Default for Initials {
+    fn default() -> Self {
+        Self {
+            font: Role::Headings,
+            colour: None,
+            size: 0.8,
+            ground: None,
+            border: None,
+            reveal: true,
+            members: false,
+        }
+    }
+}
+
+/// The letter an illuminated initial shows for a display name: its first
+/// character, as a capital, when it's a letter with case (Latin, Greek,
+/// Cyrillic and the like); none otherwise, and the picture shows.
+pub fn initial_letter(name: &str) -> Option<String> {
+    let first = name.trim_start().chars().next()?;
+    (first.is_alphabetic() && (first.is_uppercase() || first.is_lowercase()))
+        .then(|| first.to_uppercase().collect())
 }
 
 /// `content.names`.
@@ -158,6 +206,9 @@ impl Content {
         }
         if self.avatars.shape != AvatarShape::Keep {
             parts.push(format!("{} avatars", self.avatars.shape.name()));
+        }
+        if self.avatars.initials.is_some() {
+            parts.push("illuminated initials".into());
         }
         if self.avatars.ring.is_some() {
             parts.push("avatar rings".into());
@@ -293,6 +344,19 @@ fn read_avatars(
                 }
             },
             "decorations" => avatars.decorations = named(value, &at, Shown::ALL, Shown::name)?,
+            "mode" => match value.as_str() {
+                Some("initial") => {
+                    avatars.initials.get_or_insert_with(Initials::default);
+                }
+                Some("picture") => avatars.initials = None,
+                _ => {
+                    return Err(Error(format!("\"{at}\" is \"picture\" or \"initial\"")));
+                }
+            },
+            "initial" => {
+                let initials = avatars.initials.get_or_insert_with(Initials::default);
+                read_initial(value, &at, initials, notes)?;
+            }
             "ring" => {
                 let fields = object(value, &at)?;
                 let colour = fields
@@ -306,6 +370,55 @@ fn read_avatars(
                 avatars.ring = Some((colour, width));
             }
             _ => notes.push(format!("\"{at}\" isn't something avatars takes; ignored")),
+        }
+    }
+    Ok(())
+}
+
+fn read_initial(
+    value: &Value,
+    here: &str,
+    initials: &mut Initials,
+    notes: &mut Vec<String>,
+) -> Result<(), Error> {
+    for (key, value) in object(value, here)? {
+        let at = format!("{here}.{key}");
+        match key.as_str() {
+            "font" => initials.font = named(value, &at, &Role::ALL, Role::name)?,
+            "colour" => initials.colour = Some(colour_at(value, &at)?),
+            "size" => initials.size = number(value, &at, (0.4, 1.2))?,
+            "ground" => initials.ground = Some(colour_at(value, &at)?),
+            "border" => {
+                let fields = object(value, &at)?;
+                let colour = fields
+                    .get("colour")
+                    .ok_or_else(|| Error(format!("\"{at}\" needs \"colour\"")))
+                    .and_then(|value| colour_at(value, &format!("{at}.colour")))?;
+                let width = match fields.get("width") {
+                    Some(width) => number(width, &format!("{at}.width"), (1.0, 4.0))?,
+                    None => 1.0,
+                };
+                initials.border = Some((colour, width));
+            }
+            "hover" => {
+                initials.reveal = match value.as_str() {
+                    Some("picture") => true,
+                    Some("initial") => false,
+                    _ => {
+                        return Err(Error(format!(
+                            "\"{at}\" is \"picture\" (the avatar shows under the pointer) or \"initial\""
+                        )));
+                    }
+                }
+            }
+            "members" => {
+                initials.members = value
+                    .as_bool()
+                    .ok_or_else(|| Error(format!("\"{at}\" is true or false")))?
+            }
+            _ => notes.push(format!(
+                "\"{at}\" isn't something an initial takes; ignored"
+            )),
         }
     }
     Ok(())
@@ -480,6 +593,37 @@ mod tests {
                 .iter()
                 .any(|note| note.contains("content.sparkle"))
         );
+    }
+
+    #[test]
+    fn reads_illuminated_initials() {
+        let package = theme(
+            r##"{ "avatars": { "mode": "initial", "initial": { "font": "names", "colour": "#9e263b",
+                  "size": 0.9, "ground": "#09090b", "border": { "colour": "#29252a" }, "hover": "initial",
+                  "members": true } } }"##,
+        )
+        .unwrap();
+        assert!(package.notes.is_empty(), "{:?}", package.notes);
+        let content = package.resolve(Mode::Dark).unwrap().content;
+        let initials = content.avatars.initials.unwrap();
+        assert_eq!(initials.font, Role::Names);
+        assert_eq!(initials.colour, Some(0xff9e263b));
+        assert_eq!(initials.border, Some((0xff29252a, 1.0)));
+        assert!(!initials.reveal && initials.members);
+        assert!(content.phrase().unwrap().contains("illuminated initials"));
+        let plain = theme(r#"{ "avatars": { "mode": "initial" } }"#).unwrap();
+        let initials = plain.resolve(Mode::Dark).unwrap().content.avatars.initials;
+        assert_eq!(initials, Some(Initials::default()));
+        assert!(theme(r#"{ "avatars": { "mode": "letters" } }"#).is_err());
+        assert!(theme(r#"{ "avatars": { "initial": { "size": 3 } } }"#).is_err());
+        assert!(theme(r#"{ "avatars": { "initial": { "font": "fraktur.ttf" } } }"#).is_err());
+        assert_eq!(initial_letter("bob"), Some("B".into()));
+        assert_eq!(initial_letter("  élodie"), Some("É".into()));
+        assert_eq!(initial_letter("Ωmega"), Some("Ω".into()));
+        assert_eq!(initial_letter("😀 sam"), None);
+        assert_eq!(initial_letter("山田"), None);
+        assert_eq!(initial_letter("_x"), None);
+        assert_eq!(initial_letter(""), None);
     }
 
     #[test]

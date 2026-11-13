@@ -6,17 +6,65 @@
 //! screen. A theme without `chrome` leaves every value at its default, so the
 //! window draws its stock text and the fill callback is never asked.
 
-use slint::{Color, ComponentHandle, SharedString};
-use yapfast_core::themes::chrome::{
-    Caret, Chrome as Words, Hide, Label, Place, Presence, TreeList, fill, split_group, split_typing,
-};
-use yapfast_ui::{Chrome, YapfastWindow};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+use std::time::Duration;
 
-/// Answers `Chrome.fill`. Called once per window.
+use slint::{Color, ComponentHandle, Model as _, ModelRc, SharedString, VecModel};
+use yapfast_core::themes::chrome::{
+    BarEffect, Caret, Chrome as Words, Hide, Label, Place, Presence, TopBar, TreeList, Workspaces,
+    fill, split_group, split_typing,
+};
+use yapfast_ui::{Chrome, Look, ThemeContent, Workspace, YapfastWindow};
+
+/// The top bar while a theme shows one: what its workspaces are, and the
+/// clock that keeps `{time}`.
+struct Bar {
+    count: usize,
+    from: Workspaces,
+    playing: bool,
+    clock: Option<slint::Timer>,
+    model: Rc<VecModel<Workspace>>,
+}
+
+thread_local! {
+    static BAR: RefCell<Option<Bar>> = const { RefCell::new(None) };
+}
+
+/// Answers `Chrome.fill` and the other callbacks the chrome asks. Called
+/// once per window.
 pub fn init(window: &YapfastWindow) {
-    window
-        .global::<Chrome>()
-        .on_fill(|label, kind, text| filled(&label, &kind, &text));
+    let chrome = window.global::<Chrome>();
+    chrome.on_fill(|label, kind, text| filled(&label, &kind, &text));
+    chrome.on_bar(|template, name, server, channel, now, time| {
+        fill(
+            &template,
+            &[
+                ("name", name.as_str()),
+                ("server", server.as_str()),
+                ("channel", channel.as_str()),
+                ("now_playing", now.as_str()),
+                ("time", time.as_str()),
+            ],
+        )
+        .into()
+    });
+    chrome.on_typed(|text, count| {
+        let count = usize::try_from(count).unwrap_or(0);
+        text.chars().take(count).collect::<String>().into()
+    });
+    window.global::<ThemeContent>().on_letter(|name| {
+        yapfast_core::themes::content::initial_letter(&name)
+            .unwrap_or_default()
+            .into()
+    });
+    let weak = window.as_weak();
+    window.global::<Look>().on_name_hover(move |name| {
+        if let Some(window) = weak.upgrade() {
+            super::theme_look::name_hovered(&window, name);
+        }
+    });
 }
 
 /// A label with its placeholders filled from what the interface passes.
@@ -65,6 +113,228 @@ pub fn reset(window: &YapfastWindow) {
     ui.set_tree_token(0);
     ui.set_tree_colour_set(Color::default());
     ui.set_folders(false);
+    ui.set_font(SharedString::new());
+    ui.set_topbar_height(0.);
+    ui.set_console(false);
+    ui.set_console_typing(0);
+    ui.set_console_caret(Color::default());
+    // The bar's workspaces stay, so a theme shown again (as after a
+    // protected dialog) has them at once; its clock stops.
+    BAR.with_borrow_mut(|bar| {
+        if let Some(bar) = bar {
+            bar.clock = None;
+        }
+    });
+}
+
+/// The chrome's face, the top bar and the console composer, which need the
+/// theme's faces and motion settings. `face` is the family of the type role
+/// `chrome.font` names; `still` keeps the console's line and placeholder
+/// from moving.
+pub fn apply_more(window: &YapfastWindow, words: &Words, face: Option<&str>, still: bool) {
+    let ui = window.global::<Chrome>();
+    if let Some(face) = face {
+        ui.set_font(face.into());
+    }
+    if let Some(console) = &words.console {
+        ui.set_console(true);
+        // Unset, each follows the theme's colour: see `ui/theme_chrome.slint`.
+        ui.set_console_line_set(Color::from_argb_encoded(console.line.unwrap_or(0)));
+        ui.set_console_focus_set(Color::from_argb_encoded(console.focus.unwrap_or(0)));
+        ui.set_console_draw(if still { 0 } else { console.draw as i64 });
+        ui.set_console_typing(if still { 0 } else { console.typing as i64 });
+        ui.set_console_caret(Color::from_argb_encoded(console.caret.unwrap_or(0)));
+    }
+    match &words.topbar {
+        Some(bar) => show_bar(window, bar, still),
+        None => {
+            if BAR.with_borrow_mut(Option::take).is_some() {
+                ui.set_workspaces(ModelRc::default());
+                ui.set_now_playing(SharedString::new());
+            }
+        }
+    }
+}
+
+fn show_bar(window: &YapfastWindow, bar: &TopBar, still: bool) {
+    let ui = window.global::<Chrome>();
+    ui.set_topbar_height(bar.height);
+    ui.set_topbar_size(bar.size);
+    ui.set_topbar_centre(bar.centre.as_str().into());
+    ui.set_topbar_right(bar.right.as_str().into());
+    // Unset, each follows the theme's colour: see `ui/theme_chrome.slint`.
+    let set = |colour: Option<u32>| Color::from_argb_encoded(colour.unwrap_or(0));
+    ui.set_topbar_ground_set(set(bar.ground));
+    ui.set_topbar_ink_set(set(bar.text));
+    ui.set_topbar_current_set(set(bar.current));
+    ui.set_topbar_underline_set(set(bar.underline));
+    ui.set_topbar_line_set(set(bar.line));
+    ui.set_topbar_decrypt(bar.effect == BarEffect::Decrypt && !still);
+    let kept = BAR
+        .with_borrow_mut(Option::take)
+        .filter(|kept| kept.count == bar.workspaces as usize && kept.from == bar.from);
+    let model = kept.map_or_else(|| Rc::new(VecModel::default()), |kept| kept.model);
+    ui.set_workspaces(ModelRc::from(model.clone()));
+    let clock = bar.shows_time().then(|| {
+        let weak = window.as_weak();
+        let tick = move || {
+            if let Some(window) = weak.upgrade() {
+                let seconds = yapfast_core::clock::now_ms() / 1000;
+                let time = yapfast_core::clock::time_on(seconds, window.get_twelve_hour_clock());
+                window.global::<Chrome>().set_time(time.into());
+            }
+        };
+        tick();
+        // Each minute, a second after it turns.
+        let timer = slint::Timer::default();
+        timer.start(
+            slint::TimerMode::Repeated,
+            Duration::from_secs(1),
+            move || {
+                if yapfast_core::clock::now_ms() / 1000 % 60 <= 1 {
+                    tick();
+                }
+            },
+        );
+        timer
+    });
+    BAR.set(Some(Bar {
+        count: bar.workspaces as usize,
+        from: bar.from,
+        playing: bar.shows_playing(),
+        clock,
+        model,
+    }));
+}
+
+/// The top bar's workspaces from the servers in the rail's order, when a
+/// theme shows the bar.
+pub fn workspaces(state: &yapfast_core::application::AppState) {
+    BAR.with_borrow(|bar| {
+        let Some(bar) = bar else { return };
+        let selected = match &state.navigation {
+            yapfast_core::application::Navigation::Server(id) => Some(id.as_str()),
+            _ => None,
+        };
+        let unread_rooms: HashMap<&str, bool> = state
+            .rooms
+            .iter()
+            .map(|room| (room.id.as_str(), room.mentions > 0 || room.unread > 0))
+            .collect();
+        let unread = |server: &yapfast_core::chat::ChatServer| {
+            !server.muted
+                && server
+                    .channels
+                    .iter()
+                    .any(|channel| unread_rooms.get(channel.as_str()).copied().unwrap_or(false))
+        };
+        // Each workspace: the server it opens, its name, whether it's open
+        // and whether it's unread.
+        let mut rows: Vec<Workspace> = Vec::new();
+        let mut push = |id: &str, name: &str, current: bool, unread: bool| {
+            if rows.len() < bar.count {
+                rows.push(Workspace {
+                    id: id.into(),
+                    number: (rows.len() + 1).to_string().into(),
+                    name: name.into(),
+                    current,
+                    unread,
+                });
+            }
+        };
+        match bar.from {
+            Workspaces::Servers => {
+                for server in &state.servers {
+                    push(
+                        &server.id,
+                        &server.name,
+                        selected == Some(server.id.as_str()),
+                        unread(server),
+                    );
+                }
+            }
+            Workspaces::Folders => {
+                let mut servers = state.servers.iter().peekable();
+                while let Some(server) = servers.next() {
+                    let Some(folder) = &server.folder else {
+                        push(
+                            &server.id,
+                            &server.name,
+                            selected == Some(server.id.as_str()),
+                            unread(server),
+                        );
+                        continue;
+                    };
+                    let mut inside = vec![server];
+                    while let Some(next) =
+                        servers.next_if(|next| next.folder.as_ref() == Some(folder))
+                    {
+                        inside.push(next);
+                    }
+                    // A folder opens the server of it that's open, or its first.
+                    let open = inside
+                        .iter()
+                        .find(|server| selected == Some(server.id.as_str()))
+                        .unwrap_or(&inside[0]);
+                    let name = folder.name.clone().unwrap_or_else(|| open.name.clone());
+                    push(
+                        &open.id,
+                        &name,
+                        inside
+                            .iter()
+                            .any(|server| selected == Some(server.id.as_str())),
+                        inside.iter().any(|server| unread(server)),
+                    );
+                }
+            }
+        }
+        let same = bar.model.row_count() == rows.len()
+            && rows
+                .iter()
+                .enumerate()
+                .all(|(index, row)| bar.model.row_data(index).as_ref() == Some(row));
+        if !same {
+            bar.model.set_vec(rows);
+        }
+    });
+}
+
+/// What's playing on the account, `title · artist`, when a theme's top bar
+/// shows it.
+pub fn now_playing(window: &YapfastWindow, state: &yapfast_core::application::AppState) {
+    let wanted = BAR.with_borrow(|bar| bar.as_ref().is_some_and(|bar| bar.playing));
+    if !wanted {
+        return;
+    }
+    use yapfast_core::chat::ActivityKind;
+    let own = state.discord_user.as_deref();
+    let listed = own
+        .and_then(|own| state.person(own))
+        .map(|person| person.activities);
+    let activities = listed
+        .filter(|activities| !activities.is_empty())
+        .or_else(|| {
+            state
+                .account_profile
+                .as_ref()
+                .map(|profile| profile.activities.clone())
+        });
+    let line = activities
+        .iter()
+        .flat_map(|activities| activities.iter())
+        .find(|activity| activity.kind == ActivityKind::Listening)
+        .map(|activity| {
+            let title = activity.details.as_deref().unwrap_or(&*activity.name);
+            match activity.state.as_deref() {
+                Some(artist) if !artist.is_empty() => format!("{title} · {artist}"),
+                _ => title.to_owned(),
+            }
+        })
+        .unwrap_or_default();
+    let chrome = window.global::<Chrome>();
+    if chrome.get_now_playing().as_str() != line {
+        chrome.set_now_playing(line.into());
+    }
 }
 
 /// Sets a theme's chrome.
@@ -201,6 +471,87 @@ fn set_status(ui: &Chrome<'_>, presence: Presence, text: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_top_bar_numbers_servers_and_shows_whats_playing() {
+        use std::sync::Arc;
+        use yapfast_core::application::{AppState, Navigation};
+        use yapfast_core::chat::{Activity, ActivityKind, ChatServer, Profile};
+        i_slint_backend_testing::init_no_event_loop();
+        let window = YapfastWindow::new().unwrap();
+        init(&window);
+        let words = Words {
+            topbar: Some(TopBar {
+                workspaces: 2,
+                right: "{now_playing}".into(),
+                ..TopBar::default()
+            }),
+            ..Words::default()
+        };
+        apply_more(&window, &words, Some("Mono"), false);
+        let chrome = window.global::<Chrome>();
+        assert_eq!(chrome.get_topbar_height(), 26.);
+        assert_eq!(chrome.get_font(), "Mono");
+        let server = |id: &str, name: &str| {
+            Arc::new(ChatServer {
+                id: id.into(),
+                name: name.into(),
+                ..ChatServer::default()
+            })
+        };
+        let mut state = AppState::default();
+        state.servers = vec![
+            server("a", "Alpha"),
+            server("b", "Beta"),
+            server("c", "Gamma"),
+        ];
+        state.navigation = Navigation::Server("b".into());
+        workspaces(&state);
+        let rows = chrome.get_workspaces();
+        assert_eq!(rows.row_count(), 2, "only as many as the theme asks");
+        let second = rows.row_data(1).unwrap();
+        assert_eq!(
+            (second.number.as_str(), second.name.as_str()),
+            ("2", "Beta")
+        );
+        assert!(second.current && !rows.row_data(0).unwrap().current);
+        state.account_profile = Some(Arc::new(Profile {
+            activities: Arc::from([Activity {
+                kind: ActivityKind::Listening,
+                name: "Spotify".into(),
+                details: Some("Low Water".into()),
+                state: Some("Harbor Lights".into()),
+                party: None,
+                application_id: None,
+                start: None,
+                end: None,
+                large_image: None,
+                large_text: None,
+                small_image: None,
+                small_text: None,
+                url: None,
+                link: None,
+                emoji: None,
+            }]),
+            ..Profile::default()
+        }));
+        now_playing(&window, &state);
+        assert_eq!(chrome.get_now_playing(), "Low Water · Harbor Lights");
+        assert_eq!(
+            chrome.invoke_bar(
+                "{name}@{server} {now_playing}".into(),
+                "xoey".into(),
+                "hurt".into(),
+                "general".into(),
+                "song".into(),
+                "12:00".into()
+            ),
+            "xoey@hurt song"
+        );
+        assert_eq!(chrome.invoke_typed("message".into(), 3), "mes");
+        reset(&window);
+        assert_eq!(chrome.get_topbar_height(), 0.);
+    }
 
     #[test]
     fn fills_what_the_interface_passes() {

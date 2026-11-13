@@ -939,6 +939,8 @@ pub struct Resolved {
     pub content: super::content::Content,
     /// Mouse cursors by kind: [`super::cursors`].
     pub cursors: BTreeMap<super::cursors::Kind, super::cursors::Cursor>,
+    /// What animates them: frames, transitions, motion and a trail.
+    pub animated_cursors: super::cursors::Animated,
     /// The words and marks around the window: [`super::chrome`].
     pub chrome: super::chrome::Chrome,
 }
@@ -1324,6 +1326,7 @@ impl Package {
                     cursors,
                     &place("cursors"),
                     &mut resolved.cursors,
+                    &mut resolved.animated_cursors,
                     notes,
                 )?;
             }
@@ -1366,6 +1369,7 @@ impl Package {
                     .files()
                     .into_iter()
                     .chain(resolved.layout.files())
+                    .chain(resolved.animated_cursors.files())
                 {
                     if !files.contains(&picture) {
                         files.push(picture);

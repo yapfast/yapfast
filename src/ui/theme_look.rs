@@ -649,6 +649,7 @@ pub fn reset(window: &YapfastWindow) {
     look.set_fx_profile(false);
     look.set_fx_settings(false);
     look.set_fx_welcome(false);
+    look.set_fx_name(false);
     let style = window.global::<ClientStyle>();
     style.set_text_size_theme(-1.);
     style.set_sidebar_width_theme(-1.);
@@ -702,6 +703,24 @@ fn paint(window: &YapfastWindow) {
             state.reduced,
         );
         super::theme_chrome::apply(window, &resolved.chrome);
+        let family = |role: Role| {
+            applied
+                .fonts
+                .iter()
+                .find(|(shown, _)| *shown == role)
+                .map(|(_, family)| family.as_str())
+                .or((role == Role::Code).then_some("monospace"))
+        };
+        super::theme_chrome::apply_more(
+            window,
+            &resolved.chrome,
+            resolved.chrome.font.and_then(family),
+            state.performance == Performance::Light || state.reduced,
+        );
+        if let Some(initials) = resolved.content.avatars.initials {
+            super::theme_content::set_initial_face(window, family(initials.font).unwrap_or(""));
+        }
+        super::theme_cursor::set_motion(state.performance, state.reduced);
         let look = window.global::<Look>();
         let tokens = window.global::<yapfast_ui::Theme>();
         for (token, paint) in &resolved.colours {
@@ -839,6 +858,13 @@ fn paint(window: &YapfastWindow) {
             (motion.hover_in, motion.hover_out),
         );
         let plays = motion::effects_play(state.performance, state.reduced);
+        look.set_fx_name(
+            plays
+                && resolved
+                    .art
+                    .events
+                    .contains_key(&yapfast_core::themes::package::art::EventSlot::NameHover),
+        );
         for effect in &resolved.effects {
             let on = plays;
             match effect.slot {
@@ -1219,14 +1245,7 @@ pub fn effect_text(window: &YapfastWindow, slot: i32, text: SharedString) -> Sha
         let Ok(mut state) = state.try_borrow_mut() else {
             return None;
         };
-        let effect = state
-            .applied
-            .as_ref()?
-            .resolved
-            .effects
-            .iter()
-            .find(|effect| effect.slot.index() == slot)
-            .copied()?;
+        let (effect, duration) = effect_for(&state.applied.as_ref()?.resolved, slot)?;
         let playing = state.effects.entry(slot).or_insert_with(|| Playing {
             text: SharedString::new(),
             started: Instant::now(),
@@ -1239,10 +1258,10 @@ pub fn effect_text(window: &YapfastWindow, slot: i32, text: SharedString) -> Sha
         }
         let elapsed = playing.started.elapsed().as_secs_f32() * 1000.0;
         Some(motion::effect_text(
-            effect.effect,
+            effect,
             &text,
             elapsed,
-            effect.duration,
+            duration,
             playing.seed,
         ))
     });
@@ -1253,6 +1272,65 @@ pub fn effect_text(window: &YapfastWindow, slot: i32, text: SharedString) -> Sha
         keep_effects_moving(window);
     }
     shown.into()
+}
+
+/// The text slot index a name under the pointer plays its effect in, and
+/// the top bar's right label; after `TextSlot::ALL`'s.
+const NAME_SLOT: usize = 5;
+const BAR_SLOT: usize = 6;
+
+/// The effect a text slot plays, and its milliseconds: `effects`' slots,
+/// then a name under the pointer (`art.events.name_hover`) and what's
+/// playing in the top bar.
+fn effect_for(
+    resolved: &yapfast_core::themes::package::Resolved,
+    slot: usize,
+) -> Option<(yapfast_core::themes::package::Effect, f32)> {
+    use yapfast_core::themes::chrome::BarEffect;
+    use yapfast_core::themes::package::{Effect, art::EventSlot};
+    match slot {
+        NAME_SLOT => resolved
+            .art
+            .events
+            .get(&EventSlot::NameHover)
+            .map(|event| (Effect::Decrypt, event.duration)),
+        BAR_SLOT => resolved
+            .chrome
+            .topbar
+            .as_ref()
+            .filter(|bar| bar.effect == BarEffect::Decrypt)
+            .map(|_| (Effect::Decrypt, 700.0)),
+        _ => resolved
+            .effects
+            .iter()
+            .find(|effect| effect.slot.index() == slot)
+            .map(|effect| (effect.effect, effect.duration)),
+    }
+}
+
+/// A name came under the pointer: its effect plays from the start.
+pub fn name_hovered(window: &YapfastWindow, name: SharedString) {
+    restart(window, NAME_SLOT, name);
+}
+
+fn restart(window: &YapfastWindow, slot: usize, text: SharedString) {
+    let restarted = STATE.with(|state| {
+        let Ok(mut state) = state.try_borrow_mut() else {
+            return false;
+        };
+        let playing = state.effects.entry(slot).or_insert_with(|| Playing {
+            text: SharedString::new(),
+            started: Instant::now(),
+            seed: 0,
+        });
+        playing.text = text;
+        playing.started = Instant::now();
+        playing.seed = playing.seed.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        true
+    });
+    if restarted {
+        keep_effects_moving(window);
+    }
 }
 
 /// Advances `Look.fx-tick` while an effect plays, and stops once none does.
@@ -1287,11 +1365,9 @@ fn keep_effects_moving(window: &YapfastWindow) {
                 // starts it again.
                 let longest = STATE.with_borrow(|state| {
                     state.applied.as_ref().map_or(0.0, |applied| {
-                        applied
-                            .resolved
-                            .effects
-                            .iter()
-                            .map(|effect| effect.duration)
+                        (0..=BAR_SLOT)
+                            .filter_map(|slot| effect_for(&applied.resolved, slot))
+                            .map(|(_, duration)| duration)
                             .fold(0.0, f32::max)
                     })
                 });
