@@ -6,7 +6,6 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
-use crate::camera;
 use crate::picture;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -17,17 +17,16 @@ pub mod declick;
 pub mod decode;
 pub mod device;
 // A picture the compositor drew, as the descriptor it is: Linux's alone.
-#[cfg(target_os = "linux")]
-pub mod dmabuf;
 #[cfg(all(feature = "discord", d3d11enc))]
 pub mod d3d11;
+#[cfg(target_os = "linux")]
+pub mod dmabuf;
 #[cfg(dup)]
 pub mod dup;
 #[cfg(feature = "discord")]
 pub mod encode;
 pub mod frames;
 pub mod geometry;
-pub mod source;
 pub mod gpu;
 pub mod lease;
 pub mod logging;
@@ -39,6 +38,7 @@ pub mod pressure;
 pub mod rtcp;
 pub mod rtp;
 pub mod sound;
+pub mod source;
 #[cfg(feature = "discord")]
 pub mod stream_audio;
 pub mod surplus;

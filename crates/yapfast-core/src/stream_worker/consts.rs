@@ -15,10 +15,6 @@ pub const PREVIEW_WIDTH: u32 = 1280;
 pub const PREVIEW_HEIGHT: u32 = 720;
 // The sizes a stream is sent and shown at, which the media crate's geometry
 // owns: the capture scales to them and so does this worker.
-pub(crate) use crate::geometry::{
-    CONSTRAINED_HEIGHT, CONSTRAINED_WIDTH, PREVIEW_LONG_EDGE, SHARE_HEIGHT, SHARE_WIDTH,
-    WATCH_HEIGHT, WATCH_WIDTH,
-};
 /// The picture a watched stream starts at, until the UI says how large the
 /// tile showing it is: a tile of the call's five-up grid, so a stream shown
 /// in one costs what it shows from its first frame. The UI's next tick lifts

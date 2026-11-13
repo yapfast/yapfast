@@ -97,8 +97,11 @@ x11rb = { version = "0.13.2", default-features = false, features = [
     "randr",
 ] }
 
-[build-dependencies]
 # Which of FFmpeg's encoders, decoders and filters the library this build links
 # was configured with, as its own build script answered: what decides whether a
-# card's path through it exists here at all.
+# card's path through it exists here at all. Only the Linux shims borrow those
+# headers, and only there is the answer asked for: a build dependency on the
+# same crate a target links is a second copy of it compiled for the host, whose
+# build script answers for a configuration nothing links.
+[target.'cfg(target_os = "linux")'.build-dependencies]
 ffmpeg-src = { path = "../../vendor/ffmpeg-src" }

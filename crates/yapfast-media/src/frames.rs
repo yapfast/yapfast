@@ -1254,7 +1254,6 @@ mod writer;
 pub use layout::*;
 pub use ring::*;
 pub use slots::*;
-pub use writer::*;
 
 pub use ring::Frames;
 pub use slots::Drawn;

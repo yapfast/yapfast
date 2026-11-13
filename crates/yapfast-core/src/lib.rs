@@ -41,8 +41,6 @@ pub mod cuda;
 #[cfg(all(feature = "discord", d3d11enc))]
 pub use yapfast_media::d3d11;
 #[cfg(feature = "discord")]
-use yapfast_media::declick;
-#[cfg(feature = "discord")]
 pub use yapfast_media::decode;
 #[cfg(feature = "discord")]
 mod dereverb;

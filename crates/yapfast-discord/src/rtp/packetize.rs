@@ -527,13 +527,13 @@ pub(crate) struct Piece {
 
 // The shapes a frame's bytes come in, and the header the packetizer writes,
 // are the media crate's: a decoder there reads the same units.
-pub use yapfast_media::bitstream::{nal_units, obu_elements};
 pub(crate) use yapfast_media::bitstream::{
     Element, NalUnits, OBU_EXTENSION, OBU_HAS_SIZE, OBU_PADDING, OBU_SEQUENCE_HEADER,
     OBU_TEMPORAL_DELIMITER, OBU_TILE_LIST, read_leb128, read_obu,
 };
-pub(crate) use yapfast_media::rtp::{HEADER, VIDEO_ORIENTATION, orientation};
+pub use yapfast_media::bitstream::{nal_units, obu_elements};
 pub use yapfast_media::rtp::Orientation;
+pub(crate) use yapfast_media::rtp::{HEADER, VIDEO_ORIENTATION, orientation};
 
 pub(crate) fn write_leb128(mut value: usize, out: &mut Vec<u8>) {
     loop {

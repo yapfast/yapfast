@@ -561,14 +561,9 @@ mod tests {
     #[ignore = "needs a screen and an NVIDIA GPU: it duplicates the primary display on an encoder's device"]
     fn a_duplication_opens_on_a_device_it_was_given() {
         let target = Target::primary().expect("a primary display to duplicate");
-        let encoder = crate::d3d11::D3d11Encoder::new(
-            crate::codec::Codec::H264,
-            1920,
-            1080,
-            60,
-            8000,
-        )
-        .expect("an NVENC encoder on this machine");
+        let encoder =
+            crate::d3d11::D3d11Encoder::new(crate::codec::Codec::H264, 1920, 1080, 60, 8000)
+                .expect("an NVENC encoder on this machine");
         let device = encoder.device();
         assert!(!device.is_null(), "an encoder with no device");
 

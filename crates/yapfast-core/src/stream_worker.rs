@@ -71,7 +71,7 @@ use crate::{
     frames::{Frames, Writer},
     picture::{self, I420, Tone},
     pressure, stream_audio,
-    voice::{Presentation, Resolution, StreamQuality, StreamStats},
+    voice::{Presentation, StreamQuality, StreamStats},
 };
 
 mod card;
@@ -99,6 +99,11 @@ pub(crate) use glance::*;
 // What a share can capture, and the sizes it is sent at, from the media crate:
 // the capture and the encoder below need the same answers this worker does.
 pub(crate) use crate::geometry::*;
+pub use crate::source::Shareable;
+pub use crate::source::Source;
+pub use crate::source::pick;
+pub use crate::source::portal_picks;
+pub use crate::source::shareable;
 pub(crate) use crate::source::*;
 #[allow(unused_imports)]
 pub(crate) use job::*;
@@ -109,26 +114,21 @@ pub(crate) use processor::*;
 pub(crate) use report::*;
 pub(crate) use share::*;
 pub(crate) use sink::*;
-pub use crate::source::Shareable;
-pub use crate::source::Source;
-pub use crate::source::pick;
-pub use crate::source::portal_picks;
-pub use crate::source::shareable;
 pub(crate) use watch::*;
 #[allow(unused_imports)]
 pub(crate) use worker::*;
 
-pub use codec::StreamCodec;
-pub use codec::set_hardware_encoding;
-pub use codec::set_stream_codec;
 pub use crate::geometry::SHARE_HEIGHT;
 pub use crate::geometry::SHARE_WIDTH;
 pub use crate::geometry::WATCH_HEIGHT;
 pub use crate::geometry::WATCH_WIDTH;
+pub use crate::geometry::fit;
+pub use codec::StreamCodec;
+pub use codec::set_hardware_encoding;
+pub use codec::set_stream_codec;
 pub use consts::ARGUMENT;
 pub use consts::PREVIEW_HEIGHT;
 pub use consts::PREVIEW_WIDTH;
-pub use crate::geometry::fit;
 pub use job::Control;
 pub use job::Job;
 pub use job::run;

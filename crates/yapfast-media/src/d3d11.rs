@@ -51,12 +51,12 @@ use std::{
     sync::Arc,
 };
 
+use crate::codec::Codec;
+use crate::pool::Pool;
 use anyhow::{Result, anyhow, bail};
 use windows::Win32::Graphics::Dxgi::{
     CreateDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE, IDXGIFactory1,
 };
-use crate::codec::Codec;
-use crate::pool::Pool;
 
 use crate::{
     encode::{Configuration, Frame},

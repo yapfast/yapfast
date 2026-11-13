@@ -5,19 +5,14 @@
 
 use std::{
     sync::{Arc, Mutex, mpsc as channel},
-    time::{Duration, Instant},
+    time::Duration,
 };
 // The queue a frame of sound leaves on and the connection takes it from: bounded,
 // and a frame that arrives at a full queue is dropped rather than waited for, so
 // the mixer never stalls behind a network that can't keep up.
 use tokio::sync::mpsc;
 
-use crate::{
-    clock::StreamClock,
-    codec::Codec,
-    lock, rtp,
-    rtp::Packet,
-};
+use crate::{clock::StreamClock, codec::Codec, lock, rtp};
 
 /// Frames of sound a connection keeps to hand back: a fifth of a second at 50
 /// frames each, which is a path's own jitter and no more.

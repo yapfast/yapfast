@@ -18,14 +18,16 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result};
 use crate::{
     audio_io::{Heard, LastingOutput, RATE},
     clock::StreamClock,
-    opus, rtcp::SenderReport, rtp,
+    opus,
+    rtcp::SenderReport,
+    rtp,
     sound::{ReceivedSound, Sound, SoundReceiver, SoundSender},
     surplus::{QUIET, Surplus},
 };
+use anyhow::{Context, Result};
 
 #[cfg(test)]
 mod tests {

@@ -25,9 +25,9 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+use crate::codec::Codec;
 use anyhow::{Result, bail};
 use livekit::webrtc::native::yuv_helper;
-use crate::codec::Codec;
 
 unsafe extern "C" {
     fn yapfast_decoder_new(codec: c_int, threads: c_uint) -> *mut Raw;
@@ -122,8 +122,8 @@ pub(crate) mod vaapi {
         ptr,
     };
 
-    use anyhow::{Result, bail};
     use crate::codec::Codec;
+    use anyhow::{Result, bail};
 
     use crate::dmabuf::{Colour, Descriptor, MAX_PLANES, Plane};
 
@@ -730,8 +730,8 @@ mod cuda {
         os::fd::RawFd,
     };
 
-    use anyhow::{Result, bail};
     use crate::codec::Codec;
+    use anyhow::{Result, bail};
 
     use super::message;
     use crate::dmabuf::{Colour, Descriptor, MAX_PLANES, Plane};
@@ -1122,8 +1122,8 @@ mod mfx {
         os::fd::RawFd,
     };
 
-    use anyhow::{Result, bail};
     use crate::codec::Codec;
+    use anyhow::{Result, bail};
 
     use super::message;
     use crate::dmabuf::{Colour, Descriptor, MAX_PLANES, Plane};
@@ -1349,8 +1349,8 @@ pub use linux::Hardware;
 
 #[cfg(all(target_os = "linux", not(d3d11dec), any(vaapidec, nvdec)))]
 mod linux {
-    use anyhow::{Result, bail};
     use crate::codec::Codec;
+    use anyhow::{Result, bail};
 
     use crate::dmabuf::Descriptor;
 
