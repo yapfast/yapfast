@@ -555,7 +555,7 @@ fn decode(path: &Path, cap: (u32, u32)) -> Option<Image> {
     load(path, cap).map(slint_image)
 }
 
-fn slint_image(picture: RgbaImage) -> Image {
+pub(super) fn slint_image(picture: RgbaImage) -> Image {
     let (width, height) = picture.dimensions();
     Image::from_rgba8(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
         picture.as_raw(),
@@ -576,7 +576,12 @@ fn baked(folder: &Path, layer: &Layer, ground: u32) -> Option<RgbaImage> {
 }
 
 /// [`baked`], decoded no larger than `cap`.
-fn baked_at(folder: &Path, layer: &Layer, ground: u32, cap: (u32, u32)) -> Option<RgbaImage> {
+pub(super) fn baked_at(
+    folder: &Path,
+    layer: &Layer,
+    ground: u32,
+    cap: (u32, u32),
+) -> Option<RgbaImage> {
     let mut picture = match &layer.source {
         Source::Image(path) => load(&folder.join(path), cap)?,
         Source::Texture(kind) => texture_pixels(*kind, layer.colour),

@@ -360,6 +360,7 @@ pub fn clear(window: &YapfastWindow) {
         state.fx_timer = None;
     });
     super::theme_art::forget();
+    super::theme_lists::forget();
     reset(window);
     super::theme_media::forget();
     super::theme_cursor::forget();
@@ -368,6 +369,7 @@ pub fn clear(window: &YapfastWindow) {
 /// Every token a theme sets, back to stock.
 pub fn reset(window: &YapfastWindow) {
     super::theme_layout::reset(window);
+    super::theme_lists::reset(window);
     super::theme_chrome::reset(window);
     let look = window.global::<Look>();
     let stock = Shape {
@@ -606,6 +608,14 @@ fn paint(window: &YapfastWindow) {
             state.performance,
             state.reduced,
             (motion.hover_in, motion.hover_out),
+        );
+        super::theme_lists::apply(
+            window,
+            resolved,
+            &applied.folder,
+            &applied.fonts,
+            state.performance,
+            state.reduced,
         );
         let plays = motion::effects_play(state.performance, state.reduced);
         for effect in &resolved.effects {

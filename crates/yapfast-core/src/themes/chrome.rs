@@ -65,8 +65,9 @@ impl Label {
             Self::Composer | Self::Welcome | Self::Start => &["channel"],
             Self::Typing => &["name", "n"],
             Self::RailFooter | Self::TreeRoot => &["server"],
-            Self::Reaction => &["n"],
-            Self::MembersTitle | Self::New | Self::RailTitle | Self::RailHome => &[],
+            // The member list's title may count the members.
+            Self::Reaction | Self::MembersTitle => &["n"],
+            Self::New | Self::RailTitle | Self::RailHome => &[],
         }
     }
 }

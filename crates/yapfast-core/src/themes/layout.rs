@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use serde_json::Value;
 
 use super::package::art::{Layer, Source, read_layer};
+use super::lists::{ChannelRows, MemberRows, RailTiles};
 use super::package::{Error, Shadow, colour_at, named, number, object, read_shadow, relative};
 
 /// The most pictures one card carries.
@@ -56,7 +57,11 @@ pub(super) use closed;
 
 closed! {
     /// Which edge of the window the server rail runs along.
-    RailSide { Left => "left", Right => "right", Top => "top" }
+    RailSide {
+        Left => "left", Right => "right", Top => "top",
+        /// No rail: a theme's top bar's workspaces switch servers.
+        Hidden => "hidden",
+    }
 }
 
 closed! {
@@ -225,6 +230,11 @@ pub struct Layout {
     pub borders: BTreeMap<BorderPlace, Border>,
     /// People's names as ransom notes.
     pub names: Option<Names>,
+    /// The server rail's tiles, the channel list's rows and the member
+    /// list's rows; see [`super::lists`].
+    pub rail_tiles: Option<RailTiles>,
+    pub channel_rows: Option<ChannelRows>,
+    pub member_rows: Option<MemberRows>,
 }
 
 impl Layout {
@@ -236,8 +246,19 @@ impl Layout {
     /// The pictures it names, once each.
     pub fn files(&self) -> Vec<PathBuf> {
         let mut files: Vec<PathBuf> = Vec::new();
-        for art in &self.cards.art {
-            if let Source::Image(path) = &art.layer.source
+        let lists = super::lists::files(
+            self.rail_tiles.as_ref(),
+            self.channel_rows.as_ref(),
+            self.member_rows.as_ref(),
+        );
+        for layer in self
+            .cards
+            .art
+            .iter()
+            .map(|art| &art.layer)
+            .chain(lists.into_iter().map(|art| &art.layer))
+        {
+            if let Source::Image(path) = &layer.source
                 && !files.contains(path)
             {
                 files.push(path.clone());
@@ -340,6 +361,15 @@ pub(super) fn read_layout(
                 layout.chat_max_width = Some(number(value, &here, (480.0, 1600.0))?)
             }
             "chat_avatars" => layout.chat_avatars = Some(boolean(value, &here)?),
+            "rail_tiles" => {
+                layout.rail_tiles = Some(super::lists::read_rail_tiles(value, &here, notes)?)
+            }
+            "channel_rows" => {
+                layout.channel_rows = Some(super::lists::read_channel_rows(value, &here, notes)?)
+            }
+            "member_rows" => {
+                layout.member_rows = Some(super::lists::read_member_rows(value, &here, notes)?)
+            }
             "irc" => {
                 for (key, value) in object(value, &here)? {
                     let at = format!("{here}.{key}");

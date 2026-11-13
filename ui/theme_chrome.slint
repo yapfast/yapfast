@@ -46,7 +46,9 @@ export global Chrome {
     /// The server rail as a list of names, and its width then.
     in property <bool> rail-text;
     in property <length> rail-width: 150px;
-    out property <length> rail-px: self.rail-text ? self.rail-width : 72px;
+    /// A theme's rail tiles' width for the rail, when they need more than 72.
+    in property <length> rail-tiles-px;
+    out property <length> rail-px: self.rail-text ? self.rail-width : max(72px, self.rail-tiles-px);
     /// The composer's block caret and its prompt.
     in property <bool> caret-block;
     in property <string> prompt;
