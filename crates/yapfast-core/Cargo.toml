@@ -36,7 +36,7 @@ test-fixtures = []
 # plugin reaches — a message, a member, a sticker, a sound — is a Discord type,
 # so a build with plugins and without Discord is not a build this repository
 # checks or ships.
-plugins = ["discord", "dep:regex", "dep:reqwest", "dep:sha2"]
+plugins = ["discord", "dep:yapfast-plugins", "dep:sha2"]
 
 [dependencies]
 anyhow.workspace = true
@@ -51,7 +51,6 @@ deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet", rev = "d375b2
 directories.workspace = true
 # A plugin's own HTTP, through the gate: the same TLS stack Discord's client
 # uses, and no cookie jar, because nothing is kept between a plugin's requests.
-reqwest = { version = "0.13", default-features = false, features = ["http2", "rustls-no-provider", "stream"], optional = true }
 futures-util.workspace = true
 # Decode received images with bounded dimensions before the UI sees them.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
@@ -83,7 +82,6 @@ mime = { version = "0.3", optional = true }
 pulldown-cmark = { version = "0.13", default-features = false }
 # A plugin setting's `pattern`, matched in linear time whatever the
 # pattern; Yapfast's dependencies already build it.
-regex = { version = "1", optional = true }
 rustls.workspace = true
 serde.workspace = true
 # The wire types the plugin helper speaks, and the ones plugin code behind the
@@ -91,6 +89,9 @@ serde.workspace = true
 # in every build, so that the code outside `plugins` needn't be gated to name
 # them.
 yapfast-plugin-api = { path = "../yapfast-plugin-api" }
+# The plugin system's knowledge: manifests, the store, permissions and the
+# gate in front of them; see `crates/yapfast-plugins`.
+yapfast-plugins = { path = "../yapfast-plugins", optional = true }
 # The SHA-256 the lock file records, checked before a module is loaded.
 sha2 = { workspace = true, optional = true }
 serde_json.workspace = true

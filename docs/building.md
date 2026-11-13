@@ -326,10 +326,10 @@ build; and the desktop smoke test, which runs `target/<profile>/yapfast`,
 the desktop build, from that build. These build the default features, the
 release's: Discord on the desktop (see [Networks](#networks)).
 
-The plugin steps then check and test `yapfast-plugin-api` and
-`yapfast-plugin-host`, whose tests build the helper and drive it with the WAT
-fixtures in `testing/plugins`, and check and test `yapfast-core` with the
-`plugins` feature. None of that is in the default workspace build above, so an
+The plugin steps then check and test `yapfast-plugin-api`,
+`yapfast-plugins` and `yapfast-plugin-host`, whose tests build the helper and
+drive it with the WAT fixtures in `testing/plugins`, and check and test
+`yapfast-core` with the `plugins` feature. None of that is in the default workspace build above, so an
 everyday build links neither Extism nor wasmtime; see
 [plugins](plugins/README.md). The plugin measurements are explicit runs, not a
 gate; see [the measurement method](measurements/README.md#the-plugin-helper).

@@ -171,7 +171,7 @@ fn speech(text: String) -> Result<std::process::Child> {
     if started.is_err() {
         let _ = std::fs::remove_file(&path);
     }
-    Ok(started?)
+    started
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]

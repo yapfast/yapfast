@@ -414,7 +414,7 @@ impl Store {
     }
 
     /// The manifest's own text, which the interface reads with
-    /// [`crate::plugins::Manifest`]: `permissions`, `settings` and `tweaks` as
+    /// [`crate::Manifest`]: `permissions`, `settings` and `tweaks` as
     /// the file wrote them, where that read keeps only what it draws.
     pub fn manifest_text(&self, entry: &LockEntry) -> Result<String> {
         let directory = self
@@ -766,13 +766,41 @@ fn hex(bytes: &[u8]) -> String {
     out
 }
 
+/// The number of bytes a value takes as JSON, counted as it would be written
+/// into a sink that keeps the count and nothing else.
+///
+/// `None` when the value can't be serialized, which means it can't be written
+/// either. The application measures what a plugin may keep this way too, so the
+/// two sides of one store agree on what a value costs.
+pub fn json_bytes(value: &impl serde::Serialize) -> Option<u64> {
+    let mut counted = Counted::default();
+    serde_json::to_writer(&mut counted, value).ok()?;
+    Some(counted.0)
+}
+
+/// What [`json_bytes`] writes into: the length of the bytes, kept, and the
+/// bytes themselves dropped as they arrive.
+#[derive(Default)]
+struct Counted(u64);
+
+impl std::io::Write for Counted {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 += bytes.len() as u64;
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 /// A value's size as JSON.
 fn json_len(value: &Value) -> u64 {
     // A value that can't be serialized can't be written either, so measuring it
     // as nothing only makes the cap optimistic by one key's worth. It is counted
     // rather than written: a store's value is written once, by the file that
     // holds it, and a copy of it to measure it would be dropped right after.
-    crate::plugins::world::json_bytes(value).unwrap_or(0)
+    json_bytes(value).unwrap_or(0)
 }
 
 /// Writes a file and flushes it to the disk, so what a later rename makes

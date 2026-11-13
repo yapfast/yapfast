@@ -35,7 +35,7 @@ keeps it.
 
 ## The manifest's interface changes
 
-[`crates/yapfast-core/src/plugins.rs`](../../crates/yapfast-core/src/plugins.rs)
+[`crates/yapfast-plugins/src/lib.rs`](../../crates/yapfast-plugins/src/lib.rs)
 reads a manifest, `yapfast-plugin.json`. It's strict JSON, and must name
 `"api": 1`, a reverse-DNS `id` and a `name` of up to 64 characters. The
 interface reads only `id`, `name`, `wasm`, `permissions`, `menus`, `rail_items`,
@@ -67,7 +67,7 @@ without it only changes what its manifest names. Its own settings, the
 }
 ```
 
-[`plugins/ui.rs`](../../crates/yapfast-core/src/plugins/ui.rs) checks each
+[`plugins/ui.rs`](../../crates/yapfast-plugins/src/ui.rs) checks each
 change with `check`, which keeps what applies and says why it refused the
 rest, in words a plugin's page can show:
 
@@ -123,7 +123,7 @@ other changes. Nothing stores those choices yet; `grants.json` will.
 
 A setting point is a behaviour of Yapfast a manifest switches by name, in
 `tweaks`, with no code: `{ "tweaks": { "messages.attachments.mosaic": false } }`.
-[`tweaks.rs`](../../crates/yapfast-core/src/tweaks.rs) is their registry: the
+[`tweaks.rs`](../../crates/yapfast-plugins/src/tweaks.rs) is their registry: the
 `points!` list in it declares each point once, as a field of `Tweaks` with
 its type (`bool`, or a whole number in a range), its default and a doc
 line, and the point's name. Code reads the field where the behaviour
@@ -309,7 +309,7 @@ beside a name in a list it already shows.
 
 The parent asks with `yf_member_decorate` for the rows the list is showing as it
 scrolls, one person at a time, and what comes back is a few characters and a
-tone — a mark rather than a tree. [`plugins/slots.rs`](../../crates/yapfast-core/src/plugins/slots.rs)
+tone — a mark rather than a tree. [`plugins/slots.rs`](../../crates/yapfast-plugins/src/slots.rs)
 keeps them under `BADGES`: at most 640 people, 3 badges a person and 16
 characters a badge, so a name stays a name. `ui/people.slint` draws a member
 row's badges beside Discord's own, each saying whose it is to a screen reader,
@@ -335,7 +335,7 @@ plugin that asked: a row any of them hides is hidden.
 
 **Which surfaces draw it.** The kept row is drawn by the timeline like any other,
 with the `deleted` flag the row already had. The hide is kept in
-[`plugins/slots.rs`](../../crates/yapfast-core/src/plugins/slots.rs) and read per
+[`plugins/slots.rs`](../../crates/yapfast-plugins/src/slots.rs) and read per
 row, and the message rows do not consume it yet: `show_timeline` in
 `src/ui/messages.rs` builds one row per message and has no way to skip one, so a
 hidden row is still drawn. Wiring it is a `hidden(message)` test in that
@@ -359,7 +359,7 @@ reports the visible rows is the one that reads their markdown for fences
 (`code_block::fences`), and a block whose answer is already kept is never asked
 about again.
 
-[`plugins/code_block.rs`](../../crates/yapfast-core/src/plugins/code_block.rs)
+[`plugins/code_block.rs`](../../crates/yapfast-plugins/src/code_block.rs)
 keeps the answers:
 
 - **Keyed by the content hash**, language included, so a block never goes stale
@@ -384,7 +384,7 @@ yet. Wiring it is a lookup per block in that renderer and not a new call.
 
 ## Slots
 
-[`plugins/slots.rs`](../../crates/yapfast-core/src/plugins/slots.rs) keeps what
+[`plugins/slots.rs`](../../crates/yapfast-plugins/src/slots.rs) keeps what
 plugins draw, in `AppState::plugins`, which is `None` with no plugin enabled.
 The plugin runtime changes it by sending `Event::PluginSlot` with an `Output`:
 `SetSlot` and `ClearSlot` for a slot, and `Decorate` for what a plugin draws

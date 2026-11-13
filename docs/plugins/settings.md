@@ -58,7 +58,7 @@ store's `lock.json` is what remembers that the person turned it on.
 
 A manifest's `settings` array declares a plugin's settings, which its page
 draws as a form.
-[`plugins/settings.rs`](../../crates/yapfast-core/src/plugins/settings.rs)
+[`plugins/settings.rs`](../../crates/yapfast-plugins/src/settings.rs)
 checks it as the manifest is read, into a `Schema`: a setting that can't be
 used refuses the whole manifest, with the reason, as
 `setting "mode": option "x" is there twice`.
@@ -177,7 +177,7 @@ component a slot's tree goes to, and a widget the person uses comes back as
 `Request::SettingWidget` and on to the plugin the way a change is
 ([the ABI](abi.md#the-payloads)). Until the plugin has drawn one, the form says
 *The plugin draws this while it runs.* Those eight are the types
-[`settings.rs`](../../crates/yapfast-core/src/plugins/settings.rs) checks, and a
+[`settings.rs`](../../crates/yapfast-plugins/src/settings.rs) checks, and a
 manifest that names another is refused.
 
 `--preview`'s Word Filter has a setting of every type, from
@@ -186,7 +186,7 @@ with a refused value to show one; its form keeps its values in memory.
 
 ## Where it lives
 
-`crates/yapfast-core/src/plugins/page.rs` holds what the page shows, `View`,
+`crates/yapfast-plugins/src/page.rs` holds what the page shows, `View`,
 what it asks for, `Request`, and the plain words for capabilities, statuses
 and fetch errors. `ui/plugin_settings.slint` draws the page from the
 `PluginPage` global, and `src/ui/plugin_settings.rs` fills that global from a

@@ -16,7 +16,7 @@ use futures_util::StreamExt;
 use futures_util::future::BoxFuture;
 use futures_util::stream::BoxStream;
 
-use crate::plugins::network::{ConnectPlan, Served, Transport};
+use crate::network::{ConnectPlan, Served, Transport};
 
 /// Opens one connection per request, to the address the gate resolved.
 #[derive(Debug, Default)]

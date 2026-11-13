@@ -23,7 +23,7 @@ use yapfast_plugin_api::hook::HookKind;
 use yapfast_plugin_api::message::{LogRecord, PluginStatus};
 use yapfast_plugin_api::{PluginId, PluginManifest, limits};
 
-use crate::plugins::store::{Module, Store};
+use crate::store::{Module, Store};
 
 /// How many log lines a plugin's ring keeps.
 ///
@@ -445,7 +445,7 @@ impl Registry {
     /// before anything is serialized or woken, so a plugin that asked for one
     /// room, or that reads no messages, costs the others nothing.
     pub fn subscribers(&self, event: &EventEnvelope) -> Vec<PluginId> {
-        let needed = crate::plugins::permissions::event_capability(event.kind);
+        let needed = crate::permissions::event_capability(event.kind);
         self.order
             .iter()
             .filter(|id| {
@@ -685,7 +685,7 @@ fn permitted_mask(permissions: &Permissions) -> u64 {
     EventKind::ALL
         .into_iter()
         .filter(|kind| {
-            crate::plugins::permissions::event_capability(*kind)
+            crate::permissions::event_capability(*kind)
                 .is_none_or(|capability| permissions.allows(capability))
         })
         .map(Subscriptions::bit)

@@ -13661,8 +13661,6 @@ dependencies = [
  "pulldown-cmark",
  "rand 0.9.5",
  "realfft",
- "regex",
- "reqwest 0.13.5",
  "resvg",
  "rustls",
  "serde",
@@ -13682,6 +13680,7 @@ dependencies = [
  "x264-src",
  "yapfast-discord",
  "yapfast-plugin-api",
+ "yapfast-plugins",
 ]
 
 [[package]]
@@ -13743,6 +13742,25 @@ dependencies = [
  "tempfile",
  "tracing",
  "tracing-subscriber",
+ "yapfast-plugin-api",
+]
+
+[[package]]
+name = "yapfast-plugins"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "futures-util",
+ "regex",
+ "reqwest 0.13.5",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
  "yapfast-plugin-api",
 ]
 

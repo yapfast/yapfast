@@ -341,7 +341,7 @@ order, swaps the version, and starts them again in dependency order.
 `messages.attachments.mosaic`. A plugin may set them without holding a
 capability, because each one is a behaviour Yapfast already has. No part offers
 one yet: the registry in
-[`tweaks.rs`](../../crates/yapfast-core/src/tweaks.rs) is empty, so every point a
+[`tweaks.rs`](../../crates/yapfast-plugins/src/tweaks.rs) is empty, so every point a
 manifest names comes back refused as one this Yapfast doesn't have, and nothing
 in the window changes.
 

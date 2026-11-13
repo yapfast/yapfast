@@ -130,7 +130,7 @@ impl CodeBlocks {
 /// It is a hash and not the text, so the key of a cache of a hundred blocks is a
 /// hundred short strings rather than a hundred snippets of code.
 pub fn hash(language: Option<&str>, text: &str) -> String {
-    crate::plugins::store::sha256(format!("{}\u{0}{text}", language.unwrap_or_default()).as_bytes())
+    crate::store::sha256(format!("{}\u{0}{text}", language.unwrap_or_default()).as_bytes())
 }
 
 /// The fenced code blocks in one message's markdown, in the order they appear.

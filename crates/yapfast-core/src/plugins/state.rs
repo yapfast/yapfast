@@ -299,7 +299,7 @@ impl PluginState {
         // `media.get` reads the picture store and nothing else, so a build with
         // no Discord client has no store and answers `unsupported`.
         #[cfg(feature = "discord")]
-        bridge.install_pictures(Arc::new(crate::plugins::media::Disk));
+        bridge.install_pictures(Arc::new(crate::plugins::world::Disk));
         Ok(PluginState {
             bridge,
             grants,

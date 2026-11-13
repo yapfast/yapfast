@@ -17,7 +17,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use serde_json::Value as Json;
 
-use crate::plugins::Manifest;
+use crate::Manifest;
 
 /// The most points one plugin sets.
 pub const TWEAKS: usize = 64;

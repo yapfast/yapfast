@@ -357,9 +357,8 @@ impl Application {
             reply_to: None,
             attachments: Vec::new(),
         };
-        match self.state.plugins.as_mut()?.pre_edit(draft) {
-            decided => self.plugins_edit_answer(decided),
-        }
+        let decided = self.state.plugins.as_mut()?.pre_edit(draft);
+        self.plugins_edit_answer(decided)
     }
 
     /// Carries out what a chain decided about an edit.

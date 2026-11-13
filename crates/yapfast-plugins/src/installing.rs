@@ -14,9 +14,9 @@ use std::process::Command;
 use serde::Deserialize;
 use yapfast_plugin_api::PluginManifest;
 
-use crate::plugins::page::{Dependency, Review};
-use crate::plugins::spawn;
-use crate::plugins::store::Package;
+use crate::page::{Dependency, Review};
+use crate::spawn;
+use crate::store::Package;
 
 /// What a fetch found: one plugin, or the folders of a repository that holds
 /// several.
@@ -182,7 +182,7 @@ pub fn from_wasm(path: &Path) -> Result<Fetched, String> {
 /// which is what keeps two folders that declare one id from replacing each
 /// other: the store refuses the second.
 pub fn from_folder(folder: &Path) -> Result<Fetched, String> {
-    let manifest = folder.join(crate::plugins::MANIFEST);
+    let manifest = folder.join(crate::MANIFEST);
     if !manifest.is_file() {
         return Err(missing_manifest(folder));
     }
@@ -243,7 +243,7 @@ fn manifest_for(picked: &Path) -> Option<std::path::PathBuf> {
         .parent()?
         .ancestors()
         .take(MANIFEST_SEARCH)
-        .map(|folder| folder.join(crate::plugins::MANIFEST))
+        .map(|folder| folder.join(crate::MANIFEST))
         .find(|candidate| candidate.is_file())
 }
 

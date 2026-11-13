@@ -28,9 +28,8 @@ const PROGRAM: &str = if cfg!(windows) {
 
 /// A helper process and the two pipes it speaks on.
 ///
-/// Its standard error is the app's log, through
-/// [`crate::logging::for_worker`]: a helper that fails before its pipe is up
-/// still says why somewhere a person can read it.
+/// Its standard error is the app's to say ([`start`] takes it): a helper that
+/// fails before its pipe is up still says why somewhere a person can read it.
 pub struct Helper {
     pub child: Child,
     pub stdin: ChildStdin,
@@ -42,7 +41,7 @@ pub struct Helper {
 /// The cache directory is created here because the helper treats it as given:
 /// it belongs to this app's data directory, and a plugin that is enabled at
 /// startup must run even on the first launch.
-pub fn start(data_dir: &Path) -> Result<Helper> {
+pub fn start(data_dir: &Path, stderr: Stdio) -> Result<Helper> {
     let program = program()?;
     let cache = data_dir.join("plugins").join("cache");
     if let Err(error) = std::fs::create_dir_all(&cache) {
@@ -61,7 +60,7 @@ pub fn start(data_dir: &Path) -> Result<Helper> {
         .env("RAYON_NUM_THREADS", "2")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(crate::logging::for_worker());
+        .stderr(stderr);
     if let Some(level) = std::env::var_os("YAPFAST_LOG") {
         command.env("YAPFAST_LOG", level);
     }
@@ -89,7 +88,7 @@ pub fn start(data_dir: &Path) -> Result<Helper> {
 /// target directory is tried without installing it. Otherwise it sits beside
 /// the running Yapfast, which is where a package puts it, and keeps it the same
 /// version as the window it talks to.
-pub(crate) fn program() -> Result<PathBuf> {
+pub fn program() -> Result<PathBuf> {
     if let Some(program) = std::env::var_os("YAPFAST_PLUGINS") {
         let program = PathBuf::from(program);
         if !program.is_file() {

@@ -8,8 +8,8 @@ use yapfast_core::plugins::{
     self,
     slots::{Output, Slot},
     ui::{
-        Button, Checked, Kind, Part, Place, PluginName, ROW_PREFIX, Size, Subject, Target, Tone,
-        Tree, UiOverrides,
+        Button, Checked, Kind, NetworkName, Part, Place, PluginName, ROW_PREFIX, Size, Subject,
+        Target, Tone, Tree, UiOverrides,
     },
 };
 use yapfast_ui::{
@@ -539,7 +539,10 @@ pub(super) fn edit_menu(
         .flatten();
     let roles: &[String] = member.as_ref().map_or(&[], |member| &member.roles[..]);
     let subject = Subject {
-        network: yapfast_core::network::Network::of(&about),
+        network: match yapfast_core::network::Network::of(&about) {
+            yapfast_core::network::Network::Discord => NetworkName::Discord,
+            yapfast_core::network::Network::Matrix => NetworkName::Matrix,
+        },
         own: state.discord_user.as_deref() == Some(about.as_str()),
         dm: room.is_some_and(|room| room.direct && room.person.is_some())
             || (target == Target::User

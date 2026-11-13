@@ -82,8 +82,8 @@ fi
 # already carry `plugins`: it is in the workspace's default features, so their
 # Clippy and tests check the plugin code with `discord` beside it, and `cargo
 # test` builds yapfast-plugin-host's binary, because that package has integration
-# tests, so the plugin tests that run the helper run there too. The two plugin
-# crates need no step of their own, since both are workspace members. What none
+# tests, so the plugin tests that run the helper run there too. The three plugin
+# crates need no step of their own, since all of them are workspace members. What none
 # of them compiles is `plugins` on its own: the Matrix and headless steps below
 # take `--no-default-features` and turn plugins off with it. So these two do, and
 # they are what a build that wanted plugins and neither network would catch. See

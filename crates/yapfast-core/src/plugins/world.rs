@@ -48,34 +48,24 @@ pub const MAX_MESSAGES: usize = 100;
 fn json_len(value: &impl serde::Serialize) -> usize {
     // A value that can't be serialized can't be written either, and measures as
     // nothing, which only makes the cap optimistic by one item's worth.
-    json_bytes(value).map_or(0, |bytes| bytes as usize + 1)
+    super::store::json_bytes(value).map_or(0, |bytes| bytes as usize + 1)
 }
 
-/// The number of bytes a value takes as JSON, counted as it would be written
-/// into a sink that keeps the count and nothing else.
-///
-/// `None` when the value can't be serialized, which means it can't be written
-/// either. A plugin's storage measures its values this way too, so the two
-/// sides of one store agree on what a value costs.
-pub(crate) fn json_bytes(value: &impl serde::Serialize) -> Option<u64> {
-    let mut counted = Counted::default();
-    serde_json::to_writer(&mut counted, value).ok()?;
-    Some(counted.0)
-}
+/// The picture store as Yapfast keeps it: the Discord client's disk cache,
+/// which holds what a conversation, a member list or a profile has already
+/// shown. It is read and never filled: a URL the store doesn't hold is a miss
+/// and not a request, because asking Discord for it would be a fetch the
+/// network gate never saw.
+pub struct Disk;
 
-/// What [`json_bytes`] writes into: the length of the bytes, kept, and the
-/// bytes themselves dropped as they arrive.
-#[derive(Default)]
-struct Counted(u64);
-
-impl std::io::Write for Counted {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.0 += bytes.len() as u64;
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
+impl super::media::Pictures for Disk {
+    fn bytes(&self, url: &str) -> Option<Vec<u8>> {
+        use std::io::Read;
+        let kept = yapfast_discord::cache::kept_picture(url)?;
+        let mut reader = kept.open().ok()?;
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).ok()?;
+        Some(bytes)
     }
 }
 

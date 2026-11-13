@@ -175,10 +175,11 @@ A request body is at most 768 KiB undone from its base64, because it arrives
 inside one frame. A response body above 752 KiB is written to
 `<data>/plugins-http/` as it arrives rather than carried in the answer.
 
-The gate is handed a transport by the application, `plugins/transport.rs`,
-because `yapfast-core` has no HTTP client and no trust roots of its own:
-`plugins/network.rs` defines `Transport` and `Resolver` and leaves them to the
-crate that owns the client. One seam is open: the answer to a body that went to a
+The gate is handed a transport by the application,
+[`transport.rs`](../../crates/yapfast-plugins/src/transport.rs), because
+`yapfast-plugins` has no HTTP client and no trust roots of its own:
+[`network.rs`](../../crates/yapfast-plugins/src/network.rs) defines `Transport`
+and `Resolver` and leaves them to the crate that owns the client. One seam is open: the answer to a body that went to a
 file has its length in `bytes`, no `body_base64`, no field naming the file and no
 reason saying why, so a plugin can tell that there was a body and not what it
 said, and nothing deletes the file afterwards. Only an answer that runs past the

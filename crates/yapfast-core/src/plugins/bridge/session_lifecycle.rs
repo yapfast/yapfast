@@ -21,7 +21,7 @@ impl Session {
             child,
             stdin,
             stdout,
-        } = spawn::start(data_dir)?;
+        } = spawn::start(data_dir, crate::logging::for_worker())?;
         let (frames, inbound) = tokio::sync::mpsc::unbounded_channel();
         let reader = std::thread::Builder::new()
             .name("yapfast-plugins-read".to_owned())

@@ -1034,7 +1034,7 @@ impl Fixture {
     /// Word Filter's settings, which use every type a setting can have.
     fn word_filter_settings() -> Form {
         let manifest = super::Manifest::parse(include_str!(
-            "../../../../testing/plugins/word-filter/yapfast-plugin.json"
+            "../../../testing/plugins/word-filter/yapfast-plugin.json"
         ))
         .expect("the sample's manifest is valid");
         let schema = Arc::clone(&manifest.settings);

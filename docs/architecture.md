@@ -1,8 +1,8 @@
 # Application core and client UI
 
-Yapfast's Cargo workspace has seven packages: the executable and the crates that
-build into its process, plus the two that make up the plugin helper, a binary of
-its own. The root `yapfast` package is the executable: the Slint adapter and the
+Yapfast's Cargo workspace has eight packages: the executable and the crates that
+build into its process, plus the three that make up the plugin system, one of
+which is a binary of its own. The root `yapfast` package is the executable: the Slint adapter and the
 command-line entry point.
 [`crates/yapfast-core`](../crates/yapfast-core) holds application behavior and the
 native Matrix, Discord and voice backend.
@@ -14,8 +14,11 @@ any `.slint` file rebuilds only that crate, and in a
 [`crates/feature-union`](../crates/feature-union) holds no code; `scripts/check`
 uses it (see [building](building.md#checks)).
 [`crates/yapfast-plugin-api`](../crates/yapfast-plugin-api) holds the wire types
-Yapfast and the plugin helper both build, and
-[`crates/yapfast-plugin-host`](../crates/yapfast-plugin-host) is the seventh: it
+Yapfast and the plugin helper both build,
+[`crates/yapfast-plugins`](../crates/yapfast-plugins) holds the plugin system's
+own knowledge — manifests, the store and marketplace, permissions, the network
+gate and what the Plugins page shows — and
+[`crates/yapfast-plugin-host`](../crates/yapfast-plugin-host) is the eighth: it
 builds `yapfast-plugins`, a process that runs plugins and nothing else, as
 [plugins](plugins/README.md) describes.
 
@@ -61,9 +64,10 @@ tungstenite, plus x264's and FFmpeg's C source; see
 [dependency sources](building.md#dependency-sources). LiveKit itself comes
 from crates.io, not `vendor/`.
 
-Plugins, behind the `plugins` feature, are in
-`crates/yapfast-core/src/plugins.rs` and `plugins/`, `src/ui/plugins.rs` and
-`ui/plugins.slint`; see [plugins](plugins/README.md).
+Plugins, behind the `plugins` feature, are the plugin system's own half in
+`crates/yapfast-plugins/` and the application's in
+`crates/yapfast-core/src/plugins.rs` and `plugins/`, with `src/ui/plugins.rs`
+and `ui/plugins.slint` drawing them; see [plugins](plugins/README.md).
 
 Two experiments stay in the tree: `experiment.rs` behind `--call-experiment`
 and `voice_demo.rs` behind `--voice-demo`, both in yapfast-core and
@@ -204,12 +208,19 @@ and `fetch/` the git install. The crate is deliberately outside `cargo build`'s
 default members, because it links Extism, wasmtime and `gix` for a process that
 only runs while a plugin does.
 
-The parent's half is `crates/yapfast-core/src/plugins/`: `bridge.rs` owns the
-helper's pipes as one Tokio task and turns frames into events,
-`registry.rs` holds what is enabled, `permissions.rs` checks each call against
-the manifest and `grants.rs` keeps the hosts a person allowed, `network.rs` is
-the gate a fetch goes through, `store.rs` reads the content-addressed store and
-its lock file, and `spawn.rs` starts the helper and counts its crashes. The
+The parent's half is two crates. `crates/yapfast-plugins/` is what the plugin
+system knows: `lib.rs` reads a manifest, `registry.rs` holds what is enabled,
+`permissions.rs` checks each call against the manifest and `grants.rs` keeps the
+hosts a person allowed, `network.rs` is the gate a fetch goes through, `store.rs`
+reads the content-addressed store and its lock file, `marketplace.rs` and
+`installing.rs` take a plugin in, `settings.rs`, `page.rs`, `slots.rs` and `ui.rs`
+say what its page and its widgets show, and `spawn.rs` finds the helper's binary.
+`crates/yapfast-core/src/plugins/` is what only this application can do: `bridge/`
+owns the helper's pipes as one Tokio task and turns frames into events,
+`state.rs` holds a session's plugins, `world.rs` hands a plugin the
+application's own state as the values the wire carries, `audio.rs` its sounds and
+recordings, `view.rs` the page's helper and log lines, and `identity.rs`,
+`presence.rs` and `retention.rs` the people and messages it filters. The
 application's side is `crates/yapfast-core/src/application/plugins.rs`, and the
 interface's is `src/ui/plugins.rs` with `ui/plugins.slint`.
 
@@ -222,9 +233,9 @@ A change to what a plugin can do usually touches each of these steps:
 1. **Contract.** A new method, event kind or payload field goes in
    `yapfast-plugin-api`. Adding one keeps `API_VERSION`; changing what an
    existing one means raises it. See [the ABI](plugins/abi.md).
-2. **Parent.** A host method is answered in `plugins/bridge.rs`, which checks the
-   capability in `plugins/permissions.rs` and, for a request, the host in
-   `plugins/network.rs` before doing any work.
+2. **Parent.** A host method is answered in `yapfast-core`'s `plugins/bridge/`,
+   which checks the capability in `yapfast-plugins`' `permissions.rs` and, for a
+   request, the host in its `network.rs` before doing any work.
 3. **Helper.** What the guest's call becomes in the sandbox is
    `yapfast-plugin-host`'s `runtime.rs`, and when it runs is the scheduler's.
 4. **Application.** An `Action` goes to `application/plugins.rs`, which decides
@@ -285,11 +296,14 @@ The helper links Extism and wasmtime and is not one of the default members, so
 an everyday workspace build links neither; `scripts/check` has steps of its own
 for it and for `yapfast-core` with the `plugins` feature.
 
-`crates/yapfast-core/src/plugins/` is the parent's half: the bridge that starts
-the helper and answers a guest's calls, the registry, the store, permissions and
-the network gate. The interface's half is not written yet, so no settings page
-lists plugins and nothing calls `Application::open_plugins`; see
-[what isn't wired](plugins/README.md#what-isnt-wired-yet).
+`crates/yapfast-plugins/` is the plugin system's own half — manifests, the store,
+permissions and the network gate, the marketplace and what the Plugins page shows
+— and `crates/yapfast-core/src/plugins/` is the application's: the bridge that
+starts the helper and answers a guest's calls, the session's plugin state, and the
+application's own data in the shapes the wire carries. Nothing in the second half
+runs while no plugin is enabled. The interface's half is `src/ui/plugins.rs` and
+`ui/plugins.slint`, behind the same feature; see
+[plugins](plugins/README.md).
 
 ## Adding another native UI
 

@@ -31,27 +31,6 @@ pub trait Pictures: Send + Sync {
     fn bytes(&self, url: &str) -> Option<Vec<u8>>;
 }
 
-/// The picture store as Yapfast keeps it: the Discord client's disk cache, which
-/// holds what a conversation, a member list or a profile has already shown.
-///
-/// It is read here and never filled here. A URL the store doesn't hold is a miss
-/// and not a request: asking Discord for it would be a fetch the network gate
-/// never saw.
-#[cfg(feature = "discord")]
-pub struct Disk;
-
-#[cfg(feature = "discord")]
-impl Pictures for Disk {
-    fn bytes(&self, url: &str) -> Option<Vec<u8>> {
-        use std::io::Read;
-        let kept = yapfast_discord::cache::kept_picture(url)?;
-        let mut reader = kept.open().ok()?;
-        let mut bytes = Vec::new();
-        reader.read_to_end(&mut bytes).ok()?;
-        Some(bytes)
-    }
-}
-
 /// What `media.get` answers for one URL.
 pub fn answer(pictures: &dyn Pictures, url: &str) -> HostReturn {
     if url.is_empty() || url.len() > yapfast_plugin_api::identity::MAX_URL {

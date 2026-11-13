@@ -16,7 +16,6 @@ use serde::Deserialize;
 use yapfast_plugin_api::manifest::{self, PartDecl};
 
 use super::{Manifest, slots::Slot};
-use crate::network::Network;
 
 /// The most characters a label, a row's text or a plugin's name can have.
 pub const LABEL_CHARS: usize = 64;
@@ -81,17 +80,18 @@ pub struct When {
 }
 
 /// A network as a manifest names it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NetworkName {
-    Discord,
+    #[default]
     Matrix,
+    Discord,
 }
 
 /// What a menu is about, for [`When`] to test.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Subject<'a> {
-    pub network: Network,
+    pub network: NetworkName,
     pub own: bool,
     pub dm: bool,
     pub has_attachment: bool,
@@ -101,13 +101,9 @@ pub struct Subject<'a> {
 
 impl When {
     pub fn matches(&self, subject: &Subject<'_>) -> bool {
-        let network = self.network.is_none_or(|network| {
-            subject.network
-                == match network {
-                    NetworkName::Discord => Network::Discord,
-                    NetworkName::Matrix => Network::Matrix,
-                }
-        });
+        let network = self
+            .network
+            .is_none_or(|network| subject.network == network);
         network
             && self.own.is_none_or(|own| own == subject.own)
             && self.dm.is_none_or(|dm| dm == subject.dm)
@@ -1581,7 +1577,7 @@ mod tests {
     fn when_matches_each_field_given() {
         let roles = ["7".to_owned()];
         let subject = Subject {
-            network: Network::Discord,
+            network: NetworkName::Discord,
             own: false,
             dm: true,
             roles: &roles,
