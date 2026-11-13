@@ -941,7 +941,7 @@ or takes away a control.
 
 | Field | Values | Stock |
 | --- | --- | --- |
-| `rail` | `left`, `right`, `top`: the edge the server rail runs along; or `tree`, no rail, and the sidebar as one tree (below) | `left` |
+| `rail` | `left`, `right`, `top`: the edge the server rail runs along; `tree`: no rail, and the sidebar as one tree (below); `hidden`: no rail, the top bar's workspaces switch servers (needs `chrome.topbar.workspaces`) | `left` |
 | `members` | `right`, `left`, `hidden`: where the member list docks, or that it doesn't; `collapsed`: on the right as a 56-pixel strip of avatars that opens to the whole list, over the conversation, while the pointer is on it (at once with reduced motion or Light) | `right` |
 | `composer` | `bottom`, `top`: the message box under or over the messages | `bottom` |
 | `messages` | `flat`, `bubbles`, `irc`, `cards` (below) | `flat` |
@@ -951,6 +951,65 @@ or takes away a control.
 | `grid` | `columns` (2–6 across) and `size` (32–96 pixels of each avatar) | 3, 56 |
 | `tree` | With `rail: "tree"`: `expand`, `one` (opening a folder closes the others) or `many`; `root` and `dms`, the root line's and the direct messages' words (at most 24 characters; a directory's mark after `dms` comes from `chrome.folders`, or `/`) | `one`, `~/`, `dm` |
 | `irc`, `bubbles`, `cards` | Settings for those message styles | |
+
+| `rail_tiles`, `channel_rows`, `member_rows` | How the rail's servers, the channel list's rows and the member list's rows are drawn (below) | stock |
+
+**Lists** (`layout.rail_tiles`, `layout.channel_rows`, `layout.member_rows`,
+`ui/theme_lists.slint`, `src/ui/theme_lists.rs`): a list keeps its stock
+rows' labels, keys, menus, tooltips and drag, and changes how each row is
+drawn. Art slots take a layer as `art.surfaces` does (no drift) plus `size`
+(`[w, h]` or `"full"`), `offset`, `rotation`, `slice` (nine-slice edges in
+the picture's pixels), `window` (`[x, y, w, h(, radius)]`: where a frame's
+picture or avatar sits), `density` (pixels per logical pixel, 2) and
+`pixelated`. A list of up to three pictures in a `frame` or `over` slot is
+picked per item by a seed from its id (FNV-1a), so a server keeps its frame
+through restarts and reorders. Each picture is decoded once per theme, at
+most twice its drawn size, and shared by every row. Hovers move, turn or
+scale the drawn group only, never the touch area; under reduced motion and
+Light they reach their end at once, nothing blinks, and Light leaves tilts
+straight.
+
+- `rail_tiles`: `shape` (`square`, `circle`, `card`, `ticket`, `tall`),
+  `width` 32–64, `height` 32–72, `radius`, `gap`, `pad`, `tilt` 0–12° by
+  seed, `label` (`none`, `below`, `inside`) with `label_font` (a type role),
+  `label_size`, `label_colour`, `label_case`, `label_box`; `frame`, `over`,
+  `below`, `between` (+ `between_height`: art between consecutive tiles, such
+  as a chain link), `reflection` (a mirror under the tile in three fading
+  bands), `hover` (`magnify` 1.02–1.25, `lift` 1–6 px, `tilt` 1–8°) with
+  `hover_amount` and `hover_ms`, `selected` (`frame`, `over`, `offset`
+  toward the window's edge, `scale`, `stamp_ms`), `pill` (`true`, `false`,
+  `"unread"`), `focus` (`tile` or `window`), `focus_radius`, `folder`
+  (`frame`, `open_frame`), `divider` (`size`, `colour`, `style`) and `badge`
+  (`ground`, `ink`). The rail widens past 72 px only when the tiles need it.
+- `channel_rows`: `height`, `gap`, `font`/`size`/`weight`/`case`, `inset`,
+  `icon` (`size`, `gap`, `colour` or `"ink"`, `hover`, `selected`), `frame`,
+  `fit_text`, `tilt` 0–4°, `separator` (a line `{ colour, width, inset }`
+  or art + `height`), `selected` (`frame`, `prefix`, `prefix_colour`,
+  `blink_ms`, `after`, `underline`), `hover`, `hover_ground` (`none`,
+  `hover`, `row-hover`), `hover_frame_opacity`, `ink` (`read`, `unread`,
+  `selected`, `muted`, `hover`, `selected_shadow`), `emboss`, `focus`
+  (`outset`, `radius`), `meta` (`unread`: `badge`, `glyph` or `none`;
+  `unread_glyph`; `voice` such as `"voice · {n}"`; `font`, `size`,
+  `colour`, `inset`, `badge`) and `headers` (`font`, `size`, `weight`,
+  `case`, `text` with `{name}` and `{n}`, the category's place; `style`
+  `plain` or `ransom`; `height`, `colour`, `frame`).
+- `member_rows`: `height`, `gap`, `margin`, `inset`, the name's
+  `font`/`size`/`weight`/`case`, `avatar` (`size` 0 or 20–64, `frame`,
+  `tilt`, `ring` with `glow` and `presences`, `dot`, `dot_out`, `gap`),
+  `frame`, `separator`, `status` (`dot`, `glyph`, `text`, `none`) with
+  `status_glyphs`, `meta` (words per presence and per activity: `{name}`,
+  `{detail}`, `{detail|name}`, such as `"listening · {detail|name}"` for the
+  artist; `font`, `size`, `colour`, `max_width`), `sub` (`activity`, `role`,
+  `none`) with `sub_text` (`"{role} · {activity}"`), `badge` (`"P{online}"`:
+  the member's place among everyone online), `selected` (`frame`, `over`),
+  `headers`, `title`, `tile_outline`. With `members_style: "grid"` and
+  `grid` (`columns`, `size`) the members are tiles.
+
+With `rail: "hidden"`, the top bar puts a home workspace (`chrome.topbar.home`,
+`~` by default) before the servers, marks mentions after each number,
+and opens a server picker from `+N` (every server past the bar's last) and
+from a folder's workspace: every folder and server in the rail's order,
+unread DMs first, then "Join a server", drawn from the menu's tokens.
 
 | Messages | What |
 | --- | --- |

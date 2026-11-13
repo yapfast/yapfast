@@ -807,6 +807,25 @@ fn looks(variant: &Resolved) -> Vec<String> {
     if !changes.is_empty() {
         out.push(format!("layout: {}", changes.join(", ")));
     }
+    if variant.layout.rail == Some(super::layout::RailSide::Hidden) {
+        out.push("rail: hidden, the top bar switches servers".into());
+    } else if let Some(tiles) = &variant.layout.rail_tiles {
+        out.push(tiles.summary());
+    }
+    out.extend(
+        variant
+            .layout
+            .channel_rows
+            .as_ref()
+            .map(|rows| rows.summary()),
+    );
+    out.extend(
+        variant
+            .layout
+            .member_rows
+            .as_ref()
+            .map(|rows| rows.summary()),
+    );
     out.extend(variant.content.summary());
     if let Some(cursors) = variant.animated_cursors.summary() {
         out.push(format!("cursors: {cursors}"));
@@ -1060,7 +1079,7 @@ pub fn unreadable_layout(variant: &Resolved) -> Vec<String> {
         Some(
             grounds
                 .iter()
-                .flat_map(|ground| unders.iter().map(move |under| over(*ground, *under)))
+                .flat_map(|ground| unders.iter().map(move |under| laid_over(*ground, *under)))
                 .collect(),
         )
     };
@@ -1103,7 +1122,7 @@ pub fn unreadable_layout(variant: &Resolved) -> Vec<String> {
                 ground.clone().map(|grounds| {
                     bar.colours()
                         .iter()
-                        .flat_map(|bar| grounds.iter().map(move |ground| over(*bar, *ground)))
+                        .flat_map(|bar| grounds.iter().map(move |ground| laid_over(*bar, *ground)))
                         .collect()
                 }),
             ));
@@ -1164,7 +1183,7 @@ fn over_at(colour: u32, alpha: f32, back: u32) -> u32 {
 }
 
 /// `top` laid over the opaque `under`, by its alpha, as an opaque colour.
-fn over(top: u32, under: u32) -> u32 {
+fn laid_over(top: u32, under: u32) -> u32 {
     let alpha = f64::from(top >> 24) / 255.0;
     let mix = |shift: u32| {
         let (a, b) = (
@@ -2077,6 +2096,43 @@ mod tests {
             report.errors.iter().any(|error| error.contains("WAV")),
             "{:?}",
             report.errors
+        );
+    }
+}
+
+#[cfg(test)]
+mod lists_summary {
+    use super::*;
+    use crate::themes::package::{Mode, Package};
+
+    #[test]
+    fn the_summary_names_the_lists() {
+        let package = Package::parse(
+            r##"{ "theme_api": 1, "id": "dev.example.lists", "name": "Lists", "version": "1.0.0",
+                "layout": { "rail_tiles": { "shape": "card", "label": "inside", "selected": { "offset": [6, 0] } },
+                            "channel_rows": { "height": 40, "meta": { "voice": "voice · {n}" } },
+                            "member_rows": { "avatar": { "size": 0 }, "meta": { "online": "online" } } },
+                "variants": { "dark": { "base": "yap" } } }"##,
+        )
+        .unwrap();
+        let lines = looks(&package.resolve(Mode::Dark).unwrap());
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("rail tiles: card 44×52, label inside")),
+            "{lines:?}"
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line == "channel rows: 40 px, voice \"voice · {n}\""),
+            "{lines:?}"
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line == "member rows: no avatar, meta words"),
+            "{lines:?}"
         );
     }
 }

@@ -162,7 +162,18 @@
                          "size": [72, 18], "rotation": -3 },
                        { "texture": "kraft", "colour": "#c8a878", "opacity": 0.5, "position": "bottom",
                          "size": ["full", 6] }],
-               "tab": { "text": "{name}", "font": "labels", "size": 11, "colour": "#141414" } }
+               "tab": { "text": "{name}", "font": "labels", "size": 11, "colour": "#141414" } },
+    "rail_tiles": { "shape": "square", "width": 48, "height": 48, "radius": 12, "gap": 8, "pad": 4, "tilt": 0,
+                    "label": "none", "hover": "lift", "hover_amount": 2, "hover_ms": 120,
+                    "selected": { "offset": [0, 0] }, "pill": true, "focus": "tile" },
+    "channel_rows": { "height": 34, "gap": 2, "inset": 8,
+                      "separator": { "colour": "#2a2c33", "width": 1, "inset": [8, 8] },
+                      "selected": { "underline": { "colour": "#7aa2ff", "width": 2, "offset": 2 } },
+                      "meta": { "unread": "badge", "voice": "voice · {n}" },
+                      "headers": { "case": "upper", "text": "{name}" } },
+    "member_rows": { "height": 42, "status": "dot",
+                     "meta": { "idle": "away", "listening": "listening · {detail|name}", "playing": "playing · {name}", "max_width": 120 },
+                     "headers": { "text": "{role} — {n}" } }
   },
   "content": {
     "media": { "tint": { "colour": "#7aa2ff", "amount": 0.2 } },

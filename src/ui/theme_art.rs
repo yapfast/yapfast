@@ -952,6 +952,17 @@ fn baked(decoder: &mut Decoder, layer: &Layer, ground: u32) -> Option<RgbaImage>
 }
 
 /// [`baked`], decoded no larger than `cap`.
+/// A layer's pixels at no more than `cap`, decoded on its own: the theme's
+/// lists keep their own cache (`theme_lists`).
+pub(super) fn baked_alone(
+    folder: &Path,
+    layer: &Layer,
+    ground: u32,
+    cap: (u32, u32),
+) -> Option<RgbaImage> {
+    baked_at(&mut Decoder::new(folder), layer, ground, cap)
+}
+
 fn baked_at(
     decoder: &mut Decoder,
     layer: &Layer,

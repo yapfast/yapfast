@@ -10,6 +10,7 @@ import { BotTag } from "messages.slint";
 import { PluginBadge, PluginBadgeView, PluginPart, PluginWidgets } from "plugins.slint";
 import { Arrange, DashedOutline, RansomName, PaneRule } from "theme_layout.slint";
 import { ThemeContent, IlluminatedInitial } from "theme_content.slint";
+import { MemberLists, ListedMember, ListedMemberHeading, ListedMemberTile, ListedTitle, TileArtBox } from "theme_lists.slint";
 import { Trim, FrameGround, SectionBox } from "theme_trim.slint";
 
 /// A member of the open room, or the heading, with no id, that starts a group.
@@ -53,6 +54,15 @@ export struct MemberRow {
     /// What plugins badge them with, from `member.decorate`: an empty model for
     /// anyone no plugin badged.
     plugin: [PluginBadge],
+    /// For a theme's list (`MemberLists`): a seed from their id, their
+    /// group's name without its count, their place among everyone online
+    /// across the groups from 0 (-1 when offline), and their first
+    /// activity's name and detail, such as a song's artist.
+    seed: int,
+    group-name: string,
+    online-index: int,
+    activity-name: string,
+    activity-detail: string,
 }
 
 /// A role's picture, asked for as it shows.
@@ -211,15 +221,25 @@ export component MemberPanel inherits Rectangle {
         padding-top: Art.reserve-members.top; padding-bottom: Art.reserve-members.bottom;
         padding-left: Art.reserve-members.left; padding-right: Art.reserve-members.right;
         // A theme's line over the list, such as `$ who`.
-        if Chrome.members-title != "": HorizontalLayout {
+        if Chrome.members-title != "" && !(MemberLists.on && (MemberLists.title-centre || MemberLists.title-shadow != transparent || MemberLists.title-rule != transparent || MemberLists.count-size >= 0px)): HorizontalLayout {
             padding-left: 16px; padding-right: 8px; height: 32px;
             Text {
-                text: Chrome.members-title; color: Theme.muted; font-size: 14px; vertical-alignment: bottom; overflow: elide;
-                font-family: Chrome.font;
+                text: MemberLists.numbered(Chrome.members-title, MemberLists.count);
+                color: MemberLists.on && MemberLists.title-colour != transparent ? MemberLists.title-colour : Theme.muted;
+                font-size: MemberLists.on && MemberLists.title-size >= 0px ? MemberLists.title-size : 14px;
+                font-family: MemberLists.on && MemberLists.title-family != "" ? MemberLists.title-family : Chrome.font;
+                letter-spacing: MemberLists.on ? Look.spacing-labels : 0px;
+                vertical-alignment: bottom; overflow: elide;
                 accessible-role: none; opacity: root.strip ? 0 : 1;
             }
         }
-        if root.activity-rows.length > 0 && !Chrome.hide-activity-cards && !root.strip: VerticalLayout {
+        // A theme's title: centred, with a hard shadow, a rule under it, and
+        // its count in a face of its own.
+        if Chrome.members-title != "" && !root.strip && MemberLists.on && (MemberLists.title-centre || MemberLists.title-shadow != transparent || MemberLists.title-rule != transparent || MemberLists.count-size >= 0px): ListedTitle {
+            height: MemberLists.title-rule != transparent ? 44px : 32px;
+            template: Chrome.members-title; count: MemberLists.count;
+        }
+        if root.activity-rows.length > 0 && !Chrome.hide-activity-cards && !(MemberLists.on && !MemberLists.activity) && !root.strip: VerticalLayout {
             padding-left: 8px; padding-right: 8px; padding-top: 8px; padding-bottom: 4px; spacing: 0px;
             activity-header := Rectangle {
                 // Opening it shows the cards again if they were hidden, as
@@ -341,13 +361,20 @@ export component MemberPanel inherits Rectangle {
                 changed view-y => { self.report-view(); }
                 changed height => { self.report-view(); }
                 changed view-tick => { self.report-view(); }
-                padding-left: 8px; padding-right: 8px;
+                padding-left: MemberLists.on ? MemberLists.margin-left : 8px; padding-right: MemberLists.on ? MemberLists.margin-right : 8px;
                 padding-top: index == 0 ? 8px : 0px;
-                padding-bottom: index == root.rows.length - 1 ? 12px : root.tiles && member.id != "" && Math.mod(member.place, max(1, Trim.grid-columns)) != 0 ? 0px : 2px;
+                padding-bottom: index == root.rows.length - 1 ? 12px : root.tiles && member.id != "" && Math.mod(member.place, max(1, Trim.grid-columns)) != 0 ? 0px
+                    : MemberLists.on ? MemberLists.gap : 2px;
                 spacing: 2px;
+                // A theme's heading, in its own face, case and art.
+                if member.heading != "" && MemberLists.on && MemberLists.head-on: HorizontalLayout {
+                    padding-left: 8px; height: MemberLists.head-height >= 0px ? MemberLists.head-height : 42px;
+                    padding-top: self.height - 22px; padding-bottom: 4px;
+                    ListedMemberHeading { heading: member.heading; }
+                }
                 // Discord's group heading: 14px medium in the channel grey, 20px above and 4px below.
                 // A theme's label bar lies under it.
-                if member.heading != "": Rectangle {
+                if member.heading != "" && !(MemberLists.on && MemberLists.head-on): Rectangle {
                   height: 42px;
                   if Trim.label.on: FrameGround {
                       x: 0px; y: 18px; width: parent.width; height: 22px; frame: Trim.label;
@@ -370,22 +397,96 @@ export component MemberPanel inherits Rectangle {
                 if member.id != "" && root.tiles: grid-line := Rectangle {
                     property <int> across: max(1, Trim.grid-columns);
                     property <bool> leads: Math.mod(member.place, self.across) == 0;
-                    property <length> tile-w: self.width / self.across;
-                    property <length> tile-h: Trim.grid-size + 34px;
+                    // A theme's member rows set the tiles' gap and height.
+                    property <length> gap: MemberLists.on ? MemberLists.gap : 0px;
+                    property <length> tile-w: (self.width - (self.across - 1) * self.gap) / self.across;
+                    property <length> tile-h: MemberLists.on && MemberLists.height >= 0px ? MemberLists.height : Trim.grid-size + 34px;
                     height: self.leads ? self.tile-h : 0px;
-                    for k in grid-line.leads ? grid-line.across : 0: MemberTile {
+                    for k in grid-line.leads && !MemberLists.on ? grid-line.across : 0: MemberTile {
                         property <int> at: index + k;
                         property <bool> here: self.at < root.rows.length && root.rows[self.at].id != "" && root.rows[self.at].place == root.rows[index].place + k;
                         visible: self.here;
-                        x: k * grid-line.tile-w; y: 0px; width: grid-line.tile-w; height: grid-line.tile-h;
+                        x: k * (grid-line.tile-w + grid-line.gap); y: 0px; width: grid-line.tile-w; height: grid-line.tile-h;
                         member: self.here ? root.rows[self.at] : root.rows[index]; selected: self.here && root.rows[self.at].id == root.selected;
                         size: Trim.grid-size;
                         open(y) => { root.open-profile(self.member.id, y); }
                         menu(x, y) => { root.open-member-menu(self.member.id, x, y); }
                     }
+                    // A theme's member rows draw the tiles in their look.
+                    for k in grid-line.leads && MemberLists.on ? grid-line.across : 0: Rectangle {
+                        property <int> at: index + k;
+                        property <bool> here: self.at < root.rows.length && root.rows[self.at].id != "" && root.rows[self.at].place == member.place + k;
+                        property <MemberRow> who: self.here ? root.rows[self.at] : member;
+                        visible: self.here;
+                        x: k * (grid-line.tile-w + grid-line.gap); y: 0px; width: grid-line.tile-w; height: grid-line.tile-h;
+                        accessible-role: button;
+                        accessible-label: self.who.name + ", " + self.who.id + ", show profile";
+                        accessible-action-default => { root.open-profile(self.who.id, self.absolute-position.y); }
+                        ListedMemberTile {
+                            name: parent.who.name; initial: parent.who.initial; tint: parent.who.tint; picture: parent.who.picture;
+                            picture-url: parent.who.picture-url; decoration-url: parent.who.decoration-url; presence: parent.who.presence;
+                            name-color: parent.who.color; has-color: parent.who.has-color; owner: parent.who.owner;
+                            online-index: parent.who.online-index;
+                            selected: parent.who.id == root.selected; hovered: tile-touch.has-hover;
+                        }
+                        tile-touch := TouchArea {
+                            enabled: parent.here;
+                            mouse-cursor: MouseCursor.pointer;
+                            clicked => { root.open-profile(parent.who.id, self.absolute-position.y); }
+                            pointer-event(event) => {
+                                if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                                    root.open-member-menu(parent.who.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                                }
+                            }
+                        }
+                    }
+                }
+                // A theme's row: its art, avatar frame, meta and sub line. The
+                // touch area, label and badges are the stock row's.
+                if member.id != "" && MemberLists.on && !root.tiles: Rectangle {
+                    height: MemberLists.height >= 0px ? MemberLists.height : Look.member-row-height >= 0px ? Look.member-row-height : 42px;
+                    accessible-role: button;
+                    accessible-label: member.name + ", " + member.id + ", show profile";
+                    accessible-action-default => { root.open-profile(member.id, self.absolute-position.y); }
+                    ListedMember {
+                        name: member.name; initial: member.initial; tint: member.tint; picture: member.picture; picture-url: member.picture-url;
+                        decoration-url: member.decoration-url; presence: member.presence; name-color: member.color; has-color: member.has-color;
+                        activity: member.activity; activity-emoji: member.activity-emoji; activity-icon: member.activity-icon; activity-bullet: member.activity-bullet;
+                        activity-name: member.activity-name; activity-detail: member.activity-detail; group-name: member.group-name;
+                        online-index: member.online-index; seed: member.seed; place: member.place;
+                        selected: member.id == root.selected; hovered: listed-pointer.has-hover;
+                        ransom: member.name-style.length == 0 && Arrange.ransom;
+                        if member.role-icon != "": Middle { RoleIcon { url: member.role-icon; size: 16px; } }
+                        if member.tag != "": Middle { ServerTagChip { text: member.tag; badge: member.tag-badge; } }
+                        if member.bot: Middle { BotTag { } }
+                        if member.owner: Middle {
+                            Image {
+                                source: IconPack.crown; width: 14px; height: 14px; image-fit: contain;
+                                colorize: MemberLists.crown-ink != transparent ? MemberLists.crown-ink : IconPack.tint(self.source, #f0b232);
+                                accessible-role: image; accessible-label: "Server Owner";
+                            }
+                        }
+                        if root.boost-gems && member.boosting != "": Middle {
+                            TipIcon { source: IconPack.gem; width: 14px; height: 14px; colorize: IconPack.tint(self.source, #ff73fa); tip: member.boosting; }
+                        }
+                        for badge in member.plugin: Middle { PluginBadgeView { badge: badge; } }
+                        if member.timed-out: Image {
+                            source: IconPack.clock; width: 14px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.danger);
+                            accessible-role: image; accessible-label: "Timed out";
+                        }
+                    }
+                    listed-pointer := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
+                        clicked => { root.open-profile(member.id, self.absolute-position.y); }
+                        pointer-event(event) => {
+                            if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                                root.open-member-menu(member.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                            }
+                        }
+                    }
                 }
                 // A heading is a row of its own; see `show_roster`.
-                if member.id != "" && !root.tiles: Rectangle {
+                if member.id != "" && !MemberLists.on && !root.tiles: Rectangle {
                   height: Look.member-row-height >= 0px ? Look.member-row-height : 42px; border-radius: Look.radius(8px);
                   background: member.id == root.selected ? #97979f33 : member-pointer.has-hover ? #97979f1f
                       : Trim.stripe-members && Math.mod(member.place, 2) == 1 ? Trim.stripe : transparent;
@@ -507,8 +608,13 @@ export component MemberPanel inherits Rectangle {
                     }
                   }
                 }
+                // A theme's art after the last row, which scrolls with the list.
+                if index == root.rows.length - 1 && MemberLists.on && MemberLists.foot.on: TileArtBox {
+                    height: MemberLists.foot.h + 8px; layer: MemberLists.foot;
+                }
             }
         }
+        if MemberLists.on && MemberLists.reserve > 0px: Rectangle { height: MemberLists.reserve; }
         // A theme's stickers at the list's foot, which take no input.
         if Trim.footer.length > 0: Rectangle {
             height: Trim.footer-height;

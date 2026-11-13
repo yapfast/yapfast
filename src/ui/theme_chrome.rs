@@ -23,6 +23,8 @@ use yapfast_ui::{Chrome, Look, ThemeContent, Workspace, YapfastWindow};
 struct Bar {
     count: usize,
     from: Workspaces,
+    /// The direct messages' workspace's words, when it has one.
+    home: Option<String>,
     playing: bool,
     clock: Option<slint::Timer>,
     model: Rc<VecModel<Workspace>>,
@@ -210,6 +212,7 @@ fn show_bar(window: &YapfastWindow, bar: &TopBar, still: bool) {
     BAR.set(Some(Bar {
         count: bar.workspaces as usize,
         from: bar.from,
+        home: bar.home.clone(),
         playing: bar.shows_playing(),
         clock,
         model,
@@ -237,20 +240,70 @@ pub fn workspaces(state: &yapfast_core::application::AppState) {
                     .iter()
                     .any(|channel| unread_rooms.get(channel.as_str()).copied().unwrap_or(false))
         };
+        // Mentions waiting in a server's channels, shown beside its number.
+        let mention_rooms: HashMap<&str, u64> = state
+            .rooms
+            .iter()
+            .map(|room| (room.id.as_str(), room.mentions))
+            .collect();
+        let mentions = |server: &yapfast_core::chat::ChatServer| -> u64 {
+            server
+                .channels
+                .iter()
+                .filter_map(|channel| mention_rooms.get(channel.as_str()))
+                .sum()
+        };
+        let badge = |count: u64| -> SharedString {
+            match count {
+                0 => SharedString::new(),
+                1..=99 => count.to_string().into(),
+                _ => "99+".into(),
+            }
+        };
+        // With the rail hidden, the bar is how servers are reached: a home
+        // workspace for the DMs first, and every server past the bar's
+        // last behind "+N".
+        let hidden = super::theme_lists::rail_hidden();
+        let home = bar.home.clone().or_else(|| hidden.then(|| "~".to_owned()));
+        let mut beyond = 0;
         // Each workspace: the server it opens, its name, whether it's open
         // and whether it's unread.
         let mut rows: Vec<Workspace> = Vec::new();
-        let mut push = |id: &str, name: &str, current: bool, unread: bool| {
-            if rows.len() < bar.count {
-                rows.push(Workspace {
-                    id: id.into(),
-                    number: (rows.len() + 1).to_string().into(),
-                    name: name.into(),
-                    current,
-                    unread,
-                });
-            }
-        };
+        if let Some(home) = &home {
+            let dms = super::refresh::unread_dm_rows(state);
+            let waiting: u64 = dms
+                .iter()
+                .filter_map(|dm| dm.badge.parse::<u64>().ok())
+                .sum();
+            rows.push(Workspace {
+                id: "@dms".into(),
+                number: home.as_str().into(),
+                name: "Direct messages".into(),
+                current: state.navigation == yapfast_core::application::Navigation::DirectMessages,
+                unread: !dms.is_empty(),
+                badge: badge(waiting),
+                home: true,
+                ..Workspace::default()
+            });
+        }
+        let first = rows.len();
+        let mut push =
+            |id: &str, name: &str, current: bool, unread: bool, mentions: u64, folder: &str| {
+                if rows.len() - first < bar.count {
+                    rows.push(Workspace {
+                        id: id.into(),
+                        number: (rows.len() - first + 1).to_string().into(),
+                        name: name.into(),
+                        current,
+                        unread,
+                        badge: badge(mentions),
+                        folder: folder.into(),
+                        ..Workspace::default()
+                    });
+                } else {
+                    beyond += 1;
+                }
+            };
         match bar.from {
             Workspaces::Servers => {
                 for server in &state.servers {
@@ -259,6 +312,8 @@ pub fn workspaces(state: &yapfast_core::application::AppState) {
                         &server.name,
                         selected == Some(server.id.as_str()),
                         unread(server),
+                        mentions(server),
+                        "",
                     );
                 }
             }
@@ -271,6 +326,8 @@ pub fn workspaces(state: &yapfast_core::application::AppState) {
                             &server.name,
                             selected == Some(server.id.as_str()),
                             unread(server),
+                            mentions(server),
+                            "",
                         );
                         continue;
                     };
@@ -293,10 +350,22 @@ pub fn workspaces(state: &yapfast_core::application::AppState) {
                             .iter()
                             .any(|server| selected == Some(server.id.as_str())),
                         inside.iter().any(|server| unread(server)),
+                        inside.iter().map(|server| mentions(server)).sum(),
+                        &folder.id,
                     );
                 }
             }
         }
+        if hidden && beyond > 0 {
+            rows.push(Workspace {
+                id: "@more".into(),
+                number: format!("+{beyond}").into(),
+                name: format!("{beyond} more servers").into(),
+                more: true,
+                ..Workspace::default()
+            });
+        }
+        super::theme_lists::picker(state, bar.count);
         let same = bar.model.row_count() == rows.len()
             && rows
                 .iter()

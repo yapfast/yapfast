@@ -1427,6 +1427,7 @@ impl Package {
                 super::chrome::read_chrome(chrome, &place("chrome"), &mut resolved.chrome, notes)?;
             }
         }
+        super::lists::check_with(&mut resolved, [shared, variant], notes)?;
         Ok(resolved)
     }
 

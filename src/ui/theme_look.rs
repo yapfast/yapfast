@@ -588,6 +588,7 @@ pub fn clear(window: &YapfastWindow) {
     });
     super::theme::set_mention_chip(None);
     super::theme_art::forget();
+    super::theme_lists::forget();
     reset(window);
     super::theme_media::forget();
     super::theme_cursor::forget();
@@ -596,6 +597,7 @@ pub fn clear(window: &YapfastWindow) {
 /// Every token a theme sets, back to stock.
 pub fn reset(window: &YapfastWindow) {
     super::theme_layout::reset(window);
+    super::theme_lists::reset(window);
     super::theme_chrome::reset(window);
     super::theme_trim::reset(window);
     let look = window.global::<Look>();
@@ -871,6 +873,14 @@ fn paint(window: &YapfastWindow) {
             state.performance,
             state.reduced,
             (motion.hover_in, motion.hover_out),
+        );
+        super::theme_lists::apply(
+            window,
+            resolved,
+            &applied.folder,
+            &applied.fonts,
+            state.performance,
+            state.reduced,
         );
         let plays = motion::effects_play(state.performance, state.reduced);
         look.set_fx_name(

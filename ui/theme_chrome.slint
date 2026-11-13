@@ -9,7 +9,14 @@ import { Theme, Look } from "theme.slint";
 
 /// One of the top bar's workspaces: a server (or a folder's), its number
 /// as shown, its name for screen readers, and whether it's open or unread.
-export struct Workspace { id: string, number: string, name: string, current: bool, unread: bool }
+export struct Workspace {
+    id: string, number: string, name: string, current: bool, unread: bool,
+    /// Mentions waiting, as a small number after it; empty for none.
+    badge: string,
+    /// The DMs' workspace, the "+N" that opens every server past the bar's
+    /// last, and a folder's id when it's a folder's.
+    home: bool, more: bool, folder: string,
+}
 
 export global Chrome {
     /// The face the chrome's words take, a type role's family; empty for
@@ -95,7 +102,9 @@ export global Chrome {
     /// The server rail as a list of names, and its width then.
     in property <bool> rail-text;
     in property <length> rail-width: 150px;
-    out property <length> rail-px: self.rail-text ? self.rail-width : 72px;
+    /// A theme's rail tiles' width for the rail, when they need more than 72.
+    in property <length> rail-tiles-px;
+    out property <length> rail-px: self.rail-text ? self.rail-width : max(72px, self.rail-tiles-px);
     /// The composer's block caret and its prompt.
     in property <bool> caret-block;
     in property <string> prompt;

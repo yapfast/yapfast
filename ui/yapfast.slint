@@ -83,6 +83,9 @@ export { Theme, Badges, Popup, Twemoji, Looks, Look, Shape, SlotMotion } from "t
 export { Arrange, BubbleGel, Dash, Scrap } from "theme_layout.slint";
 export { ThemeContent } from "theme_content.slint";
 export { Chrome, Workspace } from "theme_chrome.slint";
+export { Rails, ChannelLists, MemberLists, TileLayer, ListGlyph, FolderServer } from "theme_lists.slint";
+import { RuleLine, ChannelLists as ListsOfChannels } from "theme_lists.slint";
+export { Picker, PickerRow } from "theme_picker.slint";
 import { Chrome, BoxFrame } from "theme_chrome.slint";
 import { TopBar } from "theme_topbar.slint";
 import { CursorTrail, CursorTrailLayer } from "theme_cursor.slint";
@@ -92,7 +95,7 @@ import { Trim, FrameGround } from "theme_trim.slint";
 export { Autoscroll } from "scrollview.slint";
 export { Art, ArtImage, ArtOverlay, ArtText, ArtParticle, CardArt, Reserve } from "theme_art.slint";
 export { PersonRow, CallLink, ShareScreen, VoiceCard } from "voice.slint";
-export { ServerRow, RoomRow, FolderServer } from "rail.slint";
+export { ServerRow, RoomRow } from "rail.slint";
 export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer, NameStyles, ActivityClock } from "controls.slint";
 export { ServerTagRow } from "server.slint";
 export { ProfileTheme } from "people.slint";
@@ -2614,6 +2617,11 @@ export component YapfastWindow inherits Window {
         x: 0px; y: root.title-height; width: root.width; height: Chrome.topbar-px;
         account-name: root.account-name; server-name: root.sidebar-title; channel-name: root.room-name;
         chosen(id) => { root.navigate-server(id); }
+        home => { root.navigate-dms(); }
+        open-dm(id) => { root.open-conversation(id); }
+        join-server => { root.open-join-server(); }
+        open-server-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
+        bounds: root.height; bounds-width: root.width;
     }
     if root.workspace && Arrange.rail == 2: ServerRail {
         x: 0px; y: root.title-height + Chrome.topbar-px; width: root.width; height: root.rail-top - Chrome.topbar-px;
@@ -2717,7 +2725,11 @@ export component YapfastWindow inherits Window {
                                     placeholder: "Find a conversation"; text <=> root.filter; label: "Find a conversation";
                                     edited => { root.filter-edited(); }
                                 }
-                                if !header-box.banner: Rectangle { y: parent.height - 1px; height: 1px; background: ClientStyle.enabled ? Theme.outline : Theme.edge; }
+                                if !header-box.banner && !(ListsOfChannels.on && ListsOfChannels.server-rule != transparent): Rectangle { y: parent.height - 1px; height: 1px; background: ClientStyle.enabled ? Theme.outline : Theme.edge; }
+                                if !header-box.banner && ListsOfChannels.on && ListsOfChannels.server-rule != transparent: RuleLine {
+                                    x: ListsOfChannels.server-rule-inset; y: parent.height - self.height; width: parent.width - 2 * ListsOfChannels.server-rule-inset; height: ListsOfChannels.server-rule-width;
+                                    colour: ListsOfChannels.server-rule; style: ListsOfChannels.server-rule-style;
+                                }
                             }
                             // Discord's boost goal bar under the server's name: a pill 26px
                             // tall, its fill the share of the goal the boosts reach.

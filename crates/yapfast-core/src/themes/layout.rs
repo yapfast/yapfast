@@ -14,6 +14,7 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 
+use super::lists::{ChannelRows, MemberRows, RailTiles};
 use super::package::art::{Layer, MAX_LAYERS, Source, read_layer};
 use super::package::{
     Error, Paint, Shadow, colour_at, named, number, object, paint_at, read_shadow, relative,
@@ -71,6 +72,8 @@ closed! {
         /// of the direct messages, the servers and folders, and the open
         /// server's channels under it.
         Tree => "tree",
+        /// No rail: a theme's top bar's workspaces switch servers.
+        Hidden => "hidden",
     }
 }
 
@@ -298,13 +301,13 @@ pub struct Cards {
     /// Pictures pasted on each card, such as a strip of tape over its top
     /// edge: they lean with it.
     pub art: Vec<CardArt>,
+    /// Words on the card's tab: over its first picture, or a tab of their own.
+    pub tab: Option<CardTab>,
     /// Pixels each card steps aside, to the left or the right by its
     /// group, so cards down the page alternate sides (0–48).
     pub stagger: Option<f32>,
     /// A hovered or mentioned card's tint lies over its pictures too.
     pub tint_art: bool,
-    /// Words on the card's tab: over its first picture, or a tab of their own.
-    pub tab: Option<CardTab>,
 }
 
 /// The words on a message card's tab, such as its author's name.
@@ -421,6 +424,11 @@ pub struct Layout {
     pub borders: BTreeMap<BorderPlace, Border>,
     /// People's names as ransom notes.
     pub names: Option<Names>,
+    /// The server rail's tiles, the channel list's rows and the member
+    /// list's rows; see [`super::lists`].
+    pub rail_tiles: Option<RailTiles>,
+    pub channel_rows: Option<ChannelRows>,
+    pub member_rows: Option<MemberRows>,
     /// The member list as rows or tiles.
     pub members_style: Option<MembersStyle>,
     pub grid: Grid,
@@ -437,12 +445,18 @@ impl Layout {
     /// The pictures it names, once each.
     pub fn files(&self) -> Vec<PathBuf> {
         let mut files: Vec<PathBuf> = Vec::new();
+        let lists = super::lists::files(
+            self.rail_tiles.as_ref(),
+            self.channel_rows.as_ref(),
+            self.member_rows.as_ref(),
+        );
         let layers = self
             .bubbles
             .own_art
             .iter()
             .chain(&self.bubbles.other_art)
-            .chain(self.cards.art.iter().map(|art| &art.layer));
+            .chain(self.cards.art.iter().map(|art| &art.layer))
+            .chain(lists.into_iter().map(|art| &art.layer));
         let paths = layers
             .filter_map(|layer| match &layer.source {
                 Source::Image(path) => Some(path),
@@ -577,6 +591,15 @@ pub(super) fn read_layout(
                 layout.chat_max_width = Some(number(value, &here, (480.0, 1600.0))?)
             }
             "chat_avatars" => layout.chat_avatars = Some(boolean(value, &here)?),
+            "rail_tiles" => {
+                layout.rail_tiles = Some(super::lists::read_rail_tiles(value, &here, notes)?)
+            }
+            "channel_rows" => {
+                layout.channel_rows = Some(super::lists::read_channel_rows(value, &here, notes)?)
+            }
+            "member_rows" => {
+                layout.member_rows = Some(super::lists::read_member_rows(value, &here, notes)?)
+            }
             "irc" => {
                 for (key, value) in object(value, &here)? {
                     let at = format!("{here}.{key}");
@@ -635,9 +658,9 @@ pub(super) fn read_layout(
                             }
                         }
                         "art" => layout.cards.art = read_card_art(value, &at, notes)?,
+                        "tab" => layout.cards.tab = Some(read_tab(value, &at, notes)?),
                         "stagger" => layout.cards.stagger = Some(number(value, &at, (0.0, 48.0))?),
                         "tint_art" => layout.cards.tint_art = boolean(value, &at)?,
-                        "tab" => layout.cards.tab = Some(read_tab(value, &at, notes)?),
                         _ => notes.push(format!("\"{at}\" isn't something cards takes; ignored")),
                     }
                 }
@@ -679,6 +702,57 @@ pub(super) fn read_layout(
         }
     }
     Ok(())
+}
+
+/// `layout.cards.tab`: `{ "text": "{name}", "font": "labels", "size": 12,
+/// "weight": 800, "colour": "#0c0a0e", "uppercase": false, "ground": … }`.
+fn read_tab(value: &Value, at: &str, notes: &mut Vec<String>) -> Result<CardTab, Error> {
+    use super::package::Role;
+    let fields = object(value, at)?;
+    let mut tab = CardTab {
+        text: "{name}".into(),
+        role: None,
+        size: None,
+        weight: None,
+        colour: None,
+        uppercase: false,
+        ground: None,
+    };
+    for (key, value) in fields {
+        let here = format!("{at}.{key}");
+        match key.as_str() {
+            "text" => {
+                let text = short(value, &here, 48)?;
+                let mut rest = text.as_str();
+                while let Some(open) = rest.find('{') {
+                    let after = &rest[open + 1..];
+                    let Some(close) = after.find('}') else { break };
+                    let word = &after[..close];
+                    if word != "name" && word != "time" {
+                        return Err(Error(format!(
+                            "\"{here}\" can't use {{{word}}}; it takes {{name}} and {{time}}"
+                        )));
+                    }
+                    rest = &after[close + 1..];
+                }
+                tab.text = text;
+            }
+            "font" => {
+                tab.role = Some(value.as_str().and_then(Role::named).ok_or_else(|| {
+                    Error(format!("\"{here}\" names a type role, such as labels"))
+                })?);
+            }
+            "size" => tab.size = Some(number(value, &here, (8.0, 24.0))?),
+            "weight" => tab.weight = Some(number(value, &here, (100.0, 900.0))?.round() as i32),
+            "colour" => tab.colour = Some(colour_at(value, &here)?),
+            "ground" => tab.ground = Some(colour_at(value, &here)?),
+            "uppercase" => tab.uppercase = boolean(value, &here)?,
+            _ => notes.push(format!(
+                "\"{here}\" isn't something a card's tab takes; ignored"
+            )),
+        }
+    }
+    Ok(tab)
 }
 
 /// A number, or `[across, down]`, each within `range`.
@@ -798,57 +872,6 @@ fn read_bubble(
         }
     }
     Ok((ground, art, gel))
-}
-
-/// `layout.cards.tab`: `{ "text": "{name}", "font": "labels", "size": 12,
-/// "weight": 800, "colour": "#0c0a0e", "uppercase": false, "ground": … }`.
-fn read_tab(value: &Value, at: &str, notes: &mut Vec<String>) -> Result<CardTab, Error> {
-    use super::package::Role;
-    let fields = object(value, at)?;
-    let mut tab = CardTab {
-        text: "{name}".into(),
-        role: None,
-        size: None,
-        weight: None,
-        colour: None,
-        uppercase: false,
-        ground: None,
-    };
-    for (key, value) in fields {
-        let here = format!("{at}.{key}");
-        match key.as_str() {
-            "text" => {
-                let text = short(value, &here, 48)?;
-                let mut rest = text.as_str();
-                while let Some(open) = rest.find('{') {
-                    let after = &rest[open + 1..];
-                    let Some(close) = after.find('}') else { break };
-                    let word = &after[..close];
-                    if word != "name" && word != "time" {
-                        return Err(Error(format!(
-                            "\"{here}\" can't use {{{word}}}; it takes {{name}} and {{time}}"
-                        )));
-                    }
-                    rest = &after[close + 1..];
-                }
-                tab.text = text;
-            }
-            "font" => {
-                tab.role = Some(value.as_str().and_then(Role::named).ok_or_else(|| {
-                    Error(format!("\"{here}\" names a type role, such as labels"))
-                })?);
-            }
-            "size" => tab.size = Some(number(value, &here, (8.0, 24.0))?),
-            "weight" => tab.weight = Some(number(value, &here, (100.0, 900.0))?.round() as i32),
-            "colour" => tab.colour = Some(colour_at(value, &here)?),
-            "ground" => tab.ground = Some(colour_at(value, &here)?),
-            "uppercase" => tab.uppercase = boolean(value, &here)?,
-            _ => notes.push(format!(
-                "\"{here}\" isn't something a card's tab takes; ignored"
-            )),
-        }
-    }
-    Ok(tab)
 }
 
 /// The outlines in `shape`: `outline_width`, every hairline's width, and

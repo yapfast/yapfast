@@ -1490,6 +1490,23 @@ impl Adapter {
                 }
             }
         }
+        // A theme's rows pick their art by a seed from the id, and a
+        // category's heading may say its place among the categories.
+        let mut group = 0;
+        // Every other channel in a category, for a theme's zebra rows.
+        let mut in_group = 0;
+        for row in &mut rows {
+            row.seed = yapfast_core::themes::lists::seed(&row.id);
+            if !row.heading.is_empty() && !(row.pinned && !row.direct) {
+                group += 1;
+                row.group = group;
+                in_group = 0;
+            }
+            if !row.hidden {
+                row.stripe = in_group % 2 == 1;
+                in_group += 1;
+            }
+        }
         // A voice channel's people come as a new list each time; the one on
         // screen stays while they're the same, so its row counts as unchanged.
         let rows = rows
@@ -2495,6 +2512,31 @@ impl Adapter {
             };
             places.push(if same { places[index - 1] + 1 } else { 0 });
         }
+        // Each member's place among everyone online, across the groups,
+        // which a theme's badge may show as "P1".
+        let mut online = 0;
+        let online_places: Vec<i32> = members
+            .iter()
+            .map(|member| {
+                if matches!(
+                    member.presence,
+                    Some(
+                        Presence::Online
+                            | Presence::Mobile
+                            | Presence::Idle
+                            | Presence::DoNotDisturb
+                    )
+                ) {
+                    online += 1;
+                    online - 1
+                } else {
+                    -1
+                }
+            })
+            .collect();
+        window
+            .global::<yapfast_ui::MemberLists>()
+            .set_count(members.len() as i32);
         window
             .global::<yapfast_ui::Trim>()
             .set_members_n(i32::try_from(members.len()).unwrap_or(i32::MAX));
@@ -2537,11 +2579,21 @@ impl Adapter {
                     } else {
                         SharedString::default()
                     };
+                    let group_name: SharedString = match &member.group {
+                        Some(group) => group_name(group).into(),
+                        None => match member.role {
+                            Role::Admin => "Admins",
+                            Role::Moderator => "Moderators",
+                            Role::Member => "Members",
+                        }
+                        .into(),
+                    };
                     let heading = (!heading.is_empty()).then(|| MemberRow {
                         heading,
                         group_icon: member.group_icon.as_deref().unwrap_or_default().into(),
                         ..MemberRow::default()
                     });
+                    let (activity_name, activity_detail) = activity_words(&member.activities);
                     let (activity_icon, activity_bullet, named) =
                         subline(&member.activities, member.activity.as_deref());
                     let (activity, activity_emoji) =
@@ -2606,6 +2658,11 @@ impl Adapter {
                         activity,
                         activity_emoji,
                         place: places[index],
+                        seed: yapfast_core::themes::lists::seed(&member.id),
+                        group_name,
+                        online_index: online_places[index],
+                        activity_name,
+                        activity_detail,
                         // What plugins badge them with, which a plugin that
                         // hasn't answered yet leaves empty.
                         plugin: state
@@ -5286,6 +5343,39 @@ impl Adapter {
     }
 }
 
+/// A member list group's name without its count: "Leads" of "Leads — 2".
+fn group_name(group: &str) -> &str {
+    group.rsplit_once(" — ").map_or(group, |(name, _)| name)
+}
+
+/// The name of someone's first activity, but a custom status, and its
+/// detail: a song's artist, a game's details; empty when there's none.
+#[cfg(feature = "discord")]
+fn activity_words(activities: &yapfast_core::chat::Activities) -> (SharedString, SharedString) {
+    use yapfast_core::yapfast_discord::activity::Kind;
+    let Some(first) = activities
+        .iter()
+        .find(|activity| activity.kind != Kind::Hang)
+    else {
+        return (SharedString::new(), SharedString::new());
+    };
+    let detail = match first.kind {
+        Kind::Listening => first.state.as_deref(),
+        Kind::Streaming => first.details.as_deref(),
+        _ => first.details.as_deref(),
+    };
+    let name: &str = match first.kind {
+        Kind::Streaming => first.details.as_deref().unwrap_or(&first.name),
+        _ => &first.name,
+    };
+    (name.into(), detail.unwrap_or_default().into())
+}
+
+#[cfg(not(feature = "discord"))]
+fn activity_words(_activities: &yapfast_core::chat::Activities) -> (SharedString, SharedString) {
+    (SharedString::new(), SharedString::new())
+}
+
 /// The DMs with unread messages, the latest first, as Discord lists them on
 /// its rail above the servers. Message requests and spam stay on their screen.
 pub(super) fn unread_dm_rows(state: &AppState) -> Vec<ServerRow> {
@@ -5328,6 +5418,11 @@ fn rail(
         ..Default::default()
     });
     rail.extend(rail_rows(state, rooms_by_id, open_folders));
+    // A theme's rail tiles pick their art by a seed from the id, so a server
+    // keeps its frame however the rail is ordered.
+    for row in &mut rail {
+        row.seed = yapfast_core::themes::lists::seed(&row.id);
+    }
     rail
 }
 

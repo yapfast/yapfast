@@ -71,6 +71,7 @@ mod theme_chrome;
 mod theme_content;
 mod theme_cursor;
 pub mod theme_layout;
+pub mod theme_lists;
 pub mod theme_look;
 mod theme_media;
 mod theme_trim;

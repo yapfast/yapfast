@@ -496,6 +496,7 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
         }};
     }
     super::theme_layout::init(window);
+    super::theme_lists::init(window);
     super::theme_chrome::init(window);
     super::theme_cursor::init(window);
     super::theme_trim::init(window);

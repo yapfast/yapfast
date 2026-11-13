@@ -1,0 +1,247 @@
+// The server picker a theme's top bar opens when the rail is hidden
+// (`layout.rail: "hidden"`): every server and folder in the rail's order,
+// unread DMs first and "Join a server" last, so none is out of reach. Its
+// "+N" button opens it whole; a folder's workspace opens it filtered to the
+// folder. Drawn only from the theme's tokens: the menu's ground, art and
+// shape, its line colour, hover, and the names and code faces.
+// src/ui/theme_lists.rs keeps its rows.
+
+import { Theme, Look } from "theme.slint";
+import { Art, ArtLayer } from "theme_art.slint";
+import { Chrome } from "theme_chrome.slint";
+import { IconPack } from "media.slint";
+import { Avatar } from "controls.slint";
+import { FolderServer, ChannelLists } from "theme_lists.slint";
+
+/// A row of the picker: an unread DM, a folder, a server (nested under its
+/// folder when it's open) or, last, joining a server.
+export struct PickerRow {
+    id: string,
+    name: string,
+    initial: string,
+    picture-url: string,
+    /// The workspace number it is on the bar, empty past the bar's last.
+    number: string,
+    selected: bool,
+    unread: bool,
+    badge: string,
+    folder: bool,
+    open: bool,
+    nested: bool,
+    preview: [FolderServer],
+    dm: bool,
+    join: bool,
+}
+
+export global Picker {
+    /// The rail is hidden: the bar offers the picker.
+    in property <bool> on;
+    in property <[PickerRow]> rows;
+    /// "servers", or the folder's name when filtered to one, and how many
+    /// servers it holds.
+    in-out property <string> title;
+    in-out property <int> count;
+    /// How many servers it holds: all, or a folder's.
+    pure callback count-of(string) -> int;
+    /// A folder to show alone; empty for all.
+    in-out property <string> folder;
+    /// Opens or closes a folder inline.
+    callback toggle(string);
+    /// Shows every server, or one folder's.
+    callback filter(string);
+}
+
+component PickerItem inherits Rectangle {
+    in property <PickerRow> entry;
+    in property <bool> current;
+    in property <bool> first;
+    callback chosen;
+    callback context-menu(length, length);
+    out property <bool> hovered: touch.has-hover;
+    height: 34px;
+    border-radius: 2px;
+    background: touch.has-hover ? Theme.hover : transparent;
+    accessible-role: button;
+    accessible-label: root.entry.join ? "Join a server"
+        : root.entry.folder ? root.entry.name + " folder, " + (root.entry.open ? "open" : "closed")
+            + (root.entry.badge != "" ? ", " + root.entry.badge + " mentions" : root.entry.unread ? ", unread" : "")
+        : root.entry.name + (root.entry.dm ? (root.entry.badge != "" ? ", " + root.entry.badge + " unread" : ", unread")
+            : (root.entry.badge != "" ? ", " + root.entry.badge + " mentions" : root.entry.unread ? ", unread" : ""));
+    accessible-action-default => { root.chosen(); }
+    // Hairlines between rows, none round the one under the pointer or the
+    // keyboard.
+    if !root.first && !touch.has-hover && !root.current: Rectangle {
+        x: 10px; y: 0px; width: parent.width - 20px; height: 1px; background: Theme.line;
+    }
+    HorizontalLayout {
+        padding-left: root.entry.nested ? 26px : 10px; padding-right: 10px; spacing: 10px;
+        if root.entry.join: Image {
+            source: IconPack.plus; width: 14px; height: 14px; y: (parent.height - self.height) / 2;
+            colorize: IconPack.tint(self.source, Theme.accent-text); accessible-role: none;
+        }
+        if root.entry.join: Text {
+            text: "join a server"; font-family: Look.mono; font-size: 12px; color: Theme.muted;
+            vertical-alignment: center; accessible-role: none;
+        }
+        if root.entry.folder: Rectangle {
+            width: 20px;
+            for server[index] in root.entry.preview: Rectangle {
+                x: Math.mod(index, 2) * 11px; y: (parent.height - 20px) / 2 + floor(index / 2) * 11px;
+                width: 9px; height: 9px; border-radius: 4.5px; clip: true;
+                Avatar { size: 9px; initial: server.initial; picture-url: server.picture-url; tint: Theme.raised; }
+            }
+        }
+        if !root.entry.folder && !root.entry.join: Rectangle {
+            width: 20px;
+            Rectangle {
+                y: (parent.height - 20px) / 2; width: 20px; height: 20px; border-radius: 10px; clip: true;
+                Avatar { size: 20px; initial: root.entry.initial; picture-url: root.entry.picture-url; tint: Theme.raised; }
+            }
+            Rectangle {
+                y: (parent.height - 20px) / 2; width: 20px; height: 20px; border-radius: 10px;
+                border-width: 1px; border-color: Theme.line;
+            }
+        }
+        if !root.entry.join: Rectangle {
+            horizontal-stretch: 0;
+            min-width: 0px; preferred-width: name.preferred-width;
+            name := Text {
+                width: min(parent.width, self.preferred-width);
+                text: root.entry.name; font-family: Look.name-font(""); font-size: 16px; font-weight: Look.name-weight(700);
+                letter-spacing: Look.spacing-names;
+                color: root.entry.selected || root.entry.unread || root.entry.badge != "" ? Theme.text : touch.has-hover ? Theme.secondary : Theme.muted;
+                vertical-alignment: center; overflow: elide; accessible-role: none;
+            }
+            if root.entry.selected: Rectangle {
+                x: 0px; y: (parent.height + 19px) / 2 + 1px; width: name.width; height: 2px; background: Theme.accent;
+            }
+        }
+        if root.entry.folder: Image {
+            source: root.entry.open ? IconPack.chevron-down : IconPack.chevron-right; width: 12px; height: 12px;
+            y: (parent.height - self.height) / 2;
+            colorize: IconPack.tint(self.source, Theme.faint); accessible-role: none;
+        }
+        Rectangle { horizontal-stretch: 1; }
+        if root.entry.badge != "": Rectangle {
+            y: (parent.height - self.height) / 2;
+            width: max(18px, badge-text.preferred-width + 10px); height: 18px;
+            border-radius: ChannelLists.badge-radius >= 0px ? ChannelLists.badge-radius : 9px;
+            background: ChannelLists.badge-ground != transparent ? ChannelLists.badge-ground : Theme.danger;
+            badge-text := Text {
+                text: root.entry.badge; font-size: 11px; font-weight: 700;
+                color: ChannelLists.badge-ink != transparent ? ChannelLists.badge-ink : Theme.on-danger; accessible-role: none;
+            }
+        }
+        if root.entry.unread && root.entry.badge == "": Rectangle {
+            y: (parent.height - self.height) / 2; width: 6px; height: 6px; border-radius: 3px; background: Theme.accent-text;
+        }
+        if !root.entry.join: Text {
+            text: root.entry.number; font-family: Look.mono; font-size: 11px; color: Theme.faint;
+            vertical-alignment: center; horizontal-alignment: right; accessible-role: none;
+        }
+    }
+    if root.current: Rectangle {
+        border-radius: 2px; border-width: 2px; border-color: Theme.accent;
+    }
+    touch := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { root.chosen(); }
+        pointer-event(event) => {
+            if event.button == PointerEventButton.right && event.kind == PointerEventKind.down && !root.entry.join {
+                root.context-menu(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+            }
+        }
+    }
+}
+
+/// The picker's panel, to lay in a PopupWindow under the bar's button.
+/// Up and Down move the keyboard's row, Enter opens it (or a folder), Right
+/// opens a folder inline, Escape closes.
+export component ServerPicker inherits Rectangle {
+    /// The window's height, of which the picker takes at most 60 %.
+    in property <length> bounds;
+    callback open-server(string);
+    callback open-dm(string);
+    callback join-server;
+    callback open-server-menu(string, length, length);
+    callback closed;
+    /// Escape: closed, and the bar's button takes the keyboard back.
+    callback escaped;
+    in-out property <int> current: -1;
+    property <length> rows-height: Picker.rows.length * 34px;
+    width: 280px;
+    height: min(root.bounds * 0.6, 6px * 2 + 26px + root.rows-height + 9px);
+    border-radius: Look.r(Look.menu, 4px);
+    background: Theme.menu;
+    border-width: Look.bw(Look.menu, 1px); border-color: Look.bc(Look.menu, Theme.menu-line);
+    drop-shadow-blur: Look.sb(Look.menu, 16px); drop-shadow-offset-x: Look.sx(Look.menu, 0px);
+    drop-shadow-offset-y: Look.sy(Look.menu, 4px); drop-shadow-color: Look.sc(Look.menu, #00000066);
+    accessible-role: list;
+    accessible-label: Picker.title;
+    forward-focus: keys;
+    function activate(index: int) {
+        if index < 0 || index >= Picker.rows.length { return; }
+        if Picker.rows[index].join { root.join-server(); root.closed(); }
+        else if Picker.rows[index].folder { Picker.toggle(Picker.rows[index].id); }
+        else if Picker.rows[index].dm { root.open-dm(Picker.rows[index].id); root.closed(); }
+        else { root.open-server(Picker.rows[index].id); root.closed(); }
+    }
+    if Art.menu.length > 0 || Art.glass-menu: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.menu; glass: Art.glass-menu;
+        ground: Theme.menu; radius: parent.border-radius;
+    }
+    keys := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.DownArrow {
+                root.current = min(Picker.rows.length - 1, root.current + 1); return accept;
+            }
+            if event.text == Key.UpArrow {
+                root.current = max(0, root.current - 1); return accept;
+            }
+            if event.text == Key.RightArrow && root.current >= 0 && Picker.rows[root.current].folder && !Picker.rows[root.current].open {
+                Picker.toggle(Picker.rows[root.current].id); return accept;
+            }
+            if event.text == Key.LeftArrow && root.current >= 0 && Picker.rows[root.current].folder && Picker.rows[root.current].open {
+                Picker.toggle(Picker.rows[root.current].id); return accept;
+            }
+            if event.text == "\n" || event.text == " " {
+                root.activate(root.current); return accept;
+            }
+            if event.text == Key.Escape {
+                root.escaped(); return accept;
+            }
+            return reject;
+        }
+    }
+    VerticalLayout {
+        padding: 6px; spacing: 0px;
+        Rectangle {
+            height: 26px;
+            Text {
+                x: 10px; y: parent.height - self.height - 7px;
+                text: (Chrome.category != "" ? Chrome.fill(Chrome.category, "name", Picker.title) : Picker.title) + " · " + Picker.count;
+                font-family: Look.mono; font-size: 11px; letter-spacing: Look.spacing-labels;
+                color: Theme.accent-text; accessible-role: none;
+            }
+        }
+        Flickable {
+            vertical-stretch: 1;
+            content-height: root.rows-height + 9px;
+            VerticalLayout {
+                spacing: 0px; alignment: start;
+                for row[index] in Picker.rows: VerticalLayout {
+                    spacing: 0px;
+                    if row.join: Rectangle {
+                        height: 9px;
+                        Rectangle { x: 10px; y: 4px; width: parent.width - 20px; height: 1px; background: Theme.line; }
+                    }
+                    PickerItem {
+                        entry: row; current: index == root.current; first: index == 0 || row.join;
+                        chosen => { root.current = index; root.activate(index); }
+                        context-menu(x, y) => { root.open-server-menu(row.id, x, y); }
+                    }
+                }
+            }
+        }
+    }
+}
