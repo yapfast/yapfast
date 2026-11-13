@@ -35,6 +35,11 @@ impl ReadAcks {
         self.waiting.insert(channel, message);
     }
 
+    /// Drops a read of `channel` still waiting, as one marked unread since.
+    pub(super) fn forget(&mut self, channel: &str) {
+        self.waiting.remove(channel);
+    }
+
     pub(super) fn waiting(&self) -> bool {
         !self.waiting.is_empty()
     }

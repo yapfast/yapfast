@@ -849,6 +849,18 @@ impl Api {
             .map(drop)
     }
 
+    /// Marks a channel unread from the message after `message`, with
+    /// `mentions` of those after it calling on this account, as Mark Unread
+    /// in Discord's client does: a manual acknowledgement, which Discord
+    /// sends back as `MESSAGE_ACK` with `manual`.
+    pub async fn ack_manual(&self, channel: &str, message: &str, mentions: u64) -> Result<()> {
+        let path = format!("/channels/{channel}/messages/{message}/ack");
+        let body = json!({"manual": true, "mention_count": mentions});
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+            .map(drop)
+    }
+
     /// Marks channels read, each up to its message, in one request, as the
     /// official client does for a whole server; at most [`ACK_BULK_LIMIT`].
     pub async fn ack_bulk(&self, reads: &[(String, String)]) -> Result<()> {

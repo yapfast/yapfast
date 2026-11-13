@@ -170,8 +170,8 @@ interested. Folders show up as they do in Discord.
 - **Servers, channels, DMs and group DMs**, all live, with member lists. Pin,
   mute or close a DM from its menu, leave a group DM, and accept or ignore
   message requests.
-- **Messages** you can send, reply to, edit, react to, pin, forward and attach
-  files to, with Markdown, embeds, custom emoji, stickers and spoilers. Bots'
+- **Messages** you can send, reply to, edit, react to, pin, forward, mark
+  unread, copy a link to and attach files to, with Markdown, embeds, custom emoji, stickers and spoilers. Bots'
   buttons, dropdown menus and forms work too, radio buttons, checkboxes and
   file uploads included, and so do apps' slash commands: type `/`, pick one
   and fill in its options, files and autocomplete included; an app's answer

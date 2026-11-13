@@ -6625,6 +6625,58 @@ fn the_new_divider_marks_the_first_unread_message_until_the_channel_is_left() {
 
 #[test]
 #[cfg(feature = "discord")]
+fn mark_unread_reads_up_to_the_message_before_and_holds_until_the_channel_is_left() {
+    let general = "discord:10:21";
+    let mut app = connected();
+    app.apply(unread_channel(false, 110));
+    app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    app.dispatch(Action::SelectRoom(general.into()));
+    app.apply(window(general, chat::Direction::Latest, true));
+    let mut messages = discord_messages(95..=110, &[104]);
+    // One later message mentions Alice.
+    messages[14].mentions_me = true;
+    app.apply(Event::Timeline {
+        room: general.into(),
+        messages: timeline(messages),
+    });
+    app.dispatch(Action::Reading(true));
+    assert!(app.marks_unread("d:107"));
+    assert!(!app.marks_unread("d:999"), "not loaded");
+    assert_eq!(
+        app.state.message_link("d:107"),
+        Some((
+            "https://discord.com/channels/10/21/107".into(),
+            "107".into()
+        ))
+    );
+    // Reads stay in Yapfast here, so this does too.
+    assert!(matches!(
+        app.dispatch(Action::MarkUnread("d:107".into())).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::MarkUnread {
+            room,
+            last: 106,
+            mentions: 1,
+            sync: false,
+        }))] if room == general
+    ));
+    assert_eq!(app.state.first_unread.as_deref(), Some("d:107"));
+    // Discord says it's unread, and the newest message in view doesn't
+    // read it while it shows.
+    let reads = |effects: &[Effect]| {
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Backend(Command::MarkRead { .. })))
+    };
+    assert!(!reads(&app.apply(unread_channel(true, 106))));
+    app.dispatch(Action::Reading(false));
+    assert!(!reads(&app.dispatch(Action::Reading(true))));
+    // Left, it reads again as it opens.
+    app.dispatch(Action::SelectRoom("discord:10:22".into()));
+    assert_eq!(app.held_unread, None);
+}
+
+#[test]
+#[cfg(feature = "discord")]
 fn a_channel_whose_new_messages_dont_show_reads_once_its_newest_came() {
     let general = "discord:10:21";
     let latest = |history| Event::HistoryLoaded {

@@ -1362,6 +1362,12 @@ export component MessageMenu inherits Rectangle {
     /// from a verified device.
     in property <bool> forward-allowed;
     in property <bool> preview;
+    /// A Discord message's link and id, for Copy Message Link and Copy
+    /// Message ID; empty for any other message.
+    in property <string> message-link;
+    in property <string> message-id;
+    in property <bool> can-mark-unread;
+    callback mark-unread(string);
     /// The open channel's apps' message commands, which "Apps" lists.
     in property <[CommandChoice]> app-commands;
     /// The Apps submenu opens left of the menu, for want of room on its
@@ -1485,6 +1491,17 @@ export component MessageMenu inherits Rectangle {
                 hovered => { root.apps-y = self.absolute-position.y - panel.absolute-position.y; root.apps-open = true; }
                 clicked => { root.apps-y = self.absolute-position.y - panel.absolute-position.y; root.apps-open = true; }
             }
+            // After Apps, as in Discord's menu.
+            if root.can-mark-unread: MenuItem {
+                text: "Mark Unread"; icon: @image-url("icons/message-circle.svg");
+                hovered => { root.apps-open = false; }
+                clicked => { root.mark-unread(root.menu-message.item); }
+            }
+            if root.message-link != "": MenuItem {
+                text: "Copy Message Link"; icon: @image-url("icons/link.svg");
+                hovered => { root.apps-open = false; }
+                clicked => { root.copy-text(root.message-link); }
+            }
             if root.link != "" || (root.media-index >= 0 && !root.preview): Rectangle { height: 1px; background: Theme.line; }
             if root.media-index >= 0 && root.link != "" && !root.media-video && !root.preview: MenuItem {
                 text: "Copy Image"; icon: @image-url("icons/image.svg");
@@ -1513,6 +1530,13 @@ export component MessageMenu inherits Rectangle {
                 hovered => { root.apps-open = false; }
                 clicked => { root.request-delete(root.menu-message.item); }
             }
+            // Last, as Discord's client puts it.
+            if root.message-id != "": Rectangle { height: 1px; background: Theme.line; }
+            if root.message-id != "": MenuItem {
+                text: "Copy Message ID"; icon: @image-url("icons/hash.svg");
+                hovered => { root.apps-open = false; }
+                clicked => { root.copy-text(root.message-id); }
+            }
         }
     }
     if root.apps-open && root.has-apps: Rectangle {
@@ -1529,6 +1553,12 @@ export component MessageMenu inherits Rectangle {
                 text: command.name; subtitle: command.app; icon: command.icon; plain: true;
                 clicked => { root.run-app-command(command.id, root.menu-message.item); }
             }
+        }
+        // Last, as Discord's client puts it.
+        if root.message-id != "": Rectangle { height: 1px; background: Theme.line; }
+        if root.message-id != "": MenuItem {
+            text: "Copy Message ID"; icon: @image-url("icons/hash.svg");
+            clicked => { root.copy-text(root.message-id); }
         }
     }
 }

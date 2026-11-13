@@ -484,6 +484,27 @@ impl Session<'_> {
                 }
                 Ok(())
             }
+            Request::MarkUnread {
+                channel,
+                last,
+                mentions,
+                sync,
+            } => {
+                self.tracker.unreads.mark_unread(&channel, last, mentions);
+                self.publisher.changed();
+                // A read on its way would read it again.
+                self.acks.forget(&channel);
+                if sync {
+                    let api = self.shared.api.clone();
+                    tokio::spawn(async move {
+                        let last = last.to_string();
+                        if let Err(error) = api.ack_manual(&channel, &last, mentions).await {
+                            tracing::warn!(%error, "could not mark a Discord channel unread");
+                        }
+                    });
+                }
+                Ok(())
+            }
             Request::GoLive {
                 guild,
                 channel,

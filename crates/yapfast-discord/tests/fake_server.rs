@@ -2343,6 +2343,49 @@ async fn lists_dms_and_notifies() {
     })
     .await
     .expect("both reads are acknowledged in one request");
+
+    // Mark Unread on Dave's message reads up to just before it, as a manual
+    // acknowledgement with the one mention after it, and his DM is unread
+    // again, as the MESSAGE_ACK that comes back says too.
+    let read = snapshot_where(&discord, |snapshot| {
+        snapshot
+            .conversations
+            .iter()
+            .any(|dm| dm.id == dm_dave && !dm.unread && dm.last_read > 0)
+    })
+    .await;
+    let newest = read
+        .conversations
+        .iter()
+        .find(|dm| dm.id == dm_dave)
+        .unwrap()
+        .last_read;
+    let before = newest - (1 << 22);
+    discord.mark_unread(&dm_dave, before, 1, true);
+    let manual = timeout(WAIT, async {
+        loop {
+            let acks: Vec<serde_json::Value> =
+                serde_json::from_str(&self::control(server, "GET", "/_control/manual-acks", ""))
+                    .unwrap();
+            if let Some(ack) = acks.into_iter().next() {
+                break ack;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("Mark Unread is acknowledged");
+    assert_eq!(
+        manual,
+        serde_json::json!({"channel_id": dm_dave, "message_id": before.to_string(), "mention_count": 1})
+    );
+    snapshot_where(&discord, |snapshot| {
+        snapshot
+            .conversations
+            .iter()
+            .any(|dm| dm.id == dm_dave && dm.unread && dm.mentions == 1 && dm.last_read == before)
+    })
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]

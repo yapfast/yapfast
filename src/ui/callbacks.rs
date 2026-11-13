@@ -1240,6 +1240,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
     bind_item!(on_request_delete, Action::RequestDelete);
     bind_item!(on_delete_now, Action::DeleteNow);
     bind_item!(on_pin_message, Action::PinMessage);
+    bind_item!(on_mark_unread, Action::MarkUnread);
     bind_item!(on_retry, Action::Retry);
     bind_item!(on_cancel_send, Action::CancelSend);
     bind_item!(on_start_forward, Action::StartForward);
@@ -2529,6 +2530,30 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             .unwrap_or_default()
             .into()
     });
+    let state = adapter.clone();
+    window.on_message_link(move |item| {
+        let adapter = state.borrow();
+        adapter
+            .app
+            .state
+            .message_link(&item)
+            .map(|(link, _)| link)
+            .unwrap_or_default()
+            .into()
+    });
+    let state = adapter.clone();
+    window.on_message_id(move |item| {
+        let adapter = state.borrow();
+        adapter
+            .app
+            .state
+            .message_link(&item)
+            .map(|(_, id)| id)
+            .unwrap_or_default()
+            .into()
+    });
+    let state = adapter.clone();
+    window.on_can_mark_unread(move |item| state.borrow().app.marks_unread(&item));
     let state = adapter.clone();
     window.on_save_attachment(move |item, index| {
         let item = item.to_string();

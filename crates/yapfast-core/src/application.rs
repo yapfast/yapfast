@@ -858,6 +858,19 @@ impl AppState {
             .map(Arc::as_ref)
     }
 
+    /// A sent Discord message's link, as Copy Message Link copies it, and
+    /// its id, as Copy Message ID does; none for any other message.
+    pub fn message_link(&self, item: &str) -> Option<(String, String)> {
+        let room = self.room_of(item)?;
+        let id = discord::item_order(item)?;
+        if Network::of(room) != Network::Discord
+            || self.message(item)?.delivery != chat::Delivery::Sent
+        {
+            return None;
+        }
+        Some((format!("{}/{id}", network_link(room)), id.to_string()))
+    }
+
     /// Whether this account's devices can write to the selected room.
     pub fn can_write(&self) -> bool {
         !self.busy
@@ -1664,6 +1677,9 @@ pub enum Action {
     /// Pin a message of the selected room to its pinned messages, or
     /// unpin it if it's there.
     PinMessage(String),
+    /// Mark a Discord message's channel unread from that message on, as
+    /// Mark Unread in its menu, or Alt+Enter on it, does.
+    MarkUnread(String),
     /// Open the forward dialog for a message of the selected room.
     StartForward(String),
     /// Choose a conversation to forward that message to, or leave it out.
@@ -2471,6 +2487,9 @@ pub struct Application {
     /// What shows is what was kept, with the newest page on its way, so the
     /// "New" divider isn't placed yet: see [`chat::Direction::Kept`].
     divider_waits: bool,
+    /// The Discord channel or thread on screen that Mark Unread marked
+    /// unread: it isn't read again until it's left, as in Discord's client.
+    held_unread: Option<String>,
     /// [`AppState::seen`] is still to be checked against the selected room's
     /// timeline, once it comes.
     placing_seen: bool,
@@ -3367,6 +3386,7 @@ impl Application {
             Action::EndPoll => self.end_poll(),
             Action::ShowVoters { item, answer } => self.show_voters(item, answer),
             Action::PinMessage(item) => self.pin_message(item),
+            Action::MarkUnread(item) => self.mark_unread(item),
             Action::StartForward(item) => self.start_forward(item),
             Action::ChooseForward(target) => self.choose_forward(target),
             Action::SearchForward(query) => self.search_forward(query),

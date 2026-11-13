@@ -2953,6 +2953,16 @@ pub enum DiscordCommand {
         place: String,
         change: NotificationChange,
     },
+    /// Mark a Discord channel, by its room id, unread after the message
+    /// `last`, a snowflake, with `mentions` of the messages after it calling
+    /// on this account, in Yapfast and with `sync` on Discord, as Mark
+    /// Unread in a message's menu does.
+    MarkUnread {
+        room: String,
+        last: u64,
+        mentions: u64,
+        sync: bool,
+    },
     /// Join a Discord thread, by its room id, or leave it with `join`
     /// false, from the menu Discord's client names `location`; snapshots
     /// show it once Discord confirms it, and a failure comes back as

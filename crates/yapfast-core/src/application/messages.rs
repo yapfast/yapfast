@@ -88,6 +88,84 @@ impl Application {
         self.delete_message(item)
     }
 
+    /// Whether a message's menu offers Mark Unread, as Discord's client
+    /// does: on a sent message in a Discord channel or DM, or in a thread
+    /// this account is in and that isn't archived, since Discord's client
+    /// would join it or open it again first.
+    pub fn marks_unread(&self, item: &str) -> bool {
+        let Some(room) = self.state.room_of(item) else {
+            return false;
+        };
+        Network::of(room) == Network::Discord
+            && discord::item_order(item).is_some()
+            && self
+                .state
+                .message(item)
+                .is_some_and(|message| message.delivery == chat::Delivery::Sent)
+            && self
+                .thread_state(room)
+                .is_none_or(|(joined, archived)| joined && !archived)
+    }
+
+    /// Marks a Discord message's channel unread from it on, as Discord's
+    /// client does: read up to the newest message loaded before it, or
+    /// else up to the millisecond before it, with as many mentions as the
+    /// loaded messages after that call on this account, every one in a DM.
+    /// The "New" divider goes above it, and the channel stays unread while
+    /// it shows.
+    pub(super) fn mark_unread(&mut self, item: String) -> Vec<Effect> {
+        if !self.marks_unread(&item) {
+            return vec![];
+        }
+        let (Some(room), Some(order)) = (
+            self.state.room_of(&item).cloned(),
+            discord::item_order(&item),
+        ) else {
+            return vec![];
+        };
+        let aside = self
+            .state
+            .aside
+            .as_ref()
+            .is_some_and(|aside| aside.room == room);
+        let (last, mentions) = {
+            let messages = match &self.state.aside {
+                Some(beside) if aside => &beside.messages,
+                _ => &self.state.messages,
+            };
+            let last = messages
+                .iter()
+                .filter_map(|message| discord::item_order(&message.item))
+                .filter(|&earlier| earlier < order)
+                .max()
+                .unwrap_or(((order >> 22).saturating_sub(1)) << 22);
+            let dm =
+                discord::parse_room(&room).is_some_and(|(guild, _)| guild == discord::DM_GUILD);
+            let mentions = messages
+                .iter()
+                .filter(|message| {
+                    discord::item_order(&message.item).is_some_and(|later| later > last)
+                        && !message.own
+                        && (dm || message.mentions_me)
+                })
+                .count() as u64;
+            (last, mentions)
+        };
+        self.held_unread = Some(room.clone());
+        if !aside {
+            self.state.first_unread = Some(item);
+            self.state.caught_up = false;
+        }
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::MarkUnread {
+                room,
+                last,
+                mentions,
+                sync: self.state.sync_discord_reads,
+            },
+        ))]
+    }
+
     pub(super) fn pin_message(&mut self, item: String) -> Vec<Effect> {
         let Some(room) = self.state.room_of(&item).cloned() else {
             return vec![];

@@ -123,6 +123,9 @@
 // first, and POST clears the list.
 // GET /_control/acks lists Alice's read acknowledgements, oldest first: each
 // request's channels, several for POST /read-states/ack-bulk.
+// GET /_control/manual-acks lists her manual ones, Mark Unread's, oldest
+// first: each one's channel_id, message_id and mention_count, which
+// MESSAGE_ACK sends back with `manual`.
 // POST /_control/react makes Carol add or take back a reaction on the newest
 // message in #general.
 // POST /_control/poll makes Bob post a poll in #general that Carol and Dave
@@ -6617,6 +6620,15 @@ async function api(req: Request, path: string, origin: string): Promise<Response
 
   if (method === "POST" && (m = path.match(/^\/channels\/(\d+)\/messages\/(\d+)\/ack$/))) {
     if (!messages.has(m[1]!)) return notFound("Unknown Channel", 10003);
+    const body: any = await req.json().catch(() => ({}));
+    // Mark Unread: the read message goes back, with the mentions after it.
+    if (body.manual === true) {
+      const mentions = Number(body.mention_count ?? 0);
+      readStates.set(m[1]!, { last: m[2]!, mentions });
+      manualAcks.push({ channel_id: m[1]!, message_id: m[2]!, mention_count: mentions });
+      dispatch("MESSAGE_ACK", { channel_id: m[1], message_id: m[2], version: 1, manual: true, mention_count: mentions });
+      return json({ token: null });
+    }
     readStates.set(m[1]!, { last: m[2]!, mentions: 0 });
     acks.push([m[1]!]);
     dispatch("MESSAGE_ACK", { channel_id: m[1], message_id: m[2], version: 1, mention_count: 0 });
@@ -8681,6 +8693,8 @@ let busyCount = 0;
 const typed: string[] = [];
 // Each read acknowledgement's channels, oldest first.
 const acks: string[][] = [];
+/** Alice's manual acknowledgements, Mark Unread's, oldest first. */
+const manualAcks: { channel_id: string; message_id: string; mention_count: number }[] = [];
 let chatCount = 0;
 
 function chatTick(origin: string) {
@@ -9532,6 +9546,9 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/acks") {
       return Response.json(acks);
+    }
+    if (req.method === "GET" && path === "/_control/manual-acks") {
+      return Response.json(manualAcks);
     }
     if (req.method === "GET" && path === "/_control/invites") {
       return Response.json(invites);
