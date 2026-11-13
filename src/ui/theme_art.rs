@@ -135,6 +135,13 @@ pub fn reset(window: &YapfastWindow) {
     art.set_code(none());
     art.set_row_selected(none());
     art.set_card_over(none());
+    art.set_call(none());
+    art.set_toast(none());
+    art.set_tooltip(none());
+    art.set_picker(none());
+    art.set_popout(none());
+    art.set_aside(none());
+    art.set_lightbox(none());
     art.set_cards(ModelRc::new(VecModel::<CardArt>::default()));
     art.set_overlays(ModelRc::new(VecModel::<ArtOverlay>::default()));
     art.set_chat_overlays(false);
@@ -155,6 +162,13 @@ pub fn reset(window: &YapfastWindow) {
         yapfast_ui::Art::set_glass_embed,
         yapfast_ui::Art::set_glass_code,
         yapfast_ui::Art::set_glass_row_selected,
+        yapfast_ui::Art::set_glass_call,
+        yapfast_ui::Art::set_glass_toast,
+        yapfast_ui::Art::set_glass_tooltip,
+        yapfast_ui::Art::set_glass_picker,
+        yapfast_ui::Art::set_glass_popout,
+        yapfast_ui::Art::set_glass_aside,
+        yapfast_ui::Art::set_glass_lightbox,
     ] {
         set(&art, false);
     }
@@ -242,7 +256,12 @@ pub fn apply(
         return;
     }
     let global = window.global::<yapfast_ui::Art>();
-    let ground = |surface: ArtSurface| shown(resolved, surface.ground()).unwrap_or(0xff00_0000);
+    let ground = |surface: ArtSurface| {
+        surface
+            .fixed_ground()
+            .or_else(|| shown(resolved, surface.ground()))
+            .unwrap_or(0xff00_0000)
+    };
     let still = performance == Performance::Light || reduced;
     let mut moving = false;
     for (surface, layers) in &art.surfaces {
@@ -281,6 +300,13 @@ pub fn apply(
                 trim.set_footer(model);
                 trim.set_footer_height(art.footer_height.unwrap_or(64.));
             }
+            ArtSurface::Call => global.set_call(model),
+            ArtSurface::Toast => global.set_toast(model),
+            ArtSurface::Tooltip => global.set_tooltip(model),
+            ArtSurface::Picker => global.set_picker(model),
+            ArtSurface::Popout => global.set_popout(model),
+            ArtSurface::Aside => global.set_aside(model),
+            ArtSurface::Lightbox => global.set_lightbox(model),
         }
     }
     // Content kept clear of a pane's art, at every Performance setting:
@@ -380,6 +406,13 @@ pub fn apply(
                 ArtSurface::Embed => yapfast_ui::Art::set_glass_embed,
                 ArtSurface::Code => yapfast_ui::Art::set_glass_code,
                 ArtSurface::RowSelected => yapfast_ui::Art::set_glass_row_selected,
+                ArtSurface::Call => yapfast_ui::Art::set_glass_call,
+                ArtSurface::Toast => yapfast_ui::Art::set_glass_toast,
+                ArtSurface::Tooltip => yapfast_ui::Art::set_glass_tooltip,
+                ArtSurface::Picker => yapfast_ui::Art::set_glass_picker,
+                ArtSurface::Popout => yapfast_ui::Art::set_glass_popout,
+                ArtSurface::Aside => yapfast_ui::Art::set_glass_aside,
+                ArtSurface::Lightbox => yapfast_ui::Art::set_glass_lightbox,
                 ArtSurface::Header => {
                     window.global::<yapfast_ui::Trim>().set_header_glass(true);
                     continue;
@@ -525,7 +558,12 @@ pub fn bake(resolved: &Resolved, folder: &Path, window: (u32, u32)) -> Baked {
     let art = &resolved.art;
     let mut decoder = Decoder::new(folder);
     let mut made: HashMap<String, Pixels> = HashMap::new();
-    let ground = |surface: ArtSurface| shown(resolved, surface.ground()).unwrap_or(0xff00_0000);
+    let ground = |surface: ArtSurface| {
+        surface
+            .fixed_ground()
+            .or_else(|| shown(resolved, surface.ground()))
+            .unwrap_or(0xff00_0000)
+    };
     let mut add = |key: String, make: &mut dyn FnMut() -> Option<Pixels>| {
         if !made.contains_key(&key)
             && let Some(pixels) = make()

@@ -25,6 +25,12 @@
     "label": { "radius": 6, "case": "as written" },
     "header": { "border": 0 },
     "card_section": { "radius": 8, "bar": "#ffffff0d" },
+    "call": { "radius": 14, "border": 1, "border_colour": "#ffffff1f" },
+    "stream": { "radius": 10, "shadow": { "blur": 16, "y": 6, "colour": "#00000066" } },
+    "toast": { "radius": 12 },
+    "picker": { "radius": 14 },
+    "popout": { "radius": 12 },
+    "scrollbar": { "radius": 2, "width": 3, "hover_width": 8 },
     "radii": { "small": 4, "medium": 8, "large": 12 },
     "outline_width": 1,
     "borders": { "tile": "dashed", "divider": { "style": "dotted", "gap": 4 }, "actions": "solid",
@@ -76,14 +82,21 @@
       "code": { "texture": "halftone", "colour": "#ffffff", "opacity": 0.03 },
       "row-selected": { "texture": "paper", "colour": "#ffffff", "opacity": 0.08 },
       "card_over": { "texture": "grain", "colour": "#ffffff", "opacity": 0.03 },
-      "footer": { "texture": "halftone", "colour": "#7aa2ff", "opacity": 0.06 }
+      "footer": { "texture": "halftone", "colour": "#7aa2ff", "opacity": 0.06 },
+      "call": { "texture": "halftone", "colour": "#7aa2ff", "opacity": 0.06 },
+      "toast": { "texture": "grain", "colour": "#ffffff", "opacity": 0.04 },
+      "tooltip": { "texture": "noise", "colour": "#ffffff", "opacity": 0.04 },
+      "picker": { "texture": "noise", "colour": "#ffffff", "opacity": 0.03 },
+      "popout": { "texture": "grain", "colour": "#ffffff", "opacity": 0.04 },
+      "aside": { "texture": "paper", "colour": "#ffffff", "opacity": 0.04, "blend": "screen" },
+      "lightbox": { "texture": "noise", "colour": "#000000", "opacity": 0.2 }
     },
     "footer_height": 48,
     "overlays": [
       { "kind": "vignette", "opacity": 0.25 },
       { "kind": "scanlines", "size": 3, "opacity": 0.04, "on": "chat" }
     ],
-    "glass": { "surfaces": ["menu", "dialog"], "blur": 16, "opacity": 0.85, "highlight": "#ffffff26", "gap": 0,
+    "glass": { "surfaces": ["menu", "dialog", "picker", "popout"], "blur": 16, "opacity": 0.85, "highlight": "#ffffff26", "gap": 0,
                "rim": { "colour": "#00000066", "width": 1 } },
     "text": {
       "headings": { "shadow": { "blur": 0, "x": 0, "y": 1, "colour": "#00000099" } },

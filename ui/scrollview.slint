@@ -58,7 +58,9 @@ component ScrollBar inherits Rectangle {
     callback scrolled();
 
     property <length> offset: 16px;
-    property <length> size: 2px;
+    // A theme's `scrollbar` shape sets the thumb's width at rest and under
+    // the pointer, its corners and its outline.
+    property <length> size: Look.scrollbar-width >= 0px ? Look.scrollbar-width : 2px;
     property <length> track-size: root.horizontal ? root.width - 2 * root.offset : root.height - 2 * offset;
     property <length> step-size: 10px;
     property <length> thumb-length: root.maximum <= 0phx ? 0phx
@@ -76,7 +78,7 @@ component ScrollBar inherits Rectangle {
     states [
         hover when touch-area.has-hover || down-scroll-button.has-hover || up-scroll-button.has-hover : {
             root.background: Theme.scrollbar-track;
-            root.size: 6px;
+            root.size: Look.scrollbar-hover-width >= 0px ? Look.scrollbar-hover-width : 6px;
             up-scroll-button.opacity: 1;
             down-scroll-button.opacity: 1;
         }
@@ -93,8 +95,10 @@ component ScrollBar inherits Rectangle {
         height: root.horizontal ? root.size : root.thumb-length;
         x: !root.horizontal ? parent.width - 4px - self.width : root.offset + root.travel * root.share;
         y: root.horizontal ? parent.height - 4px - self.height : root.offset + root.travel * root.share;
-        border-radius: (root.horizontal ? self.height : self.width) / 2;
+        border-radius: Look.scrollbar.radius >= 0px ? min(Look.scrollbar.radius, (root.horizontal ? self.height : self.width) / 2) : (root.horizontal ? self.height : self.width) / 2;
         background: Theme.scrollbar;
+        border-width: Look.scrollbar.border >= 0px ? Look.scrollbar.border : 0px;
+        border-color: Look.scrollbar.border-color;
 
         animate width, height { duration: 150ms; easing: ease-out; }
     }

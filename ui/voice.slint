@@ -1,6 +1,6 @@
 import { IconPack } from "media.slint";
 import { ScrollView, ListView } from "scrollview.slint";
-import { Theme, Middle, Label, Tip, Popup, Look } from "theme.slint";
+import { Theme, Middle, Label, Tip, Popup, Look, Shape } from "theme.slint";
 import { ThemeContent } from "theme_content.slint";
 import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
 import { ActionButton, IconButton, Avatar, CallButton, VolumeSlider, MenuItem } from "controls.slint";
@@ -611,9 +611,11 @@ export component StreamPip inherits Rectangle {
     callback open-call;
     callback stop;
     callback dropped;
-    width: 320px; height: 180px; border-radius: Look.radius(8px); clip: true;
+    // A stream's shape; its picture stays on black.
+    width: 320px; height: 180px; border-radius: Look.r(Look.stream, 8px); clip: true;
     background: #000000;
-    border-width: Look.line(1px); border-color: Theme.edge;
+    border-width: Look.bw(Look.stream, 1px); border-color: Look.bc(Look.stream, Theme.edge);
+    drop-shadow-blur: Look.sb(Look.stream, 0px); drop-shadow-offset-x: Look.sx(Look.stream, 0px); drop-shadow-color: Look.sc(Look.stream, transparent); drop-shadow-offset-y: Look.sy(Look.stream, 0px);
     accessible-role: button; accessible-label: root.title + ". Return to the call";
     accessible-action-default => { root.open-call(); }
     Image { width: parent.width; height: parent.height; source: root.frame; image-fit: contain; }
@@ -679,11 +681,17 @@ component StageTile inherits Rectangle {
     in property <string> viewer-names;
     /// Stops the stream it shows; none when empty.
     in property <string> stop-label;
+    /// It shows a stream or a shared screen, which takes the `stream`
+    /// shape; other tiles take `call`'s.
+    in property <bool> streams;
     callback clicked;
     callback right-clicked(length, length);
     callback stop;
     callback full-screen(bool);
-    border-radius: root.full ? 0px : 12px; clip: true;
+    property <Shape> shape: root.streams ? Look.stream : Look.call;
+    border-radius: root.full ? 0px : Look.r(root.shape, 12px); clip: true;
+    border-width: root.full ? 0px : Look.bw(root.shape, 0px); border-color: Look.bc(root.shape, transparent);
+    drop-shadow-blur: root.full ? 0px : Look.sb(root.shape, 0px); drop-shadow-offset-x: Look.sx(root.shape, 0px); drop-shadow-color: Look.sc(root.shape, transparent); drop-shadow-offset-y: Look.sy(root.shape, 0px);
     accessible-role: button; accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
     animate x, y, width, height { duration: root.full ? 0ms : 160ms; easing: ease-out; }
@@ -879,7 +887,7 @@ export component ParticipantGrid inherits Flickable {
         width: root.large(0) ? root.focus-width : root.tile-width;
         height: root.large(0) ? root.focus-height : root.tile-height;
         visible: !root.full || root.large(0);
-        focused: root.large(0); full: root.full;
+        focused: root.large(0); full: root.full; streams: true;
         background: #000000;
         label: "Your screen, " + root.share-status;
         viewers: root.share-viewers; viewer-names: root.share-viewer-names;
@@ -902,7 +910,7 @@ export component ParticipantGrid inherits Flickable {
         width: root.large(self.slot) ? root.focus-width : root.tile-width;
         height: root.large(self.slot) ? root.focus-height : root.tile-height;
         visible: !root.full || root.large(self.slot);
-        focused: root.large(self.slot); full: root.full;
+        focused: root.large(self.slot); full: root.full; streams: true;
         background: #000000;
         label: self.watched ? self.person.name + "'s screen" : "Watch " + self.person.name + "'s stream";
         viewers: self.watched ? root.watch-viewers : [];
@@ -949,6 +957,7 @@ export component ParticipantGrid inherits Flickable {
         // once it's watched; until then a click watches it.
         property <bool> streams-here: person.live && !person.local && !person.video;
         property <bool> watched: self.streams-here && person.id == root.watch-user;
+        streams: self.watched;
         background: self.filmed || self.watched ? #000000 : Theme.raised-fill;
         label: person.name + ", " + person.status + (person.video ? ", camera on" : "");
         viewers: self.watched ? root.watch-viewers : [];

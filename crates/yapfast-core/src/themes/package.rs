@@ -218,10 +218,26 @@ pub enum Surface {
     /// person is doing) as boxes: `ground`, `bar` and `bar_text` for each
     /// section's title bar, and the box's corners, border and shadow.
     CardSection,
+    /// The tiles on a call's stage: people, their cameras.
+    Call,
+    /// What shows a stream or a shared screen: its tile on the stage and
+    /// the picture in picture over the window.
+    Stream,
+    /// Notes over the window and the conversation: a plugin's toast, the
+    /// zoom level, the new messages and jump to present bars.
+    Toast,
+    /// The emoji, GIF and sticker pickers.
+    Picker,
+    /// Popouts from the header and the title bar: pins, threads, the
+    /// topic, adding people, the inbox.
+    Popout,
+    /// Scrollbars: the thumb's `radius`, and its `width` at rest and
+    /// `hover_width` under the pointer.
+    Scrollbar,
 }
 
 impl Surface {
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 27] = [
         Self::Button,
         Self::Field,
         Self::Composer,
@@ -243,6 +259,12 @@ impl Surface {
         Self::Label,
         Self::Header,
         Self::CardSection,
+        Self::Call,
+        Self::Stream,
+        Self::Toast,
+        Self::Picker,
+        Self::Popout,
+        Self::Scrollbar,
     ];
 
     pub fn name(self) -> &'static str {
@@ -268,6 +290,12 @@ impl Surface {
             Self::Label => "label",
             Self::Header => "header",
             Self::CardSection => "card_section",
+            Self::Call => "call",
+            Self::Stream => "stream",
+            Self::Toast => "toast",
+            Self::Picker => "picker",
+            Self::Popout => "popout",
+            Self::Scrollbar => "scrollbar",
         }
     }
 
@@ -777,6 +805,9 @@ pub struct Shape {
     /// `card` only: pixels kept above a profile card's banner, for chrome
     /// such as a title bar drawn by the card's art.
     pub inset_top: Option<f32>,
+    /// `scrollbar` only: the thumb's width at rest and under the pointer.
+    pub width: Option<f32>,
+    pub hover_width: Option<f32>,
     /// `label`, `header` and `card_section`: the surface's own ground, a
     /// colour or a gradient, and the text on it, ARGB.
     pub ground: Option<Paint>,
@@ -1820,6 +1851,12 @@ fn read_shapes(
                         _ => bail!("\"{here}\" is lower, upper or \"as written\""),
                     });
                 }
+                "width" if surface == Surface::Scrollbar => {
+                    shape.width = Some(number(value, &here, (1.0, 8.0))?);
+                }
+                "hover_width" if surface == Surface::Scrollbar => {
+                    shape.hover_width = Some(number(value, &here, (2.0, 10.0))?);
+                }
                 "shadow" => {
                     shape.shadow = if value.as_str() == Some("none") {
                         Some(Shadow {
@@ -2383,6 +2420,54 @@ mod tests {
         assert_eq!(dark.shapes[&Surface::Button].radius, Some(999.0));
         assert_eq!(light.shapes[&Surface::Button].radius, Some(2.0));
         assert!(!light.dark);
+    }
+
+    #[test]
+    fn shapes_the_screens_beyond_the_conversation() {
+        let package = Package::parse(
+            r##"{
+            "theme_api": 1, "id": "com.example.reach", "name": "Reach", "version": "1.0",
+            "shape": { "call": { "radius": 4 }, "stream": { "border": 2 }, "toast": { "radius": 999 },
+                       "picker": { "radius": 18 }, "popout": { "radius": 6 },
+                       "scrollbar": { "radius": 1, "width": 4, "hover_width": 9 },
+                       "toast_bar": { "radius": 1 }, "call_x": { "width": 3 } },
+            "variants": { "dark": { "base": "yap" } }
+        }"##,
+        )
+        .unwrap();
+        let dark = package.resolve(Mode::Dark).unwrap();
+        assert_eq!(dark.shapes[&Surface::Call].radius, Some(4.0));
+        assert_eq!(dark.shapes[&Surface::Stream].border, Some(2.0));
+        assert_eq!(dark.shapes[&Surface::Toast].radius, Some(999.0));
+        assert_eq!(dark.shapes[&Surface::Picker].radius, Some(18.0));
+        assert_eq!(dark.shapes[&Surface::Popout].radius, Some(6.0));
+        let scrollbar = &dark.shapes[&Surface::Scrollbar];
+        assert_eq!(
+            (scrollbar.radius, scrollbar.width, scrollbar.hover_width),
+            (Some(1.0), Some(4.0), Some(9.0))
+        );
+        assert_eq!(package.notes.len(), 2, "{:?}", package.notes);
+        // Only scrollbars take a width, and only within their range.
+        let other = Package::parse(&SMALL.replace(
+            r#""variants""#,
+            r#""shape": { "call": { "width": 3 } }, "variants""#,
+        ))
+        .unwrap();
+        assert!(
+            other
+                .notes
+                .iter()
+                .any(|note| note.contains("shape.call.width")),
+            "{:?}",
+            other.notes
+        );
+        assert!(
+            Package::parse(&SMALL.replace(
+                r#""variants""#,
+                r#""shape": { "scrollbar": { "width": 20 } }, "variants""#,
+            ))
+            .is_err()
+        );
     }
 
     #[test]

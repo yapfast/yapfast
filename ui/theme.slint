@@ -224,6 +224,23 @@ export global Look {
     in property <Shape> row: { radius: -1px, border: -1px, shadow-blur: -1px };
     /// The round buttons over a profile card's banner.
     in property <Shape> card-button: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// The tiles on a call's stage, and what shows a stream or a shared
+    /// screen (its tile and the picture in picture).
+    in property <Shape> call: { radius: -1px, border: -1px, shadow-blur: -1px };
+    in property <Shape> stream: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// Notes over the window and the conversation: a plugin's toast, the
+    /// zoom level, the new messages and jump to present bars.
+    in property <Shape> toast: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// The emoji, GIF and sticker pickers.
+    in property <Shape> picker: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// Popouts from the header and the title bar: pins, threads, the topic,
+    /// adding people, the inbox.
+    in property <Shape> popout: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// Scrollbars: the thumb's radius, and its width at rest and under the
+    /// pointer; negative leaves stock (a round thumb, 2px and 6px).
+    in property <Shape> scrollbar: { radius: -1px, border: -1px, shadow-blur: -1px };
+    in property <length> scrollbar-width: -1px;
+    in property <length> scrollbar-hover-width: -1px;
     /// Room kept above a profile card's banner for chrome its art draws.
     in property <length> card-inset-top;
     in property <length> row-inset-x;

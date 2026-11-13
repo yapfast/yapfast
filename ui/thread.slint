@@ -2,6 +2,7 @@ import { IconPack } from "media.slint";
 import { UiParts } from "yapfast/parts.slint";
 import { ListView } from "scrollview.slint";
 import { Theme, Middle, Look } from "theme.slint";
+import { Art, ArtLayer } from "theme_art.slint";
 import { ActionsFrame, Arrange } from "theme_layout.slint";
 import { IconButton, PingToggle, ActionButton, MessagesSkeleton, TextField } from "controls.slint";
 import { FoundRow, FoundCard } from "header.slint";
@@ -146,9 +147,14 @@ export component ThreadPanel inherits Rectangle {
         thread-list.content-y = min(0px, thread-list.height - thread-list.content-height);
     }
     property <bool> is-editing: root.compose-label == "Editing your message";
-    background: Theme.chat-fill;
+    // A docked panel's art and glass.
+    background: Art.glass-aside ? transparent : Theme.chat-fill;
     accessible-role: list;
     accessible-label: root.name + " thread";
+    if Art.aside.length > 0 || Art.glass-aside: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        layers: Art.aside; glass: Art.glass-aside; ground: Theme.chat-fill;
+    }
     Rectangle { x: 0; width: 1px; background: Theme.edge; }
 
     // The newest message stays in view as rows come, until scrolled away from,
@@ -487,9 +493,14 @@ export component NewThreadPanel inherits Rectangle {
     changed typing-tick => { composer.focus-input(); composer.place-caret(1000000); }
     callback composer-focused;
     callback escape-composing() -> bool;
-    background: Theme.chat-fill;
+    // A docked panel's art and glass.
+    background: Art.glass-aside ? transparent : Theme.chat-fill;
     accessible-role: groupbox;
     accessible-label: "New Thread";
+    if Art.aside.length > 0 || Art.glass-aside: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        layers: Art.aside; glass: Art.glass-aside; ground: Theme.chat-fill;
+    }
     Rectangle { x: 0; width: 1px; background: Theme.edge; }
     VerticalLayout {
         Rectangle {

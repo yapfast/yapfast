@@ -1651,7 +1651,13 @@ export component HeaderToggle inherits Rectangle {
 export component Banner inherits Rectangle {
     in-out property <string> text;
     callback dismissed;
-    min-height: banner-content.preferred-height; vertical-stretch: 0; background: Theme.raised-fill;
+    // A note's art and glass, as a toast's; it runs across the
+    // conversation, so it keeps square corners.
+    min-height: banner-content.preferred-height; vertical-stretch: 0; background: Art.glass-toast ? transparent : Theme.raised-fill;
+    if Art.toast.length > 0 || Art.glass-toast: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; radius: 0px;
+        layers: Art.toast; glass: Art.glass-toast; ground: Theme.raised-fill;
+    }
     banner-content := HorizontalLayout {
         padding-left: 16px; padding-right: 8px; padding-top: 6px; padding-bottom: 6px; spacing: 12px;
         Image { source: IconPack.triangle-alert; width: 18px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.accent-text); }

@@ -2,6 +2,7 @@ import { IconPack } from "media.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ScrollView, ListView } from "scrollview.slint";
 import { Theme, Middle, Label, Look } from "theme.slint";
+import { Art, ArtLayer } from "theme_art.slint";
 import { ActionButton, IconButton, Avatar, Picture, Skeleton, SpoilerCover } from "controls.slint";
 import { StatusDot } from "rail.slint";
 import { PluginSurfaces } from "plugins.slint";
@@ -219,10 +220,15 @@ component Popover inherits Rectangle {
     in property <string> heading;
     in property <string> detail;
     callback close;
-    background: Theme.sidebar-fill;
-    border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(10px);
-    drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066); drop-shadow-offset-y: Look.shadow-y(8px);
+    // A popout's shape, art and glass.
+    background: Art.glass-popout ? transparent : Theme.sidebar-fill;
+    border-color: Look.bc(Look.popout, Theme.edge); border-width: Look.bw(Look.popout, 1px); border-radius: Look.r(Look.popout, 10px);
+    drop-shadow-blur: Look.sb(Look.popout, 24px); drop-shadow-offset-x: Look.sx(Look.popout, 0px); drop-shadow-color: Look.sc(Look.popout, #00000066); drop-shadow-offset-y: Look.sy(Look.popout, 8px);
     clip: true;
+    if Art.popout.length > 0 || Art.glass-popout: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.popout, 10px);
+        layers: Art.popout; glass: Art.glass-popout; ground: Theme.sidebar-fill;
+    }
     accessible-role: groupbox;
     accessible-label: root.heading;
     TouchArea { }
@@ -400,10 +406,15 @@ export component ThreadsPopover inherits Rectangle {
     /// Start a thread, from the header's Create ("list") or the empty
     /// list's Create Thread ("list-empty").
     callback create(string);
-    background: Theme.sidebar-fill;
-    border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(10px);
-    drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066); drop-shadow-offset-y: Look.shadow-y(8px);
+    // A popout's shape, art and glass.
+    background: Art.glass-popout ? transparent : Theme.sidebar-fill;
+    border-color: Look.bc(Look.popout, Theme.edge); border-width: Look.bw(Look.popout, 1px); border-radius: Look.r(Look.popout, 10px);
+    drop-shadow-blur: Look.sb(Look.popout, 24px); drop-shadow-offset-x: Look.sx(Look.popout, 0px); drop-shadow-color: Look.sc(Look.popout, #00000066); drop-shadow-offset-y: Look.sy(Look.popout, 8px);
     clip: true;
+    if Art.popout.length > 0 || Art.glass-popout: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.popout, 10px);
+        layers: Art.popout; glass: Art.glass-popout; ground: Theme.sidebar-fill;
+    }
     accessible-role: groupbox;
     accessible-label: "Threads";
     /// The list was scrolled by hand since it opened.
@@ -624,9 +635,14 @@ export component SearchPanel inherits Rectangle {
     callback open-link(string);
     callback more-results;
     callback close;
-    background: Theme.sidebar-fill;
+    // A docked panel's art and glass.
+    background: Art.glass-aside ? transparent : Theme.sidebar-fill;
     accessible-role: list;
     accessible-label: "Search results";
+    if Art.aside.length > 0 || Art.glass-aside: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        layers: Art.aside; glass: Art.glass-aside; ground: Theme.sidebar-fill;
+    }
     Rectangle { x: 0; width: 1px; background: Theme.edge; }
     VerticalLayout {
         Rectangle {

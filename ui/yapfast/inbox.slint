@@ -1,4 +1,5 @@
 import { Theme, Middle, Look } from "../theme.slint";
+import { Art, ArtLayer } from "../theme_art.slint";
 import { Avatar } from "../controls.slint";
 import { ListView } from "../scrollview.slint";
 
@@ -77,9 +78,14 @@ export component InboxPopout inherits Rectangle {
     callback close;
     // Discord's popout: 440px wide, rounded, with its own outline.
     width: 440px; height: 560px;
-    background: Theme.raised-fill; border-radius: Look.radius(8px);
-    border-width: Look.line(1px); border-color: Theme.line;
-    drop-shadow-blur: Look.shadow-blur(16px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000066); drop-shadow-offset-y: Look.shadow-y(4px);
+    // A popout's shape, art and glass.
+    background: Art.glass-popout ? transparent : Theme.raised-fill; border-radius: Look.r(Look.popout, 8px);
+    border-width: Look.bw(Look.popout, 1px); border-color: Look.bc(Look.popout, Theme.line);
+    drop-shadow-blur: Look.sb(Look.popout, 16px); drop-shadow-offset-x: Look.sx(Look.popout, 0px); drop-shadow-color: Look.sc(Look.popout, #00000066); drop-shadow-offset-y: Look.sy(Look.popout, 4px);
+    if Art.popout.length > 0 || Art.glass-popout: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.popout, 8px);
+        layers: Art.popout; glass: Art.glass-popout; ground: Theme.raised-fill;
+    }
     TouchArea { }
     FocusScope {
         init => { self.focus(); }
