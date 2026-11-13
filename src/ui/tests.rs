@@ -11164,3 +11164,102 @@ fn plugin_cells_and_rows_say_what_they_are() {
         Input::Menu { plugin, action, .. } if plugin == "com.example.p0" && action == "keep"
     ));
 }
+
+/// Where everything with this label shows, in window pixels: x, y, width,
+/// height, top to bottom.
+fn shown_rects(window: &YapfastWindow, label: &str) -> Vec<(f32, f32, f32, f32)> {
+    use i_slint_core::{accessibility::AccessibleStringProperty, item_tree::ItemRc};
+    use std::ops::ControlFlow;
+    let inner = i_slint_core::window::WindowInner::from_pub(window.window());
+    let mut found = Vec::new();
+    let _ = ItemRc::new_root(inner.component()).visit_descendants(|item| {
+        let named = item.accessible_string_property(AccessibleStringProperty::Label);
+        if named.as_deref() == Some(label) && item.is_visible() {
+            let geometry = item.geometry();
+            let at = item.map_to_window(geometry.origin);
+            found.push((at.x, at.y, geometry.width(), geometry.height()));
+        }
+        ControlFlow::<()>::Continue(())
+    });
+    found.sort_by(|a, b| a.1.total_cmp(&b.1));
+    found
+}
+
+#[test]
+fn a_theme_layout_keeps_the_bar_and_reactions_by_the_message() {
+    let reacted = |own: bool| ChatMessage {
+        author: if own { "Me" } else { "Sam" }.into(),
+        sender: if own { "1" } else { "2" }.into(),
+        body: "Hi".into(),
+        own,
+        can_react: true,
+        reactions: vec![yapfast_core::chat::Reaction {
+            key: "x".into(),
+            count: 1,
+            mine: false,
+        }],
+        ..Default::default()
+    };
+    let window = showing(vec![reacted(false), reacted(true)]);
+    let arrange = window.global::<yapfast_ui::Arrange>();
+    let chips = |window: &YapfastWindow| shown_rects(window, "x, 1. Add this reaction");
+    // The bar over the hovered message: its More button's right edge.
+    let more_right = |window: &YapfastWindow, item: &str| {
+        window.set_active_item(item.into());
+        settle(window);
+        let more = shown_rects(window, "More");
+        assert_eq!(more.len(), 1, "one bar shows");
+        more[0].0 + more[0].2
+    };
+
+    // Stock: the reactions start at the text, the bar at the row's right.
+    let stock = chips(&window);
+    assert_eq!(stock.len(), 2);
+    assert_eq!(stock[0].0, stock[1].0);
+    let row_right = more_right(&window, "i1") + 16.;
+
+    // Bubbles: your own reactions end at your bubble's right edge, under it,
+    // which is the row's less the column's 48px end; everyone else's start at
+    // theirs.
+    arrange.set_messages(1);
+    settle(&window);
+    let bubbles = chips(&window);
+    assert_eq!(bubbles.len(), 2);
+    assert_eq!(bubbles[1].0 + bubbles[1].2, row_right - 48.);
+    assert!(bubbles[0].0 < bubbles[1].0);
+
+    // Cards: the bar keeps 8px inside the card's right edge, which a stagger
+    // moves; a group's seed with 4096's bit set steps in from the left, and
+    // keeps the right edge where it is.
+    arrange.set_messages(3);
+    arrange.set_cards_stagger(24.);
+    let messages = window.get_messages();
+    let mut row = messages.row_data(1).unwrap();
+    row.group = 0;
+    messages.set_row_data(1, row.clone());
+    settle(&window);
+    let stepped = more_right(&window, "i1");
+    row.group = 4096;
+    messages.set_row_data(1, row);
+    settle(&window);
+    let unstepped = more_right(&window, "i1");
+    assert_eq!(unstepped - stepped, 24.);
+    assert!(unstepped < row_right - 16.);
+
+    // irc: the bar starts at the text column, where its reactions do.
+    arrange.set_cards_stagger(0.);
+    arrange.set_messages(2);
+    settle(&window);
+    window.set_active_item("i0".into());
+    settle(&window);
+    // Without quick reactions or Reply, More is the bar's only button, 3px
+    // into it.
+    let more = shown_rects(&window, "More");
+    assert_eq!(more.len(), 1);
+    let column = chips(&window)[0].0;
+    assert!(
+        (more[0].0 - 3. - column).abs() <= 1.,
+        "the bar at {} sits on the text column at {column}",
+        more[0].0 - 3.
+    );
+}

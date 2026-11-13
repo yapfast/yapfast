@@ -3627,6 +3627,8 @@ export component YapfastWindow inherits Window {
                                             property <bool> group-end: index == root.messages.length - 1 || root.messages[index + 1].first;
                                             property <bool> carded: Arrange.messages == 3 && message.notice == "";
                                             property <length> lead: Arrange.centre(self.width, Look.chat-padding >= 0px ? Look.chat-padding : 16px);
+                                            // In `cards`, the card's right edge, stepped by its stagger.
+                                            property <length> card-right: self.width - self.lead - Arrange.cards-stagger + Arrange.stagger-left(message.group);
                                             // Each row draws its slice of the card: the whole card
                                             // turned, clipped to the row, so a later row's ground
                                             // never covers an earlier row's text. Slices overlap
@@ -3907,12 +3909,20 @@ export component YapfastWindow inherits Window {
                                             // Actions, the reaction picker and delete confirmation float over the
                                             // row's top edge, so opening them never moves the timeline.
                                             if (self.lit || root.react-item == message.item || root.menu-item == message.item || root.confirm-delete == message.item) && !message.deleted && message.delivery == "": message-bar := ActionsFrame {
-                                                // In `bubbles`, beside the bubble: after someone else's,
-                                                // before your own.
-                                                x: !parent.bubbled ? parent.width - self.width - 16px
-                                                    : message.own ? max(16px, content.bubble-left - self.width - 8px)
-                                                    : min(parent.width - self.width - 16px, content.bubble-right + 8px);
-                                                y: parent.body + (index == 0 && parent.head == 0px ? 4px : -16px);
+                                                // It follows the message as a theme lays it out: in
+                                                // `bubbles` beside the bubble, after someone else's and
+                                                // before your own; in `cards` on the card's own right
+                                                // edge, stagger and all; in `irc` at the start of the
+                                                // text column. Stock, at the row's right.
+                                                x: parent.bubbled ? (message.own ? max(16px, content.bubble-left - self.width - 8px)
+                                                        : min(parent.width - self.width - 16px, content.bubble-right + 8px))
+                                                    : parent.carded ? max(parent.lead, parent.card-right - self.width - 8px)
+                                                    : Arrange.messages == 2 && message.notice == "" ? min(parent.width - self.width - 16px, content.column-left)
+                                                    : parent.width - self.width - 16px;
+                                                // In `irc`, where it covers the text column's start, it
+                                                // sits over the line above, clear of the hovered one.
+                                                y: parent.body + (index == 0 && parent.head == 0px ? 4px
+                                                    : Arrange.messages == 2 && message.notice == "" ? 4px - self.height : -16px);
                                                 width: actions.preferred-width; height: actions.preferred-height;
                                                 // Holding Shift swaps the frequent reactions for Pin, Create Thread
                                                 // and, on your own message, Reply, adds Forward, and swaps More for a
@@ -3962,7 +3972,10 @@ export component YapfastWindow inherits Window {
                                                             IconButton { hover-fill: Theme.actions-hover;
                                                                 icon: IconPack.smile-plus; label: "Add reaction";
                                                                 clicked => {
-                                                                    root.anchor(self.absolute-position.x, self.absolute-position.y, self.width, self.height, false);
+                                                                    // Beside someone else's bubble the bar is on the
+                                                                    // bubble's right: the picker opens rightwards
+                                                                    // from it, never back over the bubble.
+                                                                    root.anchor(self.absolute-position.x, self.absolute-position.y, self.width, self.height, msg-row.bubbled && !message.own);
                                                                     root.open-picker(message.item);
                                                                 }
                                                             }

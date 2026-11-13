@@ -2848,8 +2848,11 @@ export component MessageContent inherits VerticalLayout {
     property <length> trail: (Arrange.chat-max-width > 0px ? max(root.end-padding, Arrange.centre(root.width, root.start-padding) + root.card-pad + 32px) : root.end-padding + root.card-pad) + root.step-right;
     /// In `bubbles`, where the bubble starts and ends across the row, which
     /// the hover bar sits beside.
-    out property <length> bubble-left: bubble.x;
-    out property <length> bubble-right: bubble.x + bubble.width;
+    out property <length> bubble-left: column.x + bubble-row.x + bubble.x;
+    out property <length> bubble-right: self.bubble-left + bubble.width;
+    /// Where the text column starts across the row: in `irc`, after the
+    /// time, the name and the separator.
+    out property <length> column-left: column.x;
     // The text on your own bubble, and its dimmer kind for a reply's quote.
     property <brush> own-ink: Arrange.bubble-own-text;
     // A name's size: the theme's `names` size, scaled as the person's text
@@ -2977,6 +2980,14 @@ export component MessageContent inherits VerticalLayout {
                 horizontal-alignment: right; overflow: elide;
             }
         }
+        // The text column: the message, and in `bubbles` its reactions
+        // under the bubble, on the bubble's side.
+        column := VerticalLayout {
+        horizontal-stretch: root.style == 1 ? 0 : 1;
+        spacing: 0px;
+        bubble-row := HorizontalLayout {
+        spacing: 0px;
+        if root.mine-right: Rectangle { horizontal-stretch: 1; }
         // A bubble's ground; flat, irc and cards draw none.
         bubble := Rectangle {
             horizontal-stretch: root.style == 1 ? 0 : 1;
@@ -3285,7 +3296,8 @@ export component MessageContent inherits VerticalLayout {
             }
             // The reactions wrap onto more lines, as Discord's do: a row would
             // make the message as wide as all of them, past the timeline's edge.
-            if message.reactions.length > 0: FlexboxLayout {
+            // In `bubbles` they sit under the bubble instead; see `column`.
+            if message.reactions.length > 0 && root.style != 1: FlexboxLayout {
                 spacing: 6px; alignment: start; cross-axis-line-alignment: start; padding-top: 4px;
                 for reaction in message.reactions: ReactionToggle {
                     item: message.item; key: reaction.key; label: reaction.label; count: reaction.count; mine: reaction.mine; emoji-font: root.emoji-font;
@@ -3317,6 +3329,23 @@ export component MessageContent inherits VerticalLayout {
                         mouse-cursor: self.enabled ? MouseCursor.pointer : MouseCursor.default;
                         clicked => { root.dismiss-ephemeral(message.item); }
                     }
+                }
+            }
+        }
+        }
+        if root.style == 1 && !message.own: Rectangle { horizontal-stretch: 1; }
+        }
+        // In `bubbles` the reactions follow the bubble: under it, on its
+        // side, your own on the right.
+        if root.style == 1 && message.reactions.length > 0: FlexboxLayout {
+            spacing: 6px; alignment: message.own ? end : start; cross-axis-line-alignment: start; padding-top: 4px;
+            vertical-stretch: 0;
+            for reaction in message.reactions: ReactionToggle {
+                item: message.item; key: reaction.key; label: reaction.label; count: reaction.count; mine: reaction.mine; emoji-font: root.emoji-font;
+                enabled: message.can-react && root.reactions-enabled;
+                clicked => {
+                    if Art.track { Art.pointer-x = self.absolute-position.x + self.width / 2; Art.pointer-y = self.absolute-position.y + self.height / 2; }
+                    root.react(message.item, reaction.key);
                 }
             }
         }
