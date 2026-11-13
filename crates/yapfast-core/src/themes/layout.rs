@@ -152,6 +152,10 @@ pub struct Irc {
     pub nick_width: Option<f32>,
     /// Between the name and the text, such as `│` or `>`; at most 3 characters.
     pub separator: Option<String>,
+    /// The separator drawn on every line of a message, the wrapped ones
+    /// too, as a rule down the gutter its text hangs from, rather than on
+    /// its first line only.
+    pub rule: Option<bool>,
 }
 
 /// The `bubbles` message style.
@@ -430,6 +434,7 @@ pub(super) fn read_layout(
                             layout.irc.nick_width = Some(number(value, &at, (48.0, 240.0))?)
                         }
                         "separator" => layout.irc.separator = Some(short(value, &at, 3)?),
+                        "rule" => layout.irc.rule = Some(boolean(value, &at)?),
                         _ => notes.push(format!("\"{at}\" isn't something irc takes; ignored")),
                     }
                 }
@@ -815,7 +820,7 @@ mod tests {
             r##""layout": {
                 "rail": "top", "members": "left", "composer": "top", "messages": "irc",
                 "chat_max_width": 900, "chat_avatars": false,
-                "irc": { "time_width": 56, "nick_width": 120, "separator": "│" },
+                "irc": { "time_width": 56, "nick_width": 120, "separator": "│", "rule": true },
                 "bubbles": { "max_width": 70, "own": "#ff71ce", "other": "#202020", "own_text": "#000000", "radius": 18 },
                 "cards": { "tilt": 1.5, "gap": 8, "padding": 12, "ground": "#202020" }
             },
@@ -838,6 +843,7 @@ mod tests {
         assert_eq!(layout.irc.time_width, Some(56.0));
         assert_eq!(layout.irc.nick_width, Some(120.0));
         assert_eq!(layout.irc.separator.as_deref(), Some("│"));
+        assert_eq!(layout.irc.rule, Some(true));
         assert_eq!(layout.bubbles.max_width, Some(70.0));
         assert_eq!(layout.bubbles.own, Some(0xffff_71ce));
         assert_eq!(layout.bubbles.other, Some(0xff20_2020));

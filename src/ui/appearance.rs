@@ -1,6 +1,7 @@
 //! Appearance: choosing a theme, and making and editing the person's own.
 
 use super::*;
+use yapfast_core::themes::Performance;
 use yapfast_core::themes::media::SoundSlot;
 
 impl Adapter {
@@ -199,6 +200,8 @@ impl Adapter {
                 .into(),
         );
         page.set_content_on(on);
+        // On Light a `dither` theme's pictures take its palette as a gradient.
+        theme_content::set_light(self.layout.theme_performance == Performance::Light);
         let change = theme_content::show(window, applied.filter(|_| on));
         if change.media {
             pictures::media_changed();
@@ -229,6 +232,16 @@ impl Adapter {
             self.account_profile_shown = None;
         }
         change.rows || change.media
+    }
+
+    /// Converts every picture again, as it next shows: once a theme's
+    /// dithered copies were made off the window's thread, or Performance
+    /// turned the pattern on or off.
+    pub(super) fn pictures_redithered(&mut self, window: &YapfastWindow) {
+        pictures::previews_changed();
+        self.pictures.clear();
+        bump_picture_slots(window, u32::MAX);
+        self.refresh(window);
     }
 
     /// Keeps what the review's sound switches say for the reviewed theme, and
@@ -452,7 +465,6 @@ fn close_theme_editor(window: &YapfastWindow) {
 /// Binds Appearance's installed-theme settings, the Themes tab and
 /// `--theme-dev`'s reload.
 pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
-    use yapfast_core::themes::Performance;
     use yapfast_ui::{Look, ThemesPage};
     // Each callback borrows the adapter and the window, as the others do.
     macro_rules! on {
@@ -471,6 +483,25 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
     super::theme_layout::init(window);
     super::theme_chrome::init(window);
     super::theme_trim::init(window);
+    {
+        // Pictures dithered off the window's thread show once made; a
+        // window busy then tries again a moment later.
+        fn redraw(state: std::rc::Weak<RefCell<Adapter>>, weak: slint::Weak<YapfastWindow>) {
+            let (Some(adapter), Some(window)) = (state.upgrade(), weak.upgrade()) else {
+                return;
+            };
+            match adapter.try_borrow_mut() {
+                Ok(mut adapter) => adapter.pictures_redithered(&window),
+                Err(_) => {
+                    slint::Timer::single_shot(std::time::Duration::from_millis(50), move || {
+                        redraw(state, weak)
+                    })
+                }
+            }
+        }
+        let (state, weak) = (Rc::downgrade(adapter), window.as_weak());
+        theme_content::on_dithered(move || redraw(state.clone(), weak.clone()));
+    }
     {
         let weak = window.as_weak();
         window
@@ -539,6 +570,9 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
         adapter.layout.write(&adapter.root);
         window.global::<ThemesPage>().set_performance(index);
         theme_look::set_motion(&window, adapter.layout.theme_performance, adapter.layout.reduce_motion);
+        if theme_content::set_light(adapter.layout.theme_performance == Performance::Light) {
+            adapter.pictures_redithered(&window);
+        }
     });
     on!(page, on_sounds_changed() => |adapter, window| {
         let Some(id) = theme_look::applied_id() else { return };

@@ -657,6 +657,9 @@ fn looks(variant: &Resolved) -> Vec<String> {
     if layout.chat_avatars == Some(false) {
         changes.push("no chat avatars".to_owned());
     }
+    if layout.irc.rule == Some(true) {
+        changes.push("irc rule".to_owned());
+    }
     if let Some(width) = layout.outline_width {
         changes.push(format!("{width}px outlines"));
     }
@@ -885,6 +888,17 @@ pub fn unreadable_layout(variant: &Resolved) -> Vec<String> {
             "shape.row.stripe",
             laid(vec![stripe.colour], "chat"),
         ));
+    }
+    // A tree row's mention count, in the colour the theme names for it.
+    if let Some(ink) = variant.chrome.counts.as_ref().and_then(|counts| counts.ink) {
+        for ground in ["sidebar", "rail"] {
+            pairs.push((
+                "chrome.tree.counts.colour",
+                shown_colours(variant, ink.name()),
+                ground,
+                shown_colours(variant, ground),
+            ));
+        }
     }
     let mut refused = Vec::new();
     for (text, fronts, ground, backs) in pairs {

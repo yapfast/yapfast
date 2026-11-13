@@ -819,8 +819,12 @@ the focus ring and every accessible name stay as stock.
 
 - `irc`: `time_width` (0–120 pixels, 0 hides the time), `nick_width` (48–240
   pixels; a longer name ends in an ellipsis, and pointing at it shows the
-  whole name) and `separator` (at most 3 characters,
-  such as `│` or `>`).
+  whole name), `separator` (at most 3 characters,
+  such as `│` or `>`) and `rule` (`true` draws the separator on every line
+  of a message, its wrapped lines, reply and pictures too, as one rule down
+  the gutter; a line character such as `│` joins up). A message's text
+  hangs from its own column: wrapped lines, replies, code, embeds and
+  reactions start under the text, never under the time or the name.
 - `bubbles`: `max_width` (40–95, a percentage of the column), `radius`
   (pixels), and the grounds `own` and `other` with `own_text`, the text on
   your own. Unset, your own are `accent` with `on-accent` text, and others'
@@ -891,7 +895,20 @@ reads it; `src/ui/theme_content.rs` and the `ThemeContent` global
   `{ "duotone": { "dark": "#03110a", "light": "#5cff85" } }` (each pixel's
   luminance mapped from `dark` to `light`, as a two-ink print) or
   `{ "tint": { "colour": "#ff71ce", "amount": 0.35 } }` (washed towards the
-  colour by `amount`, 0–1, keeping light and shade). Pictures are recoloured
+  colour by `amount`, 0–1, keeping light and shade) or
+  `{ "dither": { "palette": ["#020A04", "#2F8A4A", "#B8FFC8"], "matrix": 4, "scale": 1 } }`
+  (each pixel drawn in one of the palette's 2–8 colours, by its brightness,
+  with an ordered Bayer pattern standing in for the tones between them, as
+  an old screen draws a picture; `matrix` is the pattern's side, 2, 4 or 8,
+  and `scale` how many pixels each of its cells covers, 1–4, for a coarser
+  grain; the palette is sorted dark to light, so its order doesn't matter).
+  A dithered picture is made once, on the thread that decodes it, and kept
+  with the picture; one decoded before the theme showed is dithered on a
+  thread of its own and shows its palette as a gradient for the moment that
+  takes. Pictures 64 pixels across or smaller (emoji, small icons) take the
+  palette as a gradient rather than the pattern, and so do Twemoji, and
+  every picture while Performance is *Light*; an animation's frames are
+  dithered on its decoding thread. Pictures are recoloured
   once, as they're handed to the interface, through a 256-entry table; an
   animation's frames are recoloured on its decoding thread as they're
   decoded. Nothing is redone per frame. While `media` is `normal` a picture is
@@ -968,10 +985,11 @@ left included.
 | `rail` | `mode`: `icons`, or `text` for the servers' names as rows of text; `width`: 96–320 pixels of the rail in text mode | `icons`, 150 |
 | `composer` | `caret`: `line` or `block` (as wide as a letter); `prompt`: at most 4 characters drawn before the text, such as `$` | `line`, none |
 | `folders` | Server folders in the text rail and channel categories as directories: `open` and `closed`, the mark before an open or closed one, and `suffix`, after its name, at most 4 characters each, such as `▾ studio/` and `▸ games/`. Clicking still opens and closes it | `▾`, `▸`, `/` once set |
-| `tree` | `lists`: lists drawn as file trees, as the `tree` command prints them (below); `colour`: their lines' colour, `faint`, `muted`, `secondary`, `text`, `accent` or a colour such as `#2e7d45` | none, `faint` |
+| `tree` | `lists`: lists drawn as file trees, as the `tree` command prints them (below); `colour`: their lines' colour, `faint`, `muted`, `secondary`, `text`, `accent` or a colour such as `#2e7d45`; `counts`: counts written after a row's name in a tree, the text rail and the `rail: "tree"` sidebar, in place of the badge: `mentions` (at most 16 characters holding `{n}`, such as `({n})` or `[{n}!]`; a direct message's `{n}` is its unread messages, as its badge counts them), `unread` (at most 16 characters, no placeholder, after a row unread without mentions, such as `(*)`; Discord counts no unread messages in server channels, only mentions) and `colour` of the mentions (`danger`, `loud`, `accent`, `text`, `secondary` or `muted`; `danger` when unset, which has to read 4.5:1 on `sidebar` and `rail` when set) | none, `faint` |
 | `members` | `columns`: a status column at the end of each member row, by presence: `online`, `idle`, `dnd`, `offline`, `streaming`, at most 12 characters, `{n}` the row's place in its group from 0 | none |
 | `prefix.member_by_role` | Marks before members' names by their group's place in the member list, 1 to 8, the first group's first and the last repeating for the groups after it, such as `["@", "+"]` | none |
 | `system` | Marks before notices in the conversation, at most 8 characters: `join` (someone joined), `leave` (for when Yapfast shows someone leaving; it doesn't yet) and `notice` (a pin, a thread, a call, a poll's result), such as `-->`, `<--` and `-!-`. The mark stands in place of the notice's icon | none |
+| `box` | Panes framed as a text terminal frames its windows, with box-drawing characters in the code face: corners, the across and down lines repeated along each edge (clipped to the pane, never a stretched picture, so they stay crisp at any width and zoom) and a title in the top edge, such as `┌─[ #general ]────┐`. `chars`: six characters, the corners top left, top right, bottom left, bottom right, then the across and down lines (`┌┐└┘─│` stock; `++++-\|` for plain ASCII); `title`: at most 48 characters with `{name}` (the conversation's `#general` or a person's name, the server's name, `members`) and `{n}` (the member list's people), `""` for none; `titles`: a pane's own, by pane; `panes`: `chat` (the messages and composer), `sidebar`, `members` (all three when left out); `colour`: the lines', a tree colour name or a colour (the tree's when unset); the title is in `text`; `size`: 10–24 pixels. A framed pane keeps a character's width clear on each side and a line's height above and below. Screen readers skip the frame | none, `[ {name} ]`, 14 |
 | `status` | A line across the conversation's foot, as a terminal's status bar: `text`, at most 120 characters, with `{time}` (now, by the clock setting), `{name}` (yours), `{channel}`, `{server}`, `{typing}` (who is typing) and `{unread_channels}` (the open server's unread channels, by name, joined with commas); and `position`, `below` the composer or `above` it. It's drawn in the `small` face (the code face when unset), and its clock moves every 10 seconds while it shows | none |
 
 | Label | Replaces | Placeholders |
@@ -1039,6 +1057,13 @@ says) with its servers indented under it, or on the tree's branches. Its keys, m
   "members": { "columns": { "online": "pts/{n}", "idle": "idle", "dnd": "busy", "offline": "off" } },
   "tree": { "lists": ["channels", "members", "rail", "replies"], "colour": "faint" },
   "folders": { "open": "▾", "closed": "▸", "suffix": "/" }
+}
+```
+
+```json
+"chrome": {
+  "box": { "title": "[ {name} ]", "titles": { "members": "[ who: {n} ]" }, "colour": "faint" },
+  "tree": { "lists": ["channels", "rail"], "counts": { "mentions": "[{n}!]", "unread": "(*)", "colour": "loud" } }
 }
 ```
 

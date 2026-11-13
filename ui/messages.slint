@@ -2894,9 +2894,20 @@ export component MessageContent inherits VerticalLayout {
             }
             }
         }
-        if root.style == 2: Text {
+        if root.style == 2 && !Arrange.irc-rule: Text {
             text: Arrange.irc-separator; color: Theme.faint; font-size: root.message-font-size; height: root.line-height;
             vertical-alignment: center; accessible-role: none;
+        }
+        // A theme's rule: the separator down every line, wrapped ones too.
+        if root.style == 2 && Arrange.irc-rule: Rectangle {
+            width: irc-rule-one.preferred-width; clip: true;
+            irc-rule-one := Text { visible: false; text: Arrange.irc-separator; font-size: root.message-font-size; accessible-role: none; }
+            // Three runs a third of a line apart, so a line character joins up.
+            for shift in 3: Text {
+                x: 0px; y: (root.line-height - irc-rule-one.preferred-height) / 2 + irc-rule-one.preferred-height * shift / 3;
+                text: Arrange.irc-rule-text; color: Theme.faint; font-size: root.message-font-size; wrap: no-wrap;
+                accessible-role: none;
+            }
         }
         // A theme's mark before a notice, such as `-->` before a join.
         if Trim.notice-mark(message.notice) != "": Text {

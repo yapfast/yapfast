@@ -8,7 +8,8 @@
 
 use slint::{Color, ComponentHandle, SharedString};
 use yapfast_core::themes::chrome::{
-    Caret, Chrome as Words, Hide, Label, Place, Presence, TreeList, fill, split_group, split_typing,
+    BOX_CHARS, BoxFrame, Caret, Chrome as Words, CountInk, Hide, Label, Pane, Place, Presence,
+    TreeList, fill, split_group, split_typing,
 };
 use yapfast_ui::{Chrome, YapfastWindow};
 
@@ -31,6 +32,11 @@ fn filled(label: &str, kind: &str, text: &str) -> SharedString {
             fill(label, &[("name", &names), ("n", &count.to_string())])
         }
         "channel" | "server" | "name" | "n" | "date" => fill(label, &[(kind, text)]),
+        // A box title: the pane's name and its count, on two lines.
+        "box" => {
+            let (name, count) = text.split_once('\n').unwrap_or((text, ""));
+            fill(label, &[("name", name), ("n", count)])
+        }
         _ => fill(label, &[]),
     };
     out.into()
@@ -65,6 +71,10 @@ pub fn reset(window: &YapfastWindow) {
     ui.set_tree_token(0);
     ui.set_tree_colour_set(Color::default());
     ui.set_folders(false);
+    ui.set_count_mentions(SharedString::new());
+    ui.set_count_unread(SharedString::new());
+    ui.set_count_token(0);
+    set_box(&ui, None);
 }
 
 /// Sets a theme's chrome.
@@ -111,12 +121,68 @@ pub fn apply(window: &YapfastWindow, words: &Words) {
     if let Some(colour) = words.tree_colour {
         ui.set_tree_colour_set(Color::from_argb_encoded(colour));
     }
+    if let Some(counts) = &words.counts {
+        ui.set_count_mentions(super::theme_trim::kept(&counts.mentions).into());
+        ui.set_count_unread(super::theme_trim::kept(&counts.unread).into());
+        ui.set_count_token(match counts.ink.unwrap_or(CountInk::Danger) {
+            CountInk::Danger => 0,
+            CountInk::Loud => 1,
+            CountInk::Accent => 2,
+            CountInk::Text => 3,
+            CountInk::Secondary => 4,
+            CountInk::Muted => 5,
+        });
+    }
+    set_box(&ui, words.box_frame.as_ref());
     if !words.status.is_empty() {
         ui.set_status_column(true);
         for (presence, text) in &words.status {
             set_status(&ui, *presence, text);
         }
     }
+}
+
+/// How long the box's across and down lines run before each pane clips
+/// them: past the widest and tallest window at the smallest face.
+const BOX_ACROSS: usize = 1200;
+const BOX_DOWN: usize = 400;
+
+/// A theme's box frames, or none.
+fn set_box(ui: &Chrome<'_>, frame: Option<&BoxFrame>) {
+    let on = |pane| frame.is_some_and(|frame| frame.panes.contains(&pane));
+    ui.set_box_chat(on(Pane::Chat));
+    ui.set_box_sidebar(on(Pane::Sidebar));
+    ui.set_box_members(on(Pane::Members));
+    let chars = frame.map_or(BOX_CHARS, |frame| frame.chars);
+    let text = |c: char| SharedString::from(c.to_string());
+    ui.set_box_tl(text(chars[0]));
+    ui.set_box_tr(text(chars[1]));
+    ui.set_box_bl(text(chars[2]));
+    ui.set_box_br(text(chars[3]));
+    let Some(frame) = frame else {
+        ui.set_box_across(SharedString::new());
+        ui.set_box_down(SharedString::new());
+        ui.set_box_title_chat(SharedString::new());
+        ui.set_box_title_sidebar(SharedString::new());
+        ui.set_box_title_members(SharedString::new());
+        ui.set_box_size(14.);
+        ui.set_box_token(-1);
+        ui.set_box_colour_set(Color::default());
+        return;
+    };
+    ui.set_box_across(chars[4].to_string().repeat(BOX_ACROSS).into());
+    ui.set_box_down(vec![chars[5].to_string(); BOX_DOWN].join("\n").into());
+    let title = |pane| SharedString::from(super::theme_trim::kept(frame.title_for(pane)));
+    ui.set_box_title_chat(title(Pane::Chat));
+    ui.set_box_title_sidebar(title(Pane::Sidebar));
+    ui.set_box_title_members(title(Pane::Members));
+    ui.set_box_size(frame.size);
+    ui.set_box_token(frame.ink.map_or(-1, |ink| ink.index()));
+    ui.set_box_colour_set(
+        frame
+            .colour
+            .map_or(Color::default(), Color::from_argb_encoded),
+    );
 }
 
 fn set_label(ui: &Chrome<'_>, label: Label, text: &str) {
@@ -209,6 +275,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn theme_box_frames_and_counts_reach_the_window_and_go() {
+        i_slint_backend_testing::init_no_event_loop();
+        let window = YapfastWindow::new().unwrap();
+        let words = yapfast_core::themes::package::Package::parse(
+            r##"{ "theme_api": 1, "id": "com.example.box", "name": "Box", "version": "1.0.0",
+                "chrome": { "box": { "panes": ["chat", "members"], "titles": { "members": "[ who: {n} ]" }, "colour": "muted" },
+                            "tree": { "counts": { "mentions": "[{n}!]", "unread": "*", "colour": "loud" } } },
+                "variants": { "dark": { "base": "yap" } } }"##,
+        )
+        .unwrap()
+        .resolve(yapfast_core::themes::package::Mode::Dark)
+        .unwrap()
+        .chrome;
+        apply(&window, &words);
+        let ui = window.global::<Chrome>();
+        assert!(ui.get_box_chat() && ui.get_box_members() && !ui.get_box_sidebar());
+        assert_eq!(ui.get_box_title_chat(), "[ {name} ]");
+        assert_eq!(ui.get_box_title_members(), "[ who: {n} ]");
+        assert_eq!(ui.get_box_across().chars().count(), BOX_ACROSS);
+        assert!(ui.get_box_across().chars().all(|c| c == '─'));
+        assert_eq!(ui.get_box_down().lines().count(), BOX_DOWN);
+        assert_eq!(ui.get_box_token(), 1);
+        assert_eq!(ui.get_count_mentions(), "[{n}!]");
+        assert_eq!(ui.get_count_token(), 1);
+        reset(&window);
+        assert!(!ui.get_box_chat() && !ui.get_box_members());
+        assert!(ui.get_box_across().is_empty() && ui.get_count_mentions().is_empty());
+        assert_eq!(ui.get_box_token(), -1);
+    }
+
+    #[test]
     fn fills_what_the_interface_passes() {
         assert_eq!(filled("{role} ({n})", "group", "Leads — 2"), "Leads (2)");
         assert_eq!(filled("$ {channel}", "channel", "general"), "$ general");
@@ -221,6 +318,9 @@ mod tests {
             "Sam and Riley typing [2]"
         );
         assert_eq!(filled("pts/{n}", "n", "3"), "pts/3");
+        assert_eq!(filled("[ {name} ]", "box", "#general\n"), "[ #general ]");
+        assert_eq!(filled("[ who: {n} ]", "box", "members\n7"), "[ who: 7 ]");
+        assert_eq!(filled("[{n}!]", "n", "3"), "[3!]");
         assert_eq!(
             filled("~ $ cd {server}", "server", "yapfast"),
             "~ $ cd yapfast"

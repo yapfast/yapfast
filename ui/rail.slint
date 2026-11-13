@@ -189,7 +189,13 @@ export component RailItem inherits Rectangle {
                 accessible-role: none;
             }
             if root.call: Text { text: "*"; color: root.selected ? Theme.on-accent : Theme.live; font-size: 14px; vertical-alignment: center; accessible-role: none; }
-            if root.badge != "": Text { text: "(" + root.badge + ")"; color: root.selected ? Theme.on-accent : Theme.danger; font-size: 14px; font-weight: 700; vertical-alignment: center; accessible-role: none; }
+            // Mentions after it, as `(3)`, or in a theme's words; a theme
+            // may mark an unread row too.
+            if Chrome.count(root.badge, root.unread, "(" + root.badge + ")") != "": Text {
+                text: Chrome.count(root.badge, root.unread, "(" + root.badge + ")");
+                color: root.selected ? Theme.on-accent : root.badge != "" ? Chrome.count-ink : Theme.secondary;
+                font-size: 14px; font-weight: root.badge != "" ? 700 : 400; vertical-alignment: center; accessible-role: none;
+            }
         }
     }
     if !root.text-mode: Rectangle {
@@ -669,6 +675,13 @@ export component ChannelRow inherits Rectangle {
                         if root.name-style.length > 0: StyledName {
                             text: root.text; styles: root.name-style; ink: root.ink; font-size: ClientStyle.text-size; font-weight: ClientStyle.enabled ? 500 : root.unread ? 700 : root.selected ? 700 : 500;
                         }
+                        // A tree row's count in the theme's words, after the name.
+                        if root.branch != "" && Chrome.count(root.badge, root.unread, "") != "": Text {
+                            text: Chrome.count(root.badge, root.unread, "");
+                            color: root.badge != "" ? Chrome.count-ink : Theme.secondary;
+                            font-size: ClientStyle.text-size; font-weight: root.badge != "" ? 700 : 400; font-family: Look.mono;
+                            vertical-alignment: center; horizontal-stretch: 0; accessible-role: none;
+                        }
                         if root.tag != "": Middle { ServerTagChip { text: root.tag; badge: root.tag-badge; } }
                         if root.official: Middle {
                             Rectangle {
@@ -736,7 +749,8 @@ export component ChannelRow inherits Rectangle {
                     color: Theme.muted; font-size: 12px; vertical-alignment: center;
                     accessible-role: none;
                 }
-                if root.badge != "": Middle {
+                // A theme's tree writes the count after the name instead.
+                if root.badge != "" && (root.branch == "" || Chrome.count-mentions == ""): Middle {
                     Rectangle {
                         width: max(18px, badge-text.preferred-width + 10px); height: 18px; border-radius: Look.radius(9px); background: Theme.danger;
                         badge-text := Text { text: root.badge; color: Theme.on-danger; font-size: 11px; font-weight: 700; }

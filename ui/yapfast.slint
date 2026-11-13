@@ -83,7 +83,7 @@ export { Theme, Badges, Popup, Twemoji, Looks, Look, Shape, SlotMotion } from "t
 export { Arrange, Dash, Scrap } from "theme_layout.slint";
 export { ThemeContent } from "theme_content.slint";
 export { Chrome } from "theme_chrome.slint";
-import { Chrome } from "theme_chrome.slint";
+import { Chrome, BoxFrame } from "theme_chrome.slint";
 export { Trim } from "theme_trim.slint";
 import { Trim, FrameGround } from "theme_trim.slint";
 export { Autoscroll } from "scrollview.slint";
@@ -2584,6 +2584,14 @@ export component YapfastWindow inherits Window {
         open-discord-captcha => { root.open-discord-captcha(); }
     }
 
+    // A character of a theme's box frames, measured in their face: the room
+    // a framed pane keeps clear on each side.
+    box-probe := Text { visible: false; text: Chrome.box-tl; font-family: Look.mono; font-size: Chrome.box-size; accessible-role: none; }
+    property <length> box-cell: box-probe.preferred-width;
+    property <length> box-line: box-probe.preferred-height;
+    // The conversation's name in its box's title: `#general`, a person's.
+    property <string> box-chat-name: root.room-selected ? (root.room-direct ? root.room-name : "#" + root.room-name)
+        : root.requests-open ? "Requests" : root.friends-open ? "Friends" : root.sidebar-title;
     // A theme's window art, under everything; glass panes line their blurred
     // copy of it up with the window's size.
     changed width => { Art.window-width = self.width; }
@@ -2644,6 +2652,8 @@ export component YapfastWindow inherits Window {
                             x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.sidebar; glass: Art.glass-sidebar; ground: Theme.sidebar-fill;
                         }
                         VerticalLayout {
+                            padding-left: Chrome.box-sidebar ? root.box-cell : 0px; padding-right: self.padding-left;
+                            padding-top: Chrome.box-sidebar ? root.box-line : 0px; padding-bottom: self.padding-top;
                             spacing: 0px;
                             header-box := Rectangle {
                                 property <bool> banner: ClientStyle.enabled && root.header-server != "" && root.header-banner != "" && UiParts.sidebar-banner;
@@ -2818,6 +2828,11 @@ export component YapfastWindow inherits Window {
                                 open-server-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
                                 fold => { root.tree-folded = !root.tree-folded; }
                             }
+                        }
+                        // A theme's box frame around the sidebar.
+                        if Chrome.box-sidebar: BoxFrame {
+                            x: 0px; y: 0px; width: parent.width; height: parent.height; cell: root.box-cell; line: root.box-line;
+                            title: Chrome.box-title(Chrome.box-title-sidebar, root.sidebar-title, "");
                         }
                         // Discord's outline: the top and left edges meet in a 12px rounded corner,
                         // and the left line runs down to the account panel. There is no line
@@ -3283,15 +3298,29 @@ export component YapfastWindow inherits Window {
                 HorizontalLayout {
                     spacing: 0px;
                     // A theme's layout may dock the member list on the left.
-                    if root.members-docked && Arrange.members == 1: MemberPanel {
-                        width: root.members-shown; rows: root.roster; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
+                    if root.members-docked && Arrange.members == 1: Rectangle {
+                        width: root.members-shown;
+                        MemberPanel {
+                            x: Chrome.box-members ? root.box-cell : 0px; y: Chrome.box-members ? root.box-line : 0px;
+                            width: parent.width - 2 * self.x; height: parent.height - 2 * self.y;
+                        rows: root.roster; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
                         activity-hidden <=> root.activity-cards-hidden;
                         activity-hidden-toggled(hidden) => { root.activity-cards-hidden-toggled(hidden); }
                         activity-clock => { root.activity-clock(); }
                         open-profile(id, y) => { root.profile-y = y; root.profile-at-pointer = false; root.show-profile(id); }
                         open-member-menu(id, x, y) => { root.open-context-menu(id, true, x, y); }
                     }
+                        // A theme's box frame around the member list.
+                        if Chrome.box-members: BoxFrame {
+                            width: parent.width; height: parent.height; cell: root.box-cell; line: root.box-line;
+                            title: Chrome.box-title(Chrome.box-title-members, "members", Trim.members-n);
+                        }
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
                     VerticalLayout {
+                        padding-left: Chrome.box-chat ? root.box-cell : 0px; padding-right: self.padding-left;
+                        padding-top: Chrome.box-chat ? root.box-line : 0px; padding-bottom: self.padding-top;
                         spacing: 0px; horizontal-stretch: 1;
                         if root.preview: Rectangle {
                             min-height: preview-content.preferred-height; background: Theme.raised-fill; vertical-stretch: 0;
@@ -4265,6 +4294,12 @@ export component YapfastWindow inherits Window {
                         }
                         }
                     }
+                        // A theme's box frame around the conversation.
+                        if Chrome.box-chat: BoxFrame {
+                            width: parent.width; height: parent.height; cell: root.box-cell; line: root.box-line;
+                            title: Chrome.box-title(Chrome.box-title-chat, root.box-chat-name, "");
+                        }
+                    }
                     if root.search-open: SearchPanel {
                         width: 420px;
                         results: root.search-results; heading: root.search-heading; note: root.search-note;
@@ -4383,14 +4418,24 @@ export component YapfastWindow inherits Window {
                         collapse-long: root.collapse-long;
                         fold(item, whole) => { root.fold-message(item, whole); }
                     }
-                    if root.members-docked && Arrange.members == 0: MemberPanel {
-                        width: root.members-shown; rows: root.roster; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
+                    if root.members-docked && Arrange.members == 0: Rectangle {
+                        width: root.members-shown;
+                        MemberPanel {
+                            x: Chrome.box-members ? root.box-cell : 0px; y: Chrome.box-members ? root.box-line : 0px;
+                            width: parent.width - 2 * self.x; height: parent.height - 2 * self.y;
+                        rows: root.roster; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
                         viewport(top, bottom) => { root.roster-viewport(top, bottom); }
                         activity-hidden <=> root.activity-cards-hidden;
                         activity-hidden-toggled(hidden) => { root.activity-cards-hidden-toggled(hidden); }
                         activity-clock => { root.activity-clock(); }
                         open-profile(id, y) => { root.profile-y = y; root.profile-at-pointer = false; root.show-profile(id); }
                         open-member-menu(id, x, y) => { root.open-context-menu(id, true, x, y); }
+                    }
+                        // A theme's box frame around the member list.
+                        if Chrome.box-members: BoxFrame {
+                            width: parent.width; height: parent.height; cell: root.box-cell; line: root.box-line;
+                            title: Chrome.box-title(Chrome.box-title-members, "members", Trim.members-n);
+                        }
                     }
                     if root.profile-docked: Rectangle {
                         width: ClientStyle.profile-width;

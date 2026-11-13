@@ -47,6 +47,10 @@ export global Arrange {
     in property <length> irc-time: 64px;
     in property <length> irc-nick: 128px;
     in property <string> irc-separator: "│";
+    /// The separator on every line of a message, as a rule its text hangs
+    /// from: the separator's lines run long, clipped to the message.
+    in property <bool> irc-rule;
+    in property <string> irc-rule-text;
     // bubbles
     in property <float> bubble-max: 0.72;
     in property <color> bubble-own-set: transparent;
