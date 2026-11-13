@@ -1,6 +1,6 @@
 # Plugin settings
 
-Settings → Plugins is section 9 of the settings screen. It exists only in a
+Settings → Plugins is section 10 of the settings screen. It exists only in a
 build of the `plugins` Cargo feature, which is on by default: without it,
 Settings doesn't list the page. The page is behind an `if` in
 `ui/yapfast.slint`, so it costs nothing until it's opened.

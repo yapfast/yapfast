@@ -934,6 +934,7 @@ impl Application {
             .flatten();
         // Messages after the last one read are new.
         let seen = room.last_read.clone();
+        self.held_unread.take_if(|held| *held != id);
         // Where the history goes back to, before the room replaces a screen.
         if !self.state.nav_walking {
             let previous = self.state.place();
@@ -1083,7 +1084,16 @@ impl Application {
         effects
     }
 
+    /// Leaving a channel or thread marked unread lets it be read again.
+    pub(super) fn let_go_unread(&mut self) {
+        let aside = self.state.aside.as_ref().map(|aside| &aside.room);
+        let selected = self.state.selected.as_ref();
+        self.held_unread
+            .take_if(|held| Some(&*held) != selected && Some(&*held) != aside);
+    }
+
     fn close_room(&mut self) -> Vec<Effect> {
+        self.held_unread = None;
         let mut effects = self.close_threads();
         effects.extend(self.close_forum());
         self.remember_view();

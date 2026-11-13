@@ -319,27 +319,70 @@ impl Application {
         {
             return None;
         }
-        // An edit has its own chain, and its own answer: a `Changed` draft
-        // replaces the text the person is editing, and a held chain keeps the
-        // edit back until it answers rather than sending it as a message.
-        if matches!(self.state.compose.get(room), Some(Compose::Edit { .. })) {
-            let draft = self.plugins_draft(room);
-            let decision = self.state.plugins.as_mut()?.pre_edit(draft);
-            return match decision {
-                PreSend::Send(draft) => {
-                    self.state.drafts.insert(room.to_owned(), draft.body);
-                    None
-                }
-                PreSend::Held { .. } => {
-                    // The answer applies the same edit; nothing is sent here.
-                    self.state.sending = Some(room.to_owned());
-                    Some(Vec::new())
-                }
-            };
-        }
         let draft = self.plugins_draft(room);
         let decision = self.state.plugins.as_mut()?.pre_send(draft);
         self.plugins_answer(room, decision)
+    }
+
+    /// The edit path's interception: hands an edit's text to the
+    /// `message.pre_edit` chain, before any of the edit itself is composed.
+    ///
+    /// `None` leaves the edit exactly as it was, which is what a build without
+    /// plugins, a run without one enabled, and a chain that answered without
+    /// changing anything all do. An edit has its own chain and its own answer:
+    /// a `Changed` draft replaces the text the person is editing, and a held
+    /// chain keeps the edit back until it answers rather than sending it.
+    #[cfg(feature = "plugins")]
+    pub(super) fn plugins_edit(&mut self) -> Option<Vec<AppEffect>> {
+        // A preview has no account and no helper to ask, and a plugin system
+        // with nothing intercepting has nothing to ask either. An edit a plugin
+        // asked for isn't intercepted: the chain is for what the person wrote.
+        if self.state.preview || !self.plugins_on() || self.plugin_sending {
+            return None;
+        }
+        if !self
+            .state
+            .plugins
+            .as_ref()
+            .is_some_and(|plugins| plugins.intercepts_sends())
+        {
+            return None;
+        }
+        let edit = self.state.edit.clone()?;
+        let draft = Draft {
+            room: edit.room.clone(),
+            body: edit.text,
+            // An edit is its own field, apart from a reply the composer has
+            // open, so the chain sees no reply to keep.
+            reply_to: None,
+            attachments: Vec::new(),
+        };
+        match self.state.plugins.as_mut()?.pre_edit(draft) {
+            decided => self.plugins_edit_answer(decided),
+        }
+    }
+
+    /// Carries out what a chain decided about an edit.
+    ///
+    /// Separate from [`Self::plugins_edit`], as [`Self::plugins_answer`] is
+    /// from [`Self::plugins_send`], so that the answer can be replayed without
+    /// a bridge: a `Changed` draft has already replaced the edit's text, and a
+    /// hold leaves the edit where it is until the answer comes.
+    fn plugins_edit_answer(&mut self, decided: PreSend) -> Option<Vec<AppEffect>> {
+        match decided {
+            PreSend::Send(draft) => {
+                if let Some(edit) = self.state.edit.as_mut() {
+                    edit.text = draft.body;
+                }
+                None
+            }
+            PreSend::Held { .. } => {
+                // The answer applies the same edit; nothing goes here.
+                let room = self.state.edit.as_ref()?.room.clone();
+                self.state.sending = Some(room);
+                Some(Vec::new())
+            }
+        }
     }
 
     /// The draft a hook sees: the composer's text as the person typed it,
@@ -498,12 +541,14 @@ impl Application {
         // one `sending` names.
         let room = self.state.sending.take();
         let text = self.sent_draft.take();
-        // An edit that was blocked leaves the compose as it was: there is
+        // An edit that was blocked leaves the edit as it was: there is
         // nothing to put back, only the reason to show.
-        if room
-            .as_ref()
-            .is_some_and(|room| matches!(self.state.compose.get(room), Some(Compose::Edit { .. })))
-        {
+        if room.as_ref().is_some_and(|room| {
+            self.state
+                .edit
+                .as_ref()
+                .is_some_and(|edit| &edit.room == room)
+        }) {
             self.state.notice = Some(reason);
             return vec![];
         }
@@ -524,7 +569,11 @@ impl Application {
     pub(super) fn plugins_typed_command(&mut self, room: &str) -> Option<Vec<AppEffect>> {
         if self.state.preview
             || !self.plugins_on()
-            || matches!(self.state.compose.get(room), Some(Compose::Edit { .. }))
+            || self
+                .state
+                .edit
+                .as_ref()
+                .is_some_and(|edit| edit.room == room)
         {
             return None;
         }
@@ -542,15 +591,18 @@ impl Application {
         match news {
             News::Notice(Notice::SendReady { draft, .. }) => {
                 // A draft held for an edit is applied to that edit, not sent as
-                // a message: the compose still holds the message it changes.
-                if matches!(
-                    self.state.compose.get(&draft.room),
-                    Some(Compose::Edit { .. })
-                ) {
+                // a message: the edit's own field is what it changes.
+                if self
+                    .state
+                    .edit
+                    .as_ref()
+                    .is_some_and(|edit| edit.room == draft.room)
+                {
                     self.state.sending = None;
-                    self.state.drafts.insert(draft.room.clone(), draft.body);
-                    let room = draft.room;
-                    return self.send_composed_in(room);
+                    if let Some(edit) = self.state.edit.as_mut() {
+                        edit.text = draft.body;
+                    }
+                    return self.save_edit_now();
                 }
                 self.dispatch(AppAction::Plugin(Action::SendHeld(draft)))
             }
@@ -2232,6 +2284,86 @@ mod tests {
         assert_eq!(app.state.draft(), "what I said next");
     }
 
+    /// The text of the edit an effect saves, if one does.
+    fn edited(effects: &[AppEffect]) -> Option<String> {
+        effects.iter().find_map(|effect| match effect {
+            AppEffect::Backend(Command::Edit { body, .. }) => Some(body.clone()),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn an_edit_chain_that_answers_at_once_saves_its_text() {
+        let mut app = with_message(a_message("m1"));
+        app.dispatch(AppAction::Edit("m1".into()));
+        assert_eq!(
+            app.state.edit().map(|edit| edit.text.as_str()),
+            Some("something")
+        );
+        let answer = app.plugins_edit_answer(PreSend::Send(draft("something else")));
+        assert!(answer.is_none(), "the edit goes on as its answer says");
+        assert_eq!(
+            app.state.edit().map(|edit| edit.text.as_str()),
+            Some("something else"),
+            "the chain's text is what the edit holds"
+        );
+        let effects = app.dispatch(AppAction::SaveEdit);
+        assert_eq!(edited(&effects).as_deref(), Some("something else"));
+    }
+
+    #[test]
+    fn a_held_edit_goes_when_the_chain_answers() {
+        let mut app = with_message(a_message("m1"));
+        app.dispatch(AppAction::Edit("m1".into()));
+        let held = app.plugins_edit_answer(PreSend::Held { id: 4 });
+        assert_eq!(held.map(|effects| effects.len()), Some(0));
+        assert_eq!(
+            app.state.edit().map(|edit| edit.text.as_str()),
+            Some("something"),
+            "the edit stays as it was while the chain runs"
+        );
+        assert!(
+            app.dispatch(AppAction::SaveEdit).is_empty(),
+            "one save at a time"
+        );
+        let effects = app.apply(Event::Plugin(News::Notice(Notice::SendReady {
+            id: 4,
+            draft: draft("something else"),
+        })));
+        assert_eq!(edited(&effects).as_deref(), Some("something else"));
+        assert!(app.state.sending.is_some(), "the network has it now");
+        assert_eq!(app.state.draft(), "", "the room's own draft is untouched");
+        app.apply(Event::EditResult {
+            room: "dm".into(),
+            item: "m1".into(),
+            result: Ok(()),
+        });
+        assert!(app.state.edit().is_none(), "the saved edit closes");
+        assert!(app.state.sending.is_none());
+    }
+
+    #[test]
+    fn a_blocked_edit_stays_open_and_says_why() {
+        let mut app = with_message(a_message("m1"));
+        app.dispatch(AppAction::Edit("m1".into()));
+        app.plugins_edit_answer(PreSend::Held { id: 5 });
+        let effects = app.apply(Event::Plugin(News::Notice(Notice::SendBlocked {
+            id: 5,
+            reason: "That word isn't allowed here.".into(),
+        })));
+        assert!(effects.is_empty());
+        assert_eq!(
+            app.state.notice.as_deref(),
+            Some("That word isn't allowed here.")
+        );
+        assert_eq!(
+            app.state.edit().map(|edit| edit.text.as_str()),
+            Some("something"),
+            "the edit is still there to change"
+        );
+        assert!(app.state.sending.is_none(), "the edit may be saved again");
+    }
+
     #[test]
     fn a_slash_command_parses_into_the_invocation_its_manifest_declares() {
         let commands = [(
@@ -2596,8 +2728,8 @@ mod tests {
             },
         );
         assert!(matches!(
-            app.state.compose.get("dm"),
-            Some(Compose::Edit { item, .. }) if item == "m1"
+            app.state.edit(),
+            Some(edit) if edit.item == "m1"
         ));
 
         // A message the open conversation doesn't hold is refused rather than

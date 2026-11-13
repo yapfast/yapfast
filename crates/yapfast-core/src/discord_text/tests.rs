@@ -51,6 +51,7 @@ fn answers_discord_commands_while_discord_is_away() {
             room: "discord:10:11".into(),
             user: "2".into(),
             effect: false,
+            frame: false,
         },
     ] {
         without(Command::Discord(command), why, &events);
@@ -1765,6 +1766,36 @@ async fn previews_follow_the_view_and_share_cache_across_channels() {
             .preview
             .is_none()
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn a_members_mention_has_no_colour_of_its_own_but_a_roles_has() {
+    let discord = fake_discord().await;
+    // The channel's history tells whose roles Bob's are.
+    discord
+        .history(FAKE_GUILD, FAKE_GENERAL, yapfast_discord::api::Span::Latest)
+        .await
+        .unwrap();
+    let snapshot = discord.snapshots().borrow().clone();
+    let server = snapshot
+        .servers
+        .iter()
+        .find(|server| server.id == FAKE_GUILD)
+        .expect("the fake's server");
+    let bob = "1400000000000000002";
+    let mods = "1400000000000000110";
+    // Bob's name is in the Mods colour, which his mention doesn't take.
+    assert_eq!(discord.color(server, bob), Some(0x3498db), "Bob is a Mod");
+    let (_, mentions) = rendered(&discord, Some(server), &format!("<@{bob}> and <@&{mods}>"));
+    let colour = |target: &Target| {
+        mentions
+            .iter()
+            .find(|mention| &mention.target == target)
+            .map(|mention| mention.color)
+    };
+    assert_eq!(colour(&Target::User(bob.into())), Some(None));
+    assert_eq!(colour(&Target::Role(mods.into())), Some(Some(0x3498db)));
 }
 
 #[tokio::test(flavor = "multi_thread")]

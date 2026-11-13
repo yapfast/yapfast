@@ -571,9 +571,7 @@ impl Application {
         {
             return Some(self.edit_option(room, body));
         }
-        let writing = Network::of(room) == Network::Discord
-            && !matches!(self.state.compose.get(room), Some(Compose::Edit { .. }))
-            && !self.state.preview;
+        let writing = Network::of(room) == Network::Discord && !self.state.preview;
         let query = body.strip_prefix('/').filter(|_| writing);
         let Some(query) = query else {
             self.state.slash.query = None;

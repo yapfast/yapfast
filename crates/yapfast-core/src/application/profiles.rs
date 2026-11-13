@@ -214,6 +214,7 @@ impl Application {
                 room,
                 user,
                 effect: self.state.cosmetics.effects,
+                frame: self.state.cosmetics.frames,
             }))]
         } else {
             vec![]
@@ -271,6 +272,7 @@ impl Application {
             room,
             user,
             effect: false,
+            frame: false,
         }))]
     }
 
@@ -366,6 +368,7 @@ impl Application {
             .filter(|view| view.profile.id == user)
         {
             view.profile.recent = recent;
+            view.profile.recent_came = true;
         }
     }
 
@@ -396,6 +399,21 @@ impl Application {
             .filter(|view| view.profile.id == user && !view.loading)
         {
             view.profile.badges.clone_from(&badges);
+        }
+    }
+
+    /// Puts the frame the shop described on the profiles of `user` on screen.
+    pub(super) fn show_profile_frame(
+        &mut self,
+        user: &str,
+        frame: &Arc<[crate::chat::ProfileFrameLayer]>,
+    ) {
+        for view in [&mut self.state.profile, &mut self.state.panel_profile]
+            .into_iter()
+            .filter_map(Option::as_mut)
+            .filter(|view| view.profile.id == user && !view.loading)
+        {
+            view.profile.frame = frame.clone();
         }
     }
 
@@ -455,6 +473,7 @@ fn fill_profile(view: &mut ProfileView, profile: &Profile) {
     };
     filled.recent = std::mem::take(&mut view.profile.recent);
     filled.recent_asked = view.profile.recent_asked;
+    filled.recent_came = view.profile.recent_came;
     if same_place {
         filled.wishlist = std::mem::take(&mut view.profile.wishlist);
     }

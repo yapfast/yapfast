@@ -91,6 +91,10 @@ impl<'a> BuildInfo<'a> {
         }
     }
 
+    pub fn version(&self) -> &str {
+        self.version
+    }
+
     pub fn channel(&self) -> Channel {
         if self.version.contains("-nightly.") {
             Channel::Nightly
