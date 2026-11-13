@@ -213,6 +213,20 @@ together, or an interactive cell without a plain `id`, and cuts text to
 ] }
 ```
 
+A tree draws in the installed theme, as Yapfast's own parts do: a plugin
+names no colour, font or shape, and the theme reaches its widgets through
+the tokens they already use (`ui/plugins.slint`). Tones are the theme's
+colours (`muted`, `accent`, `live` for success, `loud` for warning,
+`danger`). A framed row is drawn as an embed, with the theme's `embed`
+shape, art and glass; a `code` cell as a code block (`code` shape, art,
+glass and type role); a `badge` as a chip, in the `labels` role; a
+`heading` in the `headings` role, with its weight, size, capitals and text
+light; the "From …" line in the `labels` role; buttons, fields, sliders and
+switches as Yapfast's own. A toast is drawn as a `menu` and a dialog as a
+`dialog`, each with that surface's shape, shadow, art and glass. With no
+theme, each is drawn exactly as before. A `select` is still the toolkit's
+own combo box, which no theme reaches yet.
+
 ## Decorating messages
 
 A plugin that puts something under a message declares `decorate` in its

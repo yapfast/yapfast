@@ -1530,6 +1530,12 @@ the status line through the Slint global `Trim` (`ui/theme_trim.slint`),
 which `src/ui/theme_trim.rs` sets; every default is the stock window, and
 a theme that sets none of them builds nothing for them.
 
+**Plugins.** What plugins draw follows the theme with no names of its own:
+a framed row of a plugin's widgets takes the `embed` surface (shape, art and
+glass), a code cell `code`, a badge `chip`, a toast `toast` and a plugin's
+dialog `dialog`; headings, labels and code take their type roles. See
+[the plugin interface](plugins/interface.md#widget-trees).
+
 **Parts.** A later Yapfast lets a theme rebuild a few named parts —
 `message-row`, `member-row`, `account-panel`, `server-header`,
 `profile-card` — from a widget tree. Each part will have a contract version,
