@@ -1,0 +1,100 @@
+// A theme's chrome: the fixed words and small marks around the window, from
+// the closed lists in crates/yapfast-core/src/themes/chrome.rs.
+// src/ui/theme_chrome.rs sets these; every default is the stock window, so
+// with no theme each binding gives the stock text and nothing here draws.
+// Screen readers keep the stock names: an element whose text changes here
+// keeps its stock accessible label.
+
+import { Theme } from "theme.slint";
+
+export global Chrome {
+    /// Labels; empty for the stock text. A label's placeholders are filled
+    /// by `fill`.
+    in property <string> members-title;
+    in property <string> members-group;
+    in property <string> category;
+    in property <string> composer;
+    in property <string> new-label;
+    in property <string> typing;
+    in property <string> welcome;
+    in property <string> start;
+    in property <string> rail-title;
+    in property <string> rail-footer;
+    in property <string> rail-home;
+    in property <string> reaction: "(+{n})";
+    in property <string> tree-root;
+    // Marks before and after names.
+    in property <string> channel-before;
+    in property <string> channel-after;
+    in property <string> server-before;
+    in property <string> server-after;
+    in property <string> member-before;
+    in property <string> member-after;
+    in property <string> author-before;
+    in property <string> author-after;
+    in property <string> header-before;
+    in property <string> header-after;
+    in property <string> time-before;
+    in property <string> time-after;
+    // What a theme leaves out.
+    in property <bool> hide-member-avatars;
+    in property <bool> hide-channel-icons;
+    in property <bool> hide-header-buttons;
+    in property <bool> hide-account-avatar;
+    in property <bool> hide-activity-cards;
+    in property <bool> reaction-text;
+    /// The server rail as a list of names, and its width then.
+    in property <bool> rail-text;
+    in property <length> rail-width: 150px;
+    out property <length> rail-px: self.rail-text ? self.rail-width : 72px;
+    /// The composer's block caret and its prompt.
+    in property <bool> caret-block;
+    in property <string> prompt;
+    /// The member list's status column, by presence; empty for none.
+    in property <bool> status-column;
+    in property <string> status-online;
+    in property <string> status-idle;
+    in property <string> status-dnd;
+    in property <string> status-offline;
+    in property <string> status-streaming;
+    /// Server folders and channel categories as directories: a mark for
+    /// open or closed before the name, and one after it.
+    in property <bool> folders;
+    in property <string> folder-open: "▾";
+    in property <string> folder-closed: "▸";
+    in property <string> folder-suffix: "/";
+    public pure function folder(name: string, open: bool) -> string {
+        (open ? self.folder-open : self.folder-closed) + " " + name + self.folder-suffix
+    }
+    /// Lists drawn as file trees, and their lines' colour: a theme colour
+    /// (0 faint, 1 muted, 2 secondary, 3 text, 4 accent) unless one is set.
+    in property <bool> tree-channels;
+    in property <bool> tree-members;
+    in property <bool> tree-dms;
+    in property <bool> tree-rail;
+    in property <bool> tree-replies;
+    in property <int> tree-token;
+    in property <color> tree-colour-set: transparent;
+    out property <color> tree-ink: self.tree-colour-set != transparent ? self.tree-colour-set
+        : self.tree-token == 1 ? Theme.muted : self.tree-token == 2 ? Theme.secondary
+        : self.tree-token == 3 ? Theme.text : self.tree-token == 4 ? Theme.accent : Theme.faint;
+    /// A row's branch: `├──`, or `└──` for its group's last.
+    public pure function branch(last: bool) -> string { last ? "└──" : "├──" }
+    /// A nested row's: a line on past its parent, unless the parent is last.
+    public pure function nested(parent-last: bool, last: bool) -> string {
+        (parent-last ? "    " : "│   ") + (last ? "└──" : "├──")
+    }
+    /// A label with its placeholders filled. `kind` says what `text` is:
+    /// "group" a member list heading such as "Leads — 2", "typing" the stock
+    /// typing line, "channel", "server", "name" or "n" a value.
+    pure callback fill(string /* label */, string /* kind */, string /* text */) -> string;
+    public pure function status(presence: string, place: int) -> string {
+        self.fill(
+            presence == "idle" ? self.status-idle
+                : presence == "dnd" ? self.status-dnd
+                : presence == "streaming" ? self.status-streaming
+                : presence == "offline" || presence == "" ? self.status-offline
+                : self.status-online,
+            "n", place)
+    }
+}

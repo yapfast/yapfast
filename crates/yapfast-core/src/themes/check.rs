@@ -689,6 +689,10 @@ fn looks(variant: &Resolved) -> Vec<String> {
         out.push(format!("layout: {}", changes.join(", ")));
     }
     out.extend(variant.content.summary());
+    let chrome = variant.chrome.summary();
+    if !chrome.is_empty() {
+        out.push(format!("chrome: {}", chrome.join(", ")));
+    }
     out
 }
 
@@ -1368,6 +1372,26 @@ mod tests {
             "{:?}",
             report.errors
         );
+    }
+
+    #[test]
+    fn the_cost_names_the_chrome() {
+        let manifest = PLUM.replace(
+            r##""colours": { "chat": "#2a1a3a" }"##,
+            r#""chrome": { "rail": { "mode": "text" }, "hide": ["member-avatars"], "composer": { "prompt": "$" } }"#,
+        );
+        let report = check(&files(&manifest), Strictness::Install);
+        assert!(report.passed(), "{:?}", report.errors);
+        let text = report.cost.text();
+        assert!(
+            text.contains("chrome: no member-avatars, text rail, prompt"),
+            "{text}"
+        );
+        let broken = PLUM.replace(
+            r##""colours": { "chat": "#2a1a3a" }"##,
+            r#""chrome": { "labels": { "new": "{server}" } }"#,
+        );
+        assert!(!check(&files(&broken), Strictness::Install).passed());
     }
 
     #[test]

@@ -368,6 +368,7 @@ pub fn clear(window: &YapfastWindow) {
 /// Every token a theme sets, back to stock.
 pub fn reset(window: &YapfastWindow) {
     super::theme_layout::reset(window);
+    super::theme_chrome::reset(window);
     let look = window.global::<Look>();
     let stock = Shape {
         radius: -1.,
@@ -476,6 +477,7 @@ fn paint(window: &YapfastWindow) {
             names_face,
             state.performance,
         );
+        super::theme_chrome::apply(window, &resolved.chrome);
         let look = window.global::<Look>();
         let tokens = window.global::<yapfast_ui::Theme>();
         for (token, paint) in &resolved.colours {

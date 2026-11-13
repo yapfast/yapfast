@@ -109,6 +109,19 @@
     "embeds": "theme",
     "activity": "theme"
   },
+  "chrome": {
+    "labels": { "members_group": "{role} — {n}", "new": "New", "composer": "Message #{channel}",
+                "typing": "{name} typing…", "reaction": "(+{n})" },
+    "prefix": { "channel": "", "author": "" },
+    "suffix": { "author": "" },
+    "time": "HH:MM",
+    "hide": [],
+    "rail": { "mode": "icons", "width": 150 },
+    "composer": { "caret": "line", "prompt": "" },
+    "members": { "columns": {} },
+    "tree": { "lists": [], "colour": "faint" },
+    "folders": { "open": "▾", "closed": "▸", "suffix": "/" }
+  },
 
   "variants": {
     "dark": {

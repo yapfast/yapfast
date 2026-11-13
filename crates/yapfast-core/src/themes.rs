@@ -15,6 +15,7 @@
 //! a theme written for a later Yapfast still opens.
 
 pub mod check;
+pub mod chrome;
 pub mod content;
 pub mod cursors;
 pub mod install;

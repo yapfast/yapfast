@@ -1,3 +1,4 @@
+import { Chrome } from "theme_chrome.slint";
 import { IconPack } from "media.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ScrollView, ListView } from "scrollview.slint";
@@ -13,6 +14,8 @@ import { ThemeContent } from "theme_content.slint";
 /// A member of the open room, or the heading, with no id, that starts a group.
 export struct MemberRow {
     id: string, name: string, initial: string, tint: color, picture: image, heading: string,
+    /// Their place in their group, from 0.
+    place: int,
     /// Discord's presence: "online", "mobile" (online only on a phone), "idle",
     /// "dnd" or "offline"; empty for Matrix.
     presence: string,
@@ -149,7 +152,15 @@ export component MemberPanel inherits Rectangle {
         triggered => { root.activity-clock(); }
     }
     VerticalLayout {
-        if root.activity-rows.length > 0: VerticalLayout {
+        // A theme's line over the list, such as `$ who`.
+        if Chrome.members-title != "": HorizontalLayout {
+            padding-left: 16px; padding-right: 8px; height: 32px;
+            Text {
+                text: Chrome.members-title; color: Theme.muted; font-size: 14px; vertical-alignment: bottom; overflow: elide;
+                accessible-role: none;
+            }
+        }
+        if root.activity-rows.length > 0 && !Chrome.hide-activity-cards: VerticalLayout {
             padding-left: 8px; padding-right: 8px; padding-top: 8px; padding-bottom: 4px; spacing: 0px;
             activity-header := Rectangle {
                 // Opening it shows the cards again if they were hidden, as
@@ -279,7 +290,11 @@ export component MemberPanel inherits Rectangle {
                 if member.heading != "": HorizontalLayout {
                     padding-left: 8px; padding-top: 20px; padding-bottom: 4px; height: 42px; spacing: 8px;
                     if member.group-icon != "": Middle { RoleIcon { url: member.group-icon; size: 20px; } }
-                    Text { text: member.heading; color: #81828a; font-size: 14px; font-weight: 500; vertical-alignment: center; }
+                    Text {
+                        text: Chrome.members-group != "" ? Chrome.fill(Chrome.members-group, "group", member.heading) : member.heading;
+                        accessible-label: member.heading;
+                        color: #81828a; font-size: 14px; font-weight: 500; vertical-alignment: center;
+                    }
                 }
                 // A heading is a row of its own; see `show_roster`.
                 if member.id != "": Rectangle {
@@ -307,8 +322,14 @@ export component MemberPanel inherits Rectangle {
                   }
                   HorizontalLayout {
                     padding-left: 8px; padding-right: member.nameplate-url != "" ? 12px : 8px; spacing: 12px;
+                    // A theme's file tree: each member a branch of their group.
+                    if Chrome.tree-members: Text {
+                        text: Chrome.branch(index == root.rows.length - 1 || root.rows[index + 1].id == "");
+                        color: Chrome.tree-ink; font-family: Look.mono; font-size: Look.name-size(16px);
+                        vertical-alignment: center; horizontal-stretch: 0; accessible-role: none;
+                    }
                     // Offline Discord members are faded, as in Discord.
-                    Middle {
+                    if !Chrome.hide-member-avatars: Middle {
                         Rectangle {
                             width: 32px; height: 32px;
                             Avatar { size: 32px; initial: member.initial; tint: member.tint; picture: member.picture; picture-url: member.picture-url; decoration-url: member.decoration-url; animate: member-pointer.has-hover; opacity: member.presence == "offline" ? 0.4 : 1; }
@@ -326,13 +347,13 @@ export component MemberPanel inherits Rectangle {
                                 member-ransom := RansomName { x: 0px; y: 0px; width: parent.width; text: member.name; font-size: Look.name-size(16px) * 0.9; font-weight: Look.name-weight(500); }
                             }
                             if member.name-style.length == 0 && !Arrange.ransom && !Art.names.on: Text {
-                                text: member.name; color: member.has-color ? member.color : Theme.secondary; font-size: Look.name-size(16px); font-weight: Look.name-weight(500); overflow: elide;
+                                text: Chrome.member-before + member.name + Chrome.member-after; accessible-label: member.name; color: member.has-color ? member.color : Theme.secondary; font-size: Look.name-size(16px); font-weight: Look.name-weight(500); overflow: elide;
                                 font-family: Look.name-font(""); letter-spacing: Look.spacing-names;
                                 opacity: member.presence == "offline" ? 0.5 : 1;
                             }
                             if member.name-style.length == 0 && !Arrange.ransom && Art.names.on: ArtLabel {
                                 art: Art.names;
-                                text: member.name; ink: member.has-color ? member.color : Theme.secondary; font-size: Look.name-size(16px); font-weight: Look.name-weight(500); overflow: elide;
+                                text: Chrome.member-before + member.name + Chrome.member-after; ink: member.has-color ? member.color : Theme.secondary; font-size: Look.name-size(16px); font-weight: Look.name-weight(500); overflow: elide;
                                 font-family: Look.name-font(""); letter-spacing: Look.spacing-names;
                                 opacity: member.presence == "offline" ? 0.5 : 1;
                             }
@@ -378,6 +399,13 @@ export component MemberPanel inherits Rectangle {
                             icon: member.activity-icon; bullet: member.activity-bullet;
                             opacity: member.presence == "offline" ? 0.5 : 1;
                         }
+                    }
+                    // A theme's status column, such as `pts/0` or `idle`.
+                    if Chrome.status-column: Text {
+                        text: Chrome.status(member.presence, member.place); color: member.presence == "offline" || member.presence == "" ? Theme.faint : Theme.muted;
+                        font-size: 13px; vertical-alignment: center; horizontal-alignment: right; overflow: elide;
+                        max-width: 96px; horizontal-stretch: 0;
+                        accessible-role: none;
                     }
                   }
                 }

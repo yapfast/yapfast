@@ -924,6 +924,8 @@ pub struct Resolved {
     pub content: super::content::Content,
     /// Mouse cursors by kind: [`super::cursors`].
     pub cursors: BTreeMap<super::cursors::Kind, super::cursors::Cursor>,
+    /// The words and marks around the window: [`super::chrome`].
+    pub chrome: super::chrome::Chrome,
 }
 
 impl Resolved {
@@ -1034,8 +1036,9 @@ const TOP_KEYS: [&str; 15] = [
 ];
 
 /// The layers, at the top level or in a variant.
-const LAYER_KEYS: [&str; 13] = [
+const LAYER_KEYS: [&str; 14] = [
     "art",
+    "chrome",
     "content",
     "layout",
     "colours",
@@ -1305,6 +1308,9 @@ impl Package {
                     &mut resolved.cursors,
                     notes,
                 )?;
+            }
+            if let Some(chrome) = layers.get("chrome") {
+                super::chrome::read_chrome(chrome, &place("chrome"), &mut resolved.chrome, notes)?;
             }
         }
         Ok(resolved)

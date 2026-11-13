@@ -199,7 +199,7 @@ from its files: the memory its fonts hold once registered and its sounds
 once decoded (with its icons' files), how many animations it declares and
 how many are heavy, the most redraws a second they ask for, its text
 effects, how many sounds, icons and cursors it ships (cursors as their
-pictures decoded), and what its layout changes. A clock runs only while an animation may
+pictures decoded), and what its layout and chrome change. A clock runs only while an animation may
 move; text effects tick only while one plays.
 
 ### `theme.json`
@@ -220,6 +220,7 @@ move; text effects tick only while one plays.
   "colours": { … }, "shape": { … }, "type": { … }, "spacing": { … },
   "motion": { … }, "animations": [ … ], "effects": { … }, "art": { … },
   "sounds": { … }, "icons": { … }, "layout": { … }, "content": { … },
+  "chrome": { … },
   "variants": {
     "dark": { "base": "yap", "colours": { … } },
     "light": { "base": "sakura", "colours": { … } }
@@ -865,6 +866,90 @@ allowed): duotone pictures, square avatars, …`.
   "names": { "colours": "theme", "styles": "theme", "nameplates": "hide" },
   "profiles": { "themes": "theme", "effects": "hide" },
   "embeds": "theme", "activity": "theme"
+}
+```
+
+**Chrome** (`chrome`): the fixed words and small marks around the window,
+so a theme can read as a terminal, a ledger or a zine. It is plain text
+from closed lists: nothing is read as markup, labels are at most 48
+characters on one line (no control characters or marks that turn text
+around), and a label takes only the placeholders listed for it; any other
+`{word}` refuses the theme. Screen readers keep hearing the stock names and
+labels, and every row keeps its keyboard focus, menu and truncation (a long
+name ends in an ellipsis). Text runs in the reader's direction, right to
+left included.
+
+| Field | What | Stock |
+| --- | --- | --- |
+| `labels` | Words in place of fixed strings (below) | |
+| `prefix`, `suffix` | Marks before and after names, at most 8 characters each, by place: `channel` (a channel's row), `server` (a server in the text rail), `member` (a member list row), `author` (a message's author), `header` (the channel's name over the messages) | none |
+| `time` | A pattern around a message's time, holding `HH:MM` where it goes, such as `[HH:MM]`, at most 16 characters; the time follows the person's clock setting | `HH:MM` |
+| `hide` | What to leave out (below) | none |
+| `rail` | `mode`: `icons`, or `text` for the servers' names as rows of text; `width`: 96–320 pixels of the rail in text mode | `icons`, 150 |
+| `composer` | `caret`: `line` or `block` (as wide as a letter); `prompt`: at most 4 characters drawn before the text, such as `$` | `line`, none |
+| `folders` | Server folders in the text rail and channel categories as directories: `open` and `closed`, the mark before an open or closed one, and `suffix`, after its name, at most 4 characters each, such as `▾ studio/` and `▸ games/`. Clicking still opens and closes it | `▾`, `▸`, `/` once set |
+| `tree` | `lists`: lists drawn as file trees, as the `tree` command prints them (below); `colour`: their lines' colour, `faint`, `muted`, `secondary`, `text`, `accent` or a colour such as `#2e7d45` | none, `faint` |
+| `members` | `columns`: a status column at the end of each member row, by presence: `online`, `idle`, `dnd`, `offline`, `streaming`, at most 12 characters, `{n}` the row's place in its group from 0 | none |
+
+| Label | Replaces | Placeholders |
+| --- | --- | --- |
+| `members_title` | A line over the member list, such as `$ who` (none stock) | |
+| `members_group` | Each group heading, `Online — 3` | `{role}`, `{n}` |
+| `category` | A channel category's heading | `{name}` |
+| `composer` | The composer's hint in a channel, `Message #general` | `{channel}` |
+| `new` | The "New" divider's word | |
+| `typing` | Who is typing, `Sam is typing...` | `{name}` (one name or several joined), `{n}` |
+| `welcome` | The big line at a channel's start, `Welcome to #general!` | `{channel}` |
+| `start` | The small line at the start of a channel's history | `{channel}` |
+| `rail_title`, `rail_home` | In the text rail: a line over it, and the home row's words (`Direct messages`) | |
+| `rail_footer` | In the text rail: a line under the servers while one is open | `{server}` |
+| `tree_root` | A root line over a tree of channels, such as `~/{server}` | `{server}` |
+| `reaction` | A reaction's count while `reaction-chips` are hidden | `{n}` (stock `(+{n})`) |
+
+| `hide` | What goes | What stays |
+| --- | --- | --- |
+| `member-avatars` | Avatars in the member list | The name, its colour and the status column |
+| `channel-icons` | The icon before a channel's name, in the list and over the messages | The channel's name and its accessible name |
+| `header-buttons` | The icon buttons and the search box over the messages, at rest | They show while the pointer is on the bar, and each shows while it has the keyboard; Tab reaches them as stock |
+| `server-icons` | Servers' icons in the rail: the same as `rail.mode: "text"` | Every server, folder, unread DM, mention count and menu, as text rows |
+| `account-avatar` | Your avatar in the account panel | Your name and status, which open the status menu |
+| `activity-cards` | The Activity cards over the member list | Each person's activity under their name |
+| `reaction-chips` | Reactions' chips: each is its emoji then its count as text, such as `(+3)` | Clicking, the tooltip of who reacted, and the screen reader's label |
+
+A tree draws `├──` before each row of a list and `└──` before its
+group's last, in the code font, with `│` carrying on past rows nested under
+a row that isn't last. Each connector belongs to its row, so it follows the
+row's height and indent and never covers its text, which still ends in an
+ellipsis; screen readers skip connectors. Rows keep Yapfast's left-to-right
+order, so a right-to-left name reads in its own direction after its branch.
+
+| `tree.lists` | What |
+| --- | --- |
+| `channels` | Channels under their categories (with `folders` each category reads as a directory; without, give `category` a label such as `{name}/`, and a closed one ends in `…`), threads and who is in a voice channel nested under the channel, and `tree_root` over the list. A thread's line looks past at most three threads to the next channel |
+| `members` | Members under their groups (`members_group` such as `{role}/`) |
+| `dms` | The direct messages list |
+| `rail` | The text rail: servers, with a folder's servers nested under it |
+| `replies` | A reply's quote after `└─>`, without the curved spine or the quoted avatar, and a thread under its first message as `├─ thread: name` instead of a card |
+
+In the text rail each server is a row of its name, the open one in `accent`
+with `on-accent` text, an unread one bold, mentions after it as `(3)`, a
+call as `*`, a folder as `+ name` closed and `- name` open (or as `folders`
+says) with its servers indented under it, or on the tree's branches. Its keys, menus and tooltips are the stock rail's.
+
+```json
+"chrome": {
+  "labels": { "members_title": "$ who", "members_group": "{role} — {n}",
+              "composer": "message #{channel}", "new": "-- new --", "typing": "{name} is typing",
+              "rail_title": "~/servers $ ls", "rail_footer": "~ $ cd {server}" },
+  "prefix": { "channel": "./", "author": "<", "header": "#" },
+  "suffix": { "author": ">", "server": "/" },
+  "time": "[HH:MM]",
+  "hide": ["member-avatars", "channel-icons", "header-buttons", "account-avatar", "reaction-chips"],
+  "rail": { "mode": "text", "width": 150 },
+  "composer": { "caret": "block", "prompt": "$" },
+  "members": { "columns": { "online": "pts/{n}", "idle": "idle", "dnd": "busy", "offline": "off" } },
+  "tree": { "lists": ["channels", "members", "rail", "replies"], "colour": "faint" },
+  "folders": { "open": "▾", "closed": "▸", "suffix": "/" }
 }
 ```
 

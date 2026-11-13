@@ -1,3 +1,4 @@
+import { Chrome } from "theme_chrome.slint";
 import { IconPack } from "media.slint";
 import { DmHeading } from "yapfast/dm-heading.slint";
 import { ClientStyle } from "yapfast/style.slint";
@@ -153,19 +154,43 @@ export component RailItem inherits Rectangle {
     in property <bool> home;
     /// Its place among the servers, which a theme's `rail.icon` slot phases by.
     in property <int> place: -1;
+    /// A theme's text rail: a row of text, `text`, instead of a tile, after
+    /// a file-tree `branch` when the theme draws one.
+    in property <bool> text-mode;
+    in property <string> text;
+    in property <string> branch;
     callback clicked;
     /// A right click, or the Menu key or Shift+F10 when focused: where to open
     /// a menu in the window.
     callback context-menu(length, length);
     property <length> tile-size: ClientStyle.rail-tile;
     property <length> tile-left: (root.width - root.tile-size) / 2;
-    width: 72px; height: root.tile-size;
+    width: 72px; height: root.text-mode ? 22px : root.tile-size;
     accessible-role: button;
     accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
     forward-focus: focus;
     property <bool> lit: root.selected || pointer.has-hover;
-    Rectangle {
+    if root.text-mode: Rectangle {
+        background: root.selected ? Theme.accent-fill : pointer.has-hover ? Theme.overlay.with-alpha(0.08) : transparent;
+        border-width: focus.has-focus ? 1px : 0px; border-color: root.selected ? Theme.on-accent : Theme.text;
+        HorizontalLayout {
+            padding-left: 4px; padding-right: 4px; spacing: 4px;
+            if root.branch != "": Text {
+                text: root.branch; color: root.selected ? Theme.on-accent : Chrome.tree-ink; font-family: Look.mono; font-size: 14px;
+                vertical-alignment: center; accessible-role: none;
+            }
+            Text {
+                text: root.text; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; font-size: 14px;
+                color: root.selected ? Theme.on-accent : root.unread || pointer.has-hover ? Theme.text : Theme.secondary;
+                font-weight: root.unread && !root.selected ? 700 : 400;
+                accessible-role: none;
+            }
+            if root.call: Text { text: "*"; color: root.selected ? Theme.on-accent : Theme.live; font-size: 14px; vertical-alignment: center; accessible-role: none; }
+            if root.badge != "": Text { text: "(" + root.badge + ")"; color: root.selected ? Theme.on-accent : Theme.danger; font-size: 14px; font-weight: 700; vertical-alignment: center; accessible-role: none; }
+        }
+    }
+    if !root.text-mode: Rectangle {
         x: 0px; y: (parent.height - self.height) / 2; width: 4px;
         height: root.selected ? 40px : pointer.has-hover ? 20px : root.unread ? 8px : 0px;
         border-top-right-radius: Look.radius(4px); border-bottom-right-radius: Look.radius(4px);
@@ -176,7 +201,7 @@ export component RailItem inherits Rectangle {
         transform-scale: root.unread && !root.lit ? Look.unread.scale : 1;
     }
     // A picture only changes shape when lit, as in Discord.
-    tile := Rectangle {
+    if !root.text-mode: tile := Rectangle {
         property <SlotMotion> moved: root.home ? Look.home : Art.rail-icon(root.place);
         x: root.tile-left + self.moved.x; y: self.moved.y; width: root.tile-size; height: root.tile-size;
         border-radius: Look.rail-icon.radius >= 0px ? Look.rail-icon.radius : ClientStyle.enabled ? 12px : root.lit ? 16px : 24px;
@@ -211,13 +236,13 @@ export component RailItem inherits Rectangle {
     }
     // Discord's logo on its blurple, at the top left on a ring of the rail's
     // colour so it reads as a tag.
-    if root.discord: DiscordBadge {
+    if root.discord && !root.text-mode: DiscordBadge {
         x: root.tile-left - 2px; y: (parent.height - root.tile-size) / 2 - 2px;
         size: 16px; ring: Theme.rail;
     }
-    if root.call: CallBubble { x: root.tile-left + root.tile-size + 3px - self.width; y: (parent.height - root.tile-size) / 2 - 3px; }
+    if root.call && !root.text-mode: CallBubble { x: root.tile-left + root.tile-size + 3px - self.width; y: (parent.height - root.tile-size) / 2 - 3px; }
     // The mention count, on a ring of the rail's colour.
-    if root.badge != "": Rectangle {
+    if root.badge != "" && !root.text-mode: Rectangle {
         // The mention slot.
         x: root.tile-left + root.tile-size + 4px - self.width + Look.mention.x; y: (parent.height + root.tile-size) / 2 + 4px - self.height + Look.mention.y;
         opacity: Look.mention.opacity; transform-scale: Look.mention.scale; transform-rotation: Look.mention.rotation * 1deg;
@@ -455,6 +480,11 @@ export component ChannelRow inherits Rectangle {
     in property <string> voice-server;
     /// A Discord thread, which the line from its channel marks in place of an icon.
     in property <bool> thread;
+    /// A row of the channel list, which a theme's chrome marks.
+    in property <bool> themed;
+    /// A theme's file-tree branch before the row, such as `├──`.
+    in property <string> branch;
+    property <bool> marked: root.themed && !root.person;
     /// A voice channel with a chat, which a button on the row opens.
     in property <bool> chat;
     /// When a busy voice channel's session started, in ActivityClock's
@@ -604,6 +634,10 @@ export component ChannelRow inherits Rectangle {
             HorizontalLayout {
                 padding-left: 8px; padding-right: 8px; spacing: root.person ? 12px : 8px;
                 opacity: root.muted && !root.selected && !pointer.has-hover ? 0.5 : 1;
+                if root.branch != "": Text {
+                    text: root.branch; color: Chrome.tree-ink; font-family: Look.mono; font-size: ClientStyle.text-size;
+                    vertical-alignment: center; horizontal-stretch: 0; accessible-role: none;
+                }
                 if root.person: Middle {
                     Avatar {
                         size: 32px; initial: root.initial; tint: root.tint; picture: root.picture; picture-url: root.picture-url;
@@ -618,13 +652,14 @@ export component ChannelRow inherits Rectangle {
                         }
                     }
                 }
-                if !root.person && !root.thread: Image { source: root.icon; width: 20px; image-fit: contain; colorize: IconPack.tint(self.source, root.danger ? Theme.danger : root.selected && ClientStyle.enabled ? Theme.text : root.selected || root.unread ? Theme.secondary : Theme.faint); }
+                if !root.person && !root.thread && !(root.themed && Chrome.hide-channel-icons): Image { source: root.icon; width: 20px; image-fit: contain; colorize: IconPack.tint(self.source, root.danger ? Theme.danger : root.selected && ClientStyle.enabled ? Theme.text : root.selected || root.unread ? Theme.secondary : Theme.faint); }
                 text-column := VerticalLayout {
                     alignment: center; spacing: 0px; horizontal-stretch: 1;
                     HorizontalLayout {
                         alignment: start; spacing: 4px;
                         if root.name-style.length == 0: Text {
-                            text: root.text; color: root.ink; font-size: ClientStyle.text-size; font-weight: ClientStyle.enabled ? 500 : root.unread ? 700 : root.selected ? 700 : 500;
+                            text: root.marked ? Chrome.channel-before + root.text + Chrome.channel-after : root.text; accessible-label: root.text;
+                            color: root.ink; font-size: ClientStyle.text-size; font-weight: ClientStyle.enabled ? 500 : root.unread ? 700 : root.selected ? 700 : 500;
                             vertical-alignment: center; overflow: elide; horizontal-stretch: 0;
                         }
                         if root.name-style.length > 0: StyledName {
@@ -865,10 +900,14 @@ component CategoryHeading inherits Rectangle {
     HorizontalLayout {
         padding-left: 16px; padding-right: 8px; padding-top: 17px; spacing: 4px;
         Text {
-            text: root.text; color: root.ink; font-size: 14px; font-weight: 600; letter-spacing: 0px;
+            property <string> named: Chrome.category != "" ? Chrome.fill(Chrome.category, "name", root.text) : root.text;
+            text: Chrome.folders ? Chrome.folder(self.named, !root.collapsed) : self.named; accessible-label: root.text;
+            color: root.ink; font-size: 14px; font-weight: 600; letter-spacing: 0px;
             vertical-alignment: center; overflow: elide; horizontal-stretch: 0;
         }
-        Image {
+        // A theme's tree marks a closed folder with an ellipsis instead.
+        if Chrome.tree-channels && root.collapsed && !Chrome.folders: Text { text: "…"; color: root.ink; font-size: 14px; vertical-alignment: center; accessible-role: none; }
+        if !Chrome.tree-channels && !Chrome.folders: Image {
             source: IconPack.chevron-down;
             width: 12px; image-fit: contain; colorize: IconPack.tint(self.source, root.ink);
             transform-rotation: root.collapsed ? -90deg : 0deg;
@@ -1043,7 +1082,9 @@ export component ServerRail inherits Rectangle {
     callback join-server;
     /// A theme's layout runs the rail along the window's top.
     in property <bool> horizontal;
-    width: 72px; background: Art.glass-rail ? transparent : Theme.rail-fill;
+    /// The open server's name, which a theme's text rail may end with.
+    in property <string> selected-name;
+    width: Chrome.rail-px; background: Art.glass-rail ? transparent : Theme.rail-fill;
     /// Draws a theme's rail art itself: on the right or the top, where the
     /// navigation pane that draws it on the left isn't behind it.
     in property <bool> own-art;
@@ -1094,7 +1135,72 @@ export component ServerRail inherits Rectangle {
             }
         }
     }
-    if !root.horizontal: VerticalLayout {
+    // A theme's text rail: the servers' names as rows of text.
+    if !root.horizontal && Chrome.rail-text: VerticalLayout {
+        padding: 8px; spacing: 0px;
+        if Chrome.rail-title != "": Text {
+            text: Chrome.rail-title; color: Theme.muted; font-size: 14px; wrap: word-wrap; accessible-role: none;
+        }
+        RailItem {
+            text-mode: true; width: Chrome.rail-px - 16px;
+            text: Chrome.rail-home != "" ? Chrome.rail-home : "Direct messages";
+            label: "Direct messages" + (root.dms-badge != "" ? ", " + root.dms-badge + " waiting" : root.dms-unread ? ", unread" : "");
+            tip: "Direct messages";
+            selected: root.dms-selected; unread: root.dms-unread; badge: root.dms-badge;
+            clicked => { root.navigate-dms(); }
+        }
+        ListView {
+            vertical-stretch: 1;
+            for server[index] in root.servers: Rectangle {
+                height: server.divider ? 6px : 22px;
+                // A theme's tree: a branch for each, the last before a divider or the end closing it.
+                property <bool> last: index == root.servers.length - 1 || root.servers[index + 1].divider;
+                property <string> branch: !Chrome.tree-rail ? "" : server.nested ? Chrome.nested(false, server.last) : Chrome.branch(self.last);
+                if server.folder: RailItem {
+                    text-mode: true; x: 0px; y: 0px; width: parent.width; branch: parent.branch;
+                    text: Chrome.folders ? Chrome.folder(server.name, server.open) : (server.open ? "- " : "+ ") + server.name + Chrome.server-after;
+                    label: server.name + " folder, " + (server.open ? "open" : "closed") + (server.call && !server.open ? ", in a call" : "")
+                        + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
+                    tip: server.name;
+                    selected: server.selected && !server.open; unread: server.unread && !server.open; badge: server.open ? "" : server.badge; call: server.call && !server.open;
+                    clicked => { root.toggle-folder(server.id); }
+                    context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
+                }
+                if server.dm: RailItem {
+                    text-mode: true; x: 0px; y: 0px; width: parent.width; branch: parent.branch;
+                    text: "@" + server.name;
+                    label: server.name + (server.discord && root.matrix-build ? ", Discord" : "")
+                        + (server.badge != "" ? ", " + server.badge + " unread" : ", unread");
+                    tip: server.name;
+                    unread: true; badge: server.badge;
+                    clicked => { root.open-dm(server.id); }
+                    context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
+                }
+                if !server.folder && !server.dm && !server.divider: RailItem {
+                    text-mode: true; x: 0px; y: 0px; width: parent.width; branch: parent.branch;
+                    text: (server.nested && !Chrome.tree-rail ? "  " : "") + Chrome.server-before + server.name + Chrome.server-after;
+                    label: server.name + (server.discord && root.matrix-build ? ", Discord" : "") + (server.unavailable ? ", unavailable" : "")
+                        + (server.call ? ", in a call" : "")
+                        + (server.badge != "" ? ", " + server.badge + " mentions" : server.unread ? ", unread" : "");
+                    tip: server.unavailable ? server.name + " (unavailable in a Discord outage)" : server.name;
+                    selected: server.selected; unread: server.unread; badge: server.badge; call: server.call;
+                    opacity: server.unavailable ? 0.5 : 1;
+                    clicked => { root.navigate-server(server.id); }
+                    context-menu(x, y) => { root.open-server-menu(server.id, x, y); }
+                }
+            }
+        }
+        if root.can-join: RailItem {
+            text-mode: true; width: Chrome.rail-px - 16px;
+            text: "+ join"; label: "Join a server"; tip: "Join a server";
+            clicked => { root.join-server(); }
+        }
+        if Chrome.rail-footer != "" && root.selected-name != "": Text {
+            text: Chrome.fill(Chrome.rail-footer, "server", root.selected-name); color: Theme.muted; font-size: 14px;
+            wrap: word-wrap; accessible-role: none;
+        }
+    }
+    if !root.horizontal && !Chrome.rail-text: VerticalLayout {
         padding-top: ClientStyle.enabled ? 0px : 12px; padding-bottom: 12px; spacing: 8px;
         RailItem {
             // The app's logo, as Discord puts its own here.
@@ -1362,6 +1468,20 @@ export component RoomList inherits Rectangle {
     pure function aimed(place: int) -> bool {
         return root.arranging > 0 && place > 0 && root.hovered == place && place != root.arranging && root.droppable[place - 1];
     }
+    /// The open server's name, which a theme's tree root may name.
+    in property <string> server-name;
+    // A theme's file tree: whether a row is its group's last, past the
+    // threads under it (at most three looked past), and the row a thread
+    // hangs from.
+    pure function past-threads(index: int) -> int {
+        !root.rooms[index + 1].thread ? index + 1 : !root.rooms[index + 2].thread ? index + 2 : !root.rooms[index + 3].thread ? index + 3 : index + 4
+    }
+    pure function tree-last(index: int) -> bool {
+        root.past-threads(index) >= root.rooms.length || root.rooms[root.past-threads(index)].heading != ""
+    }
+    pure function thread-parent(index: int) -> int {
+        !root.rooms[index - 1].thread ? index - 1 : !root.rooms[index - 2].thread ? index - 2 : index - 3
+    }
     pure function dimmed(voice: bool) -> bool {
         return root.arranging > 0 && (root.dragged-category || voice != root.dragged-voice);
     }
@@ -1427,6 +1547,13 @@ export component RoomList inherits Rectangle {
                     add-friend => { root.open-add-friend(); }
                     new-message => { root.open-new-dm(); }
                 }
+                if index == 0 && Chrome.tree-channels && Chrome.tree-root != "" && !root.dms-selected: HorizontalLayout {
+                    padding-left: 8px; height: 24px;
+                    Text {
+                        text: Chrome.fill(Chrome.tree-root, "server", root.server-name); color: Chrome.tree-ink; font-family: Look.mono;
+                        font-size: ClientStyle.text-size; vertical-alignment: center; overflow: elide; accessible-role: none;
+                    }
+                }
                 if index == 0 && root.browse-offered: BrowseLink {
                     browsing: root.browsing;
                     open-browse => { root.open-browse(); }
@@ -1472,7 +1599,7 @@ export component RoomList inherits Rectangle {
                 // to the next of its threads.
                 if !room.hidden && room.thread: HorizontalLayout {
                     spacing: 0px;
-                    Rectangle {
+                    if !Chrome.tree-channels: Rectangle {
                         width: 28px;
                         Path {
                             x: 0px; y: -2px; width: 28px; height: 38px;
@@ -1482,7 +1609,8 @@ export component RoomList inherits Rectangle {
                         }
                     }
                     ChannelRow {
-                        text: room.name; thread: true;
+                        text: room.name; thread: true; themed: true;
+                        branch: Chrome.tree-channels ? Chrome.nested(root.tree-last(root.thread-parent(index)), !room.thread-continues) : "";
                         opacity: root.dimmed(false) || root.unfit(index) ? 0.3 : 1;
                         tracking: root.dragging;
                         dragged(y) => { root.follow(list.absolute-position.x, y); }
@@ -1495,7 +1623,8 @@ export component RoomList inherits Rectangle {
                     }
                 }
                 if !room.hidden && !room.thread: ChannelRow {
-                    text: room.name;
+                    text: room.name; themed: true;
+                    branch: (room.direct ? Chrome.tree-dms : Chrome.tree-channels) ? Chrome.branch(room.direct ? index == root.rooms.length - 1 || root.rooms[index + 1].heading != "" : root.tree-last(index)) : "";
                     label: room.name + (room.discord ? ", Discord" : "")
                         + (room.presence == "dnd" ? ", do not disturb" : room.presence == "mobile" ? ", online on mobile" : room.presence != "" ? ", " + room.presence : "")
                         + (room.voice-room != "" ? ", in " + room.voice-channel + " in " + room.voice-server : "")
@@ -1557,8 +1686,8 @@ export component RoomList inherits Rectangle {
                 // Discord reports who is in every voice channel; Matrix
                 // only shows the call Yapfast is in, below.
                 if room.voice && room.id != root.voice-channel && room.people.length > 0: VerticalLayout {
-                    padding-left: 32px; padding-bottom: 4px; spacing: 0px;
-                    for person in room.people: Rectangle {
+                    padding-left: Chrome.tree-channels ? 8px : 32px; padding-bottom: 4px; spacing: 0px;
+                    for person[spot] in room.people: Rectangle {
                         // A click opens their profile beside the row and a right
                         // click their menu, as in Discord; their LIVE tag watches
                         // their stream. This account in the call on another
@@ -1595,6 +1724,10 @@ export component RoomList inherits Rectangle {
                         }
                         HorizontalLayout {
                             spacing: 8px; padding-left: 4px; padding-right: 8px;
+                            if Chrome.tree-channels: Text {
+                                text: Chrome.nested(root.tree-last(index), spot == room.people.length - 1); color: Chrome.tree-ink; font-family: Look.mono;
+                                font-size: ClientStyle.text-size; vertical-alignment: center; accessible-role: none;
+                            }
                             Middle { Avatar { size: 22px; initial: person.initial; tint: person.tint; picture: person.picture; } }
                             Text {
                                 text: person.name; font-size: 15px; font-weight: 500; color: Theme.secondary;
@@ -1624,8 +1757,8 @@ export component RoomList inherits Rectangle {
                     }
                 }
                 if room.voice && room.id == root.voice-channel: VerticalLayout {
-                    padding-left: 32px; padding-bottom: 4px; spacing: 0px;
-                    for person in root.participants: Rectangle {
+                    padding-left: Chrome.tree-channels ? 8px : 32px; padding-bottom: 4px; spacing: 0px;
+                    for person[spot] in root.participants: Rectangle {
                         // A click opens their profile and a right click their
                         // menu, and they may be dragged, as above.
                         height: 30px; border-radius: Look.radius(4px);
@@ -1648,6 +1781,10 @@ export component RoomList inherits Rectangle {
                         }
                         HorizontalLayout {
                             spacing: 8px; padding-left: 4px; padding-right: 8px;
+                            if Chrome.tree-channels: Text {
+                                text: Chrome.nested(root.tree-last(index), spot == root.participants.length - 1); color: Chrome.tree-ink; font-family: Look.mono;
+                                font-size: ClientStyle.text-size; vertical-alignment: center; accessible-role: none;
+                            }
                             Middle { Avatar { size: 22px; initial: person.initial; tint: person.tint; picture: person.picture; speaking: person.speaking; } }
                             Text {
                                 text: person.name; font-size: 15px; font-weight: person.speaking ? 700 : 500;
