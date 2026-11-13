@@ -193,6 +193,10 @@ pub struct Server {
     /// Its boost level, from 0 to 3, which raises everyone's upload limit
     /// in it; see [`crate::api::upload_limit`].
     pub premium_tier: u8,
+    /// Marked explicit or age-restricted as a whole (`nsfw_level` 1 or 3),
+    /// which lets age-restricted commands into all its channels.
+    #[serde(default)]
+    pub age_restricted: bool,
     /// Whether its boosts, or Discord, let its roles have icons: the
     /// `ROLE_ICONS` feature, which boost level 2 gives. Discord keeps a
     /// role's icon after a server loses it, so without this a member list
@@ -216,6 +220,12 @@ pub struct Server {
     /// header counts; see [`ScheduledEvent`].
     #[serde(default)]
     pub events: Arc<Vec<ScheduledEvent>>,
+    /// How many boosts it has, and whether its owner shows the progress bar
+    /// toward the next goal at the top of its channel list.
+    #[serde(default)]
+    pub boosts: u32,
+    #[serde(default)]
+    pub boost_bar: bool,
     /// When this account joined it, as Discord's ISO 8601 time.
     pub joined_at: Option<String>,
     /// Out of reach in a Discord outage: still listed, with what was last
@@ -317,6 +327,9 @@ pub fn emojis(list: &Value) -> Vec<Emoji> {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Channel {
+    /// Discord's channel type, which an app's channel menu filters by.
+    #[serde(default)]
+    pub channel_type: Option<u8>,
     pub id: String,
     pub name: String,
     pub position: i64,
@@ -597,6 +610,8 @@ pub struct Private {
     pub icon: Option<String>,
     /// Everyone in it besides this account.
     pub recipients: Vec<String>,
+    /// Who made a group DM, whom its member list crowns.
+    pub owner: Option<String>,
     /// A message request: someone outside this account's DMs wrote, and it
     /// waits to be accepted or ignored.
     pub request: bool,
@@ -640,6 +655,9 @@ pub fn private_channel(channel: &Value) -> Option<Private> {
             )
         }),
         recipients,
+        owner: group
+            .then(|| channel["owner_id"].as_str().map(str::to_owned))
+            .flatten(),
         request: spam || channel["is_message_request"] == true,
         spam,
         id,
@@ -1395,6 +1413,13 @@ pub fn server(guild: &Value) -> Option<Server> {
         member_count: guild["member_count"].as_u64(),
         owner_id,
         premium_tier: u8::try_from(premium_tier).unwrap_or(u8::MAX),
+        // EXPLICIT and AGE_RESTRICTED.
+        age_restricted: matches!(
+            guild["nsfw_level"]
+                .as_u64()
+                .or_else(|| guild["properties"]["nsfw_level"].as_u64()),
+            Some(1 | 3)
+        ),
         role_icons_allowed: premium_tier >= 2 || has("ROLE_ICONS"),
         activity_feed: if has("ACTIVITY_FEED_ENABLED_BY_USER") {
             Some(true)
@@ -1410,6 +1435,14 @@ pub fn server(guild: &Value) -> Option<Server> {
         emojis: Arc::new(emojis(&guild["emojis"])),
         stickers: Arc::new(crate::stickers::parse_all(&guild["stickers"])),
         events: Arc::new(scheduled_events(&guild["guild_scheduled_events"])),
+        boosts: guild["premium_subscription_count"]
+            .as_u64()
+            .or_else(|| guild["properties"]["premium_subscription_count"].as_u64())
+            .map_or(0, |count| u32::try_from(count).unwrap_or(u32::MAX)),
+        boost_bar: guild["premium_progress_bar_enabled"]
+            .as_bool()
+            .or_else(|| guild["properties"]["premium_progress_bar_enabled"].as_bool())
+            .unwrap_or(false),
         joined_at: guild["joined_at"].as_str().map(str::to_owned),
         default_level: Level::from(&guild["properties"]["default_message_notifications"])
             .or_else(|| Level::from(&guild["default_message_notifications"]))
@@ -1540,6 +1573,9 @@ pub fn parse_thread(value: &Value) -> Option<Channel> {
 
 fn parse_channel(channel: &Value) -> Option<Channel> {
     Some(Channel {
+        channel_type: channel["type"]
+            .as_u64()
+            .and_then(|kind| u8::try_from(kind).ok()),
         id: channel["id"].as_str()?.to_owned(),
         name: channel["name"].as_str().unwrap_or_default().to_owned(),
         position: channel["position"].as_i64().unwrap_or_default(),
@@ -1767,6 +1803,14 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn preserves_exact_channel_types_for_component_filters() {
+        for kind in [0, 2, 5, 10, 11, 12, 13, 15, 16] {
+            let channel = parse_channel(&serde_json::json!({"id": "1", "type": kind})).unwrap();
+            assert_eq!(channel.channel_type, Some(kind as u8));
+        }
+    }
 
     #[test]
     fn servers_offer_their_tag_from_their_profile() {
@@ -2413,5 +2457,19 @@ mod tests {
         // Without a duration, never.
         later.archive_after = 0;
         assert_eq!(later.quiet_at(&thread.id), u64::MAX);
+    }
+
+    #[test]
+    fn a_group_dm_knows_who_made_it_and_a_dm_has_no_maker() {
+        let group = private_channel(&json!({
+            "id": "5", "type": 3, "owner_id": "2", "recipient_ids": ["2", "3"],
+        }))
+        .unwrap();
+        assert_eq!(group.owner.as_deref(), Some("2"));
+        let dm = private_channel(&json!({
+            "id": "6", "type": 1, "owner_id": "2", "recipient_ids": ["2"],
+        }))
+        .unwrap();
+        assert_eq!(dm.owner, None);
     }
 }

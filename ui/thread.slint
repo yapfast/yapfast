@@ -18,12 +18,15 @@ export component ThreadPanel inherits Rectangle {
     in property <bool> start;
     in property <bool> failed;
     in property <bool> busy;
+    in property <string> bot-busy-item;
+    in property <string> bot-failed-item;
+    in property <string> bot-failed-text;
     in property <bool> composer-enabled;
     in property <bool> reactions-enabled;
     in property <bool> new-reactions-enabled;
     in property <bool> can-send;
     in property <bool> sending;
-    /// "Replying to ..." or "Editing your message", over the composer.
+    /// "Replying to ...", over the composer.
     in property <string> compose-label;
     /// Whether the reply being written mentions the person it replies to.
     in property <bool> reply-ping;
@@ -86,9 +89,12 @@ export component ThreadPanel inherits Rectangle {
     /// A link in a message's text, and where the pointer clicked it.
     callback link-clicked(string, length, length);
     callback open-link(string);
+    callback use-button(string, string);
+    callback open-select(string, string);
     callback open-thread(string);
     callback retry(string);
     callback cancel-send(string);
+    callback dismiss-ephemeral(string);
     callback reveal-attachment(string, int);
     /// Long messages fold, and Show more or Show less was clicked on one:
     /// its item, and whether it shows whole now.
@@ -130,7 +136,6 @@ export component ThreadPanel inherits Rectangle {
         root.follow-latest = true;
         thread-list.content-y = min(0px, thread-list.height - thread-list.content-height);
     }
-    property <bool> is-editing: root.compose-label == "Editing your message";
     background: Theme.chat;
     accessible-role: list;
     accessible-label: root.name + " thread";
@@ -229,7 +234,8 @@ export component ThreadPanel inherits Rectangle {
                                 Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: Theme.line; } }
                             }
                             MessageContent {
-                                message: message; active-item: root.active-item; reactions-enabled: root.reactions-enabled;
+                                aside: true;
+                                message: message; active-item: root.active-item; reactions-enabled: root.reactions-enabled; bot-busy-item: root.bot-busy-item; bot-failed-item: root.bot-failed-item; bot-failed-text: root.bot-failed-text;
                                 emoji-font: root.emoji-font; message-font-size: root.message-font-size;
                                 end-padding: 16px; collapse-long: root.collapse-long;
                                 // The view keeps the message's top: it stops following
@@ -249,11 +255,14 @@ export component ThreadPanel inherits Rectangle {
                                     root.link-clicked(link, row-pointer.absolute-position.x + row-pointer.mouse-x, row-pointer.absolute-position.y + row-pointer.mouse-y);
                                 }
                                 open-link(link) => { root.open-link(link); }
+                                use-button(item, id) => { root.use-button(item, id); }
+                                open-select(item, id) => { root.open-select(item, id); }
                                 open-thread(room) => { root.open-thread(room); }
                                 open-sticker(item, index, x, y, width, height) => { root.open-sticker(item, index, x, y, width, height); }
                                 react(item, key) => { root.react(item, key); }
                                 retry(item) => { root.retry(item); }
                                 cancel-send(item) => { root.cancel-send(item); }
+                                dismiss-ephemeral(item) => { root.dismiss-ephemeral(item); }
                                 reveal-attachment(id, index) => { root.reveal-attachment(id, index); }
                                 view-image(id, index) => { root.view-image(id, index); }
                                 save-attachment(id, index) => { root.save-attachment(id, index); }
@@ -308,7 +317,7 @@ export component ThreadPanel inherits Rectangle {
                                         clicked => { root.open-picker(message.item, self.absolute-position.x, self.absolute-position.y, self.width, self.height); }
                                     }
                                 }
-                                if message.own && message.can-edit && root.composer-enabled: IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; clicked => { root.edit(message.item); root.focus-composer(); } }
+                                if message.own && message.can-edit && root.composer-enabled: IconButton { icon: @image-url("icons/pencil.svg"); label: "Edit"; clicked => { root.edit(message.item); } }
                                 if !(message.own && message.can-edit) && message.can-reply && root.composer-enabled: IconButton { icon: @image-url("icons/reply.svg"); label: "Reply"; clicked => { root.reply(message.item); root.focus-composer(); } }
                                 // Beside Reply, as in Discord, whether or not Shift is held.
                                 if message.can-forward && root.forward-allowed: IconButton {
@@ -344,10 +353,10 @@ export component ThreadPanel inherits Rectangle {
                 border-top-left-radius: 10px; border-top-right-radius: 10px;
                 HorizontalLayout {
                     padding-left: 14px; padding-right: 4px; spacing: 8px;
-                    Image { source: root.is-editing ? @image-url("icons/pencil.svg") : @image-url("icons/reply.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
+                    Image { source: @image-url("icons/reply.svg"); width: 16px; image-fit: contain; colorize: Theme.muted; }
                     Text { text: root.compose-label; color: Theme.secondary; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
-                    if !root.is-editing: VerticalLayout { alignment: center; PingToggle { on: root.reply-ping; toggled => { root.toggle-reply-ping(); } } }
-                    IconButton { icon: @image-url("icons/x.svg"); label: root.is-editing ? "Cancel editing" : "Cancel reply"; size: 28px; glyph: 16px; clicked => { root.cancel-compose(); } }
+                    VerticalLayout { alignment: center; PingToggle { on: root.reply-ping; toggled => { root.toggle-reply-ping(); } } }
+                    IconButton { icon: @image-url("icons/x.svg"); label: "Cancel reply"; size: 28px; glyph: 16px; clicked => { root.cancel-compose(); } }
                 }
             }
             composer-box := Rectangle {
@@ -383,7 +392,7 @@ export component ThreadPanel inherits Rectangle {
                         }
                         composer := Composer {
                             text <=> root.draft; enabled: root.composer-enabled; label: "Message " + root.name;
-                            placeholder: root.is-editing ? "Edit your message" : root.compose-label != "" ? "Write a reply" : "Message " + root.name;
+                            placeholder: root.compose-label != "" ? "Write a reply" : "Message " + root.name;
                             edited(text) => { root.draft-edited(text); }
                             accepted => { root.send(); }
                             paste => { root.paste(); }
@@ -399,7 +408,7 @@ export component ThreadPanel inherits Rectangle {
                             alignment: end; padding-bottom: 8px;
                             IconButton {
                                 icon: @image-url("icons/send-horizontal.svg");
-                                label: root.sending ? "Sending..." : root.is-editing ? "Save" : "Send";
+                                label: root.sending ? "Sending..." : "Send";
                                 enabled: root.can-send; emphasis: root.can-send;
                                 clicked => { root.send(); }
                             }

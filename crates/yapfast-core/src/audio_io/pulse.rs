@@ -17,25 +17,32 @@ use super::Format;
 use crate::voice::NAMED;
 
 /// Real-time priority for Yapfast's audio threads: above every ordinary
-/// thread, and below PipeWire's own, which run at 88 or more.
+/// thread, and below PipeWire's own, which run at 88 or more. A
+/// microphone's thread runs a step below those that play.
 const REALTIME: i32 = 10;
 
-pub fn raise_priority() {
-    let param = libc::sched_param {
-        sched_priority: REALTIME,
+/// Says how it raised the calling thread, or why it couldn't.
+pub fn raise_priority(priority: super::Priority) -> Result<&'static str, String> {
+    let (sched_priority, how) = match priority {
+        super::Priority::Playback => (REALTIME, "SCHED_FIFO 10"),
+        super::Priority::Capture => (REALTIME - 1, "SCHED_FIFO 9"),
     };
+    let param = libc::sched_param { sched_priority };
     // SAFETY: 0 is the calling thread, and `param` outlives the call. Threads
     // it starts later begin at normal priority again.
     let raised = unsafe {
         libc::sched_setscheduler(0, libc::SCHED_FIFO | libc::SCHED_RESET_ON_FORK, &param)
     };
     if raised != 0 {
-        tracing::debug!(
-            error = %std::io::Error::last_os_error(),
-            "an audio thread stays at normal priority"
-        );
+        return Err(std::io::Error::last_os_error().to_string());
     }
+    Ok(how)
 }
+
+/// Linux neither throttles a background window's process nor needs a
+/// finer timer.
+#[cfg(feature = "discord")]
+pub fn full_speed(_: bool) {}
 
 pub struct Output(Simple);
 
