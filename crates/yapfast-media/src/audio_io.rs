@@ -1,6 +1,6 @@
 //! Yapfast's own sound on this machine, outside LiveKit's calls: Discord voice,
 //! the input meter, ringing, Yapfast's sounds, and a stream's or a video's sound.
-//! A device is named by its id from [`crate::voice::State`], as LiveKit lists
+//! A device is named by its id, as LiveKit lists it
 //! it, and `None` is the system's default. Streams block on the caller's own
 //! thread: [`Input::read`] waits for the microphone, and [`Output::write`] for
 //! room in the speakers' queue. Samples go to the system as they are, with no
@@ -809,11 +809,23 @@ mod tests {
     #[test]
     #[ignore = "needs sound devices"]
     fn opens_every_listed_device() {
-        let crate::voice::Devices {
-            microphones,
-            speakers,
-            ..
-        } = crate::voice::list_devices().unwrap();
+        use crate::device::{Device, device_id};
+        use livekit::PlatformAudio;
+        // The list the settings show: LiveKit's own, named the way a call
+        // selects one, so this opens what a person would have picked.
+        let audio = PlatformAudio::new().unwrap();
+        let named = |id: &str, name: &str| Device {
+            id: device_id(id, name),
+            name: name.to_owned(),
+        };
+        let microphones: Vec<Device> = audio
+            .recording_devices()
+            .map(|device| named(device.id.as_str(), &device.name))
+            .collect();
+        let speakers: Vec<Device> = audio
+            .playout_devices()
+            .map(|device| named(device.id.as_str(), &device.name))
+            .collect();
         assert!(
             !microphones.is_empty() && !speakers.is_empty(),
             "no devices"

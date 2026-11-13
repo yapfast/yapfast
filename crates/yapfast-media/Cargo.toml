@@ -6,6 +6,19 @@ rust-version = "1.97"
 publish = false
 license = "GPL-3.0-or-later"
 
+[features]
+default = []
+# A build with Go Live in it: the encoders and decoders a stream runs, the
+# sound a share sends and a viewer hears, and the noise suppressor the call's
+# microphone goes through. `yapfast-core`'s own `discord` feature turns this on,
+# so a build without Discord's Go Live carries none of it, as before.
+discord = ["dep:deep_filter", "dep:ndarray", "dep:nnnoiseless"]
+# Capturing a screen through the desktop's screen sharing portal and the
+# PipeWire node it names, on Linux. `yapfast-core`'s feature of the same name
+# asks for it, and this crate's `build.rs` carries the `screencast` cfg only
+# where PipeWire's headers were found.
+screencast = ["dep:zbus"]
+
 [dependencies]
 anyhow.workspace = true
 # The frames file a still desktop keeps and a window maps.
@@ -23,6 +36,20 @@ tokio.workspace = true
 tracing-subscriber.workspace = true
 # Which adapter, which screen, and how much the machine is carrying.
 serde.workspace = true
+serde_json.workspace = true
+# Where a share's sound stream starts in the sender's numbering, which is
+# Yapfast's own choice and not a fixed one.
+rand = "0.9"
+
+# DeepFilterNet 3, through its Rust implementation libDF on tract: Discord
+# voice's noise suppression. crates.io only has 0.2.5, from before DeepFilterNet
+# 3, so this is the repository's last commit. `default-model` builds the model's
+# weights (MIT/Apache-2.0, 8 MB) into Yapfast.
+deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet", rev = "d375b2d8309e0935d165700c91da9de862a99c31", default-features = false, features = ["tract", "default-model"], optional = true }
+# libDF's frames, at the version it uses.
+ndarray = { version = "0.15", optional = true }
+# RNNoise, a Rust port: Discord voice's other noise suppressor, to compare.
+nnnoiseless = { version = "0.5.2", default-features = false, optional = true }
 
 # Which adapter, which screen, and how much the machine is carrying: Windows'.
 [target.'cfg(windows)'.dependencies]
@@ -31,6 +58,47 @@ windows = { version = "0.62", features = [
     "Win32_System_Console",
     "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
-    "Win32_System_Threading",
+    "Win32_Graphics_Gdi",
+    "Win32_Media_Audio",
+    "Win32_Media_KernelStreaming",
+    "Win32_Media_Multimedia",
+    "Win32_Security",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
 ] }
+# What `#[implement]` expands to names it.
+windows-core = "0.62"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The input meter reads the microphone locally through PulseAudio, the sound
+# server WebRTC already uses on Linux, without involving a call.
+libpulse-binding = { version = "2", default-features = false }
+libpulse-simple-binding = { version = "2", default-features = false }
+# The screen sharing portal, asked for a screen over the session bus; see
+# src/capture/portal.rs. Not `workspace = true`: the root package declares its
+# own zbus, behind that package's `desktop` feature, and this crate asks for the
+# blocking API the portal's request-and-response dance reads as a function, not
+# as a future.
+zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"], optional = true }
+# X11's own screen capture, for a session with no screen sharing portal: a
+# window redirected through Composite, its storage exported through DRI3 as a
+# DMA-BUF; see src/capture/x11.rs.
+x11rb = { version = "0.13.2", default-features = false, features = [
+    "composite",
+    # Redirection says nothing about when a frame was drawn, so a share would
+    # re-encode a still desktop forever without it.
+    "damage",
+    "dri3",
+    # The monitors of a screen, as the share menu lists them.
+    "randr",
+] }
+
+[build-dependencies]
+# Which of FFmpeg's encoders, decoders and filters the library this build links
+# was configured with, as its own build script answered: what decides whether a
+# card's path through it exists here at all.
+ffmpeg-src = { path = "../../vendor/ffmpeg-src" }

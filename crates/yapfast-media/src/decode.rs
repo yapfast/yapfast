@@ -27,7 +27,7 @@ use std::{
 
 use anyhow::{Result, bail};
 use livekit::webrtc::native::yuv_helper;
-use yapfast_discord::rtp::Codec;
+use crate::codec::Codec;
 
 unsafe extern "C" {
     fn yapfast_decoder_new(codec: c_int, threads: c_uint) -> *mut Raw;
@@ -123,7 +123,7 @@ pub(crate) mod vaapi {
     };
 
     use anyhow::{Result, bail};
-    use yapfast_discord::rtp::Codec;
+    use crate::codec::Codec;
 
     use crate::dmabuf::{Colour, Descriptor, MAX_PLANES, Plane};
 
@@ -731,7 +731,7 @@ mod cuda {
     };
 
     use anyhow::{Result, bail};
-    use yapfast_discord::rtp::Codec;
+    use crate::codec::Codec;
 
     use super::message;
     use crate::dmabuf::{Colour, Descriptor, MAX_PLANES, Plane};
@@ -1123,7 +1123,7 @@ mod mfx {
     };
 
     use anyhow::{Result, bail};
-    use yapfast_discord::rtp::Codec;
+    use crate::codec::Codec;
 
     use super::message;
     use crate::dmabuf::{Colour, Descriptor, MAX_PLANES, Plane};
@@ -1350,7 +1350,7 @@ pub use linux::Hardware;
 #[cfg(all(target_os = "linux", not(d3d11dec), any(vaapidec, nvdec)))]
 mod linux {
     use anyhow::{Result, bail};
-    use yapfast_discord::rtp::Codec;
+    use crate::codec::Codec;
 
     use crate::dmabuf::Descriptor;
 
@@ -1555,7 +1555,7 @@ mod tests {
         // size.
         let unit = first_temporal_unit(&fixture("stream-av1.obu"));
         check(Codec::Av1, &unit);
-        let elements = yapfast_discord::rtp::obu_elements(&unit).unwrap();
+        let elements = crate::bitstream::obu_elements(&unit).unwrap();
         let last = elements.last().unwrap();
         // Its header, then a size of one LEB128 byte, or two from 128 on.
         let sized_last = 1 + last.len() + usize::from(last.len() > 128);
@@ -1994,7 +1994,7 @@ mod tests {
 #[cfg(all(test, vaapidec))]
 pub(crate) mod vaapi_export {
     use super::vaapi::Hardware;
-    use yapfast_discord::rtp::Codec;
+    use crate::codec::Codec;
 
     /// The fixture's access units, split at its delimiters as a viewer
     /// reassembles them, each NAL with a four-byte start code. An access unit

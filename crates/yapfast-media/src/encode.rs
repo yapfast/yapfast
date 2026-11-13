@@ -30,17 +30,12 @@ use livekit::webrtc::{
     native::yuv_helper,
     video_frame::{I420Buffer, VideoBuffer},
 };
-use yapfast_discord::{
-    rtp::Codec,
-    stream_connection::{Encoded, Pool},
-};
+use crate::codec::{self, Codec};
+use crate::pool::{Encoded, Pool};
 
 use crate::gpu::{self, Candidate, Luid, Reach};
-// FFmpeg's and x264's libraries, which native/hwenc.c and native/h264.c
-// call: linked only while named.
-#[cfg(hwenc)]
-use ffmpeg_src as _;
-use x264_src as _;
+// FFmpeg's and x264's libraries are yapfast-core's to link, since the shims
+// that call them are built there; what this file declares of them is extern.
 
 unsafe extern "C" {
     fn yapfast_vp8_new(
@@ -797,7 +792,7 @@ mod tests {
         {
             let keys: Vec<bool> = frames.iter().map(|(key, _)| *key).collect();
             assert_eq!(keys[..3], [true, false, true]);
-            let units = |data| yapfast_discord::rtp::nal_units(data);
+            let units = |data| crate::bitstream::nal_units(data);
             let types =
                 |data| -> Vec<u8> { units(data).iter().map(|unit| unit[0] & 0x1f).collect() };
             let first = types(&frames[0].1);
@@ -846,7 +841,7 @@ mod tests {
         let (frames, configuration) = encode_four(Codec::H265, Effort::Light, (320, 180), true);
         eprintln!("encoded with {configuration:?}");
         let types = |data| -> Vec<u8> {
-            yapfast_discord::rtp::nal_units(data)
+            crate::bitstream::nal_units(data)
                 .iter()
                 .map(|unit| (unit[0] >> 1) & 0x3f)
                 .collect()
@@ -876,7 +871,7 @@ mod tests {
         let (frames, configuration) = encode_four(Codec::Av1, Effort::Light, (320, 180), true);
         eprintln!("encoded with {configuration:?}");
         let sequence = |data| {
-            yapfast_discord::rtp::obu_elements(data)
+            crate::bitstream::obu_elements(data)
                 .expect("OBUs within the frame")
                 .first()
                 .is_some_and(|element| (element[0] >> 3) & 0x0f == 1)
@@ -1009,17 +1004,14 @@ mod tests {
         encoder
     }
     /// A setting the driver dropped is not only logged: the name the shim
-    /// wrote at the open travels in the report the Stream tab shows, so a
-    /// stream says what its picture isn't getting rather than leaving it in a
-    /// log nobody reads.
+    /// wrote at the open stays on the encoder, which is what the report the
+    /// Stream tab shows copies, so a stream says what its picture isn't
+    /// getting rather than leaving it in a log nobody reads.
     #[cfg(hwenc)]
     #[test]
-    fn a_dropped_setting_reaches_the_stream_report() {
+    fn a_dropped_setting_is_kept_for_the_stream_report() {
         let encoder = encoder_with_notes(drops_preset);
-        assert_eq!(
-            crate::stream_worker::encoder_report(&encoder).settings_dropped,
-            "preset,tune"
-        );
+        assert_eq!(encoder.configuration().settings_dropped, "preset,tune");
     }
     /// An encoder that kept every setting reports no names, so the Stream
     /// tab's row for them is absent rather than empty.
@@ -1027,11 +1019,7 @@ mod tests {
     #[test]
     fn an_encoder_that_dropped_nothing_reports_nothing() {
         let encoder = encoder_with_notes(keeps_every_setting);
-        assert!(
-            crate::stream_worker::encoder_report(&encoder)
-                .settings_dropped
-                .is_empty()
-        );
+        assert!(encoder.configuration().settings_dropped.is_empty());
     }
 
     /// Which encoders read a picture where it lies, by the name FFmpeg knows

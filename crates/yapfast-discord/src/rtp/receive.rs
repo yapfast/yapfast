@@ -2,57 +2,9 @@
 
 use super::*;
 
-/// A decrypted RTP packet.
-#[derive(Debug)]
-pub struct Packet<'a> {
-    pub payload_type: u8,
-    pub marker: bool,
-    pub sequence: u16,
-    pub timestamp: u32,
-    pub ssrc: u32,
-    pub payload: &'a [u8],
-    /// The video orientation it carries, if any.
-    pub orientation: Option<Orientation>,
-}
-
-/// Reads a decrypted RTP packet, skipping CSRCs, extensions and padding.
-pub fn parse(packet: &[u8]) -> Option<Packet<'_>> {
-    let first = *packet.first()?;
-    if first >> 6 != 2 || packet.len() < HEADER {
-        return None;
-    }
-    let mut start = HEADER + usize::from(first & 0x0f) * 4;
-    let mut turned = None;
-    if first & 0x10 != 0 {
-        let profile = u16::from_be_bytes([*packet.get(start)?, *packet.get(start + 1)?]);
-        let words = u16::from_be_bytes([*packet.get(start + 2)?, *packet.get(start + 3)?]);
-        let elements = packet.get(start + 4..start + 4 + usize::from(words) * 4)?;
-        turned = orientation(profile, elements);
-        start += 4 + usize::from(words) * 4;
-    }
-    let padding = if first & 0x20 != 0 {
-        usize::from(*packet.last()?)
-    } else {
-        0
-    };
-    let end = packet.len().checked_sub(padding)?;
-    Some(Packet {
-        payload_type: packet[1] & 0x7f,
-        marker: packet[1] & 0x80 != 0,
-        sequence: u16::from_be_bytes([packet[2], packet[3]]),
-        timestamp: u32::from_be_bytes([packet[4], packet[5], packet[6], packet[7]]),
-        ssrc: u32::from_be_bytes([packet[8], packet[9], packet[10], packet[11]]),
-        payload: packet.get(start..end)?,
-        orientation: turned,
-    })
-}
-
-/// Whether RTP sequence number `a` comes before `b`, across the wrap: of two
-/// numbers, the one less than half the sequence space behind the other is
-/// the older.
-pub fn before(a: u16, b: u16) -> bool {
-    a != b && b.wrapping_sub(a) < 0x8000
-}
+// A packet's own header, and the numbering across it, are the media crate's:
+// a stream's sound is sorted by the same sequence numbers.
+pub use yapfast_media::rtp::{Packet, before, parse};
 
 /// A whole received frame, as the sender encoded it.
 #[derive(Debug, PartialEq, Eq)]

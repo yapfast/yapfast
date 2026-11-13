@@ -19,15 +19,13 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use yapfast_discord::{
-    opus, rtp,
-    stream_connection::{
-        ReceivedSound, SenderReport, Sound, SoundReceiver, SoundSender, StreamClock,
-    },
-    voice::{QUIET, Surplus},
+use crate::{
+    audio_io::{Heard, LastingOutput, RATE},
+    clock::StreamClock,
+    opus, rtcp::SenderReport, rtp,
+    sound::{ReceivedSound, Sound, SoundReceiver, SoundSender},
+    surplus::{QUIET, Surplus},
 };
-
-use crate::audio_io::{Heard, LastingOutput, RATE};
 
 #[cfg(test)]
 mod tests {

@@ -11939,7 +11939,6 @@ dependencies = [
  "cc",
  "chrono",
  "cxx",
- "deep_filter",
  "directories",
  "ffmpeg-src",
  "futures-util",
@@ -11958,8 +11957,6 @@ dependencies = [
  "matrix-sdk-ui",
  "memmap2",
  "mime",
- "ndarray",
- "nnnoiseless",
  "png",
  "pulldown-cmark",
  "rand 0.9.5",
@@ -11979,11 +11976,9 @@ dependencies = [
  "webrtc-sys-build",
  "windows",
  "windows-core",
- "x11rb",
  "x264-src",
  "yapfast-discord",
  "yapfast-media",
- "zbus",
 ]
 
 [[package]]
@@ -12031,15 +12026,26 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "deep_filter",
+ "ffmpeg-src",
  "libc",
+ "libpulse-binding",
+ "libpulse-simple-binding",
  "livekit",
  "memmap2",
+ "ndarray",
+ "nnnoiseless",
+ "rand 0.9.5",
  "serde",
+ "serde_json",
  "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "windows",
+ "windows-core",
+ "x11rb",
+ "zbus",
 ]
 
 [[package]]

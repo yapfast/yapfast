@@ -25,7 +25,7 @@ use libpulse_binding::{
 use libpulse_simple_binding::Simple;
 
 use super::{Format, Waited};
-use crate::voice::NAMED;
+use crate::device::NAMED;
 
 /// Real-time priority for Yapfast's audio threads: above every ordinary
 /// thread, and below PipeWire's own, which run at 88 or more. A
