@@ -9,67 +9,11 @@ use aes_gcm::{Aes256Gcm, KeyInit, aead::AeadInPlace};
 use anyhow::{Result, anyhow, bail};
 use chacha20poly1305::XChaCha20Poly1305;
 
+pub use yapfast_media::codec::{AV1, AV1_RTX, Codec, H264, H264_RTX, H265, H265_RTX, VP8, VP8_RTX};
+pub use yapfast_media::rtcp::Reception;
+
 /// The payload types Yapfast offers Discord, as Discord's clients number them.
 pub const OPUS: u8 = 120;
-pub const H264: u8 = 101;
-pub const H264_RTX: u8 = 102;
-pub const VP8: u8 = 105;
-pub const VP8_RTX: u8 = 106;
-pub const H265: u8 = 103;
-pub const H265_RTX: u8 = 104;
-pub const AV1: u8 = 107;
-pub const AV1_RTX: u8 = 108;
-
-/// The video codecs Yapfast sends or receives.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub enum Codec {
-    Vp8,
-    H264,
-    H265,
-    Av1,
-}
-
-impl Codec {
-    pub fn from_payload_type(payload_type: u8) -> Option<Self> {
-        match payload_type {
-            VP8 => Some(Self::Vp8),
-            H264 => Some(Self::H264),
-            H265 => Some(Self::H265),
-            AV1 => Some(Self::Av1),
-            _ => None,
-        }
-    }
-
-    /// As Discord names it in session descriptions.
-    pub fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "VP8" => Some(Self::Vp8),
-            "H264" => Some(Self::H264),
-            "H265" => Some(Self::H265),
-            "AV1" => Some(Self::Av1),
-            _ => None,
-        }
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Vp8 => "VP8",
-            Self::H264 => "H264",
-            Self::H265 => "H265",
-            Self::Av1 => "AV1",
-        }
-    }
-
-    /// The payload types of the codec and of its retransmissions.
-    pub fn payload_types(self) -> (u8, u8) {
-        match self {
-            Self::Vp8 => (VP8, VP8_RTX),
-            Self::H264 => (H264, H264_RTX),
-            Self::H265 => (H265, H265_RTX),
-            Self::Av1 => (AV1, AV1_RTX),
-        }
-    }
-}
 
 /// Frame bytes per packet, leaving room for headers, the tag and the nonce
 /// within a typical path MTU.
@@ -2107,28 +2051,6 @@ pub fn report_blocks(rtcp: &[u8]) -> Vec<(u32, u32, u32)> {
         .into_iter()
         .map(|block| (block.ssrc, block.lost, block.highest))
         .collect()
-}
-
-/// What one report block of a sender or receiver report says about an SSRC.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Reception {
-    /// The SSRC of the end that reported: Discord's stream server, or a viewer
-    /// whose report the server passed on, so that one end's count of the video
-    /// isn't taken for another's.
-    pub reporter: u32,
-    pub ssrc: u32,
-    /// Packets lost since the previous report, out of 256.
-    pub fraction_lost: u8,
-    /// Packets lost so far.
-    pub lost: u32,
-    /// The highest sequence number received, extended.
-    pub highest: u32,
-    /// Interarrival jitter, in the stream's RTP clock.
-    pub jitter: u32,
-    /// The middle 32 bits of the NTP time of the last sender report heard
-    /// from the SSRC, or 0 before one, and the delay since it, in 1/65536 s.
-    pub last_report: u32,
-    pub delay: u32,
 }
 
 /// The last report block about `ssrc` in a decrypted compound RTCP packet.

@@ -12021,6 +12021,14 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "webrtc-sys",
+ "yapfast-media",
+]
+
+[[package]]
+name = "yapfast-media"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
