@@ -42,7 +42,6 @@ mod oauth;
 mod place_search;
 mod places;
 #[cfg(feature = "plugins")]
-mod plugin_page;
 #[cfg(feature = "plugins")]
 pub mod plugins;
 mod polls;
@@ -2443,7 +2442,7 @@ pub struct Application {
     /// Settings → Plugins' own state: the fetch, its review, and what a review
     /// would install, none of which the runtime's view holds.
     #[cfg(feature = "plugins")]
-    pub plugin_page: plugin_page::PageState,
+    pub plugin_page: plugins::page::PageState,
     feed_asks: activity_panel::FeedAsks,
     /// The lists from Matrix; `state` shows them with Discord's.
     matrix_rooms: Vec<Arc<ChatRoom>>,

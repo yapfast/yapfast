@@ -225,9 +225,12 @@ do: `state.rs` holds a session's plugins, `world.rs` publishes the application's
 own state into the shape the wire carries and implements that trait, `audio.rs`
 gives a plugin its sounds and recordings, `tasks.rs` the runtime behind
 `bridge/tasks.rs`, and `identity.rs`, `presence.rs` and `retention.rs` the people
-and messages it filters. The
-application's side is `crates/yapfast-core/src/application/plugins.rs`, and the
-interface's is `src/ui/plugins.rs` with `ui/plugins.slint`.
+and messages it filters. The application's side is
+`crates/yapfast-core/src/application/plugins/`: `mod.rs` turns the system on and
+off, `calls.rs` does what a plugin asks the application to do, `compose.rs` holds
+the send path's taps, `events.rs` what the system reports back, and `page.rs`
+Settings → Plugins. The interface's is `src/ui/plugins.rs` with
+`ui/plugins.slint`.
 
 Nothing of it runs while no plugin is enabled: `AppState` carries no plugin
 state, the helper process doesn't exist, and the taps in the send path, the event
@@ -243,7 +246,7 @@ A change to what a plugin can do usually touches each of these steps:
    host in `network.rs` before doing any work.
 3. **Helper.** What the guest's call becomes in the sandbox is
    `yapfast-plugin-host`'s `runtime.rs`, and when it runs is the scheduler's.
-4. **Application.** An `Action` goes to `application/plugins.rs`, which decides
+4. **Application.** An `Action` goes to `application/plugins/`, which decides
    what the effect is and hands it to the bridge; the answer comes back as an
    event, so a hook that looks synchronous is held in the application rather
    than in a thread.

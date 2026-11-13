@@ -19,8 +19,8 @@ use std::sync::Arc;
 use yapfast_plugin_api::PluginId;
 use yapfast_plugin_api::capability::HostPattern;
 
-use super::plugins::Action as PluginAction;
-use super::{Action as AppAction, Application, Effect as AppEffect};
+use super::super::{Action as AppAction, Application, Effect as AppEffect};
+use super::Action as PluginAction;
 
 /// What Settings → Plugins is in the middle of, which the runtime's view doesn't
 /// hold: the fetch, its review, and the marketplace behind the catalog tab.
@@ -263,7 +263,7 @@ impl Application {
     }
 
     /// What a fetch found, or why it found nothing: the notice's answer.
-    pub(super) fn plugins_fetched(
+    pub(in crate::application) fn plugins_fetched(
         &mut self,
         url: String,
         result: Result<installing::Fetched, String>,
@@ -333,7 +333,7 @@ impl Application {
     /// The marketplace was read, or it couldn't be: its listings take the
     /// place of the tab's spinner, and a plugin the registry took down for a
     /// security reason is said where the person is looking.
-    pub(super) fn plugins_catalog_read(
+    pub(in crate::application) fn plugins_catalog_read(
         &mut self,
         source: String,
         result: Result<Box<Registry>, String>,
@@ -509,7 +509,7 @@ impl Application {
     /// nothing and a picture is made only where it shows. Everything else goes
     /// on to the backend, which is what fetches pictures from the network.
     #[cfg(feature = "plugins")]
-    pub(super) fn plugin_icons(&mut self, urls: Vec<String>) -> Vec<String> {
+    pub(in crate::application) fn plugin_icons(&mut self, urls: Vec<String>) -> Vec<String> {
         let Some(registry) = self.plugin_page.registry.clone() else {
             return urls;
         };

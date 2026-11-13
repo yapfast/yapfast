@@ -199,7 +199,7 @@ page while the window is built, and `plugin_settings::set_view` hands it a fresh
 The `View` itself is built in `crates/yapfast-plugins/src/view.rs` from the
 registry, the store's lock file and the grant file: a copy, taken when the page
 draws, so a page that is closed holds nothing and holds no lock while it is
-open. `src/application/plugin_page.rs` answers the page's requests: each request
+open. `crates/yapfast-core/src/application/plugins/page.rs` answers the page's requests: each request
 is an `application::Action`, `Effect::Plugin` carries a status back to it, and
 `Effect::Plugin(Effect::Page)` redraws it once the runtime has applied a change.
 A request for something the runtime doesn't apply — the memory budget and the
