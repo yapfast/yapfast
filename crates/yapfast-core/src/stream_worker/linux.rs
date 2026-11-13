@@ -527,6 +527,12 @@ pub(crate) fn capture_dmabufs(
     );
     sink.footage = Footage::Dmabuf;
     sink.diagnosis.presentation = Some(Presentation::Shared);
+    // The display's own word about the screen these pictures come from, which is
+    // what the card's kernels read their codes with: a screen showing HDR hands
+    // its frames over as HDR's, and one showing SDR hands over what it looks
+    // like, so its pictures are converted exactly as they were. Asked here rather
+    // than per frame, and asked again below when another screen is opened.
+    let mut hdr = super::processor::tone_of(&source).is_hdr();
     let started = Instant::now();
     // Only the pace of the loop matters here: the capture is asked for a picture
     // until the next slot is due, and its own wait is where a still desktop spends
@@ -618,6 +624,9 @@ pub(crate) fn capture_dmabufs(
                     capture = opened.capture;
                     rung = opened.rung;
                     source = next;
+                    // The screen that is shared now, which may be showing HDR
+                    // where the one before it was not.
+                    hdr = super::processor::tone_of(&source).is_hdr();
                     // The next picture says what is shared now, even at the size
                     // the screen before it was.
                     size = None;
@@ -735,7 +744,7 @@ pub(crate) fn capture_dmabufs(
                 height: sent.1,
             });
         }
-        match sink.dmabuf(shot, sent, &mut scratch)? {
+        match sink.dmabuf(shot, sent, &mut scratch, hdr)? {
             Taken::Sent => {}
             Taken::Held => continue,
             Taken::Processor(why) => {

@@ -14,7 +14,15 @@
  * one libyuv makes of the same picture on the processor (`hwenc.c` hands NVENC
  * BT.601 too), so a share's picture doesn't change tone when it moves between
  * the card's path and the processor's. Scaling is bilinear on the grid libyuv's
- * filtering scaler samples: a destination pixel reads the source at its centre. */
+ * filtering scaler samples: a destination pixel reads the source at its centre.
+ *
+ * A screen showing HDR hands its frames over as HDR's codes — PQ's, with the
+ * wide gamut they are mastered in — and `bgra_frame.tone` says so. Then the
+ * sample is read as the light it stands for, shrunk into BT.709's gamut and
+ * written as the code an SDR screen shows that light as, before the matrix
+ * below sums it: the stream is SDR's whatever the screen shows, and there is no
+ * second pass over the picture for it. A screen showing SDR leaves `tone` zero,
+ * and every number in this file is the one it was. */
 
 typedef unsigned char uchar;
 typedef unsigned int uint;
@@ -34,6 +42,10 @@ struct bgra_frame {
   /* Red in the first byte rather than blue: the array behind a GL texture,
    * which holds the picture as GL does. */
   int red_first;
+  /* These are HDR's codes, and a sample is curved into SDR's on its way out:
+   * a screen showing HDR writes its frames this way, and a share of one is its
+   * picture rather than its codes read as SDR. */
+  int tone;
   /* A texture object over that array, read texel by texel where it isn't
    * zero: the picture where the driver tiled it, rather than a copy of its
    * rows. `pixels` and `pitch` are unused then. */
@@ -53,6 +65,95 @@ __device__ static float clamp(float value, float low, float high) {
 /* Rounds to the nearest whole 8-bit sample, keeping it in range. */
 __device__ static uchar byte_of(float value) {
   return (uchar)clamp(value + 0.5f, 0.0f, 255.0f);
+}
+
+/* The base two logarithm of a positive number: the exponent its bits carry,
+ * and a series over the mantissa, which lies between one and two and so leaves
+ * the series' own scale — `s` above a third — small enough to stop soon. This
+ * is written out because a kernel here has no maths library to ask: `powf` is a
+ * call into one this build doesn't link (`build.rs` compiles PTX with no
+ * toolkit), and the two powers the curve below needs are the one this gives and
+ * the hardware's own power of two. */
+__device__ static float log2_of(float value) {
+  unsigned bits = __builtin_bit_cast(unsigned, value);
+  int exponent = (int)((bits >> 23) & 0xffu) - 127;
+  /* The mantissa alone, as a float of its own: the same bits without the
+   * exponent, which is a number from one up to two. */
+  float mantissa = __builtin_bit_cast(float, (bits & 0x007fffffu) | 0x3f800000u);
+  float s = (mantissa - 1.0f) / (mantissa + 1.0f);
+  float s2 = s * s;
+  /* log of the mantissa, which is twice its atanh: the terms to s to the
+   * seventh are within a hundred-thousandth of it, far inside what an 8-bit
+   * sample can tell. */
+  float series = s * (2.0f + s2 * (2.0f / 3.0f + s2 * (2.0f / 5.0f + s2 * (2.0f / 7.0f))));
+  return (float)exponent + series * 1.4426950408889634f;
+}
+
+/* `value` raised to `inverse`: a logarithm, a multiplication and the power of
+ * two the card has an instruction for. A value of zero has no logarithm and
+ * doesn't need one — the answer is its own. */
+__device__ static float raised(float value, float inverse) {
+  if (value <= 0.0f) return 0.0f;
+  return __builtin_exp2f(log2_of(value) * inverse);
+}
+
+/* The light a PQ code stands for, in nits: SMPTE ST 2084's inverse EOTF, which
+ * is what a screen showing HDR writes its frames with, and the curve
+ * `native/picture.c` reads the same codes through on the processor. */
+__device__ static float light_of(float code) {
+  const float m1 = 2610.0f / 16384.0f;
+  const float m2 = 2523.0f / 4096.0f * 128.0f;
+  const float c1 = 3424.0f / 4096.0f;
+  const float c2 = 2413.0f / 4096.0f * 32.0f;
+  const float c3 = 2392.0f / 4096.0f * 32.0f;
+  float raised_code = raised(code, 1.0f / m2);
+  float base = (raised_code - c1) / (c2 - c3 * raised_code);
+  return raised(base, 1.0f / m1) * 10000.0f;
+}
+
+/* The code an SDR screen shows `nits` of light as, 0 to 255: the straight line
+ * up to SDR white kept as it is, the room above it rolled off through a
+ * Reinhard shoulder — so brighter stays brighter and highlights keep their
+ * order instead of flattening into one another — and sRGB's curve, which is how
+ * the matrix below reads the sample. The numbers are `picture::Tone::pq()`'s,
+ * so the card's picture and the processor's are the same picture. */
+__device__ static float code_of(float nits) {
+  const float white = 203.0f;  /* SDR white in nits, BT.2408's reference */
+  const float knee = 0.75f;    /* where the straight line stops */
+  const float peak = 4000.0f;  /* the brightest content is mastered to */
+  float relative = nits / white;
+  float shown = relative;
+  if (relative > knee) {
+    float above = clamp((relative - knee) / (peak / white - knee), 0.0f, 1.0f);
+    shown = knee + (1.0f - knee) * 2.0f * above / (1.0f + above);
+  }
+  shown = clamp(shown, 0.0f, 1.0f);
+  float code = shown <= 0.0031308f ? 12.92f * shown
+                                  : 1.055f * raised(shown, 1.0f / 2.4f) - 0.055f;
+  return code * 255.0f;
+}
+
+/* A sample of an HDR picture as the SDR one it is: each channel read as the
+ * light it stands for, the wide gamut shrunk into BT.709's, and the code a
+ * screen showing SDR shows that light as. A colour BT.709 has no way to show
+ * comes back negative from the matrix and the curve takes it to none of that
+ * channel, which is the clamp; a neutral sample has equal light in all three
+ * and the matrix leaves it exactly as it was. */
+__device__ static struct vec4 sdr_of(struct vec4 pixel) {
+  /* The order the kernels keep: x is blue, y green and z red. */
+  float red = light_of(pixel.z / 255.0f);
+  float green = light_of(pixel.y / 255.0f);
+  float blue = light_of(pixel.x / 255.0f);
+  /* BT.2087's matrix, in the light the codes stand for. */
+  float to_red = 1.6605f * red - 0.5876f * green - 0.0729f * blue;
+  float to_green = -0.1246f * red + 1.1329f * green - 0.0083f * blue;
+  float to_blue = -0.0182f * red - 0.1006f * green + 1.1187f * blue;
+  struct vec4 out;
+  out.x = code_of(to_blue);
+  out.y = code_of(to_green);
+  out.z = code_of(to_red);
+  out.w = 1.0f;
+  return out;
 }
 
 /* The first three channels of the pixel at `x`, `y`, in the order they lie. */
@@ -104,6 +205,7 @@ __device__ static struct vec4 source_at(struct bgra_frame frame, float x, float 
     out.x = out.z;
     out.z = red;
   }
+  if (frame.tone != 0) out = sdr_of(out);
   return out;
 }
 

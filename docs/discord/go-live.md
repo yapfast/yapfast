@@ -769,7 +769,8 @@ NVIDIA's cards have no VA-API to reach, so the same picture takes a different
 door: `native/cudaconvert.c` imports the descriptor the compositor drew as an
 EGLImage (with its modifier), registers it with CUDA, and runs two kernels —
 `native/cuda_convert.cu`, the BGRA to NV12 scale and convert a video processor
-would do, compiled to PTX by `build.rs` with clang alone — into an NV12 buffer
+would do, HDR's codes curved into SDR's on the way where the display asks for
+that, compiled to PTX by `build.rs` with clang alone — into an NV12 buffer
 in the card's memory, which `native/cudaenc.c` encodes with NVENC opened on the
 CUDA device (`NV_ENC_DEVICE_TYPE_CUDA`) and reading that buffer where it lies
 (`NV_ENC_INPUT_RESOURCE_TYPE_CUDADEVICEPTR`). Nothing crosses to the processor
@@ -935,15 +936,34 @@ colour its frames are: capture
 converts to limited-range I420, and the declaration says that. A screen showing
 HDR hands its frames over as HDR's codes, so the processor's capture tonemaps them
 to SDR's brightness on the way — one pass, in the same buffer — while a screen
-showing SDR is converted exactly as it was. The curve is a table over a picture in
-memory, so it is the processor's capture that applies it: a screen or window
-showing HDR is captured there rather than on the card, whose path has nothing
-between the captured texture and the encoder to read HDR's codes through, and a
-card share of an HDR screen is its codes read as SDR rather than its picture. The
-log names it as the reason the card was passed over ("the screen shows HDR, which
-the card's capture has no curve for"). Tone-mapping on the card is the
-outstanding work, and it starts with asking Windows Graphics Capture for the
-`R16G16B16A16_FLOAT` picture instead of the 8-bit one. The format it writes is the one the encoder reports it took, NV12
+showing SDR is converted exactly as it was. On Windows that curve is a table over
+a picture in memory, so it is the processor's capture that applies it: a screen or
+window showing HDR is captured there rather than on the card, whose path has
+nothing between the captured texture and the encoder to read HDR's codes through,
+and a card share of an HDR screen is its codes read as SDR rather than its
+picture. The log names it as the reason the card was passed over ("the screen
+shows HDR, which the card's capture has no curve for").
+Linux's card rung has the curve, in the kernels that already convert: a picture
+whose display answers HDR through `picture::tone_of_screen` is read as the light
+its codes stand for, shrunk from BT.2020's gamut into BT.709's, and written as the
+code an SDR screen shows it as, so the NV12 the session reads is SDR's and the
+picture still never crosses to the processor — no second pass, no copy, and the
+same buffer. A screen showing SDR answers nothing and is converted byte for byte
+as it was; the answer is the display's, never a guess from the pixels, so an SDR
+screen can't be given a curve. A picture the card can't take while the screen
+shows HDR — a layout its import refuses — leaves the share on the processor's
+capturer, which is where `Tone::pq()`'s table is, said once in the log, rather
+than sending HDR's codes as SDR. What an HDR screen's frames arrive in on Linux
+is the compositor's own 8-bit BGRA, converted for the screencast by the
+compositor: the portal's negotiation names BGRA and RGBA and nothing else, and
+`capture::Format` has no word for a wider picture, while the X server's DRI3
+export refuses anything but 24 bits deep at 32 bits a pixel — so no 10-bit and
+no half-float picture reaches either rung, and no colour word comes with one.
+The per-monitor answer on Linux is "nothing to ask", which is why no Linux share
+takes the kernels' curve today: it is there for a capture that hands HDR's codes
+over, as the `R16G16B16A16_FLOAT` picture Desktop Duplication hands over, which
+Windows' own card rung is still to ask for. The format it writes is the one the
+encoder reports it took, NV12
 or planar I420, and an open that gets neither fails by name rather than
 scrambling the picture. Its frames carry the caller's 90 kHz time rescaled into
 the encoder's own time base, so every engine, and a fallback between them, runs

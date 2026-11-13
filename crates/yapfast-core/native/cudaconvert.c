@@ -340,6 +340,11 @@ struct yapfast_cudaconvert {
   unsigned width, height, pitch;
   /* The picture's own size, until the kernels are launched at the stream's. */
   unsigned source_width, source_height;
+  /* Whether the codes are HDR's, which the kernels curve into SDR's: what the
+   * display says about itself, asked once for a share and handed in with each
+   * picture. Zero for a screen showing SDR, and then the kernels read the
+   * picture exactly as they did before there was a curve at all. */
+  int tone;
   char device_name[96];
   char driver[96];
   char error[192];
@@ -836,7 +841,8 @@ const char *yapfast_cudaconvert_error(struct yapfast_cudaconvert *c) {
 /* Runs both kernels: the stream's picture comes out as NV12 in `c->nv12`, and
  * the caller hands that buffer to its encoder — or in `target`, where that isn't
  * null. The picture is `pitch`-byte rows at `pixels`, or, where `texture` isn't
- * zero, the array that texture reads. */
+ * zero, the array that texture reads. `c->tone` rides along: the codes are
+ * HDR's, and the kernels write the SDR picture they stand for. */
 static int launch(struct yapfast_cudaconvert *c, const void *pixels, unsigned pitch,
                   int width, int height, int red_first, CUtexObject texture,
                   const struct nv12_target *target) {
@@ -848,8 +854,9 @@ static int launch(struct yapfast_cudaconvert *c, const void *pixels, unsigned pi
     unsigned pitch;
     int width, height;
     int red_first;
+    int tone;
     unsigned long long texture;
-  } source = {pixels, pitch, width, height, red_first, texture};
+  } source = {pixels, pitch, width, height, red_first, c->tone, texture};
   struct {
     unsigned char *pixels;
     unsigned pitch;
@@ -874,7 +881,9 @@ static int launch(struct yapfast_cudaconvert *c, const void *pixels, unsigned pi
 /* One captured picture: `fd`, `offset`, `stride` and `modifier` describe the
  * memory the compositor drew, `width` by `height` of BGRA or BGRX pixels in it.
  * The picture lands in the NV12 buffer this was opened with, and needs nothing
- * of the processor. */
+ * of the processor. `tone` says the codes are HDR's, which the kernels curve
+ * into SDR's as they read them: a screen showing HDR hands its frames over as
+ * PQ's, and the stream it goes out on is SDR's. */
 /* Room on the card for a tiled picture's rows, which are copied out of the array
  * before the kernels read them: allocated at the picture's own size, and grown
  * when a picture is bigger than the one before it. */
@@ -1247,12 +1256,15 @@ static int take_through_gl(struct yapfast_cudaconvert *c, int fd, unsigned offse
 
 int yapfast_cudaconvert_convert(struct yapfast_cudaconvert *c, int fd, unsigned offset,
                                 unsigned stride, unsigned long long modifier,
-                                unsigned fourcc, unsigned width, unsigned height,
+                                unsigned fourcc, unsigned width, unsigned height, int tone,
                                 char *error, size_t size) {
   if (c == NULL) {
     put(error, size, "no converter");
     return 0;
   }
+  /* Taken before any picture, so that a picture this door refuses leaves the
+   * next frame's curve as the display asked for it. */
+  c->tone = tone != 0;
   if (fourcc != DRM_FORMAT_ARGB8888 && fourcc != DRM_FORMAT_XRGB8888) {
     put(c->error, sizeof(c->error), "a picture of format 0x%08x, which this convert doesn't read",
         fourcc);

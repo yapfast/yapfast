@@ -112,6 +112,11 @@ impl Cuda {
     /// submitted to the session that reads it there, at `pts` on the stream
     /// clock. `keyframe` asks for an IDR, and the session makes one.
     ///
+    /// `hdr` is the display's own answer about the screen the picture came from,
+    /// which the kernels need to read HDR's codes as the SDR picture they stand
+    /// for. A screen showing SDR passes false, and the picture is converted
+    /// exactly as it was before there was a curve.
+    ///
     /// `Err` is a picture the card can't take — a tiled buffer its driver only
     /// gives back as an array, a picture on a device that isn't the one the
     /// import opened — which is the path's reason to be given up rather than
@@ -122,8 +127,9 @@ impl Cuda {
         shot: &Shot,
         pts: u64,
         keyframe: bool,
+        hdr: bool,
     ) -> Result<std::result::Result<Option<encode::Frame>, String>> {
-        if let Err(error) = self.convert.convert(&shot.descriptor()) {
+        if let Err(error) = self.convert.convert(&shot.descriptor(), hdr) {
             return Ok(Err(format!("{error:#}")));
         }
         let packet = self.encoder.encode(pts, keyframe)?;
@@ -306,6 +312,10 @@ impl Encoding {
     /// converted the picture in its own memory, and no pixel of it comes back to
     /// the processor: the conversion on the processor is what a picture that path
     /// can't take gets, from the frame it can't on.
+    ///
+    /// `hdr` is the display's own answer about the screen, which only the card's
+    /// own path reads: it is where the curve over HDR's codes runs.
+    #[allow(clippy::too_many_arguments)]
     #[cfg(target_os = "linux")]
     pub(crate) fn encode_dmabuf(
         &mut self,
@@ -315,6 +325,7 @@ impl Encoding {
         pts: u64,
         keyframe: bool,
         time_ms: u64,
+        hdr: bool,
     ) -> Result<Sent> {
         match self {
             Self::Picture(encoder) => {
@@ -327,7 +338,7 @@ impl Encoding {
             // path can't take gives the path up rather than the frame, and the
             // caller hands the same picture to the processor's copy.
             #[cfg(nvcuda)]
-            Self::Cuda(cuda) => match cuda.encode_dmabuf(shot, pts, keyframe)? {
+            Self::Cuda(cuda) => match cuda.encode_dmabuf(shot, pts, keyframe, hdr)? {
                 Ok(frame) => Ok(Sent::Frame {
                     frame,
                     converted: None,
