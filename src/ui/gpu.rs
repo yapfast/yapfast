@@ -367,7 +367,7 @@ const LEASES: usize = 2;
 
 /// How many pictures one set of the worker's shares, which is how many textures
 /// one stream keeps open: `SHARED_PICTURES` in
-/// `crates/yapfast-core/native/d3d11enc.c`, one per slot of the frames file.
+/// `crates/yapfast-media/native/d3d11enc.c`, one per slot of the frames file.
 ///
 /// Nothing opened for a picture is ever evicted to make room. The handle was
 /// closed as the texture it named was opened, so a texture let go of here could
@@ -408,7 +408,7 @@ mod bound {
 
     /// `SHARED_PICTURES` in the worker's own source, as the number it is.
     fn shared_pictures() -> usize {
-        include_str!("../../crates/yapfast-core/native/d3d11enc.c")
+        include_str!("../../crates/yapfast-media/native/d3d11enc.c")
             .lines()
             .find_map(|line| line.trim().strip_prefix("#define SHARED_PICTURES "))
             .and_then(|count| count.trim().parse().ok())

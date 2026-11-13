@@ -12,7 +12,7 @@ default = []
 # sound a share sends and a viewer hears, and the noise suppressor the call's
 # microphone goes through. `yapfast-core`'s own `discord` feature turns this on,
 # so a build without Discord's Go Live carries none of it, as before.
-discord = ["dep:deep_filter", "dep:ndarray", "dep:nnnoiseless"]
+discord = ["dep:deep_filter", "dep:ndarray", "dep:nnnoiseless", "dep:ffmpeg-src", "dep:x264-src"]
 # Capturing a screen through the desktop's screen sharing portal and the
 # PipeWire node it names, on Linux. `yapfast-core`'s feature of the same name
 # asks for it, and this crate's `build.rs` carries the `screencast` cfg only
@@ -21,6 +21,12 @@ screencast = ["dep:zbus"]
 
 [dependencies]
 anyhow.workspace = true
+# The encoders and decoders a share runs, and the library the card's shims call.
+# Ordinary dependencies rather than build ones: the shims below are compiled with
+# their headers and linked against their archives, so this crate's build script
+# needs the answer for the target it builds, not for the host.
+ffmpeg-src = { path = "../../vendor/ffmpeg-src", optional = true }
+x264-src = { path = "../../vendor/x264-src", optional = true }
 # The frames file a still desktop keeps and a window maps.
 tempfile.workspace = true
 base64 = "0.22"
@@ -97,14 +103,12 @@ x11rb = { version = "0.13.2", default-features = false, features = [
     "randr",
 ] }
 
-# Which of FFmpeg's encoders, decoders and filters the library this build links
-# was configured with, as its own build script answered: what decides whether a
-# card's path through it exists here at all. Only the Linux shims borrow those
-# headers, and only there is the answer asked for: a build dependency on the
-# same crate a target links is a second copy of it compiled for the host, whose
-# build script answers for a configuration nothing links.
-[target.'cfg(target_os = "linux")'.build-dependencies]
-ffmpeg-src = { path = "../../vendor/ffmpeg-src" }
+[build-dependencies]
+# The shims this crate owns: the picture in memory, the captures, the card's
+# encoder and decoder paths, and the converters between them.
+cc = "1"
+# The libwebrtc archive's headers, which the camera and picture shims see.
+webrtc-sys-build = "0.3.18"
 
 [dev-dependencies]
 # A test of the picture hand-over polls a notification once.

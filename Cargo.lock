@@ -12026,6 +12026,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "cc",
  "deep_filter",
  "ffmpeg-src",
  "futures-util",
@@ -12043,9 +12044,11 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "webrtc-sys-build",
  "windows",
  "windows-core",
  "x11rb",
+ "x264-src",
  "zbus",
 ]
 
