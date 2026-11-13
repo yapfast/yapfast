@@ -58,6 +58,19 @@ closed! {
         Code = "code",
         RowSelected = "row-selected",
         CardOver = "card_over",
+        // A call's stage, behind its tiles and controls.
+        Call = "call",
+        // Notes over the window and the conversation.
+        Toast = "toast",
+        Tooltip = "tooltip",
+        // The emoji, GIF and sticker pickers.
+        Picker = "picker",
+        // Popouts from the header and the title bar.
+        Popout = "popout",
+        // The panels docked beside the conversation: a thread, search results.
+        Aside = "aside",
+        // The picture and video viewer, over its dim.
+        Lightbox = "lightbox",
     }
 }
 
@@ -87,7 +100,20 @@ impl ArtSurface {
             Self::Code => "code",
             Self::RowSelected => "row-selected",
             Self::CardOver => "raised",
+            Self::Call => "stage",
+            Self::Toast | Self::Picker => "raised",
+            Self::Tooltip => "tooltip",
+            Self::Popout => "sidebar",
+            Self::Aside => "chat",
+            // The viewer's dim isn't a theme's colour: see `fixed_ground`.
+            Self::Lightbox => "sunken",
         }
+    }
+
+    /// A ground no theme colours, which stands in for `ground`'s: the
+    /// viewer's dim is near black in every theme.
+    pub fn fixed_ground(self) -> Option<u32> {
+        (self == Self::Lightbox).then_some(0xff00_0000)
     }
 
     /// Whether it lies over its surface's content rather than under it.

@@ -742,11 +742,16 @@ export component BadgeTipCard inherits Rectangle {
     }
     width: 200px;
     height: card.preferred-height;
-    background: Theme.tooltip;
-    border-radius: Look.radius(8px);
-    border-width: Look.line(1px);
-    border-color: #97979f1f;
-    drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#0000003d); drop-shadow-offset-y: Look.shadow-y(12px);
+    // The tooltip's shape, art and glass.
+    background: Art.glass-tooltip ? transparent : Theme.tooltip;
+    border-radius: Look.r(Look.tooltip, 8px);
+    border-width: Look.bw(Look.tooltip, 1px);
+    border-color: Look.bc(Look.tooltip, #97979f1f);
+    drop-shadow-blur: Look.sb(Look.tooltip, 24px); drop-shadow-offset-x: Look.sx(Look.tooltip, 0px); drop-shadow-color: Look.sc(Look.tooltip, #0000003d); drop-shadow-offset-y: Look.sy(Look.tooltip, 12px);
+    if Art.tooltip.length > 0 || Art.glass-tooltip: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.tooltip, 8px);
+        layers: Art.tooltip; glass: Art.glass-tooltip; ground: Theme.tooltip;
+    }
     // The caret under it, pointing at the badge.
     Path {
         x: parent.width / 2 - 8px; y: parent.height - 1px; width: 16px; height: 9px;
@@ -770,7 +775,7 @@ export component BadgeTipCard inherits Rectangle {
         VerticalLayout {
             spacing: 4px;
             if BadgeTip.kind != "": Text { text: BadgeTip.kind; color: Theme.secondary; font-size: 14px; font-weight: 500; horizontal-alignment: center; wrap: word-wrap; }
-            Text { text: BadgeTip.title.to-uppercase(); color: Theme.text; font-size: 16px; font-weight: 900; horizontal-alignment: center; wrap: word-wrap; }
+            Text { text: BadgeTip.title.to-uppercase(); color: Theme.on-tooltip; font-size: 16px; font-weight: 900; horizontal-alignment: center; wrap: word-wrap; }
             if BadgeTip.progress != "": Text { text: BadgeTip.progress; color: Theme.secondary; font-size: 14px; font-weight: 500; horizontal-alignment: center; wrap: word-wrap; }
         }
     }
@@ -1664,9 +1669,14 @@ export component ProfileModal inherits Rectangle {
     // The whole panel takes the profile's theme, not only the card on its left.
     background: root.themed
         ? @linear-gradient(180deg, root.theme-start 0%, ProfileTheme.wash(root.data.theme-secondary, root.light) 100%)
-        : Theme.sidebar-fill;
-    border-radius: Look.radius(8px); border-width: root.data.has-theme ? 0px : 1px; border-color: Theme.edge;
-    drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
+        : Art.glass-dialog ? transparent : Theme.sidebar-fill;
+    // A dialog's shape, and its art and glass under a profile without a theme of its own.
+    border-radius: Look.r(Look.dialog, 8px); border-width: root.data.has-theme ? 0px : Look.bw(Look.dialog, 1px); border-color: Look.bc(Look.dialog, Theme.edge);
+    drop-shadow-blur: Look.sb(Look.dialog, 24px); drop-shadow-offset-x: Look.sx(Look.dialog, 0px); drop-shadow-color: Look.sc(Look.dialog, #00000080); drop-shadow-offset-y: Look.sy(Look.dialog, 8px);
+    if !root.themed && (Art.dialog.length > 0 || Art.glass-dialog): ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.dialog, 8px);
+        layers: Art.dialog; glass: Art.glass-dialog; ground: Theme.sidebar-fill;
+    }
     accessible-role: groupbox;
     accessible-label: root.data.name + "'s full profile";
     TouchArea { }

@@ -137,6 +137,16 @@ export global Art {
     in property <[ArtImage]> row-selected;
     /// Layers over a profile card's content, which take no input.
     in property <[ArtImage]> card-over;
+    /// A call's stage; notes over the window; the tooltip; the emoji, GIF
+    /// and sticker pickers; popouts from the header; the panels docked
+    /// beside the conversation; the picture and video viewer.
+    in property <[ArtImage]> call;
+    in property <[ArtImage]> toast;
+    in property <[ArtImage]> tooltip;
+    in property <[ArtImage]> picker;
+    in property <[ArtImage]> popout;
+    in property <[ArtImage]> aside;
+    in property <[ArtImage]> lightbox;
     /// Pictures on each message card, at most four.
     in property <[CardArt]> cards;
     in property <[ArtOverlay]> overlays;
@@ -165,6 +175,13 @@ export global Art {
     in property <bool> glass-embed;
     in property <bool> glass-code;
     in property <bool> glass-row-selected;
+    in property <bool> glass-call;
+    in property <bool> glass-toast;
+    in property <bool> glass-tooltip;
+    in property <bool> glass-picker;
+    in property <bool> glass-popout;
+    in property <bool> glass-aside;
+    in property <bool> glass-lightbox;
     in property <image> blurred;
     in property <float> glass-opacity: 1;
     in property <color> highlight;

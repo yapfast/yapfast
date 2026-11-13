@@ -160,7 +160,9 @@ fn composite(
     sampled: &mut Sampled,
 ) -> Option<Vec<u32>> {
     let art = &variant.art;
-    let ground = shown(variant, surface.ground())?;
+    let ground = surface
+        .fixed_ground()
+        .or_else(|| shown(variant, surface.ground()))?;
     // A see-through member list: the conversation as it shows, with the
     // list's ground laid over it at its alpha.
     if surface == ArtSurface::Members
@@ -246,13 +248,21 @@ fn texts(surface: ArtSurface) -> &'static [&'static str] {
         | ArtSurface::Account
         | ArtSurface::ProfilePane
         | ArtSurface::Settings
-        | ArtSurface::Embed => &["text", "secondary", "muted"],
+        | ArtSurface::Embed
+        | ArtSurface::Call
+        | ArtSurface::Picker
+        | ArtSurface::Popout
+        | ArtSurface::Aside => &["text", "secondary", "muted"],
         ArtSurface::Card
         | ArtSurface::Dialog
         | ArtSurface::Menu
         | ArtSurface::Composer
         | ArtSurface::Actions
         | ArtSurface::Code => &["text"],
+        ArtSurface::Toast => &["text", "secondary"],
+        ArtSurface::Tooltip => &["on-tooltip"],
+        // The viewer's words are white in every theme: see `readable`.
+        ArtSurface::Lightbox => &[],
         ArtSurface::RowSelected => &["row-selected-text"],
         // Over the card's content, it's the theme's to keep faint.
         ArtSurface::Window | ArtSurface::Rail | ArtSurface::CardOver => &[],
@@ -268,6 +278,18 @@ pub fn readable(variant: &Resolved, files: &Files) -> (Vec<String>, Vec<String>)
     let (mut errors, mut warnings) = (Vec::new(), Vec::new());
     let mut sampled = Sampled::new();
     for surface in ArtSurface::ALL.iter().copied() {
+        // The viewer's name and buttons are white in every theme.
+        if surface == ArtSurface::Lightbox {
+            if let Some(colours) = composite(variant, files, surface, &mut sampled) {
+                let on_average = contrast(0xffff_ffff, mean(&colours));
+                if on_average < READABLE - 0.005 {
+                    errors.push(format!(
+                        "the viewer's white text on the lightbox art contrasts {on_average:.1}:1 on average, under {READABLE:.1}:1; dim the art"
+                    ));
+                }
+            }
+            continue;
+        }
         let tokens = texts(surface);
         if tokens.is_empty() {
             continue;

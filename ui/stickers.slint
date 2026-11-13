@@ -2,6 +2,7 @@ import { IconPack } from "media.slint";
 import { ScrollView } from "scrollview.slint";
 import { PickerRail, RailSection } from "messages.slint";
 import { Theme, Look } from "theme.slint";
+import { Art, ArtLayer } from "theme_art.slint";
 import { Picture, TextField } from "controls.slint";
 
 /// A tile of the sticker picker's grid, placed by the adapter: `kind` 0 is a
@@ -64,11 +65,17 @@ export component StickerPicker inherits Rectangle {
     changed shown-height => { root.report(); }
     changed tiles => { root.hovered = ""; }
     changed query => { grid.content-y = 0; }
-    background: root.bare ? transparent : Theme.raised-fill;
-    border-color: Theme.edge; border-width: root.bare ? 0px : 1px;
-    border-radius: root.bare ? 0px : 10px;
-    drop-shadow-blur: root.bare ? 0px : Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
+    // On its own, the picker's shape, art and glass; inside the expression
+    // picker (`bare`), that panel's.
+    background: root.bare || Art.glass-picker ? transparent : Theme.raised-fill;
+    border-color: Look.bc(Look.picker, Theme.edge); border-width: root.bare ? 0px : Look.bw(Look.picker, 1px);
+    border-radius: root.bare ? 0px : Look.r(Look.picker, 10px);
+    drop-shadow-blur: root.bare ? 0px : Look.sb(Look.picker, 24px); drop-shadow-offset-x: Look.sx(Look.picker, 0px); drop-shadow-color: Look.sc(Look.picker, #00000080); drop-shadow-offset-y: Look.sy(Look.picker, 8px);
     clip: true;
+    if !root.bare && (Art.picker.length > 0 || Art.glass-picker): ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.picker, 10px);
+        layers: Art.picker; glass: Art.glass-picker; ground: Theme.raised-fill;
+    }
     FocusScope {
         key-pressed(event) => {
             if event.text == Key.Escape { root.close(); return accept; }

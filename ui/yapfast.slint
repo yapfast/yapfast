@@ -2360,10 +2360,15 @@ export component YapfastWindow inherits Window {
         panel := Rectangle {
             width: root.picker-shown;
             x: parent.width - self.width;
-            background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px); border-radius: Look.radius(10px);
-            drop-shadow-blur: Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
+            // The picker's shape, art and glass.
+            background: Art.glass-picker ? transparent : Theme.raised-fill; border-color: Look.bc(Look.picker, Theme.edge); border-width: Look.bw(Look.picker, 1px); border-radius: Look.r(Look.picker, 10px);
+            drop-shadow-blur: Look.sb(Look.picker, 24px); drop-shadow-offset-x: Look.sx(Look.picker, 0px); drop-shadow-color: Look.sc(Look.picker, #00000080); drop-shadow-offset-y: Look.sy(Look.picker, 8px);
             clip: true;
             accessible-role: groupbox; accessible-label: "Expression Picker";
+            if Art.picker.length > 0 || Art.glass-picker: ArtLayer {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.picker, 10px);
+                layers: Art.picker; glass: Art.glass-picker; ground: Theme.raised-fill;
+            }
             VerticalLayout {
                 padding-top: 16px; spacing: 12px;
                 HorizontalLayout {
@@ -3282,7 +3287,12 @@ export component YapfastWindow inherits Window {
                             vertical-stretch: root.voice-panel ? 1 : !root.voice-here ? 0 : root.call-focus >= 0 ? 1.8 : 0.8;
                             min-height: root.voice-panel ? 0px : root.voice-here ? 260px : 210px;
                             max-height: root.voice-panel || root.voice-here ? 100000px : 210px;
-                            background: Theme.stage;
+                            // The stage takes the theme's `call` art and glass.
+                            background: Art.glass-call ? transparent : Theme.stage;
+                            if Art.call.length > 0 || Art.glass-call: ArtLayer {
+                                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                                layers: Art.call; glass: Art.glass-call; ground: Theme.stage;
+                            }
                             if !root.voice-here && !root.voice-panel: CallInvite {
                                 call-people: root.call-people; call-note: root.call-note; call-incoming: root.call-incoming;
                                 call-room: root.call-room; can-join: root.can-join;
@@ -3971,7 +3981,8 @@ export component YapfastWindow inherits Window {
                             if root.typing != "" && root.room-selected && !root.voice-panel && UiParts.timeline-typing: Rectangle {
                                 x: Arrange.centre(parent.width, 16px) + 56px - 4px; y: parent.height - self.height;
                                 width: min(parent.width - self.x - 16px, typing-text.preferred-width + 8px); height: 20px;
-                                background: Theme.chat-fill;
+                                // Over the conversation's art or glass it lets them show.
+                                background: Art.chat.length > 0 || Art.glass-chat ? transparent : Theme.chat-fill;
                                 typing-text := Text {
                                     x: 4px; width: parent.width - 8px;
                                     text: Chrome.typing != "" ? Chrome.fill(Chrome.typing, "typing", root.typing) : root.typing; color: Theme.text; font-size: 13px; font-weight: 500;
@@ -3987,7 +3998,7 @@ export component YapfastWindow inherits Window {
                                 // The typing slot.
                                 x: Arrange.centre(parent.width, 16px) + 20px - self.width / 2 + Look.typing.x; y: parent.height - self.height + Look.typing.y;
                                 width: 32px; height: 20px;
-                                background: Theme.chat-fill;
+                                background: Art.chat.length > 0 || Art.glass-chat ? transparent : Theme.chat-fill;
                                 opacity: Look.typing.opacity; transform-scale: Look.typing.scale; transform-rotation: Look.typing.rotation * 1deg;
                                 for dot in 3: Rectangle {
                                     property <float> wave: Motion.playing ? sin(animation-tick() / 1ms * 0.3deg - dot * 70deg) : 0;
@@ -5284,10 +5295,16 @@ export component YapfastWindow inherits Window {
     if root.zoom-note != "": Rectangle {
         x: (root.width - self.width) / 2; y: root.title-height + 12px;
         width: zoom-text.preferred-width + 28px; height: 36px;
-        border-radius: Look.radius(18px); background: Theme.tooltip;
-        drop-shadow-blur: Look.shadow-blur(12px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(3px);
+        // A toast's shape, on the tooltip's ground, art and glass, with its text.
+        border-radius: Look.r(Look.toast, 18px); background: Art.glass-tooltip ? transparent : Theme.tooltip;
+        border-width: Look.bw(Look.toast, 0px); border-color: Look.bc(Look.toast, transparent);
+        drop-shadow-blur: Look.sb(Look.toast, 12px); drop-shadow-offset-x: Look.sx(Look.toast, 0px); drop-shadow-color: Look.sc(Look.toast, #00000080); drop-shadow-offset-y: Look.sy(Look.toast, 3px);
+        if Art.tooltip.length > 0 || Art.glass-tooltip: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.toast, 18px);
+            layers: Art.tooltip; glass: Art.glass-tooltip; ground: Theme.tooltip;
+        }
         accessible-role: text; accessible-label: "Zoom " + root.zoom-note;
-        zoom-text := Text { text: root.zoom-note; color: Theme.text; font-size: 15px; font-weight: 700; }
+        zoom-text := Text { text: root.zoom-note; color: Theme.on-tooltip; font-size: 15px; font-weight: 700; }
     }
     // Who reacted, over the reaction the pointer stays on: its emoji, then
     // the names, wrapping. Clicking it opens the Reactions window there.
@@ -5307,8 +5324,14 @@ export component YapfastWindow inherits Window {
         x: max(8px, min(root.width - self.w - 8px, ReactionHover.x - self.w / 2));
         y: max(4px, ReactionHover.y - self.h - 6px);
         width: self.w; height: self.h;
-        border-radius: Look.radius(6px); background: Theme.tooltip;
-        drop-shadow-blur: Look.shadow-blur(12px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(3px);
+        // The tooltip's shape, art and glass, as the window's tooltip.
+        border-radius: Look.r(Look.tooltip, 6px); background: Art.glass-tooltip ? transparent : Theme.tooltip;
+        border-width: Look.bw(Look.tooltip, 0px); border-color: Look.bc(Look.tooltip, transparent);
+        drop-shadow-blur: Look.sb(Look.tooltip, 12px); drop-shadow-offset-x: Look.sx(Look.tooltip, 0px); drop-shadow-color: Look.sc(Look.tooltip, #00000080); drop-shadow-offset-y: Look.sy(Look.tooltip, 3px);
+        if Art.tooltip.length > 0 || Art.glass-tooltip: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.tooltip, 6px);
+            layers: Art.tooltip; glass: Art.glass-tooltip; ground: Theme.tooltip;
+        }
         accessible-role: button;
         accessible-label: root.reaction-tip-text;
         accessible-action-default => { root.view-reactions(ReactionHover.item, ReactionHover.key); }
@@ -5319,7 +5342,7 @@ export component YapfastWindow inherits Window {
         }
         reaction-words := Text {
             x: 60px; y: 16px; width: parent.words-width; height: parent.height - 32px;
-            text: root.reaction-tip-text; color: Theme.text; font-size: 14px; font-weight: 500;
+            text: root.reaction-tip-text; color: Theme.on-tooltip; font-size: 14px; font-weight: 500;
             wrap: word-wrap; vertical-alignment: center;
         }
         TouchArea {
@@ -5500,9 +5523,13 @@ export component YapfastWindow inherits Window {
             running: Tip.pop && !tip-card.shown;
             triggered => { tip-card.shown = true; }
         }
-        border-radius: Look.r(Look.tooltip, 6px); background: Theme.tooltip;
+        border-radius: Look.r(Look.tooltip, 6px); background: Art.glass-tooltip ? transparent : Theme.tooltip;
         border-width: Look.bw(Look.tooltip, 0px); border-color: Look.bc(Look.tooltip, transparent);
         drop-shadow-blur: Look.sb(Look.tooltip, 12px); drop-shadow-offset-x: Look.sx(Look.tooltip, 0px); drop-shadow-color: Look.sc(Look.tooltip, #00000080); drop-shadow-offset-y: Look.sy(Look.tooltip, 3px);
+        if Art.tooltip.length > 0 || Art.glass-tooltip: ArtLayer {
+            x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.tooltip, 6px);
+            layers: Art.tooltip; glass: Art.glass-tooltip; ground: Theme.tooltip;
+        }
         tip-text := Text { text: Tip.text; color: Theme.on-tooltip; font-size: 14px; font-weight: 700; }
         if Arrange.dash-tooltip.on: DashedOutline { x: 0px; y: 0px; dash: Arrange.dash-tooltip; stock-ink: Look.bc(Look.tooltip, Theme.on-tooltip); }
     }

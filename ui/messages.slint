@@ -1259,10 +1259,16 @@ export component EmojiPicker inherits Rectangle {
         }
         grid.content-y = -top;
     }
-    background: root.bare ? transparent : Theme.raised-fill; border-color: Theme.edge; border-width: root.bare ? 0px : 1px;
-    border-radius: root.bare ? 0px : 10px;
-    drop-shadow-blur: root.bare ? 0px : Look.shadow-blur(24px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: root.bare ? transparent : Look.shadow-color(#00000080); drop-shadow-offset-y: Look.shadow-y(8px);
+    // On its own, the picker's shape, art and glass; inside the expression
+    // picker (`bare`), that panel's.
+    background: root.bare || Art.glass-picker ? transparent : Theme.raised-fill; border-color: Look.bc(Look.picker, Theme.edge); border-width: root.bare ? 0px : Look.bw(Look.picker, 1px);
+    border-radius: root.bare ? 0px : Look.r(Look.picker, 10px);
+    drop-shadow-blur: root.bare ? 0px : Look.sb(Look.picker, 24px); drop-shadow-offset-x: Look.sx(Look.picker, 0px); drop-shadow-color: root.bare ? transparent : Look.sc(Look.picker, #00000080); drop-shadow-offset-y: Look.sy(Look.picker, 8px);
     clip: true;
+    if !root.bare && (Art.picker.length > 0 || Art.glass-picker): ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.picker, 10px);
+        layers: Art.picker; glass: Art.glass-picker; ground: Theme.raised-fill;
+    }
     FocusScope {
         key-pressed(event) => {
             if event.text == Key.Escape { root.close-picker(); return accept; }
@@ -2435,9 +2441,11 @@ export component UnreadBar inherits Rectangle {
     /// The divider is above the view, rather than below it.
     in property <bool> above;
     callback jump;
-    width: content.preferred-width; height: 32px; border-radius: Look.radius(16px);
+    // A toast's shape, on the accent.
+    width: content.preferred-width; height: 32px; border-radius: Look.r(Look.toast, 16px);
     background: touch.has-hover ? Theme.accent-hover : Theme.accent-fill;
-    drop-shadow-blur: Look.shadow-blur(12px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000060); drop-shadow-offset-y: Look.shadow-y(4px);
+    border-width: Look.bw(Look.toast, 0px); border-color: Look.bc(Look.toast, transparent);
+    drop-shadow-blur: Look.sb(Look.toast, 12px); drop-shadow-offset-x: Look.sx(Look.toast, 0px); drop-shadow-color: Look.sc(Look.toast, #00000060); drop-shadow-offset-y: Look.sy(Look.toast, 4px);
     accessible-role: button;
     accessible-label: root.label + ". Jump to the first unread message";
     accessible-action-default => { root.jump(); }
@@ -2456,9 +2464,14 @@ export component UnreadBar inherits Rectangle {
 // in, and goes back to the newest, as Discord's bar over the composer does.
 export component PresentBar inherits Rectangle {
     callback jump;
-    height: 36px; border-radius: Look.radius(8px);
-    background: Theme.raised-fill; border-color: Theme.edge; border-width: Look.line(1px);
-    drop-shadow-blur: Look.shadow-blur(12px); drop-shadow-offset-x: Look.shadow-x(0px); drop-shadow-color: Look.shadow-color(#00000060); drop-shadow-offset-y: Look.shadow-y(4px);
+    // A toast's shape, art and glass.
+    height: 36px; border-radius: Look.r(Look.toast, 8px);
+    background: Art.glass-toast ? transparent : Theme.raised-fill; border-color: Look.bc(Look.toast, Theme.edge); border-width: Look.bw(Look.toast, 1px);
+    drop-shadow-blur: Look.sb(Look.toast, 12px); drop-shadow-offset-x: Look.sx(Look.toast, 0px); drop-shadow-color: Look.sc(Look.toast, #00000060); drop-shadow-offset-y: Look.sy(Look.toast, 4px);
+    if Art.toast.length > 0 || Art.glass-toast: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.toast, 8px);
+        layers: Art.toast; glass: Art.glass-toast; ground: Theme.raised-fill;
+    }
     accessible-role: button;
     accessible-label: "You're viewing older messages. Jump to present";
     accessible-action-default => { root.jump(); }
@@ -2586,9 +2599,14 @@ export component ImageViewer inherits Rectangle {
     property <string> menu-link;
     property <length> menu-x;
     property <length> menu-y;
-    background: #000000e6;
+    // The viewer's dim, under the theme's `lightbox` art and glass.
+    background: Art.glass-lightbox ? transparent : #000000e6;
     accessible-role: groupbox;
     accessible-label: "Image viewer";
+    if Art.lightbox.length > 0 || Art.glass-lightbox: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        layers: Art.lightbox; glass: Art.glass-lightbox; ground: #000000e6;
+    }
     TouchArea { clicked => { root.close-image(); } }
     viewer-keys := FocusScope {
         init => { self.focus(); }
@@ -2683,9 +2701,14 @@ export component VideoViewer inherits Rectangle {
     property <string> menu-link;
     property <length> menu-x;
     property <length> menu-y;
-    background: #000000e6;
+    // The viewer's dim, under the theme's `lightbox` art and glass.
+    background: Art.glass-lightbox ? transparent : #000000e6;
     accessible-role: groupbox;
     accessible-label: "Video viewer";
+    if Art.lightbox.length > 0 || Art.glass-lightbox: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        layers: Art.lightbox; glass: Art.glass-lightbox; ground: #000000e6;
+    }
     TouchArea { clicked => { VideoPlayer.expand(false); } }
     keys := FocusScope {
         init => { self.focus(); }

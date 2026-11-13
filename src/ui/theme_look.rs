@@ -607,6 +607,8 @@ pub fn reset(window: &YapfastWindow) {
     look.set_row_inset_x(0.);
     look.set_row_inset_y(0.);
     look.set_card_inset_top(0.);
+    look.set_scrollbar_width(-1.);
+    look.set_scrollbar_hover_width(-1.);
     look.set_shadows_on(false);
     for role in Role::ALL {
         set_font(&look, role, "");
@@ -767,6 +769,10 @@ fn paint(window: &YapfastWindow) {
         {
             look.set_card_inset_top(top);
         }
+        if let Some(scrollbar) = resolved.shapes.get(&Surface::Scrollbar) {
+            look.set_scrollbar_width(scrollbar.width.unwrap_or(-1.));
+            look.set_scrollbar_hover_width(scrollbar.hover_width.unwrap_or(-1.));
+        }
         let [small, medium, large] = resolved.radii;
         look.set_radius_small(small.unwrap_or(-1.));
         look.set_radius_medium(medium.unwrap_or(-1.));
@@ -916,6 +922,12 @@ fn set_shape(look: &Look<'_>, surface: Surface, shape: Shape) {
         Surface::Actions => look.set_actions(shape),
         Surface::Row => look.set_row(shape),
         Surface::CardButton => look.set_card_button(shape),
+        Surface::Call => look.set_call(shape),
+        Surface::Stream => look.set_stream(shape),
+        Surface::Toast => look.set_toast(shape),
+        Surface::Picker => look.set_picker(shape),
+        Surface::Popout => look.set_popout(shape),
+        Surface::Scrollbar => look.set_scrollbar(shape),
     }
 }
 

@@ -263,7 +263,7 @@ another until one does:
 | `on-tooltip` | The tooltip's text | `text` |
 | `selection` | Selected text's ground | `accent` at 35% |
 | `focus-ring` | The ring around what has the keyboard | `accent` |
-| `scrollbar`, `scrollbar-track` | A scrollbar's thumb, and its track under the pointer | white or black washes |
+| `scrollbar`, `scrollbar-track` | A scrollbar's thumb, and its track under the pointer; the `scrollbar` shape sets its width and corners | white or black washes |
 | `scrim` | The dim behind dialogs | each dialog's own |
 | `menu`, `menu-line` | A context menu's ground and outline | `raised`, `line` mixes |
 | `composer`, `placeholder` | The message box and its placeholder | `field`, `muted` mixes |
@@ -317,6 +317,12 @@ percentage of its size: 50 a circle, 0 a square.
 | `actions` | The bar of actions over a message under the pointer: quick reactions, Reply, Forward, More |
 | `row` | A message row's hover, mention and jump bands: `radius`, and `inset` (below) |
 | `card-button` | The round buttons over a profile card's banner: `radius`, `border`, `border_colour`, `shadow` |
+| `call` | The tiles on a call's stage: people and their cameras (stock 12 px corners, no outline or shadow) |
+| `stream` | What shows a stream or a shared screen: its tile on the stage and the picture in picture over the window; the picture stays on black |
+| `toast` | Notes that float: a plugin's toast, the zoom level, and the new messages and jump to present bars over the conversation |
+| `picker` | The emoji, GIF and sticker pickers, on their own or as the expression picker's tabs |
+| `popout` | Popouts from the header and the title bar: pins, threads, the topic, adding people, the inbox |
+| `scrollbar` | Scrollbars' thumbs: `radius` (stock round), `border` and `border_colour`, and `width` (1–8 pixels, stock 2) and `hover_width` (2–10, stock 6), the thumb's width at rest and under the pointer; their colours are `scrollbar` and `scrollbar-track` |
 
 `row` also takes `inset`: pixels each band keeps from the column's sides
 (0–32), or `[sides, ends]` with the room it keeps from the row's top and
@@ -526,7 +532,17 @@ bottom left, on the `account` colour; `panel`, its first name, is read as it),
 `actions` colour), `settings` (the settings window: its page with its
 tiles and fields, and the sections beside it, on `panel`), `embed`, `code`
 (code blocks), `row-selected` (the selected channel, on `row-selected`), `profile-pane`
-(the profile docked beside a one-to-one DM, on its ground, `panel`) and
+(the profile docked beside a one-to-one DM, on its ground, `panel`), `call` (a
+call's stage, on `stage`, behind its tiles, its controls and a DM call's
+invitation), `toast` (a plugin's toast and notice, the notices over the
+conversation and the jump to present bar, on `raised`), `tooltip` (the
+tooltip, a reaction's and a badge's, and the zoom level, on `tooltip`),
+`picker` (the emoji, GIF and sticker pickers, on `raised`), `popout` (pins,
+threads, the topic, adding people and the inbox, on `sidebar`), `aside` (the
+panels docked beside the conversation: a thread, a new thread and search
+results, over their own grounds), `lightbox` (the picture and video viewer,
+over its near-black dim, which no theme colours; its name and buttons stay
+white, so `theme check` refuses art they read under 4.5:1 on) and
 `card_over`. Each takes a layer or a list of up to 4, bottom first, drawn
 over the surface's ground and under its content, except `card_over`, which
 lies over a profile card's content, such as a gloss across its banner, and
