@@ -147,7 +147,7 @@ pub(super) fn layout(
 
     // Returned None if failed to get the ellipsis glyph for some rare reason.
     let get_ellipsis_glyph = |font_context: &mut FontContext| {
-        let mut layout = layout_builder.build(font_context, "…", None, None);
+        let mut layout = layout_builder.build(font_context, "…", None, None, true);
         layout.break_all_lines(None);
         let line = layout.lines().next()?;
         let item = line.items().next()?;

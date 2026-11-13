@@ -548,6 +548,7 @@ pub(super) fn message_row_within(
                     ImageCell {
                         index: index as i32,
                         name: attachment.name.clone().into(),
+                        description: attachment.description.clone().unwrap_or_default().into(),
                         width: STICKER_SIZE,
                         height: STICKER_SIZE,
                         loading: true,
@@ -561,6 +562,7 @@ pub(super) fn message_row_within(
                 ImageCell {
                     index: index as i32,
                     name: attachment.name.clone().into(),
+                    description: attachment.description.clone().unwrap_or_default().into(),
                     // Discord draws a message's sticker 160px square, whatever
                     // its picture came at.
                     width: STICKER_SIZE,

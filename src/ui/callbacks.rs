@@ -2237,14 +2237,44 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.clock_seconds = window.get_clock_seconds();
         layout.date_format = Some(window.get_date_format()).filter(|&index| index >= 0);
         layout.apply_date_format();
+        let colours_changed = layout.colour_saturation.unwrap_or(100)
+            != window.get_colour_saturation()
+            || layout.saturate_custom_colours.unwrap_or(true)
+                != window.get_saturate_custom_colours()
+            || layout.high_contrast.unwrap_or(false) != window.get_high_contrast();
+        layout.colour_saturation = Some(window.get_colour_saturation());
+        layout.saturate_custom_colours = Some(window.get_saturate_custom_colours());
+        layout.high_contrast = Some(window.get_high_contrast());
+        layout.contrast_indicators = Some(window.get_contrast_indicators());
+        window
+            .global::<yapfast_ui::Theme>()
+            .set_contrast_indicators(window.get_contrast_indicators());
+        let underline_links = window.get_underline_links();
+        layout.underline_links = Some(underline_links);
+        let _ = i_slint_core::with_existing_context(|context| {
+            context.set_links_underlined(underline_links);
+        });
+        let style = window.global::<ClientStyle>();
+        style.set_density(window.get_ui_density());
+        style.set_compact_messages(window.get_chat_display() == 1);
+        style.set_message_group_spacing(window.get_message_group_gap());
+        layout.ui_density = Some(window.get_ui_density());
+        layout.chat_display = Some(window.get_chat_display());
+        layout.message_group_gap = Some(window.get_message_group_gap());
         layout.text_size = Some(window.get_text_size());
         layout.link_previews = Some(window.get_link_previews());
         layout.boost_gems = Some(window.get_boost_gems());
         layout.reply_ping = Some(window.get_reply_ping_default());
         layout.strip_tracking = Some(window.get_strip_tracking());
         layout.nameplates = Some(window.get_show_nameplates());
+        layout.name_styles = Some(window.get_show_name_styles());
         layout.collapse_long = window.get_collapse_long();
         layout.animate = chosen(&ANIMATES, window.get_animate());
+        layout.reduced_motion = Some(window.get_reduced_motion());
+        layout.show_image_descriptions = Some(window.get_show_image_descriptions());
+        window
+            .global::<yapfast_ui::ImageAccessibility>()
+            .set_descriptions(window.get_show_image_descriptions());
         ANIMATE.set(layout.animate);
         layout.read_cosmetics(&window);
         let cosmetics = layout.cosmetics();
@@ -2285,6 +2315,11 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.multiple_windows = window.get_multiple_windows();
         layout.developer_mode = window.get_developer_mode();
         adapter.layout.write(&adapter.root);
+        if colours_changed {
+            theme::reapply(&window);
+            adapter.restyle_mentions();
+            adapter.refresh(&window);
+        }
         adapter.watch_talk_key(&window);
         let start = window.get_start_on_sign_in();
         if AUTOSTART.get() && start != autostart::enabled() {

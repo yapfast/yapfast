@@ -2,6 +2,11 @@
 // Disabled for comparisons with the inherited interface.
 export global ClientStyle {
     in-out property <bool> enabled: true;
+    /// List density: 0 compact, 1 default, 2 spacious.
+    in-out property <int> density: 1;
+    in-out property <bool> compact-messages: false;
+    /// An explicit message-group gap in pixels; negative follows the style.
+    in-out property <int> message-group-spacing: -1;
     // An open-licensed, bundled face gives every platform the same text metrics.
     in-out property <string> native-font: "DM Sans";
     out property <string> font-family: self.enabled ? self.native-font : "Atkinson Hyperlegible Next";
@@ -18,10 +23,11 @@ export global ClientStyle {
     // Discord's member list: its 1px edge and 264px of rows.
     out property <length> members-width: self.enabled ? 265px : 240px;
     out property <length> profile-width: self.enabled ? 320px : 300px;
-    out property <length> dm-row-height: 42px;
-    out property <length> channel-row-height: self.enabled ? 32px : 34px;
+    out property <length> dm-row-height: 42px + (density - 1) * 4px;
+    out property <length> member-row-height: dm-row-height;
+    out property <length> channel-row-height: (self.enabled ? 32px : 34px) + (density - 1) * 4px;
     out property <length> message-gap: self.enabled ? 0px : 3px;
-    out property <length> message-group-gap: self.enabled ? 16px : 14px;
+    out property <length> message-group-gap: message-group-spacing >= 0 ? message-group-spacing * 1px : self.enabled ? 16px : 14px;
     out property <length> profile-inset: self.enabled ? 8px : 0px;
     out property <length> composer-height: self.enabled ? 58px : 48px;
     out property <length> composer-padding: self.enabled ? 18px : 12px;

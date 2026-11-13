@@ -55,6 +55,9 @@ pub(crate) struct PlatformContext {
     /// Process-wide reduced-motion setting, as reported by the backend.
     #[pin]
     motion_preference: Property<MotionPreference>,
+    /// Whether styled links are underlined, as chosen by the application.
+    #[pin]
+    links_underlined: Property<bool>,
     modifiers: Cell<InternalKeyboardModifierState>,
     #[cfg(all(unix, not(target_os = "macos")))]
     xdg_app_id: RefCell<Option<crate::SharedString>>,
@@ -83,6 +86,7 @@ impl PlatformContext {
                 MotionPreference::default(),
                 "PlatformContext::motion_preference",
             ),
+            links_underlined: Property::new_named(true, "PlatformContext::links_underlined"),
             modifiers: Cell::new(Default::default()),
             #[cfg(all(unix, not(target_os = "macos")))]
             xdg_app_id: Default::default(),
@@ -448,6 +452,16 @@ impl SlintContext {
 
     pub fn set_motion_preference(&self, preference: MotionPreference) {
         self.platform_context().project_ref().motion_preference.set(preference);
+    }
+
+    /// Whether styled links are underlined. The default is true.
+    pub fn links_underlined(&self) -> bool {
+        self.platform_context().project_ref().links_underlined.get()
+    }
+
+    /// Changes link underlining and re-evaluates styled text that tracks it.
+    pub fn set_links_underlined(&self, value: bool) {
+        self.platform_context().project_ref().links_underlined.set(value);
     }
 
     #[doc(hidden)]

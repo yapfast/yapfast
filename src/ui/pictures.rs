@@ -734,9 +734,9 @@ fn gallery_cells(previews: &[Preview<'_>], covered: &dyn Fn(usize) -> bool) -> (
             return ImageCell {
                 index: index as i32,
                 name: attachment.name.clone().into(),
+                description: attachment.description.clone().unwrap_or_default().into(),
                 loading: loading(attachment),
                 video: attachment.video,
-                description: description.clone(),
                 ..Default::default()
             };
         };
@@ -745,9 +745,9 @@ fn gallery_cells(previews: &[Preview<'_>], covered: &dyn Fn(usize) -> bool) -> (
             return ImageCell {
                 index: index as i32,
                 name: attachment.name.clone().into(),
+                description: attachment.description.clone().unwrap_or_default().into(),
                 spoiler,
                 video: attachment.video,
-                description: description.clone(),
                 ..Default::default()
             };
         }
@@ -824,12 +824,12 @@ mod tests {
                     ..Default::default()
                 })),
                 preview_failed: false,
+                description: None,
                 placement: Placement::Message,
                 gif: None,
                 spoiler: false,
                 video: false,
                 url: None,
-                description: None,
             })
             .collect();
         let row = message_row(
@@ -884,12 +884,12 @@ mod tests {
                 dimensions: Some((360, 240)),
                 preview: preview.cloned(),
                 preview_failed: false,
+                description: None,
                 placement: Placement::Message,
                 gif: None,
                 spoiler: false,
                 video: false,
                 url: None,
-                description: None,
             }
         };
         let one = found_row(
@@ -941,12 +941,12 @@ mod tests {
             dimensions: Some((400, 300)),
             preview: Some(picture.clone()),
             preview_failed: false,
+            description: None,
             placement,
             gif: None,
             spoiler: false,
             video: false,
             url: None,
-            description: None,
         };
         let message = ChatMessage {
             attachments: vec![

@@ -3213,12 +3213,12 @@ fn videos_play_in_the_open_room_until_it_closes() {
         dimensions: None,
         preview: None,
         preview_failed: false,
+        description: None,
         placement: chat::Placement::Message,
         gif: None,
         spoiler: false,
         video,
         url: None,
-        description: None,
     };
     app.apply(Event::Timeline {
         room: "dm".into(),
@@ -3402,12 +3402,12 @@ fn the_viewer_steps_through_a_messages_images() {
         dimensions: None,
         preview: None,
         preview_failed: false,
+        description: None,
         placement: chat::Placement::Message,
         gif: None,
         spoiler: false,
         video: false,
         url: None,
-        description: None,
     };
     app.apply(Event::Timeline {
         room: "dm".into(),
@@ -3484,12 +3484,12 @@ fn a_picture_with_an_address_is_copied_to_the_clipboard() {
         dimensions: None,
         preview: None,
         preview_failed: false,
+        description: None,
         placement: chat::Placement::Message,
         gif: None,
         spoiler: false,
         video: false,
         url: url.map(Into::into),
-        description: None,
     };
     app.apply(Event::Timeline {
         room: "dm".into(),
@@ -4133,12 +4133,12 @@ fn discord_threads_show_beside_their_channel() {
                 dimensions: None,
                 preview: None,
                 preview_failed: false,
+                description: None,
                 placement: chat::Placement::Message,
                 gif: None,
                 spoiler: false,
                 video: false,
                 url: None,
-                description: None,
             }],
             can_react: true,
             can_reply: true,
@@ -5903,12 +5903,12 @@ fn closed_channels_keep_metadata_without_pinning_previews() {
             dimensions: None,
             preview: Some(picture.clone()),
             preview_failed: false,
+            description: None,
             placement: crate::chat::Placement::Message,
             gif: None,
             spoiler: false,
             video: false,
             url: None,
-            description: None,
         }],
         ..message(&format!("e:${index}"), false)
     };
@@ -10315,12 +10315,12 @@ fn favourite_gifs_show_from_disk_and_stars_wait_for_discords() {
             dimensions: Some((200, 100)),
             preview: None,
             preview_failed: false,
+            description: None,
             placement: crate::chat::Placement::Message,
             gif: Some(gif.clone()),
             spoiler: false,
             video: false,
             url: None,
-            description: None,
         }],
         ..message("e:$1", false)
     };

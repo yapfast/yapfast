@@ -766,12 +766,14 @@ fn text_content_widths_impl(
             shaping::content_widths_builder(text_item.font_request(item_rc), scale_factor);
         let text = text_item.text();
         let line_limit = text_item.line_limit();
+        let underline_links = item_rc.slint_context().links_underlined();
 
         let paragraphs_without_linebreaks = create_text_paragraphs(
             &layout_builder,
             &mut ctx.font_context().borrow_mut(),
             text,
             Color::default(),
+            underline_links,
             None,
         );
 

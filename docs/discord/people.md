@@ -702,8 +702,16 @@ one-to-one DM's row and the profile card's name (`StyledName` in
 `ui/controls.slint`). `src/ui/name_style.rs` makes the colours, as the client's
 `lZ` does: lighter against a dark theme's background and darker against a light
 one's, until they read, and against #333 for toon on either. Each style's two
-palettes are made once, and the rows wearing it share them; a row without a
-style holds an empty list.
+palettes are cached by style, name and accessibility colour preferences, and the
+rows wearing them share them; a row without a style holds an empty list.
+
+Discord's client draws a name's style always. Display Name Styles, under
+Accessibility in Settings, keeps that on unless turned off. Off,
+`Cosmetics::style` removes it from DM rows, member lists and profile cards,
+and `Layout::restyle` removes the message-row model, so neither the classic
+nor compact row can bring it back on hover. Names use the ordinary font and
+their row, role or theme colour instead. The setting is kept in
+`layout.json` as `name_styles`.
 
 - **Fonts**, by `font_id`: 11 is the usual font, then Sakura 3, Jellybean 4,
   Modern 6, Medieval 7, 8Bit 8, Vampyre 10, Tempo 12, Monkey Bars 13,
@@ -740,9 +748,10 @@ stops its stylesheet doesn't show.
 ## Profile switches
 
 Settings → Appearance → Profiles has a switch for each cosmetic that
-downloads or animates pictures, as `CONTRIBUTING.md` asks, and one for
-name styles (`Cosmetics` in `application/cosmetics.rs`, `Looks` in
-`ui/theme.slint`). They're kept in `layout.json`, unset meaning the
+downloads or animates pictures, as `CONTRIBUTING.md` asks. Display Name
+Styles lives under Accessibility. Together they form `Cosmetics` in
+`application/cosmetics.rs`, mirrored by `Looks` in `ui/theme.slint`.
+They're kept in `layout.json`, unset meaning the
 default, and what's off is left out before anything is fetched: the core
 asks for none of its pictures (`pictures_on_screen`), and the rows the
 window draws carry no address for it, so Slint asks for nothing either.
@@ -753,7 +762,7 @@ window draws carry no address for it, so Slint asks for nothing either.
 | Show avatar decorations (`decorations`) | No decoration on messages, member lists, DM rows, profile cards or the account | On |
 | Show nameplates (`nameplates`) | No nameplate in member lists or on the account's card (`AppState::hide_nameplates`) | On |
 | Animate decorations and nameplates (`moving_cosmetics`) | Their `/animated` APNG is never asked for (`animated_url` gives none), so only the still is fetched and decoded | On |
-| Show name styles (`name_styles`) | Names in the UI's typeface and the theme's colour | On |
+| Display Name Styles (`name_styles`) | No custom font, palette or effect; the row's ordinary colour remains | On |
 | Show server tags (`server_tags`) | No tag chip, and no badge picture | On |
 | Show profile frames (`profile_frames`) | No `/collectibles-products/` request for a profile's frame (`DiscordCommand::Profile`'s `frame`), and none of its layers | On |
 

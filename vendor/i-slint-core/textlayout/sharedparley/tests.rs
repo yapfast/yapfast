@@ -44,6 +44,7 @@ fn layout_text_with_builder(
         &mut font_ctx,
         PlainOrStyledText::Plain(text.into()),
         Color::default(),
+        true,
         None,
     );
     layout(&builder, &mut font_ctx, paragraphs, ScaleFactor::new(1.0), options, None)
@@ -71,6 +72,8 @@ fn styled_text_across_a_line_break_shapes() {
         &mut test_font_context(),
         PlainOrStyledText::Styled(text),
         Color::default(),
+        true,
+        None,
     );
     assert_eq!(paragraphs.len(), 2);
 }

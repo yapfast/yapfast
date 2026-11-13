@@ -251,7 +251,7 @@ export component MemberPanel inherits Rectangle {
                 }
                 // A heading is a row of its own; see `show_roster`.
                 if member.id != "": Rectangle {
-                  height: 42px; border-radius: 8px;
+                  height: ClientStyle.member-row-height; border-radius: 8px;
                   background: member.id == root.selected ? #97979f33 : member-pointer.has-hover ? #97979f1f : transparent;
                   if member.nameplate-url != "": Nameplate {
                       radius: 8px; picture-url: member.nameplate-url; palette: Theme.dark ? member.nameplate-color : member.nameplate-light;

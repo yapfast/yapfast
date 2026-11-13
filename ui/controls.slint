@@ -1394,6 +1394,7 @@ export component ContextMenu inherits Rectangle {
 export component VolumeSlider inherits Rectangle {
     in property <string> label;
     in-out property <int> value: 100;
+    in property <int> minimum: 0;
     in property <int> maximum: 200;
     /// The value as the slider says it.
     in property <string> shown: root.value + "%";
@@ -1406,14 +1407,14 @@ export component VolumeSlider inherits Rectangle {
     accessible-role: slider;
     accessible-label: root.label;
     accessible-value: root.shown;
-    accessible-value-minimum: 0;
+    accessible-value-minimum: root.minimum;
     accessible-value-maximum: root.maximum;
     accessible-value-step: root.step;
     accessible-action-increment => { root.move(root.step); }
     accessible-action-decrement => { root.move(-root.step); }
     forward-focus: focus;
     function set(value: int) {
-        let clamped = max(0, min(root.maximum, value));
+        let clamped = max(root.minimum, min(root.maximum, value));
         if clamped != root.value {
             root.value = clamped;
             root.changed(clamped);
@@ -1424,7 +1425,7 @@ export component VolumeSlider inherits Rectangle {
         root.committed(root.value);
     }
     function point(x: length) {
-        let value = round(max(0, min(1, x / track.width)) * root.maximum);
+        let value = root.minimum + round(max(0, min(1, x / track.width)) * (root.maximum - root.minimum));
         root.set(root.full-mark && abs(value - 100) <= 4 ? 100 : value);
     }
     column := VerticalLayout {
@@ -1437,12 +1438,12 @@ export component VolumeSlider inherits Rectangle {
             height: 18px;
             Rectangle { y: (parent.height - self.height) / 2; height: 4px; border-radius: 2px; background: Theme.field; }
             Rectangle {
-                x: 0; y: (parent.height - self.height) / 2; width: parent.width * root.value / root.maximum; height: 4px;
+                x: 0; y: (parent.height - self.height) / 2; width: parent.width * (root.value - root.minimum) / (root.maximum - root.minimum); height: 4px;
                 border-radius: 2px; background: Theme.accent;
             }
             if root.full-mark: Rectangle { x: parent.width * 100 / root.maximum - 1px; y: (parent.height - self.height) / 2; width: 2px; height: 10px; background: Theme.secondary; }
             Rectangle {
-                x: parent.width * root.value / root.maximum - self.width / 2; y: (parent.height - self.height) / 2;
+                x: parent.width * (root.value - root.minimum) / (root.maximum - root.minimum) - self.width / 2; y: (parent.height - self.height) / 2;
                 width: 14px; height: 14px; border-radius: 7px; background: Theme.text;
                 border-width: focus.has-focus ? 2px : 0px; border-color: Theme.accent;
             }

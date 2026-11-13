@@ -477,7 +477,7 @@ pub(super) fn role_color(color: u32) -> slint::Color {
     } else {
         color
     };
-    slint::Color::from_argb_encoded(0xff00_0000 | color)
+    theme::custom_colour(slint::Color::from_argb_encoded(0xff00_0000 | color))
 }
 
 /// A role's lock in Discord's words.

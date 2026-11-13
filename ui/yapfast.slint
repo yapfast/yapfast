@@ -38,7 +38,7 @@ import "fonts/DisplayName-Journal.ttf";
 // Yapfast's window. Its parts live beside it, by area: theme.slint, controls.slint,
 // discord.slint, voice.slint, rail.slint, composer.slint, messages.slint,
 // settings.slint, people.slint, friends.slint, dialogs.slint and sign-in.slint.
-import { Theme, Tip, BadgeTip, ReactionHover, Middle, Popup, PopupMotion, Twemoji } from "theme.slint";
+import { Theme, Looks, Tip, BadgeTip, ReactionHover, Middle, Popup, PopupMotion, Twemoji } from "theme.slint";
 import { TitleBar, ResizeEdges } from "title_bar.slint";
 import { InboxRow, InboxPopout } from "yapfast/inbox.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
@@ -48,7 +48,7 @@ import { PersonRow, VoiceCard, CallLink, CallLinkCard, LinkTouch, SignalIcon, Vo
 import { ServerRow, RoomRow, StatusDot, ServerRail, ServerHeader, RoomList, VoiceCardView } from "rail.slint";
 import { StagedFile, StagedTile, Composer, MentionRow, MentionList, EmojiSuggestions, RequestBar } from "composer.slint";
 import { InlineEdit, EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, EmojiCardView, MessageStickerCard, MessageStickerCardView, MessageRow, ReactionToggle, EmojiButton, EmojiPicker, MessageMenu, MessageGallery, MessageStickers, FileCard, MessageContent, EmbedView, BotTag, NoConversation, ConversationStart, HistoryEdge, UnreadBar, PresentBar, ImageViewer, VideoViewer, VideoPlayer, VoicePlayer, Polls } from "messages.slint";
-import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, AboutSettings } from "settings.slint";
+import { Choices, SettingsRow, SettingsScreen, AccountSettings, AppearanceSettings, AccessibilitySettings, ThemeCard, ThemeColour, VoiceSettings, MessageSettings, NotificationSettings, SoundSettings, AdvancedSettings, DiscordLinkSettings, DiscordSettings, BlockedRow, GameActivitySettings, GameExecutable, AboutSettings } from "settings.slint";
 import { ActivityMenu, MemberRow, MemberActivityRow, ProfileData, BadgeTipCard, ProfileServerRow, MemberPanel, ProfileCard, ProfileModal, ServerCard, RoleCard } from "people.slint";
 import { RequestRow, FriendRow, FriendsScreen, HeaderTab, RequestsScreen, AddFriendDialog } from "friends.slint";
 import { ContactRow, PlaceRow, ReactionPill, ReactorRow, StatusDialog, NewDmDialog, ForwardDialog, QuickSwitcher, ReactionsDialog, StatusMenu, PersonPrompt, PersonDialog, LeavingDialog, PollAnswerDraft, PollDialog } from "dialogs.slint";
@@ -82,7 +82,7 @@ export { ServerTagRow } from "server.slint";
 export { ActiveFace, ActiveRowKind, ActiveNowRow, ActiveNowCard } from "active_now.slint";
 export { ProfileTheme } from "people.slint";
 export { StagedFile, MentionRow } from "composer.slint";
-export { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, MessageStickerCard, EmojiFavorites, ReactionChip, ImageCell, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, VoicePlayer, PollAction, PollAnswerRow, PollCard, Polls, InlineEdit } from "messages.slint";
+export { EmojiCell, EmojiRow, EmojiTile, EmojiSection, RailSection, EmojiCard, MessageStickerCard, EmojiFavorites, ReactionChip, ImageCell, ImageAccessibility, FileCell, EmbedField, EmbedFieldRow, EmbedCard, CardButtonStyle, CardButton, TextBlock, CardRowKind, CardRow, ComponentCard, MessageRow, VideoPlayer, VoicePlayer, PollAction, PollAnswerRow, PollCard, Polls, InlineEdit } from "messages.slint";
 export { MemberRow, MemberActivityRow, ProfileRole, ProfileRoleRow, ProfileServerRow, ProfileFriendRow, ProfileBadgeRow, ProfileData, ActivityRow, ProfileGameRow, ProfileWidgetRow, ProfileWishlistRow, ProfileRecentRow } from "people.slint";
 export { RequestRow, FriendRow } from "friends.slint";
 export { ContactRow, PlaceRow, ReactionPill, ReactorRow, PollAnswerDraft } from "dialogs.slint";
@@ -878,6 +878,7 @@ export component YapfastWindow inherits Window {
     in property <int> viewer-width;
     in property <int> viewer-height;
     in property <string> viewer-name;
+    in property <string> viewer-description;
     /// Such as "2 / 3"; empty for a message's only image.
     in property <string> viewer-position;
     /// While the full image loads, or why it can't show.
@@ -1282,16 +1283,31 @@ export component YapfastWindow inherits Window {
     in-out property <bool> twelve-hour-clock;
     in-out property <bool> clock-seconds;
     in-out property <int> date-format: -1;
-    /// Message text: 0 small, 1 default, 2 large.
-    in-out property <int> text-size: 1;
+    /// Message text in pixels from 12 to 24; zero follows the interface style.
+    in-out property <int> text-size: 0;
+    /// List density: 0 compact, 1 default, 2 spacious.
+    in-out property <int> ui-density: 1;
+    /// Message layout: 0 cozy, 1 compact.
+    in-out property <int> chat-display: 0;
+    in-out property <int> message-group-gap: 16;
+    in-out property <int> colour-saturation: 100;
+    in-out property <bool> saturate-custom-colours: true;
+    in-out property <bool> high-contrast: false;
+    in-out property <bool> contrast-indicators: false;
+    in-out property <bool> underline-links: true;
     in-out property <bool> link-previews: true;
     in-out property <bool> boost-gems: true;
     in-out property <bool> reply-ping-default: true;
     in-out property <bool> strip-tracking: true;
     /// Whether nameplates show, in member lists and on the account's card.
     in-out property <bool> show-nameplates: true;
+    /// Whether a message's author wears their Discord name style. Off,
+    /// the style model is removed and the ordinary font and role colour show.
+    in-out property <bool> show-name-styles <=> Looks.name-styles;
     /// When animations play: 0 while Yapfast has the focus, 1 always, 2 never.
     in-out property <int> animate;
+    in-out property <bool> reduced-motion: false;
+    in-out property <bool> show-image-descriptions: false;
     in-out property <bool> unmute-on-join;
     in-out property <bool> deafen-on-join;
     in-out property <bool> level-voice: true;
@@ -1409,7 +1425,9 @@ export component YapfastWindow inherits Window {
         root.track-new();
         if root.theme-editor && root.settings-section != 7 { root.cancel-theme(); }
     }
-    out property <length> message-font-size: root.text-size == 0 ? 14px : root.text-size == 2 ? 18px : ClientStyle.text-size;
+    changed contrast-indicators => { Theme.contrast-indicators = root.contrast-indicators; }
+    changed reduced-motion => { Theme.reduced-motion = root.reduced-motion; }
+    out property <length> message-font-size: root.text-size == 0 ? ClientStyle.text-size : max(12px, min(24px, root.text-size * 1px));
     // The sidebar keeps 180 to 380px. Dragging also leaves the conversation 420px;
     // the window width cannot enter this binding, because it depends on the layout.
     out property <length> sidebar-shown: max(180px, min(380px, root.sidebar-width));
@@ -3572,7 +3590,8 @@ export component YapfastWindow inherits Window {
                                                     }
                                                     MessageContent {
                                                         message: message; active-item: root.active-item; preview: root.preview; reactions-enabled: root.reactions-enabled; bot-busy-item: root.bot-busy-item; bot-failed-item: root.bot-failed-item; bot-failed-text: root.bot-failed-text;
-                                                        emoji-font: root.emoji-font; message-font-size: root.message-font-size;
+                                                        emoji-font: root.emoji-font; message-font-size: root.message-font-size; compact: root.chat-display == 1;
+                                                        show-styles: root.show-name-styles; hovered: row-pointer.has-hover;
                                                         collapse-long: root.collapse-long;
                                                         // The view keeps the message's top: it stops following
                                                         // the newest, and Show less on a message whose top is
@@ -4038,6 +4057,7 @@ export component YapfastWindow inherits Window {
                     }
                     if root.aside-docked && !root.new-thread-open: ThreadPanel {
                         width: root.aside-shown;
+                        show-styles: root.show-name-styles;
                         name: root.aside-name; messages: root.aside-messages; ready: root.aside-ready;
                         loading: root.aside-loading; start: root.aside-start; failed: root.aside-failed;
                         focus-tick: root.aside-focus-tick;
@@ -4054,7 +4074,7 @@ export component YapfastWindow inherits Window {
                         unstage(index) => { root.aside-unstage(index); }
                         toggle-spoiler(index) => { root.aside-toggle-spoiler(index); }
                         paste => { root.aside-paste(); }
-                        emoji-font: root.emoji-font; message-font-size: root.message-font-size; bar-reactions: root.bar-reactions;
+                        emoji-font: root.emoji-font; message-font-size: root.message-font-size; compact-messages: root.chat-display == 1; bar-reactions: root.bar-reactions;
                         active-item <=> root.active-item; react-item: root.react-item; menu-item: root.menu-item; confirm-delete: root.confirm-delete;
                         shift-held: root.shift-held;
                         forward-allowed: root.forward-allowed;
@@ -4399,6 +4419,19 @@ export component YapfastWindow inherits Window {
             cancel-theme => { root.cancel-theme(); }
             delete-theme => { root.delete-theme(); }
         }
+        if root.settings-section == 10: AccessibilitySettings {
+            message-font-size: root.message-font-size; text-size <=> root.text-size;
+            ui-density <=> root.ui-density; chat-display <=> root.chat-display;
+            message-group-gap <=> root.message-group-gap;
+            colour-saturation <=> root.colour-saturation;
+            saturate-custom-colours <=> root.saturate-custom-colours;
+            high-contrast <=> root.high-contrast; contrast-indicators <=> root.contrast-indicators;
+            underline-links <=> root.underline-links;
+            show-name-styles <=> root.show-name-styles; animate <=> root.animate;
+            reduced-motion <=> root.reduced-motion;
+            show-image-descriptions <=> root.show-image-descriptions;
+            preferences-changed => { root.preferences-changed(); }
+        }
         if root.settings-section == 1: VoiceSettings {
             microphones: root.microphones; microphone-index <=> root.microphone-index;
             speakers: root.speakers; speaker-index <=> root.speaker-index;
@@ -4427,10 +4460,8 @@ export component YapfastWindow inherits Window {
             preferences-changed => { root.preferences-changed(); }
         }
         if root.settings-section == 2: MessageSettings {
-            message-font-size: root.message-font-size;
-            twelve-hour-clock <=> root.twelve-hour-clock; clock-seconds <=> root.clock-seconds; date-format <=> root.date-format; text-size <=> root.text-size;
+            twelve-hour-clock <=> root.twelve-hour-clock; clock-seconds <=> root.clock-seconds; date-format <=> root.date-format;
             link-previews <=> root.link-previews; boost-gems <=> root.boost-gems; share-typing <=> root.share-typing;
-            animate <=> root.animate;
             reply-ping <=> root.reply-ping-default; strip-tracking <=> root.strip-tracking;
             collapse-long <=> root.collapse-long;
             matrix: root.matrix-build; discord: root.discord-linked;
@@ -4809,6 +4840,7 @@ export component YapfastWindow inherits Window {
         y: root.title-height; height: root.height - root.title-height;
         viewer-image: root.viewer-image; viewer-frames: root.viewer-frames; viewer-delays: root.viewer-delays;
         viewer-width: root.viewer-width; viewer-height: root.viewer-height; viewer-name: root.viewer-name;
+        viewer-description: root.viewer-description;
         viewer-position: root.viewer-position; viewer-note: root.viewer-note;
         viewer-item: root.viewer-item; viewer-index: root.viewer-index; preview: root.preview;
         close-image => { root.close-image(); }

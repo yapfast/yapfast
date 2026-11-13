@@ -1624,6 +1624,7 @@ impl OpenChannel {
                     .iter()
                     .map(|file| Attachment {
                         name: file.name.clone(),
+                        description: None,
                         size: Some(file.size),
                         image: false,
                         dimensions: None,
@@ -1634,7 +1635,6 @@ impl OpenChannel {
                         url: None,
                         spoiler: file.spoiler,
                         video: false,
-                        description: None,
                     })
                     .collect(),
                 ..Default::default()
@@ -1703,6 +1703,7 @@ impl OpenChannel {
                 }
                 Attachment {
                     name: attachment.name.clone(),
+                    description: attachment.description.clone(),
                     size: attachment.size,
                     image: attachment.image && attachment.preview_url.is_some(),
                     dimensions: attachment.dimensions,
@@ -1724,7 +1725,6 @@ impl OpenChannel {
                             .clone()
                             .unwrap_or_else(|| attachment.url.clone()),
                     ),
-                    description: attachment.description.clone(),
                 }
             })
             .collect();
