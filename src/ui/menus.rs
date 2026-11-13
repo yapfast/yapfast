@@ -1,7 +1,9 @@
 //! The menus a right click opens: what they offer, and the choices made.
 
 use yapfast_core::{
-    application::{ChannelAsk, MUTE_TIMES, MenuChoice, OwnershipInput, network_id, network_link},
+    application::{
+        ChannelAsk, CommandTarget, MUTE_TIMES, MenuChoice, OwnershipInput, network_id, network_link,
+    },
     chat::{
         ChannelKind, MemberChange, Muting, NotificationChange, Notifications, NotifyLevel,
         RelationshipChange,
@@ -22,6 +24,23 @@ pub(super) const EVENTS: &str = "events:";
 /// thread's room id: the header in full view, and the one beside its channel.
 pub(super) const TOOLBAR: &str = "thread-toolbar:";
 pub(super) const SIDEBAR: &str = "thread-sidebar:";
+
+/// How a profile's More button names its menu, before the person's id: their
+/// menu, whose changes to a relationship say they came from the profile.
+pub(super) const PROFILE_MORE: &str = "profile-more:";
+
+/// Where Discord's client says a profile's More menu blocked, unblocked or
+/// unfriended someone; a right-click menu is "ContextMenu".
+const PROFILE_OVERFLOW: &str = "user profile overflow menu";
+
+/// A menu's target without the profile's prefix, and where Discord's client
+/// says a change to a relationship from that menu came from.
+pub(super) fn relationship_place(target: &str) -> (&str, &'static str) {
+    match target.strip_prefix(PROFILE_MORE) {
+        Some(user) => (user, PROFILE_OVERFLOW),
+        None => (target, "ContextMenu"),
+    }
+}
 
 /// The thread a header's More menu is about, and where Discord's client says
 /// a choice in it came from.
@@ -69,7 +88,18 @@ fn events(adapter: &Adapter, server: &str) -> Menu {
                 ..Default::default()
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
+    // A server without events opens the row all the same, as Discord's does.
+    if rows.is_empty() {
+        let none = MenuRow {
+            id: "event:none".into(),
+            text: "No upcoming events".into(),
+            plain: true,
+            disabled: true,
+            ..Default::default()
+        };
+        return (vec![none], Vec::new());
+    }
     (rows, Vec::new())
 }
 
@@ -83,6 +113,7 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
     if let Some(server) = id.strip_prefix(EVENTS) {
         return events(adapter, server);
     }
+    let (id, _) = relationship_place(id);
     let icons = &adapter.icons;
     let app = &adapter.app;
     let state = &app.state;
@@ -191,6 +222,7 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 | MenuChoice::RemoveFromChannelList
                 | MenuChoice::UnfollowCategory => 3,
                 MenuChoice::ServerNickname | MenuChoice::Roles | MenuChoice::MoveTo => 4,
+                MenuChoice::Apps => 10,
                 MenuChoice::LocalMute
                 | MenuChoice::SoundboardMute
                 | MenuChoice::SelfMute
@@ -336,6 +368,14 @@ pub(super) fn menu(adapter: &Adapter, id: &str, person: bool) -> Menu {
                 notification_rows(app, id)
             } else if row.id == choice_id(MenuChoice::Roles) {
                 role_rows(adapter, id)
+            } else if row.id == choice_id(MenuChoice::Apps) {
+                // A person's run in the open room; a DM's in the DM.
+                let place = if person {
+                    state.selected.as_deref()
+                } else {
+                    Some(id)
+                };
+                app_rows(app, place)
             } else if row.id == choice_id(MenuChoice::InviteToServer) {
                 invite_rows(app, user.as_deref())
             } else if let (true, Some((room, user))) =
@@ -373,6 +413,7 @@ fn label(icons: &Icons, choice: MenuChoice, in_call: bool) -> (&'static str, &sl
         MenuChoice::CloseDm => ("Close DM", &icons.cancel),
         MenuChoice::LeaveGroup => ("Leave group", &icons.leave),
         MenuChoice::InviteToServer => ("Invite to server", &icons.befriend),
+        MenuChoice::Apps => ("Apps", &icons.settings),
         MenuChoice::Unfriend => ("Remove friend", &icons.unfriend),
         MenuChoice::Ignore => ("Ignore", &icons.ignore),
         MenuChoice::Unignore => ("Stop ignoring", &icons.ignore),
@@ -442,6 +483,7 @@ fn discord_rank(choice: MenuChoice) -> u8 {
         MenuChoice::AddNote => 5,
         MenuChoice::AddNickname | MenuChoice::EditNickname => 6,
         MenuChoice::EditServerProfile => 7,
+        MenuChoice::Apps => 10,
         MenuChoice::InviteToServer => 11,
         MenuChoice::AddFriend
         | MenuChoice::AcceptFriend
@@ -505,6 +547,27 @@ fn invite_rows(app: &Application, user: Option<&str>) -> Vec<MenuRow> {
         })
         .collect()
 }
+
+/// Someone's Apps submenu, built as it opens: the user commands `place`'s
+/// command index offers, each with its app's name under it.
+fn app_rows(app: &Application, place: Option<&str>) -> Vec<MenuRow> {
+    let Some(place) = place else {
+        return vec![];
+    };
+    app.commands_for_target(place, CommandTarget::User)
+        .into_iter()
+        .map(|command| MenuRow {
+            id: format!("{APP}{}", command.command).into(),
+            text: command.name.into(),
+            subtitle: command.app_name.into(),
+            plain: true,
+            ..Default::default()
+        })
+        .collect()
+}
+
+/// What a command's row in the Apps submenu reports, before the command's id.
+const APP: &str = "app:";
 
 /// What a server's row in the Invite to server submenu reports, before the
 /// server's id.
@@ -818,6 +881,11 @@ pub(super) fn choose(
     if target.starts_with(EVENTS) {
         return;
     }
+    // A profile's More menu is its person's, said to come from the profile.
+    let (target, relationship_location) = {
+        let (user, location) = relationship_place(&target);
+        (user.to_owned(), location)
+    };
     // A checkbox shows its new state at once, as the menu stays open.
     let ticked = toggle(window, id);
     // Someone's menu in a voice channel acts on them in its server.
@@ -874,7 +942,6 @@ pub(super) fn choose(
         .map(|(room, _)| room)
         .or(listed)
         .or_else(|| adapter.app.state.selected.clone());
-    let me = adapter.app.state.discord_user.as_deref() == Some(target.as_str());
     let voice = |change| {
         place.clone().map(|place| Action::ChangeMember {
             place,
@@ -883,12 +950,10 @@ pub(super) fn choose(
         })
     };
     if let Some(to) = id.strip_prefix(MOVE_TO) {
-        // This account moves by joining there.
-        let action = if me {
-            Some(Action::RequestJoinVoice(to.to_owned()))
-        } else {
-            voice(MemberChange::Move(Some(to.to_owned())))
-        };
+        // This account moves by joining there; see Application::move_to.
+        let action = place
+            .as_deref()
+            .and_then(|place| adapter.app.move_to(place, &target, to));
         if let Some(action) = action {
             adapter.action(window, action);
         }
@@ -914,6 +979,17 @@ pub(super) fn choose(
         adapter.action(window, Action::InviteToServer { user, server });
         return;
     }
+    if let (Some(command), Some(user)) = (id.strip_prefix(APP), user.clone()) {
+        let command = command.to_owned();
+        adapter.action(
+            window,
+            Action::RunAppCommand {
+                command,
+                target: Some(user),
+            },
+        );
+        return;
+    }
     if let Some(muting) = MUTE_TIMES.into_iter().find(|&muting| mute_id(muting) == id) {
         if let Some(room) = room {
             adapter.action(window, Action::MuteDm { room, muting });
@@ -923,10 +999,19 @@ pub(super) fn choose(
     let Some(choice) = CHOICES.into_iter().find(|&choice| choice_id(choice) == id) else {
         return;
     };
-    let ask = |ask| user.clone().map(|user| Action::AskPerson { user, ask });
+    let ask = |ask| {
+        user.clone().map(|user| Action::AskPerson {
+            user,
+            ask,
+            location: relationship_location,
+        })
+    };
     let change = |change| {
-        user.clone()
-            .map(|user| Action::ChangeRelationship { user, change })
+        user.clone().map(|user| Action::ChangeRelationship {
+            user,
+            change,
+            location: relationship_location,
+        })
     };
     let ask_member = |ask| {
         place.clone().map(|place| Action::AskMember {
@@ -1001,7 +1086,9 @@ pub(super) fn choose(
         }),
         // Its roles are its submenu's, as are the servers to invite to and
         // the channels to move to.
-        MenuChoice::Roles | MenuChoice::InviteToServer | MenuChoice::MoveTo => None,
+        MenuChoice::Roles | MenuChoice::InviteToServer | MenuChoice::MoveTo | MenuChoice::Apps => {
+            None
+        }
         MenuChoice::LocalMute => {
             if let Some(muted) = ticked {
                 yapfast_core::volume::mute(&target, muted);
@@ -1135,7 +1222,7 @@ pub(super) fn server_change(
     }
 }
 
-const CHOICES: [MenuChoice; 65] = [
+const CHOICES: [MenuChoice; 66] = [
     MenuChoice::MarkRead,
     MenuChoice::JoinVoice,
     MenuChoice::OpenChat,
@@ -1153,6 +1240,7 @@ const CHOICES: [MenuChoice; 65] = [
     MenuChoice::CloseDm,
     MenuChoice::LeaveGroup,
     MenuChoice::InviteToServer,
+    MenuChoice::Apps,
     MenuChoice::Unfriend,
     MenuChoice::Ignore,
     MenuChoice::Unignore,
@@ -1222,6 +1310,7 @@ fn choice_id(choice: MenuChoice) -> &'static str {
         MenuChoice::CloseDm => "close-dm",
         MenuChoice::LeaveGroup => "leave-group",
         MenuChoice::InviteToServer => "invite-to-server",
+        MenuChoice::Apps => "apps",
         MenuChoice::Unfriend => "unfriend",
         MenuChoice::Ignore => "ignore",
         MenuChoice::Unignore => "unignore",
@@ -1318,6 +1407,7 @@ mod order_tests {
             MenuChoice::Mention,
             MenuChoice::Ignore,
             MenuChoice::InviteToServer,
+            MenuChoice::Apps,
         ];
         discord_order(&mut choices);
         assert_eq!(
@@ -1327,6 +1417,7 @@ mod order_tests {
                 MenuChoice::Mention,
                 MenuChoice::Message,
                 MenuChoice::AddNote,
+                MenuChoice::Apps,
                 MenuChoice::InviteToServer,
                 MenuChoice::AddFriend,
                 MenuChoice::Ignore,

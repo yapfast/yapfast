@@ -3,20 +3,20 @@
 | Area | Works on Linux | Open |
 | --- | --- | --- |
 | [Linking](#account-linking) | QR code from Settings, or the sign-in of a build without Matrix; unlinking; Discord's captcha, in the browser | A captcha solved against real Discord |
-| [Voice](voice.md) | Server voice channels, mute, deafen, per-person volume, voice gate with its sensitivity, [push-to-talk](voice.md#push-to-talk) on a recorded key, [DeepFilterNet noise suppression](voice.md#microphone) and its strength, taking a room's echo out, [camera video](voice.md#camera-video), [the soundboard](voice.md#soundboard) | A check of Windows audio, cameras and push-to-talk on real Windows, and of push-to-talk on real Wayland desktops |
+| [Voice](voice.md) | Server voice channels, [a card of who is in one](voice.md#who-is-in-a-voice-channel), [how long each one's call has gone on](voice.md#how-long-a-channels-call-has-gone-on), mute, deafen, per-person volume, [moving people to another channel](servers.md#someones-menu-in-a-voice-channel) from their menu or [by dragging them](servers.md#dragging-someone-to-another-voice-channel), voice gate with its sensitivity, [push-to-talk](voice.md#push-to-talk) on a recorded key, [DeepFilterNet noise suppression](voice.md#microphone) and its strength, taking a room's echo out, [camera video](voice.md#camera-video), [the soundboard](voice.md#soundboard) | A check of Windows audio, cameras and push-to-talk on real Windows, and of push-to-talk on real Wayland desktops |
 | [DM calls](voice.md#dm-calls) | Starting, ringing, answering and declining DM and group DM calls, with cameras | A check by hand through real Discord |
 | [Go Live](go-live.md) | Sharing a screen with its sound, watching streams | A check on real Windows |
-| [Channels and messages](messages.md) | History, live updates, sending, replies, edits, reactions, files, embeds, custom emoji, stickers, spoilers, unread state, notifications and their settings, member lists, pinning messages, pins and search, a channel's topic and header, server, category and [channel menus](servers.md#a-channels-menu), [forwarding](messages.md#forwarding), pinning channels to the top, [following channels](servers.md#following-channels), invites, [joining by invite](servers.md#joining-by-invite), [scheduled events from their links](servers.md#event-links), Discord's own channel, message and profile links, making and changing channels, [server settings](server-settings.md)' Server Profile, Engagement, Boost Perks, [Emoji](server-settings.md#emoji), [Stickers](server-settings.md#stickers), [Members](server-settings.md#members), [Roles](server-settings.md#roles), [Invites](server-settings.md#invites), [Safety Setup](server-settings.md#safety-setup), [Audit Log](server-settings.md#audit-log), [Bans](server-settings.md#bans) and [Delete Server](server-settings.md#delete-server-and-transfer-ownership), [channel settings](server-settings.md#channel-settings) and their permissions, [two-factor authentication](server-settings.md#two-factor-authentication), threads, a channel's list of them and starting them, [forums](servers.md#forums), leaving servers | The rest of a server's settings and its privacy, membership forms when joining |
+| [Channels and messages](messages.md) | History, live updates, sending, replies, edits, reactions, files, embeds, custom emoji, stickers, spoilers, unread state and [marking a message unread](messages.md#mark-unread-and-message-links), notifications and their settings, member lists, pinning messages, pins and search, a channel's topic and header, server, category and [channel menus](servers.md#a-channels-menu), [forwarding](messages.md#forwarding), pinning channels to the top, [following channels](servers.md#following-channels), invites, [joining by invite](servers.md#joining-by-invite), [scheduled events from their links](servers.md#event-links), Discord's own channel, message and profile links, making and changing channels, [server settings](server-settings.md)' Server Profile, Engagement, Boost Perks, [Emoji](server-settings.md#emoji), [Stickers](server-settings.md#stickers), [Members](server-settings.md#members), [Roles](server-settings.md#roles), [Invites](server-settings.md#invites), [Safety Setup](server-settings.md#safety-setup), [Audit Log](server-settings.md#audit-log), [Bans](server-settings.md#bans) and [Delete Server](server-settings.md#delete-server-and-transfer-ownership), [channel settings](server-settings.md#channel-settings) and their permissions, [two-factor authentication](server-settings.md#two-factor-authentication), threads, a channel's list of them and starting them, [forums](servers.md#forums), leaving servers, [bots' buttons, dropdown menus and forms](messages.md#bots-buttons-menus-and-forms), their radio groups, checkboxes and file uploads included, [apps' slash commands](messages.md#apps-commands), [context-menu commands](messages.md#apps) and [who used one](messages.md#who-used-an-apps-command) | The rest of a server's settings and its privacy, membership forms when joining |
 | [DMs](people.md#dms) | DMs, group DMs, message requests and spam, starting a DM, [a DM's menu](people.md#a-dms-menu): pinning, muting, closing and leaving a group | |
-| [Friends](people.md#friends-and-requests) and [profiles](people.md#profiles) | Friends list, friend requests, adding by username, profile cards with their badges, others' server tags and the DM panel, custom status, [editing one's profile](people.md#editing-ones-main-profile), with its theme, name style and server tag, and [server profiles](people.md#editing-ones-server-profile), notes, friend nicknames, removing friends, ignoring and blocking, [the blocked list](people.md#friends-and-requests) | A list of the ignored; changing the username |
+| [Friends](people.md#friends-and-requests) and [profiles](people.md#profiles) | Friends list, friend requests, adding by username, profile cards with their badges, others' server tags and the DM panel, custom status, [editing one's profile](people.md#editing-ones-main-profile), with its theme, name style and server tag, and [server profiles](people.md#editing-ones-server-profile), notes, friend nicknames, removing friends, ignoring, blocking and unblocking, also [from a profile](people.md#profiles), [the blocked list](people.md#friends-and-requests) | A list of the ignored; changing the username |
 | [Mirroring](#mirroring-into-matrix) | | Planned and not started |
 
 Each area has a doc of its own: [voice](voice.md) and calls, [Go
 Live](go-live.md), [channels and messages](messages.md), [servers](servers.md)
 with their menus, invites, channels, threads and forums, [server
 settings](server-settings.md) with channel settings and two-factor
-authentication, and [DMs, friends and profiles](people.md) with presence and
-game detection. The [later list](#later) has what's left to do, and
+authentication, and [DMs, friends and profiles](people.md) with presence, game
+detection and Spotify. The [later list](#later) has what's left to do, and
 [adding a feature](adding-a-feature.md) walks a new one through each layer.
 
 Yapfast connects to Discord directly, so a person who links their Discord account
@@ -92,6 +92,11 @@ Yapfast follows the rules Discord documents for every client:
   readable only by the user, in `discord-cookies.json` in the data directory,
   so Yapfast stays the same device across restarts. Yapfast can't pass a Cloudflare
   challenge or captcha, so it never has a `cf_clearance` cookie.
+- **Headers.** Every API request carries what the web client's carry:
+  `X-Super-Properties`, the same description of the client as the gateway's
+  identify, `X-Discord-Locale` and `Accept-Language` for English, and
+  `X-Discord-Timezone` with this machine's time zone. `X-Debug-Options`
+  stays off, as it does in the web client until a debug option is on.
 - **Downloads.** Pictures and files from Discord's CDN download eight at a
   time, over one HTTP/2 connection, as a browser's requests to one host go.
   Avatars, server icons, banners, emoji and stickers have eight turns of
@@ -99,6 +104,8 @@ Yapfast follows the rules Discord documents for every client:
   other. Their newest batch goes first, in its order: rows on screen now
   come before rows scrolled past, and opening the emoji picker queues its
   pictures in the picker's order instead of asking for hundreds at once.
+  A start fetches the sticker picker's pictures ahead into the disk cache,
+  which decodes none of them and holds none.
   One kept on disk shows without waiting for a turn. A file someone asked
   for, such as the image the viewer shows or one they save or copy, skips
   the queue. A
@@ -202,7 +209,6 @@ In rough order. The browser covers these until then.
 - Activities, and the rest of a server's settings.
 - [Mirroring into Matrix](#mirroring-into-matrix).
 - The blocked on the friends page, beside Online and All.
-- Blocking and unblocking from a profile.
 - Animated custom emoji, which show their first frame.
 - Copying custom emoji: copied text has their private code points, not
   `:name:`.

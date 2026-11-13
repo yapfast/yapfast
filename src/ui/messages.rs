@@ -12,8 +12,9 @@ pub(super) const JUMP_LINK: &str = "yapfast:jump/";
 pub(super) const PINS_LINK: &str = "yapfast:pins";
 
 /// A message continues the previous one's group when the same person sent it
-/// within seven minutes, without replying to something else. A notice, such
-/// as one that someone pinned a message, is a group of its own.
+/// within seven minutes, without replying to something else or answering a
+/// command. A notice, such as one that someone pinned a message, is a group
+/// of its own.
 pub(super) fn continues(before: &ChatMessage, message: &ChatMessage) -> bool {
     if before.notice.is_some() || message.notice.is_some() {
         return false;
@@ -28,7 +29,7 @@ pub(super) fn continues(before: &ChatMessage, message: &ChatMessage) -> bool {
     let close = before.timestamp == 0
         || message.timestamp == 0
         || message.timestamp.abs_diff(before.timestamp) <= 7 * 60;
-    message.reply.is_none() && sender(before) == sender(message) && close
+    message.reply.is_none() && message.used.is_none() && sender(before) == sender(message) && close
 }
 
 /// The local calendar date of a timestamp, such as "3 October 2026"; empty when unknown.
@@ -459,6 +460,15 @@ pub(super) fn show_message(window: &YapfastWindow, index: usize, item: &str, lit
     });
 }
 
+/// The message flag of a Discord app's answer only this account sees.
+const EPHEMERAL: u64 = 1 << 6;
+/// The message flag of a Discord app's answer still to come.
+const LOADING: u64 = 1 << 7;
+
+/// How long Discord's client waits for a deferred answer before it says the
+/// app didn't respond: 15 minutes from the message's snowflake.
+const THINKING_SECS: u64 = 15 * 60;
+
 /// A message as the timeline shows it. `revealed` holds the spoilers clicked, as
 /// `{item}/{index}` for text and `{item}/a{index}` for attachments, and what
 /// was picked or shown on polls; see `polls`.
@@ -553,8 +563,10 @@ pub(super) fn message_row_within(
                     index: index as i32,
                     name: attachment.name.clone().into(),
                     description: attachment.description.clone().unwrap_or_default().into(),
-                    width: preview.width as i32,
-                    height: preview.height as i32,
+                    // Discord draws a message's sticker 160px square, whatever
+                    // its picture came at.
+                    width: STICKER_SIZE,
+                    height: STICKER_SIZE,
                     frames,
                     delays,
                     ..Default::default()
@@ -633,10 +645,19 @@ pub(super) fn message_row_within(
                     (_, _, Some(size)) => size,
                     _ => String::new(),
                 };
+                // A voice message's recording is its first attachment.
+                let voice = message.voice.as_ref().filter(|_| index == 0);
                 FileCell {
                     index: index as i32,
                     name: attachment.name.clone().into(),
                     detail: detail.into(),
+                    voice: voice.is_some(),
+                    waveform: voice.map_or_else(ModelRc::default, |voice| {
+                        ModelRc::new(VecModel::from(waveform_bars(&voice.waveform)))
+                    }),
+                    duration: voice
+                        .map(|voice| super::refresh::voice_time(voice.duration_ms).into())
+                        .unwrap_or_default(),
                 }
             })
             .collect()
@@ -664,6 +685,8 @@ pub(super) fn message_row_within(
             false,
             true,
         ),
+        // An app's command, whose row says why.
+        Delivery::Failed if message.item.starts_with("c:") => ("Not sent.", true, true),
         Delivery::Failed => ("Not sent. The server refused this message.", true, true),
     };
     let reply_author = message
@@ -671,6 +694,14 @@ pub(super) fn message_row_within(
         .as_ref()
         .map(|reply| reply.author.as_str())
         .unwrap_or_default();
+    let used_text = |text: fn(&yapfast_core::chat::UsedCommand) -> &String| -> SharedString {
+        message
+            .used
+            .as_ref()
+            .map(|used| text(used).as_str())
+            .unwrap_or_default()
+            .into()
+    };
     let row = MessageRow {
         picture_url: SharedString::default(),
         reply_picture_url: SharedString::default(),
@@ -687,6 +718,17 @@ pub(super) fn message_row_within(
         color: role_color(message.color),
         has_color: message.color.is_some(),
         bot: message.bot,
+        app_id: message
+            .application_id
+            .as_deref()
+            .or_else(|| {
+                message
+                    .bot
+                    .then(|| discord::sender_user(&message.sender))
+                    .flatten()
+            })
+            .unwrap_or_default()
+            .into(),
         initial: initial(&message.author),
         tint: tint(&message.author),
         // Virtualized avatars resolve their URLs when their components are built.
@@ -739,6 +781,40 @@ pub(super) fn message_row_within(
             .and_then(|reply| reply.item.clone())
             .unwrap_or_default()
             .into(),
+        has_command: message.used.is_some(),
+        command_user: used_text(|used| &used.user),
+        command_sender: message
+            .used
+            .as_ref()
+            .map(|used| discord::sender_user(&used.sender).unwrap_or(&used.sender))
+            .unwrap_or_default()
+            .into(),
+        command_initial: initial(message.used.as_ref().map_or("", |used| &used.user)),
+        command_tint: tint(message.used.as_ref().map_or("", |used| &used.user)),
+        command_color: role_color(message.used.as_ref().and_then(|used| used.color)),
+        command_has_color: message
+            .used
+            .as_ref()
+            .is_some_and(|used| used.color.is_some()),
+        command_picture_url: message
+            .used
+            .as_ref()
+            .and_then(|used| used.avatar.as_deref())
+            .unwrap_or_default()
+            .into(),
+        command_name: used_text(|used| &used.name),
+        command_slash: message
+            .used
+            .as_ref()
+            .and_then(|used| used.slash.as_deref())
+            .unwrap_or_default()
+            .into(),
+        command_target: message
+            .used
+            .as_ref()
+            .and_then(|used| used.target.as_deref())
+            .unwrap_or_default()
+            .into(),
         reactions: ModelRc::new(VecModel::from(
             message
                 .reactions
@@ -767,6 +843,8 @@ pub(super) fn message_row_within(
         delivery_failed: message.delivery == Delivery::Failed,
         can_retry,
         can_cancel,
+        // One with files keeps its line, with Cancel, while they upload.
+        sending: message.delivery == Delivery::Sending && message.attachments.is_empty(),
         can_reply: message.can_reply,
         can_edit: message.can_edit,
         can_delete: message.can_delete,
@@ -795,6 +873,11 @@ pub(super) fn message_row_within(
             })
             .unwrap_or_default(),
         has_poll: message.poll.is_some(),
+        ephemeral: message.flags & EPHEMERAL != 0,
+        thinking: message.flags & LOADING != 0,
+        timed_out: message.flags & LOADING != 0
+            && message.timestamp != 0
+            && yapfast_core::clock::now_ms() / 1000 >= message.timestamp + THINKING_SECS,
     };
     if collapsed(message, revealed) {
         // Discord shows nothing of a blocked message until asked.
@@ -816,6 +899,7 @@ pub(super) fn message_row_within(
             styled: slint::StyledText::from_markdown(&note)
                 .unwrap_or_else(|_| slint::StyledText::from_plain_text("Blocked message.")),
             has_reply: false,
+            has_command: false,
             reactions: ModelRc::default(),
             images: ModelRc::default(),
             gallery_width: 0,
@@ -833,6 +917,23 @@ pub(super) fn message_row_within(
         };
     }
     row
+}
+
+/// How many bars a voice message's waveform shows, as Discord's client
+/// draws it.
+const WAVEFORM_BARS: usize = 32;
+
+/// A voice message's waveform as its card's bars, each the loudest of its
+/// stretch of the points, from 0 to 1. Without a waveform they're flat.
+pub(super) fn waveform_bars(waveform: &[u8]) -> Vec<f32> {
+    (0..WAVEFORM_BARS)
+        .map(|bar| {
+            let start = bar * waveform.len() / WAVEFORM_BARS;
+            let end = ((bar + 1) * waveform.len() / WAVEFORM_BARS).max(start + 1);
+            let loudest = waveform.get(start..end.min(waveform.len()));
+            f32::from(loudest.into_iter().flatten().copied().max().unwrap_or(0)) / 255.0
+        })
+        .collect()
 }
 
 /// A row of a Discord app's card, its pictures and files found among the
@@ -873,6 +974,10 @@ fn card_row<'a>(
                 thumbnail_index: thumbnail.map_or(-1, |(index, _, _)| index as i32),
                 thumbnail_spoiler: thumbnail
                     .is_some_and(|(index, attachment, _)| attachment.spoiler && covered(index)),
+                thumbnail_description: thumbnail
+                    .and_then(|(_, attachment, _)| attachment.description.as_deref())
+                    .unwrap_or_default()
+                    .into(),
                 has_thumbnail: thumbnail.is_some(),
                 has_button: button.is_some(),
                 button: button.unwrap_or_default(),
@@ -908,9 +1013,18 @@ fn card_row<'a>(
             )),
             ..Default::default()
         },
-        Row::Select { text, .. } => CardRow {
+        Row::Select {
+            text,
+            disabled,
+            custom_id,
+            options,
+            ..
+        } => CardRow {
             kind: CardRowKind::Select,
-            select: text.as_str().into(),
+            select: custom_emoji::text(text, &message.emoji).into(),
+            select_id: custom_id.as_str().into(),
+            select_enabled: !disabled && !custom_id.is_empty(),
+            select_picked: options.iter().any(|option| option.default),
             ..Default::default()
         },
         Row::Unknown => CardRow {
@@ -941,9 +1055,13 @@ fn card_button(
             ButtonStyle::Success => CardButtonStyle::Success,
             ButtonStyle::Danger => CardButtonStyle::Danger,
             ButtonStyle::Link => CardButtonStyle::Link,
+            ButtonStyle::Premium => CardButtonStyle::Premium,
         },
         url: button.url.clone().unwrap_or_default().into(),
-        enabled: button.url.is_some() && !button.disabled,
+        custom_id: button.custom_id.clone().unwrap_or_default().into(),
+        sku_id: button.sku_id.clone().unwrap_or_default().into(),
+        enabled: !button.disabled
+            && (button.url.is_some() || button.custom_id.is_some() || button.sku_id.is_some()),
     }
 }
 
@@ -1345,6 +1463,101 @@ pub(super) fn emoji_card(
         }
         .into(),
         ..Default::default()
+    }
+}
+
+/// A default sticker's card: Discord's own packs are usable anywhere.
+const DEFAULT_STICKER: &str = "This is a default sticker. It can be used anywhere.";
+
+/// A server's sticker's card, when the server is one this account can reach.
+const SERVER_STICKER: &str = "This sticker is from one of your servers.";
+
+/// The id of the sticker a message's attachment is, from its picture's
+/// address: `/stickers/{id}.png?size=160`, `.gif` or `.json`.
+fn sticker_id(url: &str) -> Option<&str> {
+    let name = url.rsplit('/').next()?;
+    name.split(['.', '?']).next().filter(|id| !id.is_empty())
+}
+
+/// The card a click on a sticker in a message opens: the sticker, its name as
+/// the message names it, and the server it is from when one of this account's
+/// lists it.
+pub(super) fn sticker_card(app: &Application, item: &str, index: usize) -> MessageStickerCard {
+    let Some(attachment) = app
+        .state
+        .message(item)
+        .and_then(|message| message.attachments.get(index))
+    else {
+        return MessageStickerCard::default();
+    };
+    let url = attachment.url.as_deref().unwrap_or_default();
+    // Which server lists it: Discord's packs are nobody's, and a message's
+    // sticker names no server itself.
+    let server = sticker_id(url)
+        .and_then(|id| {
+            app.state
+                .stickers
+                .servers
+                .iter()
+                .find(|server| server.stickers.iter().any(|sticker| sticker.id == id))
+        })
+        .and_then(|server| {
+            let id = yapfast_core::discord::server_id(&server.id);
+            app.state.servers.iter().find(|known| known.id == id)
+        });
+    // Its frames as the message plays them, and the still it shows until they
+    // come, or for a still sticker.
+    let still = attachment
+        .preview
+        .as_ref()
+        .map(|picture| pictures::picture(picture));
+    let (frames, delays) = attachment
+        .preview
+        .as_ref()
+        .map_or_else(Default::default, pictures::animation);
+    // What Discord said of the server, as the emoji card has it.
+    let preview = server.and_then(|server| app.state.server_previews.get(&server.id));
+    let discoverable = preview.map_or_else(
+        || server.is_some_and(|server| server.community),
+        |preview| preview.discoverable,
+    );
+    MessageStickerCard {
+        name: attachment.name.as_str().into(),
+        picture_url: url.into(),
+        picture: still.unwrap_or_default(),
+        frames,
+        delays,
+        server_online: preview
+            .and_then(|preview| preview.online)
+            .map_or_else(String::new, |online| format!("{} Online", grouped(online)))
+            .into(),
+        server_note: if discoverable {
+            "Discoverable Server"
+        } else {
+            ""
+        }
+        .into(),
+        description: if server.is_some() {
+            SERVER_STICKER
+        } else {
+            DEFAULT_STICKER
+        }
+        .into(),
+        server: server
+            .map(|server| server.id.clone())
+            .unwrap_or_default()
+            .into(),
+        server_name: server
+            .map(|server| server.name.clone())
+            .unwrap_or_default()
+            .into(),
+        server_picture_url: server
+            .and_then(|server| server.icon.clone())
+            .unwrap_or_default()
+            .into(),
+        server_initial: server
+            .map(|server| initial(&server.name))
+            .unwrap_or_default(),
     }
 }
 

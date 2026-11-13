@@ -4,14 +4,15 @@
 //! default while that's gone; every [`LOOK`] it also sees whether it's on the
 //! endpoint it would open now, and moves there if not, so it goes back to
 //! the chosen device once that returns, and follows the default on Windows,
-//! whose streams stay where they opened. While no device opens at all, the
+//! whose streams stay where they opened. A microphone opens again too once
+//! [`super::set_windows_effects`] changes. While no device opens at all, the
 //! stream keeps time with silence.
 
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
 
-use super::{Input, Output, Sample, platform};
+use super::{Input, Output, Sample, platform, windows_effects};
 
 /// How often a stream sees whether it's on the endpoint it should be.
 const LOOK: Duration = Duration::from_secs(2);
@@ -32,6 +33,8 @@ struct Lasting<T> {
     stream: Option<T>,
     /// As `endpoint` names it.
     on: String,
+    /// Whether a microphone opened with Windows' effects.
+    effects: bool,
     /// When to look again.
     look: Instant,
 }
@@ -52,6 +55,7 @@ impl<T> Lasting<T> {
             endpoint,
             stream: None,
             on: String::new(),
+            effects: false,
             look: Instant::now() + LOOK,
         };
         let should = endpoint(device, output);
@@ -78,6 +82,7 @@ impl<T> Lasting<T> {
         };
         self.stream = Some(stream);
         self.on = on;
+        self.effects = self.effects_wanted();
         Ok(())
     }
 
@@ -87,7 +92,7 @@ impl<T> Lasting<T> {
         let now = Instant::now();
         if now >= self.look {
             let should = (self.endpoint)(self.device.as_deref(), self.output);
-            if self.stream.is_none() || should != self.on {
+            if self.stream.is_none() || should != self.on || self.effects != self.effects_wanted() {
                 match self.reopen(should) {
                     Ok(()) => tracing::info!(stream = self.name, "device opened again"),
                     Err(error) => tracing::debug!(
@@ -100,6 +105,12 @@ impl<T> Lasting<T> {
             self.look = Instant::now() + if self.stream.is_some() { LOOK } else { RETRY };
         }
         self.stream.as_mut()
+    }
+
+    /// Whether the stream should be open with Windows' effects: only a
+    /// microphone has a choice.
+    fn effects_wanted(&self) -> bool {
+        !self.output && windows_effects()
     }
 
     /// The stream failed: it opens again at the next use.
@@ -273,6 +284,27 @@ mod tests {
         lasting.lost(&anyhow::anyhow!("gone"));
         assert_eq!(lasting.stream().copied(), None);
         assert!(lasting.look > Instant::now(), "waits before trying again");
+    }
+
+    #[test]
+    fn a_microphone_opens_again_as_windows_effects_change() {
+        static OPENED: Mutex<u32> = Mutex::new(0);
+        let open = |_: Option<&str>| {
+            *OPENED.lock().unwrap() += 1;
+            Ok("microphone")
+        };
+        let endpoint = |_: Option<&str>, _: bool| String::from("microphone");
+        let mut microphone = Lasting::open(None, false, "Test", Box::new(open), endpoint).unwrap();
+        let mut speakers = Lasting::open(None, true, "Test", Box::new(open), endpoint).unwrap();
+        look_now(&mut microphone);
+        look_now(&mut speakers);
+        assert_eq!(*OPENED.lock().unwrap(), 2, "nothing changed");
+        super::super::set_windows_effects(true);
+        look_now(&mut microphone);
+        look_now(&mut speakers);
+        super::super::set_windows_effects(false);
+        assert_eq!(*OPENED.lock().unwrap(), 3, "only the microphone");
+        assert!(microphone.effects);
     }
 
     #[test]

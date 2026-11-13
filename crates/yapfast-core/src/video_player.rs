@@ -718,7 +718,7 @@ impl Resampler {
         }
     }
 
-    fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.position = 0.0;
         self.last = None;
     }

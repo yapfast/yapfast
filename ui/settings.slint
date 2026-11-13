@@ -8,6 +8,8 @@ import { ActionButton, IconButton, Avatar, SensitivitySlider, VolumeSlider, Text
 import { DiscordLinkPanel } from "discord.slint";
 import { ChannelRow } from "rail.slint";
 import { Soundboard, SoundRow } from "voice.slint";
+import { BuildInfo, Updates, UpdateStatus } from "yapfast/build-info.slint";
+import { NewTag, NewTags } from "yapfast/new-tags.slint";
 
 // Settings: a section's title, a group's heading, a switch with what it does, and
 // a row of exclusive choices with the current one raised.
@@ -29,6 +31,9 @@ export component SettingsSwitch inherits Rectangle {
     in property <bool> contrast-indicators: Theme.contrast-indicators;
     /// Why it can't change, shown while the pointer is on the switch.
     in property <string> locked-tip;
+    /// The key under which new_tags.rs lists this setting, if it is a new one:
+    /// a NEW tag follows its name until the page has been seen.
+    in property <string> new-key;
     /// Its owner sets `checked`, from what a flip asks for: the switch only
     /// says it was flipped, so a binding to it stays.
     in property <bool> controlled;
@@ -57,6 +62,7 @@ export component SettingsSwitch inherits Rectangle {
                     text: root.text; color: root.enabled ? Theme.text : Theme.muted; font-size: 15px;
                     vertical-alignment: center; wrap: word-wrap;
                 }
+                if root.new-key != "" && NewTags.is-new(root.new-key, NewTags.revision): Middle { NewTag { } }
                 // Discord's lock after the title, with why on hover.
                 if !root.enabled && root.locked-tip != "": Middle {
                     Image {
@@ -253,6 +259,8 @@ export component SettingsFrame inherits Rectangle {
     in property <bool> with-discord;
     in property <bool> may-edit-profile;
     callback edit-profile;
+    /// Puts text on the clipboard, for the version under the sections.
+    callback copy-text(string);
     /// Room below the section, for a bar over its bottom.
     in property <length> bottom: 56px;
     /// The page fills the frame's height instead of scrolling in it, for
@@ -284,6 +292,7 @@ export component SettingsFrame inherits Rectangle {
                 may-edit-profile: root.may-edit-profile;
                 chose(id) => { root.chose(id); }
                 edit-profile => { root.edit-profile(); }
+                copy-text(text) => { root.copy-text(text); }
             }
             if !root.discord-layout: Rectangle {
                 background: Theme.sidebar; horizontal-stretch: 0; min-width: 232px;
@@ -393,11 +402,12 @@ export component SettingsScreen inherits Rectangle {
     callback close;
     callback edit-profile;
     callback refresh-devices;
+    callback copy-text(string);
     property <[SettingsRow]> with-discord: [
         { heading: true, text: "SETTINGS" },
         { text: "My account", icon: @image-url("icons/user.svg"), id: 0 },
         { text: "Appearance", icon: @image-url("icons/palette.svg"), id: 7 },
-        { text: "Accessibility", icon: @image-url("icons/eye.svg"), id: 9 },
+        { text: "Accessibility", icon: @image-url("icons/eye.svg"), id: 10 },
         { text: "Voice & video", icon: @image-url("icons/headphones.svg"), id: 1 },
         { text: "Messages", icon: @image-url("icons/message-circle.svg"), id: 2 },
         { text: "Notifications", icon: @image-url("icons/bell.svg"), id: 3 },
@@ -405,17 +415,19 @@ export component SettingsScreen inherits Rectangle {
         { text: "Discord", icon: @image-url("icons/discord.svg"), id: 4 },
         { text: "Game activity", icon: @image-url("icons/play.svg"), id: 8 },
         { text: "Advanced", icon: @image-url("icons/settings.svg"), id: 6 },
+        { text: "About", icon: @image-url("icons/help-circle.svg"), id: 9 },
     ];
     property <[SettingsRow]> without-discord: [
         { heading: true, text: "SETTINGS" },
         { text: "My account", icon: @image-url("icons/user.svg"), id: 0 },
         { text: "Appearance", icon: @image-url("icons/palette.svg"), id: 7 },
-        { text: "Accessibility", icon: @image-url("icons/eye.svg"), id: 9 },
+        { text: "Accessibility", icon: @image-url("icons/eye.svg"), id: 10 },
         { text: "Voice & video", icon: @image-url("icons/headphones.svg"), id: 1 },
         { text: "Messages", icon: @image-url("icons/message-circle.svg"), id: 2 },
         { text: "Notifications", icon: @image-url("icons/bell.svg"), id: 3 },
         { text: "Sounds", icon: @image-url("icons/volume-2.svg"), id: 5 },
         { text: "Advanced", icon: @image-url("icons/settings.svg"), id: 6 },
+        { text: "About", icon: @image-url("icons/help-circle.svg"), id: 9 },
     ];
     SettingsCard {
         motion: root.motion;
@@ -427,12 +439,13 @@ export component SettingsScreen inherits Rectangle {
                 : root.settings-section == 2 ? "Messages" : root.settings-section == 3 ? "Notifications"
                 : root.settings-section == 4 ? "Discord" : root.settings-section == 5 ? "Sounds"
                 : root.settings-section == 6 ? "Advanced" : root.settings-section == 7 ? "Appearance"
-                : root.settings-section == 8 ? "Game Activity" : "Accessibility";
+                : root.settings-section == 8 ? "Game Activity" : root.settings-section == 9 ? "About" : "Accessibility";
             account-name: root.account-name; account-initial: root.account-initial;
             account-tint: root.account-tint; account-picture: root.account-picture;
             with-discord: root.discord-build && !root.preview;
             may-edit-profile: root.may-edit-profile;
             edit-profile => { root.edit-profile(); }
+            copy-text(text) => { root.copy-text(text); }
             rows: root.discord-build && !root.preview ? root.with-discord : root.without-discord;
             selected: root.settings-section;
             chose(id) => {
@@ -525,6 +538,10 @@ export component VoiceSettings inherits VerticalLayout {
     in-out property <int> noise-strength;
     /// Discord calls take the room's reverb out of the microphone.
     in-out property <bool> dereverb;
+    /// Windows runs its microphone effects in Discord calls; the switch shows
+    /// where there are any, on Windows.
+    in-out property <bool> windows-effects;
+    in property <bool> windows-effects-choice;
     /// The quietest speech Discord calls send, in dBFS; and the microphone as
     /// the voice gate hears it, refreshed while this shows.
     in-out property <int> sensitivity: -60;
@@ -734,6 +751,12 @@ export component VoiceSettings inherits VerticalLayout {
         text: "Take out your room's echo in Discord calls";
         description: "For a bare or echoey room that makes your voice sound far away. Uses a little more processing, and your voice goes out 10 ms later.";
         checked <=> root.dereverb;
+        toggled => { root.preferences-changed(); }
+    }
+    if root.discord && root.windows-effects-choice: SettingsSwitch {
+        text: "Let Windows process your microphone in Discord calls";
+        description: "Runs the effects Windows and your sound driver add to the microphone, such as their own noise suppression. Off, Yapfast skips them, as they can muffle your voice on top of Yapfast's. Turn it on if your microphone sounds worse without them, as some laptop microphones can.";
+        checked <=> root.windows-effects;
         toggled => { root.preferences-changed(); }
     }
     VerticalLayout {
@@ -1031,6 +1054,12 @@ export component AppearanceSettings inherits VerticalLayout {
             text: "Show server tags";
             description: "The tag and its badge beside people's names.";
             checked <=> Looks.server-tags;
+            toggled => { root.preferences-changed(); }
+        }
+        SettingsSwitch {
+            text: "Show profile frames";
+            description: "The frames some people put around their profile cards.";
+            checked <=> Looks.profile-frames;
             toggled => { root.preferences-changed(); }
         }
     }
@@ -1486,6 +1515,141 @@ export component AdvancedSettings inherits VerticalLayout {
     Label {
         text: "Icons from Solar by 480 Design (CC BY 4.0), many of them adapted, and from Lucide (ISC).";
         font-size: 12px; color: Theme.faint;
+    }
+}
+
+// Settings: which build this is, and whether a newer release is out. The check
+// is a switch, off until it's turned on; a release installs only when Update
+// and restart is pressed.
+export component AboutSettings inherits VerticalLayout {
+    callback copy-text(string);
+    property <bool> copied;
+    property <string> status-text:
+        Updates.status == UpdateStatus.checking ? "Checking for updates…"
+        : Updates.status == UpdateStatus.current ? "You're up to date."
+        : Updates.status == UpdateStatus.available ? "Yapfast " + Updates.latest + " is available."
+        : Updates.status == UpdateStatus.skipped ? "You skipped " + Updates.latest + ". We'll tell you about the next one."
+        : Updates.status == UpdateStatus.failed ? "Couldn't check for updates: " + Updates.error
+        : Updates.status == UpdateStatus.source ? "You're running a build from source, so there's nothing to update."
+        : Updates.check ? "" : "Update checks are turned off.";
+    spacing: 16px;
+    SettingsTitle { text: "About"; }
+    Rectangle {
+        background: Theme.sidebar; border-radius: 8px;
+        HorizontalLayout {
+            padding: 16px; spacing: 16px;
+            VerticalLayout {
+                alignment: center; spacing: 4px; horizontal-stretch: 1;
+                Text { text: BuildInfo.headline; color: Theme.text; font-size: 20px; font-weight: 700; overflow: elide; }
+                HorizontalLayout {
+                    alignment: start;
+                    Text {
+                        text: BuildInfo.channel; font-size: 13px; font-weight: 700;
+                        color: BuildInfo.tone == 0 ? Theme.live : BuildInfo.tone == 1 ? Theme.accent : Theme.danger-text;
+                    }
+                    if BuildInfo.details != "": Text { text: " · " + BuildInfo.details; color: Theme.muted; font-size: 13px; overflow: elide; }
+                }
+            }
+            Middle {
+                ActionButton {
+                    text: root.copied ? "Copied" : "Copy version";
+                    clicked => { root.copy-text(BuildInfo.summary); root.copied = true; }
+                }
+            }
+        }
+    }
+    Timer { interval: 2s; running: root.copied; triggered => { root.copied = false; } }
+    SettingsHeading { text: "UPDATES"; }
+    if Updates.manager != "": Label {
+        text: "You installed Yapfast with " + Updates.manager + ", so update it there.";
+    }
+    if root.status-text != "": Label {
+        text: root.status-text;
+        color: Updates.status == UpdateStatus.available ? Theme.accent : Updates.status == UpdateStatus.failed ? Theme.danger-text : Theme.muted;
+    }
+    if Updates.installing: VerticalLayout {
+        spacing: 8px;
+        Label { text: Updates.install-text; color: Theme.text; }
+        Rectangle {
+            height: 6px; border-radius: 3px; background: Theme.sidebar;
+            Rectangle {
+                x: 0px; width: parent.width * max(Updates.install-progress, 0); height: parent.height; border-radius: 3px; background: Theme.accent;
+                animate width { duration: 200ms; easing: linear; }
+            }
+        }
+        HorizontalLayout {
+            alignment: start;
+            if Updates.can-cancel: ActionButton { text: "Cancel"; clicked => { Updates.cancel-install(); } }
+        }
+    }
+    if !Updates.installing && Updates.install-error != "": Label {
+        text: "Couldn't update: " + Updates.install-error; color: Theme.danger-text;
+    }
+    if !Updates.installing && Updates.status == UpdateStatus.available && Updates.install-note != "": Label {
+        text: Updates.install-note;
+    }
+    if Updates.notes != "" && (Updates.status == UpdateStatus.available || Updates.status == UpdateStatus.skipped): VerticalLayout {
+        spacing: 8px;
+        SettingsHeading { text: "WHAT'S NEW IN " + Updates.latest.to-uppercase(); }
+        Rectangle {
+            background: Theme.sidebar; border-radius: 8px; height: min(notes-text.preferred-height + 24px, 220px);
+            ScrollView {
+                content-height: notes-text.preferred-height + 24px;
+                notes-text := Text {
+                    x: 12px; y: 12px; width: parent.width - 24px;
+                    text: Updates.notes; color: Theme.secondary; font-size: 13px; wrap: word-wrap;
+                }
+            }
+        }
+    }
+    if !Updates.installing: HorizontalLayout {
+        spacing: 8px; alignment: start;
+        if Updates.status == UpdateStatus.available && Updates.can-install: ActionButton {
+            text: "Update and restart"; icon: @image-url("icons/download.svg"); primary: true;
+            clicked => { Updates.install(); }
+        }
+        if Updates.status == UpdateStatus.available || Updates.status == UpdateStatus.skipped: ActionButton {
+            text: "View release"; icon: @image-url("icons/external-link.svg"); primary: Updates.status == UpdateStatus.available && !Updates.can-install;
+            clicked => { Updates.view(); }
+        }
+        if Updates.status == UpdateStatus.available: ActionButton {
+            text: "Skip this version";
+            clicked => { Updates.skip(); }
+        }
+        ActionButton {
+            text: "Check now"; icon: @image-url("icons/refresh-cw.svg"); enabled: Updates.status != UpdateStatus.checking;
+            clicked => { Updates.check-now(); }
+        }
+    }
+    SettingsSwitch {
+        text: "Check for updates";
+        description: "Checks for new versions every 6 hours.";
+        new-key: "check-updates";
+        checked <=> Updates.check;
+        toggled => { Updates.preferences-changed(); }
+    }
+    SettingsSwitch {
+        text: "Include nightly builds";
+        description: "Get the newest features before release. Expect some bugs.";
+        new-key: "update-nightlies";
+        checked <=> Updates.nightlies;
+        enabled: Updates.check;
+        toggled => { Updates.preferences-changed(); }
+    }
+    // Not available: the project decides whether Yapfast may update without
+    // being asked, and until it does, nothing turns this on.
+    SettingsSwitch {
+        text: "Install updates automatically";
+        description: "Not available yet.";
+        checked: false;
+        enabled: false;
+    }
+    SettingsHeading { text: "LINKS"; }
+    HorizontalLayout {
+        spacing: 8px; alignment: start;
+        ActionButton { text: "Website"; icon: @image-url("icons/logo.svg"); clicked => { Updates.open-website(); } }
+        ActionButton { text: "GitHub"; icon: @image-url("icons/github.svg"); clicked => { Updates.open-github(); } }
+        ActionButton { text: "Discord"; icon: @image-url("icons/discord.svg"); clicked => { Updates.open-discord(); } }
     }
 }
 
