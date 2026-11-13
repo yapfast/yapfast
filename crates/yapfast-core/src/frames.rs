@@ -36,7 +36,8 @@ struct Header {
     capacity: u32,
     /// The middle slot's index, with [`FRESH`].
     middle: AtomicU32,
-    _reserved: u32,
+    /// The UI has paused the local preview of an outgoing stream.
+    preview_paused: AtomicU32,
     /// Each slot's frame size, as width and height in pixels.
     sizes: [[AtomicU32; 2]; SLOTS as usize],
     /// When each slot's frame shows in a video file, in milliseconds.
@@ -215,6 +216,14 @@ impl Frames {
             .take();
     }
 
+    /// Whether the worker should prepare frames for the local share preview.
+    pub fn set_preview_paused(&self, paused: bool) {
+        self.mapping
+            .header()
+            .preview_paused
+            .store(u32::from(paused), Ordering::Relaxed);
+    }
+
     /// Calls `show` with the newest frame's width, height and RGBA pixels,
     /// if one arrived since the last call.
     pub fn take<T>(&self, show: impl FnOnce(u32, u32, &[u8]) -> T) -> Option<T> {
@@ -270,6 +279,12 @@ impl Writer {
         capacity(width, height) <= self.mapping.capacity
     }
 
+    /// Whether to skip preparing the local share preview.
+    #[cfg(any(feature = "discord", test))]
+    pub(crate) fn preview_paused(&self) -> bool {
+        self.mapping.header().preview_paused.load(Ordering::Relaxed) != 0
+    }
+
     /// Writes a frame with `fill`, which gets its RGBA pixels, then shows it.
     pub fn write(&mut self, width: u32, height: u32, fill: impl FnOnce(&mut [u8])) {
         self.write_timed(width, height, 0, fill);
@@ -314,6 +329,11 @@ mod tests {
         }
         assert!(frames.take(|_, _, _| ()).is_none(), "nothing yet");
         assert!(writer.fits(2, 4) && !writer.fits(5, 2));
+        assert!(!writer.preview_paused());
+        frames.set_preview_paused(true);
+        assert!(writer.preview_paused());
+        frames.set_preview_paused(false);
+        assert!(!writer.preview_paused());
 
         writer.write(2, 1, |pixels| pixels.fill(1));
         writer.write(4, 2, |pixels| pixels.fill(2));

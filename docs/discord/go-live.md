@@ -121,9 +121,12 @@ the original sequence number before the payload (RFC 4588), and the repaired
 stream id (extension 12) in place of the stream id. An RTCP sender report goes
 out every second.
 
-Before sharing, the share button's menu picks a resolution and a frame rate, as
-Discord's client asks for them: 720p, 1080p or the screen's own size (up to
-4K), at 15, 30 or 60 fps. Its "Higher quality" checkbox, which Discord's client
+Before sharing, the share button's menu offers 480p, 720p, 1080p, 1440p, 2160p
+and Source (the screen's own size, capped at 4K), at 15, 30 or 60 fps.
+When a screen's thumbnail arrives, Source shows the screen's dimensions and
+the menu disables presets above its height. If the saved preset is above
+that height, the menu selects Source for that screen.
+Its "Higher quality" checkbox, which Discord's client
 doesn't have, has x264 work harder on each frame. Yapfast remembers the choice
 beside the chosen audio devices (`devices.json`), and starts at 1080p30 without
 it. The menu lists every screen, window and camera, and is never taller than
@@ -135,7 +138,13 @@ and 9 Mbit/s above, the cap op 12 announces, with the frame rate as its
 `max_framerate`. Discord's client allows accounts without Nitro 720p30, but
 trials 1080p30 at 3.5 or 5 Mbit/s for them. The worker converts captured
 frames to I420 with libyuv, scales them with libyuv's filtering scaler, and
-encodes those; the preview is the same picture scaled down to 720p.
+encodes those. The local preview fits within 720p by default. In Advanced,
+"Enhanced live preview quality" makes the next stream's preview use the
+outgoing frame size and frame rate. When the window loses
+focus, it holds the last preview frame under a message and the worker stops
+preparing local preview frames. Closing to the tray also pauses the local
+preview. Capture, encoding and uploads of the stream thumbnail continue, and
+the local preview resumes when the window regains focus.
 
 Under the cap, the bitrate follows what the sender's uplink carries
 (`yapfast_discord::congestion`). Sending more than it carries fills its

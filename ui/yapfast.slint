@@ -994,13 +994,13 @@ export component YapfastWindow inherits Window {
     in property <bool> can-share;
     in property <bool> sharing;
     in property <bool> share-live;
-    /// The quality chosen last time: 0 for 720p, 1 for 1080p, 2 for the
-    /// screen's own size; frames a second; and whether the encoder works
-    /// harder for a sharper picture.
-    in property <int> share-resolution: 1;
+    /// The selected resolution's height, or zero for the source size.
+    in property <int> share-resolution: 1080;
     in property <int> share-fps: 30;
+    in property <bool> share-enhanced-preview;
     in property <bool> share-high-quality;
     in property <string> share-status;
+    property <bool> share-preview-paused: root.share-live && !root.window-focused;
     /// The newest preview of what's shared, refreshed by stream-tick while sharing.
     in-out property <image> share-frame;
     /// Who watches this account's stream, and the stream it watches, with
@@ -1358,6 +1358,7 @@ export component YapfastWindow inherits Window {
     in property <bool> gpu-running;
     /// Screen sharing encodes on the GPU where it has an encoder.
     in-out property <bool> gpu-encoding: true;
+    in-out property <bool> enhanced-live-preview;
     /// Closing the window leaves Yapfast in the system tray, when there's one.
     in-out property <bool> close-to-tray: true;
     in property <bool> tray-available;
@@ -1912,7 +1913,7 @@ export component YapfastWindow inherits Window {
     changed camera-filming => { root.camera-preview = @image-url(""); root.test-camera(self.camera-filming); }
     changed gate-metered => { root.gate-level = -100; root.gate-sending = false; root.gate-meter-note = ""; root.gate-metering(self.gate-metered); }
     Timer { interval: 50ms; running: root.gate-metered; triggered => { root.gate-meter-tick(); } }
-    Timer { interval: 33ms; running: root.sharing || root.watching || root.video-active || root.camera-filming || (root.call-video && (root.grid-shown || root.pip-shown)); triggered => { root.stream-tick(); } }
+    Timer { interval: root.sharing && root.window-focused && root.share-enhanced-preview && root.share-fps > 30 ? 16ms : 33ms; running: (root.sharing && root.window-focused) || root.watching || root.video-active || root.camera-filming || (root.call-video && (root.grid-shown || root.pip-shown)); triggered => { root.stream-tick(); } }
     input-menu := PopupWindow {
         x: max(8px, min(root.width - self.width - 8px, root.menu-x - 6px));
         y: max(8px, root.menu-y - self.height - 6px);
@@ -3221,6 +3222,7 @@ export component YapfastWindow inherits Window {
                                     participants: root.participants; frames: root.participant-frames;
                                     camera-starting: root.camera-starting; sharing: root.sharing; share-live: root.share-live;
                                     share-status: root.share-status; share-frame: root.share-frame;
+                                    share-preview-paused: root.share-preview-paused;
                                     share-viewers: root.share-viewers; share-viewer-names: root.share-viewer-names;
                                     stream-tiles: root.stream-tiles; watch-user: root.watch-user; watch-frame: root.watch-frame;
                                     watch-status: root.watch-status; watch-viewers: root.watch-viewers; watch-viewer-names: root.watch-viewer-names;
@@ -4244,6 +4246,7 @@ export component YapfastWindow inherits Window {
         status: root.pip-kind == 1 ? root.watch-status : root.pip-kind == 2 ? root.share-status : "";
         frame: root.pip-kind == 1 ? root.watch-frame : root.pip-kind == 2 ? root.share-frame : root.participant-frames[root.pip-person];
         live: root.pip-kind == 2 && root.share-live;
+        preview-paused: root.pip-kind == 2 && root.share-preview-paused;
         stop-icon: root.pip-kind == 1 ? @image-url("icons/x.svg") : @image-url("icons/screen-share-off.svg");
         stop-label: root.pip-kind == 1 ? "Stop watching" : root.pip-kind == 2 ? "Stop sharing" : "";
         viewers: root.pip-kind == 1 ? root.watch-viewers : root.pip-kind == 2 ? root.share-viewers : [];
@@ -4279,6 +4282,7 @@ export component YapfastWindow inherits Window {
                 participants: root.participants; frames: root.participant-frames;
                 camera-starting: root.camera-starting; sharing: root.sharing; share-live: root.share-live;
                 share-status: root.share-status; share-frame: root.share-frame;
+                share-preview-paused: root.share-preview-paused;
                 share-viewers: root.share-viewers; share-viewer-names: root.share-viewer-names;
                 stream-tiles: root.stream-tiles; watch-user: root.watch-user; watch-frame: root.watch-frame;
                 watch-status: root.watch-status; watch-viewers: root.watch-viewers; watch-viewer-names: root.watch-viewer-names;
@@ -4452,6 +4456,7 @@ export component YapfastWindow inherits Window {
         if root.settings-section == 6: AdvancedSettings {
             gpu-rendering <=> root.gpu-rendering; gpu-running: root.gpu-running;
             gpu-encoding <=> root.gpu-encoding;
+            enhanced-live-preview <=> root.enhanced-live-preview;
             close-to-tray <=> root.close-to-tray; tray-available: root.tray-available;
             multiple-windows <=> root.multiple-windows;
             developer-mode <=> root.developer-mode;

@@ -587,6 +587,25 @@ export component JoinVoice inherits VerticalLayout {
     }
 }
 
+component PausedSharePreview inherits Rectangle {
+    background: #12141bd9;
+    VerticalLayout {
+        width: parent.width; height: parent.height;
+        alignment: center;
+        padding-left: 12px; padding-right: 12px; spacing: 4px;
+        Text {
+            text: "Your stream is still running!";
+            color: #e1e5f2; font-size: 15px; font-weight: 700;
+            horizontal-alignment: center; wrap: word-wrap;
+        }
+        Text {
+            text: "We've paused this preview to save your resources.";
+            color: #b5b8c1; font-size: 13px;
+            horizontal-alignment: center; wrap: word-wrap;
+        }
+    }
+}
+
 // A stream or a camera kept in a corner of the window while its call isn't
 // on screen, as Discord's picture in picture is. A click returns to the call;
 // a drag moves it, and `dropped` asks the window for the nearest corner.
@@ -594,6 +613,7 @@ export component StreamPip inherits Rectangle {
     in property <string> title;
     in property <string> status;
     in property <image> frame;
+    in property <bool> preview-paused;
     in property <bool> live;
     in property <image> stop-icon;
     /// Stops what it shows; a camera has nothing to stop.
@@ -614,7 +634,8 @@ export component StreamPip inherits Rectangle {
     accessible-action-default => { root.open-call(); }
     Image { width: parent.width; height: parent.height; source: root.frame; image-fit: contain; }
     // The stage is black in every theme, so its note is a fixed grey.
-    if root.frame.width == 0: Text {
+    if root.preview-paused: PausedSharePreview { width: parent.width; height: parent.height; }
+    if !root.preview-paused && root.frame.width == 0: Text {
         x: 16px; width: parent.width - 32px; height: parent.height;
         text: root.status; color: #b5b8c1; font-size: 14px;
         horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
@@ -761,6 +782,7 @@ export component ParticipantGrid inherits Flickable {
     in property <bool> share-live;
     in property <string> share-status;
     in property <image> share-frame;
+    in property <bool> share-preview-paused;
     in property <[PersonRow]> share-viewers;
     in property <string> share-viewer-names;
     /// The streams of those who film too, in tiles of their own, as indexes
@@ -882,7 +904,8 @@ export component ParticipantGrid inherits Flickable {
         clicked => { if !self.focused { root.focus-tile(0); } }
         full-screen(on) => { root.full-screen(on); }
         Image { width: parent.width; height: parent.height; source: root.share-frame; image-fit: contain; }
-        if root.share-frame.width == 0: VerticalLayout {
+        if root.share-preview-paused: PausedSharePreview { width: parent.width; height: parent.height; }
+        if !root.share-preview-paused && root.share-frame.width == 0: VerticalLayout {
             alignment: center; spacing: 10px;
             // Black in every theme, as a stream's stage.
             Image { height: 34px; source: @image-url("icons/screen-share.svg"); image-fit: contain; colorize: #b5b8c1; }
@@ -1217,7 +1240,7 @@ export component InputLevel inherits VerticalLayout {
 }
 
 /// A screen in the share menu, and once it's taken, a picture of it.
-export struct ShareScreen { title: string, picture: image }
+export struct ShareScreen { title: string, picture: image, source-width: int, source-height: int }
 
 // A screen to share in the share menu, as a picture with its name under it.
 component ScreenCard inherits Rectangle {
@@ -1288,6 +1311,14 @@ export component ShareMenu inherits Rectangle {
     property <bool> lists: root.screens.length + root.windows.length + root.cameras.length > 0;
     in-out property <int> pick-source;
     in-out property <int> pick-resolution;
+    property <int> source-width: root.pick-source >= 0 && root.pick-source < root.screens.length
+        ? root.screens[root.pick-source].source-width : 0;
+    property <int> source-height: root.pick-source >= 0 && root.pick-source < root.screens.length
+        ? root.screens[root.pick-source].source-height : 0;
+    function available-resolution(pixels: int) -> bool {
+        return root.source-height == 0 || pixels <= root.source-height;
+    }
+    property <int> selected-resolution: root.available-resolution(root.pick-resolution) ? root.pick-resolution : 0;
     in-out property <int> pick-fps;
     /// The encoder's slower preset: a sharper picture for more CPU.
     in-out property <bool> pick-high-quality;
@@ -1360,9 +1391,13 @@ export component ShareMenu inherits Rectangle {
                 }
                 if !root.switching: VerticalLayout {
                     spacing: 2px;
-                    for choice[index] in ["720p", "1080p", "Source"]: MenuItem {
-                        text: choice; checked: index == root.pick-resolution;
-                        clicked => { root.pick-resolution = index; }
+                    for pixels in [480, 720, 1080, 1440, 2160, 0]: MenuItem {
+                        text: pixels != 0 ? pixels + "p" : root.source-width <= 0 ? "Source"
+                            : "Source · " + root.source-width + " × " + root.source-height
+                                + (root.source-width > 3840 || root.source-height > 2160 ? " (up to 4K)" : "");
+                        disabled: !root.available-resolution(pixels);
+                        checked: pixels == root.selected-resolution;
+                        clicked => { if !self.disabled { root.pick-resolution = pixels; } }
                     }
                 }
                 if !root.switching: HorizontalLayout {
@@ -1391,7 +1426,7 @@ export component ShareMenu inherits Rectangle {
             padding: 4px; padding-top: 10px;
             ActionButton {
                 text: root.switching ? "Switch" : "Go Live"; icon: @image-url("icons/screen-share.svg"); primary: true; horizontal-stretch: 1;
-                clicked => { root.go-live(root.pick-source, root.pick-resolution, root.pick-fps, root.pick-high-quality); }
+                clicked => { root.go-live(root.pick-source, root.selected-resolution, root.pick-fps, root.pick-high-quality); }
             }
         }
     }

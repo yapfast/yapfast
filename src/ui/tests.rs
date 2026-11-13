@@ -1687,7 +1687,7 @@ fn the_share_menu_fits_a_short_window_and_keeps_its_button() {
     window.set_share_lists(true);
     window.set_share_screens(ModelRc::new(VecModel::from(vec![ShareScreen {
         title: "Entire screen".into(),
-        picture: Default::default(),
+        ..Default::default()
     }])));
     window.set_share_windows(titles("Window", 12));
     window.set_share_cameras(titles("Camera", 4));
