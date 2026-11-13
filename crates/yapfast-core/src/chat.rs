@@ -37,6 +37,28 @@ pub enum Activity {}
 #[cfg(not(feature = "discord"))]
 pub type Activities = Arc<[Activity]>;
 
+/// What the member list's Activity panel shows, from Discord's feed.
+#[cfg(feature = "discord")]
+pub use yapfast_discord::activity_feed::{Entry as FeedEntry, Person as FeedPerson};
+
+/// Only Discord has a feed.
+#[cfg(not(feature = "discord"))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FeedEntry {}
+#[cfg(not(feature = "discord"))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FeedPerson {}
+
+/// The apps' commands a place offers, as Discord's command indexes list
+/// them; see `yapfast_discord::commands`.
+#[cfg(feature = "discord")]
+pub use yapfast_discord::commands::CommandIndex;
+
+/// Only Discord has apps' commands.
+#[cfg(not(feature = "discord"))]
+#[derive(Clone, Debug, PartialEq)]
+pub enum CommandIndex {}
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ChatRoom {
     pub id: String,
@@ -66,6 +88,10 @@ pub struct ChatRoom {
     /// Readable, but this account may not send here, such as a Discord
     /// announcement channel.
     pub read_only: bool,
+    /// What reacting this account may do here, which a Discord channel
+    /// decides apart from sending: a read-only channel may still take
+    /// reactions.
+    pub reacts: Reacts,
     /// A Discord channel or thread whose slowmode this account waits out
     /// between messages.
     pub slowed: bool,
@@ -110,6 +136,8 @@ pub struct ChatRoom {
     pub parent: Option<String>,
     /// A Discord forum, whose posts show in place of messages.
     pub forum: bool,
+    /// What a Discord channel's icon shows besides.
+    pub mark: ChannelMark,
     /// A Discord server's text channel its channel list leaves out unless
     /// it's open or mentions this account, as Discord's client does with
     /// Show All Channels off for one this account doesn't follow; or a
@@ -124,6 +152,9 @@ pub struct ChatRoom {
     pub empty: bool,
     /// A Discord message request's latest message, when it's known.
     pub preview: Option<Box<RequestPreview>>,
+    /// When the session of a Discord voice channel with people in it
+    /// started, in Unix seconds, as Discord says; its row counts from it.
+    pub voice_started: Option<u64>,
 }
 
 impl ChatRoom {
@@ -144,6 +175,45 @@ impl ChatRoom {
     pub fn call_encrypted(&self) -> bool {
         self.network == Network::Discord || self.encrypted
     }
+}
+
+/// What reacting an account may do in a room, as Discord's client works it
+/// out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Reacts {
+    /// None, as while timed out, or in an archived thread it may not open
+    /// again.
+    None,
+    /// Only add to a reaction someone added already, or take its own back,
+    /// as a Discord channel allows without Add Reactions.
+    Existing,
+    /// Add any reaction too.
+    Any,
+}
+
+/// What a Discord channel's icon shows besides its being text, voice, a
+/// forum or a thread, as Discord's client draws it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct ChannelMark {
+    pub kind: MarkKind,
+    /// @everyone may not see it, or may not connect to a voice channel,
+    /// which a lock on the icon shows.
+    pub private: bool,
+    /// Age-restricted, which a warning sign on the icon shows.
+    pub age_restricted: bool,
+}
+
+/// The kinds of Discord channel with an icon of their own.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum MarkKind {
+    #[default]
+    Plain,
+    Announcement,
+    /// A media channel, a forum of pictures and videos.
+    Media,
+    Stage,
+    /// The server's rules channel, whatever its kind.
+    Rules,
 }
 
 /// A Discord message request's latest message, as the requests list shows it.
@@ -219,6 +289,9 @@ pub struct Friend {
     pub presence: Option<Presence>,
     pub activity: Option<String>,
     pub activities: Activities,
+    /// When they became friends, in Unix milliseconds; written out only for
+    /// the profile on screen.
+    pub since: Option<u64>,
 }
 
 /// A file waiting in the composer to go with the next message.
@@ -438,6 +511,8 @@ pub struct ChatServer {
     pub unavailable: bool,
     /// The address of the server's icon; see [`DiscordCommand::Pictures`].
     pub icon: Option<String>,
+    /// The tag its members can wear, if it offers one.
+    pub tag: Option<ServerTag>,
     /// The folder it sits in on the rail. A folder's servers come one after
     /// another in [`RoomIndex::servers`].
     pub folder: Option<ServerFolder>,
@@ -457,6 +532,9 @@ pub struct ChatServer {
     /// Its scheduled events that haven't ended, soonest first, which its
     /// channel list counts in an "N Events" row.
     pub events: Vec<ServerEvent>,
+    /// How many boosts it has, when its owner shows the boost progress bar
+    /// above its channels.
+    pub boosts: Option<u32>,
 }
 
 /// A Discord server's scheduled event, as its events list shows it.
@@ -541,6 +619,10 @@ pub enum Permission {
     /// them and change one's own.
     ManageExpressions,
     CreateExpressions,
+    /// Using another server's emoji here, in a message or a reaction.
+    UseExternalEmojis,
+    /// Sending another server's stickers here.
+    UseExternalStickers,
 }
 
 /// Which messages notify, in a Discord server or channel.
@@ -738,6 +820,22 @@ impl ProfileEffect {
     }
 }
 
+/// Whether a picture is a layer of a profile frame,
+/// `/collectibles-shop/{sku}/{id}/static`, where a decoration's or
+/// nameplate's still is `/collectibles-shop/{sku}/static`.
+pub fn is_frame_layer(url: &str) -> bool {
+    url.split_once("/collectibles-shop/")
+        .is_some_and(|(_, rest)| rest.ends_with("/static") && rest.matches('/').count() == 2)
+}
+
+/// The address of a banner's moving version: Discord's moving pictures have
+/// hashes that start with `a_`, and come as GIFs.
+pub fn moving_banner(url: &str) -> Option<String> {
+    let (start, end) = url.split_once(".png?")?;
+    let hash = start.rsplit('/').next()?;
+    hash.starts_with("a_").then(|| format!("{start}.gif?{end}"))
+}
+
 /// Marks the address of a profile effect's picture, which decodes at the
 /// card's size rather than an avatar's.
 pub const EFFECT_PICTURE: &str = "#effect";
@@ -784,6 +882,9 @@ pub struct Profile {
     /// The SKU of the profile effect they equip, which
     /// [`Event::ProfileEffect`] describes.
     pub effect: Option<String>,
+    /// The layers of the frame around their card, the back ones first; none
+    /// without one, or until [`Event::ProfileFrame`] says what it is.
+    pub frame: Arc<[ProfileFrameLayer]>,
     /// The two colours of their profile's theme, when they set one.
     pub theme: Option<[u32; 2]>,
     /// The address of their banner, and its colour when there's no picture.
@@ -802,6 +903,10 @@ pub struct Profile {
     pub created: Option<String>,
     /// When they joined this server, as a date.
     pub joined: Option<String>,
+    /// The server `joined` is of, whose icon shows beside it: its name and
+    /// the address of its icon.
+    pub server_name: String,
+    pub server_icon: Option<String>,
     /// The servers and friends this account shares with them.
     pub servers: Vec<ProfileServer>,
     pub friends: Vec<ProfileFriend>,
@@ -816,6 +921,105 @@ pub struct Profile {
     pub note: String,
     /// The accounts on other services their profile shows.
     pub connections: Vec<ProfileConnection>,
+    /// The widgets on their Discord board.
+    pub widgets: Vec<ProfileWidget>,
+    /// Where their Discord wishlist is, if they have one that's said.
+    pub wishlist_place: Option<WishlistPlace>,
+    /// Their Discord wishlist, as far as it's been asked for.
+    pub wishlist: Wishlist,
+    /// Their board's games and applications were asked after, and came.
+    pub board_asked: bool,
+    pub board_named: bool,
+    /// What they did lately, once asked for.
+    pub recent: Vec<RecentActivity>,
+    pub recent_asked: bool,
+    /// Discord's answer to it came, even an empty or failed one.
+    pub recent_came: bool,
+}
+
+/// One picture of a profile frame; see `yapfast_discord::profile::FrameLayer`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProfileFrameLayer {
+    pub src: String,
+    pub kind: String,
+    pub anchor: String,
+    pub front: bool,
+}
+
+#[cfg(feature = "discord")]
+impl From<&yapfast_discord::profile::FrameLayer> for ProfileFrameLayer {
+    fn from(layer: &yapfast_discord::profile::FrameLayer) -> Self {
+        Self {
+            src: layer.src.clone(),
+            kind: layer.kind.clone(),
+            anchor: layer.anchor.clone(),
+            front: layer.front,
+        }
+    }
+}
+
+/// A past thing on someone's Activity tab.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RecentActivity {
+    pub title: String,
+    pub subtitle: String,
+    pub picture: Option<String>,
+    pub music: bool,
+    /// When it ended, in Unix milliseconds.
+    pub at: Option<u64>,
+}
+
+/// A widget on a Discord board.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProfileWidget {
+    pub title: String,
+    /// The application it shows, whose name is its title once it's asked.
+    pub application: Option<String>,
+    pub games: Vec<ProfileGame>,
+    /// It lists games, rather than something shown only in Discord.
+    pub lists_games: bool,
+}
+
+/// A game on a widget.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProfileGame {
+    pub id: String,
+    pub name: String,
+    /// The address of its picture.
+    pub icon: Option<String>,
+    /// What they said about it.
+    pub comment: Option<String>,
+}
+
+/// Where a Discord wishlist is.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WishlistPlace {
+    pub id: String,
+    /// Only its owner may see it.
+    pub private: bool,
+}
+
+/// An item on a Discord wishlist.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WishlistItem {
+    pub name: String,
+    /// The address of its picture, for those that have one.
+    pub picture: Option<String>,
+}
+
+/// A Discord wishlist, as far as Yapfast has asked for it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Wishlist {
+    /// Nobody opened it yet.
+    #[default]
+    Unasked,
+    /// Discord is being asked.
+    Loading,
+    Loaded(Vec<WishlistItem>),
+    /// Discord won't show it to this account.
+    Hidden,
+    /// Discord didn't answer or wasn't understood.
+    Failed,
 }
 
 /// An account on another service on a profile, such as Steam.
@@ -893,6 +1097,8 @@ pub struct ProfileRole {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChatMember {
     pub id: String,
+    /// A Discord application's account, which the list marks APP.
+    pub bot: bool,
     /// The display name, or the user ID without one, as on the member's messages.
     pub name: String,
     /// Their Discord username, such as `ann`.
@@ -930,6 +1136,9 @@ pub struct ChatMember {
     pub timed_out_until: Option<u64>,
     /// The server tag they wear by their name, on Discord.
     pub tag: Option<ServerTag>,
+    /// Since when they've boosted the Discord server, in Unix milliseconds,
+    /// while they do.
+    pub boosting_since: Option<u64>,
 }
 
 /// Someone to start a DM with.
@@ -998,6 +1207,28 @@ pub struct Reply {
     pub item: Option<String>,
     /// The author's role colour, where the network gives one.
     pub color: Option<u32>,
+}
+
+/// Who used which Discord app command a message answers, as the line
+/// above it says.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UsedCommand {
+    /// Who used it, by name in the conversation, and Matrix-style user id,
+    /// which opens their card.
+    pub user: String,
+    pub sender: String,
+    /// The address of their avatar; see [`DiscordCommand::Pictures`].
+    pub avatar: Option<String>,
+    /// Their role colour, where the network gives one.
+    pub color: Option<u32>,
+    /// The command as the line names it: `/name sub` for a slash command,
+    /// its name for one used from a person's or message's menu.
+    pub name: String,
+    /// A slash command, which clicking puts in the composer for its picker
+    /// to find: its name without the `/` or its subcommands.
+    pub slash: Option<String>,
+    /// The person a command from their menu was used on, by name.
+    pub target: Option<String>,
 }
 
 /// A Discord thread a message leads to: the one started from it, or that
@@ -1286,6 +1517,9 @@ impl Eq for Pixels {}
 pub struct Animation {
     /// How long each frame shows, in milliseconds.
     pub delays: Vec<u32>,
+    /// How many times its file says it plays, before holding its last frame;
+    /// 0 for ever.
+    pub plays: u32,
     file: AnimationFile,
     format: AnimationFormat,
 }
@@ -1474,6 +1708,8 @@ pub struct Attachment {
     /// which [`Command::CopyAttachment`] copies its picture. Only Discord's
     /// attachments have one.
     pub url: Option<Arc<str>>,
+    /// Its alt text, which a screen reader reads in place of the picture.
+    pub description: Option<String>,
 }
 
 /// What [`Command::Video`] tells the video playing.
@@ -1521,6 +1757,50 @@ pub struct Video {
     pub volume: f32,
     /// Why it stopped, for the person.
     pub error: Option<String>,
+}
+
+/// A voice message's recording as its sender's client described it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct VoiceMessage {
+    /// How long it plays, in milliseconds.
+    pub duration_ms: u64,
+    /// How loud it is along its length, from 0 to 255.
+    pub waveform: Arc<[u8]>,
+}
+
+/// The voice message playing, or paused, in the conversation view.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct VoicePlayback {
+    pub room: String,
+    pub item: String,
+    /// Until its file downloads.
+    pub loading: bool,
+    pub playing: bool,
+    /// How far it has played, in milliseconds.
+    pub position_ms: u64,
+    /// Why it stopped, for the person.
+    pub error: Option<String>,
+}
+
+/// How fast and loud voice messages play, as the person last chose while
+/// Yapfast runs.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VoiceTuning {
+    /// 1, 1.5 or 2 times as fast, at the same pitch.
+    pub speed: f32,
+    /// From 0 to 1 as the slider stands, kept while muted.
+    pub volume: f32,
+    pub muted: bool,
+}
+
+impl Default for VoiceTuning {
+    fn default() -> Self {
+        Self {
+            speed: 1.0,
+            volume: 1.0,
+            muted: false,
+        }
+    }
 }
 
 /// Where an attachment's picture shows.
@@ -1598,6 +1878,13 @@ pub enum CardRow {
     Select {
         text: String,
         disabled: bool,
+        kind: u64,
+        custom_id: String,
+        options: Vec<CardOption>,
+        defaults: Vec<String>,
+        channel_types: Vec<u64>,
+        min_values: u64,
+        max_values: u64,
     },
     /// Components of a kind Yapfast can't show.
     Unknown,
@@ -1620,7 +1907,23 @@ pub struct CardButton {
     pub style: ButtonStyle,
     /// Where a link button leads.
     pub url: Option<String>,
+    /// What its app knows it by, when using it asks the app.
+    pub custom_id: Option<String>,
+    /// What a premium button offers in its app's store.
+    pub sku_id: Option<String>,
     pub disabled: bool,
+}
+
+/// An option of a select menu in an app's message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CardOption {
+    pub label: String,
+    pub value: String,
+    pub description: Option<String>,
+    pub default: bool,
+    /// Shown before its label: the emoji itself, or a custom one by
+    /// `:name:`.
+    pub emoji: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1630,6 +1933,7 @@ pub enum ButtonStyle {
     Success,
     Danger,
     Link,
+    Premium,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1638,6 +1942,14 @@ pub struct ChatMessage {
     pub id: String,
     /// The timeline item that actions apply to: `e:` event ID or `t:` transaction ID.
     pub item: String,
+    /// The Discord app that owns interactive components, when one is known.
+    pub application_id: Option<String>,
+    /// The Discord interaction it answers, by its id.
+    pub interaction: Option<String>,
+    /// The command whose answer it is, which shows above it as Discord's
+    /// "{user} used /{name}", when it doesn't quote a message instead.
+    pub used: Option<UsedCommand>,
+    pub flags: u64,
     pub author: String,
     /// The author's Matrix user ID, which tells apart people sharing a display name.
     pub sender: String,
@@ -1703,6 +2015,9 @@ pub struct ChatMessage {
     pub thread: Option<ThreadLink>,
     /// The Discord poll it asks.
     pub poll: Option<Poll>,
+    /// A Discord voice message's recording, its first attachment, which
+    /// plays in place of a file card: [`Command::PlayVoiceMessage`].
+    pub voice: Option<VoiceMessage>,
     /// What it tells of, when it's a notice in place of a message, such as
     /// Discord's that someone pinned one; its body says it after its
     /// author's name.
@@ -2000,6 +2315,29 @@ pub enum Command {
     },
     /// Control the video playing.
     Video(VideoCommand),
+    /// Play a voice message's recording on `speakers`, from where it was
+    /// paused, or from the start in place of any other; it goes as
+    /// [`Event::VoiceMessage`].
+    PlayVoiceMessage {
+        room: String,
+        item: String,
+        speakers: Option<String>,
+        tuning: VoiceTuning,
+    },
+    /// Move a voice message to `at_ms` into its recording, playing or
+    /// paused as it was; in place of any other, it loads to wait there
+    /// paused on `speakers`.
+    MoveVoiceMessage {
+        room: String,
+        item: String,
+        at_ms: u64,
+        speakers: Option<String>,
+        tuning: VoiceTuning,
+    },
+    /// Pause the voice message playing.
+    PauseVoiceMessage,
+    /// Play the voice message playing as fast and loud as this says.
+    TuneVoiceMessage(VoiceTuning),
     /// Look for people to start a DM with; each network answers with
     /// [`Event::People`].
     FindPeople {
@@ -2083,6 +2421,30 @@ pub struct Gif {
 pub struct GifCategory {
     pub name: String,
     pub src: String,
+}
+
+/// A sticker the sticker picker offers.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Sticker {
+    pub id: String,
+    pub name: String,
+    /// Discord's `format_type`: 1 PNG, 2 APNG, 3 Lottie, 4 GIF.
+    pub format: u64,
+    /// Its picture's address, at the size the picker's tiles show it.
+    pub picture: String,
+    /// This account may use it where it is looking: another server's sticker
+    /// or Discord's own needs Nitro, which the picker marks with a lock.
+    pub usable: bool,
+}
+
+/// Stickers the picker lists under one heading: a server's own, or one of
+/// Discord's default packs.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StickerCollection {
+    /// The pack's id, or a server's for its own stickers.
+    pub id: String,
+    pub name: String,
+    pub stickers: Vec<Sticker>,
 }
 
 /// How often a Discord server or channel was used: in all, and when lately,
@@ -2281,13 +2643,122 @@ pub struct OAuthPreview {
     pub guilds: Vec<OAuthGuild>,
 }
 
+/// A use of a bot's control or form, as [`DiscordCommand::Interact`] sends
+/// it; `discord_text` turns it into Discord's body.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Interaction {
+    /// A button clicked, or options picked in a select menu, under a message.
+    Component {
+        nonce: String,
+        /// None in a DM.
+        guild: Option<String>,
+        channel: String,
+        message: String,
+        message_flags: u64,
+        /// The message's `application_id`, or else its author's id, which a
+        /// bot's user shares with its app, as Discord's client sends it.
+        application: String,
+        /// 2 for a button, 3 and 5-8 for the select menus.
+        component_type: u64,
+        custom_id: String,
+        /// The options picked, for a select menu.
+        values: Option<Vec<String>>,
+    },
+    /// A form a bot opened, submitted with what was entered.
+    Modal {
+        nonce: String,
+        guild: Option<String>,
+        channel: String,
+        application: String,
+        id: String,
+        custom_id: String,
+        /// A file upload's `values` are its files' places in `files`, as
+        /// `"0"` for the first.
+        components: serde_json::Value,
+        /// The files its file uploads carry, which go in the same request.
+        files: Vec<PathBuf>,
+    },
+}
+
+impl Interaction {
+    pub fn nonce(&self) -> &str {
+        match self {
+            Self::Component { nonce, .. } | Self::Modal { nonce, .. } => nonce,
+        }
+    }
+}
+
+/// An app command to run or to complete, with the options entered so far;
+/// `discord_text/interactions.rs` sends it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CommandRun {
+    pub nonce: String,
+    pub room: String,
+    pub application: String,
+    /// The command as Discord's index gives it.
+    pub command: Arc<serde_json::Value>,
+    /// The options as `/interactions` takes them: `{type, name, value}`
+    /// each, a subcommand or group as `{type: 1 or 2, name, options}`. A
+    /// file option's `value` is its index in `files` as a string, `"0"`
+    /// for the first. For an autocomplete, the option being typed has
+    /// `focused: true`.
+    pub options: serde_json::Value,
+    /// The message or user a context-menu command acts on.
+    pub target: Option<String>,
+    /// The files of its attachment options, in order, which go in the same
+    /// request: an attachment option's `value` is its file's place here, as
+    /// `"0"`. An autocomplete sends none.
+    pub files: Vec<PathBuf>,
+}
+
 /// Commands only the linked Discord account carries out.
 #[derive(Clone)]
 pub enum DiscordCommand {
+    /// Fetches the Activity panel's feed; [`Event::ActivityFeed`] follows,
+    /// and [`Event::ActivityFeedDue`] when it's time to ask again.
+    ActivityFeed,
+    /// Who of these people a channel's Activity panel may show;
+    /// [`Event::ActivityPeople`] follows.
+    ActivityPeople {
+        room: String,
+        users: Vec<Arc<str>>,
+    },
     /// Downloads these pictures for the disk cache alone, decoding none and
     /// holding none in memory: what a start prefetches so that the picker's
     /// first look finds its emoji kept. See [`Pictures::prefetch`].
     PrefetchPictures(Vec<String>),
+    /// Uses a bot's button or select menu, or submits the form it opened,
+    /// as the person just did. [`Event::InteractionSucceeded`],
+    /// [`Event::InteractionFailed`], [`Event::InteractionModal`] or, with no
+    /// word from Discord, [`Event::InteractionSettled`] follows, by its nonce.
+    /// See `discord_text/interactions.rs`.
+    Interact(Box<Interaction>),
+    /// The commands of `room`: its server's command index, or its DM's,
+    /// with the user-installed apps'. Sent only once the person types `/`,
+    /// never ahead; the service keeps each index until Discord says it
+    /// changed. [`Event::CommandIndex`] follows. See
+    /// `discord_text/app_commands.rs`.
+    CommandIndex {
+        room: String,
+    },
+    /// Runs an app's command in `room`, as typed or chosen from a menu.
+    /// [`Event::InteractionCreated`] follows once Discord passed it to the
+    /// app, then [`Event::InteractionSucceeded`],
+    /// [`Event::InteractionFailed`], [`Event::InteractionModal`] or
+    /// [`Event::InteractionSettled`], by its nonce. See
+    /// `discord_text/interactions.rs`.
+    RunCommand(Box<CommandRun>),
+    /// Asks an app for its choices for the option being typed, on a
+    /// keystroke in it, once typing pauses for 300 ms.
+    /// [`Event::AutocompleteChoices`] follows for the newest alone; an
+    /// older one, or one the app didn't answer, gets nothing.
+    Autocomplete(Box<CommandRun>),
+    /// Hides the ephemeral message `item` in `room`, as Discord's "Dismiss
+    /// message" does: only here, with no request, for good.
+    DismissEphemeral {
+        room: String,
+        item: String,
+    },
     /// The GIF picker's home: trending terms with a GIF each, and a GIF for
     /// "Trending GIFs"; [`Event::GifCategories`] follows.
     GifCategories,
@@ -2314,6 +2785,9 @@ pub enum DiscordCommand {
     PlacesUsed,
     /// Keep these as the account's favourite GIFs, in place of the old.
     SetFavoriteGifs(Vec<FavoriteGif>),
+    /// Keep these as the account's favourite emoji, in place of the old: each
+    /// a custom emoji's id or a Unicode emoji's Discord name.
+    SetFavoriteEmojis(Vec<String>),
     /// Download a GIF's picture and decode it to fit `width` by `height`;
     /// [`Event::GifPicture`] follows. A favourite's comes from a thumbnail
     /// kept on disk, made the first time.
@@ -2322,6 +2796,21 @@ pub enum DiscordCommand {
         width: u32,
         height: u32,
         favorite: bool,
+    },
+    /// Discord's default sticker packs, as its own client offers them;
+    /// [`Event::StickerPacks`] follows, and [`Event::KeptStickerPacks`] first
+    /// when Yapfast kept them.
+    StickerPacks,
+    /// Download a sticker's picture and decode it for the picker's tile, a
+    /// Lottie one drawn as it animates; [`Event::StickerPicture`] follows.
+    StickerPicture {
+        url: String,
+    },
+    /// Post sticker `id` in `room` as a message of its own, as Discord's
+    /// client does; the gateway shows it.
+    SendSticker {
+        room: String,
+        id: String,
     },
     /// The members of a Discord role in the room's server, as far as they're known;
     /// [`Event::RoleMembers`] follows.
@@ -2355,11 +2844,14 @@ pub enum DiscordCommand {
     AddFriend {
         username: String,
     },
-    /// Change how this account stands with a Discord user. The lists change
-    /// when Discord confirms it; a failure comes back as [`Event::Error`].
+    /// Change how this account stands with a Discord user, from `location`
+    /// in Discord's client, such as "ContextMenu"; ignoring sends none. The
+    /// lists change when Discord confirms it; a failure comes back as
+    /// [`Event::Error`].
     Relationship {
         user: String,
         change: RelationshipChange,
+        location: &'static str,
     },
     /// Fetch this account's note on a Discord user; [`Event::Note`] follows.
     Note {
@@ -2698,14 +3190,38 @@ pub enum DiscordCommand {
         change: MemberChange,
     },
     /// Fetch a Discord user's profile, as a member of a room's server or as
-    /// the other person in a DM. It comes back as [`Event::Profile`].
+    /// the other person in a DM. It comes back as [`Event::Profile`], and
+    /// the effect it names as [`Event::ProfileEffect`] when `effect` asks
+    /// for it; without, the shop isn't asked what the effect is made of.
+    /// Its frame comes with it, or as [`Event::ProfileFrame`] the first time,
+    /// when `frame` asks for it.
     Profile {
         room: String,
         user: String,
+        effect: bool,
+        frame: bool,
     },
     /// Download server icons and avatars by address. Each that arrives comes
     /// back as [`Event::Picture`]; one that fails doesn't.
     Pictures(Vec<String>),
+    /// Calls off the downloads of these pictures, asked for with
+    /// [`DiscordCommand::Pictures`], that haven't come yet: nothing will show
+    /// them.
+    CancelPictures(Vec<String>),
+    /// A Discord wishlist by its id; [`Event::Wishlist`] follows.
+    Wishlist {
+        id: String,
+    },
+    /// Name the games and applications on someone's board, read-only;
+    /// [`Event::ProfileBoard`] follows.
+    ProfileBoard {
+        user: String,
+        widgets: Vec<ProfileWidget>,
+    },
+    /// What someone did lately, read-only; [`Event::ProfileRecent`] follows.
+    ProfileRecent {
+        user: String,
+    },
     /// This account's profile for its editor: in a Discord server, by its
     /// server id, or its main profile; [`Event::OwnProfile`] follows.
     OwnProfile {
@@ -3383,6 +3899,12 @@ pub struct ProfileChange {
     pub banner: Option<Option<PickedPicture>>,
     /// The main profile's banner colour, `None` for Discord's default.
     pub accent: Option<Option<u32>>,
+    /// The main profile's two theme colours, `None` for none.
+    pub theme: Option<Option<[u32; 2]>>,
+    /// The main profile's name style, `None` for none.
+    pub name_style: Option<Option<NameStyle>>,
+    /// The server whose tag the main profile wears, `None` for no tag.
+    pub primary_server: Option<Option<String>>,
 }
 
 /// A change to how the Discord account stands with someone.
@@ -3460,8 +3982,12 @@ impl Command {
         };
         match self {
             Command::Voice(_) => Route::Voice,
-            // Only Discord's videos play for now.
-            Command::Discord(_) | Command::Video(_) | Command::Aside(_) => Route::Discord,
+            // Only Discord's videos and voice messages play for now.
+            Command::Discord(_)
+            | Command::Video(_)
+            | Command::PauseVoiceMessage
+            | Command::TuneVoiceMessage(_)
+            | Command::Aside(_) => Route::Discord,
             Command::Open(_) | Command::CloseRoom | Command::FindPeople { .. } => Route::Every,
             Command::Send { room, .. }
             | Command::Edit { room, .. }
@@ -3480,6 +4006,8 @@ impl Command {
             | Command::CopyAttachment { room, .. }
             | Command::ViewImage { room, .. }
             | Command::PlayVideo { room, .. }
+            | Command::PlayVoiceMessage { room, .. }
+            | Command::MoveVoiceMessage { room, .. }
             | Command::Typing { room, .. }
             | Command::MarkRead { room, .. }
             | Command::SaveDraft { room, .. }
@@ -3513,6 +4041,47 @@ pub enum ForwardFailure {
 }
 
 pub enum Event {
+    /// A bot answered an interaction with a form, as Discord sent it, with
+    /// the interaction's `nonce`.
+    InteractionModal(serde_json::Value),
+    /// Discord or the bot refused the interaction with this nonce, and why,
+    /// in words to show.
+    InteractionFailed {
+        nonce: String,
+        reason: String,
+    },
+    /// The bot answered the interaction with this nonce.
+    InteractionSucceeded(String),
+    /// Discord took the interaction with this nonce but said nothing more of
+    /// it in time, as across a reconnect.
+    InteractionSettled(String),
+    /// Discord passed the interaction with this nonce to its app, which gave
+    /// it `id`: the answer's message names it in `interaction_metadata`
+    /// ([`ChatMessage::interaction`]), which ends a command's "Sending
+    /// command…" row.
+    InteractionCreated {
+        nonce: String,
+        id: String,
+    },
+    /// The commands of `room`'s indexes, its server's or DM's merged with
+    /// the account's own, or why they couldn't be fetched. Which of them
+    /// the person may use there is `Application::slash_commands`'s to say.
+    CommandIndex {
+        room: String,
+        index: Result<Arc<CommandIndex>, String>,
+    },
+    /// A server's command index is out of date, and those of the DMs with
+    /// its bots, or with none every index: the next use asks again.
+    CommandIndexChanged {
+        guild: Option<String>,
+    },
+    /// An app's choices for the option being typed, for the autocomplete
+    /// with this nonce, the newest, as Discord sent them: `{name, value}`
+    /// each.
+    AutocompleteChoices {
+        nonce: String,
+        choices: serde_json::Value,
+    },
     /// The GIF picker's home, or why it couldn't load.
     GifCategories(Result<(Vec<GifCategory>, Option<Gif>), String>),
     /// GIFs for a search, or with `None` those trending, or why not.
@@ -3541,6 +4110,20 @@ pub enum Event {
         url: String,
         picture: Option<Arc<Picture>>,
     },
+    /// Discord's default sticker packs, or why they couldn't be fetched.
+    StickerPacks(Result<Vec<StickerCollection>, String>),
+    /// The default sticker packs Yapfast kept, to show until Discord's come.
+    KeptStickerPacks(Vec<StickerCollection>),
+    /// A sticker's picture for the picker's tile, or none when it failed.
+    StickerPicture {
+        url: String,
+        picture: Option<Arc<Picture>>,
+    },
+    /// A sticker was sent, or why it couldn't be.
+    StickerSent {
+        room: String,
+        result: Result<(), String>,
+    },
     Voice(voice::State),
     /// A profile [`DiscordCommand::Profile`] asked for, or why Discord didn't give it.
     Profile {
@@ -3555,6 +4138,37 @@ pub enum Event {
     },
     /// The layers of a profile effect a [`Profile::effect`] names.
     ProfileEffect(Arc<ProfileEffect>),
+    /// The layers of the frame of `user`'s profile, which the shop
+    /// described after [`Event::Profile`] came.
+    ProfileFrame {
+        user: String,
+        frame: Arc<[ProfileFrameLayer]>,
+    },
+    /// The Activity panel's feed, in Discord's order; empty if it can't be had.
+    ActivityFeed(Arc<[FeedEntry]>),
+    /// It's time to ask for the Activity panel's feed again.
+    ActivityFeedDue,
+    /// The answer to [`DiscordCommand::ActivityPeople`].
+    ActivityPeople {
+        room: String,
+        people: Arc<[FeedPerson]>,
+    },
+    /// The wishlist [`DiscordCommand::Wishlist`] asked for, as it turned out.
+    Wishlist {
+        id: String,
+        wishlist: Wishlist,
+    },
+    /// The board [`DiscordCommand::ProfileBoard`] named, with what Discord
+    /// didn't say left as it was.
+    ProfileBoard {
+        user: String,
+        widgets: Vec<ProfileWidget>,
+    },
+    /// What [`DiscordCommand::ProfileRecent`] found; nothing if Discord didn't say.
+    ProfileRecent {
+        user: String,
+        recent: Vec<RecentActivity>,
+    },
     /// The profile Yapfast kept of someone [`DiscordCommand::Profile`] asked
     /// for, to show until [`Event::Profile`] comes.
     KeptProfile {
@@ -3566,6 +4180,9 @@ pub enum Event {
     Discord(Arc<yapfast_discord::service::Snapshot>),
     /// The video [`Command::PlayVideo`] plays, as it changes; none once it stops.
     Video(Option<Video>),
+    /// The voice message [`Command::PlayVoiceMessage`] plays, as it
+    /// changes; none once it stops.
+    VoiceMessage(Option<VoicePlayback>),
     /// An image [`Command::ViewImage`] asked for, or why it can't show.
     Image {
         room: String,
@@ -4128,6 +4745,7 @@ fn decode_kept_lottie(
         rgba: Pixels::new(frames.width, frames.height, frames.next()?),
         animation: Some(Animation {
             delays: std::mem::take(&mut frames.delays),
+            plays: 0,
             file: AnimationFile::of(data, kept),
             format: AnimationFormat::Lottie,
         }),
@@ -4238,6 +4856,11 @@ fn decode_animation(
         rgba: Pixels::new(width, height, first),
         animation: Some(Animation {
             delays,
+            plays: if format == AnimationFormat::Png {
+                apng_plays(data)
+            } else {
+                0
+            },
             file: AnimationFile::of(data, kept),
             format,
         }),
@@ -4310,6 +4933,56 @@ fn apng_delays(data: &[u8]) -> Option<Vec<u32>> {
     }
     delays.truncate(usize::try_from(count?).ok()?);
     Some(delays)
+}
+
+/// How many times an animated PNG says it plays, from its `acTL` chunk; 0
+/// for ever, as the standard says.
+fn apng_plays(data: &[u8]) -> u32 {
+    let mut at = 8usize;
+    while let Some(header) = data.get(at..at + 8) {
+        let Ok(size) = <[u8; 4]>::try_from(&header[..4]).map(u32::from_be_bytes) else {
+            return 0;
+        };
+        if &header[4..] == b"acTL" {
+            return data
+                .get(at + 12..at + 16)
+                .and_then(|plays| <[u8; 4]>::try_from(plays).ok())
+                .map_or(0, u32::from_be_bytes);
+        }
+        if &header[4..] == b"IDAT" {
+            return 0;
+        }
+        at += 12 + size as usize;
+    }
+    0
+}
+
+#[cfg(test)]
+mod apng_plays_tests {
+    use super::apng_plays;
+
+    #[test]
+    fn an_animated_png_says_how_many_times_it_plays() {
+        let chunk = |name: &[u8; 4], body: &[u8]| {
+            let mut bytes = (body.len() as u32).to_be_bytes().to_vec();
+            bytes.extend_from_slice(name);
+            bytes.extend_from_slice(body);
+            bytes.extend_from_slice(&[0; 4]);
+            bytes
+        };
+        let png = |plays: u32| {
+            let mut data = b"\x89PNG\r\n\x1a\n".to_vec();
+            data.extend(chunk(b"IHDR", &[0; 13]));
+            let mut control = 2u32.to_be_bytes().to_vec();
+            control.extend_from_slice(&plays.to_be_bytes());
+            data.extend(chunk(b"acTL", &control));
+            data.extend(chunk(b"IDAT", &[0]));
+            data
+        };
+        assert_eq!(apng_plays(&png(1)), 1);
+        assert_eq!(apng_plays(&png(0)), 0, "for ever");
+        assert_eq!(apng_plays(b"not a picture"), 0);
+    }
 }
 
 /// An animated WebP's frames' durations, in milliseconds, from their `ANMF`
@@ -4411,6 +5084,7 @@ impl Animation {
     pub(crate) fn video(data: &[u8], kept: Option<&std::path::Path>, delays: Vec<u32>) -> Self {
         Self {
             delays,
+            plays: 0,
             file: AnimationFile::of(data, kept),
             format: AnimationFormat::Video,
         }

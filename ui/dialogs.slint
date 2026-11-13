@@ -1,5 +1,5 @@
 import { ScrollView } from "scrollview.slint";
-import { Theme, Middle, Label, Popup } from "theme.slint";
+import { Theme, Middle, Label, Popup, Twemoji } from "theme.slint";
 import { ActionButton, IconButton, Avatar, TextField, MenuItem } from "controls.slint";
 import { DiscordBadge } from "discord.slint";
 import { StatusDot } from "rail.slint";
@@ -630,6 +630,8 @@ export struct PersonPrompt {
     chosen: int,
     /// What its field is for, as its label; empty for a dialog that only asks.
     field: string,
+    /// A box to tick under it, by its label; empty for none.
+    tick: string,
     /// What its button says, and whether it does something hard to undo.
     confirm: string,
     danger: bool,
@@ -645,6 +647,8 @@ export struct PersonPrompt {
 export component PersonDialog inherits Rectangle {
     in property <PersonPrompt> prompt;
     in-out property <string> text;
+    in-out property <bool> ticked;
+    callback tick(bool);
     callback answer(string);
     callback choose(int);
     callback close;
@@ -694,6 +698,10 @@ export component PersonDialog inherits Rectangle {
                     placeholder: root.prompt.loading ? "Loading..." : root.prompt.field; label: root.prompt.field;
                     text <=> root.text;
                     accepted => { root.answer(root.text); }
+                }
+                if root.prompt.tick != "": MenuItem {
+                    text: root.prompt.tick; checkbox: true; checked: root.ticked;
+                    clicked => { root.ticked = !root.ticked; root.tick(root.ticked); }
                 }
                 if root.prompt.error != "": Text {
                     text: root.prompt.error; color: Theme.danger; font-size: 14px; wrap: word-wrap;
@@ -788,7 +796,7 @@ export component ReactionsDialog inherits Rectangle {
                                         accessible-action-default => { root.select-reaction(pill.key); }
                                         HorizontalLayout {
                                             padding-left: 4px; padding-right: 8px; spacing: 8px;
-                                            if !root.voters || pill.label != "": Text { text: pill.label; font-family: root.emoji-font; font-size: 20px; width: 24px; horizontal-alignment: center; vertical-alignment: center; }
+                                            if !root.voters || pill.label != "": Text { text: Twemoji.text(pill.label); font-family: root.emoji-font; font-size: 20px; width: 24px; horizontal-alignment: center; vertical-alignment: center; }
                                             if root.voters: Text { text: pill.name; color: Theme.text; font-size: 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
                                             Text { text: pill.count; color: Theme.text; font-size: 14px; font-weight: 700; vertical-alignment: center; }
                                         }

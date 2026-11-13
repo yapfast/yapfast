@@ -22,6 +22,8 @@ pub const ROWS: usize = 100;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ListedMember {
     pub user_id: String,
+    /// An application's account.
+    pub bot: bool,
     pub name: String,
     pub username: Option<String>,
     /// The address of the avatar Discord shows for them on this server.
@@ -52,6 +54,9 @@ pub struct ListedMember {
     /// When their timeout ends, in Unix milliseconds, while they're timed
     /// out as far as Yapfast knows.
     pub timed_out_until: Option<u64>,
+    /// Since when they've boosted the server, in Unix milliseconds, while
+    /// they do, as Discord's member list marks them.
+    pub boosting_since: Option<u64>,
 }
 
 /// Whether someone is around, as their status dot shows.
@@ -315,6 +320,7 @@ impl MemberList {
                     }
                     members.push(ListedMember {
                         user_id: user.clone(),
+                        bot: names.is_bot(user),
                         name: names
                             .name(&self.guild, user)
                             .unwrap_or("Discord user")
@@ -339,6 +345,7 @@ impl MemberList {
                         activities: person.activities,
                         roles: person.roles,
                         timed_out_until: names.timed_out_until(&self.guild, user),
+                        boosting_since: names.boosting_since(&self.guild, user),
                     });
                 }
                 Row::Unknown => {}
@@ -540,6 +547,7 @@ mod tests {
                 "ops": [{"op": "SYNC", "range": [0, 99], "items": [
                     {"group": {"id": "20", "count": 1}},
                     {"member": {"user": {"id": "1", "username": "ann"}, "roles": ["20"],
+                                "premium_since": "2024-03-03T12:00:00+00:00",
                                 "presence": {"status": "dnd", "activities": [{"type": 0, "name": "Chess"}]}}},
                     {"group": {"id": "online", "count": 1}}, member("2", "bob"),
                     {"group": {"id": "offline", "count": 1}}, member("3", "cat"),
@@ -562,6 +570,11 @@ mod tests {
             ]
         );
         assert_eq!(members[0].color, Some(0x3498db));
+        assert_eq!(
+            (members[0].boosting_since, members[1].boosting_since),
+            (Some(1_709_467_200_000), None),
+            "Ann boosts the server"
+        );
         assert_eq!(members[0].activity.as_deref(), Some("Playing Chess"));
         assert_eq!(members[1].color, None);
         assert!(list.presence(

@@ -58,7 +58,8 @@ pub(super) fn change(ask: PersonAsk, choice: usize, text: String) -> MemberChang
 impl Application {
     /// What someone's menu offers: in a Discord server's channel, their
     /// menu as a member of it; elsewhere [`AppState::person_choices`]. Each
-    /// invites them to a server, as Discord's do.
+    /// invites them to a server, as Discord's do, and offers the open room's
+    /// apps' user commands.
     pub fn person_choices(&self, user: &str) -> Vec<MenuChoice> {
         #[cfg(feature = "discord")]
         let mut choices = match self.member_place(user) {
@@ -68,6 +69,9 @@ impl Application {
         #[cfg(not(feature = "discord"))]
         let mut choices = self.state.person_choices(user);
         self.offer_invite(user, &mut choices);
+        if let Some(room) = self.state.selected.as_deref() {
+            self.offer_apps(room, user, &mut choices);
+        }
         choices
     }
 
@@ -173,6 +177,29 @@ impl Application {
         vec![]
     }
 
+    /// What moving someone in the voice channel `place` to the voice
+    /// channel `to` does, from their menu's Move to or by dragging them onto
+    /// it: this account joins it, and someone else is moved there. Nothing
+    /// unless `to` is one of their [`move_targets`](Self::move_targets).
+    pub fn move_to(&self, place: &str, user: &str, to: &str) -> Option<Action> {
+        if !self
+            .move_targets(place, user)
+            .iter()
+            .any(|(room, _)| room == to)
+        {
+            return None;
+        }
+        Some(if self.state.relation(user) == Relation::Me {
+            Action::RequestJoinVoice(to.to_owned())
+        } else {
+            Action::ChangeMember {
+                place: place.to_owned(),
+                user: user.to_owned(),
+                change: MemberChange::Move(Some(to.to_owned())),
+            }
+        })
+    }
+
     /// A server member's menu, in the order of Discord's: who they are and
     /// how to reach them, in a voice channel they're in its mute, their
     /// nickname and how this account stands with them, their roles and
@@ -224,7 +251,9 @@ impl Application {
         if !me {
             choices.extend(state.relationship_choices(user));
         }
-        if self.may(place, Permission::ManageRoles) && !self.server_roles(place).is_empty() {
+        if self.may_in_server(place, Permission::ManageRoles)
+            && !self.server_roles(place).is_empty()
+        {
             choices.push(MenuChoice::Roles);
         }
         if in_voice && !self.move_targets(place, user).is_empty() {
@@ -263,17 +292,32 @@ impl Application {
     }
 
     /// Whether a member's call can start from their menu: their DM's, or a
-    /// new DM's with a friend.
+    /// new DM's. Discord's menu doesn't offer an app a call.
     #[cfg(feature = "discord")]
     fn can_call(&self, user: &str) -> bool {
         let state = &self.state;
+        if state.relation(user) == Relation::Bot {
+            return false;
+        }
         match state.dm_with(user) {
             Some(dm) => {
                 state.can_join_voice(&dm.id)
                     && !(state.voice.active() && state.voice.room.as_ref() == Some(&dm.id))
             }
-            None => state.relation(user) == Relation::Friend && state.discord_online && !state.busy,
+            None => self.may_start_dm_call(user),
         }
+    }
+
+    /// Whether a call with someone can start a DM first: Discord's member
+    /// menu offers Call for anyone but oneself, an app or someone blocked,
+    /// not only friends.
+    fn may_start_dm_call(&self, user: &str) -> bool {
+        let state = &self.state;
+        !user.starts_with('@')
+            && !matches!(state.relation(user), Relation::Me | Relation::Bot)
+            && !state.is_blocked(user)
+            && state.discord_online
+            && !state.busy
     }
 
     /// A member's roles in the Discord server a place names, shared with
@@ -395,8 +439,8 @@ impl Application {
         self.dispatch(Action::SetDraft(draft))
     }
 
-    /// Opens the DM with someone and starts its call, or starts a DM with a
-    /// friend first, whose call starts once it opens.
+    /// Opens the DM with someone and starts its call, or starts a DM with
+    /// them first, whose call starts once it opens.
     pub(super) fn call_person(&mut self, user: String) -> Vec<Effect> {
         if let Some(dm) = self.state.dm_with(&user) {
             let dm = dm.id.clone();
@@ -407,8 +451,7 @@ impl Application {
             effects.extend(self.dispatch(Action::RequestJoinVoice(dm)));
             return effects;
         }
-        let friend = self.state.relation(&user) == Relation::Friend;
-        if !friend || !self.state.discord_online || self.state.busy {
+        if !self.may_start_dm_call(&user) {
             return vec![];
         }
         self.starting_dm = true;
@@ -469,6 +512,7 @@ impl Application {
                 user,
                 name,
                 ask,
+                location: "ContextMenu",
                 text: Some(text),
                 saving: false,
                 error: None,

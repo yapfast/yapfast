@@ -82,11 +82,32 @@ each device by its endpoint id (`{0.0.0.00000000}.{…}` for speakers,
 by that id; none is the console default. Go Live's sound is in
 [Go Live on Windows](#go-live-on-windows).
 
+Microphones open in raw mode (`AUDCLNT_STREAMOPTIONS_RAW`, through
+`IAudioClient2::SetClientProperties`), which skips the effects Windows and the
+sound driver run on them: what Sound settings calls "device default effects"
+or "audio enhancements", often the driver's own noise suppression or
+beamforming. Under Yapfast's suppressor they muffled a voice that Discord's
+client left clear. A device without raw mode opens with its effects. Settings ›
+Voice's "Let Windows process your microphone in Discord calls"
+(`windows_microphone_effects`, off unless turned on, shown on Windows only)
+keeps them, for a laptop microphone that needs its driver's beamforming; a
+call's microphone opens again within 2 s of the switch. Matrix calls record
+through LiveKit's WebRTC, which opens the microphone itself, with the effects.
+
+A Discord call's threads join MMCSS tasks, the microphone's "Audio" and the
+call's and speakers' "Pro Audio", and while the call goes on the process opts
+out of power throttling and asks for a 1 ms timer; see
+[Voice](discord/voice.md#playing-what-others-say). Whether that keeps the
+microphone whole on a weak processor sharing its screen through x264, with
+Yapfast's window minimized, needs checking on real Windows.
+
 Wine's capture starts 0.3–1 s after it's opened, so the first moments a
 microphone hears are lost there. Real Windows needs checking for that, along
 with Bluetooth headsets, a device unplugged during a call, a default device
 changed during a call, exclusive-mode applications, and whether the
-communications ducking setting turns other sound down during a call.
+communications ducking setting turns other sound down during a call. Wine has
+no microphone effects, so raw mode, and a device without it, need checking on
+Windows too.
 
 ## Go Live on Windows
 
@@ -162,6 +183,33 @@ Windows a click anywhere else closes it. So Open Yapfast, Disconnect and Quit
 in the menu are untested on Windows.
 
 [The tray](tray.md#windows) lists what to check on real Windows.
+
+## Notifications on Windows
+
+Desktop notifications are WinRT toasts, shown from a thread of their own
+(`src/notify.rs`). Windows shows a toast only from an app ID it knows. Setting
+one on the process would also have to go on the Start menu shortcut, or the
+taskbar would group the window apart from it, and a portable copy has no
+shortcut. So each start registers `io.github.yapfast.Yapfast` under
+`HKCU\Software\Classes\AppUserModelId` instead, with Yapfast's name and the
+256-pixel picture from its icon, written to `notifications\icon.png` in the
+data folder; uninstalling removes the key. Each toast's author picture goes in
+`notifications\0.png` to `19.png`, in turn. Toasts are silent, since Yapfast
+plays its own sounds.
+
+Clicking a toast while Yapfast runs opens its conversation, through the toast's
+`Activated` event, for the last 20 shown: as many as the notification center
+keeps of an app's. Yapfast registers no COM activator, so a toast clicked after
+it quit doesn't start it.
+
+Wine has no toast service: Yapfast logs `starting toasts: 0x80040154` (class
+not registered) as it starts and goes on without notifications. The app ID's
+registry key and `icon.png` are still written, so that much can be checked
+there.
+
+Real Windows needs checking for: a toast's name, icon and picture; a click
+bringing the window forward from behind another and from the tray; Focus
+assist and Do Not Disturb; and Yapfast in Settings > System > Notifications.
 
 ## Dragging the window
 
@@ -249,14 +297,17 @@ logs and the Wine prefixes.
 
 ## Build for development
 
-For work on Windows code, build with the `fast` profile through cargo-xwin in
-the Windows shell. The app crate needs the prepared Skia archive, as
-`scripts/build-windows` makes it:
+For work on Windows code, build with the `fast` profile in the Windows shell,
+with cargo-xwin's environment. The app crate needs the prepared Skia archive,
+as `scripts/build-windows` makes it, and thorvg-sys's bindgen the target that
+`scripts/release-env` adds, which `cargo xwin build` would overwrite:
 
 ```sh
 nix develop path:./nix#windows --command bash -c '
   export SKIA_BINARIES_URL="file://$(python3 nix/prepare-windows-skia.py)"
-  cargo xwin build --profile fast --target x86_64-pc-windows-msvc \
+  eval "$(cargo xwin env --target x86_64-pc-windows-msvc)"
+  export BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc="$BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc --target=x86_64-pc-windows-msvc"
+  cargo build --profile fast --target x86_64-pc-windows-msvc \
     --no-default-features --features desktop,discord'
 ```
 
@@ -320,7 +371,7 @@ Wayland socket's path longer than its 108-byte limit.
 
 ```sh
 nix develop path:./nix#windows --command env TMPDIR=/tmp \
-  scripts/ui-session start --discord --bin /tmp/wine-yapfast.sh
+  scripts/ui-session start --discord --desktop --bin /tmp/wine-yapfast.sh
 ```
 
 There are two ways to show the window, and each misses something:
@@ -331,7 +382,13 @@ There are two ways to show the window, and each misses something:
   larger than the configured fullscreen state", since the desktop's frame
   doesn't fit the kiosk window. Screen capture gets no frames, the preview of
   a share is black, Weston's kiosk shell ignores moves and resizes, and the
-  tray's menu never shows.
+  tray's menu never shows. Start the session with `--desktop`: Yapfast's own
+  title bar leaves the window frameless, so the kiosk shell sizes it to the
+  whole display. Wine then confines the pointer to it, as to any fullscreen
+  window, and moving that lock trips an assertion in Weston 14
+  (`weston_coord_surface_to_global`). Weston quits, and Wine's Wayland driver
+  ends every process with exit code 1 ("Failed to read events from the
+  compositor"), a few seconds after Yapfast starts.
 - Wine's X11 driver, on a rootful Xwayland inside the session: the script
   starts `Xwayland :58 -geometry 1120x760` (the session's size; not
   `-fullscreen`, which gives 640×480 stretched), then, with `DISPLAY=:58`,

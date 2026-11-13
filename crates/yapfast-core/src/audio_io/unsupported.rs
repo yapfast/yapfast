@@ -8,6 +8,13 @@ use super::Format;
 
 const UNSUPPORTED: &str = "Yapfast has no sound on this system yet.";
 
+pub fn raise_priority(_: super::Priority) -> Result<&'static str, String> {
+    Err(UNSUPPORTED.to_owned())
+}
+
+#[cfg(feature = "discord")]
+pub fn full_speed(_: bool) {}
+
 pub struct Output;
 
 impl Output {

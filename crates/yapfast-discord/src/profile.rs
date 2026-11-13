@@ -50,6 +50,140 @@ pub struct Profile {
     /// The accounts on other services their profile shows.
     #[serde(default)]
     pub connections: Vec<Connection>,
+    /// The widgets on their board, whose games only
+    /// [`Discord::name_widgets`](crate::service::Discord::name_widgets) names.
+    #[serde(default)]
+    pub widgets: Vec<crate::widgets::Widget>,
+    /// Where their wishlist is, if they have one that's said.
+    #[serde(default)]
+    pub wishlist: Option<crate::wishlist::Place>,
+    /// The SKU of the profile frame they equip, whose layers
+    /// [`crate::service::Discord::profile_frame`] gives.
+    #[serde(default)]
+    pub frame: Option<String>,
+}
+
+/// One picture of a profile frame, as the shop describes it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FrameLayer {
+    /// The address of its still picture, the only one the client draws.
+    pub src: String,
+    /// `staple`, once past an end; `rail`, the card's height; `border`,
+    /// repeated down it.
+    pub kind: String,
+    /// `top`, `bottom` or `center`.
+    pub anchor: String,
+    /// It goes over the card, not behind it.
+    pub front: bool,
+}
+
+/// The SKU of the profile frame a profile's person equips: the item of
+/// `collectibles` that is a frame, in the server's profile before their own.
+pub fn frame_sku(value: &Value, guild: bool) -> Option<String> {
+    let in_profile = |profile: &Value| {
+        profile["collectibles"]
+            .as_array()?
+            .iter()
+            // The shop's number for a frame; some answers name it.
+            .find(|item| item["type"] == 3 || item["type"] == "profile_frame")?["sku_id"]
+            .as_str()
+            .map(str::to_owned)
+    };
+    guild
+        .then(|| in_profile(&value["guild_member_profile"]))
+        .flatten()
+        .or_else(|| in_profile(&value["user_profile"]))
+}
+
+/// The layers of the profile frame a shop product holds, the back ones first:
+/// its item's `layers`, `{id, type, order, anchor}`, each a still at
+/// `/media/v1/collectibles-shop/{sku}/{id}/static`. None for a product
+/// without one.
+pub fn frame(product: &Value) -> Option<Vec<FrameLayer>> {
+    let item = product["items"]
+        .as_array()?
+        .iter()
+        .find(|item| item["layers"].is_array())?;
+    let sku = text(&item["sku_id"]).or_else(|| text(&product["sku_id"]))?;
+    let mut layers: Vec<FrameLayer> = item["layers"]
+        .as_array()?
+        .iter()
+        .filter_map(|layer| {
+            let id = text(&layer["id"])?;
+            Some(FrameLayer {
+                src: format!(
+                    "{}/media/v1/collectibles-shop/{sku}/{id}/static",
+                    ready::cdn()
+                ),
+                kind: text(&layer["type"])?.to_owned(),
+                anchor: text(&layer["anchor"]).unwrap_or("center").to_owned(),
+                front: layer["order"] != "back",
+            })
+        })
+        .collect();
+    layers.sort_by_key(|layer| layer.front);
+    (!layers.is_empty()).then_some(layers)
+}
+
+/// A past thing on someone's Activity tab.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RecentEntry {
+    pub title: String,
+    pub subtitle: String,
+    /// The address of its picture.
+    pub picture: Option<String>,
+    /// It's music, marked with a note.
+    pub music: bool,
+    /// When it ended, in milliseconds.
+    pub at: Option<u64>,
+}
+
+/// What's in someone's outbox that this shows: music, what they watched and
+/// games they played, by the client's numbers for `content_type`.
+pub fn recent_entries(value: &Value) -> Vec<RecentEntry> {
+    const PLAYED_GAME: u64 = 1;
+    const WATCHED_MEDIA: u64 = 2;
+    const TOP_GAME: u64 = 3;
+    const LISTENED_SESSION: u64 = 5;
+    value["entries"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let extra = &entry["extra"];
+            let at = entry["ended_at"]
+                .as_str()
+                .or_else(|| entry["started_at"].as_str())
+                .and_then(iso_ms)
+                // A session has no times of its own; its id says when it began.
+                .or_else(|| text(&entry["id"]).map(snowflake_ms).filter(|ms| *ms > 0));
+            match entry["content_type"].as_u64()? {
+                LISTENED_SESSION => {
+                    let media = &extra["entries"][0]["media"];
+                    Some(RecentEntry {
+                        title: text(&media["title"])?.to_owned(),
+                        subtitle: text(&media["artists"][0]["name"])
+                            .unwrap_or_default()
+                            .to_owned(),
+                        picture: text(&media["image_url"]).map(str::to_owned),
+                        music: true,
+                        at,
+                    })
+                }
+                WATCHED_MEDIA => Some(RecentEntry {
+                    title: text(&extra["media_title"])?.to_owned(),
+                    at,
+                    ..Default::default()
+                }),
+                PLAYED_GAME | TOP_GAME => Some(RecentEntry {
+                    title: text(&extra["game_name"])?.to_owned(),
+                    at,
+                    ..Default::default()
+                }),
+                _ => None,
+            }
+        })
+        .collect()
 }
 
 /// An account on another service that a profile shows, such as Steam.
@@ -378,6 +512,9 @@ pub fn parse(value: &Value, guild: Option<&str>) -> Option<Profile> {
                 })
             })
             .collect(),
+        widgets: crate::widgets::parse(value),
+        wishlist: crate::wishlist::place(value),
+        frame: frame_sku(value, guild.is_some()),
         user_id: id,
     })
 }
@@ -387,6 +524,71 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn a_frame_comes_from_its_collectible_with_the_back_layers_first() {
+        let profile = json!({"user_profile": {"collectibles": [
+            {"type": 1, "sku_id": "8"},
+            {"type": 3, "sku_id": "9"},
+        ]}, "guild_member_profile": {"collectibles": [
+            {"type": "profile_frame", "sku_id": "10"},
+        ]}});
+        assert_eq!(frame_sku(&profile, false).as_deref(), Some("9"));
+        assert_eq!(
+            frame_sku(&profile, true).as_deref(),
+            Some("10"),
+            "the server's wins"
+        );
+        assert_eq!(frame_sku(&json!({"user_profile": {}}), false), None);
+        let layers = frame(&json!({"sku_id": "9", "items": [{
+            "sku_id": "9", "inner_width": 1200, "overflow_top": 304,
+            "layers": [
+                {"id": "a", "type": "staple", "order": "front", "anchor": "top"},
+                {"id": "b", "type": "border", "order": "back"},
+            ],
+        }]}))
+        .unwrap();
+        assert_eq!(layers[0].kind, "border");
+        assert_eq!(layers[0].anchor, "center");
+        assert!(!layers[0].front && layers[1].front);
+        assert!(
+            layers[1]
+                .src
+                .ends_with("/media/v1/collectibles-shop/9/a/static")
+        );
+        assert_eq!(
+            frame(&json!({"items": [{"sku_id": "8", "effects": []}]})),
+            None
+        );
+    }
+
+    #[test]
+    fn recent_activity_reads_songs_and_games_and_leaves_the_rest() {
+        let entries = recent_entries(&json!({"entries": [
+            {"content_type": 5, "ended_at": "2026-10-27T00:00:00+00:00", "extra": {"entries": [{"media": {
+                "title": "A song", "artists": [{"name": "A band"}], "image_url": "https://art",
+            }}]}},
+            {"content_type": 1, "extra": {"game_name": "A game"}},
+            {"content_type": 7, "extra": {}},
+        ]}));
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].subtitle, "A band");
+        assert!(entries[0].music && entries[0].at.is_some());
+        assert_eq!(entries[1].title, "A game");
+    }
+
+    #[test]
+    fn a_listening_session_is_dated_by_its_id() {
+        let outbox = json!({"entries": [{
+            "id": "1522378878083924051", "content_type": 5,
+            "expires_at": "2026-11-04T23:42:33+00:00",
+            "extra": {"last_update": "2026-11-04T23:12:33+00:00", "entries": [
+                {"media": {"title": "Song", "artists": [{"name": "Band"}]}},
+            ]},
+        }]});
+        let entries = recent_entries(&outbox);
+        assert_eq!(entries[0].at, Some(snowflake_ms("1522378878083924051")));
+    }
 
     #[test]
     fn the_servers_profile_wins_over_their_own() {

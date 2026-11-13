@@ -44,6 +44,9 @@ pub enum MenuChoice {
     /// Mute a Discord DM for one of [`MUTE_TIMES`], or unmute it.
     Mute,
     Unmute,
+    /// Run an app's user command on them, from a submenu of those the open
+    /// room's command index offers; see `commands.rs`.
+    Apps,
     /// Copy a link to it that its network's apps open.
     CopyLink,
     /// Copy its id as its network knows it.
@@ -174,8 +177,9 @@ impl AppState {
     }
 
     /// What someone's menu offers, by Discord user id or Matrix ID: their
-    /// profile when Yapfast knows them, a DM, and Discord friendship; in their
-    /// DM, what the DM's menu offers.
+    /// profile when Yapfast knows them, a DM, Discord friendship and
+    /// blocking, never for this account; in their DM, what the DM's menu
+    /// offers.
     pub fn person_choices(&self, user: &str) -> Vec<MenuChoice> {
         // In their own DM, someone's menu is the DM's, less what's about it
         // as a conversation in the list; its ID is theirs.
@@ -202,12 +206,20 @@ impl AppState {
         }
         // Matrix IDs start with `@`; Discord user ids are numbers.
         if !me && !self.preview && !user.starts_with('@') && self.discord_user.is_some() {
+            let blocked = self.is_blocked(user);
             match self.relation(user) {
-                Relation::Stranger => choices.push(MenuChoice::AddFriend),
+                // Discord takes no request to someone blocked.
+                Relation::Stranger if !blocked => choices.push(MenuChoice::AddFriend),
                 Relation::Incoming => choices.push(MenuChoice::AcceptFriend),
                 Relation::Outgoing => choices.push(MenuChoice::CancelFriendRequest),
-                Relation::Friend | Relation::Me | Relation::Bot => {}
+                Relation::Stranger | Relation::Friend | Relation::Me | Relation::Bot => {}
             }
+            // As a profile's More menu offers it in Discord's client.
+            choices.push(if blocked {
+                MenuChoice::Unblock
+            } else {
+                MenuChoice::Block
+            });
         }
         if !self.preview {
             choices.push(MenuChoice::CopyId);
@@ -440,9 +452,12 @@ impl Application {
             return vec![];
         }
         self.state.navigation = navigation;
+        // A room restored records the screen it replaces in the history, so
+        // they go once it has.
+        let effects = self.restore_selection();
         self.state.dm_screen = None;
         self.state.browse = None;
-        self.restore_selection()
+        effects
     }
 
     /// Goes to wherever a conversation is listed and shows it; with `chat`,
@@ -460,10 +475,26 @@ impl Application {
                 .find(|server| server.channels.contains(&id))
                 .map(|server| Navigation::Server(server.id.clone()))
         };
+        // Crossing to another server or the direct messages restores a
+        // conversation there first, which is no stop of its own: the history
+        // notes the one that gives way to this conversation instead.
+        let crossing = !self.state.nav_walking
+            && navigation
+                .as_ref()
+                .is_some_and(|navigation| *navigation != self.state.navigation);
+        if crossing {
+            let previous = self.state.place();
+            self.state
+                .record_visit(previous, &HistoryPlace::Room(id.clone()));
+            self.state.nav_walking = true;
+        }
         let mut effects = navigation
             .map(|navigation| self.dispatch(Action::Navigate(navigation)))
             .unwrap_or_default();
         effects.extend(self.select_showing(id, chat));
+        if crossing {
+            self.state.nav_walking = false;
+        }
         effects
     }
 
@@ -491,6 +522,25 @@ impl Application {
         } else {
             self.open(id, false)
         }
+    }
+
+    /// Goes to the call this account is in, as the channel line of Discord's
+    /// voice panel does, unless it's what shows already: a voice channel's
+    /// chat counts, as it's beside the same call in Discord.
+    pub(super) fn go_to_call(&mut self) -> Vec<Effect> {
+        let state = &self.state;
+        let Some(id) = state.voice.room.clone().filter(|_| state.voice.active()) else {
+            return vec![];
+        };
+        let showing = state
+            .selected_room()
+            .is_some_and(|room| room.id == id && state.in_scope(room))
+            && state.dm_screen.is_none()
+            && state.browse.is_none();
+        if showing {
+            return vec![];
+        }
+        self.open(id, false)
     }
 
     /// Switches the selected voice channel between its chat and its call.
@@ -538,19 +588,32 @@ impl Application {
         }
     }
 
+    /// A click on a conversation in the list. Clicking a voice channel joins
+    /// it, or asks before leaving another call, and leaves what's on screen
+    /// as it is, as Discord's client does: the call shows in the voice dock
+    /// until the channel is clicked again, or the dock's channel name. A
+    /// voice channel whose chat mentions you opens on its chat as it joins,
+    /// as Discord's does, and one that can't be joined shows. Restoring a
+    /// selection, for example on navigation, never joins.
     pub(super) fn select_room(&mut self, id: String) -> Vec<Effect> {
-        let mut effects = self.select(id.clone());
-        // Clicking a voice channel joins it, or asks before leaving another
-        // call. Restoring a selection, for example on navigation, never joins.
-        let voice = self.state.selected.as_ref() == Some(&id)
-            && self
-                .state
-                .rooms
-                .iter()
-                .any(|room| room.id == id && room.voice);
-        if voice {
-            effects.extend(self.dispatch(Action::RequestJoinVoice(id)));
-        }
+        let voice = &self.state.voice;
+        let in_call = voice.active() && voice.room.as_ref() == Some(&id);
+        let joins = self
+            .state
+            .rooms
+            .iter()
+            .find(|room| room.id == id && room.voice && self.state.in_scope(room))
+            .filter(|_| !in_call && self.state.can_join_voice(&id))
+            .map(|room| room.mentions > 0 && room.voice_chat());
+        let Some(chat) = joins else {
+            return self.select(id);
+        };
+        let mut effects = if chat {
+            self.select_showing(id.clone(), true)
+        } else {
+            vec![]
+        };
+        effects.extend(self.dispatch(Action::RequestJoinVoice(id)));
         effects
     }
 
@@ -742,12 +805,83 @@ impl Application {
             .into_iter()
             .filter(|url| self.requested_pictures.insert(url.clone()))
             .collect();
+        for url in &wanted {
+            self.let_go_emoji.remove(url);
+        }
         if wanted.is_empty() || self.state.preview {
             vec![]
         } else {
             vec![Effect::Backend(Command::Discord(DiscordCommand::Pictures(
                 wanted,
             )))]
+        }
+    }
+
+    /// Asks for `urls` that aren't in memory, those already asked for too, so
+    /// the download of each moves ahead of what was asked for since.
+    pub(super) fn load_pictures_first(&mut self, urls: Vec<String>) -> Vec<Effect> {
+        let wanted: Vec<String> = urls
+            .into_iter()
+            .filter(|url| !url.is_empty() && !self.state.pictures.contains_key(url))
+            .collect();
+        if wanted.is_empty() || self.state.preview {
+            return vec![];
+        }
+        for url in &wanted {
+            self.let_go_emoji.remove(url);
+        }
+        self.requested_pictures.extend(wanted.iter().cloned());
+        vec![Effect::Backend(Command::Discord(DiscordCommand::Pictures(
+            wanted,
+        )))]
+    }
+
+    /// Steps back or forward through the places visited, to the next one
+    /// still there.
+    pub(super) fn walk_history(&mut self, back: bool) -> Vec<Effect> {
+        let state = &mut self.state;
+        let current = state.place();
+        let target = loop {
+            let stack = if back {
+                &mut state.nav_back
+            } else {
+                &mut state.nav_forward
+            };
+            let Some(place) = stack.pop() else {
+                return vec![];
+            };
+            if Some(&place) != current.as_ref() && state.place_exists(&place) {
+                break place;
+            }
+        };
+        if let Some(current) = current {
+            let other = if back {
+                &mut state.nav_forward
+            } else {
+                &mut state.nav_back
+            };
+            other.push(current);
+        }
+        state.nav_walking = true;
+        let effects = self.show_place(target);
+        self.state.nav_walking = false;
+        effects
+    }
+
+    /// Shows a place, going to the server or the direct messages it belongs to.
+    fn show_place(&mut self, place: HistoryPlace) -> Vec<Effect> {
+        match place {
+            HistoryPlace::Room(id) => self.open(id, false),
+            HistoryPlace::Dm(screen) => {
+                let mut effects = self.navigate(Navigation::DirectMessages);
+                effects.extend(self.open_dm_screen(screen));
+                effects
+            }
+            HistoryPlace::Browse(server) => {
+                let mut effects = self.navigate(Navigation::Server(server));
+                effects.extend(self.open_browse());
+                effects
+            }
         }
     }
 
@@ -766,7 +900,13 @@ impl Application {
                 .iter()
                 .any(|room| room.id == id && self.state.in_scope(room));
         let mut effects = if changes { self.close_aside() } else { vec![] };
+        if changes {
+            // As in Discord's client, a failed control's line goes with
+            // the channel.
+            self.state.interaction_failed = None;
+        }
         effects.extend(self.show_room(id, chat));
+        effects.extend(self.ask_activity());
         effects
     }
 
@@ -791,6 +931,12 @@ impl Application {
         // Messages after the last one read are new.
         let seen = room.last_read.clone();
         self.held_unread.take_if(|held| *held != id);
+        // Where the history goes back to, before the room replaces a screen.
+        if !self.state.nav_walking {
+            let previous = self.state.place();
+            self.state
+                .record_visit(previous, &HistoryPlace::Room(id.clone()));
+        }
         self.remember_view();
         self.last_selected
             .insert(self.state.navigation.clone(), id.clone());
@@ -810,6 +956,7 @@ impl Application {
         self.state.forwarding = None;
         self.state.viewer = None;
         self.state.video = None;
+        self.state.voice_message = None;
         self.state.profile = None;
         self.state.room_ready = self.state.preview || voice_room;
         self.state.loading_history = false;
@@ -841,6 +988,8 @@ impl Application {
             self.state.messages = shown.messages;
             self.state.members = shown.members;
             self.state.room_ready = true;
+            // Its commands' rows as they are now, not as they were.
+            self.show_sent_commands();
         }
         self.state.selection_version = self.state.selection_version.wrapping_add(1);
         // Typing is followed only in the open conversation, so what's known of others is stale.
@@ -865,7 +1014,7 @@ impl Application {
         if self.state.preview {
             if !voice_room {
                 self.state.messages = Arc::new(self.samples.get(&id).cloned().unwrap_or_default());
-                self.state.members = Some(Ok(preview_members(&id)));
+                self.state.members = Some(Ok(Arc::new(preview_members(&id))));
             }
         } else if voice_room {
             effects.push(Effect::Backend(Command::CloseRoom));
@@ -944,6 +1093,7 @@ impl Application {
         self.state.forwarding = None;
         self.state.viewer = None;
         self.state.video = None;
+        self.state.voice_message = None;
         self.state.room_ready = false;
         self.state.loading_history = false;
         self.state.history_start = false;

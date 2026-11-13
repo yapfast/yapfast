@@ -1,4 +1,4 @@
-import { Theme, Middle } from "../theme.slint";
+import { Theme, Tip, Middle } from "../theme.slint";
 
 // Use the existing move/resize/close callbacks, including close-to-tray.
 component CaptionButton inherits Rectangle {
@@ -25,7 +25,58 @@ component CaptionButton inherits Rectangle {
     }
 }
 
+// A button in the bar's own row, before the window's: a 20px glyph on a 4px-rounded ground.
+component BarButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <bool> active;
+    callback clicked;
+    width: 28px; height: 24px; border-radius: 4px;
+    background: !root.enabled ? transparent : root.active ? Theme.overlay.with-alpha(0.12) : pointer.has-hover || focus.has-focus ? Theme.overlay.with-alpha(0.08) : transparent;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    forward-focus: focus;
+    Image {
+        source: root.icon; width: 16px; height: 16px;
+        colorize: !root.enabled ? Theme.faint : root.active || pointer.has-hover ? Theme.text : Theme.secondary;
+    }
+    focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == "\n" || event.text == " " { root.clicked(); return accept; }
+            return reject;
+        }
+        pointer := TouchArea {
+            enabled: root.enabled; mouse-cursor: MouseCursor.pointer;
+            // What the click opens may open under the tip.
+            clicked => { Tip.text = ""; root.clicked(); }
+            changed has-hover => {
+                if self.has-hover {
+                    Tip.text = root.label;
+                    Tip.side = 2;
+                    Tip.x = root.absolute-position.x + root.width / 2;
+                    Tip.y = root.absolute-position.y + root.height;
+                } else if Tip.text == root.label {
+                    Tip.text = "";
+                }
+            }
+        }
+    }
+}
+
 export component WindowBar inherits Rectangle {
+    in property <bool> can-go-back;
+    in property <bool> can-go-forward;
+    in property <bool> inbox-open;
+    callback go-back;
+    callback go-forward;
+    callback toggle-inbox;
+    callback open-help;
+    /// The account's screens show; the inbox and help are for them.
+    in property <bool> workspace;
     in property <string> place;
     in property <bool> focused;
     in property <bool> maximized;
@@ -50,7 +101,7 @@ export component WindowBar inherits Rectangle {
         double-clicked => { root.maximize-window(); }
     }
     HorizontalLayout {
-        x: (parent.width - self.width) / 2; width: min(label.preferred-width + 26px, parent.width - 240px);
+        x: (parent.width - self.width) / 2; width: min(label.preferred-width + 26px, parent.width - 460px);
         height: parent.height; spacing: 8px;
         Middle { width: 16px; Image { source: @image-url("../icons/message-circle.svg"); width: 16px; height: 16px; colorize: Theme.secondary; } }
         label := Text {
@@ -60,7 +111,19 @@ export component WindowBar inherits Rectangle {
         }
     }
     HorizontalLayout {
+        alignment: start; padding-left: 8px; spacing: 4px;
+        Middle { BarButton { icon: @image-url("../icons/arrow-left.svg"); label: "Back"; enabled: root.can-go-back; clicked => { root.go-back(); } } }
+        Middle { BarButton { icon: @image-url("../icons/arrow-right.svg"); label: "Forward"; enabled: root.can-go-forward; clicked => { root.go-forward(); } } }
+    }
+    HorizontalLayout {
         alignment: end; spacing: 0px;
+        if root.workspace: Middle {
+            HorizontalLayout {
+                spacing: 4px; padding-right: 12px;
+                BarButton { icon: @image-url("../icons/inbox.svg"); label: "Inbox"; active: root.inbox-open; clicked => { root.toggle-inbox(); } }
+                BarButton { icon: @image-url("../icons/help-circle.svg"); label: "Help"; clicked => { root.open-help(); } }
+            }
+        }
         CaptionButton { icon: @image-url("../icons/minus.svg"); label: "Minimize"; clicked => { root.minimize-window(); } }
         CaptionButton {
             icon: root.maximized ? @image-url("../icons/restore.svg") : @image-url("../icons/square.svg");

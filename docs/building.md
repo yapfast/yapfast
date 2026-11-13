@@ -85,7 +85,9 @@ The core of it is `yapfast_selection.rs`. The other changes are marked `Yapfast:
 - `textlayout/sharedparley.rs` again, where a `StyledText` lets its text 4px past
   its box, and a `TextInput` up and down, as an emoji is taller than its line
 - `textlayout/sharedparley/draw.rs`, which draws mention pills under their
-  text and opaque covers over hidden Discord spoilers, links to `yapfast:spoiler/`
+  text, opaque covers over hidden Discord spoilers, links to `yapfast:spoiler/`,
+  and the underline of the link under the pointer, which `items/text.rs` keeps;
+  shaping gives links no underline of their own
 - `graphics/image.rs`, where no image equals no image; upstream they differ,
   so every list row without a picture counted as changed on each refresh
 
@@ -169,15 +171,17 @@ is. Compare it with the Fluent style's when upgrading Slint.
 The Matrix SDK revision follows the pinned MatrixRTC revision. Keep those two
 sources together when upgrading.
 
-The picker's, the reaction buttons' and the emoji suggestions' emoji are drawn
-from Twemoji's pictures, the artwork Discord's client uses: `vendor/twemoji` is
+Every emoji Yapfast draws, in the picker, reactions, suggestions, names and
+message text, is drawn from Twemoji's pictures, the artwork Discord's client uses: `vendor/twemoji` is
 `assets/72x72` from https://github.com/discord/twemoji at the revision
 `vendor/twemoji/REVISION` names, under CC-BY 4.0, which asks for the attribution
 `vendor/twemoji/README.yapfast.md` gives. `build.rs` makes them one font the program
 carries, which message text draws and maps rather than copies, and
-`src/twemoji.rs` finds a picture in it by the emoji's code points; a code point it has
-no picture for stays a glyph from the system's emoji font (`src/emoji_glyphs.rs`
-draws that once into a picture). `scripts/release_package.py` copies the
+`src/twemoji.rs` finds a picture in it by the emoji's code points. The font also
+maps each single emoji's own code point and joins each sequence of several, such as
+a flag or a skin tone, into its picture with GSUB ligatures, so text that keeps an
+emoji as typed draws Twemoji's picture too; no system emoji font is used, and the
+picker lists only the emoji Twemoji has a picture for. `scripts/release_package.py` copies the
 licences and attribution into each package and `THIRD-PARTY.json`. Update by
 taking the new commit's files over these, as `vendor/twemoji/README.yapfast.md`
 says.
@@ -227,7 +231,9 @@ dependency in Cargo.toml:
 - `i-slint-core`: Slint's core at `ac7d423f` with selectable `StyledText`,
   mentions coloured in a `TextInput`, timelines that keep their place as
   older messages load, a wheel that speeds up when spun fast, and middle-click
-  autoscroll, above.
+  autoscroll, above. Its per-item caches also mark dirty whatever depended on
+  an entry they drop, so a size measured through the text layout cache before
+  the window has a surface, or before a zoom, follows its text afterwards.
 - `i-slint-renderer-skia`: Slint's Skia renderer at `ac7d423f` with slight hinting,
   mipmapped pictures, and Skia's own FreeType on
   Linux without wgpu, above, and a whole frame after every resize: Windows

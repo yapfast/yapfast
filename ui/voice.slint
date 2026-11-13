@@ -21,6 +21,18 @@ export struct PersonRow {
     person: string,
 }
 
+/// The busy voice channel under the pointer in the channel list, whose card
+/// names who is there, as Discord's client shows it: its room id, its
+/// people, the line summing them up, and where its row is in the window, its
+/// right edge and middle. No people hides the card.
+export global VoiceCard {
+    in-out property <string> channel;
+    in-out property <[PersonRow]> people;
+    in-out property <string> summary;
+    in-out property <length> x;
+    in-out property <length> y;
+}
+
 // Marks someone sharing their screen, as Discord's red LIVE tag does.
 // Clickable when it opens the stream.
 export component LivePill inherits Rectangle {
@@ -355,6 +367,10 @@ export component VoiceDock inherits Rectangle {
     in property <bool> camera-starting;
     /// The call has Discord's soundboard.
     in property <bool> can-soundboard;
+    /// Noise suppression is on; it can be turned on and off from the call.
+    in property <bool> noise-on;
+    in property <bool> can-noise;
+    callback toggle-noise;
     callback leave-voice;
     callback dismiss-voice-error;
     callback toggle-camera;
@@ -366,6 +382,8 @@ export component VoiceDock inherits Rectangle {
     callback open-soundboard(length, length);
     /// The call's connection in detail, from where its status is.
     callback open-call-link(length, length, length, length);
+    /// Shows the call's channel or DM.
+    callback open-call;
     background: Theme.panel;
     VerticalLayout {
         padding-top: 10px; padding-bottom: 8px; padding-right: 8px; spacing: 6px;
@@ -387,7 +405,7 @@ export component VoiceDock inherits Rectangle {
                 min-height: status-text.min-height; preferred-height: status-text.preferred-height;
                 status-text := VerticalLayout {
                     alignment: center;
-                    HorizontalLayout {
+                    status-row := HorizontalLayout {
                         spacing: 6px;
                         Text { text: root.voice-status; color: root.voice-color; font-size: 15px; font-weight: 700; overflow: elide; }
                         if root.voice-time != "": Text {
@@ -396,9 +414,49 @@ export component VoiceDock inherits Rectangle {
                         }
                         Rectangle { horizontal-stretch: 1; }
                     }
-                    if root.voice-active: Text { text: root.voice-detail; color: Theme.muted; font-size: 13px; overflow: elide; }
+                    // The channel's line opens the call, as Discord's link
+                    // under "Voice Connected" does, underlined while pointed
+                    // at or focused; the status opens the connection's details.
+                    if root.voice-active: detail-line := Rectangle {
+                        height: 18px;
+                        property <bool> lit: detail-touch.has-hover || detail-focus.has-focus;
+                        detail-text := Text {
+                            width: parent.width; height: parent.height;
+                            text: root.voice-detail; font-size: 13px; overflow: elide; vertical-alignment: center;
+                            color: detail-line.lit ? Theme.text : Theme.muted;
+                        }
+                        if detail-line.lit: Rectangle {
+                            x: 0px; y: (parent.height + 13px) / 2 + 1px; height: 1px;
+                            width: min(parent.width, detail-text.preferred-width);
+                            background: Theme.text;
+                        }
+                        detail-focus := FocusScope {
+                            accessible-role: button; accessible-label: root.voice-detail + ". Open the call";
+                            accessible-action-default => { root.open-call(); }
+                            key-pressed(event) => {
+                                if event.text == "\n" || event.text == " " {
+                                    root.open-call(); return accept;
+                                }
+                                return reject;
+                            }
+                            detail-touch := TouchArea {
+                                mouse-cursor: MouseCursor.pointer;
+                                clicked => { root.open-call(); }
+                            }
+                        }
+                    }
                 }
-                LinkTouch { open(x, y, width, height) => { root.open-call-link(x, y, width, height); } }
+                LinkTouch {
+                    y: status-text.y + status-row.y; height: status-row.height;
+                    open(x, y, width, height) => { root.open-call-link(x, y, width, height); }
+                }
+            }
+            // Beside leaving, as in Vesktop. Off shows red, so it isn't forgotten.
+            if root.voice-active && root.can-noise: IconButton {
+                icon: root.noise-on ? @image-url("icons/noise-bars.svg") : @image-url("icons/noise-bars-off.svg");
+                label: root.noise-on ? "Turn off noise suppression" : "Turn on noise suppression";
+                alert: !root.noise-on;
+                clicked => { root.toggle-noise(); }
             }
             if root.voice-active: IconButton {
                 icon: @image-url("icons/phone-off.svg"); label: "Leave voice"; danger: true;
@@ -1234,98 +1292,103 @@ export component ShareMenu inherits Rectangle {
     /// The encoder's slower preset: a sharper picture for more CPU.
     in-out property <bool> pick-high-quality;
     callback go-live(int, int, int, bool);
+    /// The menu's height with every choice showing. In a window too short for
+    /// it, the menu is as tall as it gets and the choices scroll, above the
+    /// button that starts the stream, which stays.
+    out property <length> full-height: choices.preferred-height + start.preferred-height + 12px;
     background: Theme.raised; border-color: Theme.edge; border-width: 1px; border-radius: 8px;
     drop-shadow-blur: 24px; drop-shadow-color: #00000080; drop-shadow-offset-y: 8px;
     VerticalLayout {
-        padding: 6px; spacing: 2px;
-        if root.screens.length > 0: HorizontalLayout {
-            padding-left: 8px; padding-top: 4px; padding-bottom: 4px;
-            Text { text: "SCREENS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
-        }
-        // Two to a row; one alone sits in the middle.
-        if root.screens.length > 0: Rectangle {
-            property <length> gap: 4px;
-            property <length> card: (self.width - self.gap) / 2;
-            property <length> card-height: self.card * 9 / 16 + 30px;
-            height: ceil(root.screens.length / 2) * (self.card-height + self.gap) - self.gap;
-            for screen[index] in root.screens: ScreenCard {
-                x: root.screens.length == 1 ? (parent.width - parent.card) / 2 : mod(index, 2) * (parent.card + parent.gap);
-                y: floor(index / 2) * (parent.card-height + parent.gap);
-                width: parent.card; height: parent.card-height;
-                text: screen.title; picture: screen.picture; checked: index == root.pick-source;
-                clicked => { root.pick-source = index; }
-            }
-        }
-        if root.windows.length > 0: HorizontalLayout {
-            padding-left: 8px; padding-top: root.screens.length > 0 ? 8px : 4px; padding-bottom: 4px;
-            Text { text: "WINDOWS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
-        }
-        if root.windows.length > 0: ScrollView {
-            // Five before the list scrolls.
-            height: min(5, root.windows.length) * 32px;
-            VerticalLayout {
-                for window[index] in root.windows: MenuItem {
-                    text: window; checked: root.screens.length + index == root.pick-source;
-                    clicked => { root.pick-source = root.screens.length + index; }
+        padding: 6px; spacing: 0px;
+        ScrollView {
+            min-height: 0px; preferred-height: choices.preferred-height;
+            choices := VerticalLayout {
+                spacing: 2px;
+                if root.screens.length > 0: HorizontalLayout {
+                    padding-left: 8px; padding-top: 4px; padding-bottom: 4px;
+                    Text { text: "SCREENS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                }
+                // Two to a row; one alone sits in the middle.
+                if root.screens.length > 0: Rectangle {
+                    property <length> gap: 4px;
+                    property <length> card: (self.width - self.gap) / 2;
+                    property <length> card-height: self.card * 9 / 16 + 30px;
+                    height: ceil(root.screens.length / 2) * (self.card-height + self.gap) - self.gap;
+                    for screen[index] in root.screens: ScreenCard {
+                        x: root.screens.length == 1 ? (parent.width - parent.card) / 2 : mod(index, 2) * (parent.card + parent.gap);
+                        y: floor(index / 2) * (parent.card-height + parent.gap);
+                        width: parent.card; height: parent.card-height;
+                        text: screen.title; picture: screen.picture; checked: index == root.pick-source;
+                        clicked => { root.pick-source = index; }
+                    }
+                }
+                if root.windows.length > 0: HorizontalLayout {
+                    padding-left: 8px; padding-top: root.screens.length > 0 ? 8px : 4px; padding-bottom: 4px;
+                    Text { text: "WINDOWS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                }
+                // Every window, and every camera below: the menu scrolls as
+                // one, since a list scrolling inside it kept the wheel at its
+                // end, and the choices under it out of reach from there.
+                if root.windows.length > 0: VerticalLayout {
+                    for window[index] in root.windows: MenuItem {
+                        text: window; checked: root.screens.length + index == root.pick-source;
+                        clicked => { root.pick-source = root.screens.length + index; }
+                    }
+                }
+                if root.asks-dialog: HorizontalLayout {
+                    padding-left: 8px; padding-top: 4px; padding-bottom: 4px;
+                    Text { text: "SCREEN"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                }
+                if root.asks-dialog: MenuItem {
+                    text: "Screen or window"; subtitle: "Picked in the system's dialog";
+                    checked: root.dialog-index == root.pick-source;
+                    clicked => { root.pick-source = root.dialog-index; }
+                }
+                if root.cameras.length > 0: HorizontalLayout {
+                    padding-left: 8px; padding-top: root.dialog-index > 0 || root.asks-dialog ? 8px : 4px; padding-bottom: 4px;
+                    Text { text: "CAMERAS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                }
+                if root.cameras.length > 0: VerticalLayout {
+                    for camera[index] in root.cameras: MenuItem {
+                        text: camera; checked: root.first-camera + index == root.pick-source;
+                        clicked => { root.pick-source = root.first-camera + index; }
+                    }
+                }
+                if !root.switching: HorizontalLayout {
+                    padding-left: 8px; padding-top: root.lists ? 8px : 4px; padding-bottom: 4px;
+                    Text { text: "RESOLUTION"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                }
+                if !root.switching: VerticalLayout {
+                    spacing: 2px;
+                    for choice[index] in ["720p", "1080p", "Source"]: MenuItem {
+                        text: choice; checked: index == root.pick-resolution;
+                        clicked => { root.pick-resolution = index; }
+                    }
+                }
+                if !root.switching: HorizontalLayout {
+                    padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
+                    Text { text: "FRAME RATE"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                }
+                if !root.switching: VerticalLayout {
+                    spacing: 2px;
+                    for fps in [15, 30, 60]: MenuItem {
+                        text: fps + " fps"; checked: fps == root.pick-fps;
+                        clicked => { root.pick-fps = fps; }
+                    }
+                }
+                if !root.switching: HorizontalLayout {
+                    padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
+                    Text { text: "ENCODING"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
+                }
+                if !root.switching: MenuItem {
+                    text: "Higher quality"; subtitle: "Sharper, at twice the CPU";
+                    checkbox: true; checked: root.pick-high-quality;
+                    clicked => { root.pick-high-quality = !root.pick-high-quality; }
                 }
             }
         }
-        if root.asks-dialog: HorizontalLayout {
-            padding-left: 8px; padding-top: 4px; padding-bottom: 4px;
-            Text { text: "SCREEN"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
-        }
-        if root.asks-dialog: MenuItem {
-            text: "Screen or window"; subtitle: "Picked in the system's dialog";
-            checked: root.dialog-index == root.pick-source;
-            clicked => { root.pick-source = root.dialog-index; }
-        }
-        if root.cameras.length > 0: HorizontalLayout {
-            padding-left: 8px; padding-top: root.dialog-index > 0 || root.asks-dialog ? 8px : 4px; padding-bottom: 4px;
-            Text { text: "CAMERAS"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
-        }
-        if root.cameras.length > 0: ScrollView {
-            // Five before the list scrolls.
-            height: min(5, root.cameras.length) * 32px;
-            VerticalLayout {
-                for camera[index] in root.cameras: MenuItem {
-                    text: camera; checked: root.first-camera + index == root.pick-source;
-                    clicked => { root.pick-source = root.first-camera + index; }
-                }
-            }
-        }
-        if !root.switching: HorizontalLayout {
-            padding-left: 8px; padding-top: root.lists ? 8px : 4px; padding-bottom: 4px;
-            Text { text: "RESOLUTION"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
-        }
-        if !root.switching: VerticalLayout {
-            spacing: 2px;
-            for choice[index] in ["720p", "1080p", "Source"]: MenuItem {
-                text: choice; checked: index == root.pick-resolution;
-                clicked => { root.pick-resolution = index; }
-            }
-        }
-        if !root.switching: HorizontalLayout {
-            padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
-            Text { text: "FRAME RATE"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
-        }
-        if !root.switching: VerticalLayout {
-            spacing: 2px;
-            for fps in [15, 30, 60]: MenuItem {
-                text: fps + " fps"; checked: fps == root.pick-fps;
-                clicked => { root.pick-fps = fps; }
-            }
-        }
-        if !root.switching: HorizontalLayout {
-            padding-left: 8px; padding-top: 8px; padding-bottom: 4px;
-            Text { text: "ENCODING"; color: Theme.muted; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; }
-        }
-        if !root.switching: MenuItem {
-            text: "Higher quality"; subtitle: "Sharper, at twice the CPU";
-            checkbox: true; checked: root.pick-high-quality;
-            clicked => { root.pick-high-quality = !root.pick-high-quality; }
-        }
-        HorizontalLayout {
-            padding: 4px; padding-top: 8px;
+        start := HorizontalLayout {
+            padding: 4px; padding-top: 10px;
             ActionButton {
                 text: root.switching ? "Switch" : "Go Live"; icon: @image-url("icons/screen-share.svg"); primary: true; horizontal-stretch: 1;
                 clicked => { root.go-live(root.pick-source, root.pick-resolution, root.pick-fps, root.pick-high-quality); }

@@ -359,7 +359,7 @@ pub enum Command {
     /// which is remembered for next time.
     GoLive(StreamQuality),
     /// Share the screen or window picked last in place of the one shared,
-    /// keeping the stream; on Linux, what the system's dialog picks.
+    /// keeping the stream; in a Wayland session, what the system's dialog picks.
     SwitchLive,
     StopLive,
     /// Play the soundboard sound with this id for everyone in the call.

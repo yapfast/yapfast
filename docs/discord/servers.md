@@ -25,7 +25,9 @@ it.
 
 Right-clicking someone in a server channel's member list, or a message's
 author there, opens their menu in the order of Discord's: Profile, Mention,
-Message, Call, Add note and the friend nickname; Change nickname, [Invite to
+Message, Call for anyone but oneself, an app or someone blocked, which asks
+first, as Discord's does, until "Don't ask again" is ticked, Add note and the
+friend nickname; Change nickname, [Invite to
 server](#invite-to-server), friendship, Ignore and Block; Roles; in red,
 Time out, Kick and Ban, each naming them; then Copy ID, last as in
 Discord's `GuildChannelUserContextMenu`. In a voice channel it has more; see
@@ -48,10 +50,11 @@ copying them.
   resets it. One's own entry offers Edit server profile in its place, as
   Discord's menu does, which opens the [per-server profile
   editor](people.md#editing-ones-server-profile).
-- Roles needs Manage Roles. Its submenu lists every role but @everyone,
-  highest first, ticked where they hold it. Roles at or above this account's
-  highest, and those an integration manages, show greyed, as Discord shows
-  them. Ticking one is `PUT` or `DELETE
+- Roles needs Manage Roles in the server, whatever the channel's overwrites
+  say. Its submenu lists the roles this account can give or take, highest
+  first, ticked where they hold it. A role at or above this account's highest,
+  or one an integration manages, shows only while they hold it, greyed, as in
+  Discord's. Ticking one is `PUT` or `DELETE
   /guilds/{id}/members/{user}/roles/{role}`; the box changes at once and the
   menu stays open.
 - Time out needs Moderate Members and outranking them, and isn't offered for
@@ -103,14 +106,36 @@ Matrix room's, the right click still sets only the volume.
 Discord answers each change with GUILD_MEMBER_UPDATE, or for a kick with
 GUILD_MEMBER_REMOVE, and for a ban with GUILD_BAN_ADD as well, and sends the
 member list's subscribers its operations. Yapfast learns the member's
-nickname, roles and `communication_disabled_until`, shows the open member
-list again when it lists them, and renders the open channel again, so names,
-colours and the list follow. A member who leaves is forgotten. A nickname,
+nickname, roles, `communication_disabled_until` and `premium_since`, shows
+the open member list again when it lists them, and renders the open channel
+again, so names, colours and the list follow. As in Discord's client, the
+member list marks someone who boosts the server with a pink gem after their
+name, whose tooltip says since when ("Server boosting since 3 March 2024");
+Show boost gems in Settings > Messages turns the gem off (`boost_gems` in
+`layout.json`, on by default). Yapfast keeps the date only for those boosting,
+while it runs. A member who leaves is forgotten. A nickname,
 timeout, kick or ban that fails says why in its dialog; a role says so in a
 notice.
 
 Discord's menu also has Invite to listen (Spotify), Apps and Open in
 moderator view, which Yapfast leaves out for now.
+
+### Dragging someone to another voice channel
+
+As in Discord's client, someone under a voice channel in the channel list
+can be dragged onto another voice channel of the server, wherever their menu
+offers Move to, which `Application::move_targets` decides for both. The drag
+starts once the pointer has moved a few pixels with the button down, as a
+channel's does, so a click still opens their profile and a right click their
+menu. While someone is dragged, the channels Move to lists stay bright and
+every other channel dims, the one they're in included, as other channels do
+while one is dragged; the one under the pointer is outlined, and the list
+scrolls near its top and bottom. Dropping them there does what choosing it
+in Move to does (`Application::move_to`): someone else is moved with the
+same `PATCH /guilds/{id}/members/{user}` and `{"channel_id": ...}`, and this
+account joins it, also when it's in the call on another client. Dropping
+anywhere else, beside the list included, or Escape, lets go without moving
+anyone. Dragging needs a pointer; Move to in their menu does the same.
 
 ## Invites
 
@@ -246,6 +271,19 @@ server they name, so the sidebar rebuilds that server's rows and keeps the
 others. Names are 1 to 100 characters and topics up to 1024, checked before
 asking.
 
+Each channel's icon in the sidebar and its header says what it is, as in
+Discord's client (`Icons::channel`): a hash for text, a megaphone for an
+announcement channel (type 5), a forum's and a media channel's own (15 and
+16), a speaker for voice and a broadcast mast for a stage (13). The rules
+channel, the guild's `rules_channel_id`, has a book with a check instead,
+whatever its kind. A warning sign at the icon's top right marks an
+age-restricted channel (`nsfw`), and else a lock marks one @everyone is
+kept out of: the channel's own overwrite for @everyone denies View
+Channel, or for a voice or stage channel, @everyone may not connect
+(`Server::private`). Other roles may still be let in, so the lock doesn't
+mean the account can't read it; a channel it can't read shows a plain lock,
+greyed, as before.
+
 ## The server header, events and private channels
 
 In Discord mode the sidebar header shows the server's banner (`guild.banner`,
@@ -255,11 +293,18 @@ under the header goes away. A verified server (`features` has `VERIFIED`)
 shows a green badge with a check after its name instead of the community
 icon; other community servers keep the community icon.
 
-Under the header a 60px row reads "N Events" with a calendar icon, where N
+When the owner shows the boost progress bar (`premium_progress_bar_enabled`),
+a 26px pill under the header reads "Boost Goal" and "N/33 Boosts", with a pink
+fill for the share of the goal reached. `N` is `premium_subscription_count`
+from GUILD_CREATE and GUILD_UPDATE. The 33 is what Discord's own client
+showed for a server without boosts; it has no per-level goals here.
+
+Under the header, in a Community server or one with events, a 60px row reads
+"Events" or "N Events" with a calendar icon, where N
 counts the scheduled events that haven't ended (status 1 scheduled or 2
 active). They come from `guild_scheduled_events` in GUILD_CREATE and are kept
 current by GUILD_SCHEDULED_EVENT_CREATE, UPDATE and DELETE. Clicking the row
-opens a menu with one row per event: its name, and "Happening now" or the
+opens a menu (a single "No upcoming events" row when there are none) with one row per event: its name, and "Happening now" or the
 start time (12 or 24 hours as the clock is set) followed by its place.
 Yapfast doesn't fetch `/guilds/{id}/scheduled-events` and doesn't draw
 Discord's event cards, so interest counts aren't shown.
@@ -550,7 +595,7 @@ ordinary message in it.
 A forum (type 15) lists among the text channels, by its position, with its
 own icon, and shows its posts in place of messages, as Discord's client
 does (`application/forum.rs`, `ForumPanel`). A media channel (type 16) has
-a forum's fields and is one here, with a forum's icon and its list of
+a forum's fields and is one here, with its own icon and a forum's list of
 cards, where Discord's client shows a gallery. Its posts are public threads
 whose parent is the forum, so everything above holds for them: posts the
 account is in list under the forum in the sidebar, the active ones come
@@ -589,6 +634,11 @@ messages are kept only while the forum shows. Opening the forum marks it
 read, which acknowledges its newest message, as Discord's client does; a
 forum's newest message is its newest post, so a post made since makes it
 unread (THREAD_CREATE with `newly_created`).
+
+Above an open post's messages a 45px bar has "React to post", which opens the
+emoji picker for the post's first message (once it's loaded), and on the right
+"Follow" or "Following", which joins or leaves the thread as its menu does, and
+a button that copies the post's link.
 
 New Post, beside the search, opens the form for a post in place of the
 list, as Discord's client opens it at the top of a forum

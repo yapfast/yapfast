@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Runs crates/yapfast-discord/tests/fake_server.rs, then yapfast-core's ignored
-# discord_text tests, against testing/fake_discord.ts, then
+# Runs crates/yapfast-discord/tests/fake_server.rs, fake_interactions.rs and
+# fake_commands.rs,
+# then yapfast-core's ignored
+# discord_text and discord_voice tests, against testing/fake_discord.ts, then
 # crates/yapfast-discord/tests/fake_env.rs against it with an environment.
 # Usage: scripts/test-fake-discord [FILTER…], test names or parts of them
 # (`scripts/test-fake-discord forum`), passed to each test binary.
@@ -9,7 +11,7 @@
 # crates/yapfast-discord/tests/fake_server.rs` lists them. cargo nextest
 # runs them side by side, eight at a time (.config/nextest.toml); without
 # it, cargo test runs them one after another.
-# For the discord_text tests it starts one fake, waits until it answers,
+# For the yapfast-core tests it starts one fake, waits until it answers,
 # runs them with the `fast` profile, then stops it; its log is
 # target/fake-discord.log. Then it does the same for fake_env.rs, against
 # a fake running testing/envs/example.json, whose log is
@@ -60,14 +62,16 @@ start_fake() {
 
 if command -v cargo-nextest >/dev/null; then
   cargo nextest run --locked --cargo-profile fast -p yapfast-discord --test fake_server \
-    --run-ignored only --no-fail-fast "$@"
+    --test fake_interactions --test fake_commands --run-ignored only --no-fail-fast "$@"
 else
   cargo test --locked --profile fast -p yapfast-discord --test fake_server -- --ignored "$@"
+  cargo test --locked --profile fast -p yapfast-discord --test fake_interactions -- --ignored "$@"
+  cargo test --locked --profile fast -p yapfast-discord --test fake_commands -- --ignored "$@"
 fi
 # The shared core's Discord side, against a fake of its own.
 start_fake target/fake-discord.log
 YAPFAST_DISCORD_TEST_SERVER=$server \
-  cargo test --locked --profile fast -p yapfast-core discord_text::tests -- --ignored "$@"
+  cargo test --locked --profile fast -p yapfast-core -- --ignored discord_text::tests discord_voice::tests "$@"
 # The example environment, in a fake of its own.
 start_fake target/fake-discord-env.log --env testing/envs/example.json
 YAPFAST_DISCORD_TEST_SERVER=$server \

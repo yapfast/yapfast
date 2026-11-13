@@ -187,20 +187,92 @@ fn binary(bytes: &[u8]) -> Result<(u64, Event)> {
     Ok((u64::from(u16::from_be_bytes(*number)), event))
 }
 
+/// How long address discovery waits for an answer before it asks again,
+/// and how many times it asks. One lost packet, on the way there or back,
+/// no longer ends the connection; a voice server that never answers still
+/// fails after five seconds, as it did with a single ask.
+const DISCOVERY_WAIT: Duration = Duration::from_secs(1);
+const DISCOVERY_ASKS: u32 = 5;
+
 /// Discord's address discovery: the server tells the client its public
 /// address and port, which it then selects the protocol with.
 async fn discover(udp: &UdpSocket, ssrc: u32) -> Result<(IpAddr, u16)> {
+    discover_waiting(udp, ssrc, DISCOVERY_WAIT).await
+}
+
+/// Asks up to [`DISCOVERY_ASKS`] times, `wait` apart, and takes the first
+/// answer it can read. Anything else that arrives is passed over, so a
+/// stray packet can't end the connection either.
+async fn discover_waiting(udp: &UdpSocket, ssrc: u32, wait: Duration) -> Result<(IpAddr, u16)> {
     let mut request = [0u8; 74];
     request[..2].copy_from_slice(&1u16.to_be_bytes());
     request[2..4].copy_from_slice(&70u16.to_be_bytes());
     request[4..8].copy_from_slice(&ssrc.to_be_bytes());
-    udp.send(&request).await?;
-    let mut answer = [0u8; 74];
-    let length = timeout(Duration::from_secs(5), udp.recv(&mut answer))
-        .await
-        .context("the voice server didn't answer address discovery")??;
-    if length < 74 || u16::from_be_bytes([answer[0], answer[1]]) != 2 {
-        bail!("the voice server's address discovery answer was malformed");
+    // Room for any datagram: Windows fails a receive that doesn't fit.
+    let mut answer = [0u8; 1500];
+    let mut unreadable = None;
+    for ask in 1..=DISCOVERY_ASKS {
+        udp.send(&request)
+            .await
+            .context("couldn't send address discovery to the voice server")?;
+        let next = tokio::time::Instant::now() + wait;
+        loop {
+            let length = match tokio::time::timeout_at(next, udp.recv(&mut answer)).await {
+                Err(_) => break,
+                Ok(Ok(length)) => length,
+                // An ICMP "port unreachable" for an earlier packet, which
+                // Windows hands to the next receive on the socket.
+                Ok(Err(error))
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionRefused
+                    ) =>
+                {
+                    tracing::debug!(ask, %error, "address discovery: no answer yet");
+                    continue;
+                }
+                Ok(Err(error)) => return Err(error.into()),
+            };
+            match discovered(&answer[..length]) {
+                Ok(found) if ask == 1 => {
+                    tracing::debug!("address discovery answered the first ask");
+                    return Ok(found);
+                }
+                Ok(found) => {
+                    tracing::info!(
+                        "address discovery answered on attempt {ask} of {DISCOVERY_ASKS}"
+                    );
+                    return Ok(found);
+                }
+                Err(error) => {
+                    tracing::debug!(ask, length, %error, "address discovery passed over a packet");
+                    unreadable = Some(error);
+                }
+            }
+        }
+    }
+    tracing::warn!(
+        attempts = DISCOVERY_ASKS,
+        "address discovery got no answer after {DISCOVERY_ASKS} attempts"
+    );
+    let seconds = (wait * DISCOVERY_ASKS).as_secs_f32();
+    Err(match unreadable {
+        Some(error) => error.context(format!(
+            "the voice server's address discovery answer was malformed, after {DISCOVERY_ASKS} tries over {seconds} s"
+        )),
+        None => anyhow!(
+            "the voice server didn't answer address discovery, asked {DISCOVERY_ASKS} times over {seconds} s"
+        ),
+    })
+}
+
+/// The address and port in an address discovery answer.
+fn discovered(answer: &[u8]) -> Result<(IpAddr, u16)> {
+    let Some(answer) = answer.first_chunk::<74>() else {
+        bail!("{} bytes, short of an answer's 74", answer.len());
+    };
+    if u16::from_be_bytes([answer[0], answer[1]]) != 2 {
+        bail!("not an answer");
     }
     let address = &answer[8..72];
     let end = address
@@ -251,7 +323,8 @@ impl Connection {
         let url = gateway_url(&identity.endpoint)?;
         let (mut ws, _) = timeout(HANDSHAKE, websocket::connect(url.as_str()))
             .await
-            .context("the voice server didn't answer")??;
+            .context("the voice server didn't answer")?
+            .context("couldn't reach the voice server")?;
         send_json(
             &mut ws,
             0,
@@ -542,5 +615,93 @@ mod tests {
             "{event:?}"
         );
         assert!(binary(&[0]).is_err());
+    }
+
+    /// A voice server on this machine that passes over the first `lost`
+    /// asks, then answers each later one after a stray and a short packet.
+    /// Returns its socket's address and the asks it got.
+    async fn voice_server(lost: usize) -> (std::net::SocketAddr, std::sync::Arc<Mutex<usize>>) {
+        let server = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let address = server.local_addr().unwrap();
+        let asks = std::sync::Arc::new(Mutex::new(0));
+        let counted = asks.clone();
+        tokio::spawn(async move {
+            let mut packet = [0u8; 74];
+            loop {
+                let (length, from) = server.recv_from(&mut packet).await.unwrap();
+                assert_eq!(length, 74);
+                assert_eq!(packet[..8], [0, 1, 0, 70, 0, 0, 0, 7]);
+                *lock(&counted) += 1;
+                if *lock(&counted) <= lost {
+                    continue;
+                }
+                server.send_to(&[0x80, 0x78, 0, 1], from).await.unwrap();
+                let mut stray = packet;
+                stray[1] = 9;
+                server.send_to(&stray, from).await.unwrap();
+                let mut answer = [0u8; 74];
+                answer[..8].copy_from_slice(&[0, 2, 0, 70, 0, 0, 0, 7]);
+                answer[8..19].copy_from_slice(b"203.0.113.5");
+                answer[72..].copy_from_slice(&50_000u16.to_be_bytes());
+                server.send_to(&answer, from).await.unwrap();
+            }
+        });
+        (address, asks)
+    }
+
+    async fn client(server: std::net::SocketAddr) -> UdpSocket {
+        let udp = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        udp.connect(server).await.unwrap();
+        udp
+    }
+
+    #[tokio::test]
+    async fn address_discovery_asks_again_until_answered() {
+        let wait = Duration::from_millis(100);
+        for lost in [0, 1, DISCOVERY_ASKS as usize - 1] {
+            let (server, asks) = voice_server(lost).await;
+            let found = discover_waiting(&client(server).await, 7, wait).await;
+            assert_eq!(
+                found.unwrap(),
+                ("203.0.113.5".parse().unwrap(), 50_000),
+                "{lost} lost"
+            );
+            assert_eq!(*lock(&asks), lost + 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn address_discovery_gives_up_on_a_silent_server() {
+        let wait = Duration::from_millis(100);
+        let (server, asks) = voice_server(usize::MAX).await;
+        let started = std::time::Instant::now();
+        let error = discover_waiting(&client(server).await, 7, wait)
+            .await
+            .unwrap_err();
+        let took = started.elapsed();
+        assert_eq!(
+            error.to_string(),
+            "the voice server didn't answer address discovery, asked 5 times over 0.5 s"
+        );
+        assert!(
+            took >= wait * DISCOVERY_ASKS && took < wait * (DISCOVERY_ASKS + 3),
+            "{took:?}"
+        );
+        assert_eq!(*lock(&asks), DISCOVERY_ASKS as usize);
+    }
+
+    #[test]
+    fn reads_an_address_discovery_answer() {
+        let mut answer = [0u8; 74];
+        answer[..2].copy_from_slice(&[0, 2]);
+        answer[8..11].copy_from_slice(b"::1");
+        answer[72..].copy_from_slice(&[1, 2]);
+        assert_eq!(discovered(&answer).unwrap(), ("::1".parse().unwrap(), 258));
+        assert!(discovered(&answer[..73]).is_err());
+        answer[8] = b'x';
+        assert!(discovered(&answer).is_err());
+        answer[8] = b':';
+        answer[1] = 1;
+        assert!(discovered(&answer).is_err());
     }
 }

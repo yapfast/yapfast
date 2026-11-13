@@ -30,6 +30,10 @@
 // `--channels N` adds text channels room-1 to room-N to "Server", each with 60
 // messages, every third with a picture, written in turn by `--authors N`
 // people of their own (Bob without it), for a long session across channels.
+// `--members N` adds N people, online, to Server's member list, as a busy
+// server's first hundred rows are. POST /_control/churn-start takes one of
+// them offline or back online ten times a second, each a member list update,
+// and /_control/churn-stop stops it.
 // POST /_control/crowd-start makes someone new post in the last of them, or
 // in #general, 50 times a second, and /_control/crowd-stop stops them.
 // POST /_control/burst?count=N posts N messages, 150 every 10 ms, for
@@ -41,6 +45,8 @@
 // in, and /_control/speakers-stop stops them.
 // POST /_control/chat-start makes Bob post in
 // #general every 2 s; POST /_control/chat-stop stops him. POST
+// /_control/activity-stale says the member list's Activity feed is stale, and
+// GET /_control/activity-fetches lists the refresh token of each fetch. POST
 // /_control/gallery makes him post three photos in one message. Joining voice
 // connects to a voice server here that answers the handshake without DAVE and
 // counts the audio each call connection sends: GET /_control/call-audio
@@ -48,12 +54,17 @@
 // latest speaking value, and whether it ever said it was speaking. POST /_control/bob-speak makes Bob say two
 // seconds of a tone in every call Alice is in. POST /_control/voice-drop closes her call's voice
 // connections with 4015, as a voice server restarting does, for them to
-// resume with op 7. Each call connection gets an RTCP receiver report about
+// resume with op 7. POST /_control/voice-discovery?off makes the voice
+// server ignore UDP address discovery, so that joining fails as a blocked
+// network makes it, and without ?off answer again. Each call connection gets an RTCP receiver report about
 // its audio every 50 packets, as Discord's voice server sends; POST
 // /_control/voice-link?ping=300&loss=7 holds each heartbeat ACK (op 6) back
 // 300 ms and reports 7% of the audio lost, and with no parameters sets both
-// back to none. POST /_control/camera turns Bob's camera on in the call
-// he's in, and with ?off off again; ?who=carol or dave turns theirs. Calls
+// back to none. POST /_control/discovery-drop?count=2 makes the voice server
+// pass over the next two UDP address discovery asks, as if they were lost,
+// and GET /_control/discovery-drop counts those lost and answered. POST
+// /_control/camera turns Bob's camera on in the call he's in, and with ?off
+// off again; ?who=carol or dave turns theirs. Calls
 // connected there hear of it with op 12, and get the recording, or the
 // Annex B file FAKE_DISCORD_CAMERA names, once they ask with op 15. Alice's camera
 // is decrypted and its frames counted; GET /_control/call-video lists what
@@ -62,7 +73,9 @@
 // counted, and AV1's RTP aggregation and OBU framing are checked too. GET
 // /_control/video lists what each stream received.
 // /_control/voice-move moves Alice's call in the server to another voice
-// server, and GET /_control/voice-identifies lists the tokens voice
+// server, or with ?channel=ID moves her to that channel on another voice
+// server, as a member who drags her there does; POST /_control/voice-kick
+// disconnects her from voice. GET /_control/voice-identifies lists the tokens voice
 // connections identified with. POST /_control/elsewhere has Alice join the
 // Lounge on another client, whose session her voice state then names, and
 // ends her calls here; ?leave leaves it there. Op 4 with no channel takes
@@ -126,7 +139,8 @@
 // a MESSAGE_UPDATE and a "poll closed" notice (type 46).
 // GET /users/{id}/profile answers for everyone: Bob has a bio, pronouns, a
 // banner, a server bio and three badges, Carol a banner colour, and the rest
-// nothing more. GET /users/{id}/badges gives Bob's playing time its level,
+// nothing more; Status Bot's says it's a bot. Friendships began at JOINED_AT,
+// as `since` on each relationship says. GET /users/{id}/badges gives Bob's playing time its level,
 // GET /_control/badge-reads counts those requests, and /assets/content/ serves
 // the level's SVGs.
 // POST /_control/components makes Discord's own account write Alice a
@@ -144,6 +158,12 @@
 // GIF link, and a bot post a card with fields; their pictures come from
 // /external/, standing in for Discord's media proxy. They go to #general, or
 // with ?channel=ID to that channel or thread.
+// A server voice channel's session starts as its first person joins and ends
+// as its last leaves, which VOICE_CHANNEL_START_TIME_UPDATE says; the Lounge's
+// started 47 minutes before the fake did. Op 43 answers CHANNEL_INFO with the
+// server's voice channels and the fields asked for, `voice_start_time` and a
+// `status` that's always null, and GET
+// /_control/channel-info lists the servers it was asked about.
 // The soundboard: GET /soundboard-default-sounds gives six of Discord's own,
 // and op 31 "Server"'s two, Bob's laugh with :talk: and Carol's applause.
 // POST /channels/{id}/send-soundboard-sound plays one in the call Alice is in,
@@ -162,7 +182,10 @@
 // the others there; GET /_control/custom-call-sounds lists those she asked
 // for.
 // The server has two custom emoji, :talk: and the animated :party:, served
-// from /emojis/, and a sticker from /stickers/. `--nitro` gives Alice Nitro,
+// from /emojis/, and three stickers from /stickers/: Wave, the GIF Bounce and
+// Lottie. GET /sticker-packs lists Discord's default packs, whose stickers
+// come from /stickers/ too, so the sticker picker has both. `--nitro` gives
+// Alice Nitro,
 // so every server's emoji are hers to use, and `--cdn-delay MS` makes each
 // emoji and sticker take that long, as a round trip to the real CDN does. POST /_control/showcase makes
 // Bob post a spoiler, custom emoji, stickers, a GIF, a spoilered picture and a reply
@@ -179,15 +202,22 @@
 // file into an image embed.
 // Alice's custom status, "Testing Yapfast", is in her settings; PATCH
 // /users/@me/settings-proto/1 replaces each top-level field it sends, and GET
-// /_control/presence shows the presence her session last sent with op 3. POST /users/@me/relationships sends
+// /_control/presence shows the presence her session last sent with op 3, GET
+// /_control/settings her settings as GET /users/@me/settings-proto/1 gives them,
+// and how many times that was asked.
+// POST /_control/other-session brings her phone online playing a song, with
+// SESSIONS_REPLACE. POST /users/@me/relationships sends
 // a friend request by username: Frank takes none, and unknown names fail.
 // Erin's request is a stranger's (`stranger_request`), which PUT accepts only
 // with `confirm_stranger_request`, as Discord's client confirms one; without it
 // it answers 80013.
 // From a DM's menu, PUT /users/@me/relationships/{id} with type 2 blocks,
 // DELETE ends a friendship or block, PUT and DELETE .../{id}/ignore ignore and
-// stop, and PATCH gives a friend a nickname. GET and PUT /users/@me/notes/{id}
-// read and write Alice's note on someone, GET /_control/note-reads counts the
+// stop, and PATCH gives a friend a nickname. GET
+// /_control/relationship-changes lists each PUT and DELETE on
+// /users/@me/relationships/{id}, oldest first: its method, the user, the
+// body's type or null, and the location its X-Context-Properties named.
+// GET and PUT /users/@me/notes/{id} read and write Alice's note on someone, GET /_control/note-reads counts the
 // reads, POST /_control/note-elsewhere?user=ID&note=TEXT changes a note as
 // another of her clients does, DELETE /channels/{id} closes a DM
 // or leaves a group, and GET /_control/group-leaves lists each group left
@@ -221,6 +251,51 @@
 // way: GET /oauth2/authorize shows it, POST /oauth2/authorize makes it and
 // answers the `location` to go to next, and GET
 // /_control/oauth-authorizations lists each one with the query it came with.
+// Status Bot's buttons and menu under its deploy message (POST
+// /_control/components) answer POST /interactions as an app does through
+// Discord: Alice's click (type 3) or form (type 5) is taken with 204 once its
+// session_id is her gateway session's and its application_id Status Bot's,
+// then INTERACTION_CREATE with her nonce, and by the control's custom_id:
+// "ok" (Approve) and the "environment" menu INTERACTION_SUCCESS and a
+// MESSAGE_UPDATE of the message (callback 7), "form" (Write notes)
+// INTERACTION_MODAL_CREATE with a text display, a text input and a select
+// menu, "survey" (Take survey) one with Markdown text, a radio group, a
+// checkbox group, a file upload and a checkbox, each label described, and
+// "checks", a menu of up to three options with emoji, as "environment"
+// does, "fail" (Roll back) INTERACTION_FAILURE with reason 1, and "slow"
+// (Check later) nothing, as an app that never answers. Submitting the form
+// gives INTERACTION_SUCCESS and an ephemeral MESSAGE_CREATE (flag 64, no
+// guild_id) of what was entered, a file upload's files by name, which
+// history leaves out. Alice's commands to Status Bot
+// (type 2, by data.name; files uploaded first and named in
+// data.attachments by uploaded_filename, each option's or file upload's
+// value its index as a number) answer as an app does, each answer
+// a type 20 message with interaction_metadata (its name with subcommands, as
+// "config set") and the deprecated interaction: "ping" "Pong!", "echo" an "is
+// thinking…" message (flag LOADING, 128, no content) that a MESSAGE_UPDATE
+// fills in a second later with text repeated times, "upload" the name and
+// size of the file its option names (INTERACTION_FAILURE without it),
+// "secret" an ephemeral answer, and any other "Ran /name.". Her message
+// command Quote (data.type 3) answers with a type 23 message replying to its
+// target_id, quoting it, and her user command Wave (data.type 2) with a type
+// 23 message waving at its target_id; either without a target_id, or with a
+// message that isn't in the channel, gets INTERACTION_FAILURE. Her
+// autocompletes (type 4) get APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE with
+// the choices that start with the focused value, a second late for "sl".
+// GET /_control/interactions lists each body Alice sent, oldest first, with
+// the files a command carried as `files`.
+// Apps' commands are in three indexes (see "Commands"): "Server"'s, GET
+// /guilds/{id}/application-command-index, lists Status Bot's /ping, /echo
+// (text, times 1-5), /pick (colour, from choices), /find (query, which
+// autocompletes), /upload (a file), /admin (for administrators, which Alice
+// isn't) and /config set|get, with its message command Quote and user
+// command Wave, all off in #ideas; GET /users/@me/application-command-index
+// lists Notes' /note, an app Alice installed for herself; a DM's or group
+// DM's, GET /channels/{id}/application-command-index, lists none. GET
+// /_control/command-index-fetches lists each index fetched, as
+// `guilds/{id}`, `channels/{id}` or `users/@me`, oldest first, and POST
+// /_control/commands-changed sends GUILD_APPLICATION_COMMAND_INDEX_UPDATE
+// for "Server", with the index's version moved on.
 // A gift of Nitro from Bob resolves and redeems the same way: GET
 // /entitlements/gift-codes/{code} shows it, POST .../redeem redeems it
 // once and sends ENTITLEMENT_CREATE and GIFT_CODE_UPDATE, and GET
@@ -255,6 +330,8 @@
 // POST /_control/clip makes Bob attach clip.mp4, six seconds with sound, and
 // link a post whose card plays a video, as vxtwitter's do; Carol forwards
 // the clip. They go to #general, or with ?channel=ID to that channel or thread.
+// POST /_control/voice-message makes Bob send a voice message, the two
+// seconds of testing/fixtures/voice-tone.ogg, to #general or ?channel=ID.
 // POST /_control/bob-away makes Bob idle with a custom status,
 // /_control/bob-mobile puts him online on his phone alone, and
 // /_control/bob-offline takes him offline.
@@ -317,6 +394,7 @@ const { values: args } = parseArgs({
     images: { type: "string", default: "0" },
     channels: { type: "string", default: "0" },
     authors: { type: "string", default: "0" },
+    members: { type: "string", default: "0" },
     "name-styles": { type: "boolean", default: false },
     nitro: { type: "boolean", default: false },
     folders: { type: "boolean", default: false },
@@ -370,10 +448,21 @@ const EMOJI_PARTY = "1400000000000000301";
 const STICKER_WAVE = "1400000000000000310";
 const STICKER_BOUNCE = "1400000000000000311";
 const STICKER_LOTTIE = "1400000000000000312";
+// Discord's default packs' stickers, which the picker offers beside the
+// server's own.
+const STICKER_WUMPUS = "1400000000000000330";
+const STICKER_PARTY = "1400000000000000331";
+const STICKER_PUFF = "1400000000000000332";
 const ALICE = "1400000000000000001";
 
 /** The profile effect Bob equips: an intro layer and a looping one over the card. */
 const PROFILE_EFFECT = "1500000000000000010";
+/** The profile frame Dave equips, a staple over the top and a border down
+ *  the sides, which GET /collectibles-products/{sku} describes; its layers
+ *  are served at /media/v1/collectibles-shop/{sku}/{layer}/static. Dave's
+ *  banner moves: its hash starts with `a_`, and its GIF is
+ *  testing/fixtures/gifs/hello.gif. */
+const PROFILE_FRAME = "1500000000000000011";
 // The SKUs that are nameplates, whose pictures are strips.
 const nameplateSkus = new Set<string>();
 // How many times a collectible's animated picture was asked for.
@@ -593,6 +682,8 @@ function joinSound(guild: string | null): [string, bigint] | undefined {
   }
   return (guild ? found.get(guild) : undefined) ?? found.get("0");
 }
+// How many times GET /users/@me/settings-proto/1 was asked.
+let settingsReads = 0;
 let settings = Buffer.from(
   protoBytes(11, protoBytes(2, new Uint8Array([...protoBytes(1, text("Testing Yapfast")), ...protoBytes(3, text("🧪"))]))),
 ).toString("base64");
@@ -605,9 +696,9 @@ const bit = (n: number) => 2 ** n;
 // Invite, view, send, embed, attach, read history, react, connect, speak,
 // voice activity, change one's own nickname, make public and private threads
 // and write in them, and post polls: Discord's defaults for @everyone.
-// Discord's defaults for @everyone, among them using the soundboard (42) and
-// other servers' sounds (45).
-const EVERYONE = [0, 10, 11, 14, 15, 16, 6, 20, 21, 25, 26, 35, 36, 38, 42, 45, 49].reduce((sum, n) => sum + bit(n), 0);
+// Discord's defaults for @everyone, among them using apps' commands (31), the
+// soundboard (42) and other servers' sounds (45).
+const EVERYONE = [0, 10, 11, 14, 15, 16, 6, 20, 21, 25, 26, 31, 35, 36, 38, 42, 45, 49].reduce((sum, n) => sum + bit(n), 0);
 // Kick, ban, view the audit log, manage nicknames, manage roles, moderate
 // members, and mute, deafen and move members in voice.
 const MODERATION = [1, 2, 7, 27, 28, 40, 22, 23, 24].reduce((sum, n) => sum + bit(n), 0);
@@ -636,11 +727,12 @@ function wireUser(user: User) {
     discriminator: "0",
     public_flags: 0,
     // Bob wears the server's tag, as Discord sends the server a user
-    // chose to represent them; everyone else has none.
+    // chose to represent them, and Alice the one she chose with PUT
+    // /users/@me/clan; everyone else has none.
     primary_guild:
       user.id === users.bob.id
         ? { identity_guild_id: GUILD, identity_enabled: true, tag: "BOB", badge: "bobtag" }
-        : null,
+        : (user as any).clan ?? null,
     avatar_decoration_data: decoration
       ? { asset: `a_${decoration}`, sku_id: decoration, expires_at: null }
       : null,
@@ -756,8 +848,10 @@ function collectiblePicture(sku: string, animated: boolean): Uint8Array {
 // banner and banner colour with PATCH /users/@me/profile, each answered
 // with USER_UPDATE. An empty display name goes by her username, and null
 // takes a picture or colour away. The banner needs Nitro, and an animated
-// avatar Nitro or Classic, here `--nitro`. GET /_control/profile shows hers,
-// and POST /_control/profile-reset puts it back as it started.
+// avatar Nitro or Classic, here `--nitro`. PUT /users/@me/clan with
+// {identity_guild_id, identity_enabled} chooses the server tag she wears,
+// "CREW" for "Server", or takes it off with null. GET /_control/profile shows
+// hers, and POST /_control/profile-reset puts it back as it started.
 const memberRoles = new Map<string, string[]>();
 const memberNicks = new Map<string, string>();
 /** Server profiles by user: avatar and banner hashes, bio and pronouns. */
@@ -938,17 +1032,22 @@ function wireProfile(user: User, guild: string | null, origin: string) {
   if (world) return envProfile(world, user, guild);
   const bob = user.id === users.bob.id;
   const carol = user.id === users.carol.id;
-  const inServer = Object.values(users).includes(user) && user.id !== ALICE;
+  // Status Bot posts in the server, so Discord lists it as shared.
+  const inServer = (Object.values(users).includes(user) && user.id !== ALICE) || user.id === statusBot.id;
   const isMember = Object.values(users).includes(user);
+  const dave = user.id === users.dave.id;
   const profile = user.id === ALICE ? aliceProfile : {
     bio: bob ? "Plays bass in a **ska** band. Ask me about https://example.com/gigs" : "",
     pronouns: bob ? "he/him" : "",
-    banner: bob ? "bob-banner" : null,
+    banner: bob ? "bob-banner" : dave ? "a_davebanner" : null,
     accent_color: carol ? 0x5865f2 : null,
   };
   return {
     user: { ...wireUser(user), banner: profile.banner, accent_color: profile.accent_color, bio: profile.bio },
-    user_profile: { ...profile, profile_effect: user.effect ? { id: user.effect, expires_at: null } : null },
+    user_profile: {
+      ...profile, profile_effect: user.effect ? { id: user.effect, expires_at: null } : null,
+      collectibles: dave ? [{ type: 3, sku_id: PROFILE_FRAME }] : [],
+    },
     ...(guild === GUILD && isMember
       ? {
           guild_member_profile: guildMemberProfile(user.id),
@@ -1169,6 +1268,8 @@ type File = {
   height?: number;
   /** Draws the image at a requested size, as Discord's media proxy does. */
   draw?: (width: number, height: number) => Uint8Array;
+  /** A voice message's recording: how long it plays, and its loudness. */
+  voice?: { seconds: number; waveform: Uint8Array };
 };
 const files = new Map<string, File>();
 const scaled = new Map<string, Uint8Array>();
@@ -1188,6 +1289,9 @@ function wireAttachment(file: File, origin: string) {
     proxy_url: `${origin}/media/${path}`,
     content_type: file.contentType,
     ...(file.width ? { width: file.width, height: file.height } : {}),
+    ...(file.voice
+      ? { duration_secs: file.voice.seconds, waveform: Buffer.from(file.voice.waveform).toString("base64") }
+      : {}),
   };
 }
 
@@ -1272,6 +1376,10 @@ type Message = {
   pollResult?: string;
   /** A pin's notice (type 6): the message pinned. */
   pinned?: string;
+  /** An app's answer to a command (type 20, or 23 for a context-menu one):
+   *  the interaction, the command's name, type and application, and what a
+   *  context-menu command ran on, sent as `interaction_metadata`. */
+  interaction?: { id: string; name: string; application: string; type?: number; targetUser?: string; targetMessage?: string };
 };
 const messages = new Map<string, Message[]>([
   [GENERAL, []],
@@ -1348,6 +1456,24 @@ function wireMessage(message: Message, origin: string, nested = false): Record<s
     components: message.components?.(origin) ?? [],
   };
   if (message.nonce) wire.nonce = message.nonce;
+  if (message.interaction) {
+    wire.application_id = message.interaction.application;
+    wire.webhook_id = message.interaction.application;
+    wire.interaction_metadata = {
+      id: message.interaction.id,
+      type: 2,
+      name: message.interaction.name,
+      command_type: message.interaction.type ?? 1,
+      user: wireUser(users.alice),
+      // A server install's owner is its server; "0" outside one.
+      authorizing_integration_owners: { "0": guildOf(message.channel).guild_id ?? "0" },
+    };
+    const target = Object.values(users).find((user) => user.id === message.interaction?.targetUser);
+    if (target) (wire.interaction_metadata as Record<string, unknown>).target_user = wireUser(target);
+    if (message.interaction.targetMessage) (wire.interaction_metadata as Record<string, unknown>).target_message_id = message.interaction.targetMessage;
+    // The deprecated object Discord still sends beside it.
+    wire.interaction = { id: message.interaction.id, type: 2, name: message.interaction.name, user: wireUser(users.alice) };
+  }
   if (message.stickers) wire.sticker_items = message.stickers;
   if (message.call) {
     wire.call = {
@@ -1634,6 +1760,7 @@ const rooms = Array.from({ length: Number(args.channels) }, (_, n) => {
   return id;
 });
 let crowd: ReturnType<typeof setInterval> | undefined;
+let churn: ReturnType<typeof setInterval> | undefined;
 let crowdCount = 0;
 let burst: ReturnType<typeof setInterval> | undefined;
 let burstPosted = 0;
@@ -1981,6 +2108,31 @@ const startingVoice = (): [string, VoiceState][] => [
 ];
 const voice = new Map<string, VoiceState>(startingVoice());
 
+/** When each busy server voice channel's session started, in Unix seconds,
+ *  with its server; the Lounge's 47 minutes before the fake started. */
+const voiceStarted = new Map<string, { guild: string; at: number }>();
+/** The servers op 43 asked about, for /_control/channel-info. */
+const channelInfoRequests: string[] = [];
+
+/** Starts the sessions of server voice channels someone is in now and ends
+ *  those of channels nobody is, telling everyone with
+ *  VOICE_CHANNEL_START_TIME_UPDATE; `at` is when a new one starts. */
+function syncVoiceStarted(at = Math.floor(Date.now() / 1000), announce = true) {
+  const busy = new Map<string, string>();
+  for (const state of voice.values()) if (state.guild) busy.set(state.channel, state.guild);
+  for (const [channel, started] of voiceStarted) {
+    if (busy.has(channel)) continue;
+    voiceStarted.delete(channel);
+    if (announce) dispatch("VOICE_CHANNEL_START_TIME_UPDATE", { id: channel, guild_id: started.guild, voice_start_time: null });
+  }
+  for (const [channel, guild] of busy) {
+    if (voiceStarted.has(channel)) continue;
+    voiceStarted.set(channel, { guild, at });
+    if (announce) dispatch("VOICE_CHANNEL_START_TIME_UPDATE", { id: channel, guild_id: guild, voice_start_time: at });
+  }
+}
+syncVoiceStarted(Math.floor(Date.now() / 1000) - 47 * 60, false);
+
 // Go Live streams by stream key; Bob's is running from the start. A DM
 // call's streams are keyed `call:{channel}:{user}`.
 /** `decodes`: the video codecs each viewer's client decodes, for those that
@@ -2106,6 +2258,8 @@ function sendGateway(ws: Socket, payload: string) {
 function dispatch(name: string, data: unknown) {
   for (const ws of sockets) if (ws.data.identified) send(ws, 0, data, name);
   for (const session of parked.values()) session.missed.push({ name, data });
+  // Each move in voice may start or end a channel's session.
+  if (name === "VOICE_STATE_UPDATE") syncVoiceStarted();
 }
 
 /** A role of "Server" as Discord sends it. */
@@ -2257,6 +2411,11 @@ const deletedChannels = new Set<string>();
 // Each body of PATCH /guilds/{id}/channels, for GET /_control/channel-moves.
 const channelMoves: unknown[] = [];
 
+// Each PUT and DELETE on /users/@me/relationships/{id}, with the type its
+// body gave and the location its X-Context-Properties named, for GET
+// /_control/relationship-changes.
+const relationshipChanges: { method: string; user: string; type: number | null; location: string }[] = [];
+
 // Each group DM Alice left, with the `silent` query DELETE /channels/{id}
 // sent, or null, for GET /_control/group-leaves.
 const groupLeaves: { channel: string; silent: string | null }[] = [];
@@ -2352,12 +2511,51 @@ const SERVER_EMOJIS = (): ServerEmoji[] => [
   { id: EMOJI_TALK, name: "talk", animated: false, user: users.bob.id },
   { id: EMOJI_PARTY, name: "party", animated: true, user: users.bob.id },
 ];
+/** "Server"'s own stickers, as its members' picker lists them. */
+const SERVER_STICKERS = (): ServerSticker[] => [
+  { id: STICKER_WAVE, name: "Wave", tags: "👋", description: "", format_type: 1, user: users.bob.id },
+  { id: STICKER_BOUNCE, name: "Bounce", tags: "🏀", description: "", format_type: 4, user: users.bob.id },
+  { id: STICKER_LOTTIE, name: "Lottie", tags: "✨", description: "", format_type: 3, user: users.bob.id },
+];
 const expressions = {
   emojis: SERVER_EMOJIS(),
-  stickers: [] as ServerSticker[],
+  stickers: SERVER_STICKERS(),
   made: 0,
   pictures: new Map<string, { type: string; data: Uint8Array }>(),
 };
+
+// Discord's default sticker packs, as GET /sticker-packs lists them: PNG, GIF
+// and Lottie stickers, all served from the CDN like the server's own.
+const STICKER_PACKS = {
+  sticker_packs: [
+    {
+      id: "1400000000000000400", name: "Wumpus", description: "Wumpus everywhere", sku_id: "1400000000000000500",
+      cover_sticker_id: STICKER_WUMPUS, banner_asset_id: null,
+      stickers: [
+        { id: STICKER_WUMPUS, name: "Wumpus Wave", tags: "wave", description: null, type: 1, format_type: 1, available: true },
+        { id: STICKER_PARTY, name: "Wumpus Party", tags: "party", description: null, type: 1, format_type: 4, available: true },
+      ],
+    },
+    {
+      id: "1400000000000000401", name: "Animated", description: "The ones that move", sku_id: "1400000000000000501",
+      cover_sticker_id: STICKER_PUFF, banner_asset_id: null,
+      stickers: [
+        { id: STICKER_PUFF, name: "Puff", tags: "puff", description: null, type: 1, format_type: 3, available: true },
+      ],
+    },
+  ],
+};
+
+/** A sticker's id, name and format, by id: a server's own or a default pack's. */
+function stickerById(id: string): { id: string; name: string; format_type: number } | undefined {
+  const own = expressions.stickers.find((sticker) => sticker.id === id);
+  if (own) return { id: own.id, name: own.name, format_type: own.format_type };
+  for (const pack of STICKER_PACKS.sticker_packs) {
+    const found = pack.stickers.find((sticker) => sticker.id === id);
+    if (found) return found;
+  }
+  return undefined;
+}
 
 function wireEmoji(emoji: ServerEmoji, uploader = false) {
   const user = Object.values(users).find((known) => known.id === emoji.user);
@@ -2400,7 +2598,7 @@ const mfa = {
 function resetGuild() {
   Object.assign(serverSettings, SERVER_SETTINGS);
   expressions.emojis = SERVER_EMOJIS();
-  expressions.stickers = [];
+  expressions.stickers = SERVER_STICKERS();
   expressions.pictures.clear();
   revokedInvites.clear();
   Object.assign(mfa, { on: false, methods: ["totp"], code: "123456" });
@@ -2726,6 +2924,7 @@ function ready(ws: Socket) {
         session_id: ws.data.session,
         status: "online",
         activities: [],
+        active: true,
         client_info: { client: "web", os: "linux", version: 0 },
       },
     ],
@@ -2826,6 +3025,70 @@ const presences: Record<string, { status: string; activities: unknown[]; client_
   [users.dave.id]: { status: "offline", activities: [] },
 };
 
+// The people of `--members`, in Server's member list alone.
+const listed: User[] = Array.from({ length: Number(args.members) }, (_, n) => ({
+  id: (1_750_000_000_000_000_000n + BigInt(n)).toString(),
+  username: `member${n}`,
+  global_name: `Member ${n}`,
+  avatar: `m${n}`,
+}));
+for (const person of listed) {
+  userById.set(person.id, person);
+  presences[person.id] = { status: "online", activities: [] };
+}
+
+// The member list's Activity feed, as /content-inventory/users/@me answers:
+// Bob and Carol now, Dave's game earlier, this week's top ones, then what no
+// panel here shows: someone in no server, and a custom status.
+const feedFetches: (string | null)[] = [];
+function feedEntries(origin: string) {
+  const entry = (
+    author: { id: string },
+    content_type: number,
+    at: number,
+    extra: Record<string, unknown>,
+    traits: Record<string, unknown>[] = [],
+  ) => ({
+    id: snowflake(at),
+    author_id: author.id,
+    author_type: 1,
+    content_type,
+    traits,
+    extra,
+    participants: [author.id],
+    expires_at: iso(at + 24 * 60 * 60_000),
+  });
+  const live = [{ type: 3, is_live: true }];
+  return [
+    entry(users.bob, 1, fakeStarted - 42 * 60_000, { game_name: "Factorio", application_id: FACTORIO }, live),
+    entry(
+      users.carol,
+      5,
+      fakeStarted - 80_000,
+      {
+        entries: [{
+          media: {
+            title: "Weightless",
+            image_url: `${origin}/spotify/ab67616d0000b273fake`,
+            artists: [{ name: "Marconi Union" }],
+          },
+        }],
+      },
+      live,
+    ),
+    entry(users.dave, 1, fakeStarted - 3 * 60 * 60_000, { game_name: "Celeste", application_id: FACTORIO }),
+    entry(users.bob, 3, fakeStarted - 2 * 24 * 60 * 60_000, { game_name: "Factorio", application_id: FACTORIO }, [
+      { type: 4, range: 1 },
+      { type: 2, duration_seconds: 13 * 3600 },
+    ]),
+    entry(users.carol, 6, fakeStarted - 24 * 60 * 60_000, { artist: { name: "Marconi Union" }, media: {} }, [
+      { type: 12, count: 31 },
+    ]),
+    entry({ id: "1400000000000000999" }, 1, fakeStarted - 60_000, { game_name: "Nobody's game" }, live),
+    entry(users.bob, 7, fakeStarted - 60_000, {}),
+  ];
+}
+
 // The member list of a channel everyone reads, as Discord groups it: Bob under
 // the hoisted Mods role, then who is online, then Dave, who isn't.
 /** A channel's member list id, as Discord's client works it out: everyone
@@ -2844,7 +3107,7 @@ function listId(channelId: string): string {
 
 function memberList(id = "everyone") {
   const offline = (user: User) => presences[user.id]!.status === "offline";
-  const present = Object.values(users).filter((user) => !removed.has(user.id));
+  const present = [...Object.values(users), ...listed].filter((user) => !removed.has(user.id));
   const mods = present.filter((user) => memberRoles.get(user.id)?.includes(MODS));
   const others = present.filter((user) => !mods.includes(user));
   const groups = [
@@ -3173,6 +3436,33 @@ function gatewayMessage(ws: Socket, text: string) {
         send(ws, 0, { guild_id: id, soundboard_sounds: id === GUILD ? serverSounds : [] }, "SOUNDBOARD_SOUNDS");
       }
       break;
+    case 43: {
+      // Request channel info: each of the server's voice channels, with when
+      // its session started while someone is in it. Only the web client's own
+      // request is answered, so a test notices one that differs from it.
+      if (JSON.stringify(d.fields) !== JSON.stringify(["status", "voice_start_time"])) {
+        console.warn(`op 43 asked for ${JSON.stringify(d.fields)}, not the web client's fields`);
+        break;
+      }
+      channelInfoRequests.push(d.guild_id);
+      const ids = new Set<string>(
+        (d.guild_id === GUILD ? guild().channels : [])
+          .filter((channel) => channel.type === 2 || channel.type === 13)
+          .map((channel) => channel.id),
+      );
+      for (const [channel, started] of voiceStarted) if (started.guild === d.guild_id) ids.add(channel);
+      const wanted = (d.fields ?? []).includes("voice_start_time");
+      const statuses = (d.fields ?? []).includes("status");
+      send(ws, 0, {
+        guild_id: d.guild_id,
+        channels: [...ids].map((id) => ({
+          id,
+          ...(statuses ? { status: null } : {}),
+          ...(wanted ? { voice_start_time: voiceStarted.get(id)?.at ?? null } : {}),
+        })),
+      }, "CHANNEL_INFO");
+      break;
+    }
     case 37: {
       // Guild subscriptions: messages are sent anyway; a channel's member
       // list is sent when asked for. The list subscribed to before stops,
@@ -3378,8 +3668,14 @@ const voiceSockets = new Set<Socket>();
 /** The token Alice's voice session holds now: a connection identifying
  *  with the one before is no longer valid, as on Discord. */
 let voiceToken = VOICE_TOKEN;
+/** Whether POST /_control/voice-discovery?off has the voice server ignore
+ *  address discovery. */
+let discoveryOff = false;
 const voiceEndpoint = (ws: Socket) => `${ws.data.origin.replace(/^http/, "ws")}/voice`;
 let ssrcs = 100;
+
+/** A stream's own socket, as op 14 answers it with its codec. */
+type StreamSocket = { send(text: string): void };
 
 /** What a stream connection sent, by its video SSRC. */
 type Received = {
@@ -3392,7 +3688,7 @@ type Received = {
   /** The video codecs the streamer offered, most wanted first, and whether
    * it can encode each; and its stream socket, for op 14. */
   offers: { name: string; payloadType: number; encode: boolean }[];
-  socket?: { send(text: string): unknown };
+  socket?: StreamSocket;
   announced: unknown;
   packets: number;
   undecryptable: number;
@@ -3443,6 +3739,10 @@ type CallAudio = {
 };
 /** What /_control/voice-link set: a heartbeat ACK's delay, and the audio lost. */
 const voiceLink = { ping: 0, loss: 0 };
+/** Address discovery asks the voice server passes over, as if lost on the
+ *  way: POST /_control/discovery-drop?count=N sets how many more; GET
+ *  reports those lost and answered so far. */
+const discovery = { drop: 0, dropped: 0, answered: 0 };
 const callAudio = new Map<number, CallAudio>();
 /** Each call connection's SSRC by its voice session, for resuming. */
 const callSessions = new Map<string, number>();
@@ -4442,6 +4742,7 @@ const udp = await Bun.udpSocket({
   socket: {
     data(socket, data, port, address) {
       // IP discovery: type 1, length 70, SSRC, then the answer fills in the address.
+      if (discoveryOff && data.length === 74 && data.readUInt16BE(0) === 1) return;
       if (data.length !== 74 || data.readUInt16BE(0) !== 1) {
         if (data.length > 12 && (data[0]! & 0xc0) === 0x80 && !(data[1]! >= 192 && data[1]! <= 223)) {
           const ssrc = data.readUInt32BE(8);
@@ -4496,6 +4797,12 @@ const udp = await Bun.udpSocket({
         if (reporting) reporting.repairs.receiverReports++;
         return;
       }
+      if (discovery.drop > 0) {
+        discovery.drop--;
+        discovery.dropped++;
+        return;
+      }
+      discovery.answered++;
       peers.set(data.readUInt32BE(4), { address, port });
       const answer = Buffer.alloc(74);
       answer.writeUInt16BE(2, 0);
@@ -4674,6 +4981,349 @@ const GIFT_CODE = "2CG6SV9QtRxerJTgCYNDnU7M";
 const PAID_GIFT_CODE = "AbCdEfGhIjKlMnOp";
 const empty = () => new Response(null, { status: 204 });
 const notFound = (message = "404: Not Found", code = 0) => json({ message, code }, 404);
+
+// --- Interactions ---
+/** Each body Alice sent to POST /interactions, oldest first, for
+ *  GET /_control/interactions. */
+const interactionsSent: Record<string, unknown>[] = [];
+/** The ids of the forms Status Bot opened, which a submit names. */
+const formsOpened = new Set<string>();
+const EPHEMERAL = 1 << 6;
+/** An answer still being made: the app's "is thinking…". */
+const LOADING = 1 << 7;
+
+/** Status Bot's answer to Alice's interaction `id`, through the gateway, as
+ *  Discord passes on an app's: see the header. `files` are the files sent
+ *  with a command, by their index. */
+function answerInteraction(body: any, id: string, origin: string, files: Map<string, Blob>) {
+  const nonce = body.nonce;
+  if (body.type === 4) {
+    answerAutocomplete(body);
+    return;
+  }
+  dispatch("INTERACTION_CREATE", { id, nonce });
+  if (body.type === 2) {
+    answerCommand(body, id, origin, files);
+    return;
+  }
+  if (body.type === 5) {
+    dispatch("INTERACTION_SUCCESS", { id, nonce });
+    // A file upload's values name the attachments sent with it, by index.
+    const named = new Map<string, string>((body.data?.attachments ?? []).map((file: any) => [file.id, file.filename]));
+    const entered = (body.data?.components ?? [])
+      .map((row: any) => row.component ?? row.components?.[0])
+      .filter((field: any) => field && field.type !== 10)
+      .map((field: any) => field.type === 19
+        ? (field.values ?? []).map((index: number) => named.get(String(index)) ?? "?").join(", ")
+        : String(field.value ?? (field.values ?? []).join(", ")));
+    // Only Alice sees it: sent to her session alone, without the server, and
+    // never in the channel's history.
+    const reply: Message = {
+      id: nextId(Date.now()), channel: body.channel_id, author: statusBot,
+      content: `Noted: ${entered.join("; ")}`, type: 0, files: [], reactions: [], flags: EPHEMERAL,
+    };
+    dispatch("MESSAGE_CREATE", wireMessage(reply, origin));
+    return;
+  }
+  switch (body.data?.custom_id) {
+    case "fail":
+      dispatch("INTERACTION_FAILURE", { id, nonce, reason_code: 1 });
+      return;
+    case "slow":
+      return;
+    case "survey": {
+      const form = nextId(Date.now());
+      formsOpened.add(form);
+      dispatch("INTERACTION_MODAL_CREATE", {
+        id: form, nonce, channel_id: body.channel_id, custom_id: "deploy-survey", title: "How did the deploy go?",
+        application: { id: statusBot.id, name: "Status Bot", icon: null },
+        components: [
+          { type: 10, id: 1, content: "## Deploy **v2.4**\nTell us how it went. Answers go to the *release team* only." },
+          {
+            type: 18, id: 2, label: "Rating", description: "How smooth was it?",
+            component: { type: 21, id: 3, custom_id: "rating", options: [
+              { label: "Smooth", value: "smooth", description: "Nothing to report" },
+              { label: "Bumpy", value: "bumpy", default: true },
+              { label: "Broken", value: "broken" },
+            ] },
+          },
+          {
+            type: 18, id: 4, label: "What broke", description: "Pick any that apply",
+            component: { type: 22, id: 5, custom_id: "areas", required: false, min_values: 0, max_values: 2, options: [
+              { label: "Chat", value: "chat" }, { label: "Calls", value: "calls" }, { label: "Bots", value: "bots" },
+            ] },
+          },
+          { type: 18, id: 6, label: "Screenshots", description: "Up to two", component: { type: 19, id: 7, custom_id: "shots", max_values: 2 } },
+          { type: 18, id: 8, label: "Follow up with me", component: { type: 23, id: 9, custom_id: "follow", default: true } },
+        ],
+      });
+      return;
+    }
+    case "form": {
+      const form = nextId(Date.now());
+      formsOpened.add(form);
+      dispatch("INTERACTION_MODAL_CREATE", {
+        id: form, nonce, channel_id: body.channel_id, custom_id: "deploy-notes", title: "Deploy notes",
+        application: { id: statusBot.id, name: "Status Bot", icon: null },
+        components: [
+          { type: 10, id: 1, content: "Tell the team what changed." },
+          { type: 18, id: 2, label: "Summary", component: { type: 4, id: 3, custom_id: "summary", style: 1, required: true } },
+          {
+            type: 18, id: 4, label: "Environment",
+            component: { type: 3, id: 5, custom_id: "environment", options: [{ label: "Staging", value: "staging" }, { label: "Production", value: "production", default: true }] },
+          },
+        ],
+      });
+      return;
+    }
+    default: {
+      dispatch("INTERACTION_SUCCESS", { id, nonce });
+      const message = byId.get(body.message_id);
+      if (!message) return;
+      const picked = body.data?.values?.length ? ` for ${body.data.values.join(", ")}` : "";
+      message.content = `${message.content.split("\n")[0]}\n-# Approved by Alice${picked}`;
+      message.edited = Date.now();
+      dispatch("MESSAGE_UPDATE", dispatched(message, origin));
+    }
+  }
+}
+
+// --- Commands ---
+/** Each command index Alice fetched, by its resource (`guilds/{id}`,
+ *  `channels/{id}` or `users/@me`), oldest first, for
+ *  GET /_control/command-index-fetches. */
+const commandIndexFetches: string[] = [];
+/** The ids of Status Bot's commands, by name, for the interactions they
+ *  start. */
+const STATUS_COMMANDS = {
+  ping: "1400000000000000700", echo: "1400000000000000701", pick: "1400000000000000702",
+  find: "1400000000000000703", upload: "1400000000000000704", admin: "1400000000000000705",
+  config: "1400000000000000706", quote: "1400000000000000707", wave: "1400000000000000708",
+} as const;
+/** Notes, an app Alice installed for herself, and its one command. */
+const NOTES_APP = "1400000000000000710";
+const NOTE_COMMAND = "1400000000000000711";
+// The server's index's version, which /_control/commands-changed moves on.
+let serverCommandsVersion = 1400000000000000720n;
+const COMMANDS_VERSION = "1400000000000000720";
+
+/** A command as an index lists it, the server's or Alice's own. */
+function indexCommand(id: string, application: string, type: number, name: string, description: string, extra: Record<string, unknown> = {}) {
+  return {
+    id, type, application_id: application, version: COMMANDS_VERSION, name, name_default: name,
+    description, description_default: description, default_member_permissions: null, nsfw: false,
+    integration_types: [0], contexts: null, ...extra,
+  };
+}
+
+/** "Server"'s command index: Status Bot's, as GET /guilds/{id}/application-command-index
+ *  gives it. Its commands are off in #ideas. */
+function serverCommandIndex() {
+  const app = statusBot.id;
+  const option = (type: number, name: string, description: string, extra: Record<string, unknown> = {}) => ({ type, name, description, ...extra });
+  return {
+    applications: [{
+      id: app, name: "Status Bot", description: "Posts deploys.", icon: null, bot_id: app, flags: "0",
+      bot: { id: app, username: statusBot.username, global_name: statusBot.global_name, avatar: null, discriminator: "0", bot: true },
+      permissions: { channels: { [FORUM]: false } },
+    }],
+    application_commands: [
+      indexCommand(STATUS_COMMANDS.ping, app, 1, "ping", "Checks that Status Bot is up."),
+      indexCommand(STATUS_COMMANDS.echo, app, 1, "echo", "Says it back.", { options: [
+        option(3, "text", "What to say", { required: true }),
+        option(4, "times", "How many times", { min_value: 1, max_value: 5 }),
+      ] }),
+      indexCommand(STATUS_COMMANDS.pick, app, 1, "pick", "Picks a colour.", { options: [
+        option(3, "colour", "Which colour", { required: true, choices: [
+          { name: "Red", value: "red" }, { name: "Green", value: "green" }, { name: "Blue", value: "blue" },
+        ] }),
+      ] }),
+      indexCommand(STATUS_COMMANDS.find, app, 1, "find", "Finds a deploy.", { options: [
+        option(3, "query", "What to look for", { required: true, autocomplete: true }),
+      ] }),
+      indexCommand(STATUS_COMMANDS.upload, app, 1, "upload", "Attaches a build log.", { options: [
+        option(11, "file", "The log", { required: true }),
+      ] }),
+      // Administrators only, which Alice isn't.
+      indexCommand(STATUS_COMMANDS.admin, app, 1, "admin", "Changes Status Bot's setup.", { default_member_permissions: "8" }),
+      indexCommand(STATUS_COMMANDS.config, app, 1, "config", "Status Bot's settings.", { options: [
+        option(1, "set", "Changes a setting", { options: [
+          option(3, "key", "Which setting", { required: true }), option(3, "value", "Its new value", { required: true }),
+        ] }),
+        option(1, "get", "Shows a setting", { options: [option(3, "key", "Which setting", { required: true })] }),
+      ] }),
+      indexCommand(STATUS_COMMANDS.quote, app, 3, "Quote", ""),
+      indexCommand(STATUS_COMMANDS.wave, app, 2, "Wave", ""),
+    ],
+    version: String(serverCommandsVersion),
+  };
+}
+
+/** Alice's own command index, GET /users/@me/application-command-index:
+ *  Notes, installed for her, whose /note works anywhere. */
+function ownCommandIndex() {
+  return {
+    applications: [{ id: NOTES_APP, name: "Notes", description: "Keeps notes.", icon: null, bot_id: NOTES_APP, flags: "0" }],
+    application_commands: [
+      indexCommand(NOTE_COMMAND, NOTES_APP, 1, "note", "Keeps a note.", {
+        integration_types: [1], contexts: [0, 1, 2],
+        options: [{ type: 3, name: "text", description: "The note", required: true }],
+      }),
+    ],
+    version: COMMANDS_VERSION,
+  };
+}
+
+/** A command index Alice asked for, or null for a path that isn't one: a
+ *  server's (Status Bot's in "Server", none elsewhere), a DM's or group
+ *  DM's (none: no bot is in one), or her own. */
+function commandIndexRoute(method: string, path: string): Response | null {
+  const m = path.match(/^\/(guilds\/\d+|channels\/\d+|users\/@me)\/application-command-index$/);
+  if (method !== "GET" || !m) return null;
+  const resource = m[1]!;
+  commandIndexFetches.push(resource);
+  const none = { applications: [], application_commands: [], version: "0" };
+  if (resource === "users/@me") return json(ownCommandIndex());
+  const [kind, id] = resource.split("/") as [string, string];
+  if (kind === "guilds") return json(id === GUILD ? serverCommandIndex() : none);
+  // Only a DM or group DM has one; Discord refuses a server's channel.
+  if (!privates.has(id)) return json({ message: "Invalid Form Body", code: 50035 }, 400);
+  return json(none);
+}
+
+/** The file indexes an interaction's data names: its attachment options'
+ *  values and its file uploads' values. */
+function fileIndexes(data: any): unknown[] {
+  const options = (list: any[] | undefined): unknown[] =>
+    (list ?? []).flatMap((option) => option.type === 11 ? [option.value] : options(option.options));
+  const uploads = (data?.components ?? [])
+    .map((row: any) => row.component ?? row.components?.[0])
+    .filter((field: any) => field?.type === 19)
+    .flatMap((field: any) => field.values ?? []);
+  return [...options(data?.options), ...uploads];
+}
+
+/** The value of option `name` among `options`, looking into a subcommand. */
+function optionValue(options: any[] | undefined, name: string): unknown {
+  for (const option of options ?? []) {
+    if (option.name === name && option.value !== undefined) return option.value;
+    const nested = optionValue(option.options, name);
+    if (nested !== undefined) return nested;
+  }
+  return undefined;
+}
+
+/** Status Bot's answer to Alice's command, by its name: see the header. */
+function answerCommand(body: any, id: string, origin: string, files: Map<string, Blob>) {
+  const nonce = body.nonce;
+  const name: string = body.data?.name ?? "";
+  const options = body.data?.options ?? [];
+  // The answer names the command with its subcommand group and subcommand
+  // (option types 2 and 1), as Discord's does.
+  let used = name;
+  for (let level = options; level?.[0]?.type === 1 || level?.[0]?.type === 2; level = level[0].options) {
+    used += ` ${level[0].name}`;
+  }
+  const reply = (content: string, flags = 0): Message => {
+    const message: Message = {
+      id: nextId(Date.now()), channel: body.channel_id, author: statusBot, content, type: 20,
+      files: [], reactions: [], flags, interaction: { id, name: used, application: statusBot.id },
+    };
+    // An ephemeral answer goes to Alice's session alone, never in history.
+    if (!(flags & EPHEMERAL)) {
+      messages.get(message.channel)?.push(message);
+      byId.set(message.id, message);
+    }
+    return message;
+  };
+  const kind: number = body.data?.type ?? 1;
+  if (kind !== 1) {
+    answerMenuCommand(body, id, origin, reply);
+    return;
+  }
+  switch (name) {
+    case "echo": {
+      // Deferred: "is thinking…" first, then the answer.
+      dispatch("INTERACTION_SUCCESS", { id, nonce });
+      const message = reply("", LOADING);
+      dispatch("MESSAGE_CREATE", dispatched(message, origin));
+      setTimeout(() => {
+        const text = String(optionValue(options, "text") ?? "");
+        const times = Number(optionValue(options, "times") ?? 1);
+        message.content = Array(times).fill(text).join(" ");
+        message.flags = 0;
+        message.edited = Date.now();
+        dispatch("MESSAGE_UPDATE", dispatched(message, origin));
+      }, 1000);
+      return;
+    }
+    case "upload": {
+      const index = String(optionValue(options, "file") ?? "");
+      const attachment = (body.data?.attachments ?? []).find((file: any) => file.id === index);
+      const file = files.get(index);
+      if (!attachment || !file) {
+        dispatch("INTERACTION_FAILURE", { id, nonce, reason_code: 1 });
+        return;
+      }
+      dispatch("INTERACTION_SUCCESS", { id, nonce });
+      dispatch("MESSAGE_CREATE", dispatched(reply(`Got ${attachment.filename} (${file.size} bytes)`), origin));
+      return;
+    }
+    case "secret": {
+      dispatch("INTERACTION_SUCCESS", { id, nonce });
+      dispatch("MESSAGE_CREATE", wireMessage(reply("Only you can see this one.", EPHEMERAL), origin));
+      return;
+    }
+    case "ping":
+      dispatch("INTERACTION_SUCCESS", { id, nonce });
+      dispatch("MESSAGE_CREATE", dispatched(reply("Pong!"), origin));
+      return;
+    default:
+      dispatch("INTERACTION_SUCCESS", { id, nonce });
+      dispatch("MESSAGE_CREATE", dispatched(reply(`Ran /${name}.`), origin));
+  }
+}
+
+/** Status Bot's answer to Alice's message command Quote or user command
+ *  Wave, a type 23 message: see the header. `reply` makes its message. */
+function answerMenuCommand(body: any, id: string, origin: string, reply: (content: string) => Message) {
+  const nonce = body.nonce;
+  const kind: number = body.data.type;
+  const target: string | undefined = body.data.target_id;
+  // A context-menu command has its target and no options: an empty list,
+  // as Discord's client sends it.
+  const quoted = kind === 3 && target ? byId.get(target) : undefined;
+  const person = kind === 2 && target ? Object.values(users).find((user) => user.id === target) : undefined;
+  if (!Array.isArray(body.data.options) || body.data.options.length > 0 || (kind === 3 && quoted?.channel !== body.channel_id) || (kind === 2 && !person)) {
+    dispatch("INTERACTION_FAILURE", { id, nonce, reason_code: 1 });
+    return;
+  }
+  dispatch("INTERACTION_SUCCESS", { id, nonce });
+  const message = quoted
+    ? reply(`> ${quoted.content}\n— <@${quoted.author.id}>`)
+    : reply(`👋 <@${target}>`);
+  message.type = 23;
+  message.interaction = { ...message.interaction!, type: kind, ...(quoted ? { targetMessage: quoted.id } : { targetUser: target }) };
+  if (quoted) message.reply = quoted.id;
+  dispatch("MESSAGE_CREATE", dispatched(message, origin));
+}
+
+/** Status Bot's choices for the option Alice is typing, which start with
+ *  what she typed; "sl" answers a second late. */
+function answerAutocomplete(body: any) {
+  const focused = (function find(options: any[] | undefined): any {
+    for (const option of options ?? []) {
+      if (option.focused) return option;
+      const nested = find(option.options);
+      if (nested) return nested;
+    }
+  })(body.data?.options);
+  const typed = String(focused?.value ?? "").toLowerCase();
+  const choices = ["staging", "production", "status", "slack"]
+    .filter((choice) => choice.startsWith(typed))
+    .map((choice) => ({ name: choice, value: choice }));
+  setTimeout(() => dispatch("APPLICATION_COMMAND_AUTOCOMPLETE_RESPONSE", { nonce: body.nonce, choices }), typed === "sl" ? 1000 : 0);
+}
 
 /** The invites Alice made, oldest first, for GET /_control/invites. */
 const invites: Record<string, unknown>[] = [];
@@ -4886,6 +5536,42 @@ function linkedGifEmbed(content: string, origin: string) {
   };
 }
 let frecencySettings: string | null = null;
+
+/** A protobuf's top-level fields, each its number and its bytes as written. */
+function writtenFields(bytes: Uint8Array): { number: number; bytes: Uint8Array }[] {
+  const fields: { number: number; bytes: Uint8Array }[] = [];
+  let at = 0;
+  const varint = () => {
+    let value = 0n;
+    for (let shift = 0n; ; shift += 7n) {
+      const byte = bytes[at++]!;
+      value |= BigInt(byte & 0x7f) << shift;
+      if (byte < 0x80) return value;
+    }
+  };
+  while (at < bytes.length) {
+    const start = at;
+    const tag = Number(varint());
+    switch (tag & 7) {
+      case 0: varint(); break;
+      case 1: at += 8; break;
+      // The length first: `at += …` would read `at` before it moved past it.
+      case 2: { const length = Number(varint()); at += length; break; }
+      case 5: at += 4; break;
+      default: throw new Error(`wire type ${tag & 7}`);
+    }
+    fields.push({ number: tag >> 3, bytes: bytes.slice(start, at) });
+  }
+  return fields;
+}
+
+/** `kept` with each top-level field `patch` has replaced by the patch's. */
+function mergeProto(kept: string, patch: string): string {
+  const patched = writtenFields(Buffer.from(patch, "base64"));
+  const replaced = new Set(patched.map((field) => field.number));
+  const merged = [...writtenFields(Buffer.from(kept, "base64")).filter((field) => !replaced.has(field.number)), ...patched];
+  return Buffer.concat(merged.map((field) => field.bytes)).toString("base64");
+}
 
 const DETECTABLE_GAMES = [{ id: "123456789012345680", name: "Detected Fixture",
   description: "Discard this unrelated catalogue metadata when caching",
@@ -5216,6 +5902,10 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     return json(incidents() ?? {});
   }
 
+  // Discord's default sticker packs, which its client offers beside a
+  // server's own; the CDN serves their stickers like any other.
+  if (method === "GET" && path === "/sticker-packs") return json(STICKER_PACKS);
+
   // Emoji and Stickers in Server Settings. GET /guilds/{id}/emojis lists
   // "Server"'s emoji with who uploaded each; POST adds one from `{name,
   // image}`, a data URI under 256 KB; PATCH renames one and DELETE removes
@@ -5230,7 +5920,10 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     if (m[1] !== GUILD) return notFound("Unknown Guild", 10004);
     const manage = aliceMay(30);
     const create = manage || aliceMay(43);
-    if (!create) return json({ message: "Missing Permissions", code: 50013 }, 403);
+    // Listing takes no permission, as any member may list a server's emoji and
+    // stickers; adding and changing them do. Who uploaded each comes only to
+    // those who may.
+    if (!create && method !== "GET") return json({ message: "Missing Permissions", code: 50013 }, 403);
     const emojis = m[2] === "emojis";
     const id = m[3];
     const invalid = (field: string, code: string, message: string) =>
@@ -5247,8 +5940,8 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       typeof name === "string" && name.length >= low && name.length <= high;
     if (method === "GET" && !id) {
       return json(emojis
-        ? expressions.emojis.map((emoji) => wireEmoji(emoji, true))
-        : expressions.stickers.map((sticker) => wireSticker(sticker, true)));
+        ? expressions.emojis.map((emoji) => wireEmoji(emoji, create))
+        : expressions.stickers.map((sticker) => wireSticker(sticker, create)));
     }
     if (method === "DELETE" && found) {
       if (emojis) expressions.emojis = expressions.emojis.filter((emoji) => emoji.id !== id);
@@ -5530,6 +6223,19 @@ async function api(req: Request, path: string, origin: string): Promise<Response
 
   // The shop's product for a profile effect, whose layers Discord's client
   // lays over a profile card: an intro that plays once, and a loop.
+  if (method === "GET" && path === `/collectibles-products/${PROFILE_FRAME}`) {
+    return json({
+      sku_id: PROFILE_FRAME, store_listing_id: "2", type: 3, name: "Brass", summary: "A brass frame",
+      items: [{
+        type: 3, sku_id: PROFILE_FRAME, label: "A brass frame", inner_width: 1200,
+        overflow_top: 304, overflow_bottom: 212, overflow_horizontal: 56,
+        layers: [
+          { id: "1", type: "staple", order: "front", anchor: "top" },
+          { id: "2", type: "border", order: "back", anchor: "center" },
+        ],
+      }],
+    });
+  }
   if (method === "GET" && (m = path.match(/^\/collectibles-products\/(\d+)$/))) {
     const sku = m[1]!;
     if (!profileEffects.has(sku)) return notFound("Unknown Collectibles Product", 10000);
@@ -5551,7 +6257,8 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   }
 
   if (method === "GET" && (m = path.match(/^\/users\/(\d+|@me)\/profile$/))) {
-    const user = userById.get(m[1] === "@me" ? ALICE : m[1]!);
+    const id = m[1] === "@me" ? ALICE : m[1]!;
+    const user = userById.get(id) ?? (id === statusBot.id ? statusBot : undefined);
     if (!user) return notFound("Unknown User", 10013);
     return json(wireProfile(user, url.searchParams.get("guild_id"), origin));
   }
@@ -5693,6 +6400,21 @@ async function api(req: Request, path: string, origin: string): Promise<Response
         };
         polls.push(asked);
       }
+      // A sticker, as Discord's client sends one: a message of the stickers
+      // alone, one to three of them.
+      let stickers: { id: string; name: string; format_type: number }[] | undefined;
+      if (body.sticker_ids) {
+        const ids: string[] = Array.isArray(body.sticker_ids) ? body.sticker_ids.map(String) : [];
+        if (ids.length < 1 || ids.length > 3 || body.content) {
+          return json({ message: "Invalid Form Body", code: 50035 }, 400);
+        }
+        stickers = [];
+        for (const id of ids) {
+          const sticker = stickerById(id);
+          if (!sticker) return notFound("Unknown Sticker", 10060);
+          stickers.push(sticker);
+        }
+      }
       const reply = body.message_reference?.message_id;
       const attached = takeUploads(body.attachments, m[1]!);
       if (!attached) return json({ message: "Invalid Form Body", code: 50035 }, 400);
@@ -5700,6 +6422,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
         nonce: body.nonce ? String(body.nonce) : undefined,
         reply: reply && byId.has(reply) ? reply : undefined,
         files: attached,
+        stickers,
         poll,
       });
       // An env's favourite GIF comes with its embed, so a recording doesn't
@@ -5992,7 +6715,8 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   // message points back at the message, which gains it, and its channel
   // hears of it if the message wasn't among its ten newest.
   if (method === "POST" && (m = path.match(/^\/channels\/(\d+)\/messages\/(\d+)\/threads$/))) {
-    const [, parent, id] = m as unknown as [string, string, string];
+    const parent = m[1]!;
+    const id = m[2]!;
     if (!messages.has(parent) || privates.has(parent) || threads.has(parent)) return notFound("Unknown Channel", 10003);
     const original = byId.get(id);
     if (!original || original.channel !== parent) return notFound("Unknown Message", 10008);
@@ -6219,7 +6943,19 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   // Alice's settings: Yapfast changes the status, the custom status, the
   // soundboard's volume or the join sounds, which every session hears of.
   // Each top-level field sent replaces hers whole, as on Discord.
-  if (method === "GET" && path === "/users/@me/settings-proto/1") return json({ settings });
+  if (method === "GET" && path === "/content-inventory/users/@me") {
+    feedFetches.push(url.searchParams.get("refresh_token"));
+    return json({
+      request_id: "fake-feed",
+      refresh_token: "fake-feed-token",
+      wait_ms_until_next_fetch: 300_000,
+      entries: env ? [] : feedEntries(url.origin).map((content) => ({ content })),
+    });
+  }
+  if (method === "GET" && path === "/users/@me/settings-proto/1") {
+    settingsReads++;
+    return json({ settings });
+  }
   if (method === "PATCH" && path === "/users/@me/settings-proto/1") {
     const body: any = await req.json().catch(() => ({}));
     if (typeof body.settings !== "string") return json({ message: "Invalid Form Body", code: 50035 }, 400);
@@ -6235,8 +6971,10 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   if (method === "PATCH" && path === "/users/@me/settings-proto/2") {
     const body: any = await req.json().catch(() => ({}));
     if (typeof body.settings !== "string") return json({ message: "Invalid Form Body", code: 50035 }, 400);
-    frecencySettings = body.settings;
-    dispatch("USER_SETTINGS_PROTO_UPDATE", { settings: { type: 2, proto: frecencySettings }, partial: true });
+    // Each field the PATCH carries takes the place of the one kept; the rest
+    // stay, as a save of the favourite emoji leaves the GIFs.
+    frecencySettings = mergeProto(frecencySettings ??= favoriteGifs(origin), body.settings);
+    dispatch("USER_SETTINGS_PROTO_UPDATE", { settings: { type: 2, proto: body.settings }, partial: true });
     return json({ settings: frecencySettings });
   }
 
@@ -6307,9 +7045,11 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     const id = m[1]!;
     const user = userById.get(id);
     if (!user || id === ALICE) return notFound("Unknown User", 10013);
-    if (!where()) return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    const location = where();
+    if (!location) return json({ message: "Invalid Form Body", code: 50035 }, 400);
     const before = relationships.get(id);
     if (method === "DELETE") {
+      relationshipChanges.push({ method, user: id, type: null, location });
       if (before === undefined) return notFound("Unknown Relationship", 10011);
       relationships.delete(id);
       nicknames.delete(id);
@@ -6317,6 +7057,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       return empty();
     }
     const body: any = await req.json().catch(() => ({}));
+    relationshipChanges.push({ method, user: id, type: typeof body.type === "number" ? body.type : null, location });
     if (body.type === 2) {
       nicknames.delete(id);
       befriend(user, 2);
@@ -6574,6 +7315,18 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       alice.avatar = null;
     }
     if ("global_name" in body) alice.global_name = body.global_name || null;
+    const wire = { ...wireUser(users.alice), premium_type: nitro ? 2 : 0 };
+    dispatch("USER_UPDATE", wire);
+    return json(wire);
+  }
+  if (method === "PUT" && path === "/users/@me/clan") {
+    const body: any = await req.json().catch(() => ({}));
+    const alice: any = users.alice;
+    const guild = body.identity_guild_id;
+    if (guild !== null && guild !== GUILD) return json({ message: "Unknown Guild", code: 10004 }, 404);
+    alice.clan = guild === null
+      ? null
+      : { identity_guild_id: guild, identity_enabled: body.identity_enabled, tag: "CREW", badge: "crew" };
     const wire = { ...wireUser(users.alice), premium_type: nitro ? 2 : 0 };
     dispatch("USER_UPDATE", wire);
     return json(wire);
@@ -7013,6 +7766,44 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     return unknown(req, path);
   }
 
+  // Apps' commands, once Alice types "/"; see "Commands" in the header.
+  const commandIndex = commandIndexRoute(method, path);
+  if (commandIndex) return commandIndex;
+
+  // Alice uses Status Bot's controls; see "Interactions" in the header.
+  if (method === "POST" && path === "/interactions") {
+    // JSON only: Discord's client uploads files first (POST
+    // /channels/{id}/attachments), then names them in data.attachments by
+    // uploaded_filename, as a message does.
+    if (!(req.headers.get("content-type") ?? "").startsWith("application/json")) {
+      return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    }
+    const body: any = await req.json().catch(() => ({}));
+    const files = new Map<string, Blob>();
+    for (const file of body.data?.attachments ?? []) {
+      const upload = uploads.get(file.uploaded_filename);
+      if (typeof file.id === "string" && upload?.data && upload.filename === file.filename) {
+        files.set(file.id, new File([upload.data], upload.filename));
+        uploads.delete(file.uploaded_filename);
+      }
+    }
+    const live = [...sockets].some((ws) => ws.data.identified && ws.data.session === body.session_id);
+    const form = body.type !== 5 || formsOpened.has(body.data?.id);
+    // Each attachment named was uploaded, an option or file upload names
+    // one by its index, a number, and a command is named whole.
+    const named = (body.data?.attachments ?? []).every((file: any) => files.has(file.id))
+      && fileIndexes(body.data).every((index) => typeof index === "number" && files.has(String(index)));
+    const command = ![2, 4].includes(body.type) || (typeof body.data?.id === "string" && typeof body.data?.name === "string");
+    if (!live || typeof body.nonce !== "string" || ![2, 3, 4, 5].includes(body.type) || !form || !named || !command) {
+      return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    }
+    if (body.application_id !== statusBot.id) return notFound("Unknown Application", 10002);
+    interactionsSent.push({ ...body, ...(files.size ? { files: [...files].map(([index, file]) => ({ index, name: (file as globalThis.File).name, size: file.size })) } : {}) });
+    const id = nextId(Date.now());
+    setTimeout(() => answerInteraction(body, id, origin, files), 0);
+    return empty();
+  }
+
   // Authorizing Alien App from its link: the preview its dialog shows,
   // and making it, in the server picked.
   if (path === "/oauth2/authorize" && (method === "GET" || method === "POST")) {
@@ -7273,6 +8064,21 @@ function postShowcase(origin: string) {
 // drawn here instead.
 const clip = readFileSync(new URL("video-clip.mp4", fixtures));
 
+/** Bob's voice message: IS_VOICE_MESSAGE, and one Ogg Opus attachment. */
+function postVoiceMessage(origin: string, channel: string) {
+  const now = Date.now();
+  const recording = addFile({
+    id: snowflake(now, 1),
+    channel,
+    filename: "voice-message.ogg",
+    contentType: "audio/ogg",
+    data: new Uint8Array(readFileSync(new URL("voice-tone.ogg", fixtures))),
+    // A steady tone that swells in and fades out.
+    voice: { seconds: 2.0065, waveform: Uint8Array.from({ length: 40 }, (_, i) => Math.min(200, 40 * Math.min(i + 1, 40 - i))) },
+  });
+  dispatch("MESSAGE_CREATE", dispatched(post(channel, users.bob, "", now, { files: [recording], flags: 1 << 13 }), origin));
+}
+
 function postVideo(origin: string, channel: string) {
   const now = Date.now();
   const video = addFile({
@@ -7376,8 +8182,8 @@ function postComponents(origin: string): string {
       {
         type: 1, id: 1,
         components: [
-          { type: 2, id: 2, style: 3, label: "Approve", custom_id: "approve" },
-          { type: 2, id: 3, style: 4, label: "Roll back", custom_id: "rollback" },
+          { type: 2, id: 2, style: 3, label: "Approve", custom_id: "ok" },
+          { type: 2, id: 3, style: 4, label: "Roll back", custom_id: "fail" },
           { type: 2, id: 4, style: 2, label: "Retry", custom_id: "retry", disabled: true },
           { type: 2, id: 5, style: 5, label: "Logs", url: "https://example.com/logs" },
         ],
@@ -7386,7 +8192,29 @@ function postComponents(origin: string): string {
         type: 1, id: 6,
         components: [{
           type: 3, id: 7, custom_id: "environment", placeholder: "Pick an environment",
-          options: [{ label: "Staging", value: "staging" }, { label: "Production", value: "production" }],
+          options: [
+            { label: "Staging", value: "staging", description: "staging.example.com", emoji: { name: "🧪" } },
+            { label: "Production", value: "production", description: "example.com", emoji: { name: "🚀" } },
+          ],
+        }],
+      },
+      {
+        type: 1, id: 8,
+        components: [
+          { type: 2, id: 9, style: 1, label: "Write notes", custom_id: "form" },
+          { type: 2, id: 10, style: 2, label: "Check later", custom_id: "slow" },
+          { type: 2, id: 11, style: 2, label: "Take survey", custom_id: "survey" },
+        ],
+      },
+      {
+        type: 1, id: 12,
+        components: [{
+          type: 3, id: 13, custom_id: "checks", placeholder: "Checks to run", min_values: 1, max_values: 3,
+          options: [
+            { label: "Unit tests", value: "unit", emoji: { name: "🧩" }, default: true },
+            { label: "Screenshots", value: "screenshots", emoji: { name: "📸" } },
+            { label: "Load test", value: "load", description: "Takes ten minutes", emoji: { name: "🏋️" } },
+          ],
         }],
       },
     ],
@@ -7449,8 +8277,8 @@ const ENV_IDS = 1_450_000_000_000_000_000n;
  *  and channels. */
 const GENERIC_CONTROLS = new Set([
   "media-requests", "history", "forwards", "gif-selects", "nitro", "profile", "profile-reset", "server-profile", "health", "presence", "logouts",
-  "voice-identifies", "voice-changes", "call-audio", "call-video", "voice-link", "voice-drop", "voice-move",
-  "stream-move", "sessions", "cookies", "list-requests", "audit-log", "slow", "gateway-reconnect", "qr-scan",
+  "voice-identifies", "voice-changes", "call-audio", "call-video", "voice-link", "voice-drop", "voice-move", "voice-kick",
+  "stream-move", "sessions", "other-session", "cookies", "list-requests", "audit-log", "slow", "gateway-reconnect", "qr-scan",
   "qr-confirm", "qr-captcha", "qr-cancel", "qr-expire", "voice-audio", "video", "stream-codec", "reactor-pages",
   "reactor-removals", "thread-searches", "thread-creates", "thread-members", "typed", "acks", "invites",
   "invite-joins", "invite-captcha", "invite-form", "event-interest", "gift-redeems", "oauth-authorizations", "mfa", "soundboard-sends", "custom-call-sounds",
@@ -7846,6 +8674,10 @@ function envProfile(world: World, user: User, guild: string | null) {
 
 if (env) {
   world = applyEnv(env);
+  // The env's people in voice, seated without a word, started their calls
+  // as the fixture's did.
+  voiceStarted.clear();
+  syncVoiceStarted(Math.floor(Date.now() / 1000) - 47 * 60, false);
   // The env's servers, in its order: without a list, clients sort them
   // their own way, as Yapfast does by name.
   const list = world.guilds.map((server) => [...folderEntry([server.id])]).flat();
@@ -7986,6 +8818,20 @@ const server = Bun.serve<SocketData>({
     if (effectLayer && profileEffects.has(effectLayer[1]!)) {
       return new Response(effectPicture(effectLayer[2]!), { headers: { "content-type": "image/png" } });
     }
+    // A frame's layers: a brass bar with a knob for the staple, and a
+    // brass edge down either side for the border.
+    const frameLayer = req.method === "GET" ? path.match(/^\/media\/v1\/collectibles-shop\/(\d+)\/([12])\/static$/) : null;
+    if (frameLayer) {
+      const brass = [196, 150, 60, 255];
+      const picture = frameLayer[2] === "1"
+        ? png(460, 110, (x, y) => (y > 70 && y < 90) || Math.hypot(x - 230, y - 60) < 40 ? brass : [0, 0, 0, 0])
+        : png(460, 200, (x) => x < 14 || x >= 446 ? brass : [0, 0, 0, 0]);
+      return new Response(picture, { headers: { "content-type": "image/png" } });
+    }
+    const movingBanner = req.method === "GET" ? path.match(/^\/banners\/\d+\/a_[a-z]+\.gif$/) : null;
+    if (movingBanner) {
+      return new Response(Bun.file(new URL("gifs/hello.gif", fixtures)), { headers: { "content-type": "image/gif" } });
+    }
     const collectible = req.method === "GET" ? path.match(COLLECTIBLES_PATH) : null;
     if (collectible) {
       if (collectible[2] === "animated") collectibleAnimations++;
@@ -8009,7 +8855,7 @@ const server = Bun.serve<SocketData>({
       return Response.json({ global_name, avatar, ...aliceProfile });
     }
     if (req.method === "POST" && path === "/_control/profile-reset") {
-      Object.assign(users.alice, { global_name: "Alice", avatar: "alice1" });
+      Object.assign(users.alice, { global_name: "Alice", avatar: "alice1", clan: null });
       Object.assign(aliceProfile, { bio: "", pronouns: "", banner: null, accent_color: null });
       dispatch("USER_UPDATE", { ...wireUser(users.alice), premium_type: nitro ? 2 : 0 });
       return new Response("Alice's profile is as it started\n");
@@ -8025,6 +8871,32 @@ const server = Bun.serve<SocketData>({
     }
     if (path === "/_control/health") return new Response("ok\n");
     if (path === "/_control/presence") return Response.json(alicePresence);
+    if (req.method === "POST" && path === "/_control/other-session") {
+      // Alice's phone comes online playing a song, as SESSIONS_REPLACE
+      // lists every session of hers with what each shows.
+      const own = [...sockets].filter(ws => ws.data.identified).map(ws => ({
+        session_id: ws.data.session, status: "online", activities: [], active: true,
+        client_info: { client: "web", os: "linux", version: 0 },
+      }));
+      const song = {
+        type: 2, name: "Spotify", id: "spotify:1", application_id: null, created_at: Date.now(),
+        details: "Song on the phone", state: "An artist", sync_id: "4uLU6hMCjMI75M1A2tKUQC",
+        timestamps: { start: Date.now() - 30_000, end: Date.now() + 150_000 },
+        assets: { large_image: "spotify:ab67616d0000b273", large_text: "An album" },
+      };
+      // With more than one session, Discord puts a merged one, "all", first.
+      dispatch("SESSIONS_REPLACE", [{
+        session_id: "all", status: "online", active: true,
+        client_info: { client: "unknown", os: "unknown", version: 0 },
+        activities: [song],
+      }, ...own, {
+        session_id: "fake-phone", status: "online", active: true,
+        client_info: { client: "mobile", os: "ios", version: 0 },
+        activities: [song],
+      }]);
+      return new Response("online\n");
+    }
+    if (path === "/_control/settings") return Response.json({ settings, reads: settingsReads });
     if (req.method === "POST" && path === "/_control/bob-away") {
       // Bob goes idle with a custom status, as his friends hear it.
       presences[users.bob.id] = {
@@ -8039,6 +8911,23 @@ const server = Bun.serve<SocketData>({
       dispatch("PRESENCE_UPDATE", { user: { id: users.bob.id }, ...presences[users.bob.id] });
       return new Response("Bob is on his phone\n");
     }
+    if (req.method === "POST" && path === "/_control/churn-start") {
+      let turn = 0;
+      clearInterval(churn);
+      churn = setInterval(() => {
+        const person = listed[(turn++ * 7) % listed.length]!;
+        changeMembers(() => {
+          const status = presences[person.id]!.status === "offline" ? "online" : "offline";
+          presences[person.id] = { status, activities: [] };
+          dispatch("PRESENCE_UPDATE", { user: { id: person.id }, client_status: {}, ...presences[person.id] });
+        });
+      }, 100);
+      return new Response("churn\n");
+    }
+    if (req.method === "POST" && path === "/_control/churn-stop") {
+      clearInterval(churn);
+      return new Response("no churn\n");
+    }
     if (req.method === "POST" && path === "/_control/bob-offline") {
       presences[users.bob.id] = { status: "offline", activities: [] };
       dispatch("PRESENCE_UPDATE", { user: { id: users.bob.id }, client_status: {}, ...presences[users.bob.id] });
@@ -8047,6 +8936,7 @@ const server = Bun.serve<SocketData>({
     if (path === "/_control/logouts") return Response.json(logouts);
     if (path === "/_control/voice-identifies") return Response.json(voiceIdentifies);
     if (path === "/_control/voice-changes") return Response.json(voiceChanges);
+    if (path === "/_control/channel-info") return Response.json(channelInfoRequests);
     if (req.method === "POST" && path === "/_control/voice-reset") {
       // Bob, Carol and Dave back in the Lounge as they started, after a
       // test moved or disconnected them.
@@ -8113,6 +9003,17 @@ const server = Bun.serve<SocketData>({
       voiceLink.loss = Number(url.searchParams.get("loss") ?? 0);
       return new Response(`heartbeat ACKs ${voiceLink.ping} ms late, ${voiceLink.loss}% of call audio lost\n`);
     }
+    if (req.method === "POST" && path === "/_control/discovery-drop") {
+      discovery.drop = Number(url.searchParams.get("count") ?? 1);
+      return new Response(`passing over the next ${discovery.drop} address discovery ask(s)\n`);
+    }
+    if (req.method === "GET" && path === "/_control/discovery-drop") {
+      return Response.json({ dropped: discovery.dropped, answered: discovery.answered });
+    }
+    if (req.method === "POST" && path === "/_control/voice-discovery") {
+      discoveryOff = url.searchParams.has("off");
+      return new Response(`address discovery ${discoveryOff ? "ignored" : "answered"}\n`);
+    }
     if (req.method === "POST" && path === "/_control/voice-drop") {
       const calls = [...voiceSockets].filter((ws) => !ws.data.stream && ws.data.callKey);
       for (const ws of calls) ws.close(4015, "Voice server crashed.");
@@ -8121,14 +9022,38 @@ const server = Bun.serve<SocketData>({
     if (req.method === "POST" && path === "/_control/voice-move") {
       // Discord moves Alice's call in the server to another voice server: it
       // names the new one, and the old one closes with 4014 once she's there.
+      // Someone moving her to ?channel=ID on another voice server goes as on
+      // Discord: her voice state says where, the old server closes her call
+      // with 4014, and the new one is named 40 ms later.
       const state = voice.get(ALICE);
       if (!state?.guild) return new Response("Alice isn't in a server's voice channel\n", { status: 409 });
-      voiceToken = MOVED_VOICE_TOKEN;
-      for (const ws of sockets) {
-        if (ws.data.session !== state.session) continue;
-        send(ws, 0, { guild_id: state.guild, token: MOVED_VOICE_TOKEN, endpoint: voiceEndpoint(ws) }, "VOICE_SERVER_UPDATE");
+      const name = () => {
+        voiceToken = MOVED_VOICE_TOKEN;
+        for (const ws of sockets) {
+          if (ws.data.session !== state.session) continue;
+          send(ws, 0, { guild_id: state.guild, token: MOVED_VOICE_TOKEN, endpoint: voiceEndpoint(ws) }, "VOICE_SERVER_UPDATE");
+        }
+      };
+      const to = url.searchParams.get("channel");
+      if (!to) {
+        name();
+        return new Response("moved Alice's call\n");
       }
-      return new Response("moved Alice's call\n");
+      state.channel = to;
+      announce(ALICE);
+      for (const ws of voiceSockets) if (!ws.data.stream && ws.data.callKey) ws.close(4014, "Disconnected.");
+      setTimeout(name, 40);
+      return new Response(`moved Alice to ${to}\n`);
+    }
+    if (req.method === "POST" && path === "/_control/voice-kick") {
+      // Someone disconnects Alice from voice: her voice state has no
+      // channel, and the voice server closes her call with 4014.
+      const before = voice.get(ALICE);
+      if (!before?.guild) return new Response("Alice isn't in a server's voice channel\n", { status: 409 });
+      voice.delete(ALICE);
+      moved(ALICE, before, origin);
+      for (const ws of voiceSockets) if (!ws.data.stream && ws.data.callKey) ws.close(4014, "Disconnected.");
+      return new Response("disconnected Alice from voice\n");
     }
     if (req.method === "POST" && path === "/_control/elsewhere") {
       // Alice joins the Lounge on another client, such as her phone, or
@@ -8353,6 +9278,10 @@ const server = Bun.serve<SocketData>({
     if (req.method === "POST" && path === "/_control/clip") {
       postVideo(origin, url.searchParams.get("channel") ?? GENERAL);
       return new Response("video posted\n");
+    }
+    if (req.method === "POST" && path === "/_control/voice-message") {
+      postVoiceMessage(origin, url.searchParams.get("channel") ?? GENERAL);
+      return new Response("voice message posted\n");
     }
     if (req.method === "POST" && path === "/_control/components") {
       return new Response(`${postComponents(origin)}\n`);
@@ -8630,6 +9559,9 @@ const server = Bun.serve<SocketData>({
     if (req.method === "GET" && path === "/_control/group-leaves") {
       return Response.json(groupLeaves);
     }
+    if (req.method === "GET" && path === "/_control/relationship-changes") {
+      return Response.json(relationshipChanges);
+    }
     if (req.method === "GET" && path === "/_control/invite-joins") {
       return Response.json(inviteJoins);
     }
@@ -8638,6 +9570,17 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/gift-redeems") {
       return Response.json(giftRedeems);
+    }
+    if (req.method === "GET" && path === "/_control/interactions") {
+      return Response.json(interactionsSent);
+    }
+    if (req.method === "GET" && path === "/_control/command-index-fetches") {
+      return Response.json(commandIndexFetches);
+    }
+    if (req.method === "POST" && path === "/_control/commands-changed") {
+      serverCommandsVersion += 1n;
+      dispatch("GUILD_APPLICATION_COMMAND_INDEX_UPDATE", { guild_id: GUILD, version: String(serverCommandsVersion) });
+      return new Response("Server's commands changed\n");
     }
     if (req.method === "GET" && path === "/_control/oauth-authorizations") {
       return Response.json(oauthAuthorizations);
@@ -8799,6 +9742,11 @@ const server = Bun.serve<SocketData>({
       crowd = undefined;
       return new Response(`crowd stopped after ${crowdCount}\n`);
     }
+    if (req.method === "POST" && path === "/_control/activity-stale") {
+      dispatch("CONTENT_INVENTORY_INBOX_STALE", { refresh_after_ms: 0 });
+      return new Response("activity feed stale\n");
+    }
+    if (req.method === "GET" && path === "/_control/activity-fetches") return json(feedFetches);
     if (req.method === "POST" && path === "/_control/chat-stop") {
       clearInterval(chat);
       chat = undefined;

@@ -131,13 +131,15 @@ impl Application {
             return self.discord_channel_choices(id, &listed);
         }
         let mut listed = listed;
-        // A one-to-one Discord DM's menu invites its person.
+        // A one-to-one Discord DM's menu invites its person, and offers
+        // the apps' user commands for them once the DM's index came.
         if let Some(person) = self.state.rooms.iter().find_map(|room| {
             (room.id == id && room.direct && !room.request && room.network == Network::Discord)
                 .then_some(room.person.as_deref())
                 .flatten()
         }) {
             self.offer_invite(person, &mut listed);
+            self.offer_apps(id, person, &mut listed);
         }
         listed
     }
