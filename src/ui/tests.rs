@@ -1695,7 +1695,7 @@ fn the_share_menu_fits_a_short_window_and_keeps_its_button() {
     window.set_share_cameras(titles("Camera", 4));
     let went = Rc::new(Cell::new(None));
     let seen = went.clone();
-    window.on_go_live(move |source, _, _, _| seen.set(Some(source)));
+    window.on_go_live(move |source, _, _, _, _| seen.set(Some(source)));
     window.invoke_show_share_menu();
     i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(50));
     // The menu ends 8px above the window's bottom, and Go Live is its last

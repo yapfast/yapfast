@@ -877,6 +877,7 @@ mod tests {
                 resolution: Resolution::Source,
                 fps: 60,
                 high_quality: true,
+                ceiling: Ceiling::Balanced,
             },
             ..Default::default()
         };

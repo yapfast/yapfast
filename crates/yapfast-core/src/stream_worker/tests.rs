@@ -197,9 +197,11 @@ fn a_window_the_card_cannot_take_goes_on_as_that_window() {
     // picks a screen or a window, and what it picks is what the fallback
     // shares. Everywhere else the kind carries the choice.
     if portal_picks() {
-        assert_eq!(
+        // A window is captured as a window: the capturer is told its id, and
+        // the answer is not the whole screen.
+        assert_ne!(
             capturer_kind(&Source::Window(0x1234)),
-            livekit::webrtc::desktop_capturer::DesktopCaptureSourceType::Generic
+            capturer_kind(&Source::Screen)
         );
     } else {
         assert_eq!(
@@ -593,7 +595,7 @@ fn offers_the_gpus_codecs_first() {
         #[cfg(nvcuda)]
         refused_pictures: 0,
     };
-    let (offers, encoder) = sink.offers(320, 180, None).unwrap();
+    let (offers, encoder) = sink.offers(320, 180, None, false).unwrap();
     eprintln!("offering {offers:?}, encoding with {}", encoder.engine());
     assert_eq!(offers.last(), Some(&Codec::H264));
     let mut order = [Codec::Av1, Codec::H265, Codec::H264].iter();
@@ -603,7 +605,7 @@ fn offers_the_gpus_codecs_first() {
     );
     assert_eq!(encoder.codec(), offers[0]);
     sink.hardware = false;
-    let (offers, encoder) = sink.offers(320, 180, None).unwrap();
+    let (offers, encoder) = sink.offers(320, 180, None, false).unwrap();
     assert_eq!((offers, encoder.engine()), (vec![Codec::H264], "x264"));
 }
 
@@ -2472,6 +2474,7 @@ fn a_capture_that_ends_ends_the_share_with_its_reason() {
 /// A source the card's paths can't take at all is a share that stays on the
 /// processor: a camera and a test pattern have no picture on the card, and a
 /// window, a display and the screen always do.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_linux_capture_takes_a_window_display_or_screen() {
     assert!(dmabuf_takes(&Source::Screen));

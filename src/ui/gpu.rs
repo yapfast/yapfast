@@ -974,9 +974,8 @@ unsafe fn open_fence(
 fn wait(event: HANDLE, fence: &ID3D12Fence, value: u64) -> bool {
     let deadline = Instant::now() + Duration::from_millis(u64::from(WAIT_MS));
     loop {
-        match drawn(fence, value) {
-            Some(drawn) => return drawn,
-            None => {}
+        if let Some(drawn) = drawn(fence, value) {
+            return drawn;
         }
         let left = deadline.saturating_duration_since(Instant::now());
         if left.is_zero() {
