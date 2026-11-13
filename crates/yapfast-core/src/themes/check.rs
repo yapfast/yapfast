@@ -721,6 +721,9 @@ fn looks(variant: &Resolved) -> Vec<String> {
     if layout.chat_avatars == Some(false) {
         changes.push("no chat avatars".to_owned());
     }
+    if layout.irc.rule == Some(true) {
+        changes.push("irc rule".to_owned());
+    }
     if let Some(width) = layout.outline_width {
         changes.push(format!("{width}px outlines"));
     }
@@ -1021,7 +1024,7 @@ pub fn unreadable_layout(variant: &Resolved) -> Vec<String> {
             Some(
                 grounds
                     .iter()
-                    .map(|ground| over(colour, alpha, *ground))
+                    .map(|ground| over_at(colour, alpha, *ground))
                     .collect(),
             )
         };
@@ -1119,6 +1122,17 @@ pub fn unreadable_layout(variant: &Resolved) -> Vec<String> {
             laid(vec![stripe.colour], "chat"),
         ));
     }
+    // A tree row's mention count, in the colour the theme names for it.
+    if let Some(ink) = variant.chrome.counts.as_ref().and_then(|counts| counts.ink) {
+        for ground in ["sidebar", "rail"] {
+            pairs.push((
+                "chrome.tree.counts.colour",
+                shown_colours(variant, ink.name()),
+                ground,
+                shown_colours(variant, ground),
+            ));
+        }
+    }
     let mut refused = Vec::new();
     for (text, fronts, ground, backs) in pairs {
         let (Some(fronts), Some(backs)) = (fronts, backs) else {
@@ -1139,7 +1153,7 @@ pub fn unreadable_layout(variant: &Resolved) -> Vec<String> {
 
 /// `colour`'s red, green and blue at `alpha` (times its own alpha) over an
 /// opaque `back`.
-fn over(colour: u32, alpha: f32, back: u32) -> u32 {
+fn over_at(colour: u32, alpha: f32, back: u32) -> u32 {
     let alpha = f64::from(alpha) * f64::from(colour >> 24) / 255.0;
     let mix = |shift: u32| {
         let front = f64::from((colour >> shift) & 0xff);
@@ -1149,8 +1163,6 @@ fn over(colour: u32, alpha: f32, back: u32) -> u32 {
     0xff00_0000 | mix(16) | mix(8) | mix(0)
 }
 
-/// How much two colours contrast, from 1 to 21, as WCAG measures it; a
-/// translucent foreground is laid over the background first.
 /// `top` laid over the opaque `under`, by its alpha, as an opaque colour.
 fn over(top: u32, under: u32) -> u32 {
     let alpha = f64::from(top >> 24) / 255.0;
@@ -1164,6 +1176,8 @@ fn over(top: u32, under: u32) -> u32 {
     0xff00_0000 | mix(16) | mix(8) | mix(0)
 }
 
+/// How much two colours contrast, from 1 to 21, as WCAG measures it; a
+/// translucent foreground is laid over the background first.
 pub fn contrast(foreground: u32, background: u32) -> f64 {
     let channel = |colour: u32, shift: u32| f64::from((colour >> shift) & 0xff) / 255.0;
     let alpha = f64::from(foreground >> 24) / 255.0;

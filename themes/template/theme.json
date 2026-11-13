@@ -151,7 +151,7 @@
     "members_style": "list",
     "grid": { "columns": 3, "size": 56 },
     "tree": { "expand": "one", "root": "~/", "dms": "dm" },
-    "irc": { "time_width": 56, "nick_width": 120, "separator": "│" },
+    "irc": { "time_width": 56, "nick_width": 120, "separator": "│", "rule": false },
     "bubbles": { "max_width": 72, "radius": 18,
                  "own": { "ground": "linear(180deg, #3558c9, #23409e)",
                           "art": [{ "texture": "grain", "colour": "#ffffff", "opacity": 0.08 }] },
@@ -191,7 +191,9 @@
     "topbar": { "workspaces": 5, "from": "servers", "centre": "{name}@{server}", "right": "{now_playing}  {time}",
                 "height": 26, "size": 12, "underline": "#7aa2ff", "effect": "decrypt" },
     "members": { "columns": {} },
-    "tree": { "lists": [], "colour": "faint" },
+    "tree": { "lists": [], "colour": "faint", "counts": { "mentions": "", "unread": "" } },
+    "box": { "panes": [], "chars": "┌┐└┘─│", "title": "[ {name} ]", "titles": { "members": "[ {name}: {n} ]" },
+             "colour": "faint", "size": 14 },
     "folders": { "open": "▾", "closed": "▸", "suffix": "/" }
   },
 
@@ -217,6 +219,7 @@
     },
     "light": {
       "base": "sakura",
+      "content": { "media": { "dither": { "palette": ["#2b2140", "#9a6fb0", "#fbeef3"], "matrix": 4, "scale": 1 } } },
       "colours": {
         "accent": "#3558c9",
         "accent-hover": "#2a48ad",

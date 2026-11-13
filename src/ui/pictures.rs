@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 
 use super::*;
+use yapfast_core::themes::content::Dither;
 
 /// The readable part of a Matrix ID: `@alice:example.org` becomes `alice`.
 /// A QR code carrying `address`, black on white with the quiet zone around it,
@@ -219,8 +220,12 @@ pub(super) fn fit(width: u32, height: u32) -> (u32, u32) {
     (side(width), side(height))
 }
 
-/// A picture's pixels in Slint's own buffer, so showing it shares them.
-struct SlintPixels(slint::SharedPixelBuffer<slint::Rgba8Pixel>);
+/// A picture's pixels in Slint's own buffer, so showing it shares them,
+/// and its copy dithered by a theme's `dither`, once made.
+struct SlintPixels(
+    slint::SharedPixelBuffer<slint::Rgba8Pixel>,
+    Arc<super::theme_content::DitherSlot>,
+);
 
 impl yapfast_core::chat::PixelBuffer for SlintPixels {
     fn bytes(&self) -> &[u8] {
@@ -233,9 +238,16 @@ impl yapfast_core::chat::PixelBuffer for SlintPixels {
 /// screen would be in memory twice.
 pub(super) fn decode_into_slint_buffers() {
     yapfast_core::chat::set_pixel_buffers(|width, height, rgba| {
-        Box::new(SlintPixels(slint::SharedPixelBuffer::clone_from_slice(
-            rgba, width, height,
-        )))
+        let pixels = slint::SharedPixelBuffer::clone_from_slice(rgba, width, height);
+        // While a theme dithers pictures, each is dithered here, on the
+        // thread decoding it, so the window never waits for it.
+        let dithered = match super::theme_content::decoding_pattern() {
+            Some(pattern) if Dither::patterned(width, height) => {
+                super::theme_content::DitherSlot::made(pattern, &pixels)
+            }
+            _ => super::theme_content::DitherSlot::default(),
+        };
+        Box::new(SlintPixels(pixels, Arc::new(dithered)))
     });
 }
 
@@ -270,6 +282,17 @@ pub(crate) fn frame(buffer: &dyn yapfast_core::picture::FrameBuffer) -> slint::I
 }
 
 pub(crate) fn picture(picture: &Picture) -> slint::Image {
+    // A theme's `dither`: the copy made off this thread, or, until it's
+    // made, the palette as a gradient below.
+    if let Some(pattern) = super::theme_content::pattern()
+        && Dither::patterned(picture.width, picture.height)
+        && let Some(pixels) = picture.rgba.buffer::<SlintPixels>()
+    {
+        if let Some(buffer) = pixels.1.get(pattern) {
+            return slint::Image::from_rgba8(buffer);
+        }
+        super::theme_content::queue(&pixels.0, &pixels.1, pattern);
+    }
     // A theme's `content` recolours a copy; otherwise the decoder's pixels
     // are shared.
     if let Some(buffer) =
@@ -379,7 +402,7 @@ thread_local! {
 /// decoders, after a theme's `content` changed how pictures are coloured:
 /// each is converted again, as it next shows.
 pub(super) fn media_changed() {
-    PREVIEWS.with_borrow_mut(|cache| *cache = Previews::default());
+    previews_changed();
     FRAMES.with_borrow(|cache| {
         for frames in cache.iter().filter_map(std::rc::Weak::upgrade) {
             if let Ok(mut decoding) = frames.decoding.try_borrow_mut() {
@@ -387,6 +410,12 @@ pub(super) fn media_changed() {
             }
         }
     });
+}
+
+/// Lets go of every still picture converted for Slint, so each is converted
+/// again as it next shows: once a theme's dithered copies are made.
+pub(super) fn previews_changed() {
+    PREVIEWS.with_borrow_mut(|cache| *cache = Previews::default());
 }
 
 /// An animation's frames for Slint and how long each shows, in milliseconds;

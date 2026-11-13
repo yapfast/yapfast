@@ -63,6 +63,10 @@ pub enum Media {
     Tint { colour: u32, amount: f32 },
     /// Greys.
     Mono,
+    /// Drawn in a few of the theme's colours by brightness, with an ordered
+    /// (Bayer) pattern standing in for the tones between them, as an old
+    /// screen draws a picture.
+    Dither(Dither),
 }
 
 impl Media {
@@ -72,9 +76,44 @@ impl Media {
             Self::Duotone { .. } => "duotone",
             Self::Tint { .. } => "tint",
             Self::Mono => "mono",
+            Self::Dither(_) => "dither",
         }
     }
 }
+
+/// The most colours a dither palette holds.
+pub const MAX_DITHER: usize = 8;
+
+/// `media`'s `dither`: a palette of 2 to 8 colours, darkest first, the
+/// pattern's size and how many pixels each of its cells covers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Dither {
+    /// ARGB, from dark to light; the first `len` of them.
+    pub palette: [u32; MAX_DITHER],
+    pub len: u8,
+    /// The Bayer matrix's side: 2, 4 or 8.
+    pub matrix: u8,
+    /// Pixels a cell of the pattern covers across and down (1–4), for a
+    /// coarser grain.
+    pub scale: u8,
+}
+
+impl Dither {
+    /// The palette's colours, dark to light.
+    pub fn palette(&self) -> &[u32] {
+        &self.palette[..usize::from(self.len)]
+    }
+
+    /// Whether a picture this size takes the pattern; a smaller one, such
+    /// as an emoji, takes the palette as a gradient, which the pattern
+    /// would only turn to noise.
+    pub fn patterned(width: u32, height: u32) -> bool {
+        width.max(height) > DITHER_SMALLEST
+    }
+}
+
+/// The largest side of a picture drawn as a gradient rather than dithered.
+pub const DITHER_SMALLEST: u32 = 64;
 
 /// `content.avatars`.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -305,12 +344,13 @@ pub(super) fn read_content(
     Ok(())
 }
 
-/// `"normal"`, `"mono"`, `{ "duotone": { "dark", "light" } }` or
-/// `{ "tint": { "colour", "amount" } }`.
+/// `"normal"`, `"mono"`, `{ "duotone": { "dark", "light" } }`,
+/// `{ "tint": { "colour", "amount" } }` or `{ "dither": { "palette", "matrix",
+/// "scale" } }`.
 fn read_media(value: &Value, at: &str) -> Result<Media, Error> {
     let wrong = || {
         Error(format!(
-            "\"{at}\" is \"normal\", \"mono\", {{ \"duotone\": {{ \"dark\", \"light\" }} }} or {{ \"tint\": {{ \"colour\", \"amount\" }} }}"
+            "\"{at}\" is \"normal\", \"mono\", {{ \"duotone\": {{ \"dark\", \"light\" }} }}, {{ \"tint\": {{ \"colour\", \"amount\" }} }} or {{ \"dither\": {{ \"palette\" }} }}"
         ))
     };
     match value {
@@ -341,11 +381,59 @@ fn read_media(value: &Value, at: &str) -> Result<Media, Error> {
                         None => 0.35,
                     },
                 }),
+                "dither" => read_dither(inner, &here).map(Media::Dither),
                 _ => Err(wrong()),
             }
         }
         _ => Err(wrong()),
     }
+}
+
+fn read_dither(fields: &serde_json::Map<String, Value>, here: &str) -> Result<Dither, Error> {
+    let at = format!("{here}.palette");
+    let items = fields
+        .get("palette")
+        .and_then(Value::as_array)
+        .filter(|items| (2..=MAX_DITHER).contains(&items.len()))
+        .ok_or_else(|| {
+            Error(format!(
+                "\"{at}\" is a list of 2 to {MAX_DITHER} colours, such as the theme's darkest and lightest"
+            ))
+        })?;
+    let mut colours = items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| colour_at(item, &format!("{at}[{index}]")))
+        .collect::<Result<Vec<u32>, Error>>()?;
+    // The pattern steps through them by brightness.
+    colours.sort_by_key(|colour| luma(&channels(*colour)));
+    let mut palette = [0; MAX_DITHER];
+    palette[..colours.len()].copy_from_slice(&colours);
+    let mut dither = Dither {
+        palette,
+        len: colours.len() as u8,
+        matrix: 4,
+        scale: 1,
+    };
+    for (key, value) in fields {
+        let spot = format!("{here}.{key}");
+        match key.as_str() {
+            "palette" => {}
+            "matrix" => {
+                dither.matrix = match value.as_u64() {
+                    Some(side @ (2 | 4 | 8)) => side as u8,
+                    _ => return Err(Error(format!("\"{spot}\" is 2, 4 or 8"))),
+                }
+            }
+            "scale" => dither.scale = number(value, &spot, (1.0, 4.0))?.round() as u8,
+            _ => {
+                return Err(Error(format!(
+                    "\"{spot}\" isn't something dither takes: \"palette\", \"matrix\" or \"scale\""
+                )));
+            }
+        }
+    }
+    Ok(dither)
 }
 
 fn read_avatars(
@@ -519,6 +607,10 @@ pub fn recolour(media: Media, rgba: &mut [u8]) {
                 })
             })
         }
+        Media::Dither(dither) => {
+            let palette = dither.palette();
+            std::array::from_fn(|level| gradient(palette, level as u8))
+        }
         Media::Tint { colour, amount } => {
             // A wash by luminance, so the picture's light and shade stay.
             let colour = channels(colour);
@@ -543,6 +635,72 @@ pub fn recolour(media: Media, rgba: &mut [u8]) {
         let mapped = table[usize::from(luma(pixel))];
         pixel[..3].copy_from_slice(&mapped);
     }
+}
+
+/// Draws RGBA pixels, straight alpha, `width` across, in `dither`'s palette
+/// with its ordered pattern: each pixel's brightness, plus the pattern's
+/// threshold where it falls, picks a colour of the palette. Alpha is kept.
+/// Done once a picture, off the window's thread; a few operations a pixel.
+pub fn dither(dither: &Dither, rgba: &mut [u8], width: u32) {
+    let palette = dither.palette();
+    if palette.len() < 2 || width == 0 {
+        return;
+    }
+    let colours: Vec<[u8; 3]> = palette.iter().map(|colour| channels(*colour)).collect();
+    let side = usize::from(dither.matrix.clamp(2, 8));
+    let matrix = bayer(side);
+    let cells = (side * side) as u32;
+    let steps = (palette.len() - 1) as u32;
+    // Where a brightness falls along the palette, in 1/cells of a step.
+    let along: [u32; 256] = std::array::from_fn(|level| level as u32 * steps * cells / 255);
+    let scale = usize::from(dither.scale.max(1));
+    let width = width as usize;
+    for (index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
+        let (x, y) = ((index % width) / scale, (index / width) / scale);
+        let threshold = u32::from(matrix[(y % side) * side + x % side]);
+        let step = ((along[usize::from(luma(pixel))] + threshold) / cells).min(steps);
+        pixel[..3].copy_from_slice(&colours[step as usize]);
+    }
+}
+
+/// The Bayer matrix of side 2, 4 or 8, row by row: the order each cell of
+/// the pattern lights in.
+fn bayer(side: usize) -> Vec<u8> {
+    let mut matrix = vec![0u8];
+    let mut size = 1;
+    while size < side {
+        let mut next = vec![0u8; size * size * 4];
+        for y in 0..size {
+            for x in 0..size {
+                let value = matrix[y * size + x] * 4;
+                let wide = size * 2;
+                next[y * wide + x] = value;
+                next[y * wide + x + size] = value + 2;
+                next[(y + size) * wide + x] = value + 3;
+                next[(y + size) * wide + x + size] = value + 1;
+            }
+        }
+        matrix = next;
+        size *= 2;
+    }
+    matrix
+}
+
+/// A brightness's colour along a palette, dark to light, blending between
+/// the two it falls between.
+fn gradient(palette: &[u32], level: u8) -> [u8; 3] {
+    let steps = palette.len().saturating_sub(1).max(1);
+    let along = f32::from(level) / 255.0 * steps as f32;
+    let from = (along.floor() as usize)
+        .min(steps - 1)
+        .min(palette.len() - 1);
+    let to = (from + 1).min(palette.len() - 1);
+    let mix = along - from as f32;
+    let (from, to) = (channels(palette[from]), channels(palette[to]));
+    std::array::from_fn(|channel| {
+        (f32::from(from[channel]) + (f32::from(to[channel]) - f32::from(from[channel])) * mix)
+            .round() as u8
+    })
 }
 
 /// Rec. 601 luma in integers.
@@ -638,6 +796,106 @@ mod tests {
                 .iter()
                 .any(|note| note.contains("content.sparkle"))
         );
+    }
+
+    fn green() -> Dither {
+        match theme(
+            r##"{ "media": { "dither": { "palette": ["#B8FFC8", "#020A04", "#2F8A4A"], "matrix": 2 } } }"##,
+        )
+        .unwrap()
+        .resolve(Mode::Dark)
+        .unwrap()
+        .content
+        .media
+        {
+            Media::Dither(dither) => dither,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn reads_a_dither_palette_dark_to_light() {
+        let dither = green();
+        assert_eq!(dither.palette(), [0xff020a04, 0xff2f8a4a, 0xffb8ffc8]);
+        assert_eq!((dither.matrix, dither.scale), (2, 1));
+        let stock =
+            theme(r##"{ "media": { "dither": { "palette": ["#000000", "#ffffff"] } } }"##).unwrap();
+        assert!(matches!(
+            stock.resolve(Mode::Dark).unwrap().content.media,
+            Media::Dither(Dither {
+                matrix: 4,
+                scale: 1,
+                len: 2,
+                ..
+            })
+        ));
+        assert!(
+            stock
+                .resolve(Mode::Dark)
+                .unwrap()
+                .content
+                .summary()
+                .unwrap()
+                .contains("dither pictures")
+        );
+        assert!(theme(r##"{ "media": { "dither": { "palette": ["#000000"] } } }"##).is_err());
+        assert!(
+            theme(
+                r##"{ "media": { "dither": { "palette": ["#000000", "#ffffff"], "matrix": 3 } } }"##
+            )
+            .is_err()
+        );
+        assert!(
+            theme(
+                r##"{ "media": { "dither": { "palette": ["#000000", "#ffffff"], "scale": 9 } } }"##
+            )
+            .is_err()
+        );
+        assert!(
+            theme(
+                r##"{ "media": { "dither": { "palette": ["#000000", "#ffffff"], "glow": 1 } } }"##
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn dithering_uses_only_the_palette_and_follows_brightness() {
+        let dither = green();
+        // A flat dark grey, 4 by 4, between the first two colours: a
+        // pattern of both.
+        let mut grey = [64u8, 64, 64, 200].repeat(16);
+        super::dither(&dither, &mut grey, 4);
+        let palette: Vec<[u8; 3]> = dither.palette().iter().map(|c| channels(*c)).collect();
+        let mut seen = std::collections::BTreeSet::new();
+        for pixel in grey.chunks_exact(4) {
+            assert!(
+                palette.contains(&[pixel[0], pixel[1], pixel[2]]),
+                "{pixel:?}"
+            );
+            assert_eq!(pixel[3], 200);
+            seen.insert([pixel[0], pixel[1], pixel[2]]);
+        }
+        assert_eq!(seen.len(), 2, "a grey between two colours mixes them");
+        // Black and white stay the palette's ends.
+        let mut ends = [0u8, 0, 0, 255, 255, 255, 255, 255];
+        super::dither(&dither, &mut ends, 2);
+        assert_eq!(&ends[..3], &channels(dither.palette[0]));
+        assert_eq!(&ends[4..7], &channels(dither.palette[2]));
+        // The same picture dithers the same each time.
+        let mut again = [64u8, 64, 64, 200].repeat(16);
+        super::dither(&dither, &mut again, 4);
+        assert_eq!(grey, again);
+        // Without the pattern, the palette is a gradient.
+        let mut smooth = [128u8, 128, 128, 255];
+        recolour(Media::Dither(dither), &mut smooth);
+        assert_eq!(&smooth[..3], &gradient(dither.palette(), 128));
+        assert!(Dither::patterned(400, 300) && !Dither::patterned(48, 48));
+        assert_eq!(bayer(2), [0, 2, 3, 1]);
+        let four = bayer(4);
+        let mut sorted = four.clone();
+        sorted.sort_unstable();
+        assert_eq!(sorted, (0..16).collect::<Vec<u8>>());
     }
 
     #[test]

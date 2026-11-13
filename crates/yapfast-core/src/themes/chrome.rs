@@ -33,6 +33,14 @@ pub const TOPBAR_PLACEHOLDERS: [&str; 5] = ["name", "server", "channel", "now_pl
 pub const MAX_STATUS_LINE: usize = 120;
 /// The most marks by role a member list takes.
 pub const MAX_ROLE_MARKS: usize = 8;
+/// The longest a tree row's count is, such as `[{n}!]`.
+pub const MAX_COUNT: usize = 16;
+/// What a pane's box title may hold.
+pub const BOX_PLACEHOLDERS: [&str; 2] = ["name", "n"];
+/// The box frame's characters when a theme gives none: corners top left,
+/// top right, bottom left, bottom right, then the across and down lines.
+pub const BOX_CHARS: [char; 6] = ['┌', '┐', '└', '┘', '─', '│'];
+
 /// What the status line's text may hold.
 pub const STATUS_PLACEHOLDERS: [&str; 6] = [
     "time",
@@ -156,6 +164,88 @@ closed! {
         /// thread under its first message as `├─ thread: name`.
         Replies => "replies",
     }
+}
+
+closed! {
+    /// A pane a theme may frame with box-drawing characters.
+    Pane {
+        /// The conversation: the messages and the composer under them.
+        Chat => "chat",
+        /// The sidebar: the channels or the direct messages.
+        Sidebar => "sidebar",
+        /// The member list.
+        Members => "members",
+    }
+}
+
+closed! {
+    /// The theme colour a row's counts take.
+    CountInk {
+        Danger => "danger",
+        Loud => "loud",
+        Accent => "accent",
+        Text => "text",
+        Secondary => "secondary",
+        Muted => "muted",
+    }
+}
+
+/// Panes drawn as a text terminal draws its windows: edges of box-drawing
+/// characters, repeated along each side in the code face so they stay
+/// crisp at any width, and a title in the top edge, such as
+/// `┌─[ #general ]──┐`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BoxFrame {
+    /// Top left, top right, bottom left, bottom right, across, down.
+    pub chars: [char; 6],
+    /// The title in each pane's top edge, with `{name}` (the pane's name)
+    /// and `{n}` (how many: the member list's people); empty for none.
+    pub title: String,
+    /// A pane's own title in place of `title`.
+    pub titles: BTreeMap<Pane, String>,
+    /// The panes framed.
+    pub panes: BTreeSet<Pane>,
+    /// The lines' colour: a theme colour by name (the tree's when unset),
+    /// or ARGB.
+    pub ink: Option<TreeInk>,
+    pub colour: Option<u32>,
+    /// The characters' size in pixels (10–24).
+    pub size: f32,
+}
+
+impl Default for BoxFrame {
+    fn default() -> Self {
+        Self {
+            chars: BOX_CHARS,
+            title: "[ {name} ]".into(),
+            titles: BTreeMap::new(),
+            panes: Pane::ALL.iter().copied().collect(),
+            ink: None,
+            colour: None,
+            size: 14.0,
+        }
+    }
+}
+
+impl BoxFrame {
+    /// The title template for `pane`.
+    pub fn title_for(&self, pane: Pane) -> &str {
+        self.titles.get(&pane).unwrap_or(&self.title)
+    }
+}
+
+/// Counts written after the names of rows in a tree, the text rail and the
+/// tree sidebar, in place of the stock badge: `[{n}!]` for mentions (a
+/// direct message's unread messages), and a mark for a row that is unread
+/// without any, such as `(*)`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Counts {
+    /// With `{n}`; empty keeps the stock badge.
+    pub mentions: String,
+    /// No placeholders; empty for none.
+    pub unread: String,
+    /// The mentions' colour; `danger` when unset.
+    pub ink: Option<CountInk>,
 }
 
 closed! {
@@ -338,6 +428,10 @@ pub struct Chrome {
     /// A line of text across the foot of the conversation, as a terminal's
     /// status bar.
     pub status_line: Option<StatusLine>,
+    /// Panes framed with box-drawing characters.
+    pub box_frame: Option<BoxFrame>,
+    /// Counts after the names of tree rows.
+    pub counts: Option<Counts>,
 }
 
 closed! {
@@ -439,6 +533,21 @@ impl Chrome {
         }
         if self.status_line.is_some() {
             parts.push("status line".into());
+        }
+        if let Some(frame) = self
+            .box_frame
+            .as_ref()
+            .filter(|frame| !frame.panes.is_empty())
+        {
+            let panes: Vec<&str> = frame.panes.iter().map(|pane| pane.name()).collect();
+            parts.push(format!("box frames ({})", panes.join(", ")));
+        }
+        if self
+            .counts
+            .as_ref()
+            .is_some_and(|counts| !counts.mentions.is_empty() || !counts.unread.is_empty())
+        {
+            parts.push("row counts".into());
         }
         parts
     }
@@ -872,11 +981,118 @@ pub(super) fn read_chrome(
                                 chrome.tree_ink = None;
                             }
                         },
+                        "counts" => {
+                            let counts = chrome.counts.get_or_insert_with(Counts::default);
+                            read_counts(value, &at, counts, notes)?;
+                        }
                         _ => notes.push(format!("\"{at}\" isn't something tree takes; ignored")),
                     }
                 }
             }
+            "box" => {
+                let frame = chrome.box_frame.get_or_insert_with(BoxFrame::default);
+                read_box(value, &here, frame, notes)?;
+            }
             _ => notes.push(format!("\"{here}\" isn't something chrome takes; ignored")),
+        }
+    }
+    Ok(())
+}
+
+fn read_counts(
+    value: &Value,
+    here: &str,
+    counts: &mut Counts,
+    notes: &mut Vec<String>,
+) -> Result<(), Error> {
+    for (key, value) in object(value, here)? {
+        let at = format!("{here}.{key}");
+        match key.as_str() {
+            "mentions" => {
+                let text = plain(value, &at, MAX_COUNT)?;
+                placeholders(&text, &at, &["n"])?;
+                if !text.is_empty() && !text.contains("{n}") {
+                    return Err(Error(format!("\"{at}\" holds {{n}} where the count goes")));
+                }
+                counts.mentions = text;
+            }
+            "unread" => {
+                let text = plain(value, &at, MAX_COUNT)?;
+                placeholders(&text, &at, &[])?;
+                counts.unread = text;
+            }
+            "colour" => counts.ink = Some(named(value, &at, CountInk::ALL, CountInk::name)?),
+            _ => notes.push(format!("\"{at}\" isn't something counts takes; ignored")),
+        }
+    }
+    Ok(())
+}
+
+fn read_box(
+    value: &Value,
+    here: &str,
+    frame: &mut BoxFrame,
+    notes: &mut Vec<String>,
+) -> Result<(), Error> {
+    let title = |value: &Value, at: &str| -> Result<String, Error> {
+        let text = plain(value, at, MAX_LABEL)?;
+        placeholders(&text, at, &BOX_PLACEHOLDERS)?;
+        Ok(text)
+    };
+    for (key, value) in object(value, here)? {
+        let at = format!("{here}.{key}");
+        match key.as_str() {
+            "chars" => {
+                let text = plain(value, &at, 6)?;
+                let chars: Vec<char> = text.chars().collect();
+                frame.chars = chars
+                    .try_into()
+                    .ok()
+                    .filter(|chars: &[char; 6]| chars.iter().all(|c| !c.is_whitespace()))
+                    .ok_or_else(|| {
+                        Error(format!(
+                            "\"{at}\" is six characters: the corners top left, top right, bottom left and bottom right, then the across and down lines, such as \"┌┐└┘─│\""
+                        ))
+                    })?;
+            }
+            "title" => frame.title = title(value, &at)?,
+            "titles" => {
+                for (key, value) in object(value, &at)? {
+                    let spot = format!("{at}.{key}");
+                    match Pane::named(key) {
+                        Some(pane) => {
+                            frame.titles.insert(pane, title(value, &spot)?);
+                        }
+                        None => notes.push(format!("\"{spot}\" isn't a pane; ignored")),
+                    }
+                }
+            }
+            "panes" => {
+                let items = value
+                    .as_array()
+                    .ok_or_else(|| Error(format!("\"{at}\" is a list of panes")))?;
+                frame.panes.clear();
+                for (index, item) in items.iter().enumerate() {
+                    match item.as_str().and_then(Pane::named) {
+                        Some(pane) => {
+                            frame.panes.insert(pane);
+                        }
+                        None => notes.push(format!("\"{at}[{index}]\" isn't a pane; ignored")),
+                    }
+                }
+            }
+            "colour" => match value.as_str().and_then(TreeInk::named) {
+                Some(ink) => {
+                    frame.ink = Some(ink);
+                    frame.colour = None;
+                }
+                None => {
+                    frame.colour = Some(colour_at(value, &at)?);
+                    frame.ink = None;
+                }
+            },
+            "size" => frame.size = number(value, &at, (10.0, 24.0))?,
+            _ => notes.push(format!("\"{at}\" isn't something box takes; ignored")),
         }
     }
     Ok(())
@@ -1048,6 +1264,64 @@ mod tests {
             ("Sam, Riley and Jo".into(), 3)
         );
         assert_eq!(split_typing("Several people are typing...").1, 4);
+    }
+
+    #[test]
+    fn reads_box_frames_and_counts() {
+        let package = theme(
+            r##"{
+                "box": { "chars": "++++-|", "title": "[ {name} ]", "titles": { "members": "[ who: {n} ]" },
+                         "panes": ["chat", "members"], "colour": "#2E7D45", "size": 16 },
+                "tree": { "lists": ["channels"], "counts": { "mentions": "[{n}!]", "unread": "(*)", "colour": "loud" } }
+            }"##,
+        )
+        .unwrap();
+        assert!(package.notes.is_empty(), "{:?}", package.notes);
+        let chrome = package.resolve(Mode::Dark).unwrap().chrome;
+        let frame = chrome.box_frame.clone().unwrap();
+        assert_eq!(frame.chars, ['+', '+', '+', '+', '-', '|']);
+        assert_eq!(frame.title_for(Pane::Chat), "[ {name} ]");
+        assert_eq!(frame.title_for(Pane::Members), "[ who: {n} ]");
+        assert!(frame.panes.contains(&Pane::Chat) && !frame.panes.contains(&Pane::Sidebar));
+        assert_eq!(frame.colour, Some(0xff2e7d45));
+        assert_eq!(frame.size, 16.0);
+        let counts = chrome.counts.clone().unwrap();
+        assert_eq!(counts.mentions, "[{n}!]");
+        assert_eq!(counts.unread, "(*)");
+        assert_eq!(counts.ink, Some(CountInk::Loud));
+        assert!(
+            chrome
+                .summary()
+                .iter()
+                .any(|part| part == "box frames (chat, members)")
+        );
+        assert!(chrome.summary().iter().any(|part| part == "row counts"));
+        // Left out, every pane is framed in the stock characters.
+        let plain = theme(r#"{ "box": {} }"#).unwrap();
+        let frame = plain.resolve(Mode::Dark).unwrap().chrome.box_frame.unwrap();
+        assert_eq!(frame.chars, BOX_CHARS);
+        assert_eq!(frame.panes.len(), 3);
+        assert_eq!(
+            fill(frame.title_for(Pane::Sidebar), &[("name", "Night Owls")]),
+            "[ Night Owls ]"
+        );
+    }
+
+    #[test]
+    fn refuses_bad_box_frames_and_counts() {
+        assert!(theme(r#"{ "box": { "chars": "┌┐└┘─" } }"#).is_err());
+        assert!(theme(r#"{ "box": { "chars": "┌┐└┘ │" } }"#).is_err());
+        assert!(theme(r#"{ "box": { "title": "[ {channel} ]" } }"#).is_err());
+        assert!(theme(r#"{ "box": { "size": 40 } }"#).is_err());
+        assert!(theme(r#"{ "box": { "colour": "glow" } }"#).is_err());
+        assert!(theme(r#"{ "tree": { "counts": { "mentions": "(!)" } } }"#).is_err());
+        assert!(theme(r#"{ "tree": { "counts": { "unread": "{n} new" } } }"#).is_err());
+        assert!(
+            theme(r#"{ "tree": { "counts": { "mentions": "[{n} mentions here]" } } }"#).is_err()
+        );
+        assert!(theme(r#"{ "tree": { "counts": { "colour": "pink" } } }"#).is_err());
+        let noted = theme(r#"{ "box": { "panes": ["rail"], "glow": 1 } }"#).unwrap();
+        assert_eq!(noted.notes.len(), 2, "{:?}", noted.notes);
     }
 
     #[test]

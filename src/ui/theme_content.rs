@@ -10,11 +10,12 @@
 //! avatars, nameplates, embed links, activity tiles and the LIVE pill read
 //! the `ThemeContent` global (`ui/theme_content.slint`).
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::sync::{Arc, Mutex, RwLock, mpsc};
 
 use slint::ComponentHandle as _;
 use yapfast_core::themes::content::{
-    AvatarShape, Content, Follow, Media, NameColours, Nameplates, Shown, recolour,
+    AvatarShape, Content, Dither, Follow, Media, NameColours, Nameplates, Shown, dither, recolour,
 };
 use yapfast_ui::{ThemeContent, YapfastWindow};
 
@@ -33,6 +34,192 @@ thread_local! {
     /// What pictures are recoloured with. An animation's decoding thread is
     /// handed it as it starts.
     static MEDIA: Cell<Media> = const { Cell::new(Media::Normal) };
+    /// Performance is on Light: a `dither` theme's pictures take its palette
+    /// as a gradient, without the pattern.
+    static LIGHT: Cell<bool> = const { Cell::new(false) };
+    /// What runs on the window's thread once pictures were dithered off it.
+    static ON_DITHERED: RefCell<Option<Box<dyn Fn()>>> = RefCell::default();
+}
+
+/// The pattern pictures are dithered with now, for the threads that decode
+/// them: a picture decoded meanwhile is dithered there, as it's made.
+static PATTERN: RwLock<Option<Dither>> = RwLock::new(None);
+
+/// The pattern pictures are dithered with now, from any thread.
+pub fn decoding_pattern() -> Option<Dither> {
+    *PATTERN
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// The pattern pictures are dithered with, on the window's thread: the
+/// theme's `dither` while its content shows, unless Performance is Light.
+pub fn pattern() -> Option<Dither> {
+    match media() {
+        Media::Dither(dither) if !LIGHT.get() => Some(dither),
+        _ => None,
+    }
+}
+
+fn publish_pattern() {
+    *PATTERN
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = pattern();
+}
+
+/// Performance is on Light, or not. True when that changed whether
+/// pictures are dithered, so converted ones are let go.
+pub fn set_light(light: bool) -> bool {
+    let before = pattern();
+    LIGHT.set(light);
+    publish_pattern();
+    before != pattern()
+}
+
+/// Runs `redraw` on the window's thread whenever pictures were dithered off
+/// it, so the ones converted meanwhile are converted again. Called once.
+pub fn on_dithered(redraw: impl Fn() + 'static) {
+    ON_DITHERED.set(Some(Box::new(redraw)));
+}
+
+/// A picture's dithered copy, made once off the window's thread and kept
+/// with the picture, for as long as the pattern doesn't change.
+#[derive(Default)]
+pub struct DitherSlot(Mutex<Dithered>);
+
+#[derive(Default)]
+enum Dithered {
+    #[default]
+    None,
+    Pending(Dither),
+    Done(Dither, slint::SharedPixelBuffer<slint::Rgba8Pixel>),
+}
+
+impl DitherSlot {
+    /// A slot holding `source` dithered with `pattern` already, when the
+    /// thread making it can afford it.
+    pub fn made(pattern: Dither, source: &slint::SharedPixelBuffer<slint::Rgba8Pixel>) -> Self {
+        Self(Mutex::new(Dithered::Done(
+            pattern,
+            dithered(pattern, source),
+        )))
+    }
+
+    /// The copy dithered with `pattern`, once made.
+    pub fn get(&self, pattern: Dither) -> Option<slint::SharedPixelBuffer<slint::Rgba8Pixel>> {
+        match &*self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+        {
+            Dithered::Done(made, buffer) if *made == pattern => Some(buffer.clone()),
+            _ => None,
+        }
+    }
+}
+
+/// A copy of `source` dithered with `pattern`.
+fn dithered(
+    pattern: Dither,
+    source: &slint::SharedPixelBuffer<slint::Rgba8Pixel>,
+) -> slint::SharedPixelBuffer<slint::Rgba8Pixel> {
+    let mut buffer = source.clone();
+    let width = buffer.width();
+    dither(&pattern, buffer.make_mut_bytes(), width);
+    buffer
+}
+
+struct Job {
+    source: slint::SharedPixelBuffer<slint::Rgba8Pixel>,
+    slot: Arc<DitherSlot>,
+    pattern: Dither,
+}
+
+/// Has `source` dithered with `pattern` into `slot` on the dithering
+/// thread, unless it's made or on its way; meanwhile the picture shows its
+/// palette as a gradient. Once the queue is empty the window converts the
+/// pictures again (see [`on_dithered`]).
+pub fn queue(
+    source: &slint::SharedPixelBuffer<slint::Rgba8Pixel>,
+    slot: &Arc<DitherSlot>,
+    pattern: Dither,
+) {
+    {
+        let mut state = slot
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match &*state {
+            Dithered::Pending(made) | Dithered::Done(made, _) if *made == pattern => return,
+            _ => *state = Dithered::Pending(pattern),
+        }
+    }
+    static SEND: Mutex<Option<mpsc::Sender<Job>>> = Mutex::new(None);
+    let mut send = SEND
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let job = Job {
+        source: source.clone(),
+        slot: slot.clone(),
+        pattern,
+    };
+    let job = match send.as_ref() {
+        Some(sender) => match sender.send(job) {
+            Ok(()) => return,
+            // The thread ended: start another.
+            Err(mpsc::SendError(job)) => job,
+        },
+        None => job,
+    };
+    let (sender, jobs) = mpsc::channel();
+    let started = std::thread::Builder::new()
+        .name("yapfast-dither".into())
+        .spawn(move || dither_jobs(&jobs));
+    match started {
+        Ok(_) => {
+            let _ = sender.send(job);
+            *send = Some(sender);
+        }
+        Err(error) => tracing::warn!(%error, "could not start dithering pictures"),
+    }
+}
+
+/// The dithering thread: each job in turn, then, once none wait, one call
+/// to the window to show them.
+fn dither_jobs(jobs: &mpsc::Receiver<Job>) {
+    while let Ok(job) = jobs.recv() {
+        run(job);
+        while let Ok(job) = jobs.try_recv() {
+            run(job);
+        }
+        let _ = slint::invoke_from_event_loop(|| {
+            ON_DITHERED.with_borrow(|redraw| {
+                if let Some(redraw) = redraw {
+                    redraw();
+                }
+            });
+        });
+    }
+}
+
+fn run(job: Job) {
+    // Unless the pattern changed while it waited.
+    let wanted = matches!(
+        &*job.slot.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
+        Dithered::Pending(pattern) if *pattern == job.pattern
+    );
+    if !wanted {
+        return;
+    }
+    let buffer = dithered(job.pattern, &job.source);
+    let mut state = job
+        .slot
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if matches!(&*state, Dithered::Pending(pattern) if *pattern == job.pattern) {
+        *state = Dithered::Done(job.pattern, buffer);
+    }
 }
 
 /// What pictures are recoloured with now.
@@ -88,6 +275,7 @@ pub fn show(window: &YapfastWindow, content: Option<(Content, Colours)>) -> Chan
     global.set_activity(shown.activity == Follow::Theme);
     let media_before = media();
     MEDIA.set(shown.media);
+    publish_pattern();
     SHOWN.set(content);
     Change {
         rows: before != content,
@@ -129,10 +317,16 @@ pub fn recoloured(
 }
 
 /// Recolours a buffer just made, such as an animation's frame, in place, as
-/// `media` (from [`media`] on the UI thread) says.
+/// `media` (from [`media`] on the UI thread) says; a `dither` theme's
+/// pattern is drawn where pictures are dithered now.
 pub fn recolour_buffer(media: Media, buffer: &mut slint::SharedPixelBuffer<slint::Rgba8Pixel>) {
-    if media != Media::Normal {
-        recolour(media, buffer.make_mut_bytes());
+    let (width, height) = (buffer.width(), buffer.height());
+    match (media, decoding_pattern()) {
+        (Media::Normal, _) => {}
+        (Media::Dither(_), Some(pattern)) if Dither::patterned(width, height) => {
+            dither(&pattern, buffer.make_mut_bytes(), width);
+        }
+        _ => recolour(media, buffer.make_mut_bytes()),
     }
 }
 
@@ -225,6 +419,8 @@ pub fn no_profile_effects() -> bool {
 pub(super) fn reset_for_tests() {
     SHOWN.set(None);
     MEDIA.set(Media::Normal);
+    LIGHT.set(false);
+    publish_pattern();
 }
 
 #[cfg(test)]
@@ -274,6 +470,87 @@ mod tests {
         assert!(change.rows && !change.media);
         assert_eq!(name(Some(0x101040)), Some(0x101040));
         assert_eq!(embed(Some(0xff0000)), Some(0xff0000));
+    }
+
+    fn dithering() -> Content {
+        let dither = match yapfast_core::themes::package::Package::parse(
+            r##"{ "theme_api": 1, "id": "com.example.dither", "name": "Dither", "version": "1.0.0",
+                "content": { "media": { "dither": { "palette": ["#020A04", "#2F8A4A", "#B8FFC8"] } } },
+                "variants": { "dark": { "base": "yap" } } }"##,
+        )
+        .unwrap()
+        .resolve(yapfast_core::themes::package::Mode::Dark)
+        .unwrap()
+        .content
+        .media
+        {
+            Media::Dither(dither) => dither,
+            other => panic!("{other:?}"),
+        };
+        Content {
+            media: Media::Dither(dither),
+            ..Content::default()
+        }
+    }
+
+    #[test]
+    fn theme_dither_is_made_once_off_the_window_and_light_keeps_a_gradient() {
+        i_slint_backend_testing::init_no_event_loop();
+        let window = YapfastWindow::new().unwrap();
+        reset_for_tests();
+        assert!(pattern().is_none() && decoding_pattern().is_none());
+        assert!(show(&window, Some((dithering(), colours()))).media);
+        // (The decoding threads' copy is the process's, which tests running
+        // beside this one may clear, so only this thread's is held to it.)
+        let on = pattern().expect("dithered while content shows");
+        // A picture's slot: made where it's decoded, or by the thread.
+        let source = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+            &[64u8, 64, 64, 255].repeat(100 * 100),
+            100,
+            100,
+        );
+        let made = DitherSlot::made(on, &source);
+        let copy = made.get(on).unwrap();
+        let colours: std::collections::BTreeSet<[u8; 3]> = copy
+            .as_bytes()
+            .chunks_exact(4)
+            .map(|pixel| [pixel[0], pixel[1], pixel[2]])
+            .collect();
+        assert_eq!(colours.len(), 2, "a pattern of two palette colours");
+        let slot = Arc::new(DitherSlot::default());
+        assert!(slot.get(on).is_none());
+        run(Job {
+            source: source.clone(),
+            slot: slot.clone(),
+            pattern: on,
+        });
+        // Nothing waited for it, so nothing was made.
+        assert!(slot.get(on).is_none());
+        *slot.0.lock().unwrap() = Dithered::Pending(on);
+        run(Job {
+            source: source.clone(),
+            slot: slot.clone(),
+            pattern: on,
+        });
+        assert_eq!(slot.get(on).unwrap().as_bytes(), copy.as_bytes());
+        // Light: the palette as a gradient, no pattern, nothing to redo
+        // twice.
+        assert!(set_light(true));
+        assert!(pattern().is_none() && decoding_pattern().is_none());
+        assert!(!set_light(true));
+        let mut frame = source.clone();
+        recolour_buffer(media(), &mut frame);
+        let flat: std::collections::BTreeSet<[u8; 4]> = frame
+            .as_bytes()
+            .chunks_exact(4)
+            .map(|pixel| [pixel[0], pixel[1], pixel[2], pixel[3]])
+            .collect();
+        assert_eq!(flat.len(), 1);
+        assert!(set_light(false));
+        // Content turned off: no pattern.
+        assert!(show(&window, None).media);
+        assert!(pattern().is_none() && decoding_pattern().is_none());
+        reset_for_tests();
     }
 
     #[test]

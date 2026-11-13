@@ -80,6 +80,15 @@ pub fn init(window: &YapfastWindow) {
     window.global::<Arrange>().on_scraps(|text| scraps(&text));
 }
 
+/// Lines a message's rule holds: more than the tallest message shows, each
+/// clipped to its own.
+const RULE_LINES: usize = 240;
+
+/// The separator once a line, for the rule down a message.
+fn rule_text(separator: &str) -> String {
+    vec![separator; RULE_LINES].join("\n")
+}
+
 /// Every value back to stock.
 pub fn reset(window: &YapfastWindow) {
     let arrange = window.global::<Arrange>();
@@ -92,6 +101,8 @@ pub fn reset(window: &YapfastWindow) {
     arrange.set_irc_time(64.);
     arrange.set_irc_nick(128.);
     arrange.set_irc_separator("│".into());
+    arrange.set_irc_rule(false);
+    arrange.set_irc_rule_text(SharedString::new());
     arrange.set_bubble_max(0.72);
     arrange.set_bubble_own_set(Color::default());
     arrange.set_bubble_other_set(Color::default());
@@ -170,6 +181,10 @@ pub fn apply(
     }
     if let Some(separator) = &layout.irc.separator {
         arrange.set_irc_separator(separator.as_str().into());
+    }
+    if layout.irc.rule == Some(true) {
+        arrange.set_irc_rule(true);
+        arrange.set_irc_rule_text(rule_text(layout.irc.separator.as_deref().unwrap_or("│")).into());
     }
     if let Some(share) = layout.bubbles.max_width {
         arrange.set_bubble_max(share / 100.);
@@ -381,6 +396,23 @@ fn seed(text: &str, index: usize) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn theme_irc_rule_runs_the_separator_down_every_line() {
+        i_slint_backend_testing::init_no_event_loop();
+        let window = YapfastWindow::new().unwrap();
+        let mut layout = Layout::default();
+        layout.irc.separator = Some(">".into());
+        layout.irc.rule = Some(true);
+        apply(&window, &layout, &[], None, Performance::Full);
+        let arrange = window.global::<Arrange>();
+        assert!(arrange.get_irc_rule());
+        let text = arrange.get_irc_rule_text();
+        assert_eq!(text.lines().count(), RULE_LINES);
+        assert!(text.lines().all(|line| line == ">"));
+        reset(&window);
+        assert!(!arrange.get_irc_rule() && arrange.get_irc_rule_text().is_empty());
+    }
 
     fn letters(model: &ModelRc<Scrap>) -> Vec<String> {
         use slint::Model as _;
