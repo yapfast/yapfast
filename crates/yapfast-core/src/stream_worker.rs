@@ -78,7 +78,7 @@ mod card;
 mod codec;
 mod consts;
 mod encoding;
-mod geometry;
+mod glance;
 mod job;
 mod linux;
 mod pattern;
@@ -91,13 +91,15 @@ mod worker;
 
 pub(crate) use card::*;
 pub(crate) use codec::*;
-mod source;
-pub(crate) use source::*;
 
 pub(crate) use consts::*;
 
 pub(crate) use encoding::*;
-pub(crate) use geometry::*;
+pub(crate) use glance::*;
+// What a share can capture, and the sizes it is sent at, from the media crate:
+// the capture and the encoder below need the same answers this worker does.
+pub(crate) use crate::geometry::*;
+pub(crate) use crate::source::*;
 #[allow(unused_imports)]
 pub(crate) use job::*;
 #[allow(unused_imports)]
@@ -107,11 +109,11 @@ pub(crate) use processor::*;
 pub(crate) use report::*;
 pub(crate) use share::*;
 pub(crate) use sink::*;
-pub use source::Shareable;
-pub use source::Source;
-pub use source::pick;
-pub use source::portal_picks;
-pub use source::shareable;
+pub use crate::source::Shareable;
+pub use crate::source::Source;
+pub use crate::source::pick;
+pub use crate::source::portal_picks;
+pub use crate::source::shareable;
 pub(crate) use watch::*;
 #[allow(unused_imports)]
 pub(crate) use worker::*;
@@ -119,14 +121,14 @@ pub(crate) use worker::*;
 pub use codec::StreamCodec;
 pub use codec::set_hardware_encoding;
 pub use codec::set_stream_codec;
+pub use crate::geometry::SHARE_HEIGHT;
+pub use crate::geometry::SHARE_WIDTH;
+pub use crate::geometry::WATCH_HEIGHT;
+pub use crate::geometry::WATCH_WIDTH;
 pub use consts::ARGUMENT;
 pub use consts::PREVIEW_HEIGHT;
 pub use consts::PREVIEW_WIDTH;
-pub use consts::SHARE_HEIGHT;
-pub use consts::SHARE_WIDTH;
-pub use consts::WATCH_HEIGHT;
-pub use consts::WATCH_WIDTH;
-pub use geometry::fit;
+pub use crate::geometry::fit;
 pub use job::Control;
 pub use job::Job;
 pub use job::run;

@@ -562,7 +562,7 @@ mod tests {
     fn a_duplication_opens_on_a_device_it_was_given() {
         let target = Target::primary().expect("a primary display to duplicate");
         let encoder = crate::d3d11::D3d11Encoder::new(
-            yapfast_discord::rtp::Codec::H264,
+            crate::codec::Codec::H264,
             1920,
             1080,
             60,

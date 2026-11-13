@@ -1,18 +1,55 @@
-//! `stream_worker`'s geometry.
+//! The sizes a stream is shown and sent at: how large a shared screen goes out,
+//! the box a preview of it fits in, and the tile a watched stream is scaled to.
 
-use super::*;
+/// The largest frame shared at 1080p: the box a stream's picture is scaled down
+/// to fit, which turns with a screen on its side — see [`fit`]. Discord's own
+/// client trials 1080p at 30 fps for accounts without Nitro, up to 5 Mbit/s (its
+/// "frontier tuning" experiment); larger screens are scaled down to it.
+pub const SHARE_WIDTH: u32 = 1920;
+pub const SHARE_HEIGHT: u32 = 1080;
+/// The longest edge a preview drawn on the card is scaled to. It is the
+/// stream's own picture, shown where the card drew it — the only copy that
+/// costs nothing a frame — so it is worth the stream's pixels: 1920 is the
+/// largest a 1080p share sends, and a portrait screen's 1080x1920 fits the
+/// same box stood up. A share of a larger screen sends its picture at this
+/// edge too, so the preview and the stream agree.
+#[cfg(any(wgc, dup))]
+pub const PREVIEW_LONG_EDGE: u32 = 1920;
+/// The largest picture shown of someone else's stream; larger ones are
+/// scaled down to it.
+pub const WATCH_WIDTH: u32 = 1920;
+pub const WATCH_HEIGHT: u32 = 1080;
+
+/// The box a preview is scaled into when the machine is short of memory, which
+/// is smaller than any tile it is shown in and never upscales: what it saves is
+/// the texture, the readback and the scale itself, not the picture that goes out.
+#[cfg(any(wgc, dup))]
+pub const CONSTRAINED_WIDTH: u32 = 640;
+#[cfg(any(wgc, dup))]
+pub const CONSTRAINED_HEIGHT: u32 = 360;
+
+/// How large a shared screen is sent, as Discord's client offers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Resolution {
+    P720,
+    #[default]
+    P1080,
+    /// The screen's own size, up to 4K.
+    Source,
+}
 
 /// What a stream is scaled to fit, given the size in pixels of the tile
 /// showing it, as the UI says it: none while no tile shows it, which says
 /// nothing about the size, and never more than a stream is shown at, however
 /// large the window is.
-pub(crate) fn tile_size((width, height): (u32, u32)) -> Option<(u32, u32)> {
+pub fn tile_size((width, height): (u32, u32)) -> Option<(u32, u32)> {
     (width > 0 && height > 0).then(|| (width.min(WATCH_WIDTH), height.min(WATCH_HEIGHT)))
 }
 
 /// The largest frame shared at `resolution`; screens of another shape fit
 /// inside it.
-pub(crate) fn bounds(resolution: Resolution) -> (u32, u32) {
+pub fn bounds(resolution: Resolution) -> (u32, u32) {
     match resolution {
         Resolution::P720 => (1280, 720),
         Resolution::P1080 => (SHARE_WIDTH, SHARE_HEIGHT),
@@ -55,12 +92,12 @@ pub fn fit(width: u32, height: u32, max_width: u32, max_height: u32) -> (u32, u3
 /// A preview drawn on the card costs nothing a frame — it is the same scale that
 /// fills the texture the UI shows — so it keeps every pixel the stream has, a
 /// portrait screen included. The pixels read back for a stream the card can't
-/// share a picture with stop at [`PREVIEW_WIDTH`] by [`PREVIEW_HEIGHT`], since
+/// share a picture with stop at the preview's 1280 by 720, since
 /// that copy is made on the processor for every frame it is made for. A machine
 /// short of memory takes the smaller box as well, whatever the path: the tile
 /// is the one thing a share can give up, and the stream it sends is untouched.
 #[cfg(any(wgc, dup))]
-pub(crate) fn preview_size(width: u32, height: u32, constrained: bool) -> (u32, u32) {
+pub fn preview_size(width: u32, height: u32, constrained: bool) -> (u32, u32) {
     if constrained {
         return fit(width, height, CONSTRAINED_WIDTH, CONSTRAINED_HEIGHT);
     }

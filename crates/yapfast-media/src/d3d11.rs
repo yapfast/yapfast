@@ -55,7 +55,8 @@ use anyhow::{Result, anyhow, bail};
 use windows::Win32::Graphics::Dxgi::{
     CreateDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE, IDXGIFactory1,
 };
-use yapfast_discord::{rtp::Codec, stream_connection::Pool};
+use crate::codec::Codec;
+use crate::pool::Pool;
 
 use crate::{
     encode::{Configuration, Frame},
@@ -416,17 +417,17 @@ mod tests {
                     // before the picture, in the form this codec's packets take.
                     match codec {
                         Codec::H264 => assert_eq!(
-                            yapfast_discord::rtp::nal_units(&encoded.data)[0][0] & 0x1f,
+                            crate::bitstream::nal_units(&encoded.data)[0][0] & 0x1f,
                             7,
                             "an H.264 keyframe starts with its sequence parameter set"
                         ),
                         Codec::H265 => assert_eq!(
-                            (yapfast_discord::rtp::nal_units(&encoded.data)[0][0] >> 1) & 0x3f,
+                            (crate::bitstream::nal_units(&encoded.data)[0][0] >> 1) & 0x3f,
                             32,
                             "an H.265 keyframe starts with its video parameter set"
                         ),
                         _ => assert_eq!(
-                            (yapfast_discord::rtp::obu_elements(&encoded.data)
+                            (crate::bitstream::obu_elements(&encoded.data)
                                 .expect("OBUs within the frame")[0][0]
                                 >> 3)
                                 & 0x0f,
@@ -875,12 +876,12 @@ mod tests {
         // drawn-texture test makes, now made about a screen.
         match codec {
             Codec::H265 => assert_eq!(
-                (yapfast_discord::rtp::nal_units(&packet.data)[0][0] >> 1) & 0x3f,
+                (crate::bitstream::nal_units(&packet.data)[0][0] >> 1) & 0x3f,
                 32,
                 "an H.265 keyframe starts with its video parameter set"
             ),
             _ => assert_eq!(
-                yapfast_discord::rtp::nal_units(&packet.data)[0][0] & 0x1f,
+                crate::bitstream::nal_units(&packet.data)[0][0] & 0x1f,
                 7,
                 "an H.264 keyframe starts with its sequence parameter set"
             ),

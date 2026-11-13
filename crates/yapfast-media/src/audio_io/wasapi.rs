@@ -60,7 +60,7 @@ use super::{
     Format, News, Packet, Step, Waited, drain_deadline, drain_must_wait, packet_news, wait_step,
     write_step,
 };
-use crate::voice::NAMED;
+use crate::device::NAMED;
 
 /// A thread's place in an MMCSS task, given back as it ends.
 struct Mmcss(HANDLE);

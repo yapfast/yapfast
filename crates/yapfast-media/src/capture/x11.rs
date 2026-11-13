@@ -1008,7 +1008,7 @@ pub struct Listed {
 /// the default screen.
 ///
 /// It is what libwebrtc's X11 capturer lists a screen by, so it is what a
-/// [`Source::Display`](crate::stream_worker::Source::Display) chosen from
+/// [`Source::Display`](crate::source::Source::Display) chosen from
 /// Yapfast's own menu carries for a whole screen. Asked on a connection of its
 /// own, which closes when the id is read.
 pub fn root_window() -> Result<u32> {
@@ -1024,7 +1024,7 @@ pub fn root_window() -> Result<u32> {
 /// closes when the list is made.
 ///
 /// Where the session's dialog picks — a Wayland session, see
-/// [`portal_picks`](crate::stream_worker::portal_picks) — nothing is listed and
+/// [`portal_picks`](crate::source::portal_picks) — nothing is listed and
 /// this isn't asked. On X11 with no screen sharing portal this is what the menu
 /// has instead, and every entry is a capture this module can open: a monitor
 /// whose rectangle is inside the screen, and a window that is on it with a title

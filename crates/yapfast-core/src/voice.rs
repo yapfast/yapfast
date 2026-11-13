@@ -7,7 +7,9 @@ use std::{
     thread,
 };
 
-pub use yapfast_media::device::Device;
+pub use yapfast_media::device::{Device, NAMED, device_id};
+/// How large a shared screen is sent; see the media crate's geometry.
+pub use yapfast_media::geometry::Resolution;
 
 use anyhow::{Context, Result};
 use livekit::PlatformAudio;
@@ -82,17 +84,6 @@ pub struct Watching {
     /// Who watches it, this account included, by user id, as Discord lists
     /// them.
     pub viewers: Vec<String>,
-}
-
-/// How large a shared screen is sent, as Discord's client offers.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Resolution {
-    P720,
-    #[default]
-    P1080,
-    /// The screen's own size, up to 4K.
-    Source,
 }
 
 /// How a screen is shared: chosen before going live, and remembered.
@@ -866,20 +857,6 @@ pub(crate) fn collect_devices(audio: &PlatformAudio, state: &mut State) {
         })
         .collect();
 }
-
-/// WebRTC's PulseAudio devices have no GUID, and LiveKit selects only by GUID,
-/// which would always pick the first device. Those devices go by name instead,
-/// as `name:` and the name WebRTC reports.
-pub(crate) fn device_id(guid: &str, name: &str) -> String {
-    if guid.is_empty() {
-        format!("{NAMED}{name}")
-    } else {
-        guid.into()
-    }
-}
-
-/// Marks a device id made from the device's name.
-pub const NAMED: &str = "name:";
 
 #[cfg(test)]
 mod tests {

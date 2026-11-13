@@ -10,27 +10,15 @@ pub const ARGUMENT: &str = "--stream-worker";
 /// out from the machine's cores and how many streams it's decoding at once.
 pub(crate) const THREADS: &str = "YAPFAST_STREAM_THREADS";
 
-/// The largest frame shared at 1080p: the box a stream's picture is scaled down
-/// to fit, which turns with a screen on its side — see [`fit`]. Discord's own
-/// client trials 1080p at 30 fps for accounts without Nitro, up to 5 Mbit/s (its
-/// "frontier tuning" experiment); larger screens are scaled down to it.
-pub const SHARE_WIDTH: u32 = 1920;
-pub const SHARE_HEIGHT: u32 = 1080;
 /// The largest preview of the shared screen the UI shows.
 pub const PREVIEW_WIDTH: u32 = 1280;
 pub const PREVIEW_HEIGHT: u32 = 720;
-/// The longest edge a preview drawn on the card is scaled to. It is the
-/// stream's own picture, shown where the card drew it — the only copy that
-/// costs nothing a frame — so it is worth the stream's pixels: 1920 is the
-/// largest a 1080p share sends, and a portrait screen's 1080x1920 fits the
-/// same box stood up. A share of a larger screen sends its picture at this
-/// edge too, so the preview and the stream agree.
-#[cfg(any(wgc, dup))]
-pub(crate) const PREVIEW_LONG_EDGE: u32 = 1920;
-/// The largest picture shown of someone else's stream; larger ones are
-/// scaled down to it.
-pub const WATCH_WIDTH: u32 = 1920;
-pub const WATCH_HEIGHT: u32 = 1080;
+// The sizes a stream is sent and shown at, which the media crate's geometry
+// owns: the capture scales to them and so does this worker.
+pub(crate) use crate::geometry::{
+    CONSTRAINED_HEIGHT, CONSTRAINED_WIDTH, PREVIEW_LONG_EDGE, SHARE_HEIGHT, SHARE_WIDTH,
+    WATCH_HEIGHT, WATCH_WIDTH,
+};
 /// The picture a watched stream starts at, until the UI says how large the
 /// tile showing it is: a tile of the call's five-up grid, so a stream shown
 /// in one costs what it shows from its first frame. The UI's next tick lifts
@@ -90,14 +78,6 @@ pub(crate) const CARD_RESTARTS: u32 = 2;
 /// than any screen a stream plays on draws, so a picture decoded within this
 /// of the one before it is one the next replaces before it's seen.
 pub(crate) const SHOW_EVERY: Duration = Duration::from_millis(8);
-
-/// The box a preview is scaled into when the machine is short of memory, which
-/// is smaller than any tile it is shown in and never upscales: what it saves is
-/// the texture, the readback and the scale itself, not the picture that goes out.
-#[cfg(any(wgc, dup))]
-pub(crate) const CONSTRAINED_WIDTH: u32 = 640;
-#[cfg(any(wgc, dup))]
-pub(crate) const CONSTRAINED_HEIGHT: u32 = 360;
 
 /// How long [`glance`] waits for a picture of a screen that isn't black,
 /// before showing the last it took, or none.

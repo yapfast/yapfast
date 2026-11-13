@@ -4,7 +4,7 @@
 //!
 //! It is the Wayland and X11 sibling of `crate::wgc` and `crate::dup`, and it
 //! exists for the same reason. libwebrtc's `DesktopCapturer` — what
-//! `crate::stream_worker` captures with — hands over I420 in memory, so every
+//! the worker captures with — hands over I420 in memory, so every
 //! frame of a share is copied out of the compositor, converted, and uploaded
 //! before an encoder sees it. Here the frames never leave the GPU: the desktop
 //! exports a PipeWire node carrying `SPA_DATA_DmaBuf` buffers, and a buffer is an
@@ -61,7 +61,7 @@
 //!     when the timeout runs out, which is not a failure: it is the loop's chance
 //!     to notice it should stop.
 //!
-//! Nothing here is wired into `crate::stream_worker` yet. Wiring it in is: picking
+//! Nothing here is wired into the worker yet. Wiring it in is: picking
 //! this capture where the portal is there and libwebrtc's capturer otherwise,
 //! teaching the encoder in [`crate::encode`] — and `native/hwenc.c` behind it —
 //! about a DMA-BUF, which is an EGL import on the card the compositor used, and

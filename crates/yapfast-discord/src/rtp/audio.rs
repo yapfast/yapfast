@@ -2,8 +2,8 @@
 
 use super::*;
 
-/// The payload types Yapfast offers Discord, as Discord's clients number them.
-pub const OPUS: u8 = 120;
+/// The payload type an Opus frame goes out as, which the media crate numbers.
+pub use yapfast_media::rtp::OPUS;
 
 /// An RTP packet carrying one Opus frame from `ssrc`, with `timestamp` in
 /// 48 kHz samples and no extensions, as a call's audio goes. The marker
