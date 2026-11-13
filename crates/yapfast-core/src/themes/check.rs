@@ -1653,6 +1653,25 @@ mod tests {
     }
 
     #[test]
+    fn a_long_description_fails_the_check_naming_its_length() {
+        let long = "x".repeat(301);
+        let manifest = format!(
+            r#"{{ "theme_api": 1, "id": "com.example.long", "name": "Long", "version": "1.0.0",
+                 "description": "{long}", "variants": {{ "dark": {{ "base": "yap" }} }} }}"#
+        );
+        let files = Files {
+            manifest,
+            ..Files::default()
+        };
+        let report = check(&files, Strictness::Install);
+        let reason = report
+            .reason()
+            .expect("a description over 300 characters fails");
+        assert!(reason.contains("301 characters"), "{reason}");
+        assert!(reason.contains("at most 300"), "{reason}");
+    }
+
+    #[test]
     fn sounds_are_decoded_and_held_to_their_slots_length() {
         let manifest = r##"{ "theme_api": 1, "id": "com.example.pops", "name": "Pops", "version": "1.0.0",
             "sounds": { "hover": "sounds/short.wav", "join": "sounds/long.wav" },

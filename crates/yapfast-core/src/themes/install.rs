@@ -152,23 +152,31 @@ impl Themes {
     /// whose `theme.json` is the one installed. One that isn't is left out,
     /// with a warning; the rest still show.
     pub fn installed(&self) -> Vec<Installed> {
+        self.installed_and_refused().0
+    }
+
+    /// The installed themes this Yapfast reads, and those it refuses with
+    /// why, by id, so the window can say so instead of leaving one out
+    /// without a word.
+    pub fn installed_and_refused(&self) -> (Vec<Installed>, Vec<(String, String)>) {
         let entries = match self.entries() {
             Ok(entries) => entries,
             Err(error) => {
                 tracing::warn!(%error, "could not read the installed themes");
-                return Vec::new();
+                return (Vec::new(), Vec::new());
             }
         };
-        entries
-            .into_iter()
-            .filter_map(|(id, entry)| match self.load(&id, &entry) {
-                Ok(installed) => Some(installed),
+        let (mut installed, mut refused) = (Vec::new(), Vec::new());
+        for (id, entry) in entries {
+            match self.load(&id, &entry) {
+                Ok(theme) => installed.push(theme),
                 Err(error) => {
                     tracing::warn!(%id, %error, "an installed theme was left out");
-                    None
+                    refused.push((id, format!("{error:#}")));
                 }
-            })
-            .collect()
+            }
+        }
+        (installed, refused)
     }
 
     fn load(&self, id: &str, entry: &Entry) -> Result<Installed> {

@@ -136,6 +136,17 @@ export global Theme {
     out property <brush> actions-fill: self.actions-on ? self.actions-set : self.raised-fill;
     in property <color> actions-hover-set; in property <bool> actions-hover-on;
     out property <color> actions-hover: self.actions-hover-on ? self.actions-hover-set : transparent;
+    /// Text and icons on a selected row, for an inverse-video selection.
+    in property <color> row-selected-text-set; in property <bool> row-selected-text-on;
+    out property <color> row-selected-text: self.row-selected-text-on ? self.row-selected-text-set : self.text;
+    /// The round buttons over a profile card's banner, under the pointer,
+    /// and their icons.
+    in property <color> card-button-set; in property <bool> card-button-on;
+    out property <color> card-button: self.card-button-on ? self.card-button-set : #00000080;
+    in property <color> card-button-hover-set; in property <bool> card-button-hover-on;
+    out property <color> card-button-hover: self.card-button-hover-on ? self.card-button-hover-set : #000000b3;
+    in property <color> card-button-icon-set; in property <bool> card-button-icon-on;
+    out property <color> card-button-icon: self.card-button-icon-on ? self.card-button-icon-set : #ffffff;
 
     // Surfaces a theme may paint with a gradient. Each is its colour until a
     // theme sets a brush.
@@ -211,6 +222,10 @@ export global Look {
     /// how far they keep from the column's sides and the row's top and
     /// bottom. Unset, the corners follow `message`.
     in property <Shape> row: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// The round buttons over a profile card's banner.
+    in property <Shape> card-button: { radius: -1px, border: -1px, shadow-blur: -1px };
+    /// Room kept above a profile card's banner for chrome its art draws.
+    in property <length> card-inset-top;
     in property <length> row-inset-x;
     in property <length> row-inset-y;
     out property <length> row-radius: self.row.radius >= 0px ? self.row.radius : self.r(self.message, 0px);

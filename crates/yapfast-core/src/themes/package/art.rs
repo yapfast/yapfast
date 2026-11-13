@@ -53,6 +53,11 @@ closed! {
         Actions = "actions",
         // The profile docked beside a one-to-one DM.
         ProfilePane = "profile-pane",
+        Settings = "settings",
+        Embed = "embed",
+        Code = "code",
+        RowSelected = "row-selected",
+        CardOver = "card_over",
     }
 }
 
@@ -77,7 +82,17 @@ impl ArtSurface {
             Self::Menu => "menu",
             Self::Actions => "actions",
             Self::ProfilePane => "panel",
+            Self::Settings => "panel",
+            Self::Embed => "embed",
+            Self::Code => "code",
+            Self::RowSelected => "row-selected",
+            Self::CardOver => "raised",
         }
+    }
+
+    /// Whether it lies over its surface's content rather than under it.
+    pub fn over(self) -> bool {
+        self == Self::CardOver
     }
 }
 
@@ -254,6 +269,8 @@ pub struct Glass {
     pub gap: f32,
     /// The panes' corners when there's a gap.
     pub radius: f32,
+    /// A crisp line around each pane, outside its inset: ARGB and width.
+    pub rim: Option<(u32, f32)>,
 }
 
 closed! {
@@ -288,10 +305,31 @@ closed! {
     }
 }
 
+closed! {
+    /// Where particles fly from.
+    Emitter {
+        Composer = "composer",
+        SendButton = "send-button",
+        ApplyButton = "apply-button",
+        Pointer = "pointer",
+        Window = "window",
+    }
+}
+
+closed! {
+    /// Which side of the content particles fly on: `under` behind the
+    /// conversation's messages and the message box, `over` above everything.
+    Depth { Under = "under", Over = "over" }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Particles {
     pub preset: Preset,
     pub on: Trigger,
+    /// Where they start.
+    pub from: Emitter,
+    /// Under the conversation's content, or over everything.
+    pub z: Depth,
     /// ARGB, picked in turn.
     pub colours: Vec<u32>,
     /// A picture drawn instead of the preset's shape.
@@ -880,6 +918,7 @@ fn read_glass(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<Gla
         inset: None,
         gap: 0.0,
         radius: 12.0,
+        rim: None,
     };
     for (key, value) in fields {
         let here = format!("{place}.{key}");
@@ -907,6 +946,11 @@ fn read_glass(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<Gla
                             "\"{here}\": the window is what glass shows, not a glass pane"
                         )));
                     }
+                    if surface.over() {
+                        return Err(Error(format!(
+                            "\"{here}\": card_over lies over the card's content, so it can't be glass"
+                        )));
+                    }
                     glass.surfaces.push(surface);
                 }
             }
@@ -916,6 +960,27 @@ fn read_glass(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<Gla
             "inset" => glass.inset = Some(read_shadow(value, &here)?),
             "gap" => glass.gap = number(value, &here, (0.0, 64.0))?,
             "radius" => glass.radius = number(value, &here, (0.0, 32.0))?,
+            "rim" => {
+                let fields = object(value, &here)?;
+                let colour = colour_at(
+                    fields
+                        .get("colour")
+                        .ok_or_else(|| Error(format!("\"{here}\" needs a \"colour\"")))?,
+                    &format!("{here}.colour"),
+                )?;
+                let width = fields.get("width").map_or(Ok(1.0), |width| {
+                    number(width, &format!("{here}.width"), (0.5, 4.0))
+                })?;
+                for key in fields
+                    .keys()
+                    .filter(|key| *key != "colour" && *key != "width")
+                {
+                    notes.push(format!(
+                        "\"{here}.{key}\" isn't something a rim takes; ignored"
+                    ));
+                }
+                glass.rim = Some((colour, width));
+            }
             _ => notes.push(format!("\"{here}\" isn't something glass takes; ignored")),
         }
     }
@@ -983,6 +1048,13 @@ fn read_particles(value: &Value, place: &str, notes: &mut Vec<String>) -> Result
     let mut particles = Particles {
         preset,
         on,
+        from: match on {
+            // A message flies from the message box; the rest from across the
+            // window, as each preset spreads.
+            Trigger::MessageSent => Emitter::Composer,
+            Trigger::ReactionAdded | Trigger::Ambient | Trigger::ThemeApplied => Emitter::Window,
+        },
+        z: Depth::Over,
         colours: vec![colour],
         sprite: None,
         count: if on == Trigger::Ambient { 24 } else { 14 },
@@ -997,6 +1069,8 @@ fn read_particles(value: &Value, place: &str, notes: &mut Vec<String>) -> Result
         let here = format!("{place}.{key}");
         match key.as_str() {
             "preset" | "on" => {}
+            "from" => particles.from = named(value, &here, Emitter::ALL, Emitter::name)?,
+            "z" => particles.z = named(value, &here, Depth::ALL, Depth::name)?,
             "colours" | "colour" => {
                 particles.colours = match value {
                     Value::Array(items) if !items.is_empty() && items.len() <= 8 => items
@@ -1168,6 +1242,50 @@ mod tests {
         assert!(!art.overlays[0].heavy && art.overlays[1].heavy && !art.overlays[2].heavy);
         assert_eq!(art.moving(), (3, 2));
         assert_eq!(art.particles[1].on, Trigger::MessageSent);
+    }
+
+    #[test]
+    fn the_surfaces_settings_embeds_code_rows_and_over_a_card() {
+        let art = art(r##"{ "surfaces": {
+                    "settings": { "texture": "noise" }, "embed": { "texture": "grain" },
+                    "code": { "texture": "paper" }, "row-selected": { "texture": "kraft" },
+                    "card_over": { "image": "art/gloss.png", "opacity": 0.4 } },
+                 "glass": { "surfaces": ["settings", "embed", "code", "row-selected"],
+                            "rim": { "colour": "#0E4C8A", "width": 1.5 } } }"##)
+        .unwrap();
+        assert_eq!(art.surfaces.len(), 5);
+        assert!(ArtSurface::CardOver.over() && !ArtSurface::Settings.over());
+        assert_eq!(ArtSurface::RowSelected.ground(), "row-selected");
+        let glass = art.glass.unwrap();
+        assert_eq!(glass.surfaces.len(), 4);
+        assert_eq!(glass.rim, Some((0xff0e_4c8a, 1.5)));
+        // Over the card's content, it can't be glass.
+        assert!(art_err(r#"{ "glass": { "surfaces": ["card_over"] } }"#));
+        assert!(art_err(r##"{ "glass": { "rim": { "width": 1 } } }"##));
+    }
+
+    #[test]
+    fn particles_say_where_they_start_and_which_side_they_fly() {
+        let art = art(r#"{ "particles": [
+                { "preset": "bubbles", "on": "message.sent", "z": "under" },
+                { "preset": "sparkles", "on": "theme.applied", "from": "apply-button" },
+                { "preset": "dust" } ] }"#)
+        .unwrap();
+        assert_eq!(art.particles[0].from, Emitter::Composer);
+        assert_eq!(art.particles[0].z, Depth::Under);
+        assert_eq!(art.particles[1].from, Emitter::ApplyButton);
+        assert_eq!(art.particles[1].z, Depth::Over);
+        assert_eq!(art.particles[2].from, Emitter::Window);
+        assert!(art_err(
+            r#"{ "particles": [{ "preset": "dust", "from": "sky" }] }"#
+        ));
+        assert!(art_err(
+            r#"{ "particles": [{ "preset": "dust", "z": "middle" }] }"#
+        ));
+    }
+
+    fn art_err(json: &str) -> bool {
+        art(json).is_err()
     }
 
     #[test]

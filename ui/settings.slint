@@ -261,10 +261,16 @@ export component SettingsFrame inherits Rectangle {
     callback close;
     /// Takes the keys back, for Escape, once what had them is gone.
     public function focus-keys() { keys.focus(); }
-    background: root.discord-layout ? Theme.panel-fill : Theme.chat-fill;
+    background: Art.glass-settings ? transparent : root.discord-layout ? Theme.panel-fill : Theme.chat-fill;
     accessible-role: groupbox;
     accessible-label: root.label;
     TouchArea { }
+    // A theme's art and glass under settings: the page, its tiles and fields
+    // and the sections beside it.
+    if Art.settings.length > 0 || Art.glass-settings: ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        layers: Art.settings; glass: Art.glass-settings; ground: root.discord-layout ? Theme.panel-fill : Theme.chat-fill;
+    }
     keys := FocusScope {
         init => { self.focus(); }
         key-pressed(event) => {
@@ -282,7 +288,8 @@ export component SettingsFrame inherits Rectangle {
                 copy-text(text) => { root.copy-text(text); }
             }
             if !root.discord-layout: Rectangle {
-                background: Theme.sidebar-fill; horizontal-stretch: 0; min-width: 232px;
+                background: Art.glass-settings ? transparent : Theme.sidebar-fill; horizontal-stretch: 0; min-width: 232px;
+                if Art.glass-settings: Rectangle { background: Theme.sidebar-fill; opacity: Art.glass-opacity; }
                 HorizontalLayout {
                     alignment: end;
                     VerticalLayout {
@@ -307,7 +314,7 @@ export component SettingsFrame inherits Rectangle {
             content := Rectangle {
                 horizontal-stretch: 2; min-width: root.discord-layout ? 320px : 440px;
                 if root.discord-layout: Rectangle {
-                    y: 0px; height: 48px; background: Theme.panel-fill;
+                    y: 0px; height: 48px; background: Art.glass-settings ? transparent : Theme.panel-fill;
                     HorizontalLayout {
                         padding-left: 16px; padding-right: 8px;
                         Text { text: root.page-title; color: Theme.text; font-size: 15px; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }

@@ -551,8 +551,13 @@ export component ChannelRow inherits Rectangle {
     property <bool> offers-wave: root.wave != "" && (pointer.has-hover || root.selected);
     height: root.person ? ClientStyle.dm-row-height : ClientStyle.channel-row-height;
     border-radius: Look.radius(6px);
-    background: root.selected && !Art.highlighter ? Theme.row-selected : pointer.has-hover ? Theme.hover : transparent;
+    background: root.selected && !Art.highlighter ? (Art.glass-row-selected ? transparent : Theme.row-selected) : pointer.has-hover ? Theme.hover : transparent;
     animate background { duration: 90ms; }
+    // A theme's art, or glass, on the selected row.
+    if root.selected && !Art.highlighter && (Art.row-selected.length > 0 || Art.glass-row-selected): ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; radius: root.border-radius;
+        layers: Art.row-selected; glass: Art.glass-row-selected; ground: Theme.row-selected;
+    }
     if Art.highlighter: ArtHighlighter { x: 0px; y: 0px; width: parent.width; height: parent.height; selected: root.selected; }
     border-width: focus.has-focus ? 2px : 0px;
     border-color: Theme.accent;
@@ -560,7 +565,9 @@ export component ChannelRow inherits Rectangle {
     accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
     forward-focus: focus;
-    property <color> ink: root.danger ? Theme.danger : root.locked ? (root.selected ? Theme.muted : Theme.faint) : root.selected || root.unread ? Theme.text : pointer.has-hover ? Theme.secondary : Theme.muted;
+    /// A theme's selected text, as an inverse-video selection draws it.
+    property <bool> inverse: root.selected && Theme.row-selected-text-on && !root.danger;
+    property <color> ink: root.inverse ? Theme.row-selected-text : root.danger ? Theme.danger : root.locked ? (root.selected ? Theme.muted : Theme.faint) : root.selected || root.unread ? Theme.text : pointer.has-hover ? Theme.secondary : Theme.muted;
     // Discord's client draws a DM row's plate only while the row is selected,
     // pointed at or focused, so a long list holds none. It stops short of the
     // focus ring.
@@ -654,7 +661,7 @@ export component ChannelRow inherits Rectangle {
                         }
                     }
                 }
-                if !root.person && !root.thread && !(root.themed && Chrome.hide-channel-icons): Image { source: root.icon; width: 20px; image-fit: contain; colorize: IconPack.tint(self.source, root.danger ? Theme.danger : root.selected && ClientStyle.enabled ? Theme.text : root.selected || root.unread ? Theme.secondary : Theme.faint); }
+                if !root.person && !root.thread && !(root.themed && Chrome.hide-channel-icons): Image { source: root.icon; width: 20px; image-fit: contain; colorize: IconPack.tint(self.source, root.inverse ? Theme.row-selected-text : root.danger ? Theme.danger : root.selected && ClientStyle.enabled ? Theme.text : root.selected || root.unread ? Theme.secondary : Theme.faint); }
                 text-column := VerticalLayout {
                     alignment: center; spacing: 0px; horizontal-stretch: 1;
                     HorizontalLayout {
