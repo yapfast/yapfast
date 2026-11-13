@@ -61,8 +61,16 @@ fn main() {
         // without a copy; only a machine with PipeWire's headers has the shim.
         println!("cargo::rustc-cfg=screencast");
     }
-    if discord && ffmpeg_built {
+    // The encoder plan this crate holds is Rust alone: it asks the adapters
+    // which FFmpeg encoder each one can open, and reads the answer back from a
+    // report. Its C side — native/hwenc.c — is `yapfast-core`'s to build, and
+    // core sets its own `hwenc` where FFmpeg was configured with encoders. So
+    // Windows takes the plan whenever a stream does, and Linux asks FFmpeg's
+    // build script first, where the VA-API paths borrow its headers.
+    if discord && (ffmpeg_built || target_os == "windows") {
         println!("cargo::rustc-cfg=hwenc");
+    }
+    if discord && ffmpeg_built {
         println!("cargo::rustc-cfg=hevcdec");
     }
     if target_os == "linux" && ffmpeg_built {

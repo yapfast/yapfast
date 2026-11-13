@@ -4,10 +4,13 @@
 //! reads out of, which neither a connection nor a protocol owns.
 
 use std::{
-    sync::{Arc, Mutex, mpsc},
-    sync::mpsc as channel,
+    sync::{Arc, Mutex, mpsc as channel},
     time::{Duration, Instant},
 };
+// The queue a frame of sound leaves on and the connection takes it from: bounded,
+// and a frame that arrives at a full queue is dropped rather than waited for, so
+// the mixer never stalls behind a network that can't keep up.
+use tokio::sync::mpsc;
 
 use crate::{
     clock::StreamClock,
@@ -41,7 +44,9 @@ impl SoundBuffers {
         lock(&self.0).pop().unwrap_or_default()
     }
     /// Takes back the buffer of a frame that went out.
-    fn give(&self, mut buffer: Vec<u8>) {
+    /// Takes back the buffer of a frame that went out, which the connection
+    /// gives here once the frame is on the wire.
+    pub fn give(&self, mut buffer: Vec<u8>) {
         // As many as the queue holds: more would be memory kept for a
         // connection that can't keep up with the mixer.
         let mut idle = lock(&self.0);
@@ -55,8 +60,8 @@ impl SoundBuffers {
 /// Queues the stream's sound, from a thread of the sender's own.
 #[derive(Clone)]
 pub struct SoundSender {
-    sounds: mpsc::Sender<Sound>,
-    buffers: Arc<SoundBuffers>,
+    pub sounds: mpsc::Sender<Sound>,
+    pub buffers: Arc<SoundBuffers>,
 }
 
 impl SoundSender {
@@ -113,8 +118,8 @@ impl ReceivedSound {
 /// streamer's sender reports put its sound and picture on, so the player can
 /// say how far behind the picture it plays. It ends with the connection.
 pub struct SoundReceiver {
-    sounds: channel::Receiver<ReceivedSound>,
-    clock: Arc<StreamClock>,
+    pub sounds: channel::Receiver<ReceivedSound>,
+    pub clock: Arc<StreamClock>,
 }
 
 impl SoundReceiver {

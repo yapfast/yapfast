@@ -27,6 +27,7 @@ pub mod dup;
 pub mod encode;
 pub mod frames;
 pub mod geometry;
+pub mod source;
 pub mod gpu;
 pub mod lease;
 pub mod logging;

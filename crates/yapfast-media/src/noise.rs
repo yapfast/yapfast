@@ -37,7 +37,7 @@ pub enum Strength {
 
 impl Strength {
     /// The attenuation limit, in dB.
-    const fn limit(self) -> f32 {
+    pub const fn limit(self) -> f32 {
         match self {
             Strength::Full => FULL,
             Strength::Medium => 30.0,
@@ -82,12 +82,12 @@ pub fn set_strength(strength: Strength) {
 
 /// Limits how far the suppressor turns noise down, in dB, by mixing some of
 /// the microphone back in.
-pub(crate) fn set_limit(decibels: f32) {
+pub fn set_limit(decibels: f32) {
     LIMIT.store(decibels.to_bits(), Ordering::Relaxed);
 }
 
 #[cfg(feature = "discord")]
-pub(crate) fn limit() -> f32 {
+pub fn limit() -> f32 {
     f32::from_bits(LIMIT.load(Ordering::Relaxed))
 }
 
@@ -98,7 +98,7 @@ pub fn set_sensitivity(decibels: f32) {
 }
 
 #[cfg(feature = "discord")]
-pub(crate) fn sensitivity() -> f32 {
+pub fn sensitivity() -> f32 {
     f32::from_bits(SENSITIVITY.load(Ordering::Relaxed))
 }
 
@@ -109,7 +109,7 @@ pub fn set_dereverb(on: bool) {
 }
 
 #[cfg(feature = "discord")]
-pub(crate) fn dereverb() -> bool {
+pub fn dereverb() -> bool {
     DEREVERB.load(Ordering::Relaxed)
 }
 
@@ -121,12 +121,12 @@ pub fn set_declick(on: bool) {
 }
 
 #[cfg(feature = "discord")]
-pub(crate) fn declick() -> bool {
+pub fn declick() -> bool {
     DECLICK.load(Ordering::Relaxed)
 }
 
 #[cfg(feature = "discord")]
-pub(crate) use denoise::{BLOCK, Denoiser, Sent};
+pub use denoise::{BLOCK, Denoiser, Sent};
 
 #[cfg(feature = "discord")]
 mod denoise {
@@ -136,18 +136,18 @@ mod denoise {
     use super::Suppressor;
 
     /// 10 ms at 48 kHz: both networks' frame.
-    pub(crate) const BLOCK: usize = 480;
-    const _: () = assert!(BLOCK == nnnoiseless::DenoiseState::FRAME_SIZE);
+    pub const BLOCK: usize = 480;
+    pub const _: () = assert!(BLOCK == nnnoiseless::DenoiseState::FRAME_SIZE);
 
     /// Samples come in 16-bit range, as WebRTC processes them; DeepFilterNet
     /// works in full scale.
-    const FULL_SCALE: f32 = 32768.0;
+    pub const FULL_SCALE: f32 = 32768.0;
 
     /// DeepFilterNet's estimate of a block's speech-to-noise ratio, in dB,
     /// from which the block counts as speech. It runs from -15 for silence to
     /// 35. Lower, keyboards opened the gate in pauses; higher, quiet speech
     /// sometimes didn't.
-    const SPEECH_SNR: f32 = 5.0;
+    pub const SPEECH_SNR: f32 = 5.0;
     /// DeepFilterNet's speech-to-noise estimate below which a block is only
     /// noise, in dB, and how many such blocks in a row make a pause. In a
     /// pause, while the voice gate decides what's sent, its two decoders, two
@@ -156,17 +156,17 @@ mod denoise {
     /// voice gate's hold, so what the gate sends after speech is processed in
     /// full. Skipping them from the first such block took the wideband PESQ
     /// of what the gate sent over hiss from 3.00 to 2.62.
-    const NOISE_ONLY: f32 = -10.0;
-    const PAUSE: u32 = 50;
+    pub const NOISE_ONLY: f32 = -10.0;
+    pub const PAUSE: u32 = 50;
     /// The highest speech-to-noise estimate, in dB, at which DeepFilterNet
     /// still runs both its stages, the top of its range.
-    const GAINS_UP_TO: f32 = 35.0;
+    pub const GAINS_UP_TO: f32 = 35.0;
     /// RNNoise's probability from which a block counts as speech.
-    const SPEECH_PROBABILITY: f32 = 0.6;
+    pub const SPEECH_PROBABILITY: f32 = 0.6;
 
     /// Takes out a microphone's noise, block by block, and tells which blocks
     /// are speech.
-    pub(crate) struct Denoiser {
+    pub struct Denoiser {
         suppressor: Suppressor,
         network: Network,
         /// The attenuation limit in dB, and the share of the microphone it
@@ -185,7 +185,7 @@ mod denoise {
 
     /// What becomes of the blocks the denoiser puts out.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub(crate) enum Sent {
+    pub enum Sent {
         /// The voice gate decides from their speech estimate, so in a pause
         /// DeepFilterNet runs only its encoder.
         Gated,
@@ -198,7 +198,7 @@ mod denoise {
     }
 
     /// How far DeepFilterNet's output is behind its input, in samples.
-    const DEEP_FILTER_NET_LAG: usize = 3 * BLOCK;
+    pub const DEEP_FILTER_NET_LAG: usize = 3 * BLOCK;
 
     enum Network {
         DeepFilterNet(Box<DfTract>),
@@ -210,7 +210,7 @@ mod denoise {
     impl Denoiser {
         /// DeepFilterNet takes about 200 ms to load. If it doesn't, RNNoise
         /// stands in.
-        pub(crate) fn new(suppressor: Suppressor, limit: f32) -> Self {
+        pub fn new(suppressor: Suppressor, limit: f32) -> Self {
             let network = match suppressor {
                 Suppressor::DeepFilterNet => match deep_filter_net() {
                     Ok(network) => Network::DeepFilterNet(Box::new(network)),
@@ -241,7 +241,7 @@ mod denoise {
         /// more takes out all it can. libDF mixes the microphone back into
         /// its spectrum; RNNoise's output gets the same mix of the block it
         /// lines up with.
-        pub(crate) fn limit(&mut self, decibels: f32) {
+        pub fn limit(&mut self, decibels: f32) {
             if decibels == self.limit {
                 return;
             }
@@ -259,7 +259,7 @@ mod denoise {
         }
 
         /// The suppressor asked for, whichever stands in.
-        pub(crate) fn suppressor(&self) -> Suppressor {
+        pub fn suppressor(&self) -> Suppressor {
             self.suppressor
         }
 
@@ -272,7 +272,7 @@ mod denoise {
         /// the block passes as it came, at the same delay: for catching up
         /// when the microphone falls behind. RNNoise is cheap enough to run
         /// in full.
-        pub(crate) fn block(&mut self, block: &mut [f32], sent: Sent, lightly: bool) -> bool {
+        pub fn block(&mut self, block: &mut [f32], sent: Sent, lightly: bool) -> bool {
             match &mut self.network {
                 Network::DeepFilterNet(network) => {
                     if super::declick() {
@@ -346,7 +346,7 @@ mod denoise {
     /// library's defaults skip deep filtering above
     /// 20 dB SNR and gains above 30, which dulled clean speech (PESQ 3.91
     /// rather than 4.53) and took up to 5 dB off speech over a fan.
-    fn deep_filter_net() -> anyhow::Result<DfTract> {
+    pub fn deep_filter_net() -> anyhow::Result<DfTract> {
         let settings = RuntimeParams::default().with_thresholds(-15.0, GAINS_UP_TO, GAINS_UP_TO);
         DfTract::new(DfParams::default(), &settings)
     }
@@ -359,7 +359,7 @@ mod tests {
     use super::*;
 
     /// What's left of 2 s of steady noise after a denoiser, in dB below it.
-    fn turned_down(suppressor: Suppressor, strength: Strength) -> f32 {
+    pub fn turned_down(suppressor: Suppressor, strength: Strength) -> f32 {
         let mut denoiser = Denoiser::new(suppressor, strength.limit());
         let (mut seed, mut before, mut after) = (1u32, 0.0, 0.0);
         for index in 0..200 {
@@ -383,7 +383,7 @@ mod tests {
     }
 
     #[test]
-    fn a_lighter_strength_leaves_more_noise_and_off_leaves_it_all() {
+    pub fn a_lighter_strength_leaves_more_noise_and_off_leaves_it_all() {
         for suppressor in [Suppressor::DeepFilterNet, Suppressor::RNNoise] {
             let [full, medium, light] =
                 [Strength::Full, Strength::Medium, Strength::Light].map(|strength| {
@@ -410,7 +410,7 @@ mod tests {
     /// passes the microphone through as it came, as late as its own output,
     /// so switching between the two doesn't jump.
     #[test]
-    fn deep_filter_net_run_lightly_passes_the_block_at_its_delay() {
+    pub fn deep_filter_net_run_lightly_passes_the_block_at_its_delay() {
         let mut denoiser = Denoiser::new(Suppressor::DeepFilterNet, Strength::Medium.limit());
         let mut seed = 7u32;
         let input: Vec<f32> = (0..160 * BLOCK)
@@ -449,7 +449,7 @@ mod tests {
     /// `YAPFAST_NOISE_LIMIT` limits the attenuation, in dB.
     #[test]
     #[ignore = "needs YAPFAST_NOISE_IN and YAPFAST_NOISE_OUT"]
-    fn compares_suppressors() {
+    pub fn compares_suppressors() {
         let input: Vec<f32> = std::fs::read(std::env::var("YAPFAST_NOISE_IN").unwrap())
             .unwrap()
             .chunks_exact(4)

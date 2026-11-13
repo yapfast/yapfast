@@ -92,7 +92,7 @@ impl Orientation {
 /// The video orientation among a packet's header extensions, `profile`
 /// being the extension block's first word: one-byte elements (`0xBEDE`,
 /// RFC 8285), as Discord sends, or two-byte ones (`0x100x`).
-pub(crate) fn orientation(profile: u16, mut elements: &[u8]) -> Option<Orientation> {
+pub fn orientation(profile: u16, mut elements: &[u8]) -> Option<Orientation> {
     let two_byte = profile & 0xfff0 == 0x1000;
     if profile != 0xbede && !two_byte {
         return None;
