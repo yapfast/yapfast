@@ -35,6 +35,11 @@ pub(super) struct MemberLists {
     names: Arc<RwLock<Names>>,
     /// Servers with a channel on screen, subscribed again after reconnecting.
     viewing: HashSet<String>,
+    /// The servers asked this session when their busy voice channels'
+    /// calls started, with op 43, and the server on screen, a forum's
+    /// included, which a new session asks again; none for a DM.
+    asked: HashSet<String>,
+    on_screen: Option<String>,
     /// The server and channel whose member list is on screen.
     listing: Option<(String, String)>,
     /// The group DM on screen, whose members Yapfast lists itself.
@@ -64,6 +69,8 @@ impl MemberLists {
             live,
             names,
             viewing: HashSet::new(),
+            asked: HashSet::new(),
+            on_screen: None,
             listing: None,
             group: None,
             kept,
@@ -92,7 +99,9 @@ impl MemberLists {
     }
 
     /// Picks up the list on screen in a new session, which has no
-    /// subscriptions: those of servers on screen go again.
+    /// subscriptions: those of servers on screen go again. The server whose
+    /// channel is on screen is asked again when its voice channels' calls
+    /// started; the others are as they're opened.
     pub(super) async fn connect(&mut self, tracker: &Tracker, gateway: &mut Gateway) -> Result<()> {
         self.shown = self.listing.clone().map(|(guild, channel)| {
             let readers = tracker.readers(&guild, &channel);
@@ -108,6 +117,9 @@ impl MemberLists {
             }
             gateway.subscribe(guild, channel.as_deref()).await?;
         }
+        if let Some(guild) = self.on_screen.clone() {
+            self.ask(gateway, &guild).await?;
+        }
         self.stale.as_mut().reset(Instant::now() + LIST_FRESH);
         Ok(())
     }
@@ -120,6 +132,27 @@ impl MemberLists {
             self.keep(list);
         }
         self.subscribed.clear();
+        self.asked.clear();
+    }
+
+    /// Asks when `guild`'s busy voice channels' calls started, once a
+    /// session: Discord says when one starts or ends after that.
+    async fn ask(&mut self, gateway: &mut Gateway, guild: &str) -> Result<()> {
+        if self.asked.insert(guild.to_owned()) {
+            gateway.request_channel_info(guild).await?;
+        }
+        Ok(())
+    }
+
+    /// Asks again when the calls of a server asked this session, or on
+    /// screen, started, as it comes back from an outage or is joined again,
+    /// having lost its times when it went.
+    pub(super) async fn server_back(&mut self, gateway: &mut Gateway, guild: &str) -> Result<()> {
+        if self.asked.contains(guild) || self.on_screen.as_deref() == Some(guild) {
+            self.asked.remove(guild);
+            self.ask(gateway, guild).await?;
+        }
+        Ok(())
     }
 
     /// Notes a channel on screen while Discord can't be told, and shows the
@@ -133,8 +166,10 @@ impl MemberLists {
     ) {
         if guild == PRIVATE {
             self.group = channel;
+            self.on_screen = None;
             return;
         }
+        self.on_screen = Some(guild.clone());
         if let Some(channel) = channel {
             self.show_kept(snapshots, &guild, &channel);
             self.listing = Some((guild.clone(), channel));
@@ -156,11 +191,15 @@ impl MemberLists {
     ) -> Result<bool> {
         if guild == PRIVATE {
             self.group = channel;
+            self.on_screen = None;
             self.publish_group(tracker);
             return Ok(false);
         }
+        self.on_screen = Some(guild.clone());
         self.group = None;
         let new = self.viewing.insert(guild.clone());
+        // When its busy voice channels' calls started, which their rows show.
+        self.ask(gateway, &guild).await?;
         let Some(channel) = channel else {
             if new {
                 gateway.subscribe(&guild, None).await?;

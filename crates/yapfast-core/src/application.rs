@@ -23,13 +23,16 @@ mod aside;
 mod browse;
 mod calls;
 mod channel_settings;
+mod commands;
 mod compose;
 mod cosmetics;
 mod discord_account;
+mod ephemeral;
 mod forum;
 mod gifs;
 mod gift;
 mod header;
+mod interactions;
 mod join;
 mod members;
 mod messages;
@@ -48,6 +51,8 @@ mod scheduled_event;
 mod server;
 mod server_settings;
 mod session;
+mod slash;
+mod stickers;
 mod threads;
 
 pub use arrange::{Landing, MoveSync};
@@ -56,10 +61,12 @@ pub use channel_settings::{
     ChannelInput, ChannelSection, ChannelSettingsScreen, OverwriteConfirm, OverwriteRules,
     OverwriteState, Overwrites, channel_groups, channel_permission,
 };
+pub use commands::{AppCommands, CommandTarget, SlashCommand};
 pub use cosmetics::Cosmetics;
 pub use forum::{ForumInfo, ForumPost, ForumPosts, ForumView};
 pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
 pub use gift::GiftDialog;
+pub use interactions::{InteractionModal, Interactions, ModalField, SelectChoice, SelectMenu};
 pub use join::JoinDialog;
 pub use members::{BAN_HISTORY, RoleChoice, TIMEOUT_TIMES};
 #[cfg(all(feature = "discord", any(test, feature = "test-fixtures")))]
@@ -95,6 +102,8 @@ pub use server_settings::{
     SettingsText, SettingsToggle, StickerCard, StickerDraft, StickerInput, StickersPage,
     TransferAsk, WELCOME, WELCOME_STICKER, emoji_name,
 };
+pub use slash::{CommandDraft, CommandRow, OptionDraft};
+pub use stickers::{FREQUENT_STICKERS, ServerStickers, StickerPicker, StickerPicture, StickerUse};
 pub use threads::{
     NewThread, THREAD_NAME_LIMIT, ThreadFrom, ThreadList, ThreadSearch, ThreadSections,
     default_thread_name,
@@ -168,6 +177,9 @@ pub struct PersonDialog {
     /// Their name, as the DM or the server shows it.
     pub name: String,
     pub ask: PersonAsk,
+    /// Where in Discord's client it was asked from, which unfriending and
+    /// blocking tell Discord, such as "ContextMenu".
+    pub location: &'static str,
     /// The note, nickname or reason as it stands; `None` while the note is
     /// on its way.
     pub text: Option<String>,
@@ -391,6 +403,19 @@ pub enum DmScreen {
     Requests,
 }
 
+/// Somewhere the main area shows, which the title bar's back and forward
+/// arrows return to. Settings are not one: they open over the window, as in
+/// Discord's client.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HistoryPlace {
+    /// A conversation, by its room id.
+    Room(String),
+    /// A screen of the DM list.
+    Dm(DmScreen),
+    /// Browse Channels, for the server with this id.
+    Browse(String),
+}
+
 /// A role someone clicked in a message: its name and the members known to have it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RoleView {
@@ -411,12 +436,36 @@ pub enum Compose {
         /// Whether the reply notifies the person it replies to.
         ping: bool,
     },
-    /// Editing replaces the draft; cancelling or finishing restores it.
-    Edit { item: String, draft: String },
+}
+
+/// A message of this account's being edited in place, as Discord's inline
+/// editor does: its own field, apart from the room's draft and from a reply
+/// the composer has open. One message is edited at a time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Editing {
+    /// The room the message is in, which may be the thread beside.
+    pub room: String,
+    pub item: String,
+    /// The text as it stands in the field.
+    pub text: String,
+    /// The text the field started with, to tell an edit that changed nothing.
+    pub original: String,
 }
 
 #[derive(Default)]
 pub struct AppState {
+    /// Bots' controls and forms used, waiting for Discord's word.
+    pub interactions: Interactions,
+    /// The open room's apps' commands, once the person typed `/`.
+    pub app_commands: AppCommands,
+    /// A bot's form, open.
+    pub interaction_modal: Option<InteractionModal>,
+    /// The `/` picker and the app command being written in the composer.
+    slash: slash::Slash,
+    /// The message whose control last failed, and what its components say.
+    pub interaction_failed: Option<(String, String)>,
+    /// The choices of a bot's select menu, in a message or a form, open.
+    pub select_menu: Option<SelectMenu>,
     pub voice: voice::State,
     /// Discord is linked on this device and connected.
     pub discord_online: bool,
@@ -480,6 +529,9 @@ pub struct AppState {
     /// it shows.
     pub discord_show_game: bool,
     pub discord_playing: Option<chat::Playing>,
+    /// What the Discord account shows it's doing, on this device and its
+    /// others, as its own profile shows it.
+    pub discord_activities: chat::Activities,
     /// How loud the Discord account's soundboard plays, as Discord keeps
     /// it: from 0 to 100, on its slider's curve.
     pub soundboard_volume: f32,
@@ -536,10 +588,10 @@ pub struct AppState {
     pub pending_watch: Option<(String, String)>,
     /// A video call's room: the camera goes on once its call connects.
     pub pending_camera: Option<String>,
-    /// The conversations visited before this one, newest last, and those
-    /// stepped back from, for the title bar's back and forward arrows.
-    pub nav_back: Vec<String>,
-    pub nav_forward: Vec<String>,
+    /// The places visited before this one, newest last, and those stepped
+    /// back from, for the title bar's back and forward arrows.
+    pub nav_back: Vec<HistoryPlace>,
+    pub nav_forward: Vec<HistoryPlace>,
     /// A step through that history is under way: it records no visit.
     pub nav_walking: bool,
     pub account: Option<String>,
@@ -608,7 +660,9 @@ pub struct AppState {
     pub room_ready: bool,
     pub messages: Arc<Vec<Arc<ChatMessage>>>,
     /// The selected room's joined members, by role and then name; `None` while loading.
-    pub members: Option<Result<Vec<ChatMember>, &'static str>>,
+    /// Shared, so a channel's kept view holds the same list, and a list that
+    /// came anew is one the UI can tell from the one it showed.
+    pub members: Option<Result<Arc<Vec<ChatMember>>, &'static str>>,
     /// A page of earlier history is on its way.
     pub loading_history: bool,
     /// The selected room's first message is loaded, so there's no earlier
@@ -687,6 +741,8 @@ pub struct AppState {
     pub gifs: GifPicker,
     pub favorite_gifs: Option<Vec<chat::FavoriteGif>>,
     pub favorite_gifs_changed: u32,
+    /// The sticker picker, and Discord's default packs once they came.
+    pub stickers: StickerPicker,
     pub add_people: Option<AddPeople>,
     /// The selected Discord channel's topic, once the backend has said it.
     pub topic: Option<Arc<chat::Topic>>,
@@ -694,6 +750,10 @@ pub struct AppState {
     pub viewer: Option<Viewer>,
     /// The video playing in the selected room.
     pub video: Option<chat::Video>,
+    /// The voice message playing, or paused, in the selected room.
+    pub voice_message: Option<chat::VoicePlayback>,
+    /// How fast and loud voice messages play, until Yapfast closes.
+    pub voice_tuning: chat::VoiceTuning,
     /// The profile card that's open.
     pub profile: Option<ProfileView>,
     pub role: Option<RoleView>,
@@ -703,6 +763,7 @@ pub struct AppState {
     pub reset_version: u64,
     drafts: HashMap<String, String>,
     compose: HashMap<String, Compose>,
+    edit: Option<Editing>,
     /// Files waiting in each room's composer for the next message.
     staged: HashMap<String, Vec<chat::Staged>>,
 }
@@ -779,8 +840,9 @@ impl AppState {
             .map_or(&[], Vec::as_slice)
     }
 
-    fn editing(&self) -> bool {
-        matches!(self.compose(), Some(Compose::Edit { .. }))
+    /// The message being edited, in the selected room or the thread beside.
+    pub fn edit(&self) -> Option<&Editing> {
+        self.edit.as_ref()
     }
 
     pub fn compose(&self) -> Option<&Compose> {
@@ -852,7 +914,9 @@ impl AppState {
     /// A dialog that takes the keyboard is open, over which the quick
     /// switcher doesn't open and a link handed from outside waits.
     pub fn dialog_open(&self) -> bool {
-        !self.mfa.is_empty()
+        self.interaction_modal.is_some()
+            || self.select_menu.is_some()
+            || !self.mfa.is_empty()
             || self.forwarding.is_some()
             || self.new_dm.is_some()
             || self.add_friend.is_some()
@@ -878,21 +942,38 @@ impl AppState {
             || self.viewer.is_some()
     }
 
-    /// The most conversations the back arrow remembers.
+    /// The most places the back arrow remembers.
     const HISTORY: usize = 50;
 
-    /// Notes that the conversation on screen gives way to `next`, which
-    /// forgets what going back would have gone forward to.
-    pub(crate) fn record_visit(&mut self, next: &str) {
-        let Some(previous) = self
-            .selected
-            .as_deref()
-            .filter(|previous| *previous != next)
-        else {
+    /// What the main area shows: a screen of the DM list or Browse Channels
+    /// in place of a conversation, or the conversation selected.
+    pub fn place(&self) -> Option<HistoryPlace> {
+        if let Some(screen) = self.dm_screen {
+            Some(HistoryPlace::Dm(screen))
+        } else if let Some(browse) = &self.browse {
+            Some(HistoryPlace::Browse(browse.server.clone()))
+        } else {
+            self.selected.clone().map(HistoryPlace::Room)
+        }
+    }
+
+    /// Whether a place can be shown again: its conversation is still there,
+    /// and its server still offers Browse Channels.
+    pub fn place_exists(&self, place: &HistoryPlace) -> bool {
+        match place {
+            HistoryPlace::Room(id) => self.rooms.iter().any(|room| &room.id == id),
+            HistoryPlace::Dm(_) => true,
+            HistoryPlace::Browse(server) => self.offers_browse(server),
+        }
+    }
+
+    /// Notes that the place on screen, `previous`, gives way to `next`,
+    /// which forgets what going back would have gone forward to.
+    pub(crate) fn record_visit(&mut self, previous: Option<HistoryPlace>, next: &HistoryPlace) {
+        let Some(previous) = previous.filter(|previous| previous != next) else {
             return;
         };
-        if self.nav_back.last().map(String::as_str) != Some(previous) {
-            let previous = previous.to_owned();
+        if self.nav_back.last() != Some(&previous) {
             self.nav_back.push(previous);
             if self.nav_back.len() > Self::HISTORY {
                 self.nav_back.remove(0);
@@ -903,16 +984,19 @@ impl AppState {
 
     /// Whether the title bar's back arrow has somewhere to go.
     pub fn can_go_back(&self) -> bool {
-        self.nav_back
-            .iter()
-            .any(|id| self.rooms.iter().any(|room| &room.id == id))
+        self.can_go(&self.nav_back)
     }
 
     /// Whether the title bar's forward arrow has somewhere to go.
     pub fn can_go_forward(&self) -> bool {
-        self.nav_forward
+        self.can_go(&self.nav_forward)
+    }
+
+    fn can_go(&self, places: &[HistoryPlace]) -> bool {
+        let current = self.place();
+        places
             .iter()
-            .any(|id| self.rooms.iter().any(|room| &room.id == id))
+            .any(|place| Some(place) != current.as_ref() && self.place_exists(place))
     }
 
     pub fn in_scope(&self, room: &ChatRoom) -> bool {
@@ -1004,7 +1088,7 @@ impl AppState {
             .members
             .iter()
             .flatten()
-            .flatten()
+            .flat_map(|members| members.iter())
             .chain(&self.found_members)
             .chain(
                 self.role
@@ -1121,7 +1205,11 @@ impl AppState {
             .cloned()
             .collect();
         let mut candidates = Vec::new();
-        let listed = self.members.iter().flatten().flatten();
+        let listed = self
+            .members
+            .iter()
+            .flatten()
+            .flat_map(|members| members.iter());
         let people = listed.chain(&self.found_members).map(|member| {
             (
                 member.id.as_str(),
@@ -1201,18 +1289,15 @@ impl AppState {
         people.into_iter().chain(groups).cloned().collect()
     }
 
-    /// Text, or files to go with it; an edit changes only the text.
+    /// Text, or files to go with it.
     pub fn can_send(&self) -> bool {
         self.can_write()
             && self.sending.is_none()
-            && (!self.draft().trim().is_empty() || (!self.editing() && !self.staged().is_empty()))
+            && (!self.draft().trim().is_empty() || !self.staged().is_empty())
     }
 
     pub fn can_attach(&self) -> bool {
-        self.can_write()
-            && !self.preview
-            && !self.editing()
-            && self.staged().len() < chat::MAX_FILES
+        self.can_write() && !self.preview && self.staged().len() < chat::MAX_FILES
     }
 
     /// Why files dropped on the window can't go with the next message, if
@@ -1359,7 +1444,7 @@ impl AppState {
                 self.members
                     .iter()
                     .flatten()
-                    .flatten()
+                    .flat_map(|members| members.iter())
                     .map(|member| member.id.as_str()),
             )
             .collect()
@@ -1425,6 +1510,70 @@ pub enum Relation {
 }
 
 pub enum Action {
+    UseButton {
+        item: String,
+        custom_id: String,
+    },
+    OpenSelect {
+        item: String,
+        custom_id: String,
+    },
+    OpenModalSelect(usize),
+    ToggleSelect(usize),
+    SearchSelect(String),
+    SubmitSelect,
+    /// Closes the open menu: a menu of several options sends what changed,
+    /// as Discord's does when its dropdown closes.
+    CloseSelect,
+    /// The form's field at `index` takes `value`: a text input's text, the
+    /// option a radio group picks, the option a checkbox group checks or
+    /// unchecks; a checkbox is checked or unchecked whatever it is.
+    SetModalField {
+        index: usize,
+        value: String,
+    },
+    /// Files for the form's file upload at `index`, after those it has.
+    AddModalFiles {
+        index: usize,
+        files: Vec<PathBuf>,
+    },
+    /// The form's file upload at `index` leaves out its `file`th file.
+    RemoveModalFile {
+        index: usize,
+        file: usize,
+    },
+    SubmitModal,
+    CloseModal,
+    /// The draft is `/` and what follows it, to find an app command by.
+    /// See application/slash.rs.
+    SlashQuery(String),
+    /// One of the commands the picker offers, by its place.
+    PickCommand(usize),
+    /// What the person entered for an option of the command being written.
+    SetCommandOption {
+        index: usize,
+        value: String,
+    },
+    /// Runs the command `command` (its id in the index), on `target`, the
+    /// message item or user a context-menu command acts on, or as written
+    /// in the composer with none.
+    RunAppCommand {
+        command: String,
+        target: Option<String>,
+    },
+    /// A message's or a person's menu opened: asks for the open room's
+    /// command index, unless it's kept, for the menu's "Apps".
+    AskAppCommands,
+    /// The composer writes this option of the command, as Tab or a click on
+    /// its pill moves to it.
+    FocusCommandOption(usize),
+    /// Escape closes the list over the composer, then the command being
+    /// written; with `true`, Backspace in an empty first option puts the
+    /// command's name back to pick another.
+    CloseCommand(bool),
+    /// Hides an ephemeral message, the item, as Discord's "Dismiss message"
+    /// does: only here, with no request. Phase 1d; application/ephemeral.rs.
+    DismissEphemeral(String),
     Navigate(Navigation),
     SelectRoom(String),
     /// Mark a listed conversation read, or every conversation of a listed
@@ -1473,7 +1622,14 @@ pub enum Action {
     CloseNewDm,
     Send,
     Reply(String),
+    /// Open this message of this account's for editing in place.
     Edit(String),
+    /// The text of the open edit's field changed.
+    SetEditText(String),
+    /// Save the open edit; an empty one asks whether to delete the message.
+    SaveEdit,
+    /// Close the open edit, dropping what was typed in it.
+    CancelEdit,
     CancelCompose,
     React {
         item: String,
@@ -1560,6 +1716,17 @@ pub enum Action {
     },
     /// Control the video playing.
     Video(chat::VideoCommand),
+    /// Play an item's voice message, or pause it while it plays.
+    ToggleVoiceMessage(String),
+    /// Play voice messages at the next speed: 1, 1.5, then 2 times as fast.
+    CycleVoiceMessageSpeed,
+    /// Play voice messages this loud, from 0 to 1 as the slider stands,
+    /// unmuting them; 0 mutes them.
+    VoiceMessageVolume(f32),
+    /// Mute voice messages, or unmute them at the volume they had.
+    MuteVoiceMessages(bool),
+    /// Move an item's voice message this far through it, from 0 to 1.
+    MoveVoiceMessage(String, f32),
     /// Show the message's next image, or with -1 its previous one, wrapping around.
     StepImage(isize),
     CloseImage,
@@ -1601,10 +1768,20 @@ pub enum Action {
     /// Download pictures that show outside the state, such as the emoji
     /// picker's; see [`DiscordCommand::Pictures`].
     LoadPictures(Vec<String>),
-    /// Lets go of the custom emoji pictures in memory, which the disk cache
-    /// holds: the picker's cells keep their own while it shows, and a later look
-    /// reads them again.
+    /// Download pictures the emoji picker shows or is about to, nearest
+    /// first, ahead of those it asked for before: one already on its way moves
+    /// up rather than going twice. Nothing on screen changes until they come.
+    LoadPicturesFirst(Vec<String>),
+    /// The emoji picker closed: lets go of the custom emoji pictures in memory
+    /// but those the messages on screen show, since the disk cache holds them
+    /// and the next look reads them again.
     UnloadEmojiPictures,
+    /// The emoji picker scrolled on: lets go of the custom emoji pictures
+    /// but these, which are near what it shows, and those shown elsewhere.
+    KeepEmojiPictures(Vec<String>),
+    /// The emoji picker opened: every custom emoji's picture not yet in the
+    /// disk cache is fetched to it, once a session, after whatever shows.
+    CacheEmojiPictures,
     Login {
         homeserver: String,
         username: String,
@@ -1698,6 +1875,24 @@ pub enum Action {
     /// Load the favourite GIFs, if they haven't, as a star is about to be
     /// used.
     LoadFavoriteGifs,
+    /// Open the sticker picker, or close it.
+    OpenStickers,
+    CloseStickers,
+    /// The pictures of the picker's tiles in sight, by their addresses.
+    StickersShown(Vec<String>),
+    /// The sticker picker's search field: the stickers whose names hold it.
+    SearchStickers(String),
+    /// Send a sticker, by its id, as a message of its own.
+    PickSticker(String),
+    /// Star an emoji among the Discord account's favourites, or let it go, by
+    /// the name Discord's settings keep it by: a custom emoji's id, or a
+    /// Unicode emoji's Discord name.
+    FavoriteEmoji(String),
+    /// Pictures the picker draws that are not on screen, by address, which it
+    /// shows once they come.
+    WantedPictures(Vec<String>),
+    /// Keep a sticker among the favorites, or let it go, by its id.
+    FavoriteSticker(String),
     /// Open a message's Reactions window, by item, on the reaction `key`,
     /// or the one most reacted with.
     ShowReactions {
@@ -1961,17 +2156,21 @@ pub enum Action {
     ResendMfa,
     ConfirmMfa,
     CancelMfa,
-    /// Change how the Discord account stands with someone. Unfriending and
-    /// blocking ask first, through [`Action::AskPerson`].
+    /// Change how the Discord account stands with someone, from `location`
+    /// in Discord's client, such as "ContextMenu". Unfriending and blocking
+    /// ask first, through [`Action::AskPerson`].
     ChangeRelationship {
         user: String,
         change: chat::RelationshipChange,
+        location: &'static str,
     },
-    /// Open a dialog about a Discord user, from their DM's menu; carry out
-    /// what it asks for, with the note or nickname written; or close it.
+    /// Open a dialog about a Discord user, from their DM's menu or
+    /// `location` in Discord's client; carry out what it asks for, with the
+    /// note or nickname written; or close it.
     AskPerson {
         user: String,
         ask: PersonAsk,
+        location: &'static str,
     },
     AnswerPerson(String),
     /// Save this account's note on a Discord user, as the full profile's
@@ -2197,7 +2396,12 @@ pub struct Application {
     reaction_uses: HashMap<String, u32>,
     /// Pictures asked for once; they aren't asked for again.
     requested_pictures: HashSet<String>,
-    /// The profile effects' pictures in `AppState::pictures`.
+    /// Custom emoji pictures the picker asked for and let go of before they
+    /// came: their downloads were called off, and one that comes all the same
+    /// isn't kept.
+    let_go_emoji: HashSet<String>,
+    /// The profile cards' own large pictures in `AppState::pictures`: their
+    /// effects', frames' and moving banners'.
     effect_pictures: Vec<String>,
     /// Forwards sent, until each conversation they went to answers.
     forwards: Vec<ForwardSent>,
@@ -2215,10 +2419,17 @@ pub struct Application {
     pictures_kept: usize,
     /// How many of the pictures kept are custom emoji, which stay.
     emoji_pictures: usize,
-    /// The custom emoji pictures were fetched on this start, for a cache that
-    /// held no picture at all; see [`Application::prefetch_emoji`].
+    /// Custom emoji pictures queued for the disk cache this session. Shared by
+    /// startup and the picker, so neither repeats the other's work, and emoji
+    /// added by a later snapshot are fetched too.
     #[cfg(feature = "discord")]
-    emoji_prefetched: bool,
+    emoji_prefetched: HashSet<String>,
+    /// The current emoji list was checked: searches and reflows need not
+    /// rebuild every server's emoji just to discover there is nothing new.
+    #[cfg(feature = "discord")]
+    emoji_cache_current: bool,
+    /// The server icons fetched ahead, so each is fetched once.
+    server_icons_prefetched: HashSet<String>,
     /// Names searched for in the selected room, lowercased.
     searched: HashSet<String>,
     /// A conversation to open once it's listed, such as a DM just started.
@@ -2232,6 +2443,10 @@ pub struct Application {
     aside_visible: Vec<String>,
     /// The thread beside's timeline as its pictures were last asked for.
     pictured_aside: Arc<Vec<Arc<ChatMessage>>>,
+    /// [`AppState::list_changes`], the navigation and the selected room
+    /// when the pictures of the rooms in scope were last asked for: those
+    /// rooms are the same until one of them changes.
+    pictured_rooms: Option<(u64, Navigation, Option<String>)>,
     /// A DM with a friend is starting, to open once it has.
     starting_dm: bool,
     /// Its call starts once it opens, as [`Action::CallPerson`] asks.
@@ -2283,7 +2498,7 @@ struct Seeking {
 struct Shown {
     room: String,
     messages: Arc<Vec<Arc<ChatMessage>>>,
-    members: Option<Result<Vec<ChatMember>, &'static str>>,
+    members: Option<Result<Arc<Vec<ChatMember>>, &'static str>>,
 }
 
 /// Discord channels whose last view is kept, as many as the Discord side
@@ -2296,10 +2511,6 @@ const LISTED_PICTURES: usize = 150;
 /// decoded, and the window keeps a copy of each it shows. The rail, the DMs
 /// listed, a member list and a timeline show a few hundred at most.
 const KEPT_PICTURES: usize = 400;
-/// Custom emoji pictures kept in memory at most: more than a wide picker shows,
-/// and far short of what a large account has, which the disk cache holds. See
-/// [`Application::unload_emoji_pictures`]. One is 16 KB decoded.
-const KEPT_EMOJI: usize = 600;
 /// Timeline rows either side of those on screen whose avatars stay when
 /// pictures go.
 const PICTURED_AROUND: usize = 30;
@@ -2320,11 +2531,14 @@ fn visible_range(
 /// The server icons and avatars on screen: the rail, the first DMs listed,
 /// the people in the listed voice channels, the call, `timeline` and the
 /// member list, profiles and people to start a DM with, with the server tags
-/// and role icons by their names.
+/// and role icons by their names. Without `list_avatars`, it leaves out
+/// those the UI's virtualized rows ask for; without `rooms`, the people in
+/// the rooms in scope, which take going through every room.
 fn pictures_on_screen<'a>(
     state: &'a AppState,
     timeline: &'a [Arc<ChatMessage>],
     list_avatars: bool,
+    rooms: bool,
 ) -> impl Iterator<Item = &'a str> {
     let cosmetics = state.cosmetics;
     state
@@ -2348,9 +2562,10 @@ fn pictures_on_screen<'a>(
                 .map(|plate| &*plate.picture),
         )
         .chain(
-            state
-                .scoped_rooms()
-                .filter(move |_| list_avatars)
+            list_avatars
+                .then(|| state.scoped_rooms())
+                .into_iter()
+                .flatten()
                 .flat_map(move |room| {
                     [
                         room.avatar.as_deref(),
@@ -2534,6 +2749,12 @@ fn pictures_on_screen<'a>(
                         .filter_map(Option::as_deref)
                         .chain(cosmetics.decoration(profile.decoration.as_deref()))
                         .chain(tag_badge(cosmetics, &profile.tag))
+                        .chain(
+                            cosmetics
+                                .frame(Some(&profile.frame))
+                                .into_iter()
+                                .flat_map(|frame| frame.iter().map(|layer| layer.src.as_str())),
+                        )
                         .chain(profile.bio_emoji.iter().map(|emoji| emoji.picture.as_str()))
                         // Its layers are asked for when it first plays.
                         .chain(effect.into_iter().flat_map(move |effect| {
@@ -2552,8 +2773,10 @@ fn pictures_on_screen<'a>(
                 }),
         )
         .chain(
-            state
-                .scoped_rooms()
+            rooms
+                .then(|| state.scoped_rooms())
+                .into_iter()
+                .flatten()
                 .flat_map(|room| &room.people)
                 .filter_map(|person| person.avatar.as_deref()),
         )
@@ -2573,12 +2796,17 @@ fn pictures_on_screen<'a>(
                         .reply
                         .as_ref()
                         .and_then(|reply| reply.avatar.as_deref());
+                    let used = message
+                        .used
+                        .as_ref()
+                        .and_then(|used| used.avatar.as_deref());
                     message
                         .avatar
                         .as_deref()
                         .into_iter()
                         .chain(cosmetics.decoration(message.decoration.as_deref()))
                         .chain(reply)
+                        .chain(used)
                         .chain(tag_badge(cosmetics, &message.tag))
                 })
                 .chain(
@@ -2593,7 +2821,7 @@ fn pictures_on_screen<'a>(
                 .iter()
                 .filter(move |_| list_avatars)
                 .flatten()
-                .flatten()
+                .flat_map(|members| members.iter())
                 .chain(&state.found_members)
                 .chain(
                     state
@@ -2660,7 +2888,10 @@ fn shelved(messages: &[Arc<ChatMessage>]) -> Vec<Arc<ChatMessage>> {
 impl Application {
     pub fn dispatch(&mut self, action: Action) -> Vec<Effect> {
         // A keystroke in the composer shows no picture that wasn't on screen.
-        let composing = matches!(action, Action::SetDraft(_) | Action::MentionQuery(_));
+        let composing = matches!(
+            action,
+            Action::SetDraft(_) | Action::SetEditText(_) | Action::MentionQuery(_)
+        );
         let mut effects = self.dispatch_action(action);
         effects.extend(self.send_pending_message());
         effects.extend(self.show_panel_profile());
@@ -2695,18 +2926,16 @@ impl Application {
         effects
     }
 
-    /// Lets a profile effect's pictures go with its card, rather than with
-    /// the next trim: each is the size of the card, as much as a few hundred
-    /// avatars.
+    /// Lets a profile effect's, frame's or moving banner's pictures go with
+    /// its card, rather than with the next trim: each is about the size of
+    /// the card, as much as a few hundred avatars.
     fn let_go_of_effect_pictures(&mut self) {
         if self.effect_pictures.is_empty() {
             return;
         }
         let state = &self.state;
-        let shown: Vec<&str> = state
-            .profile
-            .iter()
-            .chain(&state.panel_profile)
+        let views = || state.profile.iter().chain(&state.panel_profile);
+        let mut shown: Vec<&str> = views()
             .filter_map(|view| view.profile.effect.as_deref())
             .filter_map(|sku| {
                 state
@@ -2716,9 +2945,16 @@ impl Application {
             })
             .flat_map(|effect| effect.pictures())
             .collect();
+        shown.extend(
+            views().flat_map(|view| view.profile.frame.iter().map(|layer| layer.src.as_str())),
+        );
+        let banners: Vec<String> = views()
+            .filter_map(|view| view.profile.banner.as_deref())
+            .filter_map(chat::moving_banner)
+            .collect();
         let (kept, gone): (Vec<String>, Vec<String>) = std::mem::take(&mut self.effect_pictures)
             .into_iter()
-            .partition(|url| shown.contains(&url.as_str()));
+            .partition(|url| shown.contains(&url.as_str()) || banners.contains(url));
         self.effect_pictures = kept;
         for url in &gone {
             self.state.pictures.remove(url);
@@ -2731,10 +2967,21 @@ impl Application {
 
     /// Asks for the server icons and avatars on screen that weren't asked
     /// for before; see [`pictures_on_screen`]. The timeline, which can hold
-    /// thousands of messages, is gone through only when it changed.
+    /// thousands of messages, and the rooms in scope, which can be thousands
+    /// of channels, are gone through only when they changed: this runs on
+    /// every event.
     fn request_pictures(&mut self) -> Option<Effect> {
         self.let_go_of_effect_pictures();
         let state = &self.state;
+        let rooms_changed =
+            !self
+                .pictured_rooms
+                .as_ref()
+                .is_some_and(|(changes, navigation, selected)| {
+                    *changes == state.list_changes
+                        && *navigation == state.navigation
+                        && *selected == state.selected
+                });
         let timeline = if Arc::ptr_eq(&self.pictured_timeline, &state.messages) {
             &[][..]
         } else {
@@ -2744,20 +2991,29 @@ impl Application {
         let mut wanted = Vec::new();
         // Virtualized UI rows request their own avatars; this covers profiles,
         // calls and the custom emoji in nearby messages.
-        for url in pictures_on_screen(state, timeline, false) {
+        for url in pictures_on_screen(state, timeline, false, rooms_changed) {
             if !self.requested_pictures.contains(url) {
                 self.requested_pictures.insert(url.to_owned());
+                self.let_go_emoji.remove(url);
                 wanted.push(url.to_owned());
             }
         }
         self.pictured_timeline = self.state.messages.clone();
+        if rooms_changed {
+            self.pictured_rooms = Some((
+                self.state.list_changes,
+                self.state.navigation.clone(),
+                self.state.selected.clone(),
+            ));
+        }
         // The thread beside is short, and shows its custom emoji whole.
         if let Some(aside) = &self.state.aside
             && !Arc::ptr_eq(&self.pictured_aside, &aside.messages)
         {
-            for url in pictures_on_screen(state, &aside.messages, false) {
+            for url in pictures_on_screen(state, &aside.messages, false, false) {
                 if !self.requested_pictures.contains(url) {
                     self.requested_pictures.insert(url.to_owned());
+                    self.let_go_emoji.remove(url);
                     wanted.push(url.to_owned());
                 }
             }
@@ -2768,21 +3024,129 @@ impl Application {
         ))))
     }
 
-    /// Lets go of the custom emoji pictures in memory once there are more than
-    /// [`KEPT_EMOJI`], which is more than a wide picker shows: the disk cache
-    /// keeps them all, the grid's cells keep the ones it shows, and a later look
-    /// reads the rest from the disk. So a large account's emoji cost memory only
-    /// while they are looked at. The pictures asked for are forgotten with them,
-    /// so a look asks again rather than showing nothing.
+    /// Lets go of the custom emoji pictures in memory, but those the messages
+    /// on screen and a short scroll away show, the thread beside and the
+    /// topic: the picker that asked for the rest closed, the disk cache keeps
+    /// them all, and its next look reads them from there. So an account's
+    /// emoji cost memory only while they are looked at. The pictures asked for
+    /// are forgotten with them, so a look asks again rather than showing
+    /// nothing. One is 16 KB decoded.
     fn unload_emoji_pictures(&mut self) -> Vec<Effect> {
-        if self.emoji_pictures <= KEPT_EMOJI {
+        let (went, called_off) = self.unload_emoji_pictures_but(&HashSet::new());
+        if went {
+            self.state.picture_changes += 1;
+        }
+        Self::call_off_pictures(called_off)
+    }
+
+    /// The custom emoji pictures the open picker holds that aren't among
+    /// `keep`, the ones near what it shows, nor shown elsewhere, let go of
+    /// as it scrolls: an account's emoji cost memory only as far as the picker
+    /// asks for ahead, however far it scrolled. Nothing on screen changes, so
+    /// nothing is laid out again.
+    fn keep_emoji_pictures(&mut self, keep: Vec<String>) -> Vec<Effect> {
+        let keep: HashSet<String> = keep.into_iter().collect();
+        let (_, called_off) = self.unload_emoji_pictures_but(&keep);
+        Self::call_off_pictures(called_off)
+    }
+
+    /// Fetches custom emoji pictures to disk once per URL this session, at
+    /// startup and when the picker opens. Existing cache entries are read by
+    /// the fetcher without a network request; a partially populated cache must
+    /// not prevent the rest of the account's emoji from being fetched.
+    fn cache_emoji_pictures(&mut self) -> Vec<Effect> {
+        #[cfg(feature = "discord")]
+        {
+            if self.emoji_cache_current {
+                return Vec::new();
+            }
+            self.emoji_cache_current = true;
+            let urls: Vec<String> = self
+                .emoji_sets()
+                .into_iter()
+                .flat_map(|set| set.emoji)
+                .map(|emoji| emoji.picture)
+                .filter(|url| !url.is_empty() && self.emoji_prefetched.insert(url.clone()))
+                .collect();
+            if !urls.is_empty() {
+                tracing::info!(pictures = urls.len(), "prefetching custom emoji pictures");
+                return vec![Effect::Backend(Command::Discord(
+                    DiscordCommand::PrefetchPictures(urls),
+                ))];
+            }
+        }
+        Vec::new()
+    }
+
+    /// Lets go of the custom emoji pictures but `keep` and those shown
+    /// elsewhere; see [`Application::unload_emoji_pictures`]. Says whether
+    /// any went, and gives the ones asked for that hadn't come.
+    fn unload_emoji_pictures_but(&mut self, keep: &HashSet<String>) -> (bool, Vec<String>) {
+        let messages = &self.state.messages;
+        let timeline =
+            visible_range(messages, &self.visible_messages).map_or(&messages[..], |range| {
+                let start = range.start().saturating_sub(PICTURED_AROUND);
+                &messages[start..(range.end() + 1 + PICTURED_AROUND).min(messages.len())]
+            });
+        let aside = self
+            .state
+            .aside
+            .as_ref()
+            .map_or(&[][..], |aside| aside.messages.as_slice());
+        // The reactions a message's hover bar and menu offer, which draw
+        // their pictures too.
+        let frequent = self.frequent_reactions(4);
+        let frequent: Vec<String> = self
+            .emoji_by_id(
+                &frequent
+                    .iter()
+                    .filter_map(|key| key.rsplit_once(':').map(|(_, id)| id))
+                    .collect(),
+            )
+            .into_iter()
+            .map(|emoji| emoji.picture)
+            .collect();
+        let shown: HashSet<&str> = timeline
+            .iter()
+            .chain(aside)
+            .flat_map(|message| &message.emoji)
+            .chain(self.state.topic.iter().flat_map(|topic| &topic.emoji))
+            .map(|emoji| emoji.picture.as_str())
+            .chain(frequent.iter().map(String::as_str))
+            .collect();
+        let kept = |url: &String| {
+            !is_custom_emoji(url) || shown.contains(url.as_str()) || keep.contains(url)
+        };
+        let before = self.state.pictures.len();
+        self.state.pictures.retain(|url, _| kept(url));
+        // Those asked for and not come are called off, and not kept if they
+        // come all the same: nothing will show them.
+        let pictures = &self.state.pictures;
+        let called_off: Vec<String> = self
+            .requested_pictures
+            .iter()
+            .filter(|url| !kept(url) && !pictures.contains_key(*url))
+            .cloned()
+            .collect();
+        self.requested_pictures.retain(|url| kept(url));
+        self.let_go_emoji.extend(called_off.iter().cloned());
+        self.emoji_pictures = self
+            .state
+            .pictures
+            .keys()
+            .filter(|url| is_custom_emoji(url))
+            .count();
+        (self.state.pictures.len() != before, called_off)
+    }
+
+    /// Calls off the downloads of `urls`, which nothing will show.
+    fn call_off_pictures(urls: Vec<String>) -> Vec<Effect> {
+        if urls.is_empty() {
             return Vec::new();
         }
-        self.state.pictures.retain(|url, _| !is_custom_emoji(url));
-        self.requested_pictures.retain(|url| !is_custom_emoji(url));
-        self.emoji_pictures = 0;
-        self.state.picture_changes += 1;
-        Vec::new()
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::CancelPictures(urls),
+        ))]
     }
 
     /// Keeps a picture that arrived, and once more than [`KEPT_PICTURES`]
@@ -2793,8 +3157,16 @@ impl Application {
     /// small. They don't count towards when the others go, or the emoji of a
     /// few servers would let thousands of avatars pile up.
     fn keep_picture(&mut self, url: String, picture: Arc<Picture>) {
+        // A custom emoji the picker let go of before it came shows nowhere.
+        if self.let_go_emoji.remove(&url) {
+            return;
+        }
         let emoji = is_custom_emoji(&url);
-        if url.ends_with(chat::EFFECT_PICTURE) {
+        // A card's own large pictures go with it.
+        if url.ends_with(chat::EFFECT_PICTURE)
+            || chat::is_frame_layer(&url)
+            || (url.contains("/banners/") && url.contains(".gif?"))
+        {
             self.effect_pictures.push(url.clone());
         }
         if self.state.pictures.insert(url, picture).is_none() && emoji {
@@ -2819,11 +3191,11 @@ impl Application {
                 let start = range.start().saturating_sub(PICTURED_AROUND);
                 &messages[start..(range.end() + 1 + PICTURED_AROUND).min(messages.len())]
             });
-        let shown: HashSet<String> = pictures_on_screen(&self.state, timeline, true)
+        let shown: HashSet<String> = pictures_on_screen(&self.state, timeline, true, true)
             .chain(
                 aside
                     .into_iter()
-                    .flat_map(|aside| pictures_on_screen(&self.state, aside, true)),
+                    .flat_map(|aside| pictures_on_screen(&self.state, aside, true, false)),
             )
             .map(str::to_owned)
             .collect();
@@ -2837,6 +3209,37 @@ impl Application {
 
     fn dispatch_action(&mut self, action: Action) -> Vec<Effect> {
         match action {
+            Action::UseButton { item, custom_id } => self.use_button(item, custom_id),
+            Action::OpenSelect { item, custom_id } => self.open_select(item, custom_id),
+            Action::OpenModalSelect(index) => self.open_modal_select(index),
+            Action::ToggleSelect(index) => self.toggle_select(index),
+            Action::SearchSelect(query) => self.search_select(query),
+            Action::SubmitSelect => self.submit_select(),
+            Action::CloseSelect => self.close_select(),
+            Action::SetModalField { index, value } => self.set_modal_field(index, value),
+            Action::AddModalFiles { index, files } => self.add_modal_files(index, files),
+            Action::RemoveModalFile { index, file } => self.remove_modal_file(index, file),
+            Action::SubmitModal => self.submit_modal(),
+            Action::SlashQuery(_)
+            | Action::PickCommand(_)
+            | Action::SetCommandOption { .. }
+            | Action::RunAppCommand { .. }
+            | Action::AskAppCommands
+            | Action::FocusCommandOption(_)
+            | Action::CloseCommand(_) => self.command_action(action),
+            Action::DismissEphemeral(item) => self.dismiss_ephemeral(item),
+            Action::CloseModal => {
+                // A form being sent stays until Discord answers.
+                if self
+                    .state
+                    .interaction_modal
+                    .as_ref()
+                    .is_none_or(|modal| modal.nonce.is_none())
+                {
+                    self.state.interaction_modal = None;
+                }
+                vec![]
+            }
             Action::VisibleMessages {
                 room,
                 items,
@@ -2935,7 +3338,10 @@ impl Application {
             Action::SetDraft(body) => self.set_draft(body),
             Action::Send => self.send(),
             Action::Reply(item) => self.reply(item),
-            Action::Edit(item) => self.edit(item),
+            Action::Edit(item) => self.begin_edit(item),
+            Action::SetEditText(text) => self.set_edit_text(text),
+            Action::SaveEdit => self.save_edit(),
+            Action::CancelEdit => self.cancel_edit(),
             Action::CancelCompose => {
                 if let Some(id) = self.state.selected.clone() {
                     self.finish_compose(&id);
@@ -2986,8 +3392,13 @@ impl Application {
                 vec![]
             }
             Action::ConfirmDelete => self.confirm_delete(),
+            Action::Retry(item) if item.starts_with("c:") => self.retry_command(&item),
             Action::Retry(item) => {
                 self.queue_action(item, |room, item| Command::Retry { room, item })
+            }
+            Action::CancelSend(item) if item.starts_with("c:") => {
+                self.cancel_command(&item);
+                vec![]
             }
             Action::CancelSend(item) => {
                 self.queue_action(item, |room, item| Command::Cancel { room, item })
@@ -3013,6 +3424,32 @@ impl Application {
                 }
                 vec![Effect::Backend(Command::Video(command))]
             }
+            Action::ToggleVoiceMessage(item) => self.toggle_voice_message(item),
+            Action::MoveVoiceMessage(item, fraction) => self.move_voice_message(item, fraction),
+            Action::CycleVoiceMessageSpeed => {
+                let speed = &mut self.state.voice_tuning.speed;
+                *speed = if *speed < 1.25 {
+                    1.5
+                } else if *speed < 1.75 {
+                    2.0
+                } else {
+                    1.0
+                };
+                self.tune_voice_message()
+            }
+            Action::VoiceMessageVolume(volume) => {
+                let tuning = &mut self.state.voice_tuning;
+                let volume = volume.clamp(0.0, 1.0);
+                tuning.muted = volume == 0.0;
+                if volume > 0.0 {
+                    tuning.volume = volume;
+                }
+                self.tune_voice_message()
+            }
+            Action::MuteVoiceMessages(muted) => {
+                self.state.voice_tuning.muted = muted;
+                self.tune_voice_message()
+            }
             Action::StepImage(step) => self.step_image(step),
             Action::CloseImage => {
                 self.state.viewer = None;
@@ -3035,7 +3472,10 @@ impl Application {
             Action::Later => self.later(),
             Action::JumpToPresent => self.jump_to_present(),
             Action::LoadPictures(urls) => self.load_pictures(urls),
+            Action::LoadPicturesFirst(urls) => self.load_pictures_first(urls),
             Action::UnloadEmojiPictures => self.unload_emoji_pictures(),
+            Action::KeepEmojiPictures(keep) => self.keep_emoji_pictures(keep),
+            Action::CacheEmojiPictures => self.cache_emoji_pictures(),
             Action::Earlier => self.earlier(),
             Action::Login {
                 homeserver,
@@ -3074,8 +3514,9 @@ impl Application {
             Action::DeclineCall(room) => vec![Effect::Backend(Command::Discord(
                 DiscordCommand::DeclineCall { room },
             ))],
+            // Discord takes no request to someone blocked.
             Action::Befriend(user) => match self.state.relation(&user) {
-                Relation::Stranger | Relation::Incoming => {
+                Relation::Stranger | Relation::Incoming if !self.state.is_blocked(&user) => {
                     vec![Effect::Backend(Command::Discord(DiscordCommand::Friend {
                         user,
                         add: true,
@@ -3101,6 +3542,14 @@ impl Application {
             Action::ShowPins(shown) => self.show_pins(shown),
             Action::HoverReaction(hovered) => self.hover_reaction(hovered),
             Action::OpenGifs => self.open_gifs(),
+            Action::OpenStickers => self.open_stickers(),
+            Action::CloseStickers => self.close_stickers(),
+            Action::StickersShown(shown) => self.stickers_shown(shown),
+            Action::SearchStickers(query) => self.search_stickers(query),
+            Action::PickSticker(id) => self.pick_sticker(id),
+            Action::FavoriteSticker(id) => self.favorite_sticker(id),
+            Action::FavoriteEmoji(key) => self.favorite_emoji(key),
+            Action::WantedPictures(urls) => self.wanted_pictures(urls),
             Action::CloseGifs => self.close_gifs(),
             Action::SearchGifs(query) => self.search_gifs(query),
             Action::ShowGifs(view) => self.show_gifs(view),
@@ -3326,8 +3775,16 @@ impl Application {
             Action::ResendMfa => self.resend_mfa(),
             Action::ConfirmMfa => self.confirm_mfa(),
             Action::CancelMfa => self.cancel_mfa(),
-            Action::ChangeRelationship { user, change } => self.change_relationship(user, change),
-            Action::AskPerson { user, ask } => self.ask_person(user, ask),
+            Action::ChangeRelationship {
+                user,
+                change,
+                location,
+            } => self.change_relationship(user, change, location),
+            Action::AskPerson {
+                user,
+                ask,
+                location,
+            } => self.ask_person(user, ask, location),
             Action::AnswerPerson(text) => self.answer_person(text),
             Action::ClosePersonDialog => {
                 self.state.person_dialog = None;
@@ -3667,6 +4124,17 @@ impl Application {
 
     fn apply_event(&mut self, event: Event) -> Vec<Effect> {
         match event {
+            Event::InteractionModal(modal) => self.open_interaction_modal(modal),
+            Event::InteractionFailed { nonce, reason } => {
+                self.interaction_answered(&nonce, Some(reason), false)
+            }
+            Event::InteractionSucceeded(nonce) => self.interaction_answered(&nonce, None, false),
+            Event::InteractionSettled(nonce) => self.interaction_answered(&nonce, None, true),
+            // Phase 1 of the bot commands: application/commands.rs.
+            Event::InteractionCreated { .. }
+            | Event::CommandIndex { .. }
+            | Event::CommandIndexChanged { .. }
+            | Event::AutocompleteChoices { .. } => return self.command_event(event),
             Event::Voice(state) => {
                 let sounds = call_sounds(&self.state.voice, &state);
                 // Someone moved the call to another channel, as a bot does
@@ -3732,14 +4200,11 @@ impl Application {
             }
             Event::Picture { url, picture } => self.keep_picture(url, picture),
             Event::Video(video) => {
-                self.state.video = video.filter(|video| {
-                    self.state.selected.as_ref() == Some(&video.room)
-                        || self
-                            .state
-                            .aside
-                            .as_ref()
-                            .is_some_and(|aside| aside.room == video.room)
-                });
+                self.state.video = video.filter(|video| self.state.shows_room(&video.room));
+            }
+            Event::VoiceMessage(playback) => {
+                self.state.voice_message =
+                    playback.filter(|playback| self.state.shows_room(&playback.room));
             }
             // Do Not Disturb holds back message notifications, as in Discord.
             Event::Notify(_) if self.state.do_not_disturb() => {}
@@ -3774,6 +4239,7 @@ impl Application {
                     }
                     self.state.room_ready = true;
                     self.state.messages = self.without_blocked(Arc::new(messages));
+                    self.show_sent_commands();
                     let mut effects = self.place_unread();
                     effects.extend(self.seek());
                     effects.extend(self.read_latest());
@@ -3800,6 +4266,7 @@ impl Application {
             Event::ProfileBoard { user, widgets } => self.profile_board_named(&user, widgets),
             Event::ProfileRecent { user, recent } => self.profile_recent_came(&user, recent),
             Event::BadgeLevels { user, badges } => self.show_badge_levels(&user, badges),
+            Event::ProfileFrame { user, frame } => self.show_profile_frame(&user, &frame),
             Event::ProfileEffect(effect) => {
                 // The few of the cards seen lately.
                 let profile_effects = &mut self.state.profile_effects;
@@ -3813,7 +4280,7 @@ impl Application {
                 // A list that came stays when a later check finds none came.
                 let listed = members.is_err() && matches!(self.state.members, Some(Ok(_)));
                 if self.state.selected.as_ref() == Some(&room) && !listed {
-                    self.state.members = Some(members);
+                    self.state.members = Some(members.map(Arc::new));
                 }
             }
             Event::People {
@@ -3858,6 +4325,10 @@ impl Application {
                 }
             }
             Event::GifPicture { url, picture } => self.gif_picture_came(url, picture),
+            Event::StickerPacks(result) => return self.sticker_packs_came(result),
+            Event::KeptStickerPacks(packs) => return self.kept_sticker_packs_came(packs),
+            Event::StickerPicture { url, picture } => self.sticker_picture_came(url, picture),
+            Event::StickerSent { room, result } => self.sticker_sent(room, result),
             Event::Reactors {
                 item,
                 key,
@@ -4135,7 +4606,12 @@ impl Application {
                     self.state.mention_groups = groups;
                 }
             }
-            Event::MemberMatches { room, members, .. } => {
+            Event::MemberMatches {
+                room,
+                query,
+                members,
+            } => {
+                self.select_member_matches(&room, &query, &members);
                 if self.state.selected.as_ref() == Some(&room) {
                     for member in members {
                         if !self
@@ -4193,9 +4669,13 @@ impl Application {
                 }
                 match result {
                     Ok(()) => {
-                        if matches!(self.state.compose.get(&room), Some(Compose::Edit { item: target, .. }) if target == &item)
+                        if self
+                            .state
+                            .edit
+                            .as_ref()
+                            .is_some_and(|edit| edit.room == room && edit.item == item)
                         {
-                            self.finish_compose(&room);
+                            self.state.edit = None;
                         }
                         self.state.notice = None;
                     }
@@ -4298,6 +4778,9 @@ impl Application {
                 .account
                 .as_ref()
                 .is_some_and(|account| account.premium_type > 0);
+            // Another server's emoji need Nitro, and in a server's channel
+            // Use External Emojis too, as Discord's client has them.
+            let external = nitro && self.may_use_external(chat::Permission::UseExternalEmojis);
             let mut servers: Vec<_> = snapshot.servers.iter().collect();
             servers.sort_by_key(|server| Some(server.id.as_str()) != here);
             return servers
@@ -4316,7 +4799,11 @@ impl Application {
                                 text: format!(":{}:", emoji.name),
                                 id: emoji.id.clone(),
                                 animated: emoji.animated,
-                                usable: nitro || (ours && !emoji.animated),
+                                usable: if ours {
+                                    nitro || !emoji.animated
+                                } else {
+                                    external
+                                },
                                 picture: yapfast_discord::ready::custom_emoji(
                                     &emoji.id,
                                     emoji.animated,
@@ -4330,6 +4817,76 @@ impl Application {
                 .collect();
         }
         vec![]
+    }
+
+    /// Emoji in the timeline and thread rows reported by the UI's viewports.
+    /// Those reports already include their short scroll margins. Animation
+    /// pins must not cover the entire loaded history: picker downloads could
+    /// otherwise make off-screen message animations unevictable.
+    pub fn visible_message_emoji(&self) -> impl Iterator<Item = &chat::CustomEmoji> {
+        fn shown<'a>(messages: &'a [Arc<ChatMessage>], ids: &[String]) -> &'a [Arc<ChatMessage>] {
+            visible_range(messages, ids).map_or(&[], |range| &messages[range])
+        }
+        let timeline = shown(&self.state.messages, &self.visible_messages);
+        let aside = self
+            .state
+            .aside
+            .as_ref()
+            .map_or(&[][..], |aside| shown(&aside.messages, &self.aside_visible));
+        timeline
+            .iter()
+            .chain(aside)
+            .flat_map(|message| &message.emoji)
+    }
+
+    /// The custom emoji among `ids`, as [`Application::emoji_sets`] has them,
+    /// each saying whether this account may use it in the selected room, made
+    /// for those alone: the picker asks for the ones near what it shows each
+    /// time a row scrolls in, and making every server's emoji for that cost
+    /// more than the scroll did.
+    pub fn emoji_by_id(&self, ids: &HashSet<&str>) -> Vec<chat::CustomEmoji> {
+        #[cfg(feature = "discord")]
+        if let Some(snapshot) = &self.discord {
+            if ids.is_empty() {
+                return Vec::new();
+            }
+            let here = self
+                .state
+                .selected
+                .as_deref()
+                .and_then(discord::parse_room)
+                .map(|(guild, _)| guild);
+            let nitro = snapshot
+                .account
+                .as_ref()
+                .is_some_and(|account| account.premium_type > 0);
+            return snapshot
+                .servers
+                .iter()
+                .flat_map(|server| {
+                    let ours = Some(server.id.as_str()) == here;
+                    server
+                        .emojis
+                        .iter()
+                        .filter(|emoji| emoji.available && ids.contains(emoji.id.as_str()))
+                        .map(move |emoji| (emoji, nitro || (ours && !emoji.animated)))
+                })
+                .map(|(emoji, usable)| chat::CustomEmoji {
+                    text: format!(":{}:", emoji.name),
+                    id: emoji.id.clone(),
+                    animated: emoji.animated,
+                    usable,
+                    picture: yapfast_discord::ready::custom_emoji(
+                        &emoji.id,
+                        emoji.animated,
+                        chat::EMOJI_PICTURE_SIZE,
+                    ),
+                })
+                .collect();
+        }
+        #[cfg(not(feature = "discord"))]
+        let _ = ids;
+        Vec::new()
     }
 
     /// The custom emoji this account may use in the selected room, by server, the
@@ -4364,6 +4921,56 @@ impl Application {
             }
         }
         frequent
+    }
+
+    /// Asks for the pictures a picker draws that are not on screen.
+    fn wanted_pictures(&mut self, urls: Vec<String>) -> Vec<Effect> {
+        // What the window has needs no asking; one that failed is asked for
+        // again the next time a picker lays its rail out, rather than staying
+        // missing for the session.
+        let urls: Vec<String> = urls
+            .into_iter()
+            .filter(|url| !url.is_empty() && !self.state.pictures.contains_key(url))
+            .collect();
+        if urls.is_empty() {
+            return vec![];
+        }
+        vec![Effect::Backend(Command::Discord(DiscordCommand::Pictures(
+            urls,
+        )))]
+    }
+
+    /// An emoji's star: puts it among the Discord account's favourites, last,
+    /// or takes it out, as Discord's client does, which keeps at most
+    /// [`yapfast_discord::frecency::MOST_FAVORITE_EMOJIS`]; every client of the
+    /// account shares them.
+    #[cfg(feature = "discord")]
+    pub(super) fn favorite_emoji(&mut self, name: String) -> Vec<Effect> {
+        if name.is_empty() || self.state.preview {
+            return vec![];
+        }
+        let favorites = &mut self.state.discord_emojis.favorites;
+        match favorites.iter().position(|known| *known == name) {
+            Some(index) => {
+                favorites.remove(index);
+            }
+            None if favorites.len() >= yapfast_discord::frecency::MOST_FAVORITE_EMOJIS => {
+                self.state.notice = Some(format!(
+                    "You can have up to {} favourite emoji.",
+                    yapfast_discord::frecency::MOST_FAVORITE_EMOJIS
+                ));
+                return vec![];
+            }
+            None => favorites.push(name),
+        }
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::SetFavoriteEmojis(favorites.clone()),
+        ))]
+    }
+
+    #[cfg(not(feature = "discord"))]
+    pub(super) fn favorite_emoji(&mut self, _name: String) -> Vec<Effect> {
+        vec![]
     }
 
     /// How often this device added each reaction, for an adapter to keep across runs.

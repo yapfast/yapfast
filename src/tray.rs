@@ -5,6 +5,26 @@
 
 use std::cell::Cell;
 
+/// The xdg-activation token of the tray click or Open Yapfast that is
+/// opening the window, which lets a Wayland window come to the front.
+#[cfg(target_os = "linux")]
+static TOKEN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// The token of the tray click that asked for the window, once.
+pub fn take_activation_token() -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        TOKEN
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
 /// What the tray asks for, or says. Each runs on Slint's event loop.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Choice {
@@ -186,6 +206,15 @@ mod linux {
     }
 
     fn choose(chosen: fn(Choice), choice: Choice) {
+        // KDE Plasma sends a click on the icon or a menu item its
+        // xdg-activation token just before the click, and ksni hands it to
+        // the click. Most other trays, such as Waybar, send none.
+        if choice == Choice::Open {
+            *super::TOKEN
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                ksni::current_xdg_activation_token();
+        }
         let _ = slint::invoke_from_event_loop(move || chosen(choice));
     }
 

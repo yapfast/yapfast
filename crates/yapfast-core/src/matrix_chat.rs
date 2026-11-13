@@ -879,12 +879,16 @@ impl Matrix {
                 }
             }
             // `Command::route` sends these elsewhere.
-            // Matrix videos are files to save for now.
+            // Matrix videos and voice messages are files to save for now.
             Command::Voice(_)
             | Command::Discord(_)
             | Command::Aside(_)
             | Command::PlayVideo { .. }
-            | Command::Video(_) => {}
+            | Command::Video(_)
+            | Command::PlayVoiceMessage { .. }
+            | Command::MoveVoiceMessage { .. }
+            | Command::PauseVoiceMessage
+            | Command::TuneVoiceMessage(_) => {}
         }
         true
     }
@@ -1222,6 +1226,7 @@ async fn room_index(client: &Client) -> RoomIndex {
             official: false,
             empty: false,
             preview: None,
+            voice_started: None,
         });
     }
     result.sort_by(|a, b| {
@@ -1954,6 +1959,7 @@ async fn publish_timeline(
                             spoiler: false,
                             video: false,
                             preview: cached.flatten(),
+                            description: None,
                         }];
                     }
                     MessageType::File(content) => {
@@ -1974,6 +1980,7 @@ async fn publish_timeline(
                             url: None,
                             spoiler: false,
                             video: false,
+                            description: None,
                         }];
                     }
                     MessageType::Video(content) => {
@@ -1994,6 +2001,7 @@ async fn publish_timeline(
                             url: None,
                             spoiler: false,
                             video: false,
+                            description: None,
                         }];
                     }
                     MessageType::Audio(content) => {
@@ -2014,6 +2022,7 @@ async fn publish_timeline(
                             url: None,
                             spoiler: false,
                             video: false,
+                            description: None,
                         }];
                     }
                     _ => message.body = text.body().to_owned(),

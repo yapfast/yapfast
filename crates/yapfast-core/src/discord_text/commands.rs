@@ -32,6 +32,14 @@ pub fn command(
         send_poll(discord, room, poll, events);
         return;
     }
+    if let Command::Discord(DiscordCommand::DismissEphemeral { room, item }) = &command {
+        if let (Ok(discord), Some(channel)) = (discord, channels.shown_mut(room))
+            && channel.dismiss(item)
+        {
+            publish(channel, discord, done, events);
+        }
+        return;
+    }
     if let Command::MarkRead { room, sync } = &command {
         if let (Ok(discord), Some((guild, channel))) = (discord, discord::parse_room(room)) {
             discord.mark_read(guild, channel, *sync);
@@ -94,7 +102,19 @@ pub fn command(
     let Some(command) = super::expressions::command(command, discord, events) else {
         return;
     };
+    let Some(command) = super::stickers::command(command, discord, events) else {
+        return;
+    };
+    let Some(command) = super::interactions::command(command, discord, events) else {
+        return;
+    };
     let Some(command) = super::ownership::command(command, discord, events) else {
+        return;
+    };
+    let Some(command) = super::interactions::command(command, discord, events) else {
+        return;
+    };
+    let Some(command) = super::app_commands::command(command, discord, events) else {
         return;
     };
     let room = match &command {
@@ -633,6 +653,11 @@ pub fn live(
     done: &UnboundedSender<Done>,
     events: &UnboundedSender<Event>,
 ) {
+    let event = match event.map(|live| super::interactions::live(live, events)) {
+        Ok(Some(live)) => Ok(live),
+        Ok(None) => return,
+        Err(missed) => Err(missed),
+    };
     if let Ok(Live::ActivityFeedStale { refresh_after_ms }) = &event {
         let wait = discord.activity_feed_stale_wait(*refresh_after_ms);
         let events = events.clone();
@@ -768,7 +793,11 @@ pub fn live(
     // The thread beside the open channel follows as it does.
     if let Some(aside) = channels.aside.as_mut() {
         match &event {
-            Ok(Live::Members { .. }) => {}
+            Ok(Live::Members { .. }) => {
+                if aside.names_changed(discord) {
+                    publish(aside, discord, done, events);
+                }
+            }
             Ok(event) => {
                 if aside.live(event) {
                     publish(aside, discord, done, events);
@@ -790,6 +819,11 @@ pub fn live(
                     room: channel.room.clone(),
                     members: Ok(members.into_iter().map(chat_member).collect()),
                 });
+            }
+            // The list taught Names its members' roles and nicknames, which
+            // the messages show: their authors' colours follow.
+            if channel.names_changed(discord) {
+                publish(channel, discord, done, events);
             }
         }
         Ok(event) => {
