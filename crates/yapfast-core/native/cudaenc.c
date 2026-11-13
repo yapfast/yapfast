@@ -50,29 +50,20 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "cuda_init.h"
-
-/* The vendored ffnvcodec header, which FFmpeg's NVENC encoder uses too: only
- * declarations, since every entry point is resolved from the driver's own
- * library. Relative to this file, so that the build and an editor's language
- * server resolve the same header without an include path either of them has to
- * know. */
+/* The vendored ffnvcodec headers, in the order native/hwdec_cuda.c includes
+ * them and for the same reason: they are declarations of the driver's own APIs,
+ * since every entry point is resolved from the driver's own libraries, so a
+ * CUDA toolkit is needed neither to build this nor to read it. dynlink_cuda.h
+ * comes first because it is what declares the driver's types — `CUresult`,
+ * `CUdevice`, `CUcontext`, `CUdeviceptr` — and the statuses the calls answer
+ * with; NVENC's own header, which FFmpeg's NVENC encoder uses too, comes after
+ * it and takes nothing but what it declares itself. Relative paths, so that the
+ * build and an editor's language server resolve the same headers without an
+ * include path either of them has to know. */
+#include "../../../vendor/ffmpeg-src/include/ffnvcodec/dynlink_cuda.h"
 #include "../../../vendor/ffmpeg-src/include/ffnvcodec/nvEncodeAPI.h"
 
-/* The CUDA driver API, as far as this file needs it: the types are the driver's,
- * and the few entry points are looked up when a share asks for the card rather
- * than linked, so nothing here needs the toolkit's headers. The declarations
- * match cuda.h's. */
-typedef int CUresult;
-typedef int CUdevice;
-typedef void *CUcontext;
-typedef unsigned long long CUdeviceptr;
-
-#define CUDA_SUCCESS 0
-
-/* Where the driver keeps the context a device pointer was allocated in: how a
- * buffer from another context is caught before a session is opened on it. */
-#define CU_POINTER_ATTRIBUTE_CONTEXT 1
+#include "cuda_init.h"
 
 /* The codecs, as Rust numbers them: 0 H.264, 1 HEVC, 2 AV1, the same numbers
  * native/hwenc.c and native/d3d11enc.c take. */
@@ -305,8 +296,11 @@ static void load_cuda(void) {
   }
   /* The converter made a context already, so the driver has started, but stating
    * it here is what makes this file work from the driver's first call rather
-   * than from the caller's, and it says so itself when it can't start at all. */
-  CUresult result = yapfast_cuda_init(cuda.api.cuInit);
+   * than from the caller's, and it says so itself when it can't start at all.
+   * native/cuda_init.h's shim answers an int where the driver answers its status
+   * enum, which are the same value, so the call is cast as native/hwdec_cuda.c
+   * casts it. */
+  CUresult result = (CUresult)yapfast_cuda_init((yapfast_cu_init_fn)(void *)cuda.api.cuInit);
   if (result != CUDA_SUCCESS) {
     const char *named = NULL;
     cuda.api.cuGetErrorName(result, &named);
@@ -465,8 +459,11 @@ static int name_card(struct yapfast_cudaenc *e, char *why, size_t size) {
  * answer the question leaves the answer to that registration. */
 static int same_context(struct yapfast_cudaenc *e, char *why, size_t size) {
   CUcontext owner = NULL;
+  /* The attribute is native/cuda_init.h's name for it: where the driver keeps
+   * the context a device pointer was allocated in, which the vendored header
+   * predates. */
   CUresult result =
-      cuda.api.cuPointerGetAttribute(&owner, CU_POINTER_ATTRIBUTE_CONTEXT,
+      cuda.api.cuPointerGetAttribute(&owner, YAPFAST_CU_POINTER_ATTRIBUTE_CONTEXT,
                                      (CUdeviceptr)(uintptr_t)e->nv12);
   if (result != CUDA_SUCCESS || !owner || owner == e->context) return 0;
   put(why, size,

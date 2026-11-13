@@ -49,85 +49,21 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+/* The vendored ffnvcodec header, which declares the CUDA driver API and needs
+ * no toolkit: relative to this file, so that the build and an editor's language
+ * server resolve the same header without an include path either of them has to
+ * know. It is what native/hwdec_cuda.c includes, and it holds every type this
+ * file names — `CUresult` and the statuses, the device, contexts, modules,
+ * functions, graphics resources and streams, and the EGL frame the driver fills
+ * — along with the enumerations the calls below are given. */
+#include "../../../vendor/ffmpeg-src/include/ffnvcodec/dynlink_cuda.h"
+
 #include "cuda_init.h"
 
-/* The CUDA driver API, as far as this file needs it: the types are the
- * driver's, and the few entry points are looked up when a share asks for the
- * card rather than linked. The declarations match cuda.h's; the structs the
- * driver fills are laid out as cuda_egl_interop.h defines them, which is what
- * makes them usable without the toolkit's headers. */
-typedef int CUresult;
-typedef int CUdevice;
-typedef void *CUcontext;
-typedef void *CUmodule;
-typedef void *CUfunction;
-typedef unsigned long long CUdeviceptr;
-typedef void *CUgraphicsResource;
-typedef void *CUstream;
-typedef unsigned long long CUtexObject;
-
-#define CUDA_SUCCESS 0
-
-typedef struct CUeglFrame_st {
-  union {
-    void *pArray[3];
-    void *pMipmappedArray[3];
-    CUdeviceptr pDevPtr[3];
-    unsigned long long pSurfObject[3];
-  } frame;
-  unsigned int width;
-  unsigned int height;
-  unsigned int depth;
-  unsigned int pitch;
-  unsigned int planeCount;
-  unsigned int numChannels;
-  int frameType;
-  int eglColorFormat;
-  int cuFormat;
-} CUeglFrame;
-
-#define CU_EGL_FRAME_TYPE_ARRAY 0
-#define CU_EGL_FRAME_TYPE_PITCH 1
-#define CU_GRAPHICS_REGISTER_FLAGS_READ_ONLY 0x1
-
-/* A texture object over an array, as cuda.h lays out the two descriptions it
- * is made from: what it reads, and how. The kernels read a tiled picture's
- * array through one, texel by texel, rather than a copy of its rows. */
-typedef struct cuda_resource_desc_st {
-  int resType;
-  union {
-    void *hArray;
-    int reserved[32];
-  } res;
-  unsigned flags;
-} cuda_resource_desc;
-
-typedef struct cuda_texture_desc_st {
-  int addressMode[3];
-  int filterMode;
-  unsigned flags;
-  unsigned maxAnisotropy;
-  int mipmapFilterMode;
-  float mipmapLevelBias;
-  float minMipmapLevelClamp;
-  float maxMipmapLevelClamp;
-  float borderColor[4];
-  int reserved[12];
-} cuda_texture_desc;
-
-#define CU_RESOURCE_TYPE_ARRAY 0
-#define CU_TR_ADDRESS_MODE_CLAMP 1
-#define CU_TR_FILTER_MODE_POINT 0
-#define CU_TRSF_READ_AS_INTEGER 0x01
-
-#define CU_MEMORYTYPE_HOST 1
-#define CU_MEMORYTYPE_DEVICE 2
-#define CU_MEMORYTYPE_ARRAY 3
-
-/* A copy of a rectangle between the places a picture can be: host memory, the
- * card's own memory, or the array a driver imported a tiled picture as. This is
- * the copy a block-linear array takes, where a two-dimensional one is refused.
- * Laid out as cuda.h lays out `CUDA_MEMCPY3D`. */
+/* `CUDA_MEMCPY3D`'s shape, which the vendored dynlink_cuda.h doesn't declare:
+ * the copy a block-linear picture takes, between the array the driver imported
+ * it as and the card's own memory. Laid out field for field, in cuda.h's order,
+ * because the driver reads the structure itself. */
 typedef struct cuda_memcpy3d_st {
   size_t srcXInBytes, srcY, srcZ;
   size_t srcLOD;
@@ -176,8 +112,8 @@ struct cuda_api {
   CUresult (*cuMemcpy3D)(const cuda_memcpy3d *);
   /* A texture over the array GL's picture lies in, which the kernels read where
    * it is: optional, and a driver without it copies the rows first. */
-  CUresult (*cuTexObjectCreate)(CUtexObject *, const cuda_resource_desc *,
-                                const cuda_texture_desc *, const void *);
+  CUresult (*cuTexObjectCreate)(CUtexObject *, const CUDA_RESOURCE_DESC *,
+                                const CUDA_TEXTURE_DESC *, const void *);
   CUresult (*cuTexObjectDestroy)(CUtexObject);
   CUresult (*cuMemFree)(CUdeviceptr);
   CUresult (*cuLaunchKernel)(CUfunction, unsigned, unsigned, unsigned, unsigned,
@@ -730,8 +666,10 @@ struct yapfast_cudaconvert *yapfast_cudaconvert_new(int drm_fd, unsigned width,
   }
   /* The driver is initialised before anything asks it a question: `cuDeviceGet`
    * and the EGL device's CUDA ordinal both need it, and the session and the
-   * decoder ask the same function, so the process starts it once (cuda_init.c). */
-  if (yapfast_cuda_init(c->cuda.cuInit) != CUDA_SUCCESS) {
+   * decoder ask the same function, so the process starts it once (cuda_init.c).
+   * That shim answers an int where the driver answers its status enum, which are
+   * the same value, so the call is cast as native/hwdec_cuda.c casts it. */
+  if ((CUresult)yapfast_cuda_init((yapfast_cu_init_fn)(void *)c->cuda.cuInit) != CUDA_SUCCESS) {
     put(c->error, sizeof(c->error), "the CUDA driver wouldn't start");
     put(error, size, "%s", c->error);
     yapfast_cudaconvert_free(c);
@@ -1045,11 +983,11 @@ static int copy_rows(struct yapfast_cudaconvert *c, void *array, unsigned width,
 static int convert_array(struct yapfast_cudaconvert *c, void *array, unsigned width,
                          unsigned height, const struct nv12_target *target) {
   if (c->cuda.cuTexObjectCreate != NULL && c->cuda.cuTexObjectDestroy != NULL) {
-    cuda_resource_desc resource;
+    CUDA_RESOURCE_DESC resource;
     memset(&resource, 0, sizeof(resource));
     resource.resType = CU_RESOURCE_TYPE_ARRAY;
-    resource.res.hArray = array;
-    cuda_texture_desc texture;
+    resource.res.array.hArray = array;
+    CUDA_TEXTURE_DESC texture;
     memset(&texture, 0, sizeof(texture));
     texture.addressMode[0] = texture.addressMode[1] = texture.addressMode[2] =
         CU_TR_ADDRESS_MODE_CLAMP;
@@ -1326,7 +1264,7 @@ int yapfast_cudaconvert_convert(struct yapfast_cudaconvert *c, int fd, unsigned 
   if (c->cuda.cuGraphicsResourceGetMappedEglFrame(&frame, resource, 0, 0) != CUDA_SUCCESS) {
     put(c->error, sizeof(c->error), "CUDA wouldn't say where the imported picture lies%s",
         mapped ? "" : ", and wouldn't map it");
-  } else if (frame.frameType == CU_EGL_FRAME_TYPE_PITCH && frame.frame.pDevPtr[0] != 0) {
+  } else if (frame.frameType == CU_EGL_FRAME_TYPE_PITCH && frame.frame.pPitch[0] != NULL) {
     if (frame.pitch < stride) {
       /* The driver imported the picture at a narrower pitch than the descriptor's
        * own: the kernels read rows at the pitch they are given, so this one would
@@ -1337,7 +1275,10 @@ int yapfast_cudaconvert_convert(struct yapfast_cudaconvert *c, int fd, unsigned 
     } else {
       c->source_width = width;
       c->source_height = height;
-      ok = launch(c, (const void *)(uintptr_t)frame.frame.pDevPtr[0], frame.pitch, (int)width,
+      /* dynlink_cuda.h names the frame's first union member `pPitch` where a
+       * toolkit's cuda.h names it `pDevPtr`: the driver writes the plane's
+       * device pointer into the same eight bytes either way. */
+      ok = launch(c, (const void *)frame.frame.pPitch[0], frame.pitch, (int)width,
                   (int)height, 0, 0, NULL);
     }
   } else if (frame.frameType == CU_EGL_FRAME_TYPE_ARRAY && frame.frame.pArray[0] != NULL) {
