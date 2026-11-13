@@ -1,5 +1,9 @@
 //! `stream_worker`'s source.
 
+use std::sync::{Mutex, atomic::AtomicBool};
+
+use serde::{Deserialize, Serialize};
+
 use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -7,6 +7,8 @@ use std::{
     thread,
 };
 
+pub use yapfast_media::device::Device;
+
 use anyhow::{Context, Result};
 use livekit::PlatformAudio;
 use tokio::sync::{mpsc, watch};
@@ -24,12 +26,6 @@ pub enum Phase {
     Connected,
     Reconnecting,
     Leaving,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Device {
-    pub id: String,
-    pub name: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

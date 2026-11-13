@@ -21,11 +21,11 @@ pub mod backend;
 pub mod blocks;
 #[cfg(feature = "matrix")]
 pub mod calls;
-pub mod camera;
 /// Which way a screen is captured, and the setting that decides it; see
 /// src/capture.rs.
 pub mod capture;
 // The base a stream and a call both sit on, from the media crate.
+pub use yapfast_media::camera;
 pub use yapfast_media::{av_timing, frames, gpu, logging, picture, pressure, volume};
 pub mod chat;
 pub mod cli;

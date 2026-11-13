@@ -26,7 +26,7 @@ use std::{
 
 use anyhow::{Result, bail};
 
-use crate::{picture::I420, voice::Device};
+use crate::{device::Device, picture::I420};
 
 /// The largest picture captured, and how often: 720p at 30 a second, as
 /// Discord's client films without Nitro and LiveKit's default camera does.
@@ -155,8 +155,8 @@ mod native {
 
     use super::{Sink, Size};
     use crate::{
+        device::Device,
         picture::{I420, RawPicture},
-        voice::Device,
     };
 
     #[repr(C)]

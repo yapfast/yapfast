@@ -86,13 +86,16 @@ mod processor;
 mod report;
 mod share;
 mod sink;
-mod source;
 mod watch;
 mod worker;
 
 pub(crate) use card::*;
 pub(crate) use codec::*;
+mod source;
+pub(crate) use source::*;
+
 pub(crate) use consts::*;
+
 pub(crate) use encoding::*;
 pub(crate) use geometry::*;
 #[allow(unused_imports)]
@@ -104,7 +107,11 @@ pub(crate) use processor::*;
 pub(crate) use report::*;
 pub(crate) use share::*;
 pub(crate) use sink::*;
-pub(crate) use source::*;
+pub use source::Shareable;
+pub use source::Source;
+pub use source::pick;
+pub use source::portal_picks;
+pub use source::shareable;
 pub(crate) use watch::*;
 #[allow(unused_imports)]
 pub(crate) use worker::*;
@@ -124,11 +131,6 @@ pub use job::Control;
 pub use job::Job;
 pub use job::run;
 pub use report::Report;
-pub use source::Shareable;
-pub use source::Source;
-pub use source::pick;
-pub use source::portal_picks;
-pub use source::shareable;
 pub use worker::Worker;
 
 #[cfg(test)]

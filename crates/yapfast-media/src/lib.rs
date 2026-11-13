@@ -6,8 +6,10 @@
 //! these, and this crate does not.
 
 pub mod av_timing;
+pub mod camera;
 pub mod clock;
 pub mod codec;
+pub mod device;
 // A picture the compositor drew, as the descriptor it is: Linux's alone.
 #[cfg(target_os = "linux")]
 pub mod dmabuf;
