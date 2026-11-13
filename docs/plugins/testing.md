@@ -110,7 +110,7 @@ change, while one that never asked is told nothing.
 What the parent answers itself needs no `.wat` fixture, because the helper only
 carries the call: `plugins/world.rs`'s own tests publish an account, a room list
 and a timeline and check the answers, the frame cap and that publishing what
-hasn't changed replaces nothing, and `plugins/bridge/`'s drive a fake session
+hasn't changed replaces nothing, and `yapfast-plugins`' `bridge/` drives a fake session
 to check that a read answers and that a read without its capability is refused
 by the name of the one it needs.
 

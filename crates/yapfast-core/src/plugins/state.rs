@@ -23,12 +23,17 @@ use yapfast_plugin_api::manifest::CommandDecl;
 use yapfast_plugin_api::message::PluginStatus;
 
 use crate::plugins::bridge;
+pub use crate::plugins::bridge::messages::{AppCall, Notice, PreSend};
 use crate::plugins::settings;
 
 /// Everything the application knows about plugins.
 pub struct PluginState {
     /// The bridge's half: the registry, the helper and its mailboxes.
     bridge: bridge::Bridge,
+    /// The application's state as the wire carries it, which the bridge answers
+    /// a guest's reads from. Held here rather than asked of the bridge, because
+    /// publishing is the application's side of it.
+    world: Arc<crate::plugins::world::World>,
     /// What the person has allowed, which the gate asks and a page answers.
     grants: Arc<crate::plugins::grants::Grants>,
     /// The plugins' settings, written on a thread of its own so the interface
@@ -51,223 +56,6 @@ pub struct PluginState {
     presences: crate::plugins::presence::Presences,
 }
 
-/// Something the plugin system did, for the application to act on.
-///
-/// The bridge hands these to the closure it was opened with, which the
-/// application turns into `Event::Plugin`: that is how a hook's answer reaches
-/// the composer without the application polling anything.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Notice {
-    /// A `message.pre_send` chain finished: send this draft.
-    SendReady { id: u64, draft: Draft },
-    /// A `message.pre_send` chain stopped the send, and why.
-    SendBlocked { id: u64, reason: String },
-    /// A `typing.pre_send` chain let a typing indicator go: the application
-    /// sends it now, which is the only way a plugin may withhold one without
-    /// the composer waiting.
-    Typing { id: u64, room: String },
-    /// An `attachment.pre_upload` chain answered about a file the composer is
-    /// taking: the name the upload should go under, or the reason it doesn't.
-    Attachment {
-        id: u64,
-        name: Option<String>,
-        blocked: Option<String>,
-    },
-    /// A plugin's state changed, for the page that lists them.
-    Status {
-        plugin: PluginId,
-        status: PluginStatus,
-    },
-    /// A command answered with a line for the person, or failed with a reason.
-    Command { plugin: PluginId, text: String },
-    /// A fetch finished, for the page's Add from URL: the plugin it found, or
-    /// the sentence saying why there is none.
-    Fetched {
-        url: String,
-        result: Result<crate::plugins::installing::Fetched, String>,
-    },
-    /// The marketplace was read, or why it couldn't be: its listings and
-    /// icons, which are held only while the page that asked is open.
-    Catalog {
-        source: String,
-        result: Result<Box<crate::plugins::marketplace::Catalog>, String>,
-    },
-    /// A guest asked Yapfast to do something only the application can: send a
-    /// message, write the composer, notify, copy or open a page. The answer goes
-    /// back through [`PluginState::answer_call`], so nothing waits on the
-    /// interface thread.
-    Call {
-        plugin: PluginId,
-        call: u64,
-        request: AppCall,
-    },
-    /// A plugin wants a host the person hasn't allowed, so a page can ask.
-    ///
-    /// The gate asks rather than holding the request open, and the plugin asks
-    /// again once the answer is in; without this the ask had nowhere to go and
-    /// the plugin waited on a dialog that was never shown.
-    Consent { plugin: PluginId, host: String },
-    /// What a plugin drew in a slot, or under a message, for the interface to
-    /// keep and show. The runtime coalesces these, so a plugin that draws once
-    /// per event costs one update per frame at most.
-    Slot(crate::plugins::slots::Output),
-    /// How a plugin says one person looks: the application keeps it under the
-    /// pair the plugin was asked about, and every surface that shows that
-    /// person reads it from there. `rank` is where the plugin sits in the
-    /// chain, so which plugin wins doesn't depend on which answer arrived
-    /// first.
-    Identity {
-        plugin: PluginId,
-        person: String,
-        server: Option<String>,
-        rank: usize,
-        identity: Option<yapfast_plugin_api::identity::Identity>,
-    },
-    /// What a plugin made of one code block on screen: spans that spell the
-    /// block again, kept by the block's content hash. `rank` is where the plugin
-    /// sits in the chain, so the earlier plugin's colours win whatever order two
-    /// answers arrive in.
-    CodeBlock {
-        plugin: PluginId,
-        block: String,
-        rank: usize,
-        spans: Option<Vec<yapfast_plugin_api::code::Span>>,
-    },
-    /// Take away everything one plugin drew, because it was turned off or
-    /// suspended: a plugin that isn't running shows nothing.
-    SlotsGone(PluginId),
-    /// Take away everything every plugin drew, because the store changed under
-    /// them: an install, an uninstall or a roll back.
-    SlotsReset,
-}
-
-/// A guest call the application itself has to carry out.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AppCall {
-    Send {
-        room: String,
-        body: String,
-    },
-    Edit {
-        room: String,
-        message: String,
-        body: String,
-    },
-    Delete {
-        room: String,
-        message: String,
-    },
-    React {
-        room: String,
-        message: String,
-        emoji: String,
-    },
-    JumpTo {
-        room: String,
-        message: String,
-    },
-    GetDraft {
-        room: String,
-    },
-    SetDraft {
-        room: String,
-        body: String,
-    },
-    Insert {
-        room: String,
-        text: String,
-    },
-    Notify {
-        text: String,
-    },
-    Copy {
-        text: String,
-    },
-    Open {
-        url: String,
-    },
-    /// The curated actions of PLAN §17.2: each wraps something Yapfast
-    /// already does, so the token, the rate limiter and the person's own
-    /// permissions stay here.
-    SetStatus {
-        status: String,
-    },
-    SetCustomStatus {
-        emoji: Option<String>,
-        text: String,
-        clear_after: Option<u64>,
-    },
-    /// Whether the game Discord sees this account play shows on it; Yapfast
-    /// publishes no activity of its own.
-    SetActivity {
-        enabled: bool,
-    },
-    MarkRead {
-        room: String,
-    },
-    SetMute {
-        room: String,
-        muting: crate::chat::Muting,
-    },
-    OpenRoom {
-        room: String,
-    },
-    StartReply {
-        room: String,
-        message: String,
-    },
-    StartEdit {
-        room: String,
-        message: String,
-    },
-    /// The reactions the open timeline holds for a message, with their
-    /// counts. Who gave them is a request Yapfast makes, not state it keeps.
-    Reactors {
-        room: String,
-        message: String,
-    },
-    PauseInvites {
-        server: String,
-        invites: bool,
-        dms: bool,
-        hours: u8,
-    },
-    AddEmoji {
-        server: String,
-        name: String,
-        /// The picture, as the plugin brought it; the format is read from its
-        /// own first bytes.
-        image: Vec<u8>,
-    },
-    AddSticker {
-        server: String,
-        name: String,
-        tags: String,
-        description: String,
-        image: Vec<u8>,
-    },
-    /// A sound file to play on the speakers, and how loud.
-    PlaySound {
-        sound: Vec<u8>,
-        volume: Option<u8>,
-    },
-    /// Text for the OS's own speech.
-    Speak {
-        text: String,
-    },
-}
-
-/// What `pre_send` decided about an outgoing message.
-pub enum PreSend {
-    /// No plugin intercepts sends, or the chain already answered: send this
-    /// draft unchanged, without waiting for anything.
-    Send(Draft),
-    /// Interceptors are running. The composer is cleared now and the send
-    /// completes when the answer arrives as `Event::Plugin`; a spinner shows
-    /// only past 100 ms.
-    Held { id: u64 },
-}
-
 impl PluginState {
     /// Reads the store, the lock file and the enabled manifests, and starts
     /// nothing: the helper runs from the first activation onward.
@@ -279,7 +67,20 @@ impl PluginState {
         version: &str,
         wake: Arc<dyn Fn(Notice) + Send + Sync>,
     ) -> anyhow::Result<Self> {
-        let mut bridge = bridge::Bridge::open(data_dir, version, wake)?;
+        let world = Arc::new(crate::plugins::world::World::new(version));
+        // The bridge reads the same value through its own trait, so a guest's
+        // answers come from what this side published.
+        let as_wire: Arc<dyn yapfast_plugins::bridge::world::World> = world.clone();
+        let mut bridge = bridge::Bridge::open(
+            data_dir,
+            wake,
+            bridge::Host {
+                tasks: Arc::new(crate::plugins::tasks::Tasks::default()),
+                // The helper's own words are the application's log.
+                stderr: crate::logging::for_worker,
+            },
+            as_wire,
+        )?;
         // The gate is this side's to build. It holds the grants and opens the
         // socket, because the helper has neither a person to ask nor a client
         // to open one with; until it is installed here, every `http.fetch`
@@ -302,6 +103,7 @@ impl PluginState {
         bridge.install_pictures(Arc::new(crate::plugins::world::Disk));
         Ok(PluginState {
             bridge,
+            world,
             grants,
             settings: settings::Store::new(data_dir.join("plugins")),
             refused: BTreeMap::new(),
@@ -316,7 +118,7 @@ impl PluginState {
     /// guest's reads from the same value, which is why it is cheap to publish
     /// into: an `Arc` clone per change, and nothing at all when nothing moved.
     pub fn world(&self) -> &Arc<crate::plugins::world::World> {
-        self.bridge.world()
+        &self.world
     }
 
     /// What the person has allowed, for the page that asks and revokes.
@@ -755,7 +557,11 @@ impl PluginState {
     /// with it, because a refused value is never stored and the page's copy of
     /// the form is read back from the store.
     pub fn page(&self) -> crate::plugins::page::View {
-        let mut view = self.bridge.page(&self.grants);
+        // A log line's time is the application's clock: its hour format and its
+        // time zone are settings this side holds.
+        let mut view = self.bridge.page(&self.grants, &|at: u64| {
+            crate::clock::time_with(at / 1000, false, true)
+        });
         for installed in &mut view.installed {
             let Ok(id) = PluginId::parse(&installed.id) else {
                 continue;

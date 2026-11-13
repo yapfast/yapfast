@@ -215,12 +215,17 @@ hosts a person allowed, `network.rs` is the gate a fetch goes through, `store.rs
 reads the content-addressed store and its lock file, `marketplace.rs` and
 `installing.rs` take a plugin in, `settings.rs`, `page.rs`, `slots.rs` and `ui.rs`
 say what its page and its widgets show, and `spawn.rs` finds the helper's binary.
-`crates/yapfast-core/src/plugins/` is what only this application can do: `bridge/`
-owns the helper's pipes as one Tokio task and turns frames into events,
-`state.rs` holds a session's plugins, `world.rs` hands a plugin the
-application's own state as the values the wire carries, `audio.rs` its sounds and
-recordings, `view.rs` the page's helper and log lines, and `identity.rs`,
-`presence.rs` and `retention.rs` the people and messages it filters. The
+`bridge/` is also the crate's: it owns the helper's pipes as one Tokio task and
+turns frames into events, because what crosses the pipe is a plugin's business.
+The two things it can't give itself are the application's, and it asks for them
+by trait: `bridge/tasks.rs` is the runtime its work runs on, `bridge/world.rs` the
+application's state as the wire carries it, and `bridge/messages.rs` the answers it
+hands back. `crates/yapfast-core/src/plugins/` is what only this application can
+do: `state.rs` holds a session's plugins, `world.rs` publishes the application's
+own state into the shape the wire carries and implements that trait, `audio.rs`
+gives a plugin its sounds and recordings, `tasks.rs` the runtime behind
+`bridge/tasks.rs`, and `identity.rs`, `presence.rs` and `retention.rs` the people
+and messages it filters. The
 application's side is `crates/yapfast-core/src/application/plugins.rs`, and the
 interface's is `src/ui/plugins.rs` with `ui/plugins.slint`.
 
@@ -233,9 +238,9 @@ A change to what a plugin can do usually touches each of these steps:
 1. **Contract.** A new method, event kind or payload field goes in
    `yapfast-plugin-api`. Adding one keeps `API_VERSION`; changing what an
    existing one means raises it. See [the ABI](plugins/abi.md).
-2. **Parent.** A host method is answered in `yapfast-core`'s `plugins/bridge/`,
-   which checks the capability in `yapfast-plugins`' `permissions.rs` and, for a
-   request, the host in its `network.rs` before doing any work.
+2. **Parent.** A host method is answered in `yapfast-plugins`' `bridge/`, which
+   checks the capability in `permissions.rs` beside it and, for a request, the
+   host in `network.rs` before doing any work.
 3. **Helper.** What the guest's call becomes in the sandbox is
    `yapfast-plugin-host`'s `runtime.rs`, and when it runs is the scheduler's.
 4. **Application.** An `Action` goes to `application/plugins.rs`, which decides

@@ -16,7 +16,7 @@ serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 futures-util.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["macros"] }
 # A grant and a setting are written beside their file and renamed over it, so a
 # crash leaves the old one whole.
 tempfile.workspace = true

@@ -13,10 +13,13 @@
 //! crate readable on its own, so a type from the application appearing here is
 //! the mistake to look for.
 //!
-//! Nothing here starts a process: the bridge to the helper, its sessions and
-//! the helper's own start are in `yapfast-core`'s `plugins` too, because they
-//! speak to the app's runtime and to its model. See `docs/plugins/`.
+//! [`bridge`] is the one part that talks to the helper process: it is here
+//! because what crosses the pipe is a plugin's business, and it asks the
+//! application for the two things it can't give itself — the threads its work
+//! runs on ([`bridge::tasks::Spawn`]) and the application's state as the wire
+//! carries it ([`bridge::world::World`]). See `docs/plugins/`.
 
+pub mod bridge;
 pub mod code_block;
 pub mod fetch;
 pub mod grants;
@@ -34,6 +37,7 @@ pub mod store;
 pub mod transport;
 pub mod tweaks;
 pub mod ui;
+pub mod view;
 
 use std::path::{Path, PathBuf};
 

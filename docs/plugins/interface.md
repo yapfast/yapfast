@@ -410,7 +410,7 @@ A guest asks with `ui.set_slot` and `ui.clear_slot`; `ui.notice` and
 plugin's own surface, and only changes to Yapfast's own interface need
 `ui.modify`.
 
-The bridge in [`plugins/bridge/`](../../crates/yapfast-core/src/plugins/bridge/)
+The bridge in [`plugins/bridge/`](../../crates/yapfast-plugins/src/bridge/)
 answers the call, not the interface, so a guest never waits on a frame:
 
 - **The tree is checked first.** `Tree::parse` refuses one over the cap or an

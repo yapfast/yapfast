@@ -986,12 +986,12 @@ impl Application {
                 // person picks Mute.
                 let mut effects = self.dispatch(AppAction::MuteDm {
                     room: room.clone(),
-                    muting,
+                    muting: Self::plugin_muting(muting),
                 });
                 if effects.is_empty() {
                     effects = self.dispatch(AppAction::ChangeNotifications {
                         place: room,
-                        change: crate::chat::NotificationChange::Mute(muting),
+                        change: crate::chat::NotificationChange::Mute(Self::plugin_muting(muting)),
                     });
                 }
                 (effects, done)
@@ -1169,6 +1169,19 @@ impl Application {
         } else {
             self.dispatch(AppAction::Reply(message))
         })
+    }
+
+    /// `discord.set_mute`'s length of time, as the application mutes with: the
+    /// wire carries it as a plugin's call does, and the room's own switch takes
+    /// this application's.
+    fn plugin_muting(mute: yapfast_plugin_api::call::Mute) -> crate::chat::Muting {
+        match mute {
+            yapfast_plugin_api::call::Mute::Off => crate::chat::Muting::Off,
+            yapfast_plugin_api::call::Mute::Always => crate::chat::Muting::Always,
+            yapfast_plugin_api::call::Mute::Minutes(minutes) => {
+                crate::chat::Muting::Minutes(minutes)
+            }
+        }
     }
 
     /// Pauses a server's invites, or resumes them, as Security Actions does.
@@ -2653,7 +2666,7 @@ mod tests {
             &plugin(),
             crate::plugins::state::AppCall::SetMute {
                 room: "discord:@me:7".into(),
-                muting: crate::chat::Muting::Minutes(60),
+                muting: yapfast_plugin_api::call::Mute::Minutes(60),
             },
         );
         assert!(matches!(

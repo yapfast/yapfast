@@ -29,6 +29,7 @@ use yapfast_plugin_api::frame::MAX_FRAME;
 
 use crate::chat::{ChatMember, ChatMessage, ChatRoom};
 
+use yapfast_plugins::bridge::world::MemberAnswer;
 /// The room an id names, as the room list answers it.
 ///
 /// One answer carries at most this much: the frame's cap minus the room the
@@ -49,6 +50,52 @@ fn json_len(value: &impl serde::Serialize) -> usize {
     // A value that can't be serialized can't be written either, and measures as
     // nothing, which only makes the cap optimistic by one item's worth.
     super::store::json_bytes(value).map_or(0, |bytes| bytes as usize + 1)
+}
+
+/// The application's state as the bridge reads it: what a guest's calls are
+/// answered from, in the wire's own shapes. The methods above do the work; this
+/// is the trait the bridge names, so that crate never sees `World`'s own fields.
+impl yapfast_plugins::bridge::world::World for World {
+    fn app(&self) -> yapfast_plugin_api::call::AppInfo {
+        World::app(self)
+    }
+
+    fn me(&self) -> Option<yapfast_plugin_api::call::AccountView> {
+        World::me(self)
+    }
+
+    fn selected(&self) -> Option<yapfast_plugin_api::event::RoomView> {
+        World::selected(self)
+    }
+
+    fn room(&self, id: &str) -> Option<yapfast_plugin_api::event::RoomView> {
+        World::room(self, id)
+    }
+
+    fn rooms(&self, limit: Option<usize>) -> Vec<yapfast_plugin_api::event::RoomView> {
+        World::rooms(self, limit)
+    }
+
+    fn message(&self, room: &str, id: &str) -> Option<yapfast_plugin_api::event::MessageView> {
+        World::message(self, room, id)
+    }
+
+    fn history(
+        &self,
+        room: &str,
+        before: Option<&str>,
+        limit: Option<usize>,
+    ) -> Option<Vec<yapfast_plugin_api::event::MessageView>> {
+        World::history(self, room, before, limit)
+    }
+
+    fn person(&self, id: &str) -> Option<yapfast_plugin_api::event::PersonView> {
+        World::person(self, id)
+    }
+
+    fn member(&self, server: &str, id: &str) -> MemberAnswer {
+        World::member(self, server, id)
+    }
 }
 
 /// The picture store as Yapfast keeps it: the Discord client's disk cache,
@@ -406,27 +453,6 @@ impl World {
                     timed_out_until: member.timed_out_until,
                 }),
         )
-    }
-}
-
-/// What `people.member` found.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum MemberAnswer {
-    /// The server's members are the open conversation's, and this is who is
-    /// there, when anyone with that id is.
-    Open(Option<MemberView>),
-    /// The members of another server aren't in memory: only the conversation on
-    /// screen has its people loaded.
-    NotOpen,
-}
-
-impl MemberAnswer {
-    /// The member, or nothing, when the server's list is the open one.
-    pub fn open(self) -> Option<Option<MemberView>> {
-        match self {
-            MemberAnswer::Open(found) => Some(found),
-            MemberAnswer::NotOpen => None,
-        }
     }
 }
 

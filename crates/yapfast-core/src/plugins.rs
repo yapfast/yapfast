@@ -28,12 +28,11 @@
 //! ```
 
 pub mod audio;
-pub mod bridge;
 pub mod identity;
 pub mod presence;
 pub mod retention;
 pub mod state;
-pub mod view;
+pub mod tasks;
 pub mod world;
 
 // The plugin system's own knowledge, which the application names through this
