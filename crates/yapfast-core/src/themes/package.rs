@@ -1034,7 +1034,7 @@ const TOP_KEYS: [&str; 15] = [
 ];
 
 /// The layers, at the top level or in a variant.
-const LAYER_KEYS: [&str; 12] = [
+const LAYER_KEYS: [&str; 13] = [
     "art",
     "content",
     "layout",
