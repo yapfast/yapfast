@@ -1629,7 +1629,7 @@ pub(super) fn check_with(
             "\"layout.rail\" is \"hidden\" without \"chrome.topbar.workspaces\": nothing would switch servers".into(),
         ));
     }
-    if let Some(tiles) = &layout.rail_tiles {
+    if layout.rail_tiles.is_some() {
         if resolved.chrome.rail == Some(RailMode::Text) {
             return Err(Error(
                 "\"layout.rail_tiles\" and a text rail (\"chrome.rail\") both draw the rail: pick one".into(),

@@ -536,7 +536,9 @@ component TileFace inherits Rectangle {
     in property <bool> stamped;
     /// Draws no picture: a folder draws its own preview in the window.
     in property <bool> preview;
-    property <TileLayer> frame: root.frame-override.on ? root.frame-override
+    /// Draws no frame, as a frameless folder's card.
+    in property <bool> frameless;
+    property <TileLayer> frame: root.frameless ? Rails.none() : root.frame-override.on ? root.frame-override
         : root.selected && Rails.sel-frame.on ? Rails.sel-frame : Rails.frame(root.seed);
     property <TileLayer> over: Rails.over(root.seed);
     out property <length> wx: root.frame.on && root.frame.window ? root.frame.wx : 0px;
@@ -805,7 +807,8 @@ export component TileFolderItem inherits Rectangle {
         }
         face := TileFace {
             width: parent.width; height: parent.height; seed: root.seed; hovered: root.hovered;
-            frame-override: root.frame.on ? root.frame : Rails.folder-colour != transparent ? Rails.none() : Rails.frame(root.seed);
+            frame-override: root.frame.on ? root.frame : Rails.frame(root.seed);
+            frameless: !root.frame.on && Rails.folder-colour != transparent;
             preview: true; name: root.name;
             if root.open: Image {
                 x: face.wx + (face.ww - self.width) / 2; y: face.wy + (face.wh - self.height) / 2;
