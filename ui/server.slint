@@ -1913,7 +1913,9 @@ export component ProfileEditorDialog inherits Rectangle {
                                             Text {
                                                 text: root.pronouns != "" ? root.pronouns : root.prompt.pronouns-fallback != "" ? root.prompt.pronouns-fallback : "Add pronouns";
                                                 color: root.pronouns != "" || root.prompt.pronouns-fallback != "" ? root.ink2 : root.ink3;
-                                                font-size: 14px; font-weight: 500;
+                                                // Shown whole beside the tag, now that the badges have a line
+                                                // of their own, unless too long to leave the tag room.
+                                                font-size: 14px; font-weight: 500; overflow: elide;
                                                 HoverEdit {
                                                     x: -5px; y: (parent.height - self.height) / 2; width: parent.width + 10px; height: 32px;
                                                     enabled: root.ready; label: "Edit pronouns";
@@ -1984,26 +1986,27 @@ export component ProfileEditorDialog inherits Rectangle {
                                             }
                                         }
                                     }
-                                    // Their badges, in a box of their own under the line, as
-                                    // Discord's are: twelve of them, then how many besides.
-                                    if root.prompt.main && root.editing != 2 && root.prompt.preview.badges.length > 0: HorizontalLayout {
-                                        padding-top: 10px; alignment: start;
-                                        Rectangle {
-                                            width: min(root.prompt.preview.badges.length, 12) * 25px + (root.prompt.preview.badges.length > 12 ? 26px : 0px) + 6px; height: 24px;
-                                            background: pill-hover.has-hover ? #97979f33 : #97979f1f;
-                                            border-radius: 8px; border-width: 1px; border-color: #97979f0a;
-                                            pill-hover := TouchArea { mouse-cursor: MouseCursor.default; }
+                                    // Their badges under the line, as Discord's preview sets them:
+                                    // twelve to a row, each row a pill of its own, more going on
+                                    // to the next. (Discord's six and a count is behind an
+                                    // experiment that's off.)
+                                    if root.prompt.main && root.editing != 2 && root.prompt.preview.badges.length > 0: VerticalLayout {
+                                        padding-top: 10px; spacing: 4px; alignment: start;
+                                        for row in ceil(root.prompt.preview.badges.length / 12): HorizontalLayout {
+                                            alignment: start;
                                             Rectangle {
-                                                x: 3px; y: 1px; width: parent.width - 6px; height: 20px;
-                                                for badge[index] in root.prompt.preview.badges: ProfileBadge {
-                                                    x: index * 25px; width: 20px; height: 20px; visible: index < 12;
-                                                    badge: badge;
-                                                    open-link(url) => { root.open-link(url); }
-                                                }
-                                                if root.prompt.preview.badges.length > 12: Text {
-                                                    x: 12 * 25px; width: 24px; height: 20px;
-                                                    text: "+" + (root.prompt.preview.badges.length - 12); color: root.ink2;
-                                                    font-size: 12px; font-weight: 600; vertical-alignment: center; horizontal-alignment: center;
+                                                width: min(root.prompt.preview.badges.length - row * 12, 12) * 22px + 6px; height: 24px;
+                                                background: pill-hover.has-hover ? #97979f33 : #97979f1f;
+                                                border-radius: 8px; border-width: 1px; border-color: #97979f0a;
+                                                pill-hover := TouchArea { mouse-cursor: MouseCursor.default; }
+                                                Rectangle {
+                                                    x: 3px; y: 1px; width: parent.width - 6px; height: 20px;
+                                                    for badge[index] in root.prompt.preview.badges: ProfileBadge {
+                                                        x: (index - row * 12) * 22px; width: 20px; height: 20px;
+                                                        visible: index >= row * 12 && index < row * 12 + 12;
+                                                        badge: badge;
+                                                        open-link(url) => { root.open-link(url); }
+                                                    }
                                                 }
                                             }
                                         }
