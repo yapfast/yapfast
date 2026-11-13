@@ -124,12 +124,19 @@ impl Sink {
     /// for it and converted, once, with the reason in the share's report. That
     /// copy is the one this path makes of a frame, and [`Taken::Sent`] says which
     /// of the ways sent it.
+    ///
+    /// `hdr` is the display's own answer about the screen these pictures come
+    /// from, which the card's kernels read the codes of a picture with: a screen
+    /// showing HDR hands its frames over as HDR's codes. A picture the card's own
+    /// path can't take while the screen shows HDR is the share's to answer with
+    /// the capturer that has the curve, since nothing else here does.
     #[cfg(target_os = "linux")]
     pub(crate) fn dmabuf(
         &mut self,
         shot: &Shot,
         sent: (u32, u32),
         scratch: &mut Scratch,
+        hdr: bool,
     ) -> Result<Taken> {
         let Some((pts, keyframe)) = self.ready(sent, None)? else {
             return Ok(Taken::Held);
@@ -143,10 +150,22 @@ impl Sink {
             (
                 encoder.codec(),
                 encoder.bitrate(),
-                encoder.encode_dmabuf(shot, scratch, sent, pts, keyframe, time_ms)?,
+                encoder.encode_dmabuf(shot, scratch, sent, pts, keyframe, time_ms, hdr)?,
             )
         };
         let made = match made {
+            // A screen showing HDR is where the curve over a picture's codes is
+            // the processor's capture's and not this path's, so a picture the
+            // card turns down there is one nothing here can show in its own
+            // colour: the share goes where the curve is rather than sending
+            // HDR's codes as SDR. The loop says which picture it was, once.
+            #[cfg(nvcuda)]
+            Sent::Card(why) if hdr => {
+                return Ok(Taken::Processor(format!(
+                    "the screen shows HDR, and the card can't take a picture of it where it \
+                     lies: {why}"
+                )));
+            }
             // A picture the card's own path can't take is dropped, not the path.
             // A compositor hands a buffer of another layout now and then — one
             // it drew for something else, or one tiled differently after a

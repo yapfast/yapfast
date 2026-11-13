@@ -13,7 +13,9 @@
 //! format that isn't 32-bit BGRA, a picture the driver holds in neither rows nor
 //! an array, a device that isn't the one the picture came from — it says in a
 //! sentence, which is what the share's ladder falls through on to the processor's
-//! own copy.
+//! own copy. A screen showing HDR is no longer one of them: the kernels read the
+//! codes of such a picture as the light they stand for and write SDR's, on the
+//! way, so the stream is SDR's and no pixel of it comes back for a curve either.
 //!
 //! `Convert` is used by the share's encoder on one thread: the resources it holds
 //! are the driver's, and they are not shared between threads.
@@ -60,6 +62,7 @@ unsafe extern "C" {
         fourcc: c_uint,
         width: c_uint,
         height: c_uint,
+        tone: c_int,
         error: *mut c_char,
         size: usize,
     ) -> c_int;
@@ -274,9 +277,15 @@ impl Convert {
 
     /// Scale and convert one captured picture into the card's own memory, and
     /// give back where the encoder reads it.
-    pub fn convert(&mut self, picture: &Descriptor<'_>) -> Result<Nv12> {
+    ///
+    /// `hdr` says the picture's codes are HDR's, which the display's own answer
+    /// says and not a guess from the pixels: the kernels then apply the curve as
+    /// they scale and convert, so the NV12 the encoder reads is SDR's and the
+    /// picture still never crosses to the processor. A screen showing SDR passes
+    /// false, and nothing in the kernels changes for it.
+    pub fn convert(&mut self, picture: &Descriptor<'_>, hdr: bool) -> Result<Nv12> {
         loop {
-            match self.import(picture) {
+            match self.import(picture, hdr) {
                 Ok(nv12) => return Ok(nv12),
                 Err(error) => {
                     // A device that isn't the picture's refuses to import it, and
@@ -305,7 +314,7 @@ impl Convert {
         }
     }
 
-    fn import(&mut self, picture: &Descriptor<'_>) -> Result<Nv12> {
+    fn import(&mut self, picture: &Descriptor<'_>, hdr: bool) -> Result<Nv12> {
         let plane = picture
             .planes
             .first()
@@ -324,6 +333,7 @@ impl Convert {
                 picture.fourcc,
                 picture.width,
                 picture.height,
+                c_int::from(hdr),
                 error.as_mut_ptr(),
                 error.len(),
             )
@@ -1242,7 +1252,7 @@ mod card_path {
             return;
         };
         let shown = |convert: &mut Convert, encoder: &mut Encoder, frame: u64| {
-            convert.convert(&picture).expect("a convert");
+            convert.convert(&picture, false).expect("a convert");
             let unit = encoder
                 .encode(frame, true)
                 .expect("an encode")
@@ -1338,10 +1348,10 @@ mod card_path {
         };
         let mut convert = Convert::open(width, height).expect("a converter");
         // The first picture finds the door; the rest are what a stream pays.
-        convert.convert(&picture).expect("a convert");
+        convert.convert(&picture, false).expect("a convert");
         let started = std::time::Instant::now();
         for _ in 0..200 {
-            convert.convert(&picture).expect("a convert");
+            convert.convert(&picture, false).expect("a convert");
         }
         eprintln!(
             "a tiled 3440x1440 convert: {:?} on average",
@@ -1397,7 +1407,7 @@ mod card_path {
                     let mut units = Vec::new();
                     for frame in 0..10u64 {
                         convert
-                            .convert(&picture)
+                            .convert(&picture, false)
                             .unwrap_or_else(|error| panic!("{what}: {error:#}"));
                         if let Some(packet) = encoder.encode(frame, frame == 0).expect("an encode")
                         {
