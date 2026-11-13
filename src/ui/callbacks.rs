@@ -2279,6 +2279,9 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
         layout.adjust_each_sound = window.get_adjust_each_sound();
         layout.gpu_rendering = window.get_gpu_rendering();
         layout.gpu_encoding = Some(window.get_gpu_encoding());
+        layout.enhanced_live_preview = window.get_enhanced_live_preview();
+        #[cfg(feature = "discord")]
+        yapfast_core::stream_worker::set_enhanced_preview(layout.enhanced_live_preview);
         #[cfg(feature = "discord")]
         yapfast_core::stream_worker::set_hardware_encoding(window.get_gpu_encoding());
         layout.close_to_tray = Some(window.get_close_to_tray());
@@ -3060,7 +3063,7 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                     .iter()
                     .map(|listed| ShareScreen {
                         title: listed.title.as_str().into(),
-                        picture: Default::default(),
+                        ..Default::default()
                     })
                     .collect();
                 let titles = |listed: &[yapfast_core::stream_worker::Shareable]| {
@@ -3103,6 +3106,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 match report {
                     Report::Screen {
                         id,
+                        source_width,
+                        source_height,
                         width,
                         height,
                         rgba,
@@ -3122,6 +3127,8 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                                 && let Some(mut row) = screens.row_data(at)
                             {
                                 row.picture = slint::Image::from_rgba8(pixels);
+                                row.source_width = source_width as i32;
+                                row.source_height = source_height as i32;
                                 screens.set_row_data(at, row);
                             }
                         });
@@ -3162,8 +3169,11 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
             #[cfg(not(feature = "discord"))]
             let _ = source;
             let resolution = match resolution {
-                0 => voice::Resolution::P720,
-                2 => voice::Resolution::Source,
+                0 => voice::Resolution::Source,
+                480 => voice::Resolution::P480,
+                720 => voice::Resolution::P720,
+                1440 => voice::Resolution::P1440,
+                2160 => voice::Resolution::P2160,
                 _ => voice::Resolution::P1080,
             };
             let quality = voice::StreamQuality {
@@ -3238,10 +3248,11 @@ pub(super) fn bind_callbacks(window: &YapfastWindow, adapter: &Rc<RefCell<Adapte
                 pixels, width, height,
             ))
         };
-        if let Some(frame) = voice
-            .sharing
-            .as_ref()
-            .and_then(|sharing| sharing.frames.take(image))
+        if window.get_window_focused()
+            && let Some(frame) = voice
+                .sharing
+                .as_ref()
+                .and_then(|sharing| sharing.frames.take(image))
         {
             window.set_share_frame(frame);
         }

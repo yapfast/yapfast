@@ -2853,6 +2853,7 @@ fn streams_sound_as_others_start_and_stop_watching() {
         ],
         sharing: sharing.map(|viewers| voice::Sharing {
             phase: voice::SharePhase::Live,
+            enhanced_preview: false,
             frames: frames.clone(),
             viewers: viewers.iter().map(|&viewer| viewer.into()).collect(),
         }),

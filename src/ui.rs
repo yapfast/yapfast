@@ -382,6 +382,10 @@ fn watch_window(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>) {
                 .unwrap_or(false)
         };
         FOCUSED.set(focused);
+        window.set_window_focused(focused);
+        if let Some(adapter) = adapter.upgrade() {
+            adapter.borrow().pause_share_preview(!focused);
+        }
         show_motion(&window);
         // The display's own scale factor, which the zoom multiplies.
         let base = Rc::new(Cell::new(window.window().scale_factor()));
@@ -1354,6 +1358,7 @@ struct Layout {
     /// Screen sharing encodes on the GPU where it has an encoder; on unless
     /// turned off.
     gpu_encoding: Option<bool>,
+    enhanced_live_preview: bool,
     /// The theme chosen, by its id; Yap unless chosen.
     theme: Option<String>,
     /// The person's own themes, in the order Appearance shows them.
@@ -1692,6 +1697,9 @@ impl Layout {
         window.set_adjust_each_sound(self.adjust_each_sound);
         window.set_gpu_rendering(self.gpu_rendering);
         window.set_gpu_encoding(self.gpu_encoding.unwrap_or(true));
+        window.set_enhanced_live_preview(self.enhanced_live_preview);
+        #[cfg(feature = "discord")]
+        yapfast_core::stream_worker::set_enhanced_preview(self.enhanced_live_preview);
         #[cfg(feature = "discord")]
         yapfast_core::stream_worker::set_hardware_encoding(self.gpu_encoding.unwrap_or(true));
         window.set_close_to_tray(self.close_to_tray.unwrap_or(true));
@@ -3082,6 +3090,12 @@ impl Adapter {
         }
         // A handed link may have waited for the dialog this closed.
         self.open_pending_link(window);
+    }
+
+    fn pause_share_preview(&self, paused: bool) {
+        if let Some(sharing) = &self.app.state.voice.sharing {
+            sharing.frames.set_preview_paused(paused);
+        }
     }
 
     /// Applies a backend event; the caller shows what it can have changed after.

@@ -89,6 +89,8 @@ pub enum Job {
         /// Encoding on the GPU's encoder, where it has one.
         #[serde(default)]
         hardware: bool,
+        #[serde(default)]
+        enhanced_preview: bool,
     },
     /// Receives and decodes the stream at `server`, writing pictures that
     /// fit `width` by `height` to the frames file at `frames`.
@@ -345,6 +347,8 @@ pub enum Report {
     /// [`Job::Glance`]: RGBA pixels, `width` by `height`.
     Screen {
         id: u64,
+        source_width: u32,
+        source_height: u32,
         width: u32,
         height: u32,
         #[serde(with = "base64_pixels")]
@@ -407,6 +411,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
             fps,
             effort,
             hardware,
+            enhanced_preview,
         } => {
             let fps = fps.clamp(1, 60);
             let sink = Sink {
@@ -418,6 +423,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
                 fps,
                 effort,
                 hardware,
+                enhanced_preview,
                 started: Instant::now(),
                 streaming: false,
                 preview_due: None,
@@ -501,6 +507,7 @@ struct Sink {
     fps: u32,
     effort: Effort,
     hardware: bool,
+    enhanced_preview: bool,
     started: Instant,
     streaming: bool,
     /// When the stream's next preview is due: from when it starts.
@@ -565,17 +572,18 @@ impl Sink {
     /// down to fit, and Discord gets it once the stream has a server.
     fn frame(&mut self, picture: &mut I420Buffer) -> Result<()> {
         let (width, height) = (picture.width(), picture.height());
-        let preview = fit(width, height, PREVIEW_WIDTH, PREVIEW_HEIGHT);
-        let mut smaller =
-            (preview != (width, height)).then(|| picture.scale(preview.0 as i32, preview.1 as i32));
-        let shown = match smaller.as_mut() {
-            Some(smaller) => smaller,
-            None => &mut *picture,
-        };
-        self.writer
-            .write(preview.0, preview.1, |pixels| to_rgba(shown, pixels));
-        if self.preview_due.is_some_and(|due| due <= Instant::now()) && !is_black(shown) {
-            match thumbnail(shown) {
+        if !self.writer.preview_paused() {
+            let (w, h) = if self.enhanced_preview {
+                (width, height)
+            } else {
+                fit(width, height, PREVIEW_WIDTH, PREVIEW_HEIGHT)
+            };
+            let smaller = ((w, h) != (width, height)).then(|| picture.scale(w as i32, h as i32));
+            let shown = smaller.as_ref().unwrap_or(picture);
+            self.writer.write(w, h, |pixels| to_rgba(shown, pixels));
+        }
+        if self.preview_due.is_some_and(|due| due <= Instant::now()) && !is_black(picture) {
+            match thumbnail(picture) {
                 Ok(thumbnail) => self.thumbnail = Some(thumbnail),
                 Err(error) => {
                     tracing::warn!(error = format!("{error:#}"), "could not make a preview")
@@ -953,9 +961,11 @@ fn test_pattern(
 /// inside it.
 fn bounds(resolution: Resolution) -> (u32, u32) {
     match resolution {
+        Resolution::P480 => (854, 480),
         Resolution::P720 => (1280, 720),
         Resolution::P1080 => (SHARE_WIDTH, SHARE_HEIGHT),
-        Resolution::Source => (3840, 2160),
+        Resolution::P1440 => (2560, 1440),
+        Resolution::P2160 | Resolution::Source => (3840, 2160),
     }
 }
 
@@ -1315,14 +1325,17 @@ fn glance(
         }
         match glance_at(id, stop) {
             Ok(Some(mut picture)) => {
-                let (width, height) = fit(picture.width(), picture.height(), max_width, max_height);
-                if (width, height) != (picture.width(), picture.height()) {
+                let (source_width, source_height) = (picture.width(), picture.height());
+                let (width, height) = fit(source_width, source_height, max_width, max_height);
+                if (width, height) != (source_width, source_height) {
                     picture = picture.scale(width as i32, height as i32);
                 }
                 let mut rgba = vec![0; (width * height * 4) as usize];
                 to_rgba(&picture, &mut rgba);
                 report(Report::Screen {
                     id,
+                    source_width,
+                    source_height,
                     width,
                     height,
                     rgba,
@@ -1396,6 +1409,15 @@ mod base64_pixels {
 /// Whether streams encode on the GPU where it has an encoder: Settings'
 /// choice, on until the UI says.
 static HARDWARE: AtomicBool = AtomicBool::new(true);
+static ENHANCED_PREVIEW: AtomicBool = AtomicBool::new(false);
+
+pub fn set_enhanced_preview(on: bool) {
+    ENHANCED_PREVIEW.store(on, Ordering::Relaxed);
+}
+
+pub(crate) fn enhanced_preview() -> bool {
+    ENHANCED_PREVIEW.load(Ordering::Relaxed)
+}
 
 /// Encodes streams started from now on with the GPU's encoder, or not.
 pub fn set_hardware_encoding(on: bool) {
@@ -1415,10 +1437,17 @@ impl Worker {
     pub fn share(
         source: Source,
         quality: StreamQuality,
+        enhanced_preview: bool,
     ) -> Result<(Self, Frames, mpsc::UnboundedReceiver<Report>)> {
         let source = picked(source);
-        let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT)?;
         let (width, height) = bounds(quality.resolution);
+        let (preview_width, preview_height) = if enhanced_preview {
+            (width, height)
+        } else {
+            (PREVIEW_WIDTH, PREVIEW_HEIGHT)
+        };
+        let frames = Frames::create(preview_width, preview_height)?;
+        frames.set_preview_paused(true);
         let job = Job::Share {
             source,
             frames: frames.path().context("the video frames file has no name")?,
@@ -1431,6 +1460,7 @@ impl Worker {
                 Effort::Light
             },
             hardware: HARDWARE.load(Ordering::Relaxed),
+            enhanced_preview,
         };
         let (worker, reports) = Self::start(&job)?;
         Ok((worker, frames, reports))
@@ -1858,6 +1888,15 @@ mod tests {
         assert_eq!(fit(1920, 1080, 1280, 720), (1280, 720));
         assert_eq!(fit(3440, 1440, 1280, 720), (1280, 534));
         assert_eq!(fit(801, 601, 1280, 720), (800, 600), "never larger");
+        for (resolution, expected) in [
+            (Resolution::P480, (852, 480)),
+            (Resolution::P1440, (2560, 1440)),
+            (Resolution::P2160, (3840, 2160)),
+        ] {
+            let (width, height) = bounds(resolution);
+            assert_eq!(fit(3840, 2160, width, height), expected);
+            assert_eq!(fit(640, 360, width, height), (640, 360));
+        }
     }
 
     /// With the GPU, AV1 and H265 before H264 where they open, and an
@@ -1875,6 +1914,7 @@ mod tests {
             fps: 30,
             effort: Effort::Light,
             hardware: true,
+            enhanced_preview: false,
             started: Instant::now(),
             streaming: false,
             preview_due: None,
@@ -1908,6 +1948,7 @@ mod tests {
             fps: 30,
             effort: Effort::Light,
             hardware: false,
+            enhanced_preview: false,
             started: Instant::now(),
             streaming: false,
             preview_due: None,
@@ -1930,6 +1971,15 @@ mod tests {
             "{first:?}"
         );
         assert_eq!(first[3], 255);
+
+        let frames = Frames::create(SHARE_WIDTH, SHARE_HEIGHT).unwrap();
+        sink.writer = Writer::open(&frames.path().unwrap()).unwrap();
+        sink.enhanced_preview = true;
+        sink.frame(&mut picture).unwrap();
+        assert_eq!(
+            frames.take(|w, h, _| (w, h)),
+            Some((SHARE_WIDTH, SHARE_HEIGHT))
+        );
     }
 
     #[test]
@@ -1945,6 +1995,7 @@ mod tests {
             fps: 30,
             effort: Effort::Light,
             hardware: false,
+            enhanced_preview: false,
             started: Instant::now(),
             streaming: false,
             preview_due: None,
@@ -1962,6 +2013,7 @@ mod tests {
     #[test]
     fn previews_a_stream_once_its_picture_shows() {
         let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
+        frames.set_preview_paused(true);
         let (_controls, received) = channel::channel();
         let mut sink = Sink {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
@@ -1972,6 +2024,7 @@ mod tests {
             fps: 30,
             effort: Effort::Light,
             hardware: false,
+            enhanced_preview: false,
             started: Instant::now(),
             streaming: false,
             preview_due: Some(Instant::now()),
@@ -1999,7 +2052,16 @@ mod tests {
             .unwrap();
         let shown = image::load_from_memory(&jpeg).unwrap();
         assert_eq!((shown.width(), shown.height()), (512, 288));
+        assert!(
+            frames.take(|_, _, _| ()).is_none(),
+            "the local preview is paused"
+        );
+        frames.set_preview_paused(false);
         sink.frame(&mut picture).unwrap();
+        assert_eq!(
+            frames.take(|width, height, _| (width, height)),
+            Some((PREVIEW_WIDTH, PREVIEW_HEIGHT)),
+        );
         assert_eq!(sink.thumbnail, None, "the next one comes minutes later");
     }
 
@@ -2014,6 +2076,7 @@ mod tests {
             fps: 60,
             effort: Effort::Light,
             hardware: false,
+            enhanced_preview: false,
         };
         let (input, mut feed) = std::io::pipe().unwrap();
         writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
@@ -2063,6 +2126,7 @@ mod tests {
             fps: 30,
             effort: Effort::Light,
             hardware: false,
+            enhanced_preview: false,
         };
         let (input, mut feed) = std::io::pipe().unwrap();
         writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
@@ -2111,6 +2175,8 @@ mod tests {
     fn a_screen_picture_survives_its_report_line() {
         let report = Report::Screen {
             id: 7,
+            source_width: 1920,
+            source_height: 1080,
             width: 2,
             height: 1,
             rgba: vec![255, 0, 0, 255, 0, 0, 255, 255],
@@ -2154,6 +2220,7 @@ mod tests {
                     width,
                     height,
                     rgba,
+                    ..
                 } => {
                     eprintln!("screen {id}: {width}x{height}");
                     assert!(*width <= 320 && *height <= 180);
@@ -2198,6 +2265,7 @@ mod tests {
                 fps: 30,
                 effort: Effort::Light,
                 hardware: false,
+                enhanced_preview: false,
             };
             let (input, mut feed) = std::io::pipe().unwrap();
             writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
@@ -2251,6 +2319,7 @@ mod tests {
             fps: 30,
             effort: Effort::Light,
             hardware: false,
+            enhanced_preview: false,
         };
         let (input, mut feed) = std::io::pipe().unwrap();
         writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
@@ -2286,6 +2355,7 @@ mod tests {
             fps: 1,
             effort: Effort::Light,
             hardware: false,
+            enhanced_preview: false,
         };
         let mut reports = Vec::new();
         let input = format!("{}\n", serde_json::to_string(&gone).unwrap());

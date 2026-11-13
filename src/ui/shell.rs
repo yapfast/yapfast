@@ -415,6 +415,7 @@ impl Adapter {
     /// The window closed: what only it used stops with it. The models stay, so
     /// the next window shows them without building them again.
     pub(super) fn detach(&mut self) {
+        self.pause_share_preview(true);
         self.meter = None;
         #[cfg(feature = "discord")]
         {

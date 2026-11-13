@@ -4509,11 +4509,21 @@ impl Adapter {
                     .as_deref()
                     .is_some_and(|room| Network::of(room) == Network::Discord),
         );
+        self.pause_share_preview(!window.get_window_focused());
         window.set_sharing(voice.sharing.is_some());
+        window.set_share_enhanced_preview(
+            voice
+                .sharing
+                .as_ref()
+                .is_some_and(|sharing| sharing.enhanced_preview),
+        );
         window.set_share_resolution(match voice.quality.resolution {
-            voice::Resolution::P720 => 0,
-            voice::Resolution::P1080 => 1,
-            voice::Resolution::Source => 2,
+            voice::Resolution::P480 => 480,
+            voice::Resolution::P720 => 720,
+            voice::Resolution::P1080 => 1080,
+            voice::Resolution::P1440 => 1440,
+            voice::Resolution::P2160 => 2160,
+            voice::Resolution::Source => 0,
         });
         window.set_share_fps(voice.quality.fps as i32);
         window.set_share_high_quality(voice.quality.high_quality);
