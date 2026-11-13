@@ -256,7 +256,9 @@ pub fn shares_on_the_card() -> bool {
     }
     #[cfg(not(target_os = "linux"))]
     {
-        if cfg!(any(wgc, dup)) {
+        // The capture backends are this crate's own now, and both are
+        // Windows': a screen or window is captured where this runs.
+        if cfg!(windows) {
             return !machine().is_empty();
         }
         false
