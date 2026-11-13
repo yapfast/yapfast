@@ -901,8 +901,6 @@ mod session;
 mod shared;
 
 pub(crate) use device::*;
-pub(crate) use session::*;
-pub(crate) use shared::*;
 
 #[cfg(d3d11conv)]
 pub use session::Converter;

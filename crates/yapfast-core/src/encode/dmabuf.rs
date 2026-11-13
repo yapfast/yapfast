@@ -1,7 +1,5 @@
 //! `encode.rs`'s dmabuf.
 
-use super::*;
-
 /// A picture in a DMA-BUF, as native/hwenc_dmabuf.c reads it: one DRM object
 /// holding an NV12 picture, which is the shape a VA-API surface is made of
 /// without a conversion. Laid out as its `struct yapfast_dmabuf_picture`.

@@ -348,6 +348,32 @@ pub fn tone_of_window(window: u64) -> Tone {
     tone_of_screen(monitor as u64)
 }
 
+/// The name the system gives the screen `monitor`, as its display settings show
+/// it: `DISPLAY1` and the like, without the device path's prefix. Windows numbers
+/// its screens that way, which is what a person's display arrangement and every
+/// other app call them, and the capturer's own order is not that order.
+#[cfg(windows)]
+pub fn screen_name(monitor: u64) -> Option<String> {
+    let device = display::device_name(monitor as *mut std::ffi::c_void)?;
+    Some(device.trim_start_matches(r"\.\").to_owned())
+}
+
+#[cfg(not(windows))]
+pub fn screen_name(_monitor: u64) -> Option<String> {
+    None
+}
+
+/// Whether `monitor` is the desktop's primary screen.
+#[cfg(windows)]
+pub fn screen_is_primary(monitor: u64) -> bool {
+    display::is_primary(monitor as *mut std::ffi::c_void)
+}
+
+#[cfg(not(windows))]
+pub fn screen_is_primary(_monitor: u64) -> bool {
+    false
+}
+
 /// On Linux the system's dialog picks what is shared, and what the compositor
 /// hands over is what the screen shows: nothing to ask, and no curve.
 #[cfg(not(windows))]
@@ -558,7 +584,24 @@ mod display {
     }
 
     /// The name GDI knows the screen `monitor` by, `\\.\DISPLAY1` and the like.
-    fn device_name(monitor: Monitor) -> Option<String> {
+    /// Whether the screen is the desktop's primary one, as the system says.
+    pub(super) fn is_primary(monitor: Monitor) -> bool {
+        const PRIMARY: u32 = 1;
+        let mut info = MonitorInfo {
+            size: size_of::<MonitorInfo>() as u32,
+            monitor: [0; 4],
+            work: [0; 4],
+            flags: 0,
+            device: [0; 32],
+        };
+        // SAFETY: the size is the structure's, which is what the call reads.
+        if unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
+            return false;
+        }
+        info.flags & PRIMARY != 0
+    }
+
+    pub(super) fn device_name(monitor: Monitor) -> Option<String> {
         let mut info = MonitorInfo {
             size: size_of::<MonitorInfo>() as u32,
             monitor: [0; 4],

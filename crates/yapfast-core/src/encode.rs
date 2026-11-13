@@ -1875,8 +1875,6 @@ mod encoder;
 mod settings;
 
 pub(crate) use backends::*;
-pub(crate) use dmabuf::*;
-pub(crate) use encoder::*;
 pub(crate) use settings::*;
 
 #[cfg(target_os = "linux")]

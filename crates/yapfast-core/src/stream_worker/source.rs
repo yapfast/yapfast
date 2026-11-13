@@ -69,17 +69,34 @@ pub(crate) fn screens_and_windows() -> Vec<Shareable> {
     use livekit::webrtc::desktop_capturer::DesktopCaptureSourceType;
     let screens = sources(DesktopCaptureSourceType::Screen);
     let count = screens.len();
-    let screens = screens
+    // A list in the order the capturer found the screens numbered its own way, so
+    // "Screen 1" landed on whichever monitor that enumeration put first, not on
+    // the one the person's display settings call 1. Each screen is named the way
+    // the system names it, the primary says so, and the list is that order.
+    let mut named: Vec<(String, Shareable)> = screens
         .into_iter()
         .enumerate()
-        .map(|(index, screen)| Shareable {
-            source: Source::Display(screen.id()),
-            title: if count == 1 {
-                "Entire screen".to_owned()
-            } else {
-                format!("Screen {}", index + 1)
-            },
-        });
+        .map(|(index, screen)| {
+            let id = screen.id();
+            let found = picture::screen_name(id);
+            let title = match (&found, count) {
+                (Some(name), 1) => name.clone(),
+                (Some(name), _) if picture::screen_is_primary(id) => format!("{name} (primary)"),
+                (Some(name), _) => name.clone(),
+                (None, 1) => "Entire screen".to_owned(),
+                (None, _) => format!("Screen {}", index + 1),
+            };
+            (
+                found.unwrap_or_else(|| format!("~{index:03}")),
+                Shareable {
+                    source: Source::Display(id),
+                    title,
+                },
+            )
+        })
+        .collect();
+    named.sort_by(|a, b| a.0.cmp(&b.0));
+    let screens = named.into_iter().map(|(_, shareable)| shareable);
     // The console belongs to its host, so libwebrtc lists it as another
     // application's window.
     #[cfg(windows)]
