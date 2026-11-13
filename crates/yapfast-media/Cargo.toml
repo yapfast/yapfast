@@ -8,9 +8,13 @@ license = "GPL-3.0-or-later"
 
 [dependencies]
 anyhow.workspace = true
+# The frames file a still desktop keeps and a window maps.
+tempfile.workspace = true
 base64 = "0.22"
 memmap2 = "0.9"
 tracing.workspace = true
+# A descriptor handed to another process: Linux's socket call.
+libc = "0.2"
 # A picture in memory, and the tiles a window shows.
 livekit.workspace = true
 # The clock a stream's sound and picture are put on.
@@ -18,6 +22,10 @@ tokio.workspace = true
 # The worker's own log lines.
 tracing-subscriber.workspace = true
 # Which adapter, which screen, and how much the machine is carrying.
+serde.workspace = true
+
+# Which adapter, which screen, and how much the machine is carrying: Windows'.
+[target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_System_Console",
@@ -26,4 +34,3 @@ windows = { version = "0.62", features = [
     "Win32_System_Threading",
     "Win32_System_SystemInformation",
 ] }
-serde.workspace = true
