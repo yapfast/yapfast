@@ -261,7 +261,7 @@ icon_pack! {
     "x" => get_x, set_x;
 }
 
-fn digest(bytes: &[u8]) -> u64 {
+pub(super) fn digest(bytes: &[u8]) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     bytes.hash(&mut hasher);
@@ -275,6 +275,7 @@ pub fn load(
     resolved: &Resolved,
     folder: &Path,
     colour: impl Fn(&str) -> Option<Color>,
+    checked: bool,
 ) -> Result<(), String> {
     let mut sounds = BTreeMap::new();
     let mut icons = Vec::new();
@@ -333,8 +334,12 @@ pub fn load(
         let image = match svgs.get(&key).or_else(|| old_svgs.get(&key)) {
             Some(image) => Image::clone(image),
             None => {
-                yapfast_core::themes::check::check_svg(&bytes)
-                    .map_err(|error| format!("{}: {error}", choice.file.display()))?;
+                // A theme prepared off the UI thread had its files checked
+                // there, a moment ago.
+                if !checked {
+                    yapfast_core::themes::check::check_svg(&bytes)
+                        .map_err(|error| format!("{}: {error}", choice.file.display()))?;
+                }
                 Image::load_from_svg_data(&bytes)
                     .map_err(|_| format!("{}: isn't an SVG Yapfast draws", choice.file.display()))?
             }
@@ -362,6 +367,12 @@ pub fn load(
     });
     changed();
     Ok(())
+}
+
+/// Sounds decoded off the UI thread, by their file's [`digest`], for the
+/// next [`load`] to take instead of decoding them again.
+pub fn seed_sounds(decoded: HashMap<u64, Arc<[i16]>>) {
+    STATE.with_borrow_mut(|state| state.decoded.extend(decoded));
 }
 
 /// Drops the loaded theme's sounds and icons; the window should be

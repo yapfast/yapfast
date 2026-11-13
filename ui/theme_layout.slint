@@ -5,7 +5,7 @@
 // here draws.
 
 import { Theme, Look } from "theme.slint";
-import { Art, ArtLayer } from "theme_art.slint";
+import { Art, ArtLayer, ArtImage } from "theme_art.slint";
 
 /// One outline drawn in dashes or dots instead of a line.
 export struct Dash {
@@ -32,11 +32,40 @@ export struct Scrap {
     rest: bool,
 }
 
+/// Shapes drawn on each bubble, as a glossy gel button's. All clear, as
+/// stock, draws nothing.
+export struct BubbleGel {
+    /// The gloss: its colour at its top and at its bottom edge; a share of
+    /// the bubble's height, at most `gloss-max` (0 draws none); inset from
+    /// the sides and the top; its corners (negative: the bubble's less
+    /// the inset).
+    gloss-top: color,
+    gloss-bottom: color,
+    gloss-height: float,
+    gloss-max: length,
+    gloss-inset-x: length,
+    gloss-inset-y: length,
+    gloss-radius: length,
+    /// A glow rising from the bottom edge, fading out `glow-height` up.
+    glow: color,
+    glow-height: length,
+    /// A light line just inside the edge, and a line on it.
+    rim-light: color,
+    rim-dark: color,
+    /// Under the bubble; a blur under 0 draws none.
+    shadow: color,
+    shadow-blur: length,
+    shadow-x: length,
+    shadow-y: length,
+}
+
 export global Arrange {
     /// The server rail's edge: 0 left (stock), 1 right, 2 top.
     in property <int> rail;
     /// The member list: 0 right (stock), 1 left, 2 hidden.
     in property <int> members;
+    /// How long the collapsed member list (3) takes to open; 0 at once.
+    in property <duration> members-motion;
     in property <bool> composer-top;
     /// Messages: 0 flat (stock), 1 bubbles, 2 irc, 3 cards.
     in property <int> messages;
@@ -53,8 +82,21 @@ export global Arrange {
     in property <color> bubble-other-set: transparent;
     in property <color> bubble-own-text-set: transparent;
     in property <length> bubble-radius: 16px;
-    out property <brush> bubble-own: self.bubble-own-set != transparent ? self.bubble-own-set : Theme.accent-fill;
-    out property <brush> bubble-other: self.bubble-other-set != transparent ? self.bubble-other-set : Theme.raised-fill;
+    /// A gradient ground, drawn whole; `-set` holds its first stop.
+    in property <brush> bubble-own-paint;
+    in property <bool> bubble-own-painted;
+    in property <brush> bubble-other-paint;
+    in property <bool> bubble-other-painted;
+    /// Pictures on each bubble, over its ground, under its text.
+    in property <[ArtImage]> bubble-own-art;
+    in property <[ArtImage]> bubble-other-art;
+    in property <BubbleGel> bubble-own-gel: { shadow-blur: -1px };
+    in property <BubbleGel> bubble-other-gel: { shadow-blur: -1px };
+    /// Inside each bubble, across and down.
+    in property <length> bubble-pad-x: 12px;
+    in property <length> bubble-pad-y: 6px;
+    out property <brush> bubble-own: self.bubble-own-painted ? self.bubble-own-paint : self.bubble-own-set != transparent ? self.bubble-own-set : Theme.accent-fill;
+    out property <brush> bubble-other: self.bubble-other-painted ? self.bubble-other-paint : self.bubble-other-set != transparent ? self.bubble-other-set : Theme.raised-fill;
     out property <color> bubble-own-text: self.bubble-own-text-set != transparent ? self.bubble-own-text-set : self.bubble-own-set != transparent ? Theme.text : Theme.on-accent;
     // cards
     in property <float> cards-tilt;
@@ -73,6 +115,10 @@ export global Arrange {
     in property <length> cards-over-top;
     in property <length> cards-over-bottom;
     in property <length> cards-bleed;
+    /// Pixels each card steps aside, left or right by its group.
+    in property <length> cards-stagger;
+    /// A hovered or mentioned card's tint lies over its pictures too.
+    in property <bool> cards-tint-art;
     // Dashed and dotted outlines, by place.
     in property <Dash> dash-composer;
     in property <Dash> dash-card;
@@ -85,6 +131,10 @@ export global Arrange {
     in property <Dash> dash-tile;
     in property <Dash> dash-divider;
     in property <Dash> dash-actions;
+    /// The edges between the panes, drawn only when a theme names them:
+    /// solid unless `dash-panes` dashes or dots them.
+    in property <bool> panes;
+    in property <Dash> dash-panes;
     // Names cut into ransom letters from the theme's fonts, unless the
     // person turns on Settings' "Plain names".
     in property <bool> ransom-names;
@@ -96,6 +146,12 @@ export global Arrange {
     /// A message's lean in `cards`, from its group's seed: within ±tilt.
     public pure function lean(seed: int) -> float {
         self.cards-tilt == 0 ? 0 : self.cards-tilt * (Math.mod(seed, 201) - 100) / 100
+    }
+    /// How far a card steps in from its left, by its group's seed: every
+    /// other group on average, 0 without `stagger`. A higher bit of the
+    /// seed than its lowest, which varies little between groups.
+    public pure function stagger-left(seed: int) -> length {
+        self.cards-stagger > 0px && Math.mod(Math.floor(seed / 4096), 2) == 1 ? self.cards-stagger : 0px
     }
     /// The side padding that centres a column at most `chat-max-width` wide
     /// in `width`, never under `stock`.
@@ -132,6 +188,23 @@ export component DashedOutline inherits Rectangle {
     }
     for i in root.down: Rectangle {
         x: root.width - root.stroke; y: i * root.step; width: root.stroke; height: max(0px, min(root.seg, root.height - self.y));
+        background: root.ink; border-radius: root.dash.dotted ? root.stroke / 2 : 0px;
+    }
+}
+
+/// An edge between two panes, down its height: solid, dashed or dotted, as
+/// `Arrange.dash-panes` says. Lay it at the pane's edge.
+export component PaneRule inherits Rectangle {
+    property <Dash> dash: Arrange.dash-panes;
+    property <length> stroke: max(1px, root.dash.width >= 0px ? root.dash.width : Look.line(1px));
+    property <brush> ink: root.dash.ink != transparent ? root.dash.ink : Theme.outline;
+    property <length> seg: root.dash.dotted ? root.stroke : root.dash.dash;
+    property <length> step: max(2px, root.seg + root.dash.gap);
+    width: root.stroke;
+    accessible-role: none;
+    if !root.dash.on: Rectangle { background: root.ink; }
+    for i in (root.dash.on ? floor(root.height / root.step) + 1 : 0): Rectangle {
+        y: i * root.step; height: max(0px, min(root.seg, root.height - self.y));
         background: root.ink; border-radius: root.dash.dotted ? root.stroke / 2 : 0px;
     }
 }

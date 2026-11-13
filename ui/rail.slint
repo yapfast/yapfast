@@ -201,7 +201,8 @@ export component RailItem inherits Rectangle {
         }
     }
     if !root.text-mode: Rectangle {
-        x: 0px; y: (parent.height - self.height) / 2; width: 4px;
+        // Inside a theme's pane, clear of its rim.
+        x: Art.rail-paned ? Art.rail-rim : 0px; y: (parent.height - self.height) / 2; width: 4px;
         height: root.selected ? 40px : pointer.has-hover ? 20px : root.unread ? 8px : 0px;
         border-top-right-radius: Look.radius(4px); border-bottom-right-radius: Look.radius(4px);
         background: Theme.pill;
@@ -327,7 +328,8 @@ component FolderItem inherits Rectangle {
     accessible-action-expand => { root.clicked(); }
     forward-focus: focus;
     Rectangle {
-        x: 0px; y: (parent.height - self.height) / 2; width: 4px;
+        // Inside a theme's pane, clear of its rim.
+        x: Art.rail-paned ? Art.rail-rim : 0px; y: (parent.height - self.height) / 2; width: 4px;
         height: root.open ? 0px : root.selected ? 40px : pointer.has-hover ? 20px : root.unread ? 8px : 0px;
         border-top-right-radius: Look.radius(4px); border-bottom-right-radius: Look.radius(4px);
         background: Theme.pill;
@@ -572,11 +574,16 @@ export component ChannelRow inherits Rectangle {
     border-radius: Look.radius(6px);
     /// Every other row of a theme's striped list.
     in property <bool> striped;
-    background: !root.listed ? (root.selected && !Art.highlighter ? Theme.row-selected : pointer.has-hover ? Theme.hover : root.striped ? Trim.stripe : transparent)
+    background: !root.listed ? (root.selected && !Art.highlighter ? (Art.glass-row-selected ? transparent : Theme.row-selected) : pointer.has-hover ? Theme.hover : root.striped ? Trim.stripe : transparent)
         : root.selected ? (ChannelLists.selected-plain && !Art.highlighter ? Theme.row-selected : transparent)
         : pointer.has-hover && ChannelLists.hover-ground == 1 ? Theme.hover : pointer.has-hover && ChannelLists.hover-ground == 2 ? Theme.row-hover
         : root.striped ? Trim.stripe : transparent;
     animate background { duration: root.listed ? Art.hover-time(pointer.has-hover) : 90ms; }
+    // A theme's art, or glass, on the selected row.
+    if root.selected && !Art.highlighter && !(root.listed && !ChannelLists.selected-plain) && (Art.row-selected.length > 0 || Art.glass-row-selected): ArtLayer {
+        x: 0px; y: 0px; width: parent.width; height: parent.height; radius: root.border-radius;
+        layers: Art.row-selected; glass: Art.glass-row-selected; ground: Theme.row-selected;
+    }
     if Art.highlighter && (!root.listed || ChannelLists.selected-plain): ArtHighlighter { x: 0px; y: 0px; width: parent.width; height: parent.height; selected: root.selected; }
     if root.listed && ChannelLists.sep-on && root.separator-above: Rectangle {
         x: ChannelLists.sep-left; y: 0px; width: parent.width - ChannelLists.sep-left - ChannelLists.sep-right; height: ChannelLists.sep-width;
@@ -597,7 +604,9 @@ export component ChannelRow inherits Rectangle {
     accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
     forward-focus: focus;
-    property <color> stock-ink: root.danger ? Theme.danger : root.locked ? (root.selected ? Theme.muted : Theme.faint) : root.selected || root.unread ? Theme.text : pointer.has-hover ? Theme.secondary : Theme.muted;
+    /// A theme's selected text, as an inverse-video selection draws it.
+    property <bool> inverse: root.selected && Theme.row-selected-text-on && !root.danger;
+    property <color> stock-ink: root.inverse ? Theme.row-selected-text : root.danger ? Theme.danger : root.locked ? (root.selected ? Theme.muted : Theme.faint) : root.selected || root.unread ? Theme.text : pointer.has-hover ? Theme.secondary : Theme.muted;
     property <color> ink: !root.listed || root.danger || root.locked ? root.stock-ink
         : root.selected ? (ChannelLists.ink-selected != transparent ? ChannelLists.ink-selected : root.stock-ink)
         : root.unread ? (ChannelLists.ink-unread != transparent ? ChannelLists.ink-unread : root.stock-ink)
@@ -747,7 +756,7 @@ export component ChannelRow inherits Rectangle {
                     property <color> ink: (root.listed && ChannelLists.icon-follows-ink ? root.ink
                         : root.listed && root.selected && ChannelLists.icon-selected != transparent ? ChannelLists.icon-selected
                         : root.listed && !root.selected && ChannelLists.icon-colour != transparent ? (pointer.has-hover && ChannelLists.icon-hover != transparent ? ChannelLists.icon-hover : ChannelLists.icon-colour)
-                        : root.danger ? Theme.danger : root.selected && ClientStyle.enabled ? Theme.text : root.selected || root.unread ? Theme.secondary : Theme.faint);
+                        : root.inverse ? Theme.row-selected-text : root.danger ? Theme.danger : root.selected && ClientStyle.enabled ? Theme.text : root.selected || root.unread ? Theme.secondary : Theme.faint);
                 }
                 text-column := VerticalLayout {
                     alignment: center; spacing: 0px; horizontal-stretch: 1;
@@ -1219,10 +1228,16 @@ export component ServerRail inherits Rectangle {
     in property <bool> horizontal;
     /// The open server's name, which a theme's text rail may end with.
     in property <string> selected-name;
-    width: Chrome.rail-px; background: Art.glass-rail ? transparent : Theme.rail-fill;
     /// Draws a theme's rail art itself: on the right or the top, where the
     /// navigation pane that draws it on the left isn't behind it.
     in property <bool> own-art;
+    // On the left, the navigation pane draws the rail's ground and art
+    // beneath it: the rail paints no ground of its own over that art.
+    width: Chrome.rail-px; background: Art.glass-rail || (!root.own-art && Art.rail.length > 0) ? transparent : Theme.rail-fill;
+    // In a theme's floating pane (a gap, rounded corners or a glass rim),
+    // the first server keeps the rail's own spacing, 8px, from the pane's
+    // edge, plus the rim: a lift on hover never meets it. Stock keeps 0.
+    property <length> pane-inset: Art.rail-paned ? 8px + Art.rail-rim : 0px;
     if root.own-art && (Art.rail.length > 0 || Art.glass-rail): ArtLayer {
         x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.rail; glass: Art.glass-rail; ground: Theme.rail-fill;
     }
@@ -1233,7 +1248,7 @@ export component ServerRail inherits Rectangle {
     if root.horizontal: Flickable {
         content-width: across.preferred-width;
         across := HorizontalLayout {
-            padding-left: 6px; padding-right: 6px; spacing: 0px; alignment: start;
+            padding-left: max(6px, root.pane-inset); padding-right: max(6px, root.pane-inset); spacing: 0px; alignment: start;
             height: parent.height;
             RailItem {
                 width: 60px; y: (parent.height - self.height) / 2;
@@ -1276,7 +1291,7 @@ export component ServerRail inherits Rectangle {
     }
     // A theme's text rail: the servers' names as rows of text.
     if !root.horizontal && Chrome.rail-text: VerticalLayout {
-        padding: 8px; spacing: 0px;
+        padding: 8px; padding-top: max(8px, root.pane-inset); padding-bottom: max(8px, root.pane-inset); spacing: 0px;
         if Chrome.rail-title != "": Text {
             text: Chrome.rail-title; color: Theme.muted; font-size: 14px; wrap: word-wrap; accessible-role: none;
             font-family: Chrome.font;
@@ -1342,7 +1357,7 @@ export component ServerRail inherits Rectangle {
         }
     }
     if !root.horizontal && !Chrome.rail-text: VerticalLayout {
-        padding-top: ClientStyle.enabled ? 0px : 12px; padding-bottom: 12px; spacing: Rails.on ? 0px : 8px;
+        padding-top: max(ClientStyle.enabled ? 0px : 12px, root.pane-inset); padding-bottom: max(12px, root.pane-inset); spacing: Rails.on ? 0px : 8px;
         // A theme's tiles (`Rails`): the home tile framed as the servers are.
         if Rails.on: TileRailItem {
             icon: IconPack.logo; icon-color: Theme.accent-text; icon-size: 24px; home: true;

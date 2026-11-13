@@ -503,9 +503,16 @@ fn picture(folder: &Path, art: &TileArt) -> Option<Image> {
         ),
         _ => cap,
     };
-    let pixels = super::theme_art::baked_at(folder, &layer, 0xff00_0000, cap)?;
+    let pixels = super::theme_art::baked_alone(folder, &layer, 0xff00_0000, cap)?;
     DECODES.fetch_add(1, Ordering::Relaxed);
-    let image = super::theme_art::slint_image(pixels);
+    let (width, height) = pixels.dimensions();
+    let image = Image::from_rgba8(
+        slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+            pixels.as_raw(),
+            width,
+            height,
+        ),
+    );
     STATE.with_borrow_mut(|state| state.cache.insert(key, image.clone()));
     Some(image)
 }

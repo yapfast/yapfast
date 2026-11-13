@@ -11,10 +11,10 @@
 use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
 
-use slint::{Color, ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{Brush, Color, ComponentHandle, ModelRc, SharedString, VecModel};
 use yapfast_core::themes::Performance;
-use yapfast_core::themes::layout::{BorderPlace, Layout, Stroke};
-use yapfast_ui::{Arrange, Dash, Look, Scrap, YapfastWindow};
+use yapfast_core::themes::layout::{BorderPlace, Gel, Layout, Stroke};
+use yapfast_ui::{Arrange, ArtImage, BubbleGel, Dash, Look, Scrap, YapfastWindow};
 
 /// What the ransom callback cuts letters from.
 #[derive(Default)]
@@ -38,6 +38,43 @@ const PAPERS: [(u32, u32); 3] = [
     (0xffff_5fa2, 0xff14_1414),
 ];
 
+/// A bubble's drawn gel as the window draws it; an empty one draws nothing.
+fn gel(gel: &Gel) -> BubbleGel {
+    let colour = |argb: Option<u32>| argb.map_or(Color::default(), Color::from_argb_encoded);
+    let mut drawn = BubbleGel {
+        shadow_blur: -1.,
+        ..BubbleGel::default()
+    };
+    if let Some(gloss) = gel.gloss {
+        // The gloss's colour at each end, its own alpha scaled by `from`
+        // and `to`.
+        let at = |share: f32| {
+            let alpha = ((gloss.colour >> 24) as f32 * share).round() as u32;
+            Color::from_argb_encoded((alpha.min(255) << 24) | (gloss.colour & 0x00ff_ffff))
+        };
+        drawn.gloss_top = at(gloss.from);
+        drawn.gloss_bottom = at(gloss.to);
+        drawn.gloss_height = gloss.height;
+        drawn.gloss_max = gloss.max;
+        drawn.gloss_inset_x = gloss.inset.0;
+        drawn.gloss_inset_y = gloss.inset.1;
+        drawn.gloss_radius = gloss.radius.unwrap_or(-1.);
+    }
+    if let Some(glow) = gel.glow {
+        drawn.glow = Color::from_argb_encoded(glow.colour);
+        drawn.glow_height = glow.height;
+    }
+    drawn.rim_light = colour(gel.rim_light);
+    drawn.rim_dark = colour(gel.rim_dark);
+    if let Some(shadow) = gel.shadow {
+        drawn.shadow = Color::from_argb_encoded(shadow.colour);
+        drawn.shadow_blur = shadow.blur;
+        drawn.shadow_x = shadow.x;
+        drawn.shadow_y = shadow.y;
+    }
+    drawn
+}
+
 /// Answers `Arrange.scraps`. Called once per window.
 pub fn init(window: &YapfastWindow) {
     window.global::<Arrange>().on_scraps(|text| scraps(&text));
@@ -58,8 +95,18 @@ pub fn reset(window: &YapfastWindow) {
     arrange.set_bubble_max(0.72);
     arrange.set_bubble_own_set(Color::default());
     arrange.set_bubble_other_set(Color::default());
+    arrange.set_bubble_own_paint(Brush::default());
+    arrange.set_bubble_other_paint(Brush::default());
+    arrange.set_bubble_own_painted(false);
+    arrange.set_bubble_other_painted(false);
+    arrange.set_bubble_own_art(ModelRc::new(VecModel::<ArtImage>::default()));
+    arrange.set_bubble_other_art(ModelRc::new(VecModel::<ArtImage>::default()));
     arrange.set_bubble_own_text_set(Color::default());
     arrange.set_bubble_radius(16.);
+    arrange.set_bubble_own_gel(gel(&Gel::default()));
+    arrange.set_bubble_other_gel(gel(&Gel::default()));
+    arrange.set_bubble_pad_x(12.);
+    arrange.set_bubble_pad_y(6.);
     arrange.set_cards_tilt(0.);
     arrange.set_cards_gap(8.);
     arrange.set_cards_padding(12.);
@@ -71,9 +118,13 @@ pub fn reset(window: &YapfastWindow) {
     arrange.set_cards_over_top(0.);
     arrange.set_cards_over_bottom(0.);
     arrange.set_cards_bleed(0.);
+    arrange.set_cards_stagger(0.);
+    arrange.set_cards_tint_art(false);
+    arrange.set_members_motion(0);
     for place in BorderPlace::ALL {
         set_dash(&arrange, *place, Dash::default());
     }
+    arrange.set_panes(false);
     window.global::<Look>().set_outline_width(-1.);
     arrange.set_ransom_names(false);
     RANSOM.with_borrow_mut(|ransom| *ransom = Ransom::default());
@@ -87,6 +138,7 @@ pub fn apply(
     families: &[String],
     names: Option<&str>,
     performance: Performance,
+    reduced: bool,
 ) {
     let arrange = window.global::<Arrange>();
     if let Some(rail) = layout.rail {
@@ -94,6 +146,11 @@ pub fn apply(
     }
     if let Some(members) = layout.members {
         arrange.set_members(members.index());
+    }
+    // The collapsed member list opens as the pointer comes on; reduced
+    // motion and Light open it at once.
+    if !reduced && performance != Performance::Light {
+        arrange.set_members_motion(180);
     }
     if let Some(composer) = layout.composer {
         arrange.set_composer_top(composer.index() == 1);
@@ -117,17 +174,29 @@ pub fn apply(
     if let Some(share) = layout.bubbles.max_width {
         arrange.set_bubble_max(share / 100.);
     }
-    if let Some(colour) = layout.bubbles.own {
-        arrange.set_bubble_own_set(Color::from_argb_encoded(colour));
+    // A gradient ground is drawn as one; its first stop stands in where a
+    // single colour is needed.
+    if let Some(paint) = &layout.bubbles.own {
+        arrange.set_bubble_own_set(Color::from_argb_encoded(paint.solid()));
+        arrange.set_bubble_own_paint(super::theme_look::brush(paint));
+        arrange.set_bubble_own_painted(true);
     }
-    if let Some(colour) = layout.bubbles.other {
-        arrange.set_bubble_other_set(Color::from_argb_encoded(colour));
+    if let Some(paint) = &layout.bubbles.other {
+        arrange.set_bubble_other_set(Color::from_argb_encoded(paint.solid()));
+        arrange.set_bubble_other_paint(super::theme_look::brush(paint));
+        arrange.set_bubble_other_painted(true);
     }
     if let Some(colour) = layout.bubbles.own_text {
         arrange.set_bubble_own_text_set(Color::from_argb_encoded(colour));
     }
     if let Some(radius) = layout.bubbles.radius {
         arrange.set_bubble_radius(radius);
+    }
+    arrange.set_bubble_own_gel(gel(&layout.bubbles.own_gel));
+    arrange.set_bubble_other_gel(gel(&layout.bubbles.other_gel));
+    if let Some((across, down)) = layout.bubbles.padding {
+        arrange.set_bubble_pad_x(across);
+        arrange.set_bubble_pad_y(down);
     }
     // A lean turns a card's ground, which Light leaves straight.
     if let Some(tilt) = layout.cards.tilt
@@ -144,6 +213,10 @@ pub fn apply(
     if let Some(colour) = layout.cards.ground {
         arrange.set_cards_ground_set(Color::from_argb_encoded(colour));
     }
+    if let Some(stagger) = layout.cards.stagger {
+        arrange.set_cards_stagger(stagger);
+    }
+    arrange.set_cards_tint_art(layout.cards.tint_art);
     // A card's shadow reaches past its edges by its offset and blur; each
     // row's slice of the card draws that much more, so it shows whole.
     if let Some(shadow) = layout.cards.shadow {
@@ -172,6 +245,7 @@ pub fn apply(
             },
         );
     }
+    arrange.set_panes(layout.borders.contains_key(&BorderPlace::Panes));
     if let Some(width) = layout.outline_width {
         window.global::<Look>().set_outline_width(width);
     }
@@ -223,6 +297,7 @@ fn set_dash(arrange: &Arrange<'_>, place: BorderPlace, dash: Dash) {
         BorderPlace::Code => arrange.set_dash_code(dash),
         BorderPlace::Tile => arrange.set_dash_tile(dash),
         BorderPlace::Divider => arrange.set_dash_divider(dash),
+        BorderPlace::Panes => arrange.set_dash_panes(dash),
     }
 }
 
@@ -343,5 +418,32 @@ mod tests {
         assert_eq!(cut.len(), MOST_LETTERS + 1);
         assert_eq!(cut.last().unwrap(), "mnopqrstuvwxyz0123");
         assert_eq!(letters(&scraps("ワイヤード")), ["ワイヤード"]);
+    }
+
+    #[test]
+    fn theme_gel_draws_nothing_unset_and_scales_the_gloss() {
+        // Unset: clear colours, no gloss band and no shadow, as stock.
+        let stock = gel(&Gel::default());
+        assert_eq!(stock.gloss_max, 0.);
+        assert_eq!(stock.shadow_blur, -1.);
+        assert_eq!(stock.rim_light, Color::default());
+        assert_eq!(stock.glow, Color::default());
+        let set = gel(&Gel {
+            gloss: Some(yapfast_core::themes::layout::Gloss {
+                colour: 0x80ff_ffff,
+                from: 1.0,
+                to: 0.5,
+                height: 0.5,
+                max: 20.,
+                inset: (3., 1.),
+                radius: None,
+            }),
+            rim_dark: Some(0xff06_307a),
+            ..Gel::default()
+        });
+        assert_eq!(set.gloss_top, Color::from_argb_encoded(0x80ff_ffff));
+        assert_eq!(set.gloss_bottom, Color::from_argb_encoded(0x40ff_ffff));
+        assert_eq!((set.gloss_inset_x, set.gloss_radius), (3., -1.));
+        assert_eq!(set.rim_dark, Color::from_argb_encoded(0xff06_307a));
     }
 }

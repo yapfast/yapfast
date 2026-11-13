@@ -51,6 +51,13 @@ closed! {
         Composer = "composer",
         Menu = "menu",
         Actions = "actions",
+        // The profile docked beside a one-to-one DM.
+        ProfilePane = "profile-pane",
+        Settings = "settings",
+        Embed = "embed",
+        Code = "code",
+        RowSelected = "row-selected",
+        CardOver = "card_over",
         Header = "header",
         Label = "label",
         Footer = "footer",
@@ -77,10 +84,21 @@ impl ArtSurface {
             Self::Composer => "composer",
             Self::Menu => "menu",
             Self::Actions => "actions",
+            Self::ProfilePane => "panel",
+            Self::Settings => "panel",
+            Self::Embed => "embed",
+            Self::Code => "code",
+            Self::RowSelected => "row-selected",
+            Self::CardOver => "raised",
             Self::Header => "chat",
             Self::Label => "sidebar",
             Self::Footer => "members",
         }
+    }
+
+    /// Whether it lies over its surface's content rather than under it.
+    pub fn over(self) -> bool {
+        self == Self::CardOver
     }
 }
 
@@ -141,7 +159,48 @@ pub struct Layer {
     /// Stays still in Balanced. Drift and sprite sheets are light enough
     /// to run there unless the theme says so.
     pub heavy: bool,
+    /// Logical pixels, width and height, of a layer drawn at a fixed size
+    /// where `position` puts it, rather than over the whole surface: a
+    /// decoration such as a D-pad on a shell.
+    pub size: Option<(f32, f32)>,
+    /// Logical pixels at the pane's edges its content keeps clear of, so
+    /// a decoration drawn there isn't covered: the content is laid out, and
+    /// scrolls, inside what's left. `sidebar`, `members`, `chat` and
+    /// `composer` take it.
+    pub reserve: Option<Reserve>,
 }
+
+/// Room a pane's content leaves at each edge, in logical pixels.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Reserve {
+    pub top: f32,
+    pub bottom: f32,
+    pub left: f32,
+    pub right: f32,
+}
+
+impl Reserve {
+    /// The larger room at each edge.
+    pub fn max(self, other: Self) -> Self {
+        Self {
+            top: self.top.max(other.top),
+            bottom: self.bottom.max(other.bottom),
+            left: self.left.max(other.left),
+            right: self.right.max(other.right),
+        }
+    }
+}
+
+/// The surfaces whose content a layer's `reserve` moves.
+pub const RESERVING: [ArtSurface; 4] = [
+    ArtSurface::Sidebar,
+    ArtSurface::Members,
+    ArtSurface::Chat,
+    ArtSurface::Composer,
+];
+
+/// The most a pane reserves at one edge.
+pub const MAX_RESERVE: f32 = 1200.0;
 
 impl Layer {
     /// Whether it moves at all.
@@ -216,6 +275,8 @@ pub struct Glass {
     pub gap: f32,
     /// The panes' corners when there's a gap.
     pub radius: f32,
+    /// A crisp line around each pane, outside its inset: ARGB and width.
+    pub rim: Option<(u32, f32)>,
 }
 
 closed! {
@@ -250,10 +311,31 @@ closed! {
     }
 }
 
+closed! {
+    /// Where particles fly from.
+    Emitter {
+        Composer = "composer",
+        SendButton = "send-button",
+        ApplyButton = "apply-button",
+        Pointer = "pointer",
+        Window = "window",
+    }
+}
+
+closed! {
+    /// Which side of the content particles fly on: `under` behind the
+    /// conversation's messages and the message box, `over` above everything.
+    Depth { Under = "under", Over = "over" }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Particles {
     pub preset: Preset,
     pub on: Trigger,
+    /// Where they start.
+    pub from: Emitter,
+    /// Under the conversation's content, or over everything.
+    pub z: Depth,
     /// ARGB, picked in turn.
     pub colours: Vec<u32>,
     /// A picture drawn instead of the preset's shape.
@@ -352,6 +434,16 @@ impl Art {
         *self == Self::default()
     }
 
+    /// The room a surface's content keeps clear of its art, the largest
+    /// any of its layers asks at each edge; none when no layer does.
+    pub fn reserve(&self, surface: ArtSurface) -> Option<Reserve> {
+        self.surfaces
+            .get(&surface)?
+            .iter()
+            .filter_map(|layer| layer.reserve)
+            .reduce(Reserve::max)
+    }
+
     /// Every file it names, once each.
     pub fn files(&self) -> Vec<PathBuf> {
         let mut files = Vec::new();
@@ -419,10 +511,13 @@ impl Art {
     }
 }
 
-const LAYER_FIELDS: [&str; 13] = [
+const LAYER_FIELDS: [&str; 15] = [
     "image", "texture", "fit", "position", "opacity", "blend", "blur", "dim", "scale", "colour",
-    "drift", "frames", "heavy",
+    "drift", "frames", "heavy", "size", "reserve",
 ];
+
+/// The largest a fixed-size layer is, in logical pixels on either side.
+pub const MAX_LAYER_SIDE: f32 = 1600.0;
 
 /// Reads `art` into what the variant had, each key it names replacing the
 /// one before; surfaces and text roles one by one.
@@ -453,7 +548,13 @@ pub(super) fn read_art(
                     }
                     let mut read = Vec::new();
                     for (index, item) in items.into_iter().enumerate() {
-                        read.push(read_layer(item, &format!("{at}[{index}]"), notes)?);
+                        let layer = read_layer(item, &format!("{at}[{index}]"), notes)?;
+                        if layer.reserve.is_some() && !RESERVING.contains(&surface) {
+                            notes.push(format!(
+                                "\"{at}[{index}].reserve\": only sidebar, members, chat and composer keep their content clear of art; ignored"
+                            ));
+                        }
+                        read.push(layer);
                     }
                     art.surfaces.insert(surface, read);
                 }
@@ -661,6 +762,8 @@ pub(crate) fn read_layer(
         drift: (0.0, 0.0),
         frames: None,
         heavy: false,
+        size: None,
+        reserve: None,
     };
     for (key, value) in fields {
         let here = format!("{place}.{key}");
@@ -693,6 +796,8 @@ pub(crate) fn read_layer(
                 });
             }
             "heavy" => layer.heavy = value.as_bool().unwrap_or(false),
+            "size" => layer.size = Some(pair(value, &here, (4.0, MAX_LAYER_SIDE))?),
+            "reserve" => layer.reserve = Some(read_reserve(value, &here, notes)?),
             _ => notes.push(format!("\"{here}\" isn't something a layer takes; ignored")),
         }
     }
@@ -702,6 +807,28 @@ pub(crate) fn read_layer(
         )));
     }
     Ok(layer)
+}
+
+/// `{ "bottom": 300 }`: pixels at each edge named, 0 to 1200.
+fn read_reserve(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<Reserve, Error> {
+    let mut reserve = Reserve::default();
+    for (key, value) in object(value, place)? {
+        let here = format!("{place}.{key}");
+        let edge = match key.as_str() {
+            "top" => &mut reserve.top,
+            "bottom" => &mut reserve.bottom,
+            "left" => &mut reserve.left,
+            "right" => &mut reserve.right,
+            _ => {
+                notes.push(format!(
+                    "\"{here}\" isn't an edge (top, bottom, left, right); ignored"
+                ));
+                continue;
+            }
+        };
+        *edge = number(value, &here, (0.0, MAX_RESERVE))?;
+    }
+    Ok(reserve)
 }
 
 fn read_overlay(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<Overlay, Error> {
@@ -802,6 +929,7 @@ fn read_glass(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<Gla
         inset: None,
         gap: 0.0,
         radius: 12.0,
+        rim: None,
     };
     for (key, value) in fields {
         let here = format!("{place}.{key}");
@@ -829,6 +957,11 @@ fn read_glass(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<Gla
                             "\"{here}\": the window is what glass shows, not a glass pane"
                         )));
                     }
+                    if surface.over() {
+                        return Err(Error(format!(
+                            "\"{here}\": card_over lies over the card's content, so it can't be glass"
+                        )));
+                    }
                     glass.surfaces.push(surface);
                 }
             }
@@ -836,8 +969,29 @@ fn read_glass(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<Gla
             "opacity" => glass.opacity = number(value, &here, (0.0, 1.0))?,
             "highlight" => glass.highlight = Some(colour_at(value, &here)?),
             "inset" => glass.inset = Some(read_shadow(value, &here)?),
-            "gap" => glass.gap = number(value, &here, (0.0, 24.0))?,
+            "gap" => glass.gap = number(value, &here, (0.0, 64.0))?,
             "radius" => glass.radius = number(value, &here, (0.0, 32.0))?,
+            "rim" => {
+                let fields = object(value, &here)?;
+                let colour = colour_at(
+                    fields
+                        .get("colour")
+                        .ok_or_else(|| Error(format!("\"{here}\" needs a \"colour\"")))?,
+                    &format!("{here}.colour"),
+                )?;
+                let width = fields.get("width").map_or(Ok(1.0), |width| {
+                    number(width, &format!("{here}.width"), (0.5, 4.0))
+                })?;
+                for key in fields
+                    .keys()
+                    .filter(|key| *key != "colour" && *key != "width")
+                {
+                    notes.push(format!(
+                        "\"{here}.{key}\" isn't something a rim takes; ignored"
+                    ));
+                }
+                glass.rim = Some((colour, width));
+            }
             _ => notes.push(format!("\"{here}\" isn't something glass takes; ignored")),
         }
     }
@@ -905,6 +1059,13 @@ fn read_particles(value: &Value, place: &str, notes: &mut Vec<String>) -> Result
     let mut particles = Particles {
         preset,
         on,
+        from: match on {
+            // A message flies from the message box; the rest from across the
+            // window, as each preset spreads.
+            Trigger::MessageSent => Emitter::Composer,
+            Trigger::ReactionAdded | Trigger::Ambient | Trigger::ThemeApplied => Emitter::Window,
+        },
+        z: Depth::Over,
         colours: vec![colour],
         sprite: None,
         count: if on == Trigger::Ambient { 24 } else { 14 },
@@ -919,6 +1080,8 @@ fn read_particles(value: &Value, place: &str, notes: &mut Vec<String>) -> Result
         let here = format!("{place}.{key}");
         match key.as_str() {
             "preset" | "on" => {}
+            "from" => particles.from = named(value, &here, Emitter::ALL, Emitter::name)?,
+            "z" => particles.z = named(value, &here, Depth::ALL, Depth::name)?,
             "colours" | "colour" => {
                 particles.colours = match value {
                     Value::Array(items) if !items.is_empty() && items.len() <= 8 => items
@@ -1091,6 +1254,50 @@ mod tests {
         assert!(!art.overlays[0].heavy && art.overlays[1].heavy && !art.overlays[2].heavy);
         assert_eq!(art.moving(), (3, 2));
         assert_eq!(art.particles[1].on, Trigger::MessageSent);
+    }
+
+    #[test]
+    fn the_surfaces_settings_embeds_code_rows_and_over_a_card() {
+        let art = art(r##"{ "surfaces": {
+                    "settings": { "texture": "noise" }, "embed": { "texture": "grain" },
+                    "code": { "texture": "paper" }, "row-selected": { "texture": "kraft" },
+                    "card_over": { "image": "art/gloss.png", "opacity": 0.4 } },
+                 "glass": { "surfaces": ["settings", "embed", "code", "row-selected"],
+                            "rim": { "colour": "#0E4C8A", "width": 1.5 } } }"##)
+        .unwrap();
+        assert_eq!(art.surfaces.len(), 5);
+        assert!(ArtSurface::CardOver.over() && !ArtSurface::Settings.over());
+        assert_eq!(ArtSurface::RowSelected.ground(), "row-selected");
+        let glass = art.glass.unwrap();
+        assert_eq!(glass.surfaces.len(), 4);
+        assert_eq!(glass.rim, Some((0xff0e_4c8a, 1.5)));
+        // Over the card's content, it can't be glass.
+        assert!(art_err(r#"{ "glass": { "surfaces": ["card_over"] } }"#));
+        assert!(art_err(r##"{ "glass": { "rim": { "width": 1 } } }"##));
+    }
+
+    #[test]
+    fn particles_say_where_they_start_and_which_side_they_fly() {
+        let art = art(r#"{ "particles": [
+                { "preset": "bubbles", "on": "message.sent", "z": "under" },
+                { "preset": "sparkles", "on": "theme.applied", "from": "apply-button" },
+                { "preset": "dust" } ] }"#)
+        .unwrap();
+        assert_eq!(art.particles[0].from, Emitter::Composer);
+        assert_eq!(art.particles[0].z, Depth::Under);
+        assert_eq!(art.particles[1].from, Emitter::ApplyButton);
+        assert_eq!(art.particles[1].z, Depth::Over);
+        assert_eq!(art.particles[2].from, Emitter::Window);
+        assert!(art_err(
+            r#"{ "particles": [{ "preset": "dust", "from": "sky" }] }"#
+        ));
+        assert!(art_err(
+            r#"{ "particles": [{ "preset": "dust", "z": "middle" }] }"#
+        ));
+    }
+
+    fn art_err(json: &str) -> bool {
+        art(json).is_err()
     }
 
     #[test]

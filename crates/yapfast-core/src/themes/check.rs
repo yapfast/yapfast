@@ -14,6 +14,7 @@ use std::sync::OnceLock;
 
 pub mod art;
 
+use super::layout::BUBBLE_PADDING;
 use super::package::{Mode, Package, Paint, READABLE, Resolved, TEXT_ON, follows};
 use super::{MANIFEST, media};
 
@@ -452,6 +453,7 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
                         report.errors.push(sentence);
                     }
                 }
+                report.warnings.extend(crowded(&variant));
                 for sentence in unreadable_layout(&variant) {
                     if !report.errors.contains(&sentence) {
                         report.errors.push(sentence);
@@ -625,6 +627,11 @@ pub fn unreadable(variant: &Resolved) -> Vec<String> {
             if !changed(variant, text) && !changed(variant, surface) {
                 continue;
             }
+            // A see-through member list shows the conversation's ground and
+            // art: `art::readable` checks its text over what shows.
+            if surface == "members" && art::see_through(variant, surface) {
+                continue;
+            }
             let (Some(fronts), Some(backs)) = (shown(text), shown(surface)) else {
                 continue;
             };
@@ -650,6 +657,37 @@ pub fn unreadable(variant: &Resolved) -> Vec<String> {
     refused
 }
 
+/// Reserves that leave a pane's content little room at the window's
+/// smallest: about 480 pixels of height, and each pane's narrowest width.
+fn crowded(variant: &Resolved) -> Vec<String> {
+    use super::package::art::ArtSurface;
+    let mut warnings = Vec::new();
+    for (surface, width) in [
+        (ArtSurface::Sidebar, 200.0),
+        (ArtSurface::Members, 200.0),
+        (ArtSurface::Chat, 360.0),
+        (ArtSurface::Composer, 360.0),
+    ] {
+        let Some(reserve) = variant.art.reserve(surface) else {
+            continue;
+        };
+        let height = if surface == ArtSurface::Composer {
+            0.0
+        } else {
+            480.0
+        };
+        if (height > 0.0 && reserve.top + reserve.bottom > height * 0.7)
+            || reserve.left + reserve.right > width * 0.5
+        {
+            warnings.push(format!(
+                "the {} art's reserve leaves its content little room in a small window",
+                surface.name()
+            ));
+        }
+    }
+    warnings
+}
+
 /// What a variant's `layout` changes, as the cost line lists it:
 /// `layout: irc, rail top, ransom names (3 fonts)`.
 fn looks(variant: &Resolved) -> Vec<String> {
@@ -663,6 +701,16 @@ fn looks(variant: &Resolved) -> Vec<String> {
     }
     if let Some(side) = layout.members {
         changes.push(format!("members {}", side.name()));
+    }
+    let bubble_art = layout.bubbles.own_art.len() + layout.bubbles.other_art.len();
+    if bubble_art > 0 {
+        changes.push(format!(
+            "{bubble_art} picture{} on bubbles",
+            if bubble_art == 1 { "" } else { "s" }
+        ));
+    }
+    if let Some(stagger) = layout.cards.stagger.filter(|stagger| *stagger > 0.0) {
+        changes.push(format!("cards staggered {stagger}px"));
     }
     if let Some(side) = layout.composer {
         changes.push(format!("composer {}", side.name()));
@@ -688,9 +736,15 @@ fn looks(variant: &Resolved) -> Vec<String> {
     }
     if !layout.cards.art.is_empty() {
         let count = layout.cards.art.len();
+        let choices: usize = layout.cards.art.iter().map(|art| art.choices.len()).sum();
         changes.push(format!(
-            "{count} picture{} on each card",
-            if count == 1 { "" } else { "s" }
+            "{count} picture{} on each card{}",
+            if count == 1 { "" } else { "s" },
+            if choices > 0 {
+                format!(" ({} to pick from)", count + choices)
+            } else {
+                String::new()
+            }
         ));
     }
     if layout.cards.tab.is_some() {
@@ -724,6 +778,27 @@ fn looks(variant: &Resolved) -> Vec<String> {
         } else {
             format!("ransom names ({} fonts)", names.fonts.len())
         });
+    }
+    for surface in super::package::art::RESERVING {
+        if let Some(reserve) = variant.art.reserve(surface) {
+            let edges: Vec<String> = [
+                ("top", reserve.top),
+                ("bottom", reserve.bottom),
+                ("left", reserve.left),
+                ("right", reserve.right),
+            ]
+            .into_iter()
+            .filter(|(_, pixels)| *pixels > 0.0)
+            .map(|(edge, pixels)| format!("{pixels}px {edge}"))
+            .collect();
+            if !edges.is_empty() {
+                changes.push(format!(
+                    "{} content clear of its art ({})",
+                    surface.name(),
+                    edges.join(", ")
+                ));
+            }
+        }
     }
     let mut out = Vec::new();
     if !changes.is_empty() {
@@ -878,6 +953,10 @@ pub fn unreadable_layout(variant: &Resolved) -> Vec<String> {
         Some(colour) => Some(vec![colour]),
         None => shown_colours(variant, token),
     };
+    let paints = |set: Option<&Paint>, token: &str| match set {
+        Some(paint) => Some(paint.colours()),
+        None => shown_colours(variant, token),
+    };
     // (text's name, its colours, ground's name, its colours)
     type Pair<'a> = (&'a str, Option<Vec<u32>>, &'a str, Option<Vec<u32>>);
     let mut pairs: Vec<Pair> = Vec::new();
@@ -885,19 +964,26 @@ pub fn unreadable_layout(variant: &Resolved) -> Vec<String> {
     // is held to them.
     let bubbles = layout.messages == Some(super::layout::MessageStyle::Bubbles);
     if bubbles || layout.bubbles.own.is_some() || layout.bubbles.own_text.is_some() {
+        // Unset, the text on your own bubbles is `on-accent` on the accent,
+        // and `text` on a ground the theme sets.
+        let own_ink = if layout.bubbles.own.is_some() {
+            "text"
+        } else {
+            "on-accent"
+        };
         pairs.push((
             if layout.bubbles.own_text.is_some() {
                 "layout.bubbles.own_text"
             } else {
-                "on-accent"
+                own_ink
             },
-            colours(layout.bubbles.own_text, "on-accent"),
+            colours(layout.bubbles.own_text, own_ink),
             if layout.bubbles.own.is_some() {
                 "layout.bubbles.own"
             } else {
                 "accent"
             },
-            colours(layout.bubbles.own, "accent"),
+            paints(layout.bubbles.own.as_ref(), "accent"),
         ));
     }
     if bubbles || layout.bubbles.other.is_some() {
@@ -909,8 +995,72 @@ pub fn unreadable_layout(variant: &Resolved) -> Vec<String> {
             } else {
                 "raised"
             },
-            colours(layout.bubbles.other, "raised"),
+            paints(layout.bubbles.other.as_ref(), "raised"),
         ));
+    }
+    // A drawn gel lays its gloss and glow where text can be: the band
+    // reaches the text's first line, past the bubble's top padding, and the
+    // glow its last, over the bottom padding. Each is laid at the most it
+    // lays there, on every bubble, over each ground colour.
+    let (_, pad) = layout.bubbles.padding.unwrap_or(BUBBLE_PADDING);
+    let own_text_name = if layout.bubbles.own_text.is_some() {
+        "layout.bubbles.own_text"
+    } else if layout.bubbles.own.is_some() {
+        "text"
+    } else {
+        "on-accent"
+    };
+    let own_ink = colours(
+        layout.bubbles.own_text,
+        if layout.bubbles.own.is_some() {
+            "text"
+        } else {
+            "on-accent"
+        },
+    );
+    let sides = [
+        (
+            &layout.bubbles.own_gel,
+            ["layout.bubbles.own.gloss", "layout.bubbles.own.glow"],
+            own_text_name,
+            own_ink,
+            paints(layout.bubbles.own.as_ref(), "accent"),
+        ),
+        (
+            &layout.bubbles.other_gel,
+            ["layout.bubbles.other.gloss", "layout.bubbles.other.glow"],
+            "text",
+            shown_colours(variant, "text"),
+            paints(layout.bubbles.other.as_ref(), "raised"),
+        ),
+    ];
+    for (gel, [gloss_name, glow_name], ink_name, ink, grounds) in sides {
+        let Some(grounds) = grounds else { continue };
+        let laid = |colour: u32, alpha: f32| {
+            Some(
+                grounds
+                    .iter()
+                    .map(|ground| over(colour, alpha, *ground))
+                    .collect(),
+            )
+        };
+        let gloss = gel
+            .gloss
+            .map(|gloss| (gloss_name, gloss.colour, gloss.alpha_below(pad)));
+        let glow = gel
+            .glow
+            .map(|glow| (glow_name, glow.colour, glow.alpha_above(pad)));
+        for (name, colour, alpha) in [gloss, glow].into_iter().flatten() {
+            if alpha > 0.0 {
+                // The alpha already holds the colour's own.
+                pairs.push((
+                    ink_name,
+                    ink.clone(),
+                    name,
+                    laid(colour | 0xff00_0000, alpha),
+                ));
+            }
+        }
     }
     if let Some(ground) = layout.cards.ground {
         pairs.push((
@@ -1004,6 +1154,18 @@ pub fn unreadable_layout(variant: &Resolved) -> Vec<String> {
         }
     }
     refused
+}
+
+/// `colour`'s red, green and blue at `alpha` (times its own alpha) over an
+/// opaque `back`.
+fn over(colour: u32, alpha: f32, back: u32) -> u32 {
+    let alpha = f64::from(alpha) * f64::from(colour >> 24) / 255.0;
+    let mix = |shift: u32| {
+        let front = f64::from((colour >> shift) & 0xff);
+        let behind = f64::from((back >> shift) & 0xff);
+        ((front * alpha + behind * (1.0 - alpha)).round() as u32).min(255) << shift
+    };
+    0xff00_0000 | mix(16) | mix(8) | mix(0)
 }
 
 /// How much two colours contrast, from 1 to 21, as WCAG measures it; a
@@ -1489,6 +1651,66 @@ mod tests {
     }
 
     #[test]
+    fn gradient_bubbles_and_a_see_through_member_list_are_checked() {
+        let with = |layers: &str| PLUM.replace(r##""colours": { "chat": "#2a1a3a" }"##, layers);
+        // Each stop of a gradient bubble holds the text on it.
+        let report = check(
+            &files(&with(
+                r##""layout": { "messages": "bubbles", "bubbles": { "own": "linear(#1a1a40, #ffffff)", "own_text": "#ffffff" } }"##,
+            )),
+            Strictness::Install,
+        );
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("layout.bubbles.own_text on layout.bubbles.own")),
+            "{:?}",
+            report.errors
+        );
+        let report = check(
+            &files(&with(
+                r##""layout": { "messages": "bubbles", "bubbles": { "own": { "ground": "linear(#101030, #202050)", "art": { "texture": "grain" } }, "own_text": "#ffffff" } }"##,
+            )),
+            Strictness::Install,
+        );
+        assert!(report.passed(), "{:?}", report.errors);
+        assert!(
+            report
+                .cost
+                .looks
+                .iter()
+                .any(|look| look.contains("1 picture on bubbles")),
+            "{:?}",
+            report.cost.looks
+        );
+        // A clear member list shows the conversation under it: light text
+        // on a clear white ground reads over the dark chat.
+        let report = check(
+            &files(&with(
+                r##""colours": { "chat": "#2a1a3a", "members": "#ffffff00" }"##,
+            )),
+            Strictness::Install,
+        );
+        assert!(report.passed(), "{:?}", report.errors);
+        // But not over a light one.
+        let report = check(
+            &files(&with(
+                r##""colours": { "chat": "#f0f0f0", "members": "#ffffff00" }"##,
+            )),
+            Strictness::Install,
+        );
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("on the members art")),
+            "{:?}",
+            report.errors
+        );
+    }
+
+    #[test]
     fn bubbles_and_cards_have_to_read() {
         let with = |layout: &str| {
             PLUM.replace(
@@ -1567,6 +1789,69 @@ mod tests {
             Strictness::Install,
         );
         assert!(report.passed(), "{:?}", report.errors);
+    }
+
+    #[test]
+    fn a_gel_keeps_its_gloss_off_the_text() {
+        let with = |layout: &str| {
+            PLUM.replace(
+                r##""colours": { "chat": "#2a1a3a" }"##,
+                &format!(r#""layout": {layout}"#),
+            )
+        };
+        let gel = |gloss: &str, padding: &str| {
+            with(&format!(
+                r##"{{ "messages": "bubbles", "bubbles": {{ {padding}
+                    "own": {{ "ground": "linear(#0c4cc0, #0a3f9e)", "gloss": {gloss} }},
+                    "own_text": "#ffffff" }} }}"##
+            ))
+        };
+        let refused = |report: &Report| {
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("layout.bubbles.own_text on layout.bubbles.own.gloss"))
+        };
+        // White text on deep blue reads; a bright gloss over its first
+        // line doesn't.
+        let report = check(
+            &files(&gel(r#"{ "from": 0.7, "to": 0.3, "max": 30 }"#, "")),
+            Strictness::Install,
+        );
+        assert!(refused(&report), "{:?}", report.errors);
+        // The same gloss, ending above the text, reads.
+        let report = check(
+            &files(&gel(
+                r#"{ "from": 0.7, "to": 0.3, "max": 8, "inset": 1 }"#,
+                r#""padding": [12, 10],"#,
+            )),
+            Strictness::Install,
+        );
+        assert!(report.passed(), "{:?}", report.errors);
+        // So does a faint one that fades as it reaches the text.
+        let report = check(
+            &files(&gel(
+                r#"{ "from": 0.35, "to": 0.0, "max": 20 }"#,
+                r#""padding": [12, 10],"#,
+            )),
+            Strictness::Install,
+        );
+        assert!(report.passed(), "{:?}", report.errors);
+        // A glow is held to the last line the same way.
+        let report = check(
+            &files(&with(
+                r##"{ "messages": "bubbles", "bubbles": { "own": { "ground": "#0c4cc0", "glow": { "colour": "#ffffff", "height": 30 } }, "own_text": "#ffffff" } }"##,
+            )),
+            Strictness::Install,
+        );
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("layout.bubbles.own.glow")),
+            "{:?}",
+            report.errors
+        );
     }
 
     #[test]
@@ -1726,6 +2011,25 @@ mod tests {
             "{:?}",
             report.errors
         );
+    }
+
+    #[test]
+    fn a_long_description_fails_the_check_naming_its_length() {
+        let long = "x".repeat(301);
+        let manifest = format!(
+            r#"{{ "theme_api": 1, "id": "com.example.long", "name": "Long", "version": "1.0.0",
+                 "description": "{long}", "variants": {{ "dark": {{ "base": "yap" }} }} }}"#
+        );
+        let files = Files {
+            manifest,
+            ..Files::default()
+        };
+        let report = check(&files, Strictness::Install);
+        let reason = report
+            .reason()
+            .expect("a description over 300 characters fails");
+        assert!(reason.contains("301 characters"), "{reason}");
+        assert!(reason.contains("at most 300"), "{reason}");
     }
 
     #[test]

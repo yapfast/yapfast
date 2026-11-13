@@ -42,9 +42,9 @@ import "fonts/DisplayName-Journal.ttf";
 // discord.slint, voice.slint, rail.slint, composer.slint, messages.slint,
 // settings.slint, people.slint, friends.slint, dialogs.slint and sign-in.slint.
 import { Theme, Tip, BadgeTip, ReactionHover, Middle, Popup, PopupMotion, Twemoji, Look } from "theme.slint";
-import { Arrange, DashedOutline, DashedRule, ActionsFrame } from "theme_layout.slint";
+import { Arrange, DashedOutline, DashedRule, ActionsFrame, PaneRule } from "theme_layout.slint";
 import { TitleBar, ResizeEdges } from "title_bar.slint";
-import { Art, ArtLayer, ArtOverlays, ArtParticles, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil, ArtTransition, ArtPicture } from "theme_art.slint";
+import { Art, ArtImage, ArtLayer, ArtOverlays, ArtParticles, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil, ArtTransition, ArtPicture, ArtEmitter } from "theme_art.slint";
 import { InboxRow, InboxPopout } from "yapfast/inbox.slint";
 import { GifPicker, GifTile, PickerTab } from "gifs.slint";
 import { StickerPicker, StickerGridTile } from "stickers.slint";
@@ -80,7 +80,7 @@ export { UiParts } from "yapfast/parts.slint";
 export { PluginKind, PluginTone, PluginCell, PluginRow, PluginPart, PluginButton, PluginBadge, PluginSurfaces } from "plugins.slint";
 export { InboxRow } from "yapfast/inbox.slint";
 export { Theme, Badges, Popup, Twemoji, Looks, Look, Shape, SlotMotion } from "theme.slint";
-export { Arrange, Dash, Scrap } from "theme_layout.slint";
+export { Arrange, BubbleGel, Dash, Scrap } from "theme_layout.slint";
 export { ThemeContent } from "theme_content.slint";
 export { Chrome, Workspace } from "theme_chrome.slint";
 export { Rails, ChannelLists, MemberLists, TileLayer, ListGlyph, FolderServer } from "theme_lists.slint";
@@ -92,7 +92,7 @@ export { CursorTrail, TrailSprite } from "theme_cursor.slint";
 export { Trim } from "theme_trim.slint";
 import { Trim, FrameGround } from "theme_trim.slint";
 export { Autoscroll } from "scrollview.slint";
-export { Art, ArtImage, ArtOverlay, ArtText, ArtParticle, CardArt } from "theme_art.slint";
+export { Art, ArtImage, ArtOverlay, ArtText, ArtParticle, CardArt, Reserve } from "theme_art.slint";
 export { PersonRow, CallLink, ShareScreen, VoiceCard } from "voice.slint";
 export { ServerRow, RoomRow } from "rail.slint";
 export { PictureStore, EmojiAnimations, Motion, AccountLook, NameStyleRow, NameLetter, EffectLayer, NameStyles, ActivityClock } from "controls.slint";
@@ -1909,7 +1909,7 @@ export component YapfastWindow inherits Window {
     }
     property <bool> profile-docked: root.profile-available && root.profile-panel && root.panel-profile-shown && !root.search-open && !root.aside-docked;
     // Search results take the place of the member list or the profile.
-    property <length> docked-width: root.search-open ? 420px : root.aside-docked ? root.aside-shown : (root.members-docked ? root.members-shown : 0px) + (root.profile-docked ? ClientStyle.profile-width : 0px);
+    property <length> docked-width: root.search-open ? 420px : root.aside-docked ? root.aside-shown : (root.members-docked ? (Arrange.members == 3 ? 56px : root.members-shown) : 0px) + (root.profile-docked ? ClientStyle.profile-width : 0px);
     // The pin and add buttons open their popovers under themselves.
     property <length> popover-x;
     property <length> popover-y;
@@ -2634,6 +2634,8 @@ export component YapfastWindow inherits Window {
             if root.rail-left > 0px && (Art.rail.length > 0 || Art.glass-rail): ArtLayer {
                 x: 0px; y: 0px; width: root.rail-left; height: parent.height; layers: Art.rail; glass: Art.glass-rail; ground: Theme.rail-fill;
             }
+            // A theme's edge between the rail and the sidebar.
+            if Arrange.panes && root.rail-left > 0px && root.sidebar-shown > 0px: PaneRule { x: root.rail-left; y: 0px; height: parent.height; z: 10; }
             VerticalLayout {
                 spacing: 0px;
                 HorizontalLayout {
@@ -2659,8 +2661,12 @@ export component YapfastWindow inherits Window {
                         if Art.sidebar.length > 0 || Art.glass-sidebar: ArtLayer {
                             x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.sidebar; glass: Art.glass-sidebar; ground: Theme.sidebar-fill;
                         }
+                        // A theme's art may keep the content clear of an edge;
+                        // the channel list scrolls in what's left.
                         VerticalLayout {
                             spacing: 0px;
+                            padding-top: Art.reserve-sidebar.top; padding-bottom: Art.reserve-sidebar.bottom;
+                            padding-left: Art.reserve-sidebar.left; padding-right: Art.reserve-sidebar.right;
                             header-box := Rectangle {
                                 property <bool> banner: ClientStyle.enabled && root.header-server != "" && root.header-banner != "" && UiParts.sidebar-banner;
                                 height: ClientStyle.header-height + (header-box.banner ? 81px : 0px);
@@ -2989,8 +2995,14 @@ export component YapfastWindow inherits Window {
             if Art.chat.length > 0 || Art.glass-chat: ArtLayer {
                 x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.chat; glass: Art.glass-chat; ground: Theme.chat-fill;
             }
+            // Particles that fly behind the messages and the message box.
+            if Art.particles-under: ArtParticles { x: 0px; y: 0px; width: parent.width; height: parent.height; under: true; }
+            // A theme's edge between the navigation and the conversation.
+            if Arrange.panes && root.rail-left + root.sidebar-shown > 0px: PaneRule { x: 0px; y: 0px; height: parent.height; z: 10; }
             VerticalLayout {
                 spacing: 0px;
+                padding-top: Art.reserve-chat.top; padding-bottom: Art.reserve-chat.bottom;
+                padding-left: Art.reserve-chat.left; padding-right: Art.reserve-chat.right;
                 Rectangle {
                     height: ClientStyle.header-height;
                     // A theme's own bar: its ground, art or glass, corners, border and shadow.
@@ -3656,7 +3668,8 @@ export component YapfastWindow inherits Window {
                                                 height: self.to - self.y + self.down;
                                                 clip: true;
                                                 card := Rectangle {
-                                                    x: msg-row.lead; width: parent.width - 2 * msg-row.lead;
+                                                    // A staggered card steps in from one side, by its group.
+                                                    x: msg-row.lead + Arrange.stagger-left(message.group); width: parent.width - 2 * msg-row.lead - Arrange.cards-stagger;
                                                     y: message.first ? parent.up : -parent.bleed;
                                                     height: parent.to - parent.from + (message.first ? 0px : parent.bleed) + (msg-row.group-end ? 0px : parent.bleed);
                                                     background: Arrange.cards-ground;
@@ -3686,14 +3699,32 @@ export component YapfastWindow inherits Window {
                                                     if Arrange.dash-message.on: DashedOutline { x: 0px; y: 0px; dash: Arrange.dash-message; }
                                                     // A theme's pictures on the card's top edge, on its
                                                     // first row, and on its bottom edge, on its last.
-                                                    for art in Art.cards: Rectangle {
+                                                    // A place with several pictures shows one a card,
+                                                    // picked by the card's group; never wider than it.
+                                                    for art[place] in Art.cards: art-box := Rectangle {
                                                         property <bool> here: art.bottom ? msg-row.group-end : message.first;
+                                                        property <length> across-width: art.full ? parent.width : min(art.width, parent.width);
+                                                        property <ArtImage> chosen: art.choices.length > 0 ? art.choices[Math.mod(Math.floor(message.group / (place * 7 + 1)), art.choices.length)] : art.picture;
                                                         visible: self.here;
-                                                        width: self.here ? art.width : 0px; height: self.here ? art.height : 0px;
-                                                        x: (parent.width - art.width) * art.across + art.dx;
+                                                        width: self.here ? self.across-width : 0px; height: self.here ? art.height : 0px;
+                                                        x: (parent.width - self.across-width) * art.across + art.dx;
                                                         y: (art.bottom ? parent.height : 0px) - art.height / 2 + art.dy;
                                                         transform-rotation: art.rotation * 1deg;
-                                                        if self.here: ArtPicture { x: 0px; y: 0px; width: parent.width; height: parent.height; layer: art.picture; }
+                                                        if self.here: ArtPicture { x: 0px; y: 0px; width: parent.width; height: parent.height; layer: art-box.chosen; }
+                                                        // `tint_art`: the hover and mention tints lie over the
+                                                        // picture too, only where it's drawn.
+                                                        if self.here && Arrange.cards-tint-art && art-box.chosen.fit == 2: Rectangle { background: msg-row.tint; animate background { duration: 400ms; } }
+                                                        if self.here && Arrange.cards-tint-art && art-box.chosen.fit == 2 && message.highlighted: Rectangle { background: msg-row.mark; }
+                                                        if self.here && Arrange.cards-tint-art && art-box.chosen.fit != 2: Image {
+                                                            width: parent.width; height: parent.height; source: art-box.chosen.image;
+                                                            image-fit: art-box.chosen.fit == 1 ? ImageFit.contain : art-box.chosen.fit == 3 ? ImageFit.fill : ImageFit.cover;
+                                                            colorize: msg-row.tint; opacity: 1 - art-box.chosen.fade; accessible-role: none;
+                                                        }
+                                                        if self.here && Arrange.cards-tint-art && art-box.chosen.fit != 2 && message.highlighted: Image {
+                                                            width: parent.width; height: parent.height; source: art-box.chosen.image;
+                                                            image-fit: art-box.chosen.fit == 1 ? ImageFit.contain : art-box.chosen.fit == 3 ? ImageFit.fill : ImageFit.cover;
+                                                            colorize: msg-row.mark; opacity: 1 - art-box.chosen.fade; accessible-role: none;
+                                                        }
                                                     }
                                                     // A theme's words on the card's tab: over its first
                                                     // picture on the top edge, or on a tab of their own.
@@ -3816,7 +3847,7 @@ export component YapfastWindow inherits Window {
                                                             if Arrange.dash-divider.on: DashedRule { dash: Arrange.dash-divider; stock-ink: message.unread-start ? Theme.accent : Theme.line; }
                                                         }
                                                     }
-                                                    MessageContent {
+                                                    content := MessageContent {
                                                         band: msg-row.bubbled ? msg-row.bubble-tint : transparent; mark: msg-row.bubbled ? msg-row.mark : transparent;
                                                         message: message; group-end: msg-row.group-end; active-item: root.active-item; preview: root.preview; reactions-enabled: root.reactions-enabled; bot-busy-item: root.bot-busy-item; bot-failed-item: root.bot-failed-item; bot-failed-text: root.bot-failed-text;
                                                         emoji-font: root.emoji-font; message-font-size: root.message-font-size;
@@ -3883,7 +3914,12 @@ export component YapfastWindow inherits Window {
                                             // Actions, the reaction picker and delete confirmation float over the
                                             // row's top edge, so opening them never moves the timeline.
                                             if (self.lit || root.react-item == message.item || root.menu-item == message.item || root.confirm-delete == message.item) && !message.deleted && message.delivery == "": message-bar := ActionsFrame {
-                                                x: parent.width - self.width - 16px; y: parent.body + (index == 0 && parent.head == 0px ? 4px : -16px);
+                                                // In `bubbles`, beside the bubble: after someone else's,
+                                                // before your own.
+                                                x: !parent.bubbled ? parent.width - self.width - 16px
+                                                    : message.own ? max(16px, content.bubble-left - self.width - 8px)
+                                                    : min(parent.width - self.width - 16px, content.bubble-right + 8px);
+                                                y: parent.body + (index == 0 && parent.head == 0px ? 4px : -16px);
                                                 width: actions.preferred-width; height: actions.preferred-height;
                                                 // Holding Shift swaps the frequent reactions for Pin, Create Thread
                                                 // and, on your own message, Reply, adds Forward, and swaps More for a
@@ -4063,7 +4099,8 @@ export component YapfastWindow inherits Window {
                             x: 0px; width: parent.width;
                             y: Arrange.composer-top ? 0px : parent.height - chat-stack.composer-height;
                             height: chat-stack.composer-height;
-                            padding-left: Arrange.centre(self.width, ClientStyle.composer-gutter); padding-right: self.padding-left;
+                            // A theme's `chat_padding` sets the composer's sides too, so it lines up with the messages.
+                            padding-left: Arrange.centre(self.width, Look.chat-padding >= 0px ? Look.chat-padding : ClientStyle.composer-gutter); padding-right: self.padding-left;
                             padding-top: Arrange.composer-top ? ClientStyle.composer-gutter : 0px; padding-bottom: 0px;
                             spacing: 0px;
                             if Trim.status != "" && Trim.status-above: status-top := Text {
@@ -4116,6 +4153,7 @@ export component YapfastWindow inherits Window {
                                     x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.composer, 10px);
                                     layers: Art.composer; glass: Art.glass-composer; ground: ClientStyle.enabled ? Theme.composer : Theme.field;
                                 }
+                                if Art.track: ArtEmitter { x: 0px; y: 0px; width: parent.width; height: parent.height; kind: 0; }
                                 if Chrome.console: Rectangle {
                                     x: 0px; y: parent.height - 1px; width: parent.width; height: 1px;
                                     background: Chrome.console-line;
@@ -4133,6 +4171,8 @@ export component YapfastWindow inherits Window {
                                 }
                                 VerticalLayout {
                                     spacing: 0px;
+                                    padding-top: Art.reserve-composer.top; padding-bottom: Art.reserve-composer.bottom;
+                                    padding-left: Art.reserve-composer.left; padding-right: Art.reserve-composer.right;
                                     // Files waiting to go with the message, in a row that scrolls sideways.
                                     if root.staged.length > 0: Flickable {
                                         height: 152px;
@@ -4272,7 +4312,13 @@ export component YapfastWindow inherits Window {
                                                 icon: IconPack.send-horizontal;
                                                 label: root.sending ? "Sending..." : root.is-editing ? "Save" : "Send";
                                                 enabled: root.can-send; emphasis: root.can-send;
-                                                clicked => { root.send(); }
+                                                clicked => {
+                                                    if Art.track {
+                                                        Art.send-x = self.absolute-position.x + self.width / 2; Art.send-y = self.absolute-position.y + self.height / 2;
+                                                        Art.pointer-x = Art.send-x; Art.pointer-y = Art.send-y;
+                                                    }
+                                                    root.send();
+                                                }
                                             }
                                         }
                                     }
@@ -4421,6 +4467,34 @@ export component YapfastWindow inherits Window {
                         activity-clock => { root.activity-clock(); }
                         open-profile(id, y) => { root.profile-y = y; root.profile-at-pointer = false; root.show-profile(id); }
                         open-member-menu(id, x, y) => { root.open-context-menu(id, true, x, y); }
+                    }
+                    // A theme's collapsed member list: a strip of avatars that
+                    // opens over the conversation while the pointer is on it.
+                    if root.members-docked && Arrange.members == 3: members-strip := Rectangle {
+                        width: 56px;
+                        property <bool> open;
+                        // A moment's wait each way, so a pointer passing by
+                        // doesn't open it.
+                        Timer {
+                            interval: strip-pointer.has-hover ? 120ms : 240ms;
+                            running: strip-pointer.has-hover != members-strip.open;
+                            triggered => { members-strip.open = strip-pointer.has-hover; }
+                        }
+                        strip-pointer := TouchArea {
+                            x: parent.width - self.width; width: members-strip.open ? root.members-shown : parent.width;
+                            animate width { duration: Arrange.members-motion; easing: ease-out; }
+                            MemberPanel {
+                                width: parent.width; strip: !members-strip.open;
+                                drop-shadow-blur: members-strip.open ? 16px : 0px; drop-shadow-color: #00000059;
+                                rows: root.roster; activity-rows: root.roster-activity; note: root.roster-note; selected: root.profile-member; boost-gems: root.boost-gems;
+                                viewport(top, bottom) => { root.roster-viewport(top, bottom); }
+                                activity-hidden <=> root.activity-cards-hidden;
+                                activity-hidden-toggled(hidden) => { root.activity-cards-hidden-toggled(hidden); }
+                                activity-clock => { root.activity-clock(); }
+                                open-profile(id, y) => { root.profile-y = y; root.profile-at-pointer = false; root.show-profile(id); }
+                                open-member-menu(id, x, y) => { root.open-context-menu(id, true, x, y); }
+                            }
+                        }
                     }
                     if root.profile-docked: Rectangle {
                         width: ClientStyle.profile-width;

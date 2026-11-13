@@ -7,6 +7,13 @@ impl Adapter {
     /// Shows the window in a theme, built in or the person's own, and keeps
     /// it chosen. False for an id Yapfast doesn't know, which changes nothing.
     pub(super) fn choose_theme(&mut self, window: &YapfastWindow, id: &str) -> bool {
+        // An installed theme is made ready on another thread, the window
+        // keeping the theme it shows until then, and comes back here.
+        if id.starts_with(theme_look::INSTALLED) && !theme_look::is_ready(id) {
+            let again = SharedString::from(id);
+            theme_look::prepare(window, id, move |window| window.invoke_choose_theme(again));
+            return true;
+        }
         let shown = if id.starts_with(theme_look::INSTALLED) {
             match theme_look::show(window, id) {
                 Ok(colours) => Some((id.to_owned(), colours)),
@@ -24,12 +31,18 @@ impl Adapter {
             return false;
         };
         if !id.starts_with(theme_look::INSTALLED) {
+            // An installed theme still being made ready would land over it.
+            theme_look::cancel_prepare();
             theme_look::clear(window);
         }
         window.set_theme_id(id.as_str().into());
         self.set_theme(window, &chosen);
         if id.starts_with(theme_look::INSTALLED) {
             theme_media::cue(SoundSlot::ThemeApplied, FOCUSED.get());
+            // Settings → Themes, if it's open, marks the theme now applied.
+            if window.global::<ThemesPage>().get_installed().row_count() > 0 {
+                theme_look::show_page(window, &theme_look::marketplace(window));
+            }
         }
         if self.layout.theme.as_deref() != Some(id.as_str()) {
             self.layout.previous_theme = self.layout.theme.take();
@@ -590,10 +603,25 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
         theme_look::set_motion(&window, adapter.layout.theme_performance, on);
     });
     on!(page, on_apply(id) => |adapter, window| {
-        adapter.choose_theme(&window, &format!("{}{id}", theme_look::INSTALLED));
+        let layout_id = format!("{}{id}", theme_look::INSTALLED);
+        // Ready off the UI thread first, then applied here again.
+        if !theme_look::is_ready(&layout_id) {
+            theme_look::prepare(&window, &layout_id, move |window| {
+                window.global::<ThemesPage>().invoke_apply(id);
+            });
+            return;
+        }
+        adapter.choose_theme(&window, &layout_id);
         adapter.themes_changed(&window);
     });
     on!(page, on_try(id) => |adapter, window| {
+        let layout_id = format!("{}{id}", theme_look::INSTALLED);
+        if !theme_look::is_ready(&layout_id) {
+            theme_look::prepare(&window, &layout_id, move |window| {
+                window.global::<ThemesPage>().invoke_try(id);
+            });
+            return;
+        }
         let back = adapter.layout.theme.clone();
         match theme_look::try_installed(&window, &id, back) {
             Ok(colours) => {

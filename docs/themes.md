@@ -233,6 +233,10 @@ this Yapfast doesn't know is ignored with a note on the theme's page, so a
 theme written for a later Yapfast still opens. `id` is reverse-DNS in
 lowercase and stays the same forever; `version` is `1.2.0` or `1.2`. `preview`
 lists up to six pictures, which the marketplace needs at least one of.
+`description` is at most 300 characters: `yapfast theme check` refuses a longer
+one, naming its length, and so does Yapfast. An installed theme whose
+`theme.json` Yapfast refuses is left out of Settings → Themes, and choosing
+it, or starting with it chosen, says why.
 Listing also needs `license`, a licence file (`LICENSE`, `LICENSE.txt`,
 `LICENSE.md`, `LICENCE`, `LICENCE.txt` or `OFL.txt`), `source` on GitHub and a
 `description`.
@@ -269,12 +273,14 @@ another until one does:
 | `pill` | The pill beside a selected or unread server | `text` |
 | `toggle-off`, `knob-off` | A switch's track and knob while it's off | `field`, `secondary` |
 | `code`, `embed` | The grounds of code blocks and of embeds | `panel`, `sidebar` |
-| `members` | The member list's ground | `chat` (`sidebar` without Discord's look) |
+| `members` | The member list's ground; it may be see-through (`#00000000`), showing the conversation's ground and art beneath, and its text is then checked over what shows | `chat` (`sidebar` without Discord's look) |
 | `app-badge` | The APP tag after a bot's name | Discord's blurple |
 | `account` | The account panel's ground at the bottom left (avatar, name, mic, headphones, settings) | `panel` |
 | `actions` | The ground of the bar of actions over a message under the pointer | `raised` |
 | `actions-hover` | A button's ground under the pointer in that bar, and in the quick reactions atop a message's menu | the stock wash |
 | `mention-chip` | A mention's text and chip in a message, for a person or role without a colour of its own; while the theme styles names (`content.names` other than `keep`), every mention's, as role colours give way | `link` |
+| `row-selected-text` | Text and icons on a selected channel row: with a light `row-selected`, an inverse-video selection | `text` |
+| `card-button`, `card-button-hover`, `card-button-icon` | The round buttons over a profile card's banner (add friend, more, close), under the pointer, and their icons | black at 50% and 70%, white |
 
 A theme that sets `hover` also lights the hovered row of a context menu with
 it, instead of the stock white or black wash, and `scrim` dims the window
@@ -314,6 +320,8 @@ percentage of its size: 50 a circle, 0 a square.
 | `label` | Channel categories' and member groups' headings drawn as bars (below) |
 | `header` | The bar over the conversation, with the channel's name and topic (below) |
 | `card_section` | A profile card's sections as boxes with a title bar (below) |
+| `row` | A message row's hover, mention and jump bands: `radius`, and `inset` (below) |
+| `card-button` | The round buttons over a profile card's banner: `radius`, `border`, `border_colour`, `shadow` |
 
 `row` also takes `inset`: pixels each band keeps from the column's sides
 (0–32), or `[sides, ends]` with the room it keeps from the row's top and
@@ -362,6 +370,10 @@ stop of a gradient), and `bar_text` on `bar`.
   "row": { "stripe": { "colour": "#241521", "lists": ["channels", "members"] } }
 }
 ```
+`card` also takes `inset_top` (0–64 pixels): room kept above the banner of a
+profile card the person hasn't themed themselves, for chrome its art draws,
+such as a window's title bar. The banner, the avatar and the banner's
+buttons move down by it; the card's art covers it.
 
 Every other corner in the window takes `radii`: `small` for stock corners of
 4 pixels or less, `medium` up to 8, `large` above. Every other shadow takes
@@ -400,6 +412,7 @@ the stock card keeps its banner to the edge.
 | `tile` | Cards in settings |
 | `divider` | The day and "New" lines across the messages |
 | `actions` | The bar of actions over a message |
+| `panes` | Edges between the rail and the sidebar, the navigation and the conversation, and the conversation and the member list. Drawn only when named, `"solid"` included: a terminal's frame lines |
 
 ```json
 "shape": {
@@ -420,7 +433,7 @@ own, once per run.
 | --- | --- | --- |
 | `body` | Messages and nearly everything | 12–20 |
 | `headings` | The channel's name in its header, the server's name, settings titles | 12–32 |
-| `names` | Authors of messages, the member list, the profile card | 12–24 |
+| `names` | Authors of messages (ransom names too), the member list, the profile card; a message's author follows `body` when unset, and scales with the person's text size | 12–24 |
 | `code` | Code blocks and inline code | 11–20 |
 | `labels` | Small capital headings, such as THEME | 10–16 |
 | `small` | The small fixed text: reply previews, the status line under a member's name, the text rail's rows, the status line | 9–16 |
@@ -448,7 +461,8 @@ name plainly.
 
 **Spacing** (`spacing`), in pixels: `message_gap` (0–16), `message_group_gap`
 (0–40), `channel_row_height` (24–48), `member_row_height` (32–56),
-`avatar_size` (24–56), `chat_padding` (4–48), `sidebar_width` (200–420),
+`avatar_size` (24–56), `chat_padding` (4–48; the message box's sides
+follow it too), `sidebar_width` (200–420),
 `members_width` (200–400). `density` (`compact`, `default` or `roomy`) sets
 several at once; values named beside it win. A plugin's size wins over a
 theme's.
@@ -559,6 +573,15 @@ the foot of the member list for a theme's stickers and blinkies, which takes
 no input; `footer_height`, 16–240 pixels, 64 when left out; a sprite sheet's
 `frames` make a blinkie blink). Each takes a layer or a list of up to 4,
 bottom first, drawn over the surface's ground and under its content:
+`composer`, `menu`, `actions` (the bar of actions over a message, on the
+`actions` colour), `settings` (the settings window: its page with its
+tiles and fields, and the sections beside it, on `panel`), `embed`, `code`
+(code blocks), `row-selected` (the selected channel, on `row-selected`), `profile-pane`
+(the profile docked beside a one-to-one DM, on its ground, `panel`) and
+`card_over`. Each takes a layer or a list of up to 4, bottom first, drawn
+over the surface's ground and under its content, except `card_over`, which
+lies over a profile card's content, such as a gloss across its banner, and
+takes no clicks:
 
 | Field | |
 | --- | --- |
@@ -575,10 +598,15 @@ bottom first, drawn over the surface's ground and under its content:
 | `drift` | `[x, y]` or `{ "x", "y" }`, logical pixels a second (−200 to 200): the layer slides and loops, a tile seamlessly, any other fit as two copies end to end along x (or y when x is 0) |
 | `frames` | A sprite sheet: `{ "count", "columns", "period" }`, frames left to right then down, `period` milliseconds for all of them (not with `tile`) |
 | `heavy` | Stays still in Balanced (drift and frames run there otherwise) |
+| `reserve` | `{ "top", "bottom", "left", "right" }`, 0–1200 logical pixels: the pane's content keeps that clear of its edges, so a decoration drawn there (keys at the foot of the sidebar, a bezel) isn't covered. The content is laid out inside what's left and scrolls there, scrollbars too; the largest any layer asks wins. `sidebar` (its header and channel list; the account panel below stays), `members`, `chat` (header, messages and composer) and `composer` (inside the message box) take it; another surface's is ignored with a note. `yapfast theme check` lists it, and warns when it leaves a pane little room in a small window |
+| `size` | `[width, height]`, 4–1600 logical pixels: the layer is drawn at that size, where `position` puts it, instead of over the whole surface, and decoded at no more than twice it; for a decoration such as a D-pad on a shell. Its `fit` is within that size |
 
 Pictures are decoded once per theme, no larger than 2560 × 1600 (a tile no
-larger than 1024), with their blend, blur, dim and opacity put into their
-pixels then, so drawing them costs a plain picture. Slint has no blend modes
+larger than 1024), with their blend, blur and dim put into their pixels
+then, so drawing them costs a plain picture. Opacity is drawn instead, so
+one picture serves every surface that lays it, whatever its opacity there;
+a picture shows in memory once unless surfaces blur, dim, scale or blend it
+differently, and a theme's other variant keeps what it shares. Slint has no blend modes
 of its own: a blend mixes with the surface's colour, not with what another
 layer drew beneath.
 
@@ -600,11 +628,16 @@ lined up with where the pane sits, lays its own ground over it at `opacity`
 window's art, not other panes or messages. `surfaces` (any but `window`;
 `sidebar` and `chat` when left out), `blur` (0–64), `highlight` (a 1 px light
 on the top and left inner edge), `inset` (a shadow inside the edges, as
-`shape` writes one: `blur` is its depth), `gap` (0–24 px between the window's
+`shape` writes one: `blur` is its depth), `gap` (0–64 px between the window's
 edge and its two panes, the navigation and the conversation, where the
 window's art shows; a glass `account` panel floats the same distance from the
 navigation above it and the window's edge) and `radius` (their corners, and
-a glass account panel's, when there's a gap).
+a glass account panel's, when there's a gap) and `rim` (`colour` and
+`width`, 0.5–4 pixels: a hard line at each pane's very edge, outside the
+inner shadow and the highlight). A rail in such a pane (a gap, round
+corners, a rim or a glass edge light or inner shadow) keeps its first
+server 8 pixels, plus 2 for the edge light or the rim's width, from the
+pane's edge, and its pills off the rim.
 
 *Text*: `names` (authors, the member list, the profile card), `headings` (the
 conversation's and the server's names, settings titles), `labels` (small
@@ -621,8 +654,15 @@ falls), `on` `ambient`, `message.sent`, `reaction.added` or `theme.applied`,
 `colours` (1–8, picked in turn), `sprite` (a picture drawn instead of the
 shape), `count` (1–64: how many fly on an event, or most at once when
 ambient), `rate` (ambient, how many start a second), `size` (2–48 px), `life`
-(300–12000 ms) and `heavy` (ambient sets are heavy unless they say not).
-At most 160 fly at once.
+(300–12000 ms), `heavy` (ambient sets are heavy unless they say not),
+`from` (where they start: `composer`, the message box; `send-button`, its
+send button, or the box's end in Discord's look; `apply-button`, the last
+Apply or Try pressed in Settings → Themes; `pointer`, the last reaction or
+send button pressed; `window`, each preset's own place across the window,
+which a set takes unless it says otherwise, and `message.sent` sets
+`composer`) and `z` (`over`, above everything, or `under`, behind the
+conversation's messages and message box, so send bubbles rise behind the
+text). At most 160 fly at once.
 
 *Events*, one effect each: `click` `ripple` (labelled buttons), `hover`
 `gloss` (a sweep of light over labelled buttons and the rail's servers),
@@ -643,6 +683,12 @@ sweeping across every `period` milliseconds.
 *Transition*: when another channel opens, the conversation as it was
 `fade`s or `dissolve`s in blocks over `duration` (100–2000 ms). Yapfast takes
 a picture of the window for it, held only while it plays.
+
+Showing a theme never waits on its files: choosing one in Settings, Apply
+and Try check its folder, read its fonts, decode its sounds and bake its
+pictures on another thread while the window keeps the theme it shows, then
+set the new one's values in one go. Starting, `--theme-dev` reloads and a
+change between light and dark do the same work where they are.
 
 Performance: Full runs all of it at up to 60 frames a second. Balanced runs
 art at up to 30, paused while Yapfast isn't focused, and holds heavy layers
@@ -785,6 +831,13 @@ frame. Cursors animate from frames instead:
   for every frame or one each (100 unset); `loop` (true unset for a kind);
   and `hotspot`. `hidpi`, beside the kinds, is a suffix such as `"@2x"` that
   gives every frame its larger size, `wait/03@2x.png` beside `wait/03.png`.
+  `frames` may instead be a sheet, one picture holding the frames side by
+  side: `{ "sheet": "cursors/wait.png", "cell": [64, 64], "count": 12 }`
+  (and `first`, the cell to start at), cells running left to right and
+  then down, as many to a row as the sheet is wide; `hidpi` gives the
+  sheet its larger size. A sheet is at most 2048 pixels a side and 2 MiB,
+  decoded once a size and cut into its frames, and is one file however
+  many frames it holds.
 - `transitions` play once, by name: `"default>pointer"` as the cursor
   changes from one kind to another, `"press"` and `"release"` as the left
   button goes down and up over the `default` cursor, and
@@ -793,10 +846,12 @@ frame. Cursors animate from frames instead:
 - `motion`, by kind: `move`, a pattern with `{dir}` (`e`, `se`, `s`,
   `sw`, `w`, `nw`, `n`, `ne`, as the pointer heads on screen) and
   `{speed}` (`slow`, `fast`): the frame that shows while the pointer moves
-  that way at that speed; `settle`, frames played once as it stops, their
+  that way at that speed, or a sheet of 16 cells, each direction's slow
+  frame and then its fast one; `settle`, frames played once as it stops, their
   path holding `{dir}` for the way it was moving (and `{speed}` for a
-  settle of each speed), with `slow_start`, the frame a slow stop starts
-  from; `idle`, a loop once it's been still
+  settle of each speed; a sheet without `{dir}` holds every direction's
+  frames, one direction after another, from `e`), with `slow_start`, the
+  frame a slow stop starts from; `idle`, a loop once it's been still
   `idle_after` milliseconds (600 unset); and `hotspot`. `slow` and `fast`,
   beside the kinds, are the speeds in logical pixels a second (60 and 700
   unset) the pointer counts as moving and as fast from, measured as an
@@ -809,7 +864,13 @@ frame. Cursors animate from frames instead:
   list one more often for it to show more often), `life` (100–5000 ms),
   `every` (logical pixels of motion between spawns), `per_step` (1–8),
   `jitter` (0–64 px), `count` (the most alive at once, 1–160), `press`
-  (how many burst out on a click) and `opacity` (what a new one starts at).
+  (how many burst out on a click), `opacity` (what a new one starts at) and
+  `corrupt`, a glitch now and then while the trail is alive: `every` and
+  `lasts` (milliseconds, or `[least, most]` for a random time between,
+  2500–7000 and 140–300 unset), `sprites` the trail's glyphs turn into,
+  `boost` (their opacity times 1–4, 1.8 unset), and `tear`, how far each
+  band `band` pixels tall slides sideways (18 and 10 unset). The glitch
+  moves only the trail's own sprites.
 
 ```json
 "cursors": {
@@ -835,14 +896,17 @@ decoded the first time it shows, at the one size the scale needs, and made
 into the system's cursor once, then reused. A timer wakes Yapfast at the
 next frame's time only while one plays: with the pointer still and no idle
 loop (or the pointer off the window), nothing runs. The trail is a layer
-over the window that takes no input, moved at most 60 times a second only
-while some of it is alive. Reduced motion and Light show each kind's still
+over the window that takes no input, moved only while some of it is alive:
+60 times a second in Full, 30 in Balanced, however often the pointer
+reports a move. Reduced motion and Light show each kind's still
 picture (an animated kind's first frame) and no trail; Balanced and Full
 play them. `theme check` decodes every frame and the sheet, refuses a
 hotspot off its frame, a sprite off the sheet, or more than 1024 frame
 files, and counts their decoded size in the cost. Every frame is a file of
 the theme's, each size too: an install from a URL takes at most 256 files
 (see Distribution), and finds those a pattern names as the window does.
+Sheets keep a large set under that: each holds a sequence, or a whole
+motion set.
 
 Settings → Themes → Installed → *Cursors* → *Use the theme's cursors* (on)
 turns them off for the theme shown, kept in `layout.json`'s
@@ -865,7 +929,7 @@ or takes away a control.
 | Field | Values | Stock |
 | --- | --- | --- |
 | `rail` | `left`, `right`, `top`: the edge the server rail runs along; `tree`: no rail, and the sidebar as one tree (below); `hidden`: no rail, the top bar's workspaces switch servers (needs `chrome.topbar.workspaces`) | `left` |
-| `members` | `right`, `left`, `hidden`: where the member list docks, or that it doesn't | `right` |
+| `members` | `right`, `left`, `hidden`: where the member list docks, or that it doesn't; `collapsed`: on the right as a 56-pixel strip of avatars that opens to the whole list, over the conversation, while the pointer is on it (at once with reduced motion or Light) | `right` |
 | `composer` | `bottom`, `top`: the message box under or over the messages | `bottom` |
 | `messages` | `flat`, `bubbles`, `irc`, `cards` (below) | `flat` |
 | `chat_max_width` | 480–1600 pixels: the messages and the composer grow no wider, centred | none |
@@ -954,8 +1018,42 @@ the focus ring and every accessible name stay as stock.
   such as `│` or `>`).
 - `bubbles`: `max_width` (40–95, a percentage of the column), `radius`
   (pixels), and the grounds `own` and `other` with `own_text`, the text on
-  your own. Unset, your own are `accent` with `on-accent` text, and others'
-  `raised` with `text`; either pair has to read at 4.5:1.
+  your own. Unset, your own are `accent` with `on-accent` text (`text` on a
+  ground the theme sets), and others' `raised` with `text`; either pair has
+  to read at 4.5:1, at each stop of a gradient. `own` and `other` each take
+  a colour, a gradient (`linear(…)`, as `colours` writes one), or `{
+  "ground": …, "art": […] }`: up to 4 layers laid on every such bubble over
+  its ground and under its text, as a surface's are (still: no `drift` or
+  `frames`; a `size` places a small one, such as a gel's highlight), each
+  decoded once and shared by every bubble; the text has to read over them
+  as over a surface's art. The same object may draw a gel, as a glossy
+  button's, in shapes rather than pictures, so it stays crisp on a
+  one-line bubble and a tall one alike; each part is optional and nothing
+  is drawn unless set:
+  - `gloss`: a rounded band over the bubble's top, its `colour` (white
+    unset) fading from `from` to `to` (alphas, 0.6 and 0.1) downward and
+    ending in a clean edge. `height` is a share of the bubble's height
+    (0.1–0.8, 0.5), never more than `max` pixels (4–96, 24); `inset`
+    (0–16, or `[across, down]`; 2 and 1) keeps it in from the sides and
+    the top, and `radius` sets its corners (the bubble's less the inset).
+  - `glow`: a light rising from the bottom edge, as through a gel:
+    `colour` at the edge (with its alpha), gone `height` pixels up (2–48,
+    12).
+  - `rim`: `light`, a 1-pixel line just inside the edge, brightest along
+    the top and again, fainter, along the bottom; `dark`, a line on the
+    edge.
+  - `shadow`, as `shape` writes one, under the bubble.
+
+  The gloss and the glow are held to the text the way a ground is: at
+  the most of them that reaches the first line, past the bubble's top
+  padding, on the tallest band `max` allows (and the glow at the last
+  line), over each colour of the ground, the text has to read at 4.5:1.
+  A bright gloss that should stay clear of the text ends above it: a
+  `max` under the padding, which `padding` (4–24 pixels, or `[across,
+  down]`; 12 and 6 unset) can widen. A reply's quote, "(edited)" and
+  "Forwarded" on your own bubble take its text's colour. The bar of actions over a message
+  sits beside the bubble under the pointer: after someone else's, before
+  your own.
 - `grid`: the group headings stay, and each tile is a button with the
   member's name, as a row is; clicking shows the profile and a right click
   opens the member's menu. Marks by role and before members' names show
@@ -988,6 +1086,22 @@ the focus ring and every accessible name stay as stock.
   and `uppercase`. They sit over the first picture on the card's top edge,
   or, with none, on a tab of their own at its top left on `ground`, where
   `colour` has to read 4.5:1.
+  up to four pictures on each card, such as a strip of tape, leaning with
+  it: each a layer (`image` or `texture`, `opacity`, `blend` with the
+  card's ground, `blur`, `dim`, `colour`, `fit` within its size; never
+  `drift` or `frames`) with `position` (`top`, `bottom right`, … or `[x,
+  y]`: across the card, and its top edge, or its bottom with y over 0.5),
+  `size` (`[width, height]`, 4–1600 by 4–240 pixels, or `"full"` for the
+  card's width; never wider than the card; the picture's own when left
+  out), `offset` (`[x, y]`, −64–64 pixels from its place, centred on the
+  edge) and `rotation` (−45–45 degrees beyond the card's lean). `image` may
+  list up to 6 pictures: each card picks one by who wrote it and when, the
+  same every time it's drawn. A picture is decoded once, at no more than
+  twice its `size` (960 × 480 without one), and every card shares it.
+  `stagger` (0–48 pixels) steps each card that far in from its left or its
+  right, by the same seed as its lean, so cards down the page fall to
+  either side. `tint_art: true` lays a hovered or mentioned card's tint
+  over its pictures too, where they're drawn.
 
 ```json
 "layout": {
@@ -995,6 +1109,28 @@ the focus ring and every accessible name stay as stock.
   "cards": { "tilt": 1.2, "shadow": { "blur": 0, "x": 5, "y": 5, "colour": "#14141440" },
              "art": [{ "image": "art/tape.png", "position": "top left", "size": [84, 22],
                        "offset": [18, -2], "rotation": -5 }] }
+}
+```
+
+```json
+"layout": {
+  "messages": "bubbles", "members": "collapsed",
+  "bubbles": { "own": { "ground": "linear(180deg, #7fd4ff, #2a7fff)",
+                        "art": [{ "image": "art/gloss.png", "fit": "stretch", "opacity": 0.7 }] },
+               "other": "linear(180deg, #ffffff, #e8eef8)", "own_text": "#06213f" }
+}
+```
+
+```json
+"layout": {
+  "messages": "bubbles",
+  "bubbles": { "padding": [14, 9],
+               "own": { "ground": "linear(180deg, #1d62d6, #0a3f9e 55%, #1559c8)",
+                        "gloss": { "from": 0.55, "to": 0.08, "max": 9, "inset": [4, 1] },
+                        "glow": { "colour": "#7cc8ff55", "height": 8 },
+                        "rim": { "light": "#ffffffb0", "dark": "#0a3478" },
+                        "shadow": { "blur": 6, "y": 2, "colour": "#0b3a8040" } },
+               "own_text": "#ffffff" }
 }
 ```
 

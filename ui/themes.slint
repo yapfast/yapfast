@@ -6,6 +6,7 @@ import { IconPack } from "media.slint";
 import { Theme, Middle, Label, Look } from "theme.slint";
 import { ActionButton, TextField, VolumeSlider } from "controls.slint";
 import { ScrollView } from "scrollview.slint";
+import { Art } from "theme_art.slint";
 import { SettingsTitle, SettingsHeading, SettingsSwitch, Choices } from "settings.slint";
 
 /// A theme in the gallery, installed or listed.
@@ -180,7 +181,7 @@ component GalleryCard inherits Rectangle {
             padding: 14px; spacing: 6px;
             HorizontalLayout {
                 spacing: 8px;
-                Text { text: root.theme.name; color: Theme.text; font-size: 16px; font-weight: 700; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+                Text { text: root.theme.name; color: Theme.text; font-size: 16px; font-weight: 700; font-family: Look.heading-font(""); overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
                 if root.theme.version != "": Text { text: root.theme.version; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
             }
             if root.theme.author != "": Text { text: "by " + root.theme.author; color: Theme.secondary; font-size: 13px; overflow: elide; }
@@ -201,11 +202,17 @@ component GalleryCard inherits Rectangle {
                 spacing: 8px; alignment: start; padding-top: 4px;
                 if root.theme.installed && !root.theme.applied: ActionButton {
                     text: "Apply"; primary: true; small: true;
-                    clicked => { ThemesPage.apply(root.theme.id); }
+                    clicked => {
+                        Art.apply-x = self.absolute-position.x + self.width / 2; Art.apply-y = self.absolute-position.y + self.height / 2;
+                        ThemesPage.apply(root.theme.id);
+                    }
                 }
                 if root.theme.installed && !root.theme.applied: ActionButton {
                     text: "Try 30 s"; small: true;
-                    clicked => { ThemesPage.try(root.theme.id); }
+                    clicked => {
+                        Art.apply-x = self.absolute-position.x + self.width / 2; Art.apply-y = self.absolute-position.y + self.height / 2;
+                        ThemesPage.try(root.theme.id);
+                    }
                 }
                 if !root.theme.installed: ActionButton {
                     text: "Install"; primary: true; small: true;
@@ -259,15 +266,15 @@ component ThemeRow inherits Rectangle {
             alignment: center; spacing: 4px; horizontal-stretch: 1;
             HorizontalLayout {
                 spacing: 8px;
-                Text { text: root.theme.name; color: Theme.text; font-size: 15px; font-weight: 600; overflow: elide; horizontal-stretch: 0; vertical-alignment: center; }
+                Text { text: root.theme.name; color: Theme.text; font-size: 15px; font-weight: 600; font-family: Look.heading-font(""); overflow: elide; horizontal-stretch: 0; vertical-alignment: center; }
                 if root.theme.applied: Middle { Pill { text: "Applied"; ink: Theme.accent-text; } }
                 Rectangle { horizontal-stretch: 1; }
             }
             Text { text: (root.theme.author != "" ? "by " + root.theme.author + " · " : "") + "v" + root.theme.version + " · " + root.theme.modes; color: Theme.muted; font-size: 12px; overflow: elide; }
             if root.theme.cost != "": Text { text: root.theme.cost; color: Theme.muted; font-size: 12px; overflow: elide; }
         }
-        if !root.theme.applied: Middle { ActionButton { text: "Apply"; small: true; primary: true; clicked => { ThemesPage.apply(root.theme.id); } } }
-        if !root.theme.applied: Middle { ActionButton { text: "Try 30 s"; small: true; clicked => { ThemesPage.try(root.theme.id); } } }
+        if !root.theme.applied: Middle { ActionButton { text: "Apply"; small: true; primary: true; clicked => { Art.apply-x = self.absolute-position.x + self.width / 2; Art.apply-y = self.absolute-position.y + self.height / 2; ThemesPage.apply(root.theme.id); } } }
+        if !root.theme.applied: Middle { ActionButton { text: "Try 30 s"; small: true; clicked => { Art.apply-x = self.absolute-position.x + self.width / 2; Art.apply-y = self.absolute-position.y + self.height / 2; ThemesPage.try(root.theme.id); } } }
         if root.theme.previous != "": Middle { ActionButton { text: "Roll back"; small: true; ghost: true; clicked => { ThemesPage.roll-back(root.theme.id); } } }
         Middle { ActionButton { text: "Remove"; small: true; ghost: true; clicked => { ThemesPage.remove(root.theme.id); } } }
     }
