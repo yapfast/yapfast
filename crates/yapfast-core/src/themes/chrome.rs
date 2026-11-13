@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::Value;
 
 use super::layout::closed;
-use super::package::{Error, colour_at, named, number, object};
+use super::package::{Error, Role, colour_at, named, number, object};
 
 /// The longest a label is, in characters.
 pub const MAX_LABEL: usize = 48;
@@ -23,6 +23,12 @@ pub const MAX_MARK: usize = 8;
 pub const MAX_STATUS: usize = 12;
 /// The longest the composer's prompt is.
 pub const MAX_PROMPT: usize = 4;
+/// The longest the console composer's prompt is.
+pub const MAX_CONSOLE_PROMPT: usize = 24;
+/// The most servers the top bar's workspaces show.
+pub const MAX_WORKSPACES: u32 = 10;
+/// What the top bar's centre and right labels may hold.
+pub const TOPBAR_PLACEHOLDERS: [&str; 5] = ["name", "server", "channel", "now_playing", "time"];
 
 closed! {
     /// A fixed string the window shows, which a theme may reword.
@@ -153,6 +159,109 @@ closed! {
 }
 
 closed! {
+    /// What the top bar's workspaces are.
+    Workspaces {
+        /// The first servers in the rail's order, those in folders too.
+        Servers => "servers",
+        /// The rail's top level: each folder as one, and each server
+        /// outside a folder.
+        Folders => "folders",
+    }
+}
+
+closed! {
+    /// A text effect the top bar plays when what's playing changes.
+    BarEffect { None => "none", Decrypt => "decrypt" }
+}
+
+/// A thin bar across the window's top, as a tiling desktop's: numbered
+/// workspaces on the left, a label in the middle and one on the right.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TopBar {
+    /// How many workspaces (1–10), and what they are.
+    pub workspaces: u32,
+    pub from: Workspaces,
+    /// The labels, with [`TOPBAR_PLACEHOLDERS`].
+    pub centre: String,
+    pub right: String,
+    /// Pixels tall (18–40) and its text's size (9–16).
+    pub height: f32,
+    pub size: f32,
+    /// ARGB; each follows a theme colour when not set: the ground `rail`,
+    /// the text `muted`, the current workspace `text`, its underline
+    /// `accent` and the hairline under the bar `line`.
+    pub ground: Option<u32>,
+    pub text: Option<u32>,
+    pub current: Option<u32>,
+    pub underline: Option<u32>,
+    pub line: Option<u32>,
+    /// Plays on the right label when what's playing changes.
+    pub effect: BarEffect,
+}
+
+impl Default for TopBar {
+    fn default() -> Self {
+        Self {
+            workspaces: 5,
+            from: Workspaces::Servers,
+            centre: String::new(),
+            right: String::new(),
+            height: 26.0,
+            size: 12.0,
+            ground: None,
+            text: None,
+            current: None,
+            underline: None,
+            line: None,
+            effect: BarEffect::None,
+        }
+    }
+}
+
+impl TopBar {
+    /// Whether a label asks for the time, so a clock runs.
+    pub fn shows_time(&self) -> bool {
+        self.centre.contains("{time}") || self.right.contains("{time}")
+    }
+
+    /// Whether a label asks for what's playing.
+    pub fn shows_playing(&self) -> bool {
+        self.centre.contains("{now_playing}") || self.right.contains("{now_playing}")
+    }
+}
+
+/// The composer as a console's input line: no box, a hairline under it that
+/// draws across in an accent while it has the keys, a prompt, a placeholder
+/// that types itself and a coloured caret. Every button and function of the
+/// composer stays.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Console {
+    /// The hairline at rest and while focused, ARGB; `line` and `accent`
+    /// when not set.
+    pub line: Option<u32>,
+    pub focus: Option<u32>,
+    /// Milliseconds the focused line takes to draw across (0–2000).
+    pub draw: f32,
+    /// The caret's colour, ARGB; the text's when not set.
+    pub caret: Option<u32>,
+    /// The placeholder types itself, once each time the empty composer
+    /// takes the keys, at this many milliseconds a letter (0 for never).
+    pub typing: f32,
+}
+
+impl Default for Console {
+    fn default() -> Self {
+        Self {
+            line: None,
+            focus: None,
+            draw: 420.0,
+            caret: None,
+            typing: 38.0,
+        }
+    }
+}
+
+closed! {
     /// A presence the member list's status column names.
     Presence {
         Online => "online",
@@ -192,6 +301,13 @@ pub struct Chrome {
     /// directories: the marks before an open and a closed one, and after
     /// the name, such as `▾`, `▸` and `/`.
     pub folders: Option<Folders>,
+    /// The type role whose face the chrome's words take, such as `code`
+    /// for monospaced labels.
+    pub font: Option<Role>,
+    /// A bar across the window's top.
+    pub topbar: Option<TopBar>,
+    /// The composer as a console's input line.
+    pub console: Option<Console>,
 }
 
 /// How a folder or category reads as a directory.
@@ -250,6 +366,15 @@ impl Chrome {
         }
         if self.folders.is_some() {
             parts.push("folders".into());
+        }
+        if let Some(font) = self.font {
+            parts.push(format!("{} face", font.name()));
+        }
+        if let Some(bar) = &self.topbar {
+            parts.push(format!("top bar ({} workspaces)", bar.workspaces));
+        }
+        if self.console.is_some() {
+            parts.push("console composer".into());
         }
         if !self.tree.is_empty() {
             let lists: Vec<&str> = self.tree.iter().map(|list| list.name()).collect();
@@ -375,6 +500,111 @@ fn marks(
     Ok(())
 }
 
+fn read_composer(
+    value: &Value,
+    here: &str,
+    chrome: &mut Chrome,
+    notes: &mut Vec<String>,
+) -> Result<(), Error> {
+    let fields = object(value, here)?;
+    // The style first: a console's prompt may be longer.
+    if let Some(style) = fields.get("style") {
+        match style.as_str() {
+            Some("console") => {
+                chrome.console.get_or_insert_with(Console::default);
+            }
+            Some("box") => chrome.console = None,
+            _ => {
+                return Err(Error(format!("\"{here}.style\" is \"box\" or \"console\"")));
+            }
+        }
+    }
+    for (key, value) in fields {
+        let at = format!("{here}.{key}");
+        let console = |chrome: &mut Chrome| -> Result<(), Error> {
+            if chrome.console.is_none() {
+                return Err(Error(format!(
+                    "\"{at}\" is for the console composer: set \"style\": \"console\""
+                )));
+            }
+            Ok(())
+        };
+        match key.as_str() {
+            "style" => {}
+            "caret" => chrome.caret = Some(named(value, &at, Caret::ALL, Caret::name)?),
+            "prompt" => {
+                let most = if chrome.console.is_some() {
+                    MAX_CONSOLE_PROMPT
+                } else {
+                    MAX_PROMPT
+                };
+                chrome.prompt = Some(plain(value, &at, most)?);
+            }
+            "line" | "focus_line" | "caret_colour" => {
+                console(chrome)?;
+                let colour = colour_at(value, &at)?;
+                let shown = chrome.console.as_mut().expect("checked");
+                match key.as_str() {
+                    "line" => shown.line = Some(colour),
+                    "focus_line" => shown.focus = Some(colour),
+                    _ => shown.caret = Some(colour),
+                }
+            }
+            "draw" => {
+                console(chrome)?;
+                chrome.console.as_mut().expect("checked").draw = number(value, &at, (0.0, 2000.0))?;
+            }
+            "typing" => {
+                console(chrome)?;
+                chrome.console.as_mut().expect("checked").typing =
+                    number(value, &at, (0.0, 400.0))?;
+            }
+            _ => notes.push(format!(
+                "\"{at}\" isn't something the composer takes; ignored"
+            )),
+        }
+    }
+    Ok(())
+}
+
+fn read_topbar(
+    value: &Value,
+    here: &str,
+    bar: &mut TopBar,
+    notes: &mut Vec<String>,
+) -> Result<(), Error> {
+    for (key, value) in object(value, here)? {
+        let at = format!("{here}.{key}");
+        match key.as_str() {
+            "workspaces" => {
+                bar.workspaces = number(value, &at, (0.0, MAX_WORKSPACES as f32))? as u32;
+            }
+            "from" => bar.from = named(value, &at, Workspaces::ALL, Workspaces::name)?,
+            "centre" | "center" | "right" => {
+                let text = plain(value, &at, MAX_LABEL)?;
+                placeholders(&text, &at, &TOPBAR_PLACEHOLDERS)?;
+                if key == "right" {
+                    bar.right = text;
+                } else {
+                    bar.centre = text;
+                }
+            }
+            "height" => bar.height = number(value, &at, (18.0, 40.0))?,
+            "size" => bar.size = number(value, &at, (9.0, 16.0))?,
+            "ground" => bar.ground = Some(colour_at(value, &at)?),
+            "colour" => bar.text = Some(colour_at(value, &at)?),
+            "current" => bar.current = Some(colour_at(value, &at)?),
+            "underline" => bar.underline = Some(colour_at(value, &at)?),
+            "line" => bar.line = Some(colour_at(value, &at)?),
+            "effect" => bar.effect = named(value, &at, BarEffect::ALL, BarEffect::name)?,
+            _ => notes.push(format!(
+                "\"{at}\" isn't something the top bar takes; ignored"
+            )),
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn read_chrome(
     value: &Value,
     place: &str,
@@ -437,17 +667,11 @@ pub(super) fn read_chrome(
                     }
                 }
             }
-            "composer" => {
-                for (key, value) in object(value, &here)? {
-                    let at = format!("{here}.{key}");
-                    match key.as_str() {
-                        "caret" => chrome.caret = Some(named(value, &at, Caret::ALL, Caret::name)?),
-                        "prompt" => chrome.prompt = Some(plain(value, &at, MAX_PROMPT)?),
-                        _ => notes.push(format!(
-                            "\"{at}\" isn't something the composer takes; ignored"
-                        )),
-                    }
-                }
+            "composer" => read_composer(value, &here, chrome, notes)?,
+            "font" => chrome.font = Some(named(value, &here, &Role::ALL, Role::name)?),
+            "topbar" => {
+                let bar = chrome.topbar.get_or_insert_with(TopBar::default);
+                read_topbar(value, &here, bar, notes)?;
             }
             "members" => {
                 for (key, value) in object(value, &here)? {
@@ -621,6 +845,51 @@ mod tests {
         let chrome = package.resolve(Mode::Dark).unwrap().chrome;
         assert_eq!(chrome.prefix[&Place::Channel], "./");
         assert_eq!(chrome.labels[&Label::New], "new");
+    }
+
+    #[test]
+    fn reads_the_top_bar_the_console_and_the_face() {
+        let package = theme(
+            r##"{
+                "font": "code",
+                "topbar": { "workspaces": 6, "from": "folders", "centre": "{name}@{server}",
+                            "right": "{now_playing}  {time}", "height": 24, "size": 11,
+                            "underline": "#9e263b", "effect": "decrypt" },
+                "composer": { "style": "console", "prompt": "guest@hurt:~$", "caret": "block",
+                              "caret_colour": "#9e263b", "focus_line": "#9e263b", "draw": 300, "typing": 40 }
+            }"##,
+        )
+        .unwrap();
+        assert!(package.notes.is_empty(), "{:?}", package.notes);
+        let chrome = package.resolve(Mode::Dark).unwrap().chrome;
+        assert_eq!(chrome.font, Some(Role::Code));
+        let bar = chrome.topbar.clone().unwrap();
+        assert_eq!((bar.workspaces, bar.from), (6, Workspaces::Folders));
+        assert_eq!(bar.centre, "{name}@{server}");
+        assert!(bar.shows_time() && bar.shows_playing());
+        assert_eq!(bar.underline, Some(0xff9e263b));
+        assert_eq!(bar.effect, BarEffect::Decrypt);
+        let console = chrome.console.clone().unwrap();
+        assert_eq!(console.caret, Some(0xff9e263b));
+        assert_eq!((console.draw, console.typing), (300.0, 40.0));
+        assert_eq!(chrome.prompt.as_deref(), Some("guest@hurt:~$"));
+        let summary = chrome.summary().join(", ");
+        assert!(
+            summary.contains("code face") && summary.contains("top bar (6 workspaces)"),
+            "{summary}"
+        );
+        assert!(summary.contains("console composer"), "{summary}");
+    }
+
+    #[test]
+    fn refuses_a_long_prompt_without_the_console_and_bad_bars() {
+        assert!(theme(r#"{ "composer": { "prompt": "guest@hurt:~$" } }"#).is_err());
+        assert!(theme(r##"{ "composer": { "focus_line": "#fff" } }"##).is_err());
+        assert!(theme(r#"{ "composer": { "style": "pill" } }"#).is_err());
+        assert!(theme(r#"{ "topbar": { "workspaces": 12 } }"#).is_err());
+        let error = theme(r#"{ "topbar": { "centre": "{topic}" } }"#).unwrap_err();
+        assert!(error.0.contains("{now_playing}"), "{error}");
+        assert!(theme(r#"{ "font": "fraktur" } "#).is_err());
     }
 
     #[test]

@@ -130,6 +130,8 @@ impl Adapter {
         self.app.plugins_theme(theme.dark);
         let icons = self.show_theme_media(window);
         let content = self.show_theme_content(window);
+        super::theme_chrome::workspaces(&self.app.state);
+        super::theme_chrome::now_playing(window, &self.app.state);
         if theme.apply(window) || icons || content {
             self.restyle_mentions();
             self.refresh(window);
@@ -455,6 +457,7 @@ pub(super) fn bind_themes(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
     }
     super::theme_layout::init(window);
     super::theme_chrome::init(window);
+    super::theme_cursor::init(window);
     {
         let weak = window.as_weak();
         window

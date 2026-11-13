@@ -82,8 +82,11 @@ export { InboxRow } from "yapfast/inbox.slint";
 export { Theme, Badges, Popup, Twemoji, Looks, Look, Shape, SlotMotion } from "theme.slint";
 export { Arrange, Dash, Scrap } from "theme_layout.slint";
 export { ThemeContent } from "theme_content.slint";
-export { Chrome } from "theme_chrome.slint";
+export { Chrome, Workspace } from "theme_chrome.slint";
 import { Chrome } from "theme_chrome.slint";
+import { TopBar } from "theme_topbar.slint";
+import { CursorTrail, CursorTrailLayer } from "theme_cursor.slint";
+export { CursorTrail, TrailSprite } from "theme_cursor.slint";
 export { Autoscroll } from "scrollview.slint";
 export { Art, ArtImage, ArtOverlay, ArtText, ArtParticle, CardArt } from "theme_art.slint";
 export { PersonRow, CallLink, ShareScreen, VoiceCard } from "voice.slint";
@@ -1877,7 +1880,8 @@ export component YapfastWindow inherits Window {
     // left, or on the right, and the height it takes along the top.
     property <length> rail-left: Arrange.rail == 0 ? Chrome.rail-px : 0px;
     property <length> rail-right: Arrange.rail == 1 ? Chrome.rail-px : 0px;
-    property <length> rail-top: Arrange.rail == 2 ? 64px : 0px;
+    // A theme's top bar sits over the top rail, if there's one.
+    property <length> rail-top: (Arrange.rail == 2 ? 64px : 0px) + (root.workspace ? Chrome.topbar-px : 0px);
     // A thread opened beside the channel takes the place of the member list
     // and the profile, and search results take its place.
     // The thread beside the channel, or the form that starts one, in place
@@ -2584,8 +2588,13 @@ export component YapfastWindow inherits Window {
         init => { Art.window-width = root.width; Art.window-height = root.height; }
     }
     // A theme's layout may run the rail along the top, over everything.
+    if root.workspace && Chrome.topbar-px > 0px: TopBar {
+        x: 0px; y: root.title-height; width: root.width; height: Chrome.topbar-px;
+        account-name: root.account-name; server-name: root.sidebar-title; channel-name: root.room-name;
+        chosen(id) => { root.navigate-server(id); }
+    }
     if root.workspace && Arrange.rail == 2: ServerRail {
-        x: 0px; y: root.title-height; width: root.width; height: root.rail-top;
+        x: 0px; y: root.title-height + Chrome.topbar-px; width: root.width; height: root.rail-top - Chrome.topbar-px;
         horizontal: true; own-art: true;
         dms-selected: root.dms-selected; dms-unread: root.dms-unread; dms-badge: root.dms-badge; servers: root.servers;
         matrix-build: root.matrix-build;
@@ -3701,6 +3710,7 @@ export component YapfastWindow inherits Window {
                                                                 height: 18px; border-radius: Look.radius(4px); background: Theme.accent-fill;
                                                                 new-text := Text {
                                                                     text: Chrome.new-label != "" ? Chrome.new-label : "New"; color: Theme.on-accent; font-size: 12px; font-weight: 800;
+                                                                    font-family: Chrome.new-label != "" ? Chrome.font : "";
                                                                     horizontal-alignment: center; vertical-alignment: center;
                                                                 }
                                                             }
@@ -3929,6 +3939,7 @@ export component YapfastWindow inherits Window {
                                 typing-text := Text {
                                     x: 4px; width: parent.width - 8px;
                                     text: Chrome.typing != "" ? Chrome.fill(Chrome.typing, "typing", root.typing) : root.typing; color: Theme.text; font-size: 13px; font-weight: 500;
+                                    font-family: Chrome.typing != "" ? Chrome.font : "";
                                     accessible-label: root.typing;
                                     vertical-alignment: center; overflow: elide;
                                     opacity: Motion.playing ? 0.75 + 0.25 * sin(animation-tick() / 1ms * 0.25deg) : 1;
@@ -3989,9 +4000,10 @@ export component YapfastWindow inherits Window {
                             composer-box := Rectangle {
                                 visible: !root.room-request && !root.composer-locked;
                                 min-height: root.room-request || root.composer-locked ? 0px : ClientStyle.composer-height; max-height: root.room-request || root.composer-locked ? 0px : 100000px;
-                                background: Art.glass-composer ? transparent : ClientStyle.enabled ? Theme.composer : Theme.field;
+                                background: Art.glass-composer || Chrome.console ? transparent : ClientStyle.enabled ? Theme.composer : Theme.field;
                                 // Discord's outline: faint, and a notch lighter with the keys.
-                                border-width: Arrange.dash-composer.on ? 0px : Look.bw(Look.composer, 1px);
+                                // A theme's console has none: a line under it instead.
+                                border-width: Arrange.dash-composer.on || Chrome.console ? 0px : Look.bw(Look.composer, 1px);
                                 border-color: composer.focused ? Theme.composer-focus : Look.bc(Look.composer, ClientStyle.enabled ? Theme.outline-field : Theme.line);
                                 animate border-color { duration: Theme.quick; }
                                 border-radius: Look.r(Look.composer, 10px);
@@ -4003,7 +4015,18 @@ export component YapfastWindow inherits Window {
                                     x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Look.r(Look.composer, 10px);
                                     layers: Art.composer; glass: Art.glass-composer; ground: ClientStyle.enabled ? Theme.composer : Theme.field;
                                 }
-                                if Arrange.dash-composer.on: DashedOutline {
+                                if Chrome.console: Rectangle {
+                                    x: 0px; y: parent.height - 1px; width: parent.width; height: 1px;
+                                    background: Chrome.console-line;
+                                }
+                                // With the keys, the accent draws across it from the left.
+                                if Chrome.console: Rectangle {
+                                    x: 0px; y: parent.height - 1px; height: 1px;
+                                    width: composer.focused ? parent.width : 0px;
+                                    animate width { duration: Chrome.console-draw; easing: ease-out; }
+                                    background: Chrome.console-focus;
+                                }
+                                if Arrange.dash-composer.on && !Chrome.console: DashedOutline {
                                     x: 0px; y: 0px; dash: Arrange.dash-composer; stock-width: Look.bw(Look.composer, 1px);
                                     stock-ink: composer.focused ? Theme.composer-focus : Look.bc(Look.composer, Theme.outline-field);
                                 }
@@ -5447,4 +5470,6 @@ export component YapfastWindow inherits Window {
             }
         }
     }
+    // A theme's cursor trail, over everything; it takes no input.
+    if CursorTrail.sprites.length > 0: CursorTrailLayer { x: 0px; y: 0px; width: root.width; height: root.height; }
 }

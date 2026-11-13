@@ -66,6 +66,24 @@ pub fn show(window: &YapfastWindow, content: Option<(Content, Colours)>) -> Chan
         Nameplates::Hide => 1,
         Nameplates::Tint => 2,
     });
+    let initials = avatars.initials;
+    global.set_initials(initials.is_some());
+    if let Some(initials) = initials {
+        global.set_initial_members(initials.members);
+        global.set_initial_reveal(initials.reveal);
+        global.set_initial_ink(slint::Color::from_argb_encoded(
+            initials.colour.unwrap_or(0),
+        ));
+        global.set_initial_size(initials.size);
+        global.set_initial_ground(slint::Color::from_argb_encoded(
+            initials.ground.unwrap_or(0),
+        ));
+        let (border, width) = initials.border.unwrap_or((0, 0.0));
+        global.set_initial_border(slint::Color::from_argb_encoded(border));
+        global.set_initial_border_width(width);
+    } else {
+        global.set_initial_members(false);
+    }
     global.set_embeds(shown.embeds == Follow::Theme);
     global.set_activity(shown.activity == Follow::Theme);
     let media_before = media();
@@ -75,6 +93,14 @@ pub fn show(window: &YapfastWindow, content: Option<(Content, Colours)>) -> Chan
         rows: before != content,
         media: media_before != shown.media,
     }
+}
+
+/// The face illuminated initials take: the family of the type role
+/// `content.avatars.initial.font` names, or empty for the window's.
+pub fn set_initial_face(window: &YapfastWindow, family: &str) {
+    window
+        .global::<ThemeContent>()
+        .set_initial_face(family.into());
 }
 
 /// What changed when content was shown or taken away.

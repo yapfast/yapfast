@@ -9,7 +9,7 @@ import { StatusDot } from "rail.slint";
 import { BotTag } from "messages.slint";
 import { PluginBadge, PluginBadgeView, PluginPart, PluginWidgets } from "plugins.slint";
 import { Arrange, DashedOutline, RansomName } from "theme_layout.slint";
-import { ThemeContent } from "theme_content.slint";
+import { ThemeContent, IlluminatedInitial } from "theme_content.slint";
 
 /// A member of the open room, or the heading, with no id, that starts a group.
 export struct MemberRow {
@@ -157,6 +157,7 @@ export component MemberPanel inherits Rectangle {
             padding-left: 16px; padding-right: 8px; height: 32px;
             Text {
                 text: Chrome.members-title; color: Theme.muted; font-size: 14px; vertical-alignment: bottom; overflow: elide;
+                font-family: Chrome.font;
                 accessible-role: none;
             }
         }
@@ -293,6 +294,7 @@ export component MemberPanel inherits Rectangle {
                     Text {
                         text: Chrome.members-group != "" ? Chrome.fill(Chrome.members-group, "group", member.heading) : member.heading;
                         accessible-label: member.heading;
+                        font-family: Chrome.members-group != "" ? Chrome.font : "";
                         color: #81828a; font-size: 14px; font-weight: 500; vertical-alignment: center;
                     }
                 }
@@ -313,6 +315,7 @@ export component MemberPanel inherits Rectangle {
                   accessible-action-default => { root.open-profile(member.id, self.absolute-position.y); }
                   member-pointer := TouchArea {
                     mouse-cursor: MouseCursor.pointer;
+                    changed has-hover => { if self.has-hover && Look.fx-name { Look.name-hover(member.name); } }
                     clicked => { root.open-profile(member.id, self.absolute-position.y); }
                     pointer-event(event) => {
                         if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
@@ -332,7 +335,13 @@ export component MemberPanel inherits Rectangle {
                     if !Chrome.hide-member-avatars: Middle {
                         Rectangle {
                             width: 32px; height: 32px;
-                            Avatar { size: 32px; initial: member.initial; tint: member.tint; picture: member.picture; picture-url: member.picture-url; decoration-url: member.decoration-url; animate: member-pointer.has-hover; opacity: member.presence == "offline" ? 0.4 : 1; }
+                            Avatar {
+                                size: 32px; initial: member.initial; tint: member.tint; picture: member.picture; picture-url: member.picture-url; decoration-url: member.decoration-url; animate: member-pointer.has-hover; opacity: member.presence == "offline" ? 0.4 : 1;
+                                visible: !ThemeContent.initial-members || !ThemeContent.lettered(member.name, member-pointer.has-hover);
+                            }
+                            if ThemeContent.initial-members && ThemeContent.lettered(member.name, member-pointer.has-hover): IlluminatedInitial {
+                                size: 32px; name: member.name; opacity: member.presence == "offline" ? 0.4 : 1;
+                            }
                             if member.presence != "" && member.presence != "offline": StatusDot { x: 20px; y: 20px; presence: member.presence; ring: Theme.sidebar; }
                         }
                     }
@@ -347,13 +356,13 @@ export component MemberPanel inherits Rectangle {
                                 member-ransom := RansomName { x: 0px; y: 0px; width: parent.width; text: member.name; font-size: Look.name-size(16px) * 0.9; font-weight: Look.name-weight(500); }
                             }
                             if member.name-style.length == 0 && !Arrange.ransom && !Art.names.on: Text {
-                                text: Chrome.member-before + member.name + Chrome.member-after; accessible-label: member.name; color: member.has-color ? member.color : Theme.secondary; font-size: Look.name-size(16px); font-weight: Look.name-weight(500); overflow: elide;
+                                text: Chrome.member-before + Look.name-text(member.name, member-pointer.has-hover) + Chrome.member-after; accessible-label: member.name; color: member.has-color ? member.color : Theme.secondary; font-size: Look.name-size(16px); font-weight: Look.name-weight(500); overflow: elide;
                                 font-family: Look.name-font(""); letter-spacing: Look.spacing-names;
                                 opacity: member.presence == "offline" ? 0.5 : 1;
                             }
                             if member.name-style.length == 0 && !Arrange.ransom && Art.names.on: ArtLabel {
                                 art: Art.names;
-                                text: Chrome.member-before + member.name + Chrome.member-after; ink: member.has-color ? member.color : Theme.secondary; font-size: Look.name-size(16px); font-weight: Look.name-weight(500); overflow: elide;
+                                text: Chrome.member-before + Look.name-text(member.name, member-pointer.has-hover) + Chrome.member-after; ink: member.has-color ? member.color : Theme.secondary; font-size: Look.name-size(16px); font-weight: Look.name-weight(500); overflow: elide;
                                 font-family: Look.name-font(""); letter-spacing: Look.spacing-names;
                                 opacity: member.presence == "offline" ? 0.5 : 1;
                             }
@@ -403,6 +412,7 @@ export component MemberPanel inherits Rectangle {
                     // A theme's status column, such as `pts/0` or `idle`.
                     if Chrome.status-column: Text {
                         text: Chrome.status(member.presence, member.place); color: member.presence == "offline" || member.presence == "" ? Theme.faint : Theme.muted;
+                        font-family: Chrome.font;
                         font-size: 13px; vertical-alignment: center; horizontal-alignment: right; overflow: elide;
                         max-width: 96px; horizontal-stretch: 0;
                         accessible-role: none;

@@ -7,7 +7,54 @@
 
 import { Theme } from "theme.slint";
 
+/// One of the top bar's workspaces: a server (or a folder's), its number
+/// as shown, its name for screen readers, and whether it's open or unread.
+export struct Workspace { id: string, number: string, name: string, current: bool, unread: bool }
+
 export global Chrome {
+    /// The face the chrome's words take, a type role's family; empty for
+    /// each place's stock face.
+    in property <string> font;
+    public pure function face(stock: string) -> string { self.font != "" ? self.font : stock }
+    /// A bar across the window's top: 0 px for none.
+    in property <length> topbar-height;
+    out property <length> topbar-px: self.topbar-height;
+    in property <[Workspace]> workspaces;
+    in property <string> topbar-centre;
+    in property <string> topbar-right;
+    in property <length> topbar-size: 12px;
+    // Colours a theme sets, or transparent to follow the theme's own.
+    in property <color> topbar-ground-set;
+    in property <color> topbar-ink-set;
+    in property <color> topbar-current-set;
+    in property <color> topbar-underline-set;
+    in property <color> topbar-line-set;
+    out property <color> topbar-ground: self.topbar-ground-set.alpha > 0 ? self.topbar-ground-set : Theme.rail;
+    out property <color> topbar-ink: self.topbar-ink-set.alpha > 0 ? self.topbar-ink-set : Theme.muted;
+    out property <color> topbar-current: self.topbar-current-set.alpha > 0 ? self.topbar-current-set : Theme.text;
+    out property <color> topbar-underline: self.topbar-underline-set.alpha > 0 ? self.topbar-underline-set : Theme.accent;
+    out property <color> topbar-line: self.topbar-line-set.alpha > 0 ? self.topbar-line-set : Theme.line;
+    /// What's playing and the time, kept by Rust while a label shows them.
+    in property <string> now-playing;
+    in property <string> time;
+    /// The right label decrypts when what's playing changes.
+    in property <bool> topbar-decrypt;
+    /// A top bar label with its placeholders filled.
+    pure callback bar(string /* template */, string /* name */, string /* server */, string /* channel */, string /* now */, string /* time */) -> string;
+    /// The composer as a console's input line: no box, a hairline under it
+    /// that draws across in `console-focus` while it has the keys, over
+    /// `console-draw` ms (0 under reduced motion), a coloured caret and a
+    /// placeholder typed `console-typing` ms a letter (0 for none).
+    in property <bool> console;
+    in property <color> console-line-set;
+    in property <color> console-focus-set;
+    out property <color> console-line: self.console-line-set.alpha > 0 ? self.console-line-set : Theme.line;
+    out property <color> console-focus: self.console-focus-set.alpha > 0 ? self.console-focus-set : Theme.accent;
+    in property <duration> console-draw: 420ms;
+    in property <color> console-caret: transparent;
+    in property <duration> console-typing;
+    /// The first `count` characters of `text`.
+    pure callback typed(string /* text */, int /* count */) -> string;
     /// Labels; empty for the stock text. A label's placeholders are filled
     /// by `fill`.
     in property <string> members-title;

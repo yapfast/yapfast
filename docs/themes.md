@@ -579,7 +579,11 @@ At most 160 fly at once.
 `select` `highlighter` (a marker stroke that swipes under the chosen channel),
 `reaction` `stamp` (your reaction lands with a thunk), `row` `highlighter`
 (a marker stroke swipes under the message under the pointer, in place of
-the flat `row-hover` tint; Light and reduced motion keep the tint). Each is the effect's
+the flat `row-hover` tint; Light and reduced motion keep the tint),
+`name_hover` `decrypt` (an author's or a member's name scrambles and
+settles once as the pointer comes onto it, as the `decrypt` text effect;
+screen readers keep the plain name, and Light and reduced motion play
+nothing). Each is the effect's
 name, `none`, or `{ "effect", "colour", "duration" }` (80–3000 ms).
 
 *Foil*: a holographic band of three `colours` over `card` and `tile`
@@ -722,8 +726,73 @@ whole by the check and again, under the same limits, when the theme shows;
 a picture that doesn't load leaves that kind the system's. 32 pixels, with
 64 for HiDPI, matches the system's cursors. Keep a contrasting outline so
 it shows on every ground, and keep `text` thin: an I-beam that hides the
-caret is a bug. Cursors don't animate: an animated picture shows its first
-frame.
+caret is a bug. A PNG shows still: an animated picture shows its first
+frame. Cursors animate from frames instead:
+
+- A kind gives `frames` in place of `image`: a list (each a path, or a
+  list of its sizes) or a pattern with `{nn}` and a `count` (1–64), as
+  `"cursors/wait/{nn}.png"` for `00`, `01`, …; `ms`, one number (16–5000)
+  for every frame or one each (100 unset); `loop` (true unset for a kind);
+  and `hotspot`. `hidpi`, beside the kinds, is a suffix such as `"@2x"` that
+  gives every frame its larger size, `wait/03@2x.png` beside `wait/03.png`.
+- `transitions` play once, by name: `"default>pointer"` as the cursor
+  changes from one kind to another, `"press"` and `"release"` as the left
+  button goes down and up over the `default` cursor, and
+  `"press:pointer"`, `"release:pointer"` (any kind after the colon). Each
+  takes the fields above, `loop` false unset.
+- `motion`, by kind: `move`, a pattern with `{dir}` (`e`, `se`, `s`,
+  `sw`, `w`, `nw`, `n`, `ne`, as the pointer heads on screen) and
+  `{speed}` (`slow`, `fast`): the frame that shows while the pointer moves
+  that way at that speed; `settle`, frames played once as it stops, their
+  path holding `{dir}` for the way it was moving (and `{speed}` for a
+  settle of each speed), with `slow_start`, the frame a slow stop starts
+  from; `idle`, a loop once it's been still
+  `idle_after` milliseconds (600 unset); and `hotspot`. `slow` and `fast`,
+  beside the kinds, are the speeds in logical pixels a second (60 and 700
+  unset) the pointer counts as moving and as fast from, measured as an
+  average over about 40 ms. A press, a release or a transition plays over
+  motion, and a kind's own frames over all of them.
+- `trail`: sprites cut from one `sheet` (a PNG of at most 1024 pixels a
+  side, with its `hidpi` size) that fade, shrink and fall behind the
+  pointer while it moves: `cell` (pixels a sprite is across on the first
+  size), `sprites` (up to 64 `[x, y]` corners on it, picked at random;
+  list one more often for it to show more often), `life` (100–5000 ms),
+  `every` (logical pixels of motion between spawns), `per_step` (1–8),
+  `jitter` (0–64 px), `count` (the most alive at once, 1–160), `press`
+  (how many burst out on a click) and `opacity` (what a new one starts at).
+
+```json
+"cursors": {
+  "hidpi": "@2x",
+  "default": { "image": ["cursors/default.png", "cursors/default@2x.png"], "hotspot": [16, 16] },
+  "wait": { "frames": "cursors/anim/wait/{nn}.png", "count": 12, "ms": 80, "hotspot": [32, 32] },
+  "transitions": {
+    "default>pointer": { "frames": "cursors/anim/to-pointer/{nn}.png", "count": 12, "ms": 35, "hotspot": [32, 32] },
+    "press": { "frames": "cursors/anim/press/{nn}.png", "count": 5, "ms": [40, 50, 60, 90, 180], "hotspot": [32, 32] }
+  },
+  "motion": {
+    "default": { "move": "cursors/anim/move/{dir}-{speed}.png", "hotspot": [32, 32],
+                 "settle": { "frames": "cursors/anim/settle/{dir}/{nn}.png", "count": 6, "ms": 50, "slow_start": 2 },
+                 "idle": { "frames": "cursors/anim/idle/{nn}.png", "count": 16, "ms": 150 } }
+  },
+  "trail": { "sheet": "cursors/anim/trail.png", "cell": 16, "sprites": [[0, 0], [16, 0], [0, 16]], "count": 96 }
+}
+```
+
+The window swaps the system cursor's picture itself, so frames show
+wherever the pointer is on the window, at the screen's scale. Each frame is
+decoded the first time it shows, at the one size the scale needs, and made
+into the system's cursor once, then reused. A timer wakes Yapfast at the
+next frame's time only while one plays: with the pointer still and no idle
+loop (or the pointer off the window), nothing runs. The trail is a layer
+over the window that takes no input, moved at most 60 times a second only
+while some of it is alive. Reduced motion and Light show each kind's still
+picture (an animated kind's first frame) and no trail; Balanced and Full
+play them. `theme check` decodes every frame and the sheet, refuses a
+hotspot off its frame, a sprite off the sheet, or more than 1024 frame
+files, and counts their decoded size in the cost. Every frame is a file of
+the theme's, each size too: an install from a URL takes at most 256 files
+(see Distribution), and finds those a pattern names as the window does.
 
 Settings → Themes → Installed → *Cursors* → *Use the theme's cursors* (on)
 turns them off for the theme shown, kept in `layout.json`'s
@@ -734,7 +803,10 @@ hands one to the system when the kind under the pointer changes.
 Underneath, Slint's core (`vendor/i-slint-core/yapfast_cursors.rs`) asks
 `src/ui/theme_cursor.rs` for a picture before it gives the window a named
 cursor, and gives it a custom one in its place, which Slint's winit backend
-shows as an image cursor on Windows, X11, Wayland and macOS alike.
+shows as an image cursor on Windows, X11, Wayland and macOS alike. Animated
+frames go round Slint: `theme_cursor::Handler`, a winit application handler
+registered with the backend, sees the window's pointer events first and,
+after each turn of the event loop, hands winit the frame that shows.
 
 **Layout** (`layout`): where the panes sit and how messages are laid out,
 each from a closed list. Yapfast moves what it already draws; it never adds
@@ -831,9 +903,21 @@ reads it; `src/ui/theme_content.rs` and the `ThemeContent` global
 - `avatars`: `shape` — `"keep"`, `"circle"`, `"square"`, `"rounded"` (8
   pixels) or `{ "rounded": 6 }` (0–24 pixels at a 40-pixel avatar, scaled
   with its size) — for people's avatars, not servers' icons;
-  `decorations` — `"keep"` or `"hide"` (neither drawn nor fetched); and
+  `decorations` — `"keep"` or `"hide"` (neither drawn nor fetched);
   `ring` — `{ "colour": "#5cff85", "width": 2 }` (1–4 pixels), a ring in
-  the theme's colour around every person's avatar in place of decorations.
+  the theme's colour around every person's avatar in place of decorations;
+  and `mode` — `"picture"` (stock) or `"initial"`: illuminated initials,
+  the first letter of the person's display name, as a capital, in place of
+  their avatar beside messages. A name that starts with something without
+  case, such as an emoji, CJK or a symbol, keeps its picture. `initial`
+  shapes it: `font`, the type role whose face draws it (`headings` unset,
+  so a theme's blackletter headings make blackletter initials); `colour`
+  (the theme's `accent-text` unset), which has to read 3:1 on its ground;
+  `size` against the avatar's (0.4–1.2, 0.8 unset); `ground` and `border`
+  (`{ "colour", "width" }`, 1–4 px), cut to the avatar's shape; `hover`,
+  `"picture"` (the default: the avatar shows while the pointer is on the
+  message) or `"initial"`; and `members`, `true` for initials in the member
+  list too. Profile cards always show the picture.
 - `names`: `colours` — role colours as the server gives them (`"keep"`), every
   name in `colour` (`"theme"`; the theme's `text` when `colour` isn't set,
   which has to read 4.5:1 on `chat`, `sidebar` and `members`), or each
@@ -854,6 +938,11 @@ reads it; `src/ui/theme_content.rs` and the `ThemeContent` global
 - `activity`: `"keep"` or `"theme"`: activity and game pictures take the
   theme's card corners and outline, a song's progress bar `accent`, and the
   LIVE pill `accent` with `on-accent` text.
+
+```json
+"avatars": { "mode": "initial", "initial": { "font": "headings", "colour": "#9e263b",
+             "size": 0.86, "hover": "picture", "members": true } }
+```
 
 Protected dialogs, danger colours and reduce motion are as without it. `theme
 check` lists what `content` changes in the cost line, as `content (if
@@ -886,7 +975,9 @@ left included.
 | `time` | A pattern around a message's time, holding `HH:MM` where it goes, such as `[HH:MM]`, at most 16 characters; the time follows the person's clock setting | `HH:MM` |
 | `hide` | What to leave out (below) | none |
 | `rail` | `mode`: `icons`, or `text` for the servers' names as rows of text; `width`: 96–320 pixels of the rail in text mode | `icons`, 150 |
-| `composer` | `caret`: `line` or `block` (as wide as a letter); `prompt`: at most 4 characters drawn before the text, such as `$` | `line`, none |
+| `composer` | `caret`: `line` or `block` (as wide as a letter); `prompt`: at most 4 characters drawn before the text, such as `$` (24 in the console style); `style`: `box` or `console` (below) | `line`, none, `box` |
+| `font` | The type role whose face the chrome's words take where a theme sets them: its labels, the status column, the text rail's lines, the top bar and the console composer — `code` for monospaced `//` labels | each place's own |
+| `topbar` | A thin bar across the window's top (below) | none |
 | `folders` | Server folders in the text rail and channel categories as directories: `open` and `closed`, the mark before an open or closed one, and `suffix`, after its name, at most 4 characters each, such as `▾ studio/` and `▸ games/`. Clicking still opens and closes it | `▾`, `▸`, `/` once set |
 | `tree` | `lists`: lists drawn as file trees, as the `tree` command prints them (below); `colour`: their lines' colour, `faint`, `muted`, `secondary`, `text`, `accent` or a colour such as `#2e7d45` | none, `faint` |
 | `members` | `columns`: a status column at the end of each member row, by presence: `online`, `idle`, `dnd`, `offline`, `streaming`, at most 12 characters, `{n}` the row's place in its group from 0 | none |
@@ -915,6 +1006,47 @@ left included.
 | `account-avatar` | Your avatar in the account panel | Your name and status, which open the status menu |
 | `activity-cards` | The Activity cards over the member list | Each person's activity under their name |
 | `reaction-chips` | Reactions' chips: each is its emoji then its count as text, such as `(+3)` | Clicking, the tooltip of who reacted, and the screen reader's label |
+
+The **top bar** (`topbar`), as a tiling desktop's or a terminal's, runs
+across the window's top above everything else, `height` (18–40, 26 unset)
+pixels tall with its words at `size` (9–16, 12 unset) in `font`'s face
+(monospaced unset). On the left are `workspaces` (0–10, 5 unset): the
+first servers in the rail's order, numbered from 1, or with `from:
+"folders"` each folder of the rail and each server outside one. The open
+one is in `current` with an `underline`, an unread one bold. Clicking one
+opens it (a folder opens its open server, or its first); each is a
+button Tab reaches and Enter or Space presses, named for its server. In
+the middle `centre`, and at the right `right`, are labels taking
+`{name}` (the account's name), `{server}` (the open server's name),
+`{channel}`, `{now_playing}` (what the account listens to on Spotify, as
+`title · artist`, empty when nothing) and `{time}` (the person's clock
+setting, kept each minute only while a label shows it). `effect:
+"decrypt"` scrambles `{now_playing}` into place when it changes (not under
+reduced motion or Light). Its colours take `ground` (`rail` unset),
+`colour` (`muted`), `current` (`text`), `underline` (`accent`) and
+`line`, the hairline under it (`line`); on the ground `colour` has to
+read 3:1, as `muted` does, and `current` 4.5:1.
+
+The **console** composer (`composer.style: "console"`) has no box: a
+hairline (`line`, the theme's `line` unset) lies under the field, and
+while it has the keys a second, `focus_line` (`accent`), draws across it
+from the left over `draw` milliseconds (0–2000, 420 unset; at once under
+reduced motion). The prompt, the placeholder and the text take the
+chrome's face (monospaced unset); the placeholder types itself, `typing`
+milliseconds a letter (0 for never, 38 unset), each time the empty field
+takes the keys; and `caret_colour` paints the caret, which blinks as the
+stock one does. Every button, the reply bar, files waiting to go and
+their progress stay as stock.
+
+```json
+"chrome": {
+  "font": "code",
+  "topbar": { "workspaces": 6, "centre": "{name}@{server}", "right": "{now_playing}  {time}",
+              "underline": "#9e263b", "effect": "decrypt" },
+  "composer": { "style": "console", "prompt": "guest@hurt:~$", "caret": "block",
+                "caret_colour": "#9e263bcc", "focus_line": "#9e263b" }
+}
+```
 
 A tree draws `├──` before each row of a list and `└──` before its
 group's last, in the code font, with `│` carrying on past rows nested under
