@@ -1275,6 +1275,7 @@ mod tests {
                 })
                 .collect::<Vec<_>>(),
         )));
+        window.set_workspace(true);
         window.set_members_available(true);
         window.set_member_list(true);
         window
