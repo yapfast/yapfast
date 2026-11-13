@@ -174,8 +174,11 @@ fn texts(surface: ArtSurface) -> &'static [&'static str] {
         | ArtSurface::Dialog
         | ArtSurface::Menu
         | ArtSurface::Composer
-        | ArtSurface::Actions => &["text"],
-        ArtSurface::Window | ArtSurface::Rail => &[],
+        | ArtSurface::Actions
+        | ArtSurface::Header => &["text"],
+        // A label's words are checked on its own ground (`shape.label`), and
+        // the member list's foot holds no text.
+        ArtSurface::Window | ArtSurface::Rail | ArtSurface::Label | ArtSurface::Footer => &[],
     }
 }
 

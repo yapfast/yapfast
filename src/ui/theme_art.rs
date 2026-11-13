@@ -220,6 +220,13 @@ pub fn apply(
             ArtSurface::Composer => global.set_composer(model),
             ArtSurface::Menu => global.set_menu(model),
             ArtSurface::Actions => global.set_actions(model),
+            ArtSurface::Header => window.global::<yapfast_ui::Trim>().set_header_art(model),
+            ArtSurface::Label => window.global::<yapfast_ui::Trim>().set_label_art(model),
+            ArtSurface::Footer => {
+                let trim = window.global::<yapfast_ui::Trim>();
+                trim.set_footer(model);
+                trim.set_footer_height(art.footer_height.unwrap_or(64.));
+            }
         }
     }
     // Overlays: Light leaves out the heavy ones, Balanced holds them still.
@@ -303,7 +310,11 @@ pub fn apply(
                 ArtSurface::Composer => yapfast_ui::Art::set_glass_composer,
                 ArtSurface::Menu => yapfast_ui::Art::set_glass_menu,
                 ArtSurface::Actions => yapfast_ui::Art::set_glass_actions,
-                ArtSurface::Window => continue,
+                ArtSurface::Header => {
+                    window.global::<yapfast_ui::Trim>().set_header_glass(true);
+                    continue;
+                }
+                ArtSurface::Window | ArtSurface::Label | ArtSurface::Footer => continue,
             };
             set(&global, true);
         }
@@ -331,6 +342,7 @@ pub fn apply(
             TextRole::Names => global.set_names(lit),
             TextRole::Headings => global.set_headings(lit),
             TextRole::Labels => global.set_labels(lit),
+            TextRole::Body => window.global::<yapfast_ui::Trim>().set_body(lit),
         }
     }
     if !still {

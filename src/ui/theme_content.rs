@@ -120,7 +120,35 @@ pub fn name(rgb: Option<u32>) -> Option<u32> {
         NameColours::Keep => rgb,
         NameColours::Theme => content.names.colour.map(|argb| argb & 0xff_ffff),
         NameColours::Clamp => rgb.map(|rgb| clamp(rgb, &content, colours)),
+        // Without someone to pick for, the palette's first.
+        NameColours::Palette => content.names.palette().first().map(|argb| argb & 0xff_ffff),
     }
+}
+
+/// [`name`] for someone by their id, which a `palette` picks their colour
+/// from.
+pub fn name_of(id: &str, rgb: Option<u32>) -> Option<u32> {
+    palette_of(id).or_else(|| name(rgb))
+}
+
+/// Someone's colour from the theme's names `palette`, RGB, while it shows.
+pub fn palette_of(id: &str) -> Option<u32> {
+    let (content, _) = SHOWN.get()?;
+    if content.names.colours != NameColours::Palette {
+        return None;
+    }
+    content
+        .names
+        .palette_colour(id)
+        .map(|argb| argb & 0xff_ffff)
+}
+
+/// Whether the theme draws names in its own colours, so mentions leave their
+/// roles' colours for the theme's chips.
+pub fn styles_names() -> bool {
+    SHOWN
+        .get()
+        .is_some_and(|(content, _)| content.names.colours != NameColours::Keep)
 }
 
 /// `rgb` with its hue kept and its saturation and lightness in the theme's

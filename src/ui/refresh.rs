@@ -1141,6 +1141,7 @@ impl Adapter {
             .collect();
         self.rail_call = call_room(state).map(str::to_owned);
         let rail = rail(state, &rooms_by_id, &self.layout.open_folders);
+        set_tree_at(window, &rail);
         update_model_by_id(&self.models.servers, rail, |row| row.id.clone());
         let mut listed_text = false;
         let mut listed_voice = false;
@@ -2492,6 +2493,19 @@ impl Adapter {
             };
             places.push(if same { places[index - 1] + 1 } else { 0 });
         }
+        window
+            .global::<yapfast_ui::Trim>()
+            .set_members_n(i32::try_from(members.len()).unwrap_or(i32::MAX));
+        // Each member's group's place in the list, from 0, which a theme's
+        // marks by role follow.
+        let mut groups: Vec<i32> = Vec::with_capacity(members.len());
+        for (index, place) in places.iter().enumerate() {
+            groups.push(match index {
+                0 => 0,
+                _ if *place == 0 => groups[index - 1] + 1,
+                _ => groups[index - 1],
+            });
+        }
         update_model(
             &self.models.roster,
             members
@@ -2583,8 +2597,9 @@ impl Adapter {
                             .unwrap_or_default()
                             .into(),
                         presence: presence_name(member.presence).into(),
-                        color: role_color(theme_content::name(member.color)),
-                        has_color: theme_content::name(member.color).is_some(),
+                        color: role_color(theme_content::name_of(&member.id, member.color)),
+                        has_color: theme_content::name_of(&member.id, member.color).is_some(),
+                        group: groups[index],
                         // One line under the name, as Discord shows it.
                         activity,
                         activity_emoji,
@@ -4518,6 +4533,7 @@ impl Adapter {
                 .map(|room| (room.id.as_str(), &**room))
                 .collect();
             let rail = rail(state, &rooms_by_id, &self.layout.open_folders);
+            set_tree_at(window, &rail);
             update_model_by_id(&self.models.servers, rail, |row| row.id.clone());
         }
         let timed = matches!(state.voice.phase, Phase::Connected | Phase::Reconnecting)
@@ -6110,4 +6126,15 @@ fn sound_rows(
         }
     }
     rows
+}
+
+/// Where a theme's tree opens the selected server's channels: after its row
+/// in the rail's rows, or a closed folder's that holds it; -1 on the direct
+/// messages.
+fn set_tree_at(window: &YapfastWindow, rail: &[yapfast_ui::ServerRow]) {
+    let at = rail
+        .iter()
+        .position(|row| row.selected && !row.divider && !row.dm && !(row.folder && row.open))
+        .map_or(-1, |at| i32::try_from(at).unwrap_or(-1));
+    window.global::<yapfast_ui::Trim>().set_tree_at(at);
 }

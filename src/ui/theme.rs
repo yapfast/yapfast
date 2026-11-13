@@ -794,6 +794,15 @@ thread_local! {
     /// name, links and time.
     static TEXT: Cell<u32> = const { Cell::new(0xf2f3f5) };
     static MUTED: Cell<u32> = const { Cell::new(0x949ba4) };
+    /// An installed theme's `mention-chip` colour, `0xrrggbb`, which stands
+    /// in for the link colour in mentions.
+    static CHIP: Cell<Option<u32>> = const { Cell::new(None) };
+}
+
+/// Sets the installed theme's mention chips' colour, or none; the next
+/// [`Theme::apply`] rebuilds rows when it changes what they show.
+pub fn set_mention_chip(rgb: Option<u32>) {
+    CHIP.set(rgb.map(|rgb| rgb & 0xff_ffff));
 }
 
 pub fn mention_color() -> u32 {
@@ -967,7 +976,9 @@ impl Theme {
         let rgb = |colour: Color| colour.as_argb_encoded() & 0xff_ffff;
         // Bonfire draws a mention's text as Discord's dark theme does, a light
         // blurple; the other themes use their link colour.
-        let mention_colour = if self.dark && rgb(self.link) == rgb(BONFIRE.link) {
+        let mention_colour = if let Some(chip) = CHIP.get() {
+            chip
+        } else if self.dark && rgb(self.link) == rgb(BONFIRE.link) {
             0xc9cdfb
         } else {
             rgb(self.link)

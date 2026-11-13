@@ -23,6 +23,19 @@ pub const MAX_MARK: usize = 8;
 pub const MAX_STATUS: usize = 12;
 /// The longest the composer's prompt is.
 pub const MAX_PROMPT: usize = 4;
+/// The longest the status line is, in characters.
+pub const MAX_STATUS_LINE: usize = 120;
+/// The most marks by role a member list takes.
+pub const MAX_ROLE_MARKS: usize = 8;
+/// What the status line's text may hold.
+pub const STATUS_PLACEHOLDERS: [&str; 6] = [
+    "time",
+    "name",
+    "channel",
+    "server",
+    "typing",
+    "unread_channels",
+];
 
 closed! {
     /// A fixed string the window shows, which a theme may reword.
@@ -53,6 +66,12 @@ closed! {
         Reaction => "reaction",
         /// The root line over a tree of channels: `{server}`.
         TreeRoot => "tree_root",
+        /// The channel's topic in the bar over the messages: `{topic}`.
+        Topic => "topic",
+        /// How many are in the member list, after the topic: `{n}`.
+        MemberCount => "member_count",
+        /// The day divider between messages: `{date}`.
+        Day => "day",
     }
 }
 
@@ -65,7 +84,9 @@ impl Label {
             Self::Composer | Self::Welcome | Self::Start => &["channel"],
             Self::Typing => &["name", "n"],
             Self::RailFooter | Self::TreeRoot => &["server"],
-            Self::Reaction => &["n"],
+            Self::Reaction | Self::MemberCount => &["n"],
+            Self::Topic => &["topic"],
+            Self::Day => &["date"],
             Self::MembersTitle | Self::New | Self::RailTitle | Self::RailHome => &[],
         }
     }
@@ -192,6 +213,36 @@ pub struct Chrome {
     /// directories: the marks before an open and a closed one, and after
     /// the name, such as `▾`, `▸` and `/`.
     pub folders: Option<Folders>,
+    /// Marks before members' names by their group's place in the member
+    /// list: the first group's, the second's, … the last repeating, such as
+    /// `@` and `+`.
+    pub member_by_role: Vec<String>,
+    /// Marks before notices in the conversation, such as `-->` before a join.
+    pub system: BTreeMap<SystemKind, String>,
+    /// A line of text across the foot of the conversation, as a terminal's
+    /// status bar.
+    pub status_line: Option<StatusLine>,
+}
+
+closed! {
+    /// A kind of notice in the conversation.
+    SystemKind {
+        /// Someone joined.
+        Join => "join",
+        /// Someone left (for a later Yapfast: none are shown yet).
+        Leave => "leave",
+        /// Any other: a pin, a thread, a call, a poll's result.
+        Notice => "notice",
+    }
+}
+
+/// A line across the conversation's foot.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StatusLine {
+    /// Plain text with the placeholders of [`STATUS_PLACEHOLDERS`].
+    pub text: String,
+    /// Over the composer rather than under it.
+    pub above: bool,
 }
 
 /// How a folder or category reads as a directory.
@@ -255,12 +306,32 @@ impl Chrome {
             let lists: Vec<&str> = self.tree.iter().map(|list| list.name()).collect();
             parts.push(format!("trees ({})", lists.join(", ")));
         }
+        if !self.member_by_role.is_empty() {
+            parts.push("marks by role".into());
+        }
+        if !self.system.is_empty() {
+            parts.push("notice marks".into());
+        }
+        if self.status_line.is_some() {
+            parts.push("status line".into());
+        }
         parts
     }
 }
 
 /// Every placeholder a label may use.
-pub const PLACEHOLDERS: [&str; 5] = ["channel", "server", "n", "role", "name"];
+pub const PLACEHOLDERS: [&str; 10] = [
+    "channel",
+    "server",
+    "n",
+    "role",
+    "name",
+    "topic",
+    "date",
+    "time",
+    "typing",
+    "unread_channels",
+];
 
 /// Fills a label's placeholders. A placeholder without a value stays empty.
 pub fn fill(template: &str, values: &[(&str, &str)]) -> String {
@@ -361,10 +432,30 @@ fn marks(
     value: &Value,
     place: &str,
     into: &mut BTreeMap<Place, String>,
+    by_role: Option<&mut Vec<String>>,
     notes: &mut Vec<String>,
 ) -> Result<(), Error> {
+    let mut by_role = by_role;
     for (key, value) in object(value, place)? {
         let at = format!("{place}.{key}");
+        if key == "member_by_role"
+            && let Some(by_role) = by_role.as_deref_mut()
+        {
+            let items = value
+                .as_array()
+                .filter(|items| !items.is_empty() && items.len() <= MAX_ROLE_MARKS)
+                .ok_or_else(|| {
+                    Error(format!(
+                        "\"{at}\" is a list of 1 to {MAX_ROLE_MARKS} marks, the first group's first"
+                    ))
+                })?;
+            *by_role = items
+                .iter()
+                .enumerate()
+                .map(|(index, item)| plain(item, &format!("{at}[{index}]"), MAX_MARK))
+                .collect::<Result<_, _>>()?;
+            continue;
+        }
         match Place::named(key) {
             Some(spot) => {
                 into.insert(spot, plain(value, &at, MAX_MARK)?);
@@ -396,8 +487,56 @@ pub(super) fn read_chrome(
                     chrome.labels.insert(label, text);
                 }
             }
-            "prefix" => marks(value, &here, &mut chrome.prefix, notes)?,
-            "suffix" => marks(value, &here, &mut chrome.suffix, notes)?,
+            "prefix" => marks(
+                value,
+                &here,
+                &mut chrome.prefix,
+                Some(&mut chrome.member_by_role),
+                notes,
+            )?,
+            "suffix" => marks(value, &here, &mut chrome.suffix, None, notes)?,
+            "system" => {
+                for (key, value) in object(value, &here)? {
+                    let at = format!("{here}.{key}");
+                    match SystemKind::named(key) {
+                        Some(kind) => {
+                            chrome.system.insert(kind, plain(value, &at, MAX_MARK)?);
+                        }
+                        None => notes.push(format!("\"{at}\" isn't a kind of notice; ignored")),
+                    }
+                }
+            }
+            "status" => {
+                let mut line = StatusLine {
+                    text: String::new(),
+                    above: false,
+                };
+                for (key, value) in object(value, &here)? {
+                    let at = format!("{here}.{key}");
+                    match key.as_str() {
+                        "text" => {
+                            line.text = plain(value, &at, MAX_STATUS_LINE)?;
+                            placeholders(&line.text, &at, &STATUS_PLACEHOLDERS)?;
+                        }
+                        "position" => {
+                            line.above = match value.as_str() {
+                                Some("above") => true,
+                                Some("below") => false,
+                                _ => {
+                                    return Err(Error(format!("\"{at}\" is above or below")));
+                                }
+                            }
+                        }
+                        _ => notes.push(format!(
+                            "\"{at}\" isn't something the status line takes; ignored"
+                        )),
+                    }
+                }
+                if line.text.is_empty() {
+                    return Err(Error(format!("\"{here}\" needs its \"text\"")));
+                }
+                chrome.status_line = Some(line);
+            }
             "time" => {
                 let pattern = plain(value, &here, 16)?;
                 let Some((before, after)) = pattern.split_once("HH:MM") else {

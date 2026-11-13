@@ -154,8 +154,11 @@ export component Composer inherits Rectangle {
         text: Chrome.prompt; color: root.enabled ? Theme.text : Theme.faint; font-size: root.text-size;
         vertical-alignment: center; accessible-role: none;
     }
+    // A block caret stands where the text starts, so the placeholder
+    // starts after it.
+    property <length> caret-room: Chrome.caret-block ? root.text-size * 0.6 + root.text-size * 0.3 : 0px;
     Text {
-        x: 6px + root.prompt-width; y: root.pills + root.pad; width: root.width - 12px - root.prompt-width; height: root.line;
+        x: 6px + root.prompt-width + root.caret-room; y: root.pills + root.pad; width: root.width - 12px - root.prompt-width - root.caret-room; height: root.line;
         visible: root.text == "";
         text: !root.commanding ? root.placeholder
             : root.command-options.length == 0 ? "Press Enter to run /" + root.command-name
