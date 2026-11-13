@@ -230,6 +230,13 @@ impl Tone {
     pub fn table(&self) -> Option<&[u8; 256]> {
         self.0.as_deref()
     }
+
+    /// Whether these are HDR's codes, which need a curve before they are a
+    /// picture: a share whose path has no curve for them is a share of the wrong
+    /// colour, which is what a bright window on an HDR screen looked like.
+    pub fn is_hdr(&self) -> bool {
+        self.0.is_some()
+    }
 }
 
 /// Where the straight line up to SDR white stops, as a share of the range.

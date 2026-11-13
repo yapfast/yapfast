@@ -223,7 +223,16 @@ What the platform said, which matters more than the percentages:
   with a rotation, and registering that as ARGB runs clean but produces invalid
   video, so it needs a GPU conversion pass. WGC hands back BGRA8, already
   tonemapped, and encodes correctly.
-- **A WGC picture of this HDR desktop is the desktop's own SDR composition.**
+- **Withdrawn: a WGC picture of an HDR desktop is *not* the desktop's SDR
+  composition.** The comparison below took two captures of the same screen and
+  found them 1.95 levels apart, which was read as "Windows maps HDR for WGC". A
+  bright SDR window on this desktop, seen through a share, is over-bright and its
+  colour is off by the transfer curve — so both captures carried the same HDR
+  codes, and comparing them could not tell. What the numbers below do say is that
+  the two *pipelines here* agree; what they don't say is that either is SDR.
+  Tone-mapping an HDR screen therefore still has to happen, on the processor's
+  capture today and on the card next. The original note follows, with that
+  correction.
   The same frame taken twice — once through `native/wgc.cc`'s Graphics Capture,
   read out as the stream's still (`512×212`, the pipeline's own conversion and
   scale), and once through a GDI screen copy of the 3440×1440 screen — differs by

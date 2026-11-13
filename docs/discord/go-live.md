@@ -932,15 +932,18 @@ its own to ask, so a machine with no NVIDIA card is told that rather than left
 with FFmpeg's driver error, while AMF and VA-API reach their own runtime and
 render node and say what those answered. The colour the stream declares is the
 colour its frames are: capture
-converts to limited-range I420, and the declaration says that. No curve is put
-over a screen's frames, whatever the screen shows: Windows Graphics Capture is
-asked for `B8G8R8A8UIntNormalized` and the system maps an HDR composition into
-that 8-bit SDR picture itself — measured, a WGC picture of an HDR desktop is the
-desktop's own SDR composition to 1.95 luma levels on average
-(`docs/measurements/README.md`) — so a curve here mapped SDR twice, and a share
-of an HDR screen carries what an SDR screen would show it as. Highlights above
-SDR white are the system's conversion to clip; a tone map of Yapfast's own would
-start with capturing the card's FP16 picture. The format it writes is the one the encoder reports it took, NV12
+converts to limited-range I420, and the declaration says that. A screen showing
+HDR hands its frames over as HDR's codes, so the processor's capture tonemaps them
+to SDR's brightness on the way — one pass, in the same buffer — while a screen
+showing SDR is converted exactly as it was. The curve is a table over a picture in
+memory, so it is the processor's capture that applies it: a screen or window
+showing HDR is captured there rather than on the card, whose path has nothing
+between the captured texture and the encoder to read HDR's codes through, and a
+card share of an HDR screen is its codes read as SDR rather than its picture. The
+log names it as the reason the card was passed over ("the screen shows HDR, which
+the card's capture has no curve for"). Tone-mapping on the card is the
+outstanding work, and it starts with asking Windows Graphics Capture for the
+`R16G16B16A16_FLOAT` picture instead of the 8-bit one. The format it writes is the one the encoder reports it took, NV12
 or planar I420, and an open that gets neither fails by name rather than
 scrambling the picture. Its frames carry the caller's 90 kHz time rescaled into
 the encoder's own time base, so every engine, and a fallback between them, runs

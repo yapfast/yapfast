@@ -257,8 +257,12 @@ pub(crate) struct Scratch {
 /// Windows 11 uses Graphics Capture. Reading a tone would take the picture's
 /// format from the capture rather than the display's setting, which is the
 /// question `picture::tone_of_screen` asks and the wrong one to ask it of.
-pub(crate) fn tone_of(_source: &Source) -> Tone {
-    Tone::SDR
+pub(crate) fn tone_of(source: &Source) -> Tone {
+    match source {
+        Source::Display(monitor) => picture::tone_of_screen(*monitor),
+        Source::Window(window) => picture::tone_of_window(*window),
+        _ => Tone::SDR,
+    }
 }
 
 /// A captured frame on its way to the sink: converted and scaled in the

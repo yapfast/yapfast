@@ -522,6 +522,13 @@ pub(crate) fn card_capture(source: &Source, sink: &Sink, bounds: (u32, u32)) -> 
     if !sink.hardware {
         bail!("the stream is set to encode on the processor");
     }
+    // A screen showing HDR hands its frames over as HDR's codes, and the card's
+    // path has nothing between them and the encoder: the curve is a table over a
+    // picture in memory, which that path never makes. So an HDR screen is the
+    // processor's to capture, where the curve is.
+    if tone_of(source).is_hdr() {
+        bail!("the screen shows HDR, which the card's capture has no curve for");
+    }
     let preference = capture::preference();
     let platform = capture::platform();
     let available = capture::Available {
