@@ -4,7 +4,7 @@ import { ClientStyle } from "yapfast/style.slint";
 import { ListView, ScrollView } from "scrollview.slint";
 import { Theme, Tip, ReactionHover, Middle, Label, Twemoji, Look } from "theme.slint";
 import { Art, ArtLayer, ArtTextBehind, ArtLabel, ArtRipple, ArtGloss, ArtHighlighter, ArtFoil } from "theme_art.slint";
-import { Arrange, DashedOutline, RansomName } from "theme_layout.slint";
+import { Arrange, BubbleGel, DashedOutline, RansomName } from "theme_layout.slint";
 import { ThemeContent, IlluminatedInitial } from "theme_content.slint";
 import { ActionButton, IconButton, Avatar, Motion, Picture, UprightVolumeSlider, PictureStore, EmojiAnimations, Skeleton, SpoilerCover, MenuItem, TextField, ContextMenu, MenuRow, StyledName, NameStyleRow, ServerTagChip } from "controls.slint";
 import { FavoriteStar, GifFavorites } from "gifs.slint";
@@ -2975,10 +2975,36 @@ export component MessageContent inherits VerticalLayout {
             max-width: root.style == 1 ? max(120px, (root.width - root.lead - root.trail - (root.avatars ? root.avatar + 16px : 0px)) * Arrange.bubble-max) : 100000px;
             background: root.style != 1 ? transparent : message.own ? Arrange.bubble-own : Arrange.bubble-other;
             border-radius: root.style == 1 ? Arrange.bubble-radius : 0px;
+            // A theme's drawn gel: gloss, glow, rim and shadow.
+            property <BubbleGel> gel: message.own ? Arrange.bubble-own-gel : Arrange.bubble-other-gel;
+            property <bool> shadowed: root.style == 1 && self.gel.shadow-blur >= 0px;
+            drop-shadow-blur: self.shadowed ? self.gel.shadow-blur : 0px;
+            drop-shadow-color: self.shadowed ? self.gel.shadow : transparent;
+            drop-shadow-offset-x: self.shadowed ? self.gel.shadow-x : 0px;
+            drop-shadow-offset-y: self.shadowed ? self.gel.shadow-y : 0px;
             // A theme's pictures on the bubble, such as a gel's gloss.
             if root.style == 1 && (message.own ? Arrange.bubble-own-art.length : Arrange.bubble-other-art.length) > 0: ArtLayer {
                 x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Arrange.bubble-radius;
                 layers: message.own ? Arrange.bubble-own-art : Arrange.bubble-other-art;
+            }
+            // The gloss over the top, drawn at the bubble's size so it stays
+            // crisp on one line or forty, and the glow along the bottom.
+            if root.style == 1 && (bubble.gel.gloss-max > 0px || bubble.gel.glow != transparent): Rectangle {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                border-radius: Arrange.bubble-radius; clip: true;
+                if bubble.gel.glow != transparent: Rectangle {
+                    x: 0px; width: parent.width;
+                    height: min(bubble.gel.glow-height, parent.height); y: parent.height - self.height;
+                    background: @linear-gradient(0deg, bubble.gel.glow 0%, bubble.gel.glow.with-alpha(0) 100%);
+                }
+                if bubble.gel.gloss-max > 0px: Rectangle {
+                    x: bubble.gel.gloss-inset-x; y: bubble.gel.gloss-inset-y;
+                    width: max(0px, parent.width - 2 * bubble.gel.gloss-inset-x);
+                    height: min(parent.height * bubble.gel.gloss-height, bubble.gel.gloss-max);
+                    border-radius: min(min(self.height, self.width) / 2,
+                        bubble.gel.gloss-radius >= 0px ? bubble.gel.gloss-radius : max(0px, Arrange.bubble-radius - bubble.gel.gloss-inset-x));
+                    background: @linear-gradient(180deg, bubble.gel.gloss-top 0%, bubble.gel.gloss-bottom 100%);
+                }
             }
             if root.style == 1: Rectangle {
                 x: 0px; y: 0px; width: parent.width; height: parent.height;
@@ -2989,11 +3015,23 @@ export component MessageContent inherits VerticalLayout {
                 x: 0px; y: 0px; width: parent.width; height: parent.height;
                 border-radius: Arrange.bubble-radius; background: root.mark;
             }
+            // The rim: a light line just inside the edge, brightest at the
+            // top and again along the bottom, and a line on the edge.
+            if root.style == 1 && bubble.gel.rim-light != transparent: Rectangle {
+                x: 1px; y: 1px; width: parent.width - 2px; height: parent.height - 2px;
+                border-radius: max(0px, Arrange.bubble-radius - 1px); border-width: 1px;
+                border-color: @linear-gradient(180deg, bubble.gel.rim-light 0%, bubble.gel.rim-light.transparentize(0.7) 40%,
+                    bubble.gel.rim-light.transparentize(0.85) 70%, bubble.gel.rim-light.transparentize(0.35) 100%);
+            }
+            if root.style == 1 && bubble.gel.rim-dark != transparent: Rectangle {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                border-radius: Arrange.bubble-radius; border-width: 1px; border-color: bubble.gel.rim-dark;
+            }
             if root.style == 1 && Arrange.dash-message.on: DashedOutline { x: 0px; y: 0px; dash: Arrange.dash-message; }
         VerticalLayout {
             spacing: ClientStyle.message-gap;
-            padding-left: root.style == 1 ? 12px : 0px; padding-right: self.padding-left;
-            padding-top: root.style == 1 ? 6px : 0px; padding-bottom: self.padding-top;
+            padding-left: root.style == 1 ? Arrange.bubble-pad-x : 0px; padding-right: self.padding-left;
+            padding-top: root.style == 1 ? Arrange.bubble-pad-y : 0px; padding-bottom: self.padding-top;
             // Clicking the quote jumps to the message it quotes.
             if message.has-reply: Rectangle {
                 height: 22px;

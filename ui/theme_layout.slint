@@ -32,6 +32,33 @@ export struct Scrap {
     rest: bool,
 }
 
+/// Shapes drawn on each bubble, as a glossy gel button's. All clear, as
+/// stock, draws nothing.
+export struct BubbleGel {
+    /// The gloss: its colour at its top and at its bottom edge; a share of
+    /// the bubble's height, at most `gloss-max` (0 draws none); inset from
+    /// the sides and the top; its corners (negative: the bubble's less
+    /// the inset).
+    gloss-top: color,
+    gloss-bottom: color,
+    gloss-height: float,
+    gloss-max: length,
+    gloss-inset-x: length,
+    gloss-inset-y: length,
+    gloss-radius: length,
+    /// A glow rising from the bottom edge, fading out `glow-height` up.
+    glow: color,
+    glow-height: length,
+    /// A light line just inside the edge, and a line on it.
+    rim-light: color,
+    rim-dark: color,
+    /// Under the bubble; a blur under 0 draws none.
+    shadow: color,
+    shadow-blur: length,
+    shadow-x: length,
+    shadow-y: length,
+}
+
 export global Arrange {
     /// The server rail's edge: 0 left (stock), 1 right, 2 top.
     in property <int> rail;
@@ -63,6 +90,11 @@ export global Arrange {
     /// Pictures on each bubble, over its ground, under its text.
     in property <[ArtImage]> bubble-own-art;
     in property <[ArtImage]> bubble-other-art;
+    in property <BubbleGel> bubble-own-gel: { shadow-blur: -1px };
+    in property <BubbleGel> bubble-other-gel: { shadow-blur: -1px };
+    /// Inside each bubble, across and down.
+    in property <length> bubble-pad-x: 12px;
+    in property <length> bubble-pad-y: 6px;
     out property <brush> bubble-own: self.bubble-own-painted ? self.bubble-own-paint : self.bubble-own-set != transparent ? self.bubble-own-set : Theme.accent-fill;
     out property <brush> bubble-other: self.bubble-other-painted ? self.bubble-other-paint : self.bubble-other-set != transparent ? self.bubble-other-set : Theme.raised-fill;
     out property <color> bubble-own-text: self.bubble-own-text-set != transparent ? self.bubble-own-text-set : self.bubble-own-set != transparent ? Theme.text : Theme.on-accent;

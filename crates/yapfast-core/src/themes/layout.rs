@@ -170,6 +170,92 @@ pub struct Bubbles {
     /// four each, still.
     pub own_art: Vec<Layer>,
     pub other_art: Vec<Layer>,
+    /// A drawn gel on each of your own bubbles and on everyone else's: a
+    /// gloss over the top, a glow along the bottom, a rim and a shadow.
+    /// Nothing is drawn unless set.
+    pub own_gel: Gel,
+    pub other_gel: Gel,
+    /// Pixels inside a bubble, across and down (12 and 6 unset).
+    pub padding: Option<(f32, f32)>,
+}
+
+/// A bubble's top and bottom padding when the theme sets none.
+pub const BUBBLE_PADDING: (f32, f32) = (12.0, 6.0);
+
+/// Shapes drawn on a bubble, crisp at any size, as a glossy gel button's:
+/// each part is optional.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Gel {
+    pub gloss: Option<Gloss>,
+    pub glow: Option<Glow>,
+    /// ARGB: a 1-pixel light line just inside the edge, brightest at the
+    /// top and again, fainter, along the bottom.
+    pub rim_light: Option<u32>,
+    /// ARGB: a 1-pixel line on the edge itself.
+    pub rim_dark: Option<u32>,
+    pub shadow: Option<Shadow>,
+}
+
+impl Gel {
+    pub fn is_empty(&self) -> bool {
+        *self == Gel::default()
+    }
+}
+
+/// The gloss: a rounded shape inset from the bubble's top, its colour
+/// fading from `from` to `to` (alphas) downward, ending in a clean edge.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Gloss {
+    /// ARGB; its alpha scales `from` and `to`.
+    pub colour: u32,
+    pub from: f32,
+    pub to: f32,
+    /// A share of the bubble's height (0.1–0.8)...
+    pub height: f32,
+    /// ...but never more pixels than this (4–96).
+    pub max: f32,
+    /// Pixels in from the sides and down from the top.
+    pub inset: (f32, f32),
+    /// Its corners' radius; the bubble's less the inset when unset.
+    pub radius: Option<f32>,
+}
+
+impl Gloss {
+    /// The most of its colour the gloss lays on anything at or below `y`
+    /// pixels from the bubble's top, on any bubble: the band is tallest,
+    /// and fades slowest, at `max`.
+    pub fn alpha_below(&self, y: f32) -> f32 {
+        let (top, bottom) = (self.inset.1, self.inset.1 + self.max);
+        let at =
+            |y: f32| self.from + (self.to - self.from) * ((y - top) / self.max).clamp(0.0, 1.0);
+        let strength = f32::from(u8::try_from(self.colour >> 24).unwrap_or(255)) / 255.0;
+        let most = if y >= bottom {
+            0.0
+        } else if self.from >= self.to {
+            at(y.max(top))
+        } else {
+            self.to
+        };
+        most * strength
+    }
+}
+
+/// A soft light rising from the bubble's bottom edge, as light refracted
+/// through a gel.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Glow {
+    /// ARGB at the very bottom, fading to nothing `height` pixels up.
+    pub colour: u32,
+    pub height: f32,
+}
+
+impl Glow {
+    /// The most of its colour the glow lays `y` pixels or more above the
+    /// bubble's bottom.
+    pub fn alpha_above(&self, y: f32) -> f32 {
+        let strength = f32::from(u8::try_from(self.colour >> 24).unwrap_or(255)) / 255.0;
+        strength * (1.0 - y / self.height).clamp(0.0, 1.0)
+    }
 }
 
 /// The `cards` message style.
@@ -431,15 +517,18 @@ pub(super) fn read_layout(
                             layout.bubbles.max_width = Some(number(value, &at, (40.0, 95.0))?)
                         }
                         "own" => {
-                            let (ground, art) = read_bubble(value, &at, notes)?;
+                            let (ground, art, gel) = read_bubble(value, &at, notes)?;
                             layout.bubbles.own = ground.or(layout.bubbles.own.take());
                             layout.bubbles.own_art = art;
+                            layout.bubbles.own_gel = gel;
                         }
                         "other" => {
-                            let (ground, art) = read_bubble(value, &at, notes)?;
+                            let (ground, art, gel) = read_bubble(value, &at, notes)?;
                             layout.bubbles.other = ground.or(layout.bubbles.other.take());
                             layout.bubbles.other_art = art;
+                            layout.bubbles.other_gel = gel;
                         }
+                        "padding" => layout.bubbles.padding = Some(pair(value, &at, (4.0, 24.0))?),
                         "own_text" => layout.bubbles.own_text = Some(colour_at(value, &at)?),
                         "radius" => layout.bubbles.radius = Some(number(value, &at, (0.0, 999.0))?),
                         _ => notes.push(format!("\"{at}\" isn't something bubbles takes; ignored")),
@@ -474,22 +563,96 @@ pub(super) fn read_layout(
     Ok(())
 }
 
+/// A number, or `[across, down]`, each within `range`.
+fn pair(value: &Value, place: &str, range: (f32, f32)) -> Result<(f32, f32), Error> {
+    match value {
+        Value::Array(items) if items.len() == 2 => Ok((
+            number(&items[0], place, range)?,
+            number(&items[1], place, range)?,
+        )),
+        Value::Array(_) => Err(Error(format!("\"{place}\" is a number or [across, down]"))),
+        _ => {
+            let both = number(value, place, range)?;
+            Ok((both, both))
+        }
+    }
+}
+
+/// `{ "colour", "from", "to", "height", "max", "inset", "radius" }`.
+fn read_gloss(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<Gloss, Error> {
+    let mut gloss = Gloss {
+        colour: 0xffff_ffff,
+        from: 0.6,
+        to: 0.1,
+        height: 0.5,
+        max: 24.0,
+        inset: (2.0, 1.0),
+        radius: None,
+    };
+    for (key, value) in object(value, place)? {
+        let here = format!("{place}.{key}");
+        match key.as_str() {
+            "colour" => gloss.colour = colour_at(value, &here)?,
+            "from" => gloss.from = number(value, &here, (0.0, 1.0))?,
+            "to" => gloss.to = number(value, &here, (0.0, 1.0))?,
+            "height" => gloss.height = number(value, &here, (0.1, 0.8))?,
+            "max" => gloss.max = number(value, &here, (4.0, 96.0))?,
+            "inset" => gloss.inset = pair(value, &here, (0.0, 16.0))?,
+            "radius" => gloss.radius = Some(number(value, &here, (0.0, 999.0))?),
+            _ => notes.push(format!("\"{here}\" isn't something a gloss takes; ignored")),
+        }
+    }
+    Ok(gloss)
+}
+
+/// `{ "colour", "height" }`.
+fn read_glow(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<Glow, Error> {
+    let mut glow = Glow {
+        colour: 0x66ff_ffff,
+        height: 12.0,
+    };
+    for (key, value) in object(value, place)? {
+        let here = format!("{place}.{key}");
+        match key.as_str() {
+            "colour" => glow.colour = colour_at(value, &here)?,
+            "height" => glow.height = number(value, &here, (2.0, 48.0))?,
+            _ => notes.push(format!("\"{here}\" isn't something a glow takes; ignored")),
+        }
+    }
+    Ok(glow)
+}
+
 /// A bubble's ground: a colour or gradient, or `{ "ground": …, "art": […] }`
-/// with pictures laid on it.
+/// with pictures laid on it, and a drawn gel: `gloss`, `glow`, `rim` and
+/// `shadow`.
 fn read_bubble(
     value: &Value,
     place: &str,
     notes: &mut Vec<String>,
-) -> Result<(Option<Paint>, Vec<Layer>), Error> {
+) -> Result<(Option<Paint>, Vec<Layer>, Gel), Error> {
     let Value::Object(fields) = value else {
-        return Ok((Some(paint_at(value, place)?), Vec::new()));
+        return Ok((Some(paint_at(value, place)?), Vec::new(), Gel::default()));
     };
     let mut ground = None;
     let mut art = Vec::new();
+    let mut gel = Gel::default();
     for (key, value) in fields {
         let here = format!("{place}.{key}");
         match key.as_str() {
             "ground" => ground = Some(paint_at(value, &here)?),
+            "gloss" => gel.gloss = Some(read_gloss(value, &here, notes)?),
+            "glow" => gel.glow = Some(read_glow(value, &here, notes)?),
+            "rim" => {
+                for (key, value) in object(value, &here)? {
+                    let at = format!("{here}.{key}");
+                    match key.as_str() {
+                        "light" => gel.rim_light = Some(colour_at(value, &at)?),
+                        "dark" => gel.rim_dark = Some(colour_at(value, &at)?),
+                        _ => notes.push(format!("\"{at}\" isn't something a rim takes; ignored")),
+                    }
+                }
+            }
+            "shadow" => gel.shadow = Some(read_shadow(value, &here)?),
             "art" => {
                 let items: Vec<&Value> = match value {
                     Value::Array(items) => items.iter().collect(),
@@ -516,7 +679,7 @@ fn read_bubble(
             )),
         }
     }
-    Ok((ground, art))
+    Ok((ground, art, gel))
 }
 
 /// The outlines in `shape`: `outline_width`, every hairline's width, and
@@ -879,6 +1042,125 @@ mod tests {
         let pane = &resolved.art.surfaces[&ArtSurface::ProfilePane][0];
         assert_eq!(pane.size, Some((96.0, 96.0)));
         assert_eq!(pane.position, (0.5, 0.9));
+    }
+
+    #[test]
+    fn reads_a_drawn_gel_on_bubbles() {
+        let package = theme(
+            r##""layout": { "messages": "bubbles",
+                "bubbles": {
+                    "padding": [14, 9],
+                    "own": { "ground": "linear(180deg, #2a7fff, #0b4fb8)",
+                             "gloss": { "from": 0.5, "to": 0.05, "height": 0.45, "max": 20, "inset": [3, 1], "radius": 8 },
+                             "glow": { "colour": "#8fd8ff80", "height": 10 },
+                             "rim": { "light": "#ffffffaa", "dark": "#06307a" },
+                             "shadow": { "blur": 6, "y": 2, "colour": "#0b3a8040" } },
+                    "other": { "ground": "#ffffff", "gloss": {} } } },"##,
+        )
+        .unwrap();
+        assert!(package.notes.is_empty(), "{:?}", package.notes);
+        let resolved = package.resolve(Mode::Dark).unwrap();
+        let bubbles = &resolved.layout.bubbles;
+        assert_eq!(bubbles.padding, Some((14.0, 9.0)));
+        let gel = &bubbles.own_gel;
+        let gloss = gel.gloss.unwrap();
+        assert_eq!(
+            (gloss.from, gloss.to, gloss.height, gloss.max),
+            (0.5, 0.05, 0.45, 20.0)
+        );
+        assert_eq!((gloss.inset, gloss.radius), ((3.0, 1.0), Some(8.0)));
+        assert_eq!(
+            gel.glow,
+            Some(Glow {
+                colour: 0x808f_d8ff,
+                height: 10.0
+            })
+        );
+        assert_eq!(
+            (gel.rim_light, gel.rim_dark),
+            (Some(0xaaff_ffff), Some(0xff06_307a))
+        );
+        assert_eq!(gel.shadow.map(|shadow| shadow.blur), Some(6.0));
+        // A gloss's own defaults.
+        let plain = bubbles.other_gel.gloss.unwrap();
+        assert_eq!((plain.from, plain.to, plain.max), (0.6, 0.1, 24.0));
+        assert!(bubbles.other_gel.glow.is_none());
+        // Unset, nothing is drawn.
+        let stock = theme(r#""layout": { "messages": "bubbles" },"#).unwrap();
+        let stock = stock.resolve(Mode::Dark).unwrap();
+        assert!(
+            stock.layout.bubbles.own_gel.is_empty() && stock.layout.bubbles.other_gel.is_empty()
+        );
+        assert_eq!(stock.layout.bubbles.padding, None);
+    }
+
+    #[test]
+    fn a_gloss_and_a_glow_say_how_much_they_lay_where_text_is() {
+        let gloss = Gloss {
+            colour: 0xffff_ffff,
+            from: 0.6,
+            to: 0.0,
+            height: 0.5,
+            max: 20.0,
+            inset: (2.0, 2.0),
+            radius: None,
+        };
+        // Above its top, the whole of `from`; halfway down, half.
+        assert!((gloss.alpha_below(0.0) - 0.6).abs() < 1e-6);
+        assert!((gloss.alpha_below(12.0) - 0.3).abs() < 1e-6);
+        assert_eq!(gloss.alpha_below(22.0), 0.0);
+        // A gloss that brightens downward is at its brightest at its edge.
+        let rising = Gloss {
+            from: 0.1,
+            to: 0.4,
+            ..gloss
+        };
+        assert!((rising.alpha_below(15.0) - 0.4).abs() < 1e-6);
+        // A translucent colour lays less.
+        let faint = Gloss {
+            colour: 0x80ff_ffff,
+            ..gloss
+        };
+        assert!((faint.alpha_below(0.0) - 0.6 * 128.0 / 255.0).abs() < 1e-6);
+        let glow = Glow {
+            colour: 0xffff_ffff,
+            height: 10.0,
+        };
+        assert!((glow.alpha_above(6.0) - 0.4).abs() < 1e-6);
+        assert_eq!(glow.alpha_above(12.0), 0.0);
+    }
+
+    #[test]
+    fn a_gel_is_read_carefully() {
+        for (layout, place) in [
+            (
+                r#""layout": { "bubbles": { "own": { "gloss": { "from": 2 } } } },"#,
+                "layout.bubbles.own.gloss.from",
+            ),
+            (
+                r#""layout": { "bubbles": { "own": { "gloss": { "max": 200 } } } },"#,
+                "layout.bubbles.own.gloss.max",
+            ),
+            (
+                r#""layout": { "bubbles": { "other": { "glow": { "height": 1 } } } },"#,
+                "layout.bubbles.other.glow.height",
+            ),
+            (
+                r#""layout": { "bubbles": { "other": { "rim": { "light": "white-ish" } } } },"#,
+                "layout.bubbles.other.rim.light",
+            ),
+            (
+                r#""layout": { "bubbles": { "padding": [1, 2, 3] } },"#,
+                "layout.bubbles.padding",
+            ),
+            (
+                r#""layout": { "bubbles": { "padding": 40 } },"#,
+                "layout.bubbles.padding",
+            ),
+        ] {
+            let error = theme(layout).unwrap_err().to_string();
+            assert!(error.contains(place), "{error} names {place}");
+        }
     }
 
     #[test]
