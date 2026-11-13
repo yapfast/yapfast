@@ -1165,7 +1165,40 @@ impl Adapter {
             .collect();
         update_model(&self.models.friends_online, around);
         update_model(&self.models.friends, friend_rows);
-        let cards = self.active_now_cards(&rooms_by_id);
+        // Active Now is made only while the friends page shows it, as
+        // Discord's is; a card that stays keeps its lists, so it isn't
+        // drawn again.
+        let cards: Vec<ActiveNowCard> = if state.dm_screen == Some(DmScreen::Friends) {
+            self.active_now_cards(&rooms_by_id)
+                .into_iter()
+                .map(|mut card| {
+                    if let Some(shown) = self
+                        .models
+                        .active_now
+                        .iter()
+                        .find(|shown| shown.id == card.id)
+                    {
+                        // Slint compares lists by identity: keep each row's
+                        // faces, then the rows, where nothing changed.
+                        let rows: Vec<ActiveNowRow> = card
+                            .rows
+                            .iter()
+                            .enumerate()
+                            .map(|(at, mut row)| {
+                                if let Some(old) = shown.rows.row_data(at) {
+                                    row.faces = same_list(&old.faces, row.faces);
+                                }
+                                row
+                            })
+                            .collect();
+                        card.rows = same_list(&shown.rows, ModelRc::new(VecModel::from(rows)));
+                    }
+                    card
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         let timed = cards
             .iter()
             .any(|card| card.start > 0 || card.rows.iter().any(|row| row.start > 0));
