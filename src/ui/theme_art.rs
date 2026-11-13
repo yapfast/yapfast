@@ -385,7 +385,7 @@ pub fn apply(
                 ArtSurface::Embed => yapfast_ui::Art::set_glass_embed,
                 ArtSurface::Code => yapfast_ui::Art::set_glass_code,
                 ArtSurface::RowSelected => yapfast_ui::Art::set_glass_row_selected,
-                ArtSurface::Window | ArtSurface::CardOver => continue,
+                ArtSurface::CardOver => continue,
             };
             set(&global, true);
         }

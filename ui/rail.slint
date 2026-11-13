@@ -592,14 +592,8 @@ export component ChannelRow inherits Rectangle {
     if root.listed && ChannelLists.sep-art.on && root.separator-above: TileArtBox {
         y: -ChannelLists.sep-height; width: parent.width; height: ChannelLists.sep-height; layer: ChannelLists.sep-art;
     }
-    border-width: focus.has-focus && !(root.listed && ChannelLists.focus-outset > 0px) ? 2px : 0px;
+    border-width: focus.has-focus && !root.listed ? 2px : 0px;
     border-color: Theme.accent;
-    if root.listed && ChannelLists.focus-outset > 0px && focus.has-focus: Rectangle {
-        x: -ChannelLists.focus-outset; y: -ChannelLists.focus-outset;
-        width: parent.width + 2 * ChannelLists.focus-outset; height: parent.height + 2 * ChannelLists.focus-outset;
-        border-width: 2px; border-color: Theme.focus-ring;
-        border-radius: ChannelLists.focus-radius >= 0px ? ChannelLists.focus-radius : root.border-radius + ChannelLists.focus-outset;
-    }
     accessible-role: button;
     accessible-label: root.label;
     accessible-action-default => { root.clicked(); }
@@ -891,6 +885,15 @@ export component ChannelRow inherits Rectangle {
                 timer: root.listed && root.voice-started > 0 ? ActivityClock.lasted(root.voice-started, ActivityClock.minute * 60) : "";
             }
         }
+    }
+    // A theme's list rings a focused row over its art, which would hide a
+    // border on the row itself.
+    if root.listed && focus.has-focus: Rectangle {
+        x: -ChannelLists.focus-outset; y: -ChannelLists.focus-outset;
+        width: parent.width + 2 * ChannelLists.focus-outset; height: parent.height + 2 * ChannelLists.focus-outset;
+        border-width: 2px; border-color: ChannelLists.focus-outset > 0px ? Theme.focus-ring : Theme.accent;
+        border-radius: ChannelLists.focus-radius >= 0px ? ChannelLists.focus-radius : root.border-radius + ChannelLists.focus-outset;
+        accessible-role: none;
     }
 }
 

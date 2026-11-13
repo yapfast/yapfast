@@ -288,6 +288,16 @@ impl ChannelRows {
         if !self.headers.text.is_empty() {
             parts.push(format!("headings \"{}\"", self.headers.text));
         }
+        if let Some(rule) = self.server_rule {
+            parts.push(format!(
+                "{} header rule",
+                match rule.style {
+                    RuleStyle::Solid => "solid",
+                    RuleStyle::Dashed => "dashed",
+                    RuleStyle::Dotted => "dotted",
+                }
+            ));
+        }
         format!(
             "channel rows: {}",
             if parts.is_empty() {
@@ -363,6 +373,61 @@ pub struct Underline {
     pub colour: u32,
     pub width: f32,
     pub offset: f32,
+}
+
+/// A rule's stroke.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RuleStyle {
+    #[default]
+    Solid,
+    Dashed,
+    Dotted,
+}
+
+/// A line under the sidebar's header, the server's name.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Rule {
+    pub colour: u32,
+    pub width: f32,
+    pub style: RuleStyle,
+    /// Pixels kept from the pane's sides.
+    pub inset: f32,
+}
+
+/// `{ "colour": "#A991DD", "width": 2, "style": "dotted", "inset": 10 }`:
+/// solid, dashed or dotted, 1 to 4 pixels.
+fn read_rule(value: &Value, place: &str, notes: &mut Vec<String>) -> Result<Rule, Error> {
+    let mut rule = Rule {
+        colour: 0xff00_0000,
+        width: 1.0,
+        style: RuleStyle::Solid,
+        inset: 0.0,
+    };
+    let mut coloured = false;
+    for (key, value) in object(value, place)? {
+        let here = format!("{place}.{key}");
+        match key.as_str() {
+            "colour" => {
+                rule.colour = colour_at(value, &here)?;
+                coloured = true;
+            }
+            "width" => rule.width = number(value, &here, (1.0, 4.0))?,
+            "inset" => rule.inset = number(value, &here, (0.0, 32.0))?,
+            "style" => {
+                rule.style = match value.as_str() {
+                    Some("solid") => RuleStyle::Solid,
+                    Some("dashed") => RuleStyle::Dashed,
+                    Some("dotted") => RuleStyle::Dotted,
+                    _ => return Err(Error(format!("\"{here}\" is solid, dashed or dotted"))),
+                }
+            }
+            _ => notes.push(format!("\"{here}\" isn't something a rule takes; ignored")),
+        }
+    }
+    if !coloured {
+        return Err(Error(format!("\"{place}\" needs a \"colour\"")));
+    }
+    Ok(rule)
 }
 
 /// A channel row's selected look.
@@ -525,6 +590,8 @@ pub struct ChannelRows {
     /// and art drawn in that room.
     pub reserve: f32,
     pub foot: Option<TileArt>,
+    /// The line under the sidebar's header in place of the stock hairline.
+    pub server_rule: Option<Rule>,
 }
 
 /// A member's avatar ring.
@@ -653,10 +720,15 @@ pub struct MemberRows {
     /// Names in one colour over role colours, and the owner's crown's.
     pub name_ink: Option<u32>,
     pub crown_ink: Option<u32>,
+    /// A soft halo around a grid tile's name.
+    pub name_glow: Option<u32>,
     /// `false` leaves out the Activity cards over the list.
     pub activity: bool,
     /// Pixels left free at the list's foot, for the pane's art there.
     pub reserve: f32,
+    /// Art after the last row, which scrolls with the list, so the
+    /// list's last rows are never cut by art over the pane's foot.
+    pub foot: Option<TileArt>,
 }
 
 fn plural(count: usize) -> &'static str {
@@ -1295,6 +1367,7 @@ pub fn read_channel_rows(
                 }
             }
             "headers" => rows.headers = read_headers(value, &here, notes)?,
+            "server_rule" => rows.server_rule = Some(read_rule(value, &here, notes)?),
             _ => notes.push(format!(
                 "\"{here}\" isn't something channel_rows takes; ignored"
             )),
@@ -1370,12 +1443,14 @@ pub fn read_member_rows(
                 }
             }
             "reserve" => rows.reserve = number(value, &here, (0.0, 400.0))?,
+            "foot" => rows.foot = Some(one_art(value, &here, notes)?),
             "ink" => {
                 for (key, value) in object(value, &here)? {
                     let at = format!("{here}.{key}");
                     match key.as_str() {
                         "name" => rows.name_ink = Some(colour_at(value, &at)?),
                         "crown" => rows.crown_ink = Some(colour_at(value, &at)?),
+                        "glow" => rows.name_glow = Some(colour_at(value, &at)?),
                         _ => notes.push(format!("\"{at}\" isn't something ink takes; ignored")),
                     }
                 }
@@ -1598,6 +1673,7 @@ pub fn files<'a>(
         }
         all.extend(&members.headers.frame);
         all.extend(members.selected_frame.iter().chain(&members.selected_over));
+        all.extend(&members.foot);
     }
     all
 }
@@ -1719,6 +1795,23 @@ mod tests {
         assert_eq!(tiles.rail_width(), 72.0);
         assert!(tiles.summary().contains("card 44×52"));
         assert_eq!(rail(json!({ "pill": false })).unwrap().pill, PillMode::Off);
+    }
+
+    #[test]
+    fn reads_the_server_header_rule() {
+        let rows = |value: Value| read_channel_rows(&value, "layout.channel_rows", &mut Vec::new());
+        let read =
+            rows(json!({ "server_rule": { "colour": "#A991DD", "width": 2, "style": "dotted" } }))
+                .unwrap();
+        let rule = read.server_rule.unwrap();
+        assert_eq!(
+            (rule.colour, rule.width, rule.style),
+            (0xffa9_91dd, 2.0, RuleStyle::Dotted)
+        );
+        assert!(read.summary().contains("dotted header rule"));
+        assert!(rows(json!({ "server_rule": { "colour": "#000", "style": "wavy" } })).is_err());
+        assert!(rows(json!({ "server_rule": { "width": 2 } })).is_err());
+        assert!(rows(json!({ "server_rule": { "colour": "#000", "width": 9 } })).is_err());
     }
 
     #[test]

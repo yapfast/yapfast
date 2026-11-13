@@ -1076,7 +1076,7 @@ pub fn unreadable_layout(variant: &Resolved) -> Vec<String> {
         Some(
             grounds
                 .iter()
-                .flat_map(|ground| unders.iter().map(move |under| over(*ground, *under)))
+                .flat_map(|ground| unders.iter().map(move |under| laid_over(*ground, *under)))
                 .collect(),
         )
     };
@@ -1119,7 +1119,7 @@ pub fn unreadable_layout(variant: &Resolved) -> Vec<String> {
                 ground.clone().map(|grounds| {
                     bar.colours()
                         .iter()
-                        .flat_map(|bar| grounds.iter().map(move |ground| over(*bar, *ground)))
+                        .flat_map(|bar| grounds.iter().map(move |ground| laid_over(*bar, *ground)))
                         .collect()
                 }),
             ));
@@ -1168,10 +1168,8 @@ fn over(colour: u32, alpha: f32, back: u32) -> u32 {
     0xff00_0000 | mix(16) | mix(8) | mix(0)
 }
 
-/// How much two colours contrast, from 1 to 21, as WCAG measures it; a
-/// translucent foreground is laid over the background first.
 /// `top` laid over the opaque `under`, by its alpha, as an opaque colour.
-fn over(top: u32, under: u32) -> u32 {
+fn laid_over(top: u32, under: u32) -> u32 {
     let alpha = f64::from(top >> 24) / 255.0;
     let mix = |shift: u32| {
         let (a, b) = (
@@ -1183,6 +1181,8 @@ fn over(top: u32, under: u32) -> u32 {
     0xff00_0000 | mix(16) | mix(8) | mix(0)
 }
 
+/// How much two colours contrast, from 1 to 21, as WCAG measures it; a
+/// translucent foreground is laid over the background first.
 pub fn contrast(foreground: u32, background: u32) -> f64 {
     let channel = |colour: u32, shift: u32| f64::from((colour >> shift) & 0xff) / 255.0;
     let alpha = f64::from(foreground >> 24) / 255.0;

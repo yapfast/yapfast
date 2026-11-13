@@ -10,7 +10,7 @@ import { BotTag } from "messages.slint";
 import { PluginBadge, PluginBadgeView, PluginPart, PluginWidgets } from "plugins.slint";
 import { Arrange, DashedOutline, RansomName, PaneRule } from "theme_layout.slint";
 import { ThemeContent, IlluminatedInitial } from "theme_content.slint";
-import { MemberLists, ListedMember, ListedMemberHeading, ListedMemberTile, ListedTitle } from "theme_lists.slint";
+import { MemberLists, ListedMember, ListedMemberHeading, ListedMemberTile, ListedTitle, TileArtBox } from "theme_lists.slint";
 import { ThemeContent } from "theme_content.slint";
 import { Trim, FrameGround, SectionBox } from "theme_trim.slint";
 
@@ -606,6 +606,10 @@ export component MemberPanel inherits Rectangle {
                         accessible-role: none;
                     }
                   }
+                }
+                // A theme's art after the last row, which scrolls with the list.
+                if index == root.rows.length - 1 && MemberLists.on && MemberLists.foot.on: TileArtBox {
+                    height: MemberLists.foot.h + 8px; layer: MemberLists.foot;
                 }
             }
         }

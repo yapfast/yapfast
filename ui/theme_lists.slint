@@ -235,6 +235,12 @@ export global ChannelLists {
     in property <bool> emboss;
     in property <length> focus-outset;
     in property <length> focus-radius: -1px;
+    /// The line under the sidebar's header; transparent for the stock
+    /// hairline. Style 0 solid, 1 dashed, 2 dotted.
+    in property <color> server-rule;
+    in property <length> server-rule-width: 1px;
+    in property <int> server-rule-style;
+    in property <length> server-rule-inset;
     // Category headings.
     in property <bool> head-on;
     in property <string> head-family;
@@ -341,9 +347,13 @@ export global MemberLists {
     in property <length> inset-right: 8px;
     in property <color> name-ink;
     in property <color> crown-ink;
+    /// A soft halo around a grid tile's name; transparent for none.
+    in property <color> name-glow;
     /// The Activity cards over the list; `false` leaves them out.
     in property <bool> activity: true;
     in property <length> reserve;
+    /// Art after the last row, scrolling with the list.
+    in property <TileLayer> foot;
     in property <color> dot-ring;
     in property <bool> head-fill;
     in property <length> head-inset: 8px;
@@ -371,8 +381,11 @@ export global MemberLists {
         self.avatar-frames.length == 0 ? self.none() : self.avatar-frames[Math.mod(seed, self.avatar-frames.length)]
     }
     pure function none() -> TileLayer { { on: false } }
+    /// An avatar's lean, from its seed: half to all of the tilt, to one
+    /// side or the other, so none stands upright.
     public pure function lean(seed: int) -> float {
-        self.avatar-tilt == 0 ? 0 : self.avatar-tilt * (Math.mod(seed, 201) - 100) / 100
+        self.avatar-tilt == 0 ? 0 : self.avatar-tilt * (0.5 + Math.mod(seed, 101) / 200)
+            * (Math.mod(Math.floor(seed / 101), 2) == 0 ? 1 : -1)
     }
     public pure function cased(text: string, case: int) -> string {
         case == 1 ? text.to-uppercase() : case == 2 ? text.to-lowercase() : text
@@ -893,6 +906,26 @@ export component TileBetween inherits Rectangle {
     }
 }
 
+/// A rule across its width: solid, dashed or dotted.
+export component RuleLine inherits Rectangle {
+    in property <color> colour;
+    in property <int> style;
+    accessible-role: none;
+    if root.style == 0: Rectangle { background: root.colour; }
+    if root.style == 1: Rectangle {
+        for i in ceil(root.width / (root.height * 5)): Rectangle {
+            x: i * root.height * 5; width: min(root.height * 3, root.width - self.x); height: root.height;
+            background: root.colour;
+        }
+    }
+    if root.style == 2: Rectangle {
+        for i in ceil(root.width / (root.height * 2)): Rectangle {
+            x: i * root.height * 2; width: root.height; height: root.height;
+            border-radius: root.height / 2; background: root.colour;
+        }
+    }
+}
+
 /// The line under the home tile.
 export component TileDivider inherits Rectangle {
     height: Rails.divider-h + 8px;
@@ -1329,6 +1362,18 @@ export component ListedMemberTile inherits Rectangle {
     }
     // The name, and the owner's crown 3 px after it, centred together.
     property <length> crown-room: root.owner ? 17px : 0px;
+    // The halo: the name a pixel and a half out on eight sides, faint.
+    if MemberLists.name-glow != transparent: Rectangle {
+        x: name-text.x; y: name-text.y; width: name-text.width; height: name-text.height;
+        opacity: root.offline ? 0.5 : 1;
+        for turn in 8: Text {
+            x: 1.5px * cos(turn * 45deg); y: 1.5px * sin(turn * 45deg); width: parent.width; height: parent.height;
+            text: name-text.text; color: MemberLists.name-glow; font-family: name-text.font-family;
+            font-size: name-text.font-size; font-weight: name-text.font-weight;
+            horizontal-alignment: center; vertical-alignment: center; overflow: elide;
+            opacity: 0.4; accessible-role: none;
+        }
+    }
     name-text := Text {
         x: (root.width - min(root.width - 8px, self.preferred-width + root.crown-room)) / 2;
         y: 7px + root.size - 4px; width: min(root.width - 8px - root.crown-room, self.preferred-width); height: 18px;
@@ -1386,7 +1431,8 @@ export component ListedTitle inherits Rectangle {
     }
     count-text := Text {
         visible: root.split;
-        x: title.x + title.preferred-width + 6px; y: 0px; height: root.text-h;
+        // On the title's baseline, near enough, rather than its middle.
+        x: title.x + title.preferred-width + 6px; y: max(0px, (root.size - max(9px, MemberLists.count-size)) * 0.3); height: root.text-h;
         text: "· " + root.count;
         color: MemberLists.count-colour != transparent ? MemberLists.count-colour : Theme.muted;
         font-family: MemberLists.count-family; font-size: max(9px, MemberLists.count-size); font-weight: 800;

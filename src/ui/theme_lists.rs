@@ -19,8 +19,8 @@ use slint::{Color, ComponentHandle, Image, ModelRc, SharedString, VecModel};
 use yapfast_core::themes::Performance;
 use yapfast_core::themes::layout::RailSide;
 use yapfast_core::themes::lists::{
-    Case, FontRole, Glyph, HeaderStyle, HoverGround, HoverKind, LabelPlace, PillMode, Separator,
-    StatusStyle, SubLine, TileArt, UnreadMark,
+    Case, FontRole, Glyph, HeaderStyle, HoverGround, HoverKind, LabelPlace, PillMode, RuleStyle,
+    Separator, StatusStyle, SubLine, TileArt, UnreadMark,
 };
 use yapfast_core::themes::package::art::Fit;
 use yapfast_core::themes::package::{Resolved, Role};
@@ -417,9 +417,12 @@ pub fn reset(window: &YapfastWindow) {
     members.set_sep_on(false);
     members.set_activity(true);
     members.set_reserve(0.);
+    members.set_foot(TileLayer::default());
     members.set_name_ink(Color::default());
     members.set_crown_ink(Color::default());
+    members.set_name_glow(Color::default());
     channels.set_reserve(0.);
+    channels.set_server_rule(Color::default());
     channels.set_prefix_art(TileLayer::default());
     channels.set_foot(TileLayer::default());
     rails.set_grounds(ModelRc::default());
@@ -554,6 +557,7 @@ fn layer(folder: &Path, art: &TileArt, moves: bool) -> TileLayer {
             period: frames.2,
             jitter: 0.,
             moves: moves && frames.0 > 1,
+            ..ArtImage::default()
         },
         opacity: art.layer.opacity,
         sized: art.size.is_some(),
@@ -832,6 +836,14 @@ pub fn apply(
         lists.set_foot(one(folder, rows.foot.as_ref(), !still));
         lists.set_prefix_art(one(folder, selected.prefix_art.as_ref(), !still));
         lists.set_focus_radius(rows.focus_radius.unwrap_or(-1.));
+        lists.set_server_rule(colour(rows.server_rule.map(|rule| rule.colour)));
+        lists.set_server_rule_width(rows.server_rule.map_or(1., |rule| rule.width));
+        lists.set_server_rule_inset(rows.server_rule.map_or(0., |rule| rule.inset));
+        lists.set_server_rule_style(rows.server_rule.map_or(0, |rule| match rule.style {
+            RuleStyle::Solid => 0,
+            RuleStyle::Dashed => 1,
+            RuleStyle::Dotted => 2,
+        }));
         let headers = &rows.headers;
         let head = face(resolved, fonts, headers.font.unwrap_or(FontRole::Body));
         lists.set_head_on(*headers != Default::default());
@@ -995,8 +1007,10 @@ pub fn apply(
         lists.set_tile_outline(rows.tile_outline);
         lists.set_name_ink(colour(rows.name_ink));
         lists.set_crown_ink(colour(rows.crown_ink));
+        lists.set_name_glow(colour(rows.name_glow));
         lists.set_activity(rows.activity);
         lists.set_reserve(rows.reserve);
+        lists.set_foot(one(folder, rows.foot.as_ref(), !still));
         lists.set_dot_ring(colour(rows.avatar.dot_ring));
         lists.set_head_fill(headers.fill);
         lists.set_head_inset(headers.inset.unwrap_or(8.));
@@ -1045,6 +1059,13 @@ pub fn apply(
                 .map_or_else(SharedString::new, |(head, _)| head.into()),
         );
     }
+    // The decode-once guarantee, readable in a session's log.
+    let cached = STATE.with_borrow(|state| state.cache.len());
+    tracing::info!(
+        decodes = DECODES.load(Ordering::Relaxed),
+        cached,
+        "theme lists applied"
+    );
 }
 
 #[cfg(test)]
@@ -1331,6 +1352,11 @@ mod tests {
     #[ignore = "walks the element tree, which needs YAPFAST_SLINT_DEBUG_INFO=1 at build time"]
     fn a_themes_lists_keep_every_label() {
         let window = listed_window(60);
+        // Tall enough that every list makes all its rows, stock and themed:
+        // a theme's taller rows would otherwise leave fewer in view.
+        window
+            .window()
+            .set_size(slint::PhysicalSize::new(1600, 9000));
         let stock = button_labels(&window);
         assert!(
             stock.iter().any(|label| label.starts_with("Server 1")),
