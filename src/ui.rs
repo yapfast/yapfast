@@ -67,6 +67,7 @@ mod shell;
 mod stickers;
 mod theme;
 mod theme_art;
+mod theme_chrome;
 pub mod theme_layout;
 pub mod theme_look;
 mod theme_media;

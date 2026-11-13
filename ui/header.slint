@@ -71,6 +71,10 @@ export component HeaderSearch inherits Rectangle {
     in property <bool> autofocus;
     callback search(string);
     callback clear;
+    /// Drawn only while it's used: a theme hides the bar's buttons until
+    /// the pointer is there.
+    in property <bool> shy;
+    opacity: root.shy && !input.has-focus && root.text == "" ? 0 : 1;
     init => { if root.autofocus { input.focus(); } }
     // Discord's box: 243px with a faint outline, wider while it's used.
     width: input.has-focus || root.text != "" ? 300px : ClientStyle.enabled ? 240px : 180px;

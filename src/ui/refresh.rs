@@ -2480,6 +2480,17 @@ impl Adapter {
             }
             .into(),
         );
+        // Each member's place in their group, from 0, which a theme's
+        // status column may show.
+        let mut places = Vec::with_capacity(members.len());
+        for (index, member) in members.iter().enumerate() {
+            let same = index > 0 && {
+                let before = &members[index - 1];
+                before.group == member.group
+                    && (member.group.is_some() || before.role == member.role)
+            };
+            places.push(if same { places[index - 1] + 1 } else { 0 });
+        }
         update_model(
             &self.models.roster,
             members
@@ -2576,6 +2587,7 @@ impl Adapter {
                         // One line under the name, as Discord shows it.
                         activity,
                         activity_emoji,
+                        place: places[index],
                         // What plugins badge them with, which a plugin that
                         // hasn't answered yet leaves empty.
                         plugin: state

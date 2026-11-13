@@ -1,3 +1,4 @@
+import { Chrome } from "theme_chrome.slint";
 import { IconPack } from "media.slint";
 import { Theme, Middle, Look } from "theme.slint";
 import { ActionButton, IconButton, Avatar, SpoilerCover, ContextMenu, MenuRow } from "controls.slint";
@@ -117,6 +118,9 @@ export component Composer inherits Rectangle {
     property <length> overhang: 4px;
     property <length> line: root.text-size * 1.5;
     property <bool> commanding: root.command-name != "";
+    // A theme's prompt's room, with a space after it.
+    property <length> prompt-width: Chrome.prompt == "" ? 0px : prompt-measure.preferred-width + root.text-size * 0.6;
+    prompt-measure := Text { visible: false; text: Chrome.prompt; font-size: root.text-size; accessible-role: none; }
     // The command's pills, over the text, in as many rows as they take.
     property <length> pills: root.commanding ? pill-rows.preferred-height + 6px : 0px;
     property <CommandOptionPill> focused-pill: root.command-options[root.command-focus];
@@ -144,8 +148,14 @@ export component Composer inherits Rectangle {
             if root.command-options[index].file { root.command-file(index); } else { root.command-option-clicked(index); }
         }
     }
+    // A theme's prompt, such as `$`, before the text.
+    if Chrome.prompt != "": Text {
+        x: 6px; y: root.pills + root.pad; height: root.line;
+        text: Chrome.prompt; color: root.enabled ? Theme.text : Theme.faint; font-size: root.text-size;
+        vertical-alignment: center; accessible-role: none;
+    }
     Text {
-        x: 6px; y: root.pills + root.pad; width: root.width - 12px; height: root.line;
+        x: 6px + root.prompt-width; y: root.pills + root.pad; width: root.width - 12px - root.prompt-width; height: root.line;
         visible: root.text == "";
         text: !root.commanding ? root.placeholder
             : root.command-options.length == 0 ? "Press Enter to run /" + root.command-name
@@ -154,7 +164,7 @@ export component Composer inherits Rectangle {
         vertical-alignment: center; overflow: elide;
     }
     FocusScope {
-        x: 6px; y: root.pills + root.pad - root.overhang; width: root.width - 12px;
+        x: 6px + root.prompt-width; y: root.pills + root.pad - root.overhang; width: root.width - 12px - root.prompt-width;
         height: root.height - root.pills - 2 * root.pad + 2 * root.overhang;
         capture-key-pressed(event) => {
             if root.suggesting {
@@ -226,6 +236,8 @@ export component Composer inherits Rectangle {
                 color: root.enabled ? Theme.text : Theme.muted;
                 selection-background-color: Theme.selection;
                 selection-foreground-color: Theme.text;
+                // A theme's block caret is as wide as a letter.
+                text-cursor-width: Chrome.caret-block ? root.text-size * 0.6 : 1px;
                 accessible-label: root.label;
                 changed has-focus => { if self.has-focus { root.got-focus(); } }
                 edited => { root.edited(self.text); root.caret(self.text, self.cursor-position-byte-offset); }

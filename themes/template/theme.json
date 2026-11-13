@@ -97,6 +97,19 @@
                "art": [{ "texture": "paper", "colour": "#f5f1e8", "opacity": 0.8, "position": "top",
                          "size": [72, 18], "rotation": -3 }] }
   },
+  "chrome": {
+    "labels": { "members_group": "{role} — {n}", "new": "New", "composer": "Message #{channel}",
+                "typing": "{name} typing…", "reaction": "(+{n})" },
+    "prefix": { "channel": "", "author": "" },
+    "suffix": { "author": "" },
+    "time": "HH:MM",
+    "hide": [],
+    "rail": { "mode": "icons", "width": 150 },
+    "composer": { "caret": "line", "prompt": "" },
+    "members": { "columns": {} },
+    "tree": { "lists": [], "colour": "faint" },
+    "folders": { "open": "▾", "closed": "▸", "suffix": "/" }
+  },
 
   "variants": {
     "dark": {

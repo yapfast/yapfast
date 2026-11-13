@@ -52,6 +52,8 @@ macro_rules! closed {
     };
 }
 
+pub(super) use closed;
+
 closed! {
     /// Which edge of the window the server rail runs along.
     RailSide { Left => "left", Right => "right", Top => "top" }

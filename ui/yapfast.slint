@@ -81,6 +81,8 @@ export { PluginKind, PluginTone, PluginCell, PluginRow, PluginPart, PluginButton
 export { InboxRow } from "yapfast/inbox.slint";
 export { Theme, Badges, Popup, Twemoji, Looks, Look, Shape, SlotMotion } from "theme.slint";
 export { Arrange, Dash, Scrap } from "theme_layout.slint";
+export { Chrome } from "theme_chrome.slint";
+import { Chrome } from "theme_chrome.slint";
 export { Autoscroll } from "scrollview.slint";
 export { Art, ArtImage, ArtOverlay, ArtText, ArtParticle, CardArt } from "theme_art.slint";
 export { PersonRow, CallLink, ShareScreen, VoiceCard } from "voice.slint";
@@ -1872,8 +1874,8 @@ export component YapfastWindow inherits Window {
     property <bool> members-docked: root.members-available && root.member-list && !root.search-open && !root.aside-docked && Arrange.members != 2;
     // Where a theme's layout puts the rail: the width it takes on the
     // left, or on the right, and the height it takes along the top.
-    property <length> rail-left: Arrange.rail == 0 ? 72px : 0px;
-    property <length> rail-right: Arrange.rail == 1 ? 72px : 0px;
+    property <length> rail-left: Arrange.rail == 0 ? Chrome.rail-px : 0px;
+    property <length> rail-right: Arrange.rail == 1 ? Chrome.rail-px : 0px;
     property <length> rail-top: Arrange.rail == 2 ? 64px : 0px;
     // A thread opened beside the channel takes the place of the member list
     // and the profile, and search results take its place.
@@ -2612,6 +2614,7 @@ export component YapfastWindow inherits Window {
                     vertical-stretch: 1; spacing: 0px;
                     // Server rail.
                     if Arrange.rail == 0: ServerRail {
+                        selected-name: root.dms-selected ? "" : root.sidebar-title;
                         dms-selected: root.dms-selected; dms-unread: root.dms-unread; dms-badge: root.dms-badge; servers: root.servers;
                         matrix-build: root.matrix-build;
                         navigate-dms => { root.navigate-dms(); }
@@ -2742,6 +2745,7 @@ export component YapfastWindow inherits Window {
                             RoomList {
                                 open-add-friend => { root.open-add-friend(); }
                                 open-new-dm => { root.open-new-dm(); }
+                                server-name: root.sidebar-title;
                                 rooms: root.rooms; dms-selected: root.dms-selected; discord-linked: root.discord-linked; preview: root.preview;
                                 friends-open: root.friends-open; requests-current: root.requests-current; requests-badge: root.requests-badge;
                                 browse-offered: root.browse-offered && !ClientStyle.enabled; browsing: root.browse-open;
@@ -2837,7 +2841,8 @@ export component YapfastWindow inherits Window {
                             // Discord's controls sit 3px further apart and 6px further from the edge.
                             padding-right: ClientStyle.enabled ? 14px : 8px; spacing: ClientStyle.enabled ? 5px : 2px;
                             Rectangle {
-                                width: ClientStyle.enabled ? 50px : 58px;
+                                width: Chrome.hide-account-avatar ? 8px : ClientStyle.enabled ? 50px : 58px;
+                                visible: !Chrome.hide-account-avatar;
                                 // The own.avatar slot.
                                 Avatar { x: (ClientStyle.enabled ? 8px : 19px) + Look.own-avatar.x; y: (parent.height - self.height) / 2 + Look.own-avatar.y; opacity: Look.own-avatar.opacity; transform-scale: Look.own-avatar.scale; transform-rotation: Look.own-avatar.rotation * 1deg; size: ClientStyle.enabled ? 40px : 34px; initial: root.account-initial; tint: root.account-tint; picture: root.account-picture; speaking: root.account-speaking; decoration-url: AccountLook.decoration-url; animate: account-panel.hot; }
                                 if root.account-presence != "": StatusDot {
@@ -2938,6 +2943,10 @@ export component YapfastWindow inherits Window {
                 spacing: 0px;
                 Rectangle {
                     height: ClientStyle.header-height;
+                    // A theme may hide the bar's icon buttons until the pointer is on it
+                    // or one of them has the keyboard.
+                    header-touch := TouchArea {
+                    property <bool> shy: Chrome.hide-header-buttons && !self.has-hover;
                     HorizontalLayout {
                         padding-left: 16px; padding-right: 16px; spacing: 10px;
                         if root.room-direct: Middle {
@@ -2965,7 +2974,7 @@ export component YapfastWindow inherits Window {
                             }
                         }
                         if root.room-parent != "" && root.room-selected: Image { source: IconPack.chevron-right; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.faint); }
-                        if !root.room-direct && root.room-selected: Image { source: root.room-icon; width: 22px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
+                        if !root.room-direct && root.room-selected && !Chrome.hide-channel-icons: Image { source: root.room-icon; width: 22px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
                         if root.requests-open: Image { source: IconPack.inbox; width: 22px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
                         if root.friends-open: Image { source: IconPack.users; width: 22px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
                         if root.browse-open: Image { source: IconPack.hash; width: 22px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
@@ -2973,11 +2982,11 @@ export component YapfastWindow inherits Window {
                         // effect and its declared animation, moved inside a box the
                         // layout measures as the name.
                         Rectangle {
-                            property <string> title: root.room-selected ? root.room-name : root.requests-open ? "Requests" : root.friends-open ? "Friends" : root.browse-open ? "Browse Channels" : root.sidebar-title;
+                            property <string> title: root.room-selected ? (root.room-direct ? root.room-name : Chrome.header-before + root.room-name + Chrome.header-after) : root.requests-open ? "Requests" : root.friends-open ? "Friends" : root.browse-open ? "Browse Channels" : root.sidebar-title;
                             min-width: 0px; preferred-width: channel-name.preferred-width;
                             // The name gives way to what follows it, and fills the bar when nothing does.
                             horizontal-stretch: (root.room-has-activity && root.room-direct) || root.friends-open || root.has-topic ? 0 : 1;
-                            accessible-role: text; accessible-label: self.title;
+                            accessible-role: text; accessible-label: root.room-selected ? root.room-name : self.title;
                             if Art.headings.on: ArtTextBehind {
                                 x: channel-name.x; y: channel-name.y; width: parent.width; height: parent.height; art: Art.headings;
                                 text: channel-name.text; font-size: channel-name.font-size; font-weight: channel-name.font-weight;
@@ -3062,7 +3071,7 @@ export component YapfastWindow inherits Window {
                             }
                         }
                         if root.has-voice-chat: Middle {
-                            IconButton {
+                            IconButton { shy: header-touch.shy;
                                 icon: root.voice-chat ? IconPack.volume-2 : IconPack.message-square-text;
                                 label: root.voice-chat ? "Show voice channel" : "Open chat";
                                 tip-side: 2;
@@ -3070,21 +3079,21 @@ export component YapfastWindow inherits Window {
                             }
                         }
                         if root.can-call: Middle {
-                            IconButton {
+                            IconButton { shy: header-touch.shy;
                                 icon: IconPack.phone; label: root.call-going ? "Join Voice Call" : "Start Voice Call";
                                 size: 32px; glyph: 20px; enabled: root.can-join; tip-side: 2;
                                 clicked => { root.start-call(); }
                             }
                         }
                         if root.can-call && !root.call-going: Middle {
-                            IconButton {
+                            IconButton { shy: header-touch.shy;
                                 icon: IconPack.video; label: "Start Video Call";
                                 size: 32px; glyph: 20px; enabled: root.can-join; tip-side: 2;
                                 clicked => { root.start-video-call(); }
                             }
                         }
                         if root.can-list-threads: Middle {
-                            IconButton {
+                            IconButton { shy: header-touch.shy;
                                 icon: IconPack.thread; label: "Threads";
                                 size: 32px; glyph: 20px; tip-side: 2;
                                 tint: root.threads-open ? Theme.text : Theme.secondary;
@@ -3096,7 +3105,7 @@ export component YapfastWindow inherits Window {
                             }
                         }
                         if root.can-notify: Middle {
-                            IconButton {
+                            IconButton { shy: header-touch.shy;
                                 icon: root.room-muted ? IconPack.bell-off : IconPack.bell;
                                 label: root.room-muted ? "Notification settings, muted" : "Notification settings";
                                 size: 32px; glyph: 20px; tip-side: 2;
@@ -3107,7 +3116,7 @@ export component YapfastWindow inherits Window {
                             }
                         }
                         if root.can-pin: Middle {
-                            IconButton {
+                            IconButton { shy: header-touch.shy;
                                 icon: IconPack.pin; label: "Pinned messages";
                                 size: 32px; glyph: 20px; tip-side: 2;
                                 tint: root.pins-open ? Theme.text : Theme.secondary;
@@ -3125,7 +3134,7 @@ export component YapfastWindow inherits Window {
                             }
                         }
                         if root.can-add-people: Middle {
-                            IconButton {
+                            IconButton { shy: header-touch.shy;
                                 icon: IconPack.user-plus;
                                 label: root.add-people-one-to-one ? "Add friends to DM" : "Add friends to the group";
                                 size: 32px; glyph: 20px; tip-side: 2;
@@ -3160,7 +3169,7 @@ export component YapfastWindow inherits Window {
                         // A server channel's, as Discord's: the icon alone, bright while
                         // the list shows.
                         if root.members-available && !root.room-direct: Middle {
-                            IconButton {
+                            IconButton { shy: header-touch.shy;
                                 icon: IconPack.users;
                                 label: root.member-list ? "Hide member list" : "Show member list";
                                 size: 32px; glyph: 20px; tip-side: 2;
@@ -3170,7 +3179,7 @@ export component YapfastWindow inherits Window {
                         }
                         // A thread's, after its member list, as in Discord's toolbar.
                         if root.room-parent != "" && root.room-selected: Middle {
-                            IconButton {
+                            IconButton { shy: header-touch.shy;
                                 icon: IconPack.ellipsis; label: "More";
                                 size: 32px; glyph: 20px; tip-side: 2;
                                 clicked => {
@@ -3180,7 +3189,7 @@ export component YapfastWindow inherits Window {
                             }
                         }
                         if root.profile-available: Middle {
-                            IconButton {
+                            IconButton { shy: header-touch.shy;
                                 icon: IconPack.user; label: root.profile-panel ? "Hide profile" : "Show profile";
                                 size: 32px; glyph: 20px; tip-side: 2;
                                 tint: root.profile-panel ? Theme.text : Theme.secondary;
@@ -3188,7 +3197,7 @@ export component YapfastWindow inherits Window {
                             }
                         }
                         if root.can-search: Middle {
-                            HeaderSearch {
+                            HeaderSearch { shy: header-touch.shy;
                                 text <=> root.search-text;
                                 placeholder: root.search-placeholder;
                                 search(text) => { root.search(text); }
@@ -3203,6 +3212,7 @@ export component YapfastWindow inherits Window {
                             Image { source: IconPack.users; width: 18px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
                             Text { text: root.members; color: Theme.muted; font-size: 14px; font-weight: 500; vertical-alignment: center; }
                         }
+                    }
                     }
                     Rectangle { y: parent.height - 1px; height: 1px; background: ClientStyle.enabled ? Theme.outline-chat : Theme.edge; }
                 }
@@ -3689,7 +3699,7 @@ export component YapfastWindow inherits Window {
                                                             Rectangle {
                                                                 height: 18px; border-radius: Look.radius(4px); background: Theme.accent-fill;
                                                                 new-text := Text {
-                                                                    text: "New"; color: Theme.on-accent; font-size: 12px; font-weight: 800;
+                                                                    text: Chrome.new-label != "" ? Chrome.new-label : "New"; color: Theme.on-accent; font-size: 12px; font-weight: 800;
                                                                     horizontal-alignment: center; vertical-alignment: center;
                                                                 }
                                                             }
@@ -3917,7 +3927,8 @@ export component YapfastWindow inherits Window {
                                 background: Theme.chat-fill;
                                 typing-text := Text {
                                     x: 4px; width: parent.width - 8px;
-                                    text: root.typing; color: Theme.text; font-size: 13px; font-weight: 500;
+                                    text: Chrome.typing != "" ? Chrome.fill(Chrome.typing, "typing", root.typing) : root.typing; color: Theme.text; font-size: 13px; font-weight: 500;
+                                    accessible-label: root.typing;
                                     vertical-alignment: center; overflow: elide;
                                     opacity: Motion.playing ? 0.75 + 0.25 * sin(animation-tick() / 1ms * 0.25deg) : 1;
                                 }
@@ -4037,7 +4048,7 @@ export component YapfastWindow inherits Window {
                                         composer := Composer {
                                             pad: ClientStyle.composer-padding; min-height: ClientStyle.composer-height;
                                             text <=> root.draft; enabled: root.composer-enabled; label: "Message";
-                                            placeholder: root.is-editing ? "Edit your message" : root.compose-label != "" ? "Write a reply" : root.room-selected ? root.composer-placeholder : "Write a message";
+                                            placeholder: root.is-editing ? "Edit your message" : root.compose-label != "" ? "Write a reply" : root.room-selected ? (Chrome.composer != "" && !root.room-direct ? Chrome.fill(Chrome.composer, "channel", root.room-name) : root.composer-placeholder) : "Write a message";
                                             edited(text) => { root.draft-edited(text); }
                                             accepted => { root.send(); }
                                             suggesting: !root.suggesting-aside && ((root.command-picker-open && root.command-choices.length > 0) || root.mentions.length > 0 || root.emoji-suggestions.length > 0);
@@ -4314,7 +4325,7 @@ export component YapfastWindow inherits Window {
         }
         // A theme's layout may put the rail on the right.
         if Arrange.rail == 1: ServerRail {
-            own-art: true;
+            own-art: true; selected-name: root.dms-selected ? "" : root.sidebar-title;
             dms-selected: root.dms-selected; dms-unread: root.dms-unread; dms-badge: root.dms-badge; servers: root.servers;
             matrix-build: root.matrix-build;
             navigate-dms => { root.navigate-dms(); }

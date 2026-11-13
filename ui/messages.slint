@@ -1,3 +1,4 @@
+import { Chrome } from "theme_chrome.slint";
 import { IconPack, Cue } from "media.slint";
 import { ClientStyle } from "yapfast/style.slint";
 import { ListView, ScrollView } from "scrollview.slint";
@@ -269,26 +270,31 @@ export component ReactionToggle inherits Rectangle {
     in property <string> emoji-font;
     callback clicked;
     min-width: chip.preferred-width; height: 28px; border-radius: Look.r(Look.chip, 8px);
-    background: root.mine ? Theme.accent-soft : Theme.raised-fill;
+    // A theme may draw reactions as text: the emoji, then `(+3)`.
+    background: Chrome.reaction-text ? transparent : root.mine ? Theme.accent-soft : Theme.raised-fill;
     // A theme's stamp: your reaction lands with a thunk.
     property <bool> stamping;
     property <float> thunk;
     animate thunk { duration: root.stamping ? 0ms : Art.stamp-time; easing: ease-out-bounce; }
     changed mine => { if root.mine && Art.stamp { root.stamping = true; root.thunk = 1; } }
     Timer { interval: 30ms; running: root.stamping; triggered => { root.stamping = false; root.thunk = 0; } }
-    border-width: Look.bw(Look.chip, 1px);
+    border-width: Chrome.reaction-text ? 0px : Look.bw(Look.chip, 1px);
     border-color: root.mine ? Theme.accent.with-alpha(0.7) : pointer.has-hover && root.enabled ? Theme.overlay.with-alpha(0.15) : Look.bc(Look.chip, transparent);
     accessible-role: button;
     accessible-label: root.key + ", " + root.count + (root.mine ? ", including you. Remove your reaction" : ". Add this reaction");
     accessible-enabled: root.enabled;
     accessible-action-default => { if root.enabled { root.clicked(); } }
     chip := HorizontalLayout {
-        padding-left: 8px; padding-right: 9px; spacing: 6px;
+        padding-left: Chrome.reaction-text ? 2px : 8px; padding-right: Chrome.reaction-text ? 2px : 9px; spacing: Chrome.reaction-text ? 2px : 6px;
         Text {
             text: Twemoji.text(root.label); font-family: root.emoji-font; font-size: 16px; vertical-alignment: center;
             transform-scale: 1 + 0.5 * root.thunk; transform-rotation: -12deg * root.thunk;
         }
-        Text { text: root.count; color: root.mine ? Theme.accent-text : Theme.secondary; font-size: 14px; font-weight: 700; vertical-alignment: center; }
+        Text {
+            text: Chrome.reaction-text ? Chrome.fill(Chrome.reaction, "n", root.count) : root.count;
+            color: root.mine ? Theme.accent-text : Chrome.reaction-text && pointer.has-hover ? Theme.text : Theme.secondary;
+            font-size: 14px; font-weight: Chrome.reaction-text && !root.mine ? 400 : 700; vertical-alignment: center;
+        }
     }
     property <bool> tip-shown: root.item != "" && ReactionHover.item == root.item && ReactionHover.key == root.key;
     pointer := TouchArea {
@@ -1940,21 +1946,25 @@ export component ThreadChip inherits HorizontalLayout {
     Rectangle {
         max-width: 432px; horizontal-stretch: 100;
         min-height: chip.preferred-height;
-        background: touch.has-hover ? Theme.hover : Theme.sidebar-fill;
-        border-color: focus.has-focus ? Theme.accent : Theme.edge; border-width: focus.has-focus ? 2px : 1px;
+        background: touch.has-hover ? Theme.hover : Chrome.tree-replies ? transparent : Theme.sidebar-fill;
+        border-color: focus.has-focus ? Theme.accent : Theme.edge; border-width: focus.has-focus ? 2px : Chrome.tree-replies ? 0px : 1px;
         border-radius: Look.radius(8px);
         accessible-role: button;
         accessible-label: "Thread " + root.name + (root.detail != "" ? ", " + root.detail : "");
         accessible-action-default => { root.clicked(); }
         chip := HorizontalLayout {
-            padding: 8px; padding-left: 12px; padding-right: 12px; spacing: 10px;
-            Image { source: IconPack.thread; width: 18px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
+            padding: Chrome.tree-replies ? 2px : 8px; padding-left: Chrome.tree-replies ? 0px : 12px; padding-right: Chrome.tree-replies ? 4px : 12px; spacing: 10px;
+            // A theme's tree hangs the thread off its message as text.
+            if Chrome.tree-replies: Text {
+                text: "├─ thread:"; color: Chrome.tree-ink; font-family: Look.mono; vertical-alignment: center; accessible-role: none;
+            }
+            if !Chrome.tree-replies: Image { source: IconPack.thread; width: 18px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
             Text { text: root.name; color: Theme.text; font-weight: 700; overflow: elide; vertical-alignment: center; }
             if root.detail != "": Text {
                 text: root.detail; color: Theme.link; font-size: 14px; vertical-alignment: center;
                 horizontal-stretch: 1;
             }
-            Image { source: IconPack.chevron-right; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
+            if !Chrome.tree-replies: Image { source: IconPack.chevron-right; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
         }
         focus := FocusScope {
             key-pressed(event) => {
@@ -2368,14 +2378,16 @@ export component HistoryEdge inherits HorizontalLayout {
             }
         }
         if root.intro == "channel": Rectangle { height: 8px; }
-        if root.intro == "channel": Text { text: Look.welcome-text(Look.heading(root.intro-title)); accessible-label: root.intro-title; color: Theme.text; font-size: 32px; font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); letter-spacing: Look.spacing-headings; horizontal-alignment: center; overflow: elide; height: 40px; }
+        if root.intro == "channel": Text { text: Look.welcome-text(Look.heading(Chrome.welcome != "" ? Chrome.fill(Chrome.welcome, "channel", root.room-name) : root.intro-title)); accessible-label: root.intro-title; color: Theme.text; font-size: 32px; font-weight: Look.heading-weight(700); font-family: Look.heading-font(""); letter-spacing: Look.spacing-headings; horizontal-alignment: center; overflow: elide; height: 40px; }
         Rectangle { height: 8px; }
         Text { text: root.intro-text; color: Theme.secondary; font-size: root.intro == "server" ? 14px : 16px; horizontal-alignment: center; overflow: elide; height: 20px; }
     }
     if root.start && !root.welcome: Text {
-        text: root.room-direct ? "This is the beginning of your messages with " + root.room-name + "."
+        property <string> stock: root.room-direct ? "This is the beginning of your messages with " + root.room-name + "."
             : root.room-thread ? "This is the start of the " + root.room-name + " thread."
             : "This is the start of #" + root.room-name + ".";
+        text: Chrome.start != "" && !root.room-direct && !root.room-thread ? Chrome.fill(Chrome.start, "channel", root.room-name) : self.stock;
+        accessible-label: self.stock;
         color: Theme.muted; font-size: 14px; vertical-alignment: center; overflow: elide;
     }
     if !root.start: Rectangle {
@@ -2834,7 +2846,7 @@ export component MessageContent inherits VerticalLayout {
         // a group's first, right-aligned, then the separator.
         if root.style == 2: Text {
             width: Arrange.irc-time; visible: Arrange.irc-time > 0px;
-            text: message.short-time; color: Theme.muted; font-size: root.message-font-size * 0.875;
+            text: Chrome.time-before + message.short-time + Chrome.time-after; color: Theme.muted; font-size: root.message-font-size * 0.875;
             font-family: Look.mono; vertical-alignment: top; overflow: elide;
             accessible-role: none;
         }
@@ -2845,7 +2857,7 @@ export component MessageContent inherits VerticalLayout {
             // The whole name's width, unseen, to tell when it's cut.
             if message.first: Rectangle {
             irc-whole := Text {
-                visible: false; text: message.author;
+                visible: false; text: Chrome.author-before + message.author + Chrome.author-after;
                 font-size: root.message-font-size; font-weight: Look.name-weight(600); font-family: Look.name-font("");
                 accessible-role: none;
             }
@@ -2863,7 +2875,7 @@ export component MessageContent inherits VerticalLayout {
             }
             irc-nick := Text {
                 y: 0px; width: parent.width; height: root.line-height;
-                text: message.author; color: message.has-color ? message.color : Theme.text;
+                text: Chrome.author-before + message.author + Chrome.author-after; color: message.has-color ? message.color : Theme.text;
                 font-size: root.message-font-size; font-weight: Look.name-weight(600); font-family: Look.name-font("");
                 horizontal-alignment: right; vertical-alignment: center; overflow: elide;
                 accessible-role: none;
@@ -2887,7 +2899,7 @@ export component MessageContent inherits VerticalLayout {
         if root.avatars: Rectangle {
             width: root.avatar;
             min-height: message.first && message.notice == "" ? (root.header ? 24px + root.avatar : root.avatar) : 0px;
-            if root.header: Rectangle {
+            if root.header && !Chrome.tree-replies: Rectangle {
                 x: 19px; y: 11px; width: 33px; height: 13px; clip: true;
                 Rectangle {
                     x: 0px; y: 0px; width: parent.width + 12px; height: parent.height + 12px;
@@ -2925,7 +2937,7 @@ export component MessageContent inherits VerticalLayout {
             // further left, into the padding.
             if !message.first && root.active-item == message.item: Text {
                 width: max(root.avatar, self.preferred-width); x: root.avatar - self.width; y: 4px;
-                text: message.short-time; color: Theme.muted; font-size: 12px; font-weight: 500;
+                text: Chrome.time-before + message.short-time + Chrome.time-after; color: Theme.muted; font-size: 12px; font-weight: 500;
                 horizontal-alignment: right; overflow: elide;
             }
         }
@@ -2958,7 +2970,12 @@ export component MessageContent inherits VerticalLayout {
                 accessible-action-default => { if message.reply-item != "" { root.jump-to(message.reply-item); } }
                 HorizontalLayout {
                     spacing: 6px;
-                    if message.reply-author != "": Middle { Avatar { size: 16px; initial: message.reply-initial; tint: message.reply-tint; picture: message.reply-picture; picture-url: message.reply-picture-url; } }
+                    // A theme's tree points the reply at what it quotes.
+                    if Chrome.tree-replies: Text {
+                        text: "└─>"; color: Chrome.tree-ink; font-family: Look.mono; font-size: 14px;
+                        vertical-alignment: center; accessible-role: none;
+                    }
+                    if message.reply-author != "" && !Chrome.tree-replies: Middle { Avatar { size: 16px; initial: message.reply-initial; tint: message.reply-tint; picture: message.reply-picture; picture-url: message.reply-picture-url; } }
                     if message.reply-author != "": Text {
                         // Discord quotes "@Name" in the author's role colour, regular weight.
                         text: ClientStyle.enabled ? "@" + message.reply-author : message.reply-author;
@@ -3015,6 +3032,11 @@ export component MessageContent inherits VerticalLayout {
                 spacing: 8px;
                 // Discord's name line is 22px tall, a little over the text's.
                 padding-bottom: ClientStyle.enabled ? 2px : 0px;
+                // A theme's marks around the name, such as `<` and `>`.
+                if Chrome.author-before != "": Text {
+                    text: Chrome.author-before; color: Theme.secondary; font-size: root.message-font-size; vertical-alignment: center;
+                    font-family: Look.name-font(""); accessible-role: none;
+                }
                 Rectangle {
                     // Ransom letters past the room left end in an ellipsis.
                     min-width: root.ransom-name ? min(ransom.preferred-width, 120px) : author-name.min-width;
@@ -3065,9 +3087,19 @@ export component MessageContent inherits VerticalLayout {
                         }
                     }
                 }
+                if Chrome.author-after != "": Text {
+                    text: Chrome.author-after; color: Theme.secondary; font-size: root.message-font-size; vertical-alignment: center;
+                    font-family: Look.name-font(""); accessible-role: none;
+                }
                 if message.tag != "": Middle { ServerTagChip { text: message.tag; badge: message.tag-badge; font-size: root.message-font-size * 0.72; } }
                 if message.bot: Middle { BotTag { } }
+                if Chrome.time-before != "": Text {
+                    text: Chrome.time-before; color: Theme.muted; font-size: root.message-font-size - (ClientStyle.enabled ? 4px : 3px); vertical-alignment: center; accessible-role: none;
+                }
                 StyledText { text: message.time-styled; link-color: Theme.link; default-color: Theme.muted; default-font-size: root.message-font-size - (ClientStyle.enabled ? 4px : 3px); max-lines: 1; vertical-alignment: center; }
+                if Chrome.time-after != "": Text {
+                    text: Chrome.time-after; color: Theme.muted; font-size: root.message-font-size - (ClientStyle.enabled ? 4px : 3px); vertical-alignment: center; accessible-role: none;
+                }
                 Rectangle { horizontal-stretch: 1; }
             }
             // As Discord's client marks a forward, above what it carries.

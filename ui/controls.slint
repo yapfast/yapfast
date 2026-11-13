@@ -131,9 +131,13 @@ export component IconButton inherits Rectangle {
     in property <length> radius: 6px;
     out property <bool> hovered: pointer.has-hover;
     out property <bool> focused: focus.has-focus;
+    /// Drawn only while it has the keyboard: a theme hides the bar it's on
+    /// until the pointer is there.
+    in property <bool> shy;
     callback clicked;
     // The root fills its row; the visible face stays square and centred.
     width: root.size; min-height: root.size;
+    opacity: root.shy && !focus.has-focus ? 0 : 1;
     accessible-role: button;
     accessible-label: root.label;
     accessible-enabled: root.enabled;

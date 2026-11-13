@@ -919,6 +919,8 @@ pub struct Resolved {
     pub icons: BTreeMap<&'static str, super::media::IconChoice>,
     /// Where the panes sit and how messages are laid out.
     pub layout: super::layout::Layout,
+    /// The words and marks around the window: [`super::chrome`].
+    pub chrome: super::chrome::Chrome,
 }
 
 impl Resolved {
@@ -1029,8 +1031,9 @@ const TOP_KEYS: [&str; 15] = [
 ];
 
 /// The layers, at the top level or in a variant.
-const LAYER_KEYS: [&str; 11] = [
+const LAYER_KEYS: [&str; 12] = [
     "art",
+    "chrome",
     "layout",
     "colours",
     "shape",
@@ -1282,6 +1285,9 @@ impl Package {
             }
             if let Some(layout) = layers.get("layout") {
                 super::layout::read_layout(layout, &place("layout"), &mut resolved.layout, notes)?;
+            }
+            if let Some(chrome) = layers.get("chrome") {
+                super::chrome::read_chrome(chrome, &place("chrome"), &mut resolved.chrome, notes)?;
             }
         }
         Ok(resolved)
