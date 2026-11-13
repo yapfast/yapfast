@@ -14,6 +14,7 @@ use std::sync::OnceLock;
 
 pub mod art;
 
+use super::layout::BUBBLE_PADDING;
 use super::package::{Mode, Package, Paint, READABLE, Resolved, TEXT_ON, follows};
 use super::{MANIFEST, media};
 
@@ -978,6 +979,70 @@ pub fn unreadable_layout(variant: &Resolved) -> Vec<String> {
             paints(layout.bubbles.other.as_ref(), "raised"),
         ));
     }
+    // A drawn gel lays its gloss and glow where text can be: the band
+    // reaches the text's first line, past the bubble's top padding, and the
+    // glow its last, over the bottom padding. Each is laid at the most it
+    // lays there, on every bubble, over each ground colour.
+    let (_, pad) = layout.bubbles.padding.unwrap_or(BUBBLE_PADDING);
+    let own_text_name = if layout.bubbles.own_text.is_some() {
+        "layout.bubbles.own_text"
+    } else if layout.bubbles.own.is_some() {
+        "text"
+    } else {
+        "on-accent"
+    };
+    let own_ink = colours(
+        layout.bubbles.own_text,
+        if layout.bubbles.own.is_some() {
+            "text"
+        } else {
+            "on-accent"
+        },
+    );
+    let sides = [
+        (
+            &layout.bubbles.own_gel,
+            ["layout.bubbles.own.gloss", "layout.bubbles.own.glow"],
+            own_text_name,
+            own_ink,
+            paints(layout.bubbles.own.as_ref(), "accent"),
+        ),
+        (
+            &layout.bubbles.other_gel,
+            ["layout.bubbles.other.gloss", "layout.bubbles.other.glow"],
+            "text",
+            shown_colours(variant, "text"),
+            paints(layout.bubbles.other.as_ref(), "raised"),
+        ),
+    ];
+    for (gel, [gloss_name, glow_name], ink_name, ink, grounds) in sides {
+        let Some(grounds) = grounds else { continue };
+        let laid = |colour: u32, alpha: f32| {
+            Some(
+                grounds
+                    .iter()
+                    .map(|ground| over(colour, alpha, *ground))
+                    .collect(),
+            )
+        };
+        let gloss = gel
+            .gloss
+            .map(|gloss| (gloss_name, gloss.colour, gloss.alpha_below(pad)));
+        let glow = gel
+            .glow
+            .map(|glow| (glow_name, glow.colour, glow.alpha_above(pad)));
+        for (name, colour, alpha) in [gloss, glow].into_iter().flatten() {
+            if alpha > 0.0 {
+                // The alpha already holds the colour's own.
+                pairs.push((
+                    ink_name,
+                    ink.clone(),
+                    name,
+                    laid(colour | 0xff00_0000, alpha),
+                ));
+            }
+        }
+    }
     if let Some(ground) = layout.cards.ground {
         pairs.push((
             "text",
@@ -1070,6 +1135,18 @@ pub fn unreadable_layout(variant: &Resolved) -> Vec<String> {
         }
     }
     refused
+}
+
+/// `colour`'s red, green and blue at `alpha` (times its own alpha) over an
+/// opaque `back`.
+fn over(colour: u32, alpha: f32, back: u32) -> u32 {
+    let alpha = f64::from(alpha) * f64::from(colour >> 24) / 255.0;
+    let mix = |shift: u32| {
+        let front = f64::from((colour >> shift) & 0xff);
+        let behind = f64::from((back >> shift) & 0xff);
+        ((front * alpha + behind * (1.0 - alpha)).round() as u32).min(255) << shift
+    };
+    0xff00_0000 | mix(16) | mix(8) | mix(0)
 }
 
 /// How much two colours contrast, from 1 to 21, as WCAG measures it; a
@@ -1693,6 +1770,69 @@ mod tests {
             Strictness::Install,
         );
         assert!(report.passed(), "{:?}", report.errors);
+    }
+
+    #[test]
+    fn a_gel_keeps_its_gloss_off_the_text() {
+        let with = |layout: &str| {
+            PLUM.replace(
+                r##""colours": { "chat": "#2a1a3a" }"##,
+                &format!(r#""layout": {layout}"#),
+            )
+        };
+        let gel = |gloss: &str, padding: &str| {
+            with(&format!(
+                r##"{{ "messages": "bubbles", "bubbles": {{ {padding}
+                    "own": {{ "ground": "linear(#0c4cc0, #0a3f9e)", "gloss": {gloss} }},
+                    "own_text": "#ffffff" }} }}"##
+            ))
+        };
+        let refused = |report: &Report| {
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("layout.bubbles.own_text on layout.bubbles.own.gloss"))
+        };
+        // White text on deep blue reads; a bright gloss over its first
+        // line doesn't.
+        let report = check(
+            &files(&gel(r#"{ "from": 0.7, "to": 0.3, "max": 30 }"#, "")),
+            Strictness::Install,
+        );
+        assert!(refused(&report), "{:?}", report.errors);
+        // The same gloss, ending above the text, reads.
+        let report = check(
+            &files(&gel(
+                r#"{ "from": 0.7, "to": 0.3, "max": 8, "inset": 1 }"#,
+                r#""padding": [12, 10],"#,
+            )),
+            Strictness::Install,
+        );
+        assert!(report.passed(), "{:?}", report.errors);
+        // So does a faint one that fades as it reaches the text.
+        let report = check(
+            &files(&gel(
+                r#"{ "from": 0.35, "to": 0.0, "max": 20 }"#,
+                r#""padding": [12, 10],"#,
+            )),
+            Strictness::Install,
+        );
+        assert!(report.passed(), "{:?}", report.errors);
+        // A glow is held to the last line the same way.
+        let report = check(
+            &files(&with(
+                r##"{ "messages": "bubbles", "bubbles": { "own": { "ground": "#0c4cc0", "glow": { "colour": "#ffffff", "height": 30 } }, "own_text": "#ffffff" } }"##,
+            )),
+            Strictness::Install,
+        );
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("layout.bubbles.own.glow")),
+            "{:?}",
+            report.errors
+        );
     }
 
     #[test]

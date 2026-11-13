@@ -964,8 +964,32 @@ the focus ring and every accessible name stay as stock.
   its ground and under its text, as a surface's are (still: no `drift` or
   `frames`; a `size` places a small one, such as a gel's highlight), each
   decoded once and shared by every bubble; the text has to read over them
-  as over a surface's art. A reply's quote, "(edited)" and "Forwarded" on
-  your own bubble take its text's colour. The bar of actions over a message
+  as over a surface's art. The same object may draw a gel, as a glossy
+  button's, in shapes rather than pictures, so it stays crisp on a
+  one-line bubble and a tall one alike; each part is optional and nothing
+  is drawn unless set:
+  - `gloss`: a rounded band over the bubble's top, its `colour` (white
+    unset) fading from `from` to `to` (alphas, 0.6 and 0.1) downward and
+    ending in a clean edge. `height` is a share of the bubble's height
+    (0.1–0.8, 0.5), never more than `max` pixels (4–96, 24); `inset`
+    (0–16, or `[across, down]`; 2 and 1) keeps it in from the sides and
+    the top, and `radius` sets its corners (the bubble's less the inset).
+  - `glow`: a light rising from the bottom edge, as through a gel:
+    `colour` at the edge (with its alpha), gone `height` pixels up (2–48,
+    12).
+  - `rim`: `light`, a 1-pixel line just inside the edge, brightest along
+    the top and again, fainter, along the bottom; `dark`, a line on the
+    edge.
+  - `shadow`, as `shape` writes one, under the bubble.
+
+  The gloss and the glow are held to the text the way a ground is: at
+  the most of them that reaches the first line, past the bubble's top
+  padding, on the tallest band `max` allows (and the glow at the last
+  line), over each colour of the ground, the text has to read at 4.5:1.
+  A bright gloss that should stay clear of the text ends above it: a
+  `max` under the padding, which `padding` (4–24 pixels, or `[across,
+  down]`; 12 and 6 unset) can widen. A reply's quote, "(edited)" and
+  "Forwarded" on your own bubble take its text's colour. The bar of actions over a message
   sits beside the bubble under the pointer: after someone else's, before
   your own.
 - `grid`: the group headings stay, and each tile is a button with the
@@ -1023,6 +1047,19 @@ the focus ring and every accessible name stay as stock.
   "bubbles": { "own": { "ground": "linear(180deg, #7fd4ff, #2a7fff)",
                         "art": [{ "image": "art/gloss.png", "fit": "stretch", "opacity": 0.7 }] },
                "other": "linear(180deg, #ffffff, #e8eef8)", "own_text": "#06213f" }
+}
+```
+
+```json
+"layout": {
+  "messages": "bubbles",
+  "bubbles": { "padding": [14, 9],
+               "own": { "ground": "linear(180deg, #1d62d6, #0a3f9e 55%, #1559c8)",
+                        "gloss": { "from": 0.55, "to": 0.08, "max": 9, "inset": [4, 1] },
+                        "glow": { "colour": "#7cc8ff55", "height": 8 },
+                        "rim": { "light": "#ffffffb0", "dark": "#0a3478" },
+                        "shadow": { "blur": 6, "y": 2, "colour": "#0b3a8040" } },
+               "own_text": "#ffffff" }
 }
 ```
 
