@@ -26,7 +26,7 @@ pub mod camera;
 /// src/capture.rs.
 pub mod capture;
 // The base a stream and a call both sit on, from the media crate.
-pub use yapfast_media::{av_timing, gpu, logging, picture, pressure, volume};
+pub use yapfast_media::{av_timing, frames, gpu, logging, picture, pressure, volume};
 pub mod chat;
 pub mod cli;
 #[cfg(feature = "discord")]
@@ -54,9 +54,9 @@ mod discord_video;
 #[cfg(feature = "discord")]
 mod discord_voice;
 /// The socket a stream's picture descriptors travel on, which a DMA-BUF needs
-/// and a shared texture's handle doesn't; see src/dmabuf.rs.
+/// and a shared texture's handle doesn't; see yapfast-media's dmabuf.
 #[cfg(target_os = "linux")]
-pub mod dmabuf;
+pub use yapfast_media::dmabuf;
 /// Desktop Duplication: the compositor's own surface, turned upright and
 /// converted on the GPU, with the pointer drawn in; see src/dup.rs.
 #[cfg(dup)]
@@ -65,7 +65,6 @@ pub mod dup;
 pub mod encode;
 #[cfg(feature = "matrix")]
 pub mod experiment;
-pub mod frames;
 /// A handle borrowed from the owner that gave it out, which is what keeps a
 /// texture the card drew from outliving the capture, scaler or share it came
 /// from; see src/lease.rs.

@@ -412,7 +412,7 @@ impl Reader {
     /// make them two processes left out. A stream makes them two, since the
     /// worker's end is inherited across its `exec`.
     #[cfg(test)]
-    pub(crate) fn paired() -> (Self, Sender) {
+    pub fn paired() -> (Self, Sender) {
         let (reader, worker) = pair().expect("a socket");
         nonblocking(reader.as_raw_fd()).expect("a socket that doesn't wait");
         nonblocking(worker.as_raw_fd()).expect("a socket that doesn't wait");

@@ -5,17 +5,17 @@ use super::*;
 /// One slot's picture, when the worker drew it on the GPU instead of writing
 /// its pixels.
 #[repr(C)]
-pub(crate) struct Shared {
+pub struct Shared {
     /// The shared handle of the texture holding the picture, as it is in the
     /// UI's process, or zero for a slot of pixels: this is what tells a
     /// reader which of the two a slot holds.
-    pub(crate) texture: AtomicU64,
+    pub texture: AtomicU64,
     /// The value the fence reaches once the picture is drawn, which a reader
     /// waits for before showing what the texture holds.
-    pub(crate) value: AtomicU64,
+    pub value: AtomicU64,
     /// The number of the picture, which only grows: a reader compares it with
     /// the one it showed to tell a new picture from the one before it.
-    pub(crate) generation: AtomicU64,
+    pub generation: AtomicU64,
     /// The number of the set of textures and fence this slot's picture is of,
     /// which only grows within the slot: a set is three textures and one fence,
     /// rebuilt when a stream's pictures change size or a share is stopped and
@@ -27,13 +27,13 @@ pub(crate) struct Shared {
     /// only with the picture the worker published in it: the set the header
     /// held while the reader read a slot another picture was published into
     /// would pair this slot's handle with the number of a set it is not of.
-    pub(crate) set: AtomicU64,
+    pub set: AtomicU64,
     /// The newest generation of this slot the reader has finished with, which
     /// only grows and is the reader's alone to write: a worker draws into the
     /// slot again only once this is the generation that is there. Zero until
     /// a reader has finished with one, and a generation of zero — a slot that
     /// never held a picture — is the worker's from the start.
-    pub(crate) retired: AtomicU64,
+    pub retired: AtomicU64,
     /// The newest generation of this slot the reader has taken, which only
     /// grows and is the reader's alone to write.
     ///
@@ -43,7 +43,7 @@ pub(crate) struct Shared {
     /// [`Self::retired`] says. A generation this has reached is a picture on
     /// the screen until `retired` reaches it too, and a newer take of another
     /// slot says nothing about this one.
-    pub(crate) took: AtomicU64,
+    pub took: AtomicU64,
 }
 
 /// A slot's picture: the pixels the worker wrote into the file, or one it
@@ -141,23 +141,23 @@ pub struct Drawn {
 
 /// The worker's view of the file: the slots it writes, kept between frames and
 /// let go for as long as the file is being made smaller.
-pub(crate) struct Mapping {
+pub struct Mapping {
     /// The view, or none while the file is shortened: a file can't be ended
     /// while any view of it exists, this one included.
-    pub(crate) map: Option<MmapMut>,
-    pub(crate) capacity: usize,
+    pub map: Option<MmapMut>,
+    pub capacity: usize,
     /// How many mappings to make fail, so a test can drive the path a file
     /// system's refusal takes without one. A failed mapping must leave the
     /// worker its slots.
     #[cfg(test)]
-    pub(crate) fail_remap: u32,
+    pub fail_remap: u32,
     /// Whether a refused mapping has been logged already, so a file that stays
     /// unmappable doesn't fill the log at frame rate.
-    pub(crate) complained: bool,
+    pub complained: bool,
 }
 
 impl Mapping {
-    pub(crate) fn open(file: &File) -> Result<Self> {
+    pub fn open(file: &File) -> Result<Self> {
         // SAFETY: only Yapfast's own processes open the file, and they touch the
         // slots through the triple buffer, never the same slot at once.
         let map = unsafe { MmapMut::map_mut(file) }.context("could not map the video frames")?;
@@ -187,20 +187,20 @@ impl Mapping {
     /// The view itself: every use of a mapping is a use of the slots in it, and
     /// the only time there is none is between letting the view go and mapping
     /// the shortened file.
-    pub(crate) fn view(&self) -> &MmapMut {
+    pub fn view(&self) -> &MmapMut {
         self.map.as_ref().expect("the slots are mapped")
     }
 
     /// The bytes a slot holds, as the header says: frames larger than those
     /// that wrote it moved every slot, and this mapping with them.
-    pub(crate) fn capacity_now(&self) -> usize {
+    pub fn capacity_now(&self) -> usize {
         self.header().capacity.load(Ordering::Acquire) as usize
     }
 
     /// Maps the file again at `length`, which is what a resize needs: a file
     /// can't be ended or lengthened under the view it already has. A failure
     /// leaves whatever view there was, and the slots where they were.
-    pub(crate) fn remap(&mut self, file: &File, length: usize) -> Result<()> {
+    pub fn remap(&mut self, file: &File, length: usize) -> Result<()> {
         #[cfg(test)]
         if self.fail_remap > 0 {
             self.fail_remap -= 1;
@@ -217,7 +217,7 @@ impl Mapping {
     /// the file really holds: the header's number is trusted only as far as the
     /// file backs it, so a file that was shortened and not mapped again still
     /// gives the worker slots to write in rather than a panic.
-    pub(crate) fn remap_any(&mut self, file: &File) -> Result<()> {
+    pub fn remap_any(&mut self, file: &File) -> Result<()> {
         self.remap(file, HEADER)?;
         let held = (self.view().len() - HEADER) / SLOTS as usize;
         let said = self.capacity_now();
@@ -241,7 +241,7 @@ impl Mapping {
     /// when they hold smaller ones, and says so in the header. Only growing
     /// keeps a mapping another process holds whole: the file it read stays
     /// where it was, and the header is what tells it to map again.
-    pub(crate) fn grow(&mut self, file: &File, capacity: usize) -> Result<()> {
+    pub fn grow(&mut self, file: &File, capacity: usize) -> Result<()> {
         if self.map.is_none() {
             // A shortening that couldn't map the file again left no view: map
             // it where it is now before asking it for more room.
@@ -265,7 +265,7 @@ impl Mapping {
     /// there is one now: the paths that read the header ask this first, so a
     /// mapping the file system refuses answers "no slot" rather than taking
     /// the worker's thread down with it.
-    pub(crate) fn mapped(&mut self, file: &File) -> bool {
+    pub fn mapped(&mut self, file: &File) -> bool {
         if self.map.is_some() {
             return true;
         }
@@ -298,7 +298,7 @@ impl Mapping {
     /// a view of a file that shrank reads past its end. Answers whether the file
     /// gave its room back; a length the file system won't end keeps its room and
     /// loses no frame.
-    pub(crate) fn shorten(&mut self, file: &File, capacity: usize) -> Result<bool> {
+    pub fn shorten(&mut self, file: &File, capacity: usize) -> Result<bool> {
         if capacity >= self.capacity {
             return Ok(false);
         }
@@ -340,11 +340,11 @@ impl Mapping {
         Ok(true)
     }
 
-    pub(crate) fn header(&self) -> &Header {
+    pub fn header(&self) -> &Header {
         header_of(self.view())
     }
 
-    pub(crate) fn slot(&self, index: u32) -> *mut u8 {
+    pub fn slot(&self, index: u32) -> *mut u8 {
         slot_of(self.view(), self.capacity, index)
     }
 }
@@ -355,22 +355,22 @@ impl Mapping {
 /// raising [`Header::release`] and then taking the lock. The lock is the open
 /// file's, which every view in this process would share, so the process keeps
 /// one view, in [`Front`], and lets it go only through [`Self::let_go`].
-pub(crate) struct Reading {
+pub struct Reading {
     /// Whether the file is held shared for as long as this view exists. A file
     /// system that can't lock the file is one where the room isn't given back
     /// either — the worker's own attempt fails there too — so a refusal is not
     /// a reason to stop showing frames.
-    pub(crate) locked: bool,
-    pub(crate) map: MmapMut,
+    pub locked: bool,
+    pub map: MmapMut,
     /// The bytes a slot held when this view was made, which is the stride its
     /// slots are read at.
-    pub(crate) capacity: usize,
+    pub capacity: usize,
 }
 
 impl Reading {
     /// Maps the file for reading: the lock comes first and the view after it,
     /// so a view never exists while the worker could be shortening the file.
-    pub(crate) fn open(file: &File) -> Result<Self> {
+    pub fn open(file: &File) -> Result<Self> {
         // A lock error is not a reason to stop showing frames: it is the same
         // answer the writer gets when it asks, so nothing shortens this file.
         let locked = file.lock_shared().is_ok();
@@ -419,7 +419,7 @@ impl Reading {
     /// The view goes before the lock: the worker shortens the file only while
     /// nothing has a view of it, and a lock let go with the view still up would
     /// say the file was the worker's to shorten.
-    pub(crate) fn let_go(self, file: &File) {
+    pub fn let_go(self, file: &File) {
         let locked = self.locked;
         drop(self.map);
         if locked {
@@ -427,27 +427,27 @@ impl Reading {
         }
     }
 
-    pub(crate) fn header(&self) -> &Header {
+    pub fn header(&self) -> &Header {
         header_of(&self.map)
     }
 
-    pub(crate) fn capacity_now(&self) -> usize {
+    pub fn capacity_now(&self) -> usize {
         self.header().capacity.load(Ordering::Acquire) as usize
     }
 
     /// Whether the worker wants the file to itself.
-    pub(crate) fn asked_for(&self) -> bool {
+    pub fn asked_for(&self) -> bool {
         self.header().release.load(Ordering::Acquire) != 0
     }
 
-    pub(crate) fn slot(&self, index: u32) -> *mut u8 {
+    pub fn slot(&self, index: u32) -> *mut u8 {
         slot_of(&self.map, self.capacity, index)
     }
 }
 
 /// The view `kept` holds, made now if there is none or the one there is no
 /// longer fits: the worker grew the file since, or wants it to itself.
-pub(crate) fn reading<'a>(kept: &'a mut Option<Reading>, file: &File) -> Result<&'a Reading> {
+pub fn reading<'a>(kept: &'a mut Option<Reading>, file: &File) -> Result<&'a Reading> {
     if let Some(view) = kept.as_ref()
         && (view.asked_for() || view.capacity_now() != view.capacity)
     {
@@ -462,7 +462,7 @@ pub(crate) fn reading<'a>(kept: &'a mut Option<Reading>, file: &File) -> Result<
 /// After a use of the view: let go of it when the worker has asked for the file,
 /// so it gets it before the next take rather than waiting on a view nobody is
 /// reading.
-pub(crate) fn done_reading(kept: &mut Option<Reading>, file: &File) {
+pub fn done_reading(kept: &mut Option<Reading>, file: &File) {
     if kept.as_ref().is_some_and(Reading::asked_for) {
         kept.take().expect("a view was kept").let_go(file);
     }

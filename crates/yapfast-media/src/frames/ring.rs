@@ -8,40 +8,40 @@ pub struct Frames {
     /// keeps what it opened for a stream beside it, and an address is handed
     /// out again as soon as the process makes a new one — by the allocator
     /// that just freed the old, typically at the same size.
-    pub(crate) id: u64,
+    pub id: u64,
     /// The file, whose view [`Front::kept`] holds between takes.
-    pub(crate) file: File,
+    pub file: File,
     /// The slot the UI read last, which is the one it hands back when it takes
     /// the middle one.
-    pub(crate) front: Mutex<Front>,
-    pub(crate) name: Mutex<Option<Name>>,
+    pub front: Mutex<Front>,
+    pub name: Mutex<Option<Name>>,
 }
 
 /// The next number a set of frames is known by: never one an earlier set had.
-pub(crate) static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+pub static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 /// What the UI holds between takes: the slot it reads, and nothing of the file
 /// itself, which is mapped again for each take.
-pub(crate) struct Front {
-    pub(crate) slot: u32,
+pub struct Front {
+    pub slot: u32,
     /// The view of the file this process reads through, kept between takes;
     /// see [`Reading`].
-    pub(crate) kept: Option<Reading>,
+    pub kept: Option<Reading>,
     /// The socket the worker's pictures arrive on, and the pictures taken out of
     /// it that no take has asked for yet (Linux).
     #[cfg(target_os = "linux")]
-    pub(crate) pictures: dmabuf::Reader,
+    pub pictures: dmabuf::Reader,
 }
 
 /// What keeps the file's name until [`Frames::unlink`].
 #[cfg(not(windows))]
-pub(crate) type Name = tempfile::TempPath;
+pub type Name = tempfile::TempPath;
 
 #[cfg(windows)]
-pub(crate) struct Name {
-    pub(crate) path: PathBuf,
+pub struct Name {
+    pub path: PathBuf,
     /// Opened to delete the file once every process closes it.
-    pub(crate) _file: File,
+    pub _file: File,
 }
 
 #[cfg(windows)]
@@ -54,7 +54,7 @@ impl std::ops::Deref for Name {
 }
 
 #[cfg(not(windows))]
-pub(crate) fn create_file(directory: PathBuf) -> std::io::Result<(File, Name)> {
+pub fn create_file(directory: PathBuf) -> std::io::Result<(File, Name)> {
     let file = tempfile::Builder::new()
         .prefix("yapfast-frames-")
         .tempfile_in(directory)?;
@@ -62,7 +62,7 @@ pub(crate) fn create_file(directory: PathBuf) -> std::io::Result<(File, Name)> {
 }
 
 #[cfg(windows)]
-pub(crate) fn create_file(directory: PathBuf) -> std::io::Result<(File, Name)> {
+pub fn create_file(directory: PathBuf) -> std::io::Result<(File, Name)> {
     use std::{os::windows::fs::OpenOptionsExt, sync::atomic::AtomicUsize};
 
     const FILE_ATTRIBUTE_TEMPORARY: u32 = 0x100;
@@ -242,7 +242,7 @@ impl Frames {
         taken
     }
 
-    pub(crate) fn take_with<T>(
+    pub fn take_with<T>(
         &self,
         front: &mut Front,
         show: impl FnOnce(Frame<'_>) -> T,
@@ -405,7 +405,7 @@ impl Frames {
     /// Runs `use_header` on the header, through the view this process keeps.
     /// Held under `front`, so that one reader uses the view at a time: the lock
     /// it takes is the file's, and two views of one process would share it.
-    pub(crate) fn with_header<T>(&self, use_header: impl FnOnce(&Header) -> T) -> Option<T> {
+    pub fn with_header<T>(&self, use_header: impl FnOnce(&Header) -> T) -> Option<T> {
         let mut front = self
             .front
             .lock()
@@ -442,7 +442,7 @@ impl Frames {
 
     /// Writes the UI's answer into the header: it can show this stream's
     /// pictures, drawn on `luid`.
-    pub(crate) fn accept_pictures(&self, luid: u64) -> bool {
+    pub fn accept_pictures(&self, luid: u64) -> bool {
         self.with_header(|header| {
             // The adapter before the answer, so a worker that reads the answer
             // reads the adapter it goes with.

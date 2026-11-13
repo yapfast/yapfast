@@ -8,6 +8,10 @@
 pub mod av_timing;
 pub mod clock;
 pub mod codec;
+// A picture the compositor drew, as the descriptor it is: Linux's alone.
+#[cfg(target_os = "linux")]
+pub mod dmabuf;
+pub mod frames;
 pub mod gpu;
 pub mod logging;
 pub mod picture;

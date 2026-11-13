@@ -12029,9 +12029,12 @@ dependencies = [
 name = "yapfast-media"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "livekit",
+ "memmap2",
  "serde",
  "tokio",
+ "tracing",
  "tracing-subscriber",
  "windows",
 ]

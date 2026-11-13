@@ -1251,10 +1251,10 @@ mod ring;
 mod slots;
 mod writer;
 
-pub(crate) use layout::*;
-pub(crate) use ring::*;
-pub(crate) use slots::*;
-pub(crate) use writer::*;
+pub use layout::*;
+pub use ring::*;
+pub use slots::*;
+pub use writer::*;
 
 pub use ring::Frames;
 pub use slots::Drawn;

@@ -7,6 +7,9 @@ publish = false
 license = "GPL-3.0-or-later"
 
 [dependencies]
+anyhow.workspace = true
+memmap2 = "0.9"
+tracing.workspace = true
 # A picture in memory, and the tiles a window shows.
 livekit.workspace = true
 # The clock a stream's sound and picture are put on.

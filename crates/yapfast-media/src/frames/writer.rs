@@ -6,28 +6,28 @@ use super::*;
 pub struct Writer {
     /// The file the slots are mapped from, kept to lengthen it when a frame
     /// needs more room than it has and to shorten it once the frames need less.
-    pub(crate) file: File,
-    pub(crate) mapping: Mapping,
+    pub file: File,
+    pub mapping: Mapping,
     /// The socket this writer's pictures' descriptors go to the window on, as
     /// this worker inherited it (Linux); nothing while the window made none.
     #[cfg(target_os = "linux")]
-    pub(crate) pictures: dmabuf::Sender,
-    pub(crate) back: u32,
+    pub pictures: dmabuf::Sender,
+    pub back: u32,
     /// How many pictures this writer has published, which numbers them.
     published: u64,
     /// The largest frame written since the frames went small, and when the
     /// first of them was; see [`Self::give_room_back`].
-    pub(crate) small: Option<(usize, Instant)>,
+    pub small: Option<(usize, Instant)>,
     /// Since when the reader has held the writer's own slot, which is a
     /// picture nothing is retiring; see [`Self::claim`] and [`HELD_FOR`].
-    pub(crate) held_since: Option<Instant>,
+    pub held_since: Option<Instant>,
     /// Whether the reader held that slot for so long that this share's window
     /// writes pixels from now on: a share's pictures belong to one window and
     /// one file, so a window that stopped retiring pictures doesn't come back.
-    pub(crate) stalled: bool,
+    pub stalled: bool,
     /// How long a slot is given before it counts as one nothing will let go,
     /// which a test sets so it doesn't wait; a stream leaves [`HELD_FOR`].
-    pub(crate) held_for: Duration,
+    pub held_for: Duration,
 }
 
 impl Writer {
@@ -128,7 +128,7 @@ impl Writer {
     /// shortened, by taking the lock every reader holds for as long as it has
     /// the file mapped: the room goes back only when nobody is reading, and a
     /// reader that is keeps its view whole.
-    pub(crate) fn give_room_back(&mut self, wanted: usize, waited: Duration) {
+    pub fn give_room_back(&mut self, wanted: usize, waited: Duration) {
         let held = self.mapping.capacity;
         if wanted == 0 || wanted.saturating_mul(ROOM_SLACK) > held {
             self.small = None;
