@@ -421,6 +421,18 @@ shipped row leaves a calm screen below the cap. And a share sending 2 Mbit/s
 under a 20.8 Mbit ceiling is a screen that isn't changing: this still desktop
 already spends 14 Mbit/s of it on text and edges at 58.8 dB.
 
+**Capped quality is not the answer either, though it looks like one.** NVENC's
+target quality (`-rc vbr -cq N`) spends far fewer bits for a small loss — a still
+3440x1440 desktop at **2782 kbit/s for 55.327 dB**, where vbr spends 14193 for
+58.823, and the panning one at 8068 for 57.719 against vbr's 16485 for 58.974 —
+and on easy content it stays under a ceiling (7814 against 9000 at `-cq 20`).
+On hard content it does not: **25810 kbit/s under a 20805 ceiling at `-cq 15`**,
+and **12377 under 9000 at `-cq 20`**. Target quality overrides the maxrate rather
+than being bounded by it, and a share can't use a mode that breaks the ceiling it
+declares: that ceiling is what Discord and the uplink are promised. Enforcing it
+would be Yapfast's own work — watching what the encoder spends and taking the
+cap down as it goes — not the encoder's.
+
 **The colour claim.** The question assumed BT.709; `hwenc.c` and `d3d11enc.c`
 declare **SMPTE 170M (BT.601) limited**, and that is what the pixels are:
 measured mean absolute error 0.33/0.33/0.41 codes through NVENC's own BGRA→NV12
