@@ -138,6 +138,9 @@ impl Kind {
 pub struct Cursor {
     pub images: Vec<PathBuf>,
     pub hotspot: (u32, u32),
+    /// An animated kind's first frame cut from a sheet: `images` are the
+    /// sheet's sizes.
+    pub cell: Option<Cell>,
 }
 
 /// Reads a layer's `"cursors"` into `cursors` and `animated`, over what an
@@ -215,8 +218,9 @@ pub(super) fn read_cursors(
             cursors.insert(
                 kind,
                 Cursor {
-                    images: sequence.frames[0].clone(),
+                    images: sequence.frames[0].files.clone(),
                     hotspot: sequence.hotspot,
+                    cell: sequence.frames[0].cell,
                 },
             );
             animated.kinds.insert(kind, sequence);
@@ -267,6 +271,7 @@ pub(super) fn read_cursors(
             Cursor {
                 images,
                 hotspot: hotspot.unwrap_or((0, 0)),
+                cell: None,
             },
         );
     }
@@ -280,13 +285,67 @@ pub const MAX_FRAME_FILES: usize = 1024;
 /// The shortest a frame shows: 60 a second.
 pub const MIN_FRAME_MS: u32 = 16;
 /// The largest trail sprite sheet, in pixels on either side.
-pub const MAX_SHEET_SIDE: u32 = 1024;
+pub const MAX_SHEET_SIDE: u32 = 2048;
+/// The largest sheet file.
+pub const MAX_SHEET_BYTES: usize = 2 << 20;
 /// The most trail sprites alive at once.
 pub const MAX_TRAIL: u32 = 160;
 
 /// One frame of an animated cursor: the same picture at each size, smallest
-/// first.
-pub type Frame = Vec<PathBuf>;
+/// first, or a cell of the same sheet at each size.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Frame {
+    pub files: Vec<PathBuf>,
+    pub cell: Option<Cell>,
+}
+
+impl Frame {
+    fn whole(files: Vec<PathBuf>) -> Self {
+        Self { files, cell: None }
+    }
+}
+
+/// A frame's place on a sheet, in the first size's pixels: cells run left
+/// to right, then down, as many to a row as the sheet is wide.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Cell {
+    pub index: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl Cell {
+    /// Its rectangle on a sheet `sheet_width` pixels wide, drawn `scale`
+    /// times the first size: x, y, width, height; none if it falls off.
+    pub fn rect(self, sheet: (u32, u32), scale: u32) -> Option<(u32, u32, u32, u32)> {
+        let (width, height) = (self.width * scale, self.height * scale);
+        let columns = sheet.0 / width.max(1);
+        if columns == 0 {
+            return None;
+        }
+        let (x, y) = (
+            (self.index % columns) * width,
+            (self.index / columns) * height,
+        );
+        (y + height <= sheet.1).then_some((x, y, width, height))
+    }
+}
+
+/// The cell `cell` cut from a decoded sheet drawn `scale` times the first
+/// size.
+pub fn cut(sheet: &Picture, cell: Cell, scale: u32) -> Option<Picture> {
+    let (x, y, width, height) = cell.rect((sheet.width, sheet.height), scale)?;
+    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+    for row in y..y + height {
+        let start = ((row * sheet.width + x) * 4) as usize;
+        rgba.extend_from_slice(&sheet.rgba[start..start + (width * 4) as usize]);
+    }
+    Some(Picture {
+        width,
+        height,
+        rgba,
+    })
+}
 
 /// Frames that play in turn.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -361,7 +420,7 @@ pub struct Motion {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Trail {
     /// The sprite sheet at each size, smallest first.
-    pub sheet: Frame,
+    pub sheet: Vec<PathBuf>,
     /// A sprite's side, in the first size's pixels.
     pub cell: u32,
     /// The sprites' top left corners on the first size.
@@ -379,6 +438,22 @@ pub struct Trail {
     pub press: u32,
     /// Opacity a new one starts at.
     pub opacity: f32,
+    /// Now and then the trail glitches for a moment.
+    pub corrupt: Option<Corrupt>,
+}
+
+/// A trail's glitch: every `every` milliseconds (a random time between the
+/// two) for `lasts` (likewise), its sprites turn to `sprites`, brighten by
+/// `boost`, and each band `band` pixels tall tears sideways up to `tear`.
+/// Only the trail's own sprites move; nothing else redraws for it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Corrupt {
+    pub every: (f32, f32),
+    pub lasts: (f32, f32),
+    pub sprites: Vec<(u32, u32)>,
+    pub boost: f32,
+    pub tear: f32,
+    pub band: f32,
 }
 
 /// What animates a theme's cursors, beside their still pictures.
@@ -429,21 +504,38 @@ impl Animated {
         all
     }
 
+    /// Every frame of every sequence and motion.
+    pub fn frames(&self) -> Vec<&Frame> {
+        let mut frames: Vec<&Frame> = self
+            .sequences()
+            .into_iter()
+            .flat_map(|sequence| sequence.frames.iter())
+            .collect();
+        for motion in self.motion.values() {
+            frames.extend(motion.moving.iter().flatten());
+        }
+        frames
+    }
+
     /// Every frame file it names, every size, once each.
     pub fn files(&self) -> Vec<PathBuf> {
         let mut files: Vec<PathBuf> = Vec::new();
-        let mut add = |frame: &Frame| {
-            for path in frame {
+        let mut add = |paths: &[PathBuf]| {
+            for path in paths {
                 if !files.contains(path) {
                     files.push(path.clone());
                 }
             }
         };
         for sequence in self.sequences() {
-            sequence.frames.iter().for_each(&mut add);
+            sequence.frames.iter().for_each(|frame| add(&frame.files));
         }
         for motion in self.motion.values() {
-            motion.moving.iter().flatten().for_each(&mut add);
+            motion
+                .moving
+                .iter()
+                .flatten()
+                .for_each(|frame| add(&frame.files));
         }
         if let Some(trail) = &self.trail {
             add(&trail.sheet);
@@ -506,13 +598,92 @@ fn png_path(text: &str, here: &str) -> Result<PathBuf, Error> {
 
 /// A frame from one path, with its larger size when `hidpi` is set.
 fn frame_of(text: &str, here: &str, hidpi: Option<&str>) -> Result<Frame, Error> {
+    Ok(Frame::whole(sizes_of(text, here, hidpi)?))
+}
+
+/// A picture's sizes from one path, with its larger size when `hidpi` is set.
+fn sizes_of(text: &str, here: &str, hidpi: Option<&str>) -> Result<Vec<PathBuf>, Error> {
     let first = png_path(text, here)?;
-    let mut frame = vec![first];
+    let mut sizes = vec![first];
     if let Some(suffix) = hidpi {
         let stem = text.strip_suffix(".png").unwrap_or(text);
-        frame.push(png_path(&format!("{stem}{suffix}.png"), here)?);
+        sizes.push(png_path(&format!("{stem}{suffix}.png"), here)?);
     }
-    Ok(frame)
+    Ok(sizes)
+}
+
+/// `{ "sheet", "cell": [w, h], "count", "first" }`: `count` frames cut from
+/// one sheet, from cell `first` (plus `offset`) on.
+fn sheet_frames(
+    fields: &serde_json::Map<String, Value>,
+    here: &str,
+    hidpi: Option<&str>,
+    dir: Option<&str>,
+    offset: u32,
+    count: Option<usize>,
+) -> Result<Vec<Frame>, Error> {
+    let sheet = match fields.get("sheet") {
+        Some(Value::String(text)) => sizes_of(
+            &pattern(text, dir, None, None),
+            &format!("{here}.sheet"),
+            hidpi,
+        )?,
+        Some(value @ Value::Array(_)) => frame_value(value, &format!("{here}.sheet"), None)?.files,
+        _ => bail!("\"{here}\" needs \"sheet\", a PNG of the frames side by side"),
+    };
+    let cell = fields
+        .get("cell")
+        .and_then(Value::as_array)
+        .and_then(|cell| match cell.as_slice() {
+            [width, height] => Some((width.as_u64()?, height.as_u64()?)),
+            _ => None,
+        })
+        .filter(|(width, height)| {
+            (1..=u64::from(MAX_SIDE)).contains(width) && (1..=u64::from(MAX_SIDE)).contains(height)
+        })
+        .ok_or_else(|| {
+            Error(format!(
+                "\"{here}.cell\" is [width, height], each 1 to {MAX_SIDE} pixels"
+            ))
+        })?;
+    let count = match count {
+        Some(count) => count,
+        None => fields
+            .get("count")
+            .and_then(Value::as_u64)
+            .filter(|count| (1..=MAX_FRAMES as u64).contains(count))
+            .ok_or_else(|| {
+                Error(format!(
+                    "\"{here}.count\" is how many frames, 1 to {MAX_FRAMES}"
+                ))
+            })? as usize,
+    };
+    let first = match fields.get("first") {
+        Some(first) => first
+            .as_u64()
+            .filter(|first| *first < 4096)
+            .ok_or_else(|| {
+                Error(format!(
+                    "\"{here}.first\" is the cell the frames start at, from 0"
+                ))
+            })? as u32,
+        None => 0,
+    };
+    for key in fields.keys() {
+        if !matches!(key.as_str(), "sheet" | "cell" | "count" | "first") {
+            bail!("\"{here}.{key}\" isn't something a sheet of frames takes");
+        }
+    }
+    Ok((0..count as u32)
+        .map(|index| Frame {
+            files: sheet.clone(),
+            cell: Some(Cell {
+                index: first + offset + index,
+                width: cell.0 as u32,
+                height: cell.1 as u32,
+            }),
+        })
+        .collect())
 }
 
 /// A frame written as a path or a list of sizes.
@@ -529,7 +700,8 @@ fn frame_value(value: &Value, here: &str, hidpi: Option<&str>) -> Result<Frame, 
                     .ok_or_else(|| Error(format!("\"{at}\" names a PNG file in the theme")))?;
                 png_path(text, &at)
             })
-            .collect(),
+            .collect::<Result<_, _>>()
+            .map(Frame::whole),
         _ => bail!("\"{here}\" is a PNG's path, or a list of 1 to {MAX_SIZES} sizes of it"),
     }
 }
@@ -549,21 +721,22 @@ fn pattern(text: &str, dir: Option<&str>, speed: Option<&str>, index: Option<usi
     out
 }
 
-/// Writes `speed` for `{speed}` in a sequence's frames.
+/// Writes `speed` for `{speed}` in a sequence's frames, or its sheet.
 fn speed_in(value: &mut Value, speed: &str) {
-    let Some(frames) = value.get_mut("frames") else {
-        return;
-    };
-    match frames {
-        Value::String(text) => *text = text.replace("{speed}", speed),
-        Value::Array(items) => {
-            for item in items {
-                if let Value::String(text) = item {
-                    *text = text.replace("{speed}", speed);
+    fn fill(value: &mut Value, speed: &str) {
+        match value {
+            Value::String(text) => *text = text.replace("{speed}", speed),
+            Value::Array(items) => items.iter_mut().for_each(|item| fill(item, speed)),
+            Value::Object(fields) => {
+                if let Some(sheet) = fields.get_mut("sheet") {
+                    fill(sheet, speed);
                 }
             }
+            _ => {}
         }
-        _ => {}
+    }
+    if let Some(frames) = value.get_mut("frames") {
+        fill(frames, speed);
     }
 }
 
@@ -575,6 +748,18 @@ fn read_sequence(
     at: &str,
     hidpi: Option<&str>,
     dir: Option<&str>,
+    looped: bool,
+) -> Result<Sequence, Error> {
+    read_sequence_from(value, at, hidpi, dir, 0, looped)
+}
+
+/// As [`read_sequence`], a sheet's frames starting `offset` cells on.
+fn read_sequence_from(
+    value: &Value,
+    at: &str,
+    hidpi: Option<&str>,
+    dir: Option<&str>,
+    offset: u32,
     looped: bool,
 ) -> Result<Sequence, Error> {
     let Value::Object(fields) = value else {
@@ -614,6 +799,9 @@ fn read_sequence(
                 let text = pattern(text, dir, None, Some(index));
                 sequence.frames.push(frame_of(&text, &here, hidpi)?);
             }
+        }
+        Some(Value::Object(sheet)) => {
+            sequence.frames = sheet_frames(sheet, &here, hidpi, dir, offset, None)?;
         }
         _ => bail!("\"{at}\" needs \"frames\""),
     }
@@ -798,8 +986,16 @@ fn read_motion(
                     })
                     .collect::<Result<Vec<_>, _>>()?
             }
+            // One sheet: each direction's slow frame, then its fast one.
+            Some(Value::Object(sheet)) => {
+                let frames = sheet_frames(sheet, &here, hidpi, None, 0, Some(16))?;
+                frames
+                    .chunks(2)
+                    .map(|pair| [pair[0].clone(), pair[1].clone()])
+                    .collect()
+            }
             _ => bail!(
-                "\"{here}\" is a pattern with {{dir}} (e, se, s, sw, w, nw, n, ne) and {{speed}} (slow, fast)"
+                "\"{here}\" is a pattern with {{dir}} (e, se, s, sw, w, nw, n, ne) and {{speed}} (slow, fast), or a sheet of 16 cells"
             ),
         };
         let mut motion = Motion {
@@ -819,15 +1015,23 @@ fn read_motion(
                     let start = value
                         .as_object_mut()
                         .and_then(|fields| fields.remove("slow_start"));
+                    // A sheet without `{dir}` holds every direction's frames,
+                    // one direction after another, e first.
+                    let one_sheet = value.get("frames").is_some_and(|frames| {
+                        frames.is_object() && !frames.to_string().contains("{dir}")
+                    });
                     let by_direction = match value.get("frames") {
                         Some(Value::String(text)) => text.contains("{dir}"),
                         Some(Value::Array(items)) => items
                             .iter()
                             .any(|item| item.as_str().is_some_and(|text| text.contains("{dir}"))),
+                        Some(Value::Object(_)) => true,
                         _ => false,
                     };
                     if !by_direction {
-                        bail!("\"{here}.frames\" names each direction's frames with {{dir}}");
+                        bail!(
+                            "\"{here}.frames\" names each direction's frames with {{dir}}, or is a sheet"
+                        );
                     }
                     if let Some(object) = value.as_object_mut()
                         && !object.contains_key("hotspot")
@@ -844,13 +1048,30 @@ fn read_motion(
                         &[None]
                     };
                     let mut settle = Vec::new();
-                    for dir in DIRECTIONS {
+                    let per_direction = value
+                        .get("frames")
+                        .and_then(|frames| frames.get("count"))
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0) as u32;
+                    for (index, dir) in DIRECTIONS.iter().enumerate() {
                         for speed in speeds {
                             let mut value = value.clone();
                             if let Some(speed) = speed {
                                 speed_in(&mut value, speed);
                             }
-                            settle.push(read_sequence(&value, &here, hidpi, Some(dir), false)?);
+                            let offset = if one_sheet {
+                                index as u32 * per_direction
+                            } else {
+                                0
+                            };
+                            settle.push(read_sequence_from(
+                                &value,
+                                &here,
+                                hidpi,
+                                Some(dir),
+                                offset,
+                                false,
+                            )?);
                         }
                     }
                     motion.settle = settle;
@@ -906,7 +1127,8 @@ fn read_trail(
     let sheet = fields
         .get("sheet")
         .ok_or_else(|| Error(format!("\"{at}\" needs \"sheet\"")))
-        .and_then(|sheet| frame_value(sheet, &format!("{at}.sheet"), hidpi))?;
+        .and_then(|sheet| frame_value(sheet, &format!("{at}.sheet"), hidpi))?
+        .files;
     let mut trail = Trail {
         sheet,
         cell: 16,
@@ -918,6 +1140,7 @@ fn read_trail(
         count: 96,
         press: 6,
         opacity: 0.6,
+        corrupt: None,
     };
     let number = super::package::number;
     for (key, value) in fields {
@@ -950,6 +1173,7 @@ fn read_trail(
             "count" => trail.count = number(value, &here, (1.0, MAX_TRAIL as f32))? as u32,
             "press" => trail.press = number(value, &here, (0.0, 32.0))? as u32,
             "opacity" => trail.opacity = number(value, &here, (0.05, 1.0))?,
+            "corrupt" => trail.corrupt = Some(read_corrupt(value, &here)?),
             _ => notes.push(format!("\"{here}\" isn't something a trail takes; ignored")),
         }
     }
@@ -959,10 +1183,77 @@ fn read_trail(
     Ok(trail)
 }
 
-/// A trail's sheet, decoded under its own limits.
+/// `{ "every": [min, max], "lasts": [min, max], "sprites", "boost", "tear", "band" }`.
+fn read_corrupt(value: &Value, at: &str) -> Result<Corrupt, Error> {
+    let Value::Object(fields) = value else {
+        bail!("\"{at}\" has to be an object");
+    };
+    let number = super::package::number;
+    let range =
+        |key: &str, (low, high): (f32, f32), unset: (f32, f32)| -> Result<(f32, f32), Error> {
+            let here = format!("{at}.{key}");
+            match fields.get(key) {
+                None => Ok(unset),
+                Some(Value::Array(pair)) if pair.len() == 2 => {
+                    let (from, to) = (
+                        number(&pair[0], &here, (low, high))?,
+                        number(&pair[1], &here, (low, high))?,
+                    );
+                    if from > to {
+                        bail!("\"{here}\" goes from the least to the most");
+                    }
+                    Ok((from, to))
+                }
+                Some(one) => {
+                    let one = number(one, &here, (low, high))?;
+                    Ok((one, one))
+                }
+            }
+        };
+    let mut corrupt = Corrupt {
+        every: range("every", (500.0, 60000.0), (2500.0, 7000.0))?,
+        lasts: range("lasts", (40.0, 2000.0), (140.0, 300.0))?,
+        sprites: Vec::new(),
+        boost: 1.8,
+        tear: 18.0,
+        band: 10.0,
+    };
+    for (key, value) in fields {
+        let here = format!("{at}.{key}");
+        match key.as_str() {
+            "every" | "lasts" => {}
+            "sprites" => {
+                corrupt.sprites = value
+                    .as_array()
+                    .filter(|items| items.len() <= 64)
+                    .and_then(|items| {
+                        items
+                            .iter()
+                            .map(|item| match item.as_array().map(Vec::as_slice) {
+                                Some([x, y]) => Some((x.as_u64()? as u32, y.as_u64()? as u32)),
+                                _ => None,
+                            })
+                            .collect::<Option<Vec<_>>>()
+                    })
+                    .ok_or_else(|| {
+                        Error(format!(
+                            "\"{here}\" lists up to 64 [x, y] corners on the sheet"
+                        ))
+                    })?;
+            }
+            "boost" => corrupt.boost = number(value, &here, (1.0, 4.0))?,
+            "tear" => corrupt.tear = number(value, &here, (0.0, 64.0))?,
+            "band" => corrupt.band = number(value, &here, (2.0, 64.0))?,
+            _ => bail!("\"{here}\" isn't something a trail's glitch takes"),
+        }
+    }
+    Ok(corrupt)
+}
+
+/// A sheet of frames or a trail's sprites, decoded under its own limits.
 pub fn decode_sheet(bytes: &[u8]) -> Result<Picture, String> {
-    if bytes.len() > MAX_BYTES * 4 {
-        return Err("a trail's sheet is at most 1 MiB".into());
+    if bytes.len() > MAX_SHEET_BYTES {
+        return Err("a sheet is at most 2 MiB".into());
     }
     if image::guess_format(bytes).ok() != Some(image::ImageFormat::Png) {
         return Err("isn't a PNG".into());
@@ -972,7 +1263,7 @@ pub fn decode_sheet(bytes: &[u8]) -> Result<Picture, String> {
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(MAX_SHEET_SIDE);
     limits.max_image_height = Some(MAX_SHEET_SIDE);
-    limits.max_alloc = Some(8 << 20);
+    limits.max_alloc = Some(u64::from(MAX_SHEET_SIDE) * u64::from(MAX_SHEET_SIDE) * 4);
     reader.limits(limits);
     let rgba = reader
         .decode()
@@ -1002,10 +1293,20 @@ pub fn animated_problems<'a>(
             files.len()
         ));
     }
-    let sheet = animated.trail.as_ref().map(|trail| &trail.sheet);
+    // Files cut into cells, and the trail's: sheets, under their own limits.
+    let mut sheets: Vec<&PathBuf> = animated
+        .trail
+        .iter()
+        .flat_map(|trail| trail.sheet.iter())
+        .collect();
+    for frame in animated.frames() {
+        if frame.cell.is_some() {
+            sheets.extend(&frame.files);
+        }
+    }
     for path in &files {
         let Some(file) = bytes(path) else { continue };
-        let on_sheet = sheet.is_some_and(|sheet| sheet.contains(path));
+        let on_sheet = sheets.contains(&path);
         let decoded = if on_sheet {
             decode_sheet(file)
         } else {
@@ -1017,7 +1318,32 @@ pub fn animated_problems<'a>(
     }
     let size = |path: &PathBuf| bytes(path).and_then(size);
     let mut check = |frame: &Frame, hotspot: (u32, u32), what: &str| {
-        if let Some((width, height)) = frame.first().and_then(size)
+        let Some(first) = frame.files.first() else {
+            return;
+        };
+        // A cell is its frame; it has to lie on each size of its sheet.
+        let shown = match frame.cell {
+            Some(cell) => {
+                let sizes: Vec<(u32, u32)> = frame.files.iter().filter_map(size).collect();
+                let first_width = sizes.first().map_or(0, |size| size.0);
+                for (width, height) in &sizes {
+                    let scale = (width / first_width.max(1)).max(1);
+                    if cell.rect((*width, *height), scale).is_none() {
+                        let sentence = format!(
+                            "{}: cell {} isn't on its {width}×{height} sheet",
+                            first.display(),
+                            cell.index
+                        );
+                        if !problems.contains(&sentence) {
+                            problems.push(sentence);
+                        }
+                    }
+                }
+                Some((cell.width, cell.height))
+            }
+            None => size(first),
+        };
+        if let Some((width, height)) = shown
             && (hotspot.0 >= width || hotspot.1 >= height)
         {
             let sentence = format!(
@@ -1044,6 +1370,12 @@ pub fn animated_problems<'a>(
         && trail
             .sprites
             .iter()
+            .chain(
+                trail
+                    .corrupt
+                    .iter()
+                    .flat_map(|corrupt| corrupt.sprites.iter()),
+            )
             .any(|(x, y)| x + trail.cell > width || y + trail.cell > height)
     {
         problems.push(format!(
@@ -1054,14 +1386,40 @@ pub fn animated_problems<'a>(
 }
 
 /// What the animated cursors hold decoded, at most: every frame at every
-/// size, and the sheet.
+/// size (a sheet's as its cells), and the trail's sheet.
 pub fn animated_memory<'a>(animated: &Animated, bytes: impl Fn(&Path) -> Option<&'a [u8]>) -> u64 {
-    animated
-        .files()
-        .iter()
-        .filter_map(|path| bytes(path).and_then(size))
-        .map(|(width, height)| u64::from(width) * u64::from(height) * 4)
-        .sum()
+    let mut total = 0;
+    let mut seen: Vec<&PathBuf> = Vec::new();
+    for frame in animated.frames() {
+        let sizes: Vec<(u32, u32)> = frame
+            .files
+            .iter()
+            .filter_map(|path| bytes(path).and_then(size))
+            .collect();
+        match frame.cell {
+            Some(cell) => {
+                let first = sizes.first().map_or(1, |size| size.0.max(1));
+                for (width, _) in &sizes {
+                    let scale = u64::from((width / first).max(1));
+                    total += u64::from(cell.width) * u64::from(cell.height) * scale * scale * 4;
+                }
+            }
+            None => {
+                for (path, (width, height)) in frame.files.iter().zip(&sizes) {
+                    if !seen.contains(&path) {
+                        seen.push(path);
+                        total += u64::from(*width) * u64::from(*height) * 4;
+                    }
+                }
+            }
+        }
+    }
+    for path in animated.trail.iter().flat_map(|trail| trail.sheet.iter()) {
+        if let Some((width, height)) = bytes(path).and_then(size) {
+            total += u64::from(width) * u64::from(height) * 4;
+        }
+    }
+    total
 }
 
 /// A cursor picture's pixels, straight RGBA, row by row.
@@ -1119,6 +1477,10 @@ pub fn problems<'a>(
     bytes: impl Fn(&Path) -> Option<&'a [u8]>,
 ) -> Vec<String> {
     let mut problems = Vec::new();
+    // A first frame cut from a sheet is checked with the animated frames.
+    if cursor.cell.is_some() {
+        return problems;
+    }
     let mut sizes = Vec::new();
     for image in &cursor.images {
         let Some(file) = bytes(image) else {
@@ -1164,7 +1526,11 @@ pub fn memory<'a>(
 ) -> u64 {
     let mut seen: Vec<&Path> = Vec::new();
     let mut total = 0;
-    for image in cursors.values().flat_map(|cursor| &cursor.images) {
+    for image in cursors
+        .values()
+        .filter(|cursor| cursor.cell.is_none())
+        .flat_map(|cursor| &cursor.images)
+    {
         if seen.contains(&image.as_path()) {
             continue;
         }
@@ -1320,6 +1686,7 @@ mod tests {
         let cursor = |images: &[&str], hotspot| Cursor {
             images: images.iter().map(PathBuf::from).collect(),
             hotspot,
+            cell: None,
         };
         let get = |path: &Path| files(path.to_str().unwrap());
         assert!(problems(Kind::Pointer, &cursor(&["s.png", "l.png"], (4, 4)), get).is_empty());
@@ -1370,13 +1737,13 @@ mod tests {
         assert_eq!(wait.frames.len(), 3);
         assert!(wait.looped);
         assert_eq!(
-            wait.frames[1],
+            wait.frames[1].files,
             vec![
                 PathBuf::from("c/wait/01.png"),
                 PathBuf::from("c/wait/01@2x.png")
             ]
         );
-        assert_eq!(cursors[&Kind::Wait].images, wait.frames[0]);
+        assert_eq!(cursors[&Kind::Wait].images, wait.frames[0].files);
         assert_eq!(wait.at(0), Some((0, 50)));
         assert_eq!(wait.at(120), Some((2, 120)));
         assert_eq!(wait.at(240), Some((0, 50)), "it loops");
@@ -1387,9 +1754,12 @@ mod tests {
         assert!(animated.release.contains_key(&Kind::Pointer));
         let motion = &animated.motion[&Kind::Default];
         assert_eq!(motion.moving.len(), 8);
-        assert_eq!(motion.moving[1][1][0], PathBuf::from("c/move/se-fast.png"));
         assert_eq!(
-            motion.settle[6].frames[5][0],
+            motion.moving[1][1].files[0],
+            PathBuf::from("c/move/se-fast.png")
+        );
+        assert_eq!(
+            motion.settle[6].frames[5].files[0],
             PathBuf::from("c/settle/n/05.png")
         );
         assert_eq!(motion.settle[0].hotspot, (32, 32));
@@ -1408,7 +1778,7 @@ mod tests {
         let settle = &by_speed.motion[&Kind::Pointer].settle;
         assert_eq!(settle.len(), 16);
         assert_eq!(
-            settle[3].frames[8][0],
+            settle[3].frames[8].files[0],
             PathBuf::from("p/settle/se-fast/08.png")
         );
         assert!(motion.idle.as_ref().unwrap().looped);
@@ -1422,6 +1792,98 @@ mod tests {
             2 * (3 + 2 + 2 + 2 + 16 + 48 + 4) + 2
         );
         assert!(animated.summary().unwrap().contains("motion"));
+    }
+
+    #[test]
+    fn a_trail_may_glitch() {
+        let mut animated = Animated::default();
+        read_cursors(
+            &serde_json::json!({ "trail": { "sheet": "t.png", "sprites": [[0, 16]],
+                "corrupt": { "every": [2500, 7000], "lasts": 200, "sprites": [[0, 0]], "tear": 12 } } }),
+            "cursors",
+            &mut BTreeMap::new(),
+            &mut animated,
+            &mut Vec::new(),
+        )
+        .unwrap();
+        let corrupt = animated.trail.unwrap().corrupt.unwrap();
+        assert_eq!(corrupt.every, (2500.0, 7000.0));
+        assert_eq!(corrupt.lasts, (200.0, 200.0));
+        assert_eq!((corrupt.tear, corrupt.boost), (12.0, 1.8));
+        let bad = serde_json::json!({ "trail": { "sheet": "t.png", "sprites": [[0, 0]],
+            "corrupt": { "every": [7000, 2500] } } });
+        assert!(
+            read_cursors(
+                &bad,
+                "cursors",
+                &mut BTreeMap::new(),
+                &mut Animated::default(),
+                &mut Vec::new()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn frames_cut_from_sheets() {
+        let mut cursors = BTreeMap::new();
+        let mut animated = Animated::default();
+        let mut notes = Vec::new();
+        let value = serde_json::json!({
+            "hidpi": "@2x",
+            "wait": { "frames": { "sheet": "s/wait.png", "cell": [64, 64], "count": 12 }, "ms": 50, "hotspot": [32, 32] },
+            "motion": { "default": {
+                "move": { "sheet": "s/move.png", "cell": [64, 64] }, "hotspot": [32, 32],
+                "settle": { "frames": { "sheet": "s/settle-{speed}.png", "cell": [64, 64], "count": 9 }, "ms": 40 } } }
+        });
+        read_cursors(&value, "cursors", &mut cursors, &mut animated, &mut notes).unwrap();
+        assert!(notes.is_empty(), "{notes:?}");
+        let wait = &animated.kinds[&Kind::Wait];
+        assert_eq!(wait.frames.len(), 12);
+        assert_eq!(wait.frames[3].cell.map(|cell| cell.index), Some(3));
+        assert_eq!(
+            wait.frames[3].files,
+            [PathBuf::from("s/wait.png"), PathBuf::from("s/wait@2x.png")]
+        );
+        assert_eq!(cursors[&Kind::Wait].cell.map(|cell| cell.index), Some(0));
+        let motion = &animated.motion[&Kind::Default];
+        // se (1), fast: cell 3.
+        assert_eq!(motion.moving[1][1].cell.map(|cell| cell.index), Some(3));
+        // One sheet a speed, its directions one after another: n (6) fast
+        // starts at 6 × 9.
+        let n_fast = &motion.settle[6 * 2 + 1];
+        assert_eq!(
+            n_fast.frames[0].files[0],
+            PathBuf::from("s/settle-fast.png")
+        );
+        assert_eq!(n_fast.frames[0].cell.map(|cell| cell.index), Some(54));
+        // Four sheets at two sizes each: wait, move and a settle a speed.
+        assert_eq!(animated.files().len(), 8);
+        // Cells run across the sheet's width and down.
+        let cell = Cell {
+            index: 9,
+            width: 64,
+            height: 64,
+        };
+        assert_eq!(cell.rect((512, 128), 1), Some((64, 64, 64, 64)));
+        assert_eq!(cell.rect((1024, 256), 2), Some((128, 128, 128, 128)));
+        assert_eq!(cell.rect((512, 64), 1), None);
+        let sheet = Picture {
+            width: 4,
+            height: 2,
+            rgba: (0..32).collect(),
+        };
+        let cut = cut(
+            &sheet,
+            Cell {
+                index: 3,
+                width: 2,
+                height: 1,
+            },
+            1,
+        )
+        .unwrap();
+        assert_eq!(cut.rgba, (24..32).collect::<Vec<u8>>());
     }
 
     #[test]

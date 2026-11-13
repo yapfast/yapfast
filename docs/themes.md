@@ -735,6 +735,13 @@ frame. Cursors animate from frames instead:
   for every frame or one each (100 unset); `loop` (true unset for a kind);
   and `hotspot`. `hidpi`, beside the kinds, is a suffix such as `"@2x"` that
   gives every frame its larger size, `wait/03@2x.png` beside `wait/03.png`.
+  `frames` may instead be a sheet, one picture holding the frames side by
+  side: `{ "sheet": "cursors/wait.png", "cell": [64, 64], "count": 12 }`
+  (and `first`, the cell to start at), cells running left to right and
+  then down, as many to a row as the sheet is wide; `hidpi` gives the
+  sheet its larger size. A sheet is at most 2048 pixels a side and 2 MiB,
+  decoded once a size and cut into its frames, and is one file however
+  many frames it holds.
 - `transitions` play once, by name: `"default>pointer"` as the cursor
   changes from one kind to another, `"press"` and `"release"` as the left
   button goes down and up over the `default` cursor, and
@@ -743,10 +750,12 @@ frame. Cursors animate from frames instead:
 - `motion`, by kind: `move`, a pattern with `{dir}` (`e`, `se`, `s`,
   `sw`, `w`, `nw`, `n`, `ne`, as the pointer heads on screen) and
   `{speed}` (`slow`, `fast`): the frame that shows while the pointer moves
-  that way at that speed; `settle`, frames played once as it stops, their
+  that way at that speed, or a sheet of 16 cells, each direction's slow
+  frame and then its fast one; `settle`, frames played once as it stops, their
   path holding `{dir}` for the way it was moving (and `{speed}` for a
-  settle of each speed), with `slow_start`, the frame a slow stop starts
-  from; `idle`, a loop once it's been still
+  settle of each speed; a sheet without `{dir}` holds every direction's
+  frames, one direction after another, from `e`), with `slow_start`, the
+  frame a slow stop starts from; `idle`, a loop once it's been still
   `idle_after` milliseconds (600 unset); and `hotspot`. `slow` and `fast`,
   beside the kinds, are the speeds in logical pixels a second (60 and 700
   unset) the pointer counts as moving and as fast from, measured as an
@@ -759,7 +768,13 @@ frame. Cursors animate from frames instead:
   list one more often for it to show more often), `life` (100–5000 ms),
   `every` (logical pixels of motion between spawns), `per_step` (1–8),
   `jitter` (0–64 px), `count` (the most alive at once, 1–160), `press`
-  (how many burst out on a click) and `opacity` (what a new one starts at).
+  (how many burst out on a click), `opacity` (what a new one starts at) and
+  `corrupt`, a glitch now and then while the trail is alive: `every` and
+  `lasts` (milliseconds, or `[least, most]` for a random time between,
+  2500–7000 and 140–300 unset), `sprites` the trail's glyphs turn into,
+  `boost` (their opacity times 1–4, 1.8 unset), and `tear`, how far each
+  band `band` pixels tall slides sideways (18 and 10 unset). The glitch
+  moves only the trail's own sprites.
 
 ```json
 "cursors": {
@@ -785,14 +800,17 @@ decoded the first time it shows, at the one size the scale needs, and made
 into the system's cursor once, then reused. A timer wakes Yapfast at the
 next frame's time only while one plays: with the pointer still and no idle
 loop (or the pointer off the window), nothing runs. The trail is a layer
-over the window that takes no input, moved at most 60 times a second only
-while some of it is alive. Reduced motion and Light show each kind's still
+over the window that takes no input, moved only while some of it is alive:
+60 times a second in Full, 30 in Balanced, however often the pointer
+reports a move. Reduced motion and Light show each kind's still
 picture (an animated kind's first frame) and no trail; Balanced and Full
 play them. `theme check` decodes every frame and the sheet, refuses a
 hotspot off its frame, a sprite off the sheet, or more than 1024 frame
 files, and counts their decoded size in the cost. Every frame is a file of
 the theme's, each size too: an install from a URL takes at most 256 files
 (see Distribution), and finds those a pattern names as the window does.
+Sheets keep a large set under that: each holds a sequence, or a whole
+motion set.
 
 Settings → Themes → Installed → *Cursors* → *Use the theme's cursors* (on)
 turns them off for the theme shown, kept in `layout.json`'s

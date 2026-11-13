@@ -63,6 +63,9 @@ thread_local! {
     /// Whether motion may play: not under reduced motion or Light.
     static MOVES: Cell<bool> = const { Cell::new(true) };
     static TRAIL_ON: Cell<bool> = const { Cell::new(true) };
+    /// Milliseconds between the trail's steps: 60 a second in Full, 30 in
+    /// Balanced.
+    static TRAIL_MS: Cell<u64> = const { Cell::new(16) };
     /// Wakes the event loop at the next frame's time.
     static WAKE: slint::Timer = slint::Timer::default();
 }
@@ -110,8 +113,33 @@ pub fn load(resolved: &Resolved, folder: &Path) {
     let mut cursors = Vec::new();
     for (kind, cursor) in &resolved.cursors {
         let mut sizes = Vec::new();
-        for path in &cursor.images {
-            let picture = decoded.entry(path).or_insert_with(|| {
+        // An animated kind's first frame, cut from its sheet.
+        if let Some(cell) = cursor.cell {
+            let mut first_width = 0;
+            for path in &cursor.images {
+                let picture = std::fs::read(folder.join(path))
+                    .map_err(|error| error.to_string())
+                    .and_then(|bytes| cursors::decode_sheet(&bytes))
+                    .ok()
+                    .and_then(|sheet| {
+                        if first_width == 0 {
+                            first_width = sheet.width;
+                        }
+                        cursors::cut(&sheet, cell, (sheet.width / first_width.max(1)).max(1))
+                    });
+                sizes.push(picture.map(|picture| {
+                    let (width, height) = (picture.width, picture.height);
+                    let buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+                        &picture.rgba,
+                        width,
+                        height,
+                    );
+                    (Image::from_rgba8(buffer), width, height)
+                }));
+            }
+        } else {
+            for path in &cursor.images {
+                let picture = decoded.entry(path).or_insert_with(|| {
                 let full = folder.join(path);
                 let picture = std::fs::read(&full)
                     .map_err(|error| error.to_string())
@@ -131,7 +159,8 @@ pub fn load(resolved: &Resolved, folder: &Path) {
                     }
                 }
             });
-            sizes.push(picture.clone());
+                sizes.push(picture.clone());
+            }
         }
         let Some(sizes) = sizes.into_iter().collect::<Option<Vec<_>>>() else {
             continue;
@@ -171,6 +200,11 @@ pub fn set_motion(performance: Performance, reduced: bool) {
         update();
     }
     TRAIL_ON.set(moves);
+    TRAIL_MS.set(if performance == Performance::Full {
+        16
+    } else {
+        33
+    });
 }
 
 /// Whether the shown theme has cursors.
@@ -309,7 +343,7 @@ type Pixels = (SharedPixelBuffer<Rgba8Pixel>, (i32, i32));
 /// winit cursor once.
 struct Frames {
     folder: PathBuf,
-    paths: Vec<(Vec<PathBuf>, (u32, u32))>,
+    paths: Vec<(cursors::Frame, (u32, u32))>,
     /// Each size's pixels across and down, read from the files' headers.
     dims: HashMap<usize, Vec<(u32, u32)>>,
     /// Decoded pixels by frame and size; `None` for one that didn't load.
@@ -318,33 +352,48 @@ struct Frames {
 }
 
 impl Frames {
-    fn add(&mut self, frame: &[PathBuf], hotspot: (u32, u32)) -> usize {
+    fn add(&mut self, frame: &cursors::Frame, hotspot: (u32, u32)) -> usize {
         if let Some(index) = self
             .paths
             .iter()
-            .position(|(paths, spot)| paths == frame && *spot == hotspot)
+            .position(|(known, spot)| known == frame && *spot == hotspot)
         {
             return index;
         }
-        self.paths.push((frame.to_vec(), hotspot));
+        self.paths.push((frame.clone(), hotspot));
         self.paths.len() - 1
     }
 
-    /// Each size of `frame`, from its files' headers, read once.
+    /// Each size of `frame`, from its files' headers, read once: a cell's
+    /// is the cell's at that size of its sheet.
     fn dims(&mut self, frame: usize) -> &[(u32, u32)] {
         let (folder, paths) = (&self.folder, &self.paths);
         self.dims.entry(frame).or_insert_with(|| {
-            paths[frame]
-                .0
+            let (shown, _) = &paths[frame];
+            let files: Vec<(u32, u32)> = shown
+                .files
                 .iter()
                 .map(|path| image::image_dimensions(folder.join(path)).unwrap_or((0, 0)))
-                .collect()
+                .collect();
+            match shown.cell {
+                Some(cell) => {
+                    let first = files.first().map_or(1, |size| size.0.max(1));
+                    files
+                        .iter()
+                        .map(|(width, _)| {
+                            let scale = (width / first).max(1);
+                            (cell.width * scale, cell.height * scale)
+                        })
+                        .collect()
+                }
+                None => files,
+            }
         })
     }
 
     /// Which size of `frame` shows at `scale`.
     fn size_at(&mut self, frame: usize, scale: f32) -> usize {
-        if self.paths[frame].0.len() == 1 {
+        if self.paths[frame].0.files.len() == 1 {
             return 0;
         }
         let widths: Vec<u32> = self.dims(frame).iter().map(|(width, _)| *width).collect();
@@ -353,13 +402,17 @@ impl Frames {
 
     /// A frame's pixels at one size, and its hotspot there.
     fn pixels(&mut self, frame: usize, size: usize) -> Option<Pixels> {
+        if self.paths[frame].0.cell.is_some() && !self.pixels.contains_key(&(frame, size)) {
+            self.cut_sheet(frame, size);
+        }
         let first = self.dims(frame).first().copied().unwrap_or((0, 0));
         let folder = &self.folder;
         let paths = &self.paths;
         self.pixels
             .entry((frame, size))
             .or_insert_with(|| {
-                let (sizes, hotspot) = &paths[frame];
+                let (shown, hotspot) = &paths[frame];
+                let sizes = &shown.files;
                 let decode = |path: &PathBuf| {
                     std::fs::read(folder.join(path))
                         .map_err(|error| error.to_string())
@@ -386,6 +439,51 @@ impl Frames {
                 Some((buffer, (x as i32, y as i32)))
             })
             .clone()
+    }
+
+    /// Decodes the sheet `frame` is cut from, at one size, and cuts every
+    /// frame of it there at once, so a sheet is read once a size; the sheet
+    /// itself isn't kept.
+    fn cut_sheet(&mut self, frame: usize, size: usize) {
+        let path = self.paths[frame].0.files[size].clone();
+        let first_width = self.paths[frame]
+            .0
+            .files
+            .first()
+            .and_then(|first| image::image_dimensions(self.folder.join(first)).ok())
+            .map_or(1, |(width, _)| width.max(1));
+        let sheet = std::fs::read(self.folder.join(&path))
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| cursors::decode_sheet(&bytes));
+        let sheet = match sheet {
+            Ok(sheet) => sheet,
+            Err(error) => {
+                tracing::warn!(file = %path.display(), %error, "a cursor sheet didn't load");
+                self.pixels.insert((frame, size), None);
+                return;
+            }
+        };
+        let scale = (sheet.width / first_width).max(1);
+        for (index, (shown, hotspot)) in self.paths.iter().enumerate() {
+            let Some(cell) = shown.cell else { continue };
+            if shown.files.get(size) != Some(&path) || self.pixels.contains_key(&(index, size)) {
+                continue;
+            }
+            let pixels = cursors::cut(&sheet, cell, scale).map(|picture| {
+                let (x, y) = cursors::scaled_hotspot(
+                    *hotspot,
+                    (cell.width, cell.height),
+                    (picture.width, picture.height),
+                );
+                let buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+                    &picture.rgba,
+                    picture.width,
+                    picture.height,
+                );
+                (buffer, (x as i32, y as i32))
+            });
+            self.pixels.insert((index, size), pixels);
+        }
     }
 
     /// A frame as Slint's custom cursor, for the core's hook.
@@ -463,6 +561,10 @@ struct Trail {
     travelled: f32,
     model: Rc<VecModel<TrailSprite>>,
     last_step: Option<Instant>,
+    corrupt: Option<cursors::Corrupt>,
+    /// The next glitch, and the one playing: until when, and its seed.
+    next_glitch: Option<Instant>,
+    glitch: Option<(Instant, u64)>,
 }
 
 /// The animated cursors of the theme showing: what plays now, and the
@@ -530,7 +632,13 @@ impl Engine {
         let still = resolved
             .cursors
             .iter()
-            .map(|(kind, cursor)| (*kind, frames.add(&cursor.images, cursor.hotspot)))
+            .map(|(kind, cursor)| {
+                let still = cursors::Frame {
+                    files: cursor.images.clone(),
+                    cell: cursor.cell,
+                };
+                (*kind, frames.add(&still, cursor.hotspot))
+            })
             .collect();
         let motion = animated
             .motion
@@ -578,6 +686,9 @@ impl Engine {
                 travelled: 0.0,
                 model: Rc::new(VecModel::default()),
                 last_step: None,
+                corrupt: trail.corrupt.clone(),
+                next_glitch: None,
+                glitch: None,
             }
         });
         let sheet_paths = animated.trail.as_ref().map(|trail| trail.sheet.clone());
@@ -895,7 +1006,37 @@ impl Engine {
         let flickers: Vec<f32> = (0..self.trail.as_ref().map_or(0, |trail| trail.alive.len()))
             .map(|_| self.random())
             .collect();
+        let rolls = (self.random(), self.random(), self.seed);
         let trail = self.trail.as_mut()?;
+        // At most one step a frame of its rate, however often the pointer
+        // reports a move.
+        let rate = Duration::from_millis(TRAIL_MS.get());
+        if let Some(then) = trail.last_step
+            && now.duration_since(then) < rate
+        {
+            return Some(then + rate);
+        }
+        // The glitch: due at a random time while the trail is alive, then
+        // for a moment. Nothing runs for it once the trail is gone.
+        let glitching = match (&trail.corrupt, trail.alive.is_empty()) {
+            (Some(corrupt), false) => {
+                let between = |(least, most): (f32, f32), roll: f32| {
+                    Duration::from_millis((least + (most - least) * roll) as u64)
+                };
+                let next = *trail
+                    .next_glitch
+                    .get_or_insert_with(|| now + between(corrupt.every, rolls.0));
+                if now >= next {
+                    trail.glitch = Some((now + between(corrupt.lasts, rolls.1), rolls.2));
+                    trail.next_glitch = Some(now + between(corrupt.every, rolls.0));
+                }
+                trail
+                    .glitch
+                    .filter(|(until, _)| now < *until)
+                    .map(|(_, seed)| seed)
+            }
+            _ => None,
+        };
         if trail.sheet.is_none() {
             trail.alive.clear();
         }
@@ -927,12 +1068,27 @@ impl Engine {
                 sprite.sprite = (sprite.sprite + 1 + index) % sprites;
             }
             let left = 1.0 - age;
-            let (cx, cy) = trail.sprites[sprite.sprite];
+            let (mut cx, mut cy) = trail.sprites[sprite.sprite];
+            let mut x = sprite.x;
+            let mut opacity = trail.opacity * left.powf(1.5);
+            if let (Some(seed), Some(corrupt)) = (glitching, &trail.corrupt) {
+                // Each band of the trail tears sideways its own way; the
+                // sprites take the glitch's glyphs and light up.
+                let band = (sprite.y / corrupt.band).floor() as i64 as u64;
+                let mix = (seed ^ band.wrapping_mul(0x9e37_79b9_7f4a_7c15))
+                    .wrapping_mul(0x2545_f491_4f6c_dd1d);
+                let tear = ((mix >> 40) as f32 / (1u64 << 24) as f32) * 2.0 - 1.0;
+                x += tear * corrupt.tear;
+                if !corrupt.sprites.is_empty() {
+                    (cx, cy) = corrupt.sprites[(sprite.sprite + index) % corrupt.sprites.len()];
+                }
+                opacity = (opacity * corrupt.boost).min(1.0);
+            }
             rows.push(TrailSprite {
-                x: sprite.x,
+                x,
                 y: sprite.y,
                 size: cell as f32 * (6.0 + 12.0 * left.powf(1.3)) / 16.0,
-                opacity: trail.opacity * left.powf(1.5),
+                opacity,
                 cx: (cx as f32 * sheet_scale) as i32,
                 cy: (cy as f32 * sheet_scale) as i32,
                 cw: (cell as f32 * sheet_scale) as i32,
@@ -959,7 +1115,7 @@ impl Engine {
         } else if had > 0 && rows.is_empty() {
             show_trail(None);
         }
-        (!rows.is_empty()).then(|| now + Duration::from_millis(16))
+        (!rows.is_empty()).then(|| now + Duration::from_millis(TRAIL_MS.get()))
     }
 
     fn stop(&mut self) {
