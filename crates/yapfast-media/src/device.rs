@@ -1,6 +1,5 @@
 //! A microphone, a speaker or a camera, as the settings and a call name one.
 
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Device {
     pub id: String,

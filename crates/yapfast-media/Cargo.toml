@@ -105,3 +105,7 @@ x11rb = { version = "0.13.2", default-features = false, features = [
 # build script answers for a configuration nothing links.
 [target.'cfg(target_os = "linux")'.build-dependencies]
 ffmpeg-src = { path = "../../vendor/ffmpeg-src" }
+
+[dev-dependencies]
+# A test of the picture hand-over polls a notification once.
+futures-util = "0.3"

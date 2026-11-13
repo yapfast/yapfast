@@ -634,6 +634,9 @@ impl Encoder {
     /// Only a session that opened its shared path reads surfaces: one opened from
     /// memory answers -1, which is a picture for [`Self::encode_i420`] and the
     /// reason the caller falls back.
+    // The texture is the capture's and outlives the call, and the shim writes
+    // nothing through it.
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     #[cfg(all(target_os = "windows", hwenc))]
     pub fn encode_texture(
         &mut self,

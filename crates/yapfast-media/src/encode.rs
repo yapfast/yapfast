@@ -25,7 +25,7 @@ use std::{
     time::Duration,
 };
 
-use crate::codec::{self, Codec};
+use crate::codec::Codec;
 use crate::pool::{Encoded, Pool};
 use anyhow::{Result, bail};
 use livekit::webrtc::{

@@ -137,7 +137,7 @@ mod denoise {
 
     /// 10 ms at 48 kHz: both networks' frame.
     pub const BLOCK: usize = 480;
-    pub const _: () = assert!(BLOCK == nnnoiseless::DenoiseState::FRAME_SIZE);
+    const _: () = assert!(BLOCK == nnnoiseless::DenoiseState::FRAME_SIZE);
 
     /// Samples come in 16-bit range, as WebRTC processes them; DeepFilterNet
     /// works in full scale.

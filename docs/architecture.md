@@ -213,7 +213,7 @@ A visible change usually touches each of these steps:
    events. Backend events come back through `Application::apply`.
 
 Yapfast's own sound outside LiveKit's calls goes through
-[`audio_io.rs`](../crates/yapfast-core/src/audio_io.rs): Discord voice, the input
+[`audio_io.rs`](../crates/yapfast-media/src/audio_io.rs): Discord voice, the input
 meter, ringing, Yapfast's sounds, a watched stream's or a video's sound, and what
 other applications play for Go Live. It opens a microphone or speakers by the
 device id LiveKit lists, `None` being the system's default, and reads or writes

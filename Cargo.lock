@@ -12028,6 +12028,7 @@ dependencies = [
  "base64 0.22.1",
  "deep_filter",
  "ffmpeg-src",
+ "futures-util",
  "libc",
  "libpulse-binding",
  "libpulse-simple-binding",

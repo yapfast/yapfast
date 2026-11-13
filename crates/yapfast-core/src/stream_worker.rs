@@ -80,6 +80,9 @@ mod consts;
 mod encoding;
 mod glance;
 mod job;
+// The Linux captures name X11's and the portal's own types, which exist only
+// there; a Windows or macOS build has no such capture to build them for.
+#[cfg(target_os = "linux")]
 mod linux;
 mod pattern;
 mod processor;
@@ -108,6 +111,7 @@ pub(crate) use crate::source::*;
 #[allow(unused_imports)]
 pub(crate) use job::*;
 #[allow(unused_imports)]
+#[cfg(target_os = "linux")]
 pub(crate) use linux::*;
 pub(crate) use pattern::*;
 pub(crate) use processor::*;

@@ -44,7 +44,6 @@ const LOG_EVERY: Duration = Duration::from_secs(5);
 const RESENDS: usize = 128;
 /// The most buffers the stream's sound is queued in, as many as the queue
 /// holds.
-const SOUND_BUFFERS: usize = 8;
 /// The most video SSRCs a watched stream puts frames together for.
 const MAX_SSRCS: usize = 4;
 /// The sender reports the last round trips are measured against, by the

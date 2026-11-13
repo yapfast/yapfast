@@ -327,6 +327,13 @@ fn main() {
             ffmpeg.flag("-std=c17").flag("-include").flag(&rename);
         }
         ffmpeg.compile("yapfast_hwenc");
+        // The objects above call FFmpeg's and x264's own entry points. Those
+        // libraries reach the binary through this crate's dependencies on the
+        // vendored builds, but the shims' objects travel in a different crate's
+        // rlib, so the addresses they call are named here too: one build script
+        // answers for both the code and the libraries it borrows.
+        println!("cargo:rustc-link-lib=static=yapfast_ffmpeg");
+        println!("cargo:rustc-link-lib=static=x264");
         println!("cargo:rustc-cfg=hwenc");
         println!("cargo:rustc-cfg=hevcdec");
     }
