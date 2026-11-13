@@ -61,8 +61,8 @@
                     "position": "bottom", "reserve": { "bottom": 44 } }],
       "account": { "texture": "grain", "colour": "#ffffff", "opacity": 0.04 },
       "actions": { "texture": "grain", "colour": "#ffffff", "opacity": 0.04 },
-      "profile-pane": [{ "texture": "noise", "colour": "#000000", "opacity": 0.04 },
-                       { "texture": "halftone", "colour": "#7aa2ff", "opacity": 0.15,
+      "profile-pane": [{ "texture": "noise", "colour": "#808080", "opacity": 0.04 },
+                       { "texture": "halftone", "colour": "#7aa2ff", "opacity": 0.08,
                          "size": [96, 96], "position": "bottom right" }]
     },
     "overlays": [
