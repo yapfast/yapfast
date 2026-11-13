@@ -553,14 +553,15 @@ fn aims_for_what_the_picture_needs() {
     // default: a 1080p60 share asks for less than that and gets it.
     assert_eq!(kbps(1920, 1080, 60), 8_709);
     assert_eq!(kbps(1280, 720, 30), 3_500, "the floor a screen is given");
-    // Above that the declaration is cut to the ceiling, which is what
-    // Settings' experimental switch raises.
-    assert_eq!(kbps(3440, 1440, 60), 9_000, "cut to the safe cap");
-    assert_eq!(kbps(3840, 2160, 60), 9_000);
-    assert_eq!(kbps(7680, 4320, 60), 9_000, "whatever the size");
-    // A frame rate a person picks takes its share of the bits with it,
-    // under the cap either way.
-    assert_eq!(kbps(3840, 2160, 30), 9_000);
+    // A share above the floor is worth what its picture is: 1440p60 is
+    // 0.07 bits a pixel a frame, with nothing taken off it.
+    assert_eq!(kbps(3440, 1440, 60), 20_805);
+    assert_eq!(kbps(3840, 2160, 60), 34_836);
+    // The most a share ever declares, whatever the size: 35 Mbit, the widest
+    // uplink Discord has been seen to carry a stream on.
+    assert_eq!(kbps(7680, 4320, 60), 35_000, "whatever the size");
+    // A frame rate a person picks takes its share of the bits with it.
+    assert_eq!(kbps(3840, 2160, 30), 17_418);
     assert_eq!(kbps(1920, 1080, 30), 4_354);
     // A screen on its side is the same picture, so it is worth the same.
     assert_eq!(kbps(1080, 1920, 30), kbps(1920, 1080, 30));
