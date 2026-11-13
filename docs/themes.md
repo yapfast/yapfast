@@ -30,7 +30,8 @@ them after the built-in ones:
   "name": "Plum",
   "base": "yap",
   "dark": true,
-  "colours": { "rail": "#111215", "chat": "#2a1a3a", "row-hover": "#1a1b20" }
+  "colours": { "rail": "#111215", "chat": "#2a1a3a", "row-hover": "#1a1b20" },
+  "folder": "custom-themes/1"
 }
 ```
 
@@ -40,7 +41,9 @@ such as one added in a later version, or that isn't a colour, takes the
 base's value, and a name Yapfast doesn't know is ignored, so themes survive new
 colours. Ids are `custom:` and a number, and no built-in id has a colon, so
 they can't collide; on reading, Yapfast gives a fresh one to any custom theme
-whose id isn't of that form or repeats another's. The editor's rows are a
+whose id isn't of that form or repeats another's. `folder`, optional, is
+the theme's own folder of fonts, pictures and other layers, which Export
+bundles (see Distribution). The editor's rows are a
 Slint model only while it's open; otherwise a custom theme costs its parsed
 colours and a card.
 
@@ -108,8 +111,33 @@ packages; `src/ui/theme_look.rs` applies them through the Slint global `Look`
 and the theme-only colours of `Theme` (`ui/theme.slint`). Every default in
 `Look` is the stock value, so with no theme the window draws exactly as it did.
 
-Start from [`themes/template/`](../themes/template/theme.json): copy the
-folder, change `id` and `name`, and run
+### Making a theme
+
+`yapfast theme new` makes a theme's folder from
+[`themes/template/`](../themes/template/theme.json), which every Yapfast
+carries built in, and then checks it:
+
+```sh
+yapfast theme new "Tide Pool" --author ada    # ./tide-pool, the dark variant
+yapfast theme new "Paper Moon" --light        # the light variant instead
+yapfast theme new "Night" --from dracula      # starting from a theme's colours
+```
+
+It fills in `name`, `authors` (`--author`, or the computer account's name)
+and `id`: `io.github.<author>.<name>`, or `local.<name>` without an author,
+or `--id`. It keeps the template's other layers, as a tour of what a theme
+can set, and one variant: `dark` (base `yap`), or `light` with `--light`
+(base `sakura`). It writes the files that variant names (its cursors, icons,
+sounds and preview) and a `LICENSE` to fill in, and nothing else of the
+template's; `source` is left empty for the author's repository. `--from`
+starts the variant from another theme's colours instead of the template's:
+a built-in theme (`dracula`, or its name), one of the person's own
+(`custom:2`, or its name, read from `layout.json`) or an installed theme
+(its id or name), taking its darkness unless `--light` asks for a variant it
+has. `--dir` puts the folder elsewhere than the current one, and
+`--data-dir` reads the person's themes from another data folder. It refuses
+a folder that already holds files. It then prints the theme check and the
+next steps:
 
 ```sh
 yapfast --theme-dev path/to/your-theme      # shows it, and again on each save
@@ -119,6 +147,9 @@ yapfast theme check path/to/your-theme --marketplace   # and those for listing
 
 `--theme-dev` checks the folder on each save; a version that fails leaves the
 last good one on the window and says why in the banner.
+`crates/yapfast-core/src/themes/scaffold.rs` makes the folder; the core's
+`build.rs` builds `themes/template/` in, so a change there reaches `theme
+new` with the next build.
 
 ### Distribution
 
@@ -151,9 +182,28 @@ searchable, and decoded only while the page is open.
 and *Back to …* on Installed returns to the theme chosen before.
 
 A custom colour theme in Appearance's editor has *Export as a package*: it
-writes a folder with its `theme.json` (every colour over its base, `id`
-`local.<name>`) and a `LICENSE` to fill in, ready to put in a GitHub
-repository.
+asks for a folder with the system's folder picker and writes the theme's own
+folder inside it, with its `theme.json` (every colour over its base but the
+protected ones, `id` `local.<name>`, the account's name as its author,
+version `1.0.0`, `license` `CC0-1.0`) and a `LICENSE` to fill in, ready to
+put in a GitHub repository. A custom theme can have a folder of its own,
+`folder` in its `layout.json` entry (relative to the data folder, or
+absolute), for what a theme creator adds beyond colours: a `theme.json`
+holding any other layers (`type`, `art`, `sounds`, …) and the files they
+name, such as an imported font in `fonts/` and a background picture in
+`art/`. Export takes those layers (the custom theme's colours over the
+folder's own, its `license` and `description` when set), copies every file
+they name and every licence or credit file in the folder (`LICENSE*`,
+`OFL*`, `COPYING*`, `CREDITS*`, `AUTHORS*`, `NOTICE*`, wherever they lie),
+and refuses a file the layers name that isn't there, so the package installs
+and draws the same on another computer. It runs the install's checks on what it wrote
+and says if the theme wouldn't install yet, such as a colour that doesn't
+read. The same from a shell, with `--author` and `--data-dir` as `theme
+new` takes them:
+
+```sh
+yapfast theme export custom:2 path/to/plum    # or the theme's name
+```
 
 ### Safety
 
@@ -201,6 +251,37 @@ how many are heavy, the most redraws a second they ask for, its text
 effects, how many sounds, icons and cursors it ships (cursors as their
 pictures decoded), and what its layout and chrome change. A clock runs only while an animation may
 move; text effects tick only while one plays.
+
+### Readable text
+
+Settings → Appearance → *Readable text* (off unless turned on, kept as
+`readable_text` in `layout.json`) is for anyone who finds a theme's display
+type hard to read. Every theme keeps its art, colours, shapes, layout,
+sizes, sounds and cursors; only its reading text changes:
+
+- **Type.** Messages, names (authors, the member list, profile cards), the
+  channel list, labels (small capital headings and a theme's `//` group
+  labels, which are the window's own words), code and what's typed draw in
+  Yapfast's own face, at the stock weight and letter spacing: the `body`,
+  `names`, `labels` and `code` roles, and `chrome.font`, fall back to stock.
+  The open conversation's name over the messages and the server's name over
+  its channels are names too, and take the stock face, weight and spacing
+  (`Look.header-font`), without their lit text. A console composer
+  (`chrome.composer.style`) keeps its line, prompt and caret, but its text
+  is the stock face and its placeholder doesn't type itself.
+- **Effects.** Ransom names are drawn plain, no text effect plays
+  (`decrypt` and `typewriter` on any slot, `name_hover`, the top bar's
+  `decrypt`), and names and labels lose their `art.text` light (shadow,
+  glow, outline, emboss).
+- **What stays.** Decorative titles keep the theme's `headings` face, size,
+  case and light: settings pages' and dialogs' titles, the big line at a
+  channel's start and the theme's name on its cards in Settings → Themes.
+  So do illuminated initials (`content.avatars.initial`), which are art.
+
+`yapfast theme check` adds a note when a theme draws reading text in display
+type — a blackletter or pixel face for `body`, `names`, `labels` or `code`,
+known by its family and file names, or ransom names — pointing at Readable
+text. It's a note, never a refusal: the theme's choice stands.
 
 ### `theme.json`
 

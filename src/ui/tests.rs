@@ -8248,6 +8248,7 @@ fn custom_theme_ids_stay_apart_from_built_in_ones_and_each_other() {
         name: id.into(),
         base: "yap",
         theme: theme::YAP,
+        folder: None,
     };
     let mut themes = vec![
         custom("custom:2"),

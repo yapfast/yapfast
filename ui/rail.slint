@@ -1187,19 +1187,19 @@ export component ServerHeader inherits Rectangle {
             Rectangle {
                 min-width: 0px; preferred-width: server-name.preferred-width; horizontal-stretch: 0;
                 accessible-role: text; accessible-label: root.name;
-                if Art.headings.on: ArtTextBehind {
+                if Art.headings.on && !Look.readable: ArtTextBehind {
                     x: server-name.x; y: server-name.y; width: parent.width; height: parent.height; art: Art.headings;
                     text: server-name.text; font-size: server-name.font-size; font-weight: server-name.font-weight;
                     font-family: server-name.font-family; letter-spacing: server-name.letter-spacing; overflow: elide; vertical-alignment: center;
                     opacity: server-name.opacity; transform-scale: server-name.transform-scale; transform-rotation: server-name.transform-rotation;
                 }
                 server-name := Text {
-                    stroke: Art.outline(Art.headings); stroke-width: Art.headings.outline; stroke-style: outside;
+                    stroke: Art.outline(Art.headings); stroke-width: Look.readable ? 0px : Art.headings.outline; stroke-style: outside;
                     x: Look.server-name.x; y: Look.server-name.y; width: parent.width; height: parent.height;
                     text: Look.server-text(Look.heading(root.name)); accessible-role: none;
                     font-size: Look.header-size(ClientStyle.text-size);
-                    font-weight: Look.heading-weight(ClientStyle.enabled ? 600 : 700);
-                    font-family: Look.heading-font(""); letter-spacing: Look.spacing-headings;
+                    font-weight: Look.header-weight(ClientStyle.enabled ? 600 : 700);
+                    font-family: Look.header-font(""); letter-spacing: Look.header-spacing;
                     color: root.on-banner ? #ffffff : Theme.text;
                     vertical-alignment: center; overflow: elide;
                     opacity: Look.server-name.opacity; transform-scale: Look.server-name.scale; transform-rotation: Look.server-name.rotation * 1deg;

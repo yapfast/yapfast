@@ -25,6 +25,7 @@ pub mod media;
 pub mod motion;
 pub mod options;
 pub mod package;
+pub mod scaffold;
 
 pub use package::{Mode, Package, Resolved};
 

@@ -572,6 +572,9 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
             .warnings
             .push("\"based_on\" names a repository that isn't on GitHub".into());
     }
+    if let Some(note) = display_type(&resolved, files) {
+        report.notes.push(note);
+    }
     report.cost = Cost::of(&resolved, files, &sound_seconds);
     report.package = Some(package);
     report
@@ -623,6 +626,121 @@ fn check_options(package: &Package, files: &Files, report: &mut Report) {
             }
         }
     }
+}
+
+/// Words in family and file names that mark a blackletter face, compared
+/// with spaces, `-` and `_` taken out. "Gothic" alone isn't one: it names
+/// sans faces too.
+const BLACKLETTER: [&str; 9] = [
+    "fraktur",
+    "blackletter",
+    "textura",
+    "schwabacher",
+    "rotunda",
+    "oldenglish",
+    "gotisch",
+    "pirataone",
+    "germaniaone",
+];
+
+/// Words that mark a pixel or bitmap face, compared as [`BLACKLETTER`] is.
+const PIXEL: [&str; 14] = [
+    "pixel",
+    "8bit",
+    "bitmap",
+    "silkscreen",
+    "pressstart",
+    "departuremono",
+    "vt323",
+    "dotgothic",
+    "tiny5",
+    "micro5",
+    "jersey10",
+    "m5x7",
+    "m6x11",
+    "monogram",
+];
+
+/// Whether a font is a display face some people find hard to read for long
+/// text: `blackletter` or `pixel`, by its family names and its file's name.
+pub fn display_face(path: &Path, bytes: &[u8]) -> Option<&'static str> {
+    let squash = |text: &str| -> String {
+        text.chars()
+            .filter(|letter| !matches!(letter, ' ' | '-' | '_' | '.'))
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    let mut names = vec![squash(
+        &path
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    )];
+    if let Ok(Ok(families)) = std::panic::catch_unwind(|| {
+        ttf_parser::Face::parse(bytes, 0).map(|face| {
+            face.names()
+                .into_iter()
+                .filter(|name| {
+                    matches!(
+                        name.name_id,
+                        ttf_parser::name_id::FAMILY | ttf_parser::name_id::TYPOGRAPHIC_FAMILY
+                    )
+                })
+                .filter_map(|name| name.to_string())
+                .collect::<Vec<_>>()
+        })
+    }) {
+        names.extend(families.iter().map(|family| squash(family)));
+    }
+    let named = |words: &[&str]| {
+        names
+            .iter()
+            .any(|name| words.iter().any(|word| name.contains(word)))
+    };
+    if named(&BLACKLETTER) {
+        Some("blackletter")
+    } else if named(&PIXEL) {
+        Some("pixel")
+    } else {
+        None
+    }
+}
+
+/// A note for a theme that draws reading text in a display face: blackletter
+/// or pixel faces for messages, names, labels or code, or ransom names. The
+/// person can turn on Settings → Appearance → Readable text for any theme.
+fn display_type(resolved: &[Resolved], files: &Files) -> Option<String> {
+    use super::package::Role;
+    let mut found: Vec<String> = Vec::new();
+    let mut add = |sentence: String| {
+        if !found.contains(&sentence) {
+            found.push(sentence);
+        }
+    };
+    for variant in resolved {
+        for role in [Role::Body, Role::Names, Role::Labels, Role::Code] {
+            let Some(font) = variant.types.get(&role).and_then(|kind| kind.font.as_ref()) else {
+                continue;
+            };
+            let Some(bytes) = files.files.get(font) else {
+                continue;
+            };
+            if let Some(face) = display_face(font, bytes) {
+                add(format!("{} in {face} ({})", role.name(), font.display()));
+            }
+        }
+        if variant.layout.names.is_some() {
+            add("names cut as ransom letters".to_owned());
+        }
+    }
+    (!found.is_empty()).then(|| {
+        format!(
+            "display type for reading text: {}. Some people find it hard to read; \
+             Settings → Appearance → Readable text keeps the theme and draws messages, \
+             names and labels in Yapfast's own font, without text effects",
+            found.join(", ")
+        )
+    })
 }
 
 /// Whether a repository address is a public GitHub repository's, which is
@@ -1583,6 +1701,57 @@ mod tests {
                 .warnings
                 .iter()
                 .any(|warning| warning.contains("preview"))
+        );
+    }
+
+    #[test]
+    fn display_type_for_reading_text_points_at_readable_text() {
+        let plain = check(&files(PLUM), Strictness::Install);
+        assert!(
+            !plain
+                .notes
+                .iter()
+                .any(|note| note.contains("Readable text")),
+            "{:?}",
+            plain.notes
+        );
+        let mut theme = files(&PLUM.replace(
+            "\"variants\"",
+            r#""type": { "names": { "font": "fonts/HurtFraktur-Bold.ttf", "style": "ransom" },
+                         "labels": { "font": "fonts/Silkscreen-Regular.ttf" },
+                         "headings": { "font": "fonts/PixelifySans.ttf" } },
+               "variants""#,
+        ));
+        for font in [
+            "fonts/HurtFraktur-Bold.ttf",
+            "fonts/Silkscreen-Regular.ttf",
+            "fonts/PixelifySans.ttf",
+        ] {
+            theme.files.insert(PathBuf::from(font), Vec::new());
+        }
+        let report = check(&theme, Strictness::Install);
+        let note = report
+            .notes
+            .iter()
+            .find(|note| note.contains("Readable text"))
+            .expect("a note about display type");
+        assert!(
+            note.contains("names in blackletter (fonts/HurtFraktur-Bold.ttf)"),
+            "{note}"
+        );
+        assert!(
+            note.contains("labels in pixel (fonts/Silkscreen-Regular.ttf)"),
+            "{note}"
+        );
+        assert!(note.contains("ransom"), "{note}");
+        assert!(
+            !note.contains("Pixelify"),
+            "headings may keep a display face: {note}"
+        );
+        assert_eq!(display_face(Path::new("fonts/Geist.ttf"), &[]), None);
+        assert_eq!(
+            display_face(Path::new("PressStart2P.ttf"), &[]),
+            Some("pixel")
         );
     }
 

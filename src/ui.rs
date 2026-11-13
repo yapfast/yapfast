@@ -74,6 +74,7 @@ pub mod theme_layout;
 pub mod theme_lists;
 pub mod theme_look;
 mod theme_media;
+pub mod theme_tools;
 mod theme_trim;
 mod tiles;
 mod title_bar;
@@ -1335,6 +1336,9 @@ struct Layout {
     /// themes had options, now the default of each theme's "Ransom names"
     /// option, which `theme_options` overrides.
     plain_names: bool,
+    /// Settings → Appearance → Readable text: every theme draws reading
+    /// text in the stock face, without text effects. Off unless turned on.
+    readable_text: bool,
     /// Joining a call turns the microphone on; on unless turned off.
     unmute_on_join: Option<bool>,
     /// Joining a call deafens.
@@ -1587,6 +1591,7 @@ impl Layout {
         looks.set_moving(cosmetics.moving);
         looks.set_name_styles(cosmetics.name_styles);
         looks.set_server_tags(cosmetics.server_tags);
+        looks.set_readable_text(self.readable_text);
         pictures::set_moving_collectibles(cosmetics.moving);
     }
 
@@ -1598,6 +1603,8 @@ impl Layout {
         self.moving_cosmetics = Some(looks.get_moving());
         self.name_styles = Some(looks.get_name_styles());
         self.server_tags = Some(looks.get_server_tags());
+        self.readable_text = looks.get_readable_text();
+        theme_look::set_readable(window, self.readable_text);
         pictures::set_moving_collectibles(self.cosmetics().moving);
     }
 
@@ -1643,6 +1650,7 @@ impl Layout {
         for (id, choices) in &self.theme_options {
             theme_look::set_choices(id, choices.clone());
         }
+        theme_look::set_readable(window, self.readable_text);
         let page = window.global::<yapfast_ui::ThemesPage>();
         page.set_performance(self.theme_performance.index());
         page.set_reduce_motion(self.reduce_motion);

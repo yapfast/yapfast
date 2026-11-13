@@ -142,7 +142,16 @@ pub fn reset(window: &YapfastWindow) {
 /// theme's faces and motion settings. `face` is the family of the type role
 /// `chrome.font` names; `still` keeps the console's line and placeholder
 /// from moving.
-pub fn apply_more(window: &YapfastWindow, words: &Words, face: Option<&str>, still: bool) {
+/// `still` holds what moves; `readable` (Settings → Appearance → Readable
+/// text) also keeps the console's placeholder from typing itself and the top
+/// bar's words from scrambling.
+pub fn apply_more(
+    window: &YapfastWindow,
+    words: &Words,
+    face: Option<&str>,
+    still: bool,
+    readable: bool,
+) {
     let ui = window.global::<Chrome>();
     if let Some(face) = face {
         ui.set_font(face.into());
@@ -153,11 +162,15 @@ pub fn apply_more(window: &YapfastWindow, words: &Words, face: Option<&str>, sti
         ui.set_console_line_set(Color::from_argb_encoded(console.line.unwrap_or(0)));
         ui.set_console_focus_set(Color::from_argb_encoded(console.focus.unwrap_or(0)));
         ui.set_console_draw(if still { 0 } else { console.draw as i64 });
-        ui.set_console_typing(if still { 0 } else { console.typing as i64 });
+        ui.set_console_typing(if still || readable {
+            0
+        } else {
+            console.typing as i64
+        });
         ui.set_console_caret(Color::from_argb_encoded(console.caret.unwrap_or(0)));
     }
     match &words.topbar {
-        Some(bar) => show_bar(window, bar, still),
+        Some(bar) => show_bar(window, bar, still || readable),
         None => {
             if BAR.with_borrow_mut(Option::take).is_some() {
                 ui.set_workspaces(ModelRc::default());
@@ -628,7 +641,7 @@ mod tests {
             }),
             ..Words::default()
         };
-        apply_more(&window, &words, Some("Mono"), false);
+        apply_more(&window, &words, Some("Mono"), false, false);
         let chrome = window.global::<Chrome>();
         assert_eq!(chrome.get_topbar_height(), 26.);
         assert_eq!(chrome.get_font(), "Mono");

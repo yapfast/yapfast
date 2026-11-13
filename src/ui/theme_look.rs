@@ -150,6 +150,9 @@ struct State {
     applied: Option<Applied>,
     performance: Performance,
     reduced: bool,
+    /// Settings → Appearance → Readable text: reading text in the stock
+    /// face, without text effects, whatever the theme.
+    readable: bool,
     protected: bool,
     clock: Option<(Instant, slint::Timer)>,
     effects: HashMap<usize, Playing>,
@@ -790,6 +793,7 @@ pub fn reset(window: &YapfastWindow) {
     look.set_fx_settings(false);
     look.set_fx_welcome(false);
     look.set_fx_name(false);
+    look.set_readable(false);
     let style = window.global::<ClientStyle>();
     style.set_text_size_theme(-1.);
     style.set_sidebar_width_theme(-1.);
@@ -829,6 +833,13 @@ fn paint(window: &YapfastWindow) {
             return;
         };
         let resolved = &applied.resolved;
+        // Readable text keeps the theme's art, colours, shapes and layout,
+        // and draws reading text as stock: messages, names, labels, code and
+        // what's typed, at the stock weight and spacing, with no ransom
+        // letters, text effects or lit names. Decorative titles (settings
+        // and dialog titles, a channel's welcome line) and illuminated
+        // initials keep the theme's face.
+        let readable = state.readable;
         let names_face = applied
             .fonts
             .iter()
@@ -842,6 +853,11 @@ fn paint(window: &YapfastWindow) {
             state.performance,
             state.reduced,
         );
+        if readable {
+            window
+                .global::<yapfast_ui::Arrange>()
+                .set_ransom_names(false);
+        }
         super::theme_chrome::apply(window, &resolved.chrome);
         let family = |role: Role| {
             applied
@@ -854,8 +870,9 @@ fn paint(window: &YapfastWindow) {
         super::theme_chrome::apply_more(
             window,
             &resolved.chrome,
-            resolved.chrome.font.and_then(family),
+            resolved.chrome.font.filter(|_| !readable).and_then(family),
             state.performance == Performance::Light || state.reduced,
+            readable,
         );
         if let Some(initials) = resolved.content.avatars.initials {
             super::theme_content::set_initial_face(window, family(initials.font).unwrap_or(""));
@@ -929,14 +946,18 @@ fn paint(window: &YapfastWindow) {
             look.set_shadows_y(shadow.y);
             look.set_shadows_color(Color::from_argb_encoded(shadow.colour));
         }
+        look.set_readable(readable);
         for (role, family) in &applied.fonts {
-            set_font(&look, *role, family);
+            if !(readable && READING_ROLES.contains(role)) {
+                set_font(&look, *role, family);
+            }
         }
         let style = window.global::<ClientStyle>();
         for (role, kind) in &resolved.types {
             let size = kind.size.unwrap_or(-1.);
-            let weight = kind.weight.unwrap_or(-1);
-            let spacing = kind.letter_spacing.unwrap_or(0.);
+            let reading = readable && READING_ROLES.contains(role);
+            let weight = kind.weight.filter(|_| !reading).unwrap_or(-1);
+            let spacing = kind.letter_spacing.filter(|_| !reading).unwrap_or(0.);
             match role {
                 Role::Body => {
                     style.set_text_size_theme(size);
@@ -1011,7 +1032,10 @@ fn paint(window: &YapfastWindow) {
             state.performance,
             state.reduced,
         );
-        let plays = motion::effects_play(state.performance, state.reduced);
+        if readable {
+            super::theme_art::plain_text(window);
+        }
+        let plays = motion::effects_play(state.performance, state.reduced) && !readable;
         look.set_fx_name(
             plays
                 && resolved
@@ -1579,6 +1603,23 @@ pub fn protect(window: &YapfastWindow, open: bool) -> Option<theme::Theme> {
                 .as_ref()
                 .map(|applied| colours_of(&applied.resolved))
         })
+    }
+}
+
+/// The type roles Readable text draws in the stock face, at the stock weight
+/// and spacing; headings keep the theme's, but for the open conversation's
+/// and the server's names (`Look.header-font`).
+const READING_ROLES: [Role; 4] = [Role::Body, Role::Names, Role::Labels, Role::Code];
+
+/// Settings → Appearance → Readable text changed, or was read at start.
+pub fn set_readable(window: &YapfastWindow, on: bool) {
+    let changed = STATE.with_borrow_mut(|state| {
+        let changed = state.readable != on;
+        state.readable = on;
+        changed && state.applied.is_some()
+    });
+    if changed {
+        paint(window);
     }
 }
 
@@ -2286,6 +2327,88 @@ mod tests {
         assert!(!tokens.get_accent_text_on());
         assert!(!tokens.get_rail_painted());
         assert_eq!(window.global::<ClientStyle>().get_text_size_theme(), -1.);
+    }
+
+    #[test]
+    fn readable_text_keeps_the_look_and_draws_reading_text_as_stock() {
+        let data = tempfile::tempdir().unwrap();
+        register_bases();
+        let manifest = TIDE
+            .replace(
+                r#""type": { "headings": { "size": 18, "uppercase": true } },"#,
+                r##""type": { "headings": { "size": 18, "uppercase": true, "font": "fonts/pixel.ttf", "weight": 800 },
+                         "body": { "font": "fonts/pixel.ttf", "size": 16, "weight": 300, "letter_spacing": 1 },
+                         "names": { "weight": 700, "letter_spacing": 1, "style": "ransom" } },
+                   "art": { "text": { "names": { "glow": { "colour": "#ff71ce" } },
+                                      "headings": { "glow": { "colour": "#ff71ce" } } },
+                            "events": { "name_hover": "decrypt" } },"##,
+            );
+        let mut files = std::collections::BTreeMap::new();
+        files.insert(
+            PathBuf::from("fonts/pixel.ttf"),
+            include_bytes!("../../ui/fonts/DisplayName-8Bit.ttf").to_vec(),
+        );
+        let fetched = Fetched::new(
+            "https://github.com/ada/tide".into(),
+            String::new(),
+            "main".into(),
+            "0123456789abcdef".into(),
+            Files {
+                manifest,
+                files,
+                ..Files::default()
+            },
+        )
+        .unwrap();
+        Themes::open(data.path()).install(&fetched).unwrap();
+        init(data.path());
+        let window = window();
+        set_motion(&window, Performance::Full, false);
+        show(&window, "installed:dev.example.tide").unwrap();
+        let look = window.global::<Look>();
+        let art = window.global::<yapfast_ui::Art>();
+        let arrange = window.global::<yapfast_ui::Arrange>();
+        let face = look.get_font_body();
+        assert!(!face.is_empty());
+        assert_eq!(look.get_font_headings(), face);
+        assert_eq!(look.get_weight_body(), 300);
+        assert_eq!(look.get_weight_names(), 700);
+        assert_eq!(look.get_spacing_names(), 1.);
+        assert!(arrange.get_ransom_names());
+        assert!(art.get_names().on);
+        assert!(look.get_fx_channel());
+        assert!(look.get_fx_name());
+        assert!(!look.get_readable());
+
+        set_readable(&window, true);
+        assert!(look.get_readable());
+        assert_eq!(look.get_font_body(), "", "messages in the stock face");
+        assert_eq!(look.get_weight_body(), -1);
+        assert_eq!(look.get_spacing_body(), 0.);
+        assert_eq!(look.get_weight_names(), -1);
+        assert_eq!(look.get_spacing_names(), 0.);
+        assert!(!arrange.get_ransom_names(), "no ransom letters");
+        assert!(!art.get_names().on, "names unlit");
+        assert!(!look.get_fx_channel(), "no text effects");
+        assert!(!look.get_fx_name());
+        // The theme's look stays: its titles' face, shapes, sizes and art.
+        assert_eq!(look.get_font_headings(), face);
+        assert_eq!(look.get_weight_headings(), 800);
+        assert!(art.get_headings().on);
+        assert_eq!(look.get_button().radius, 999.);
+        assert_eq!(look.get_size_headings(), 18.);
+        assert_eq!(window.global::<ClientStyle>().get_text_size_theme(), 16.);
+        assert!(
+            window.global::<yapfast_ui::Theme>().get_accent_text_on(),
+            "colours are the theme's"
+        );
+
+        set_readable(&window, false);
+        assert_eq!(look.get_font_body(), face);
+        assert!(arrange.get_ransom_names());
+        assert!(look.get_fx_channel());
+        clear(&window);
+        assert!(!look.get_readable());
     }
 
     #[test]

@@ -662,6 +662,11 @@ pub struct Custom {
     /// any it doesn't name, such as one added since it was saved.
     pub base: &'static str,
     pub theme: Theme,
+    /// A folder of the theme's own beyond its colours, relative to the data
+    /// folder or absolute: a `theme.json` with any other layers (type, art,
+    /// sounds, …) and the files they name, such as imported fonts and a
+    /// background picture. Export bundles it; see docs/themes.md.
+    pub folder: Option<String>,
 }
 
 /// A custom theme in `layout.json`: each colour as text, by its name in
@@ -674,6 +679,8 @@ struct Stored {
     base: String,
     dark: Option<bool>,
     colours: std::collections::BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder: Option<String>,
 }
 
 impl From<Stored> for Custom {
@@ -694,6 +701,7 @@ impl From<Stored> for Custom {
             name: stored.name,
             base: base.id,
             theme,
+            folder: stored.folder.filter(|folder| !folder.trim().is_empty()),
         }
     }
 }
@@ -711,6 +719,7 @@ impl From<&Custom> for Stored {
             base: custom.base.to_owned(),
             dark: Some(custom.theme.dark),
             colours,
+            folder: custom.folder.clone(),
         }
     }
 }

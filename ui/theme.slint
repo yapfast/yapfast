@@ -320,6 +320,13 @@ export global Look {
     public pure function label-size(stock: length) -> length { self.size-labels >= 0px ? self.size-labels : stock }
     public pure function label-weight(stock: int) -> int { self.weight-labels >= 0 ? self.weight-labels : stock }
     public pure function code-size(stock: length) -> length { self.size-code >= 0px ? self.size-code : stock }
+    /// Readable text is on for the theme shown: the open conversation's and
+    /// the server's names over the lists, which are names to read, take the
+    /// stock face, weight and spacing; decorative titles keep the theme's.
+    in property <bool> readable;
+    public pure function header-font(stock: string) -> string { self.readable ? stock : self.heading-font(stock) }
+    public pure function header-weight(stock: int) -> int { self.readable ? stock : self.heading-weight(stock) }
+    out property <length> header-spacing: self.readable ? 0px : self.spacing-headings;
 
     // Spacing beyond ClientStyle's: the message avatar, the chat's side
     // padding and the member list's rows. Negative leaves stock.
@@ -454,6 +461,9 @@ export global Looks {
     in-out property <bool> moving: true;
     in-out property <bool> name-styles: true;
     in-out property <bool> server-tags: true;
+    /// Settings → Appearance → Readable text: every theme draws reading
+    /// text in the stock face, without text effects.
+    in-out property <bool> readable-text;
 }
 
 export global Badges {

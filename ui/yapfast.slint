@@ -3084,20 +3084,20 @@ export component YapfastWindow inherits Window {
                             // The name gives way to what follows it, and fills the bar when nothing does.
                             horizontal-stretch: (root.room-has-activity && root.room-direct) || root.friends-open || root.has-topic ? 0 : 1;
                             accessible-role: text; accessible-label: root.room-selected ? root.room-name : self.title;
-                            if Art.headings.on: ArtTextBehind {
+                            if Art.headings.on && !Look.readable: ArtTextBehind {
                                 x: channel-name.x; y: channel-name.y; width: parent.width; height: parent.height; art: Art.headings;
                                 text: channel-name.text; font-size: channel-name.font-size; font-weight: channel-name.font-weight;
                                 font-family: channel-name.font-family; letter-spacing: channel-name.letter-spacing; overflow: elide; vertical-alignment: center;
                                 opacity: channel-name.opacity; transform-scale: channel-name.transform-scale; transform-rotation: channel-name.transform-rotation;
                             }
                             channel-name := Text {
-                                stroke: Art.outline(Art.headings); stroke-width: Art.headings.outline; stroke-style: outside;
+                                stroke: Art.outline(Art.headings); stroke-width: Look.readable ? 0px : Art.headings.outline; stroke-style: outside;
                                 x: Look.channel-name.x; y: Look.channel-name.y; width: parent.width; height: parent.height;
                                 text: Look.channel-text(Look.heading(parent.title));
                                 accessible-role: none;
                                 color: Trim.header.on ? Trim.header.text : root.room-selected || root.requests-open || root.friends-open || root.browse-open ? Theme.text : Theme.secondary;
-                                font-size: Look.header-size(16px); font-weight: Look.heading-weight(700); overflow: elide; vertical-alignment: center;
-                                font-family: Look.heading-font(""); letter-spacing: Look.spacing-headings;
+                                font-size: Look.header-size(16px); font-weight: Look.header-weight(700); overflow: elide; vertical-alignment: center;
+                                font-family: Look.header-font(""); letter-spacing: Look.header-spacing;
                                 opacity: Look.channel-name.opacity; transform-scale: Look.channel-name.scale; transform-rotation: Look.channel-name.rotation * 1deg;
                             }
                         }

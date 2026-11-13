@@ -536,6 +536,7 @@ impl Adapter {
                     name,
                     base: editor.base,
                     theme: editor.theme,
+                    folder: None,
                 });
                 id
             }
@@ -907,15 +908,20 @@ pub(super) fn bind_export(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
         let Some(window) = adapter.window.upgrade() else { return };
         let Some(editor) = adapter.theme_editor.as_ref() else { return };
         let name = window.get_theme_name().to_string();
-        let colours: Vec<(String, u32)> = theme::Theme::NAMES
-            .iter()
-            .enumerate()
-            .filter_map(|(index, token)| {
-                Some((token.replace('_', "-"), editor.theme.colour(index)?.as_argb_encoded()))
-            })
-            .collect();
-        let named: Vec<(&str, u32)> = colours.iter().map(|(token, colour)| (token.as_str(), *colour)).collect();
-        let text = yapfast_core::themes::package::export(&name, editor.base, editor.theme.dark, &named);
+        let author = window.get_account_name().to_string();
+        let base = editor.base;
+        let shown = editor.theme;
+        // A custom theme's own folder (its fonts, pictures and other
+        // layers), relative to the data folder.
+        let own = editor.editing.as_ref().and_then(|id| {
+            adapter
+                .layout
+                .custom_themes
+                .iter()
+                .find(|custom| custom.id == *id)
+                .and_then(|custom| custom.folder.clone())
+        });
+        let data_dir = adapter.root.clone();
         let folder_name = yapfast_core::themes::package::folder_name(&name);
         drop(adapter);
         let weak = Rc::downgrade(&state);
@@ -928,21 +934,35 @@ pub(super) fn bind_export(window: &YapfastWindow, adapter: &Rc<RefCell<Adapter>>
                 return;
             };
             let folder = picked.path().join(&folder_name);
-            let written = std::fs::create_dir_all(&folder)
-                .and_then(|()| std::fs::write(folder.join(yapfast_core::themes::MANIFEST), &text))
-                .and_then(|()| {
-                    std::fs::write(
-                        folder.join("LICENSE"),
-                        "Choose your theme's licence, and list every font and picture it ships with theirs.\n",
-                    )
-                });
+            let written = super::theme_tools::write_custom(
+                &folder,
+                &name,
+                &author,
+                base,
+                &shown,
+                own.as_deref(),
+                &data_dir,
+            );
+            // The checks an install runs, so what's shared installs.
+            theme_look::register_bases();
+            let refused = yapfast_core::themes::check::Files::read(&folder)
+                .map(|files| {
+                    yapfast_core::themes::check::check(&files, yapfast_core::themes::check::Strictness::Install)
+                        .reason()
+                        .map(str::to_owned)
+                })
+                .unwrap_or_else(Some);
             let mut adapter = adapter.borrow_mut();
-            adapter.app.state.notice = Some(match written {
-                Ok(()) => format!(
-                    "Exported to {}. Add a preview and a description, check it with `yapfast theme check`, and publish it on GitHub.",
+            adapter.app.state.notice = Some(match (written, refused) {
+                (Ok(_), None) => format!(
+                    "Exported to {}. Add a preview, put it in a GitHub repository, and it installs with Add from URL.",
                     folder.display()
                 ),
-                Err(error) => format!("The theme couldn't be exported: {error}"),
+                (Ok(_), Some(reason)) => format!(
+                    "Exported to {}, but it wouldn't install yet: {reason}",
+                    folder.display()
+                ),
+                (Err(error), _) => format!("The theme couldn't be exported: {error}"),
             });
             if let Some(window) = adapter.window.upgrade() {
                 adapter.refresh(&window);

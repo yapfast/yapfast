@@ -224,6 +224,14 @@ pub fn take_baked(baked: Baked) {
     STATE.with_borrow_mut(|state| state.baked = baked.0);
 }
 
+/// Names and labels without the theme's light (shadow, glow, outline,
+/// emboss), for Readable text; headings keep theirs.
+pub fn plain_text(window: &YapfastWindow) {
+    let art = window.global::<yapfast_ui::Art>();
+    art.set_names(ArtText::default());
+    art.set_labels(ArtText::default());
+}
+
 /// Sets a theme's art, as Performance and reduced motion allow. Called by
 /// `theme_look::paint` after `reset`; `hover` is the theme's hover timing.
 pub fn apply(

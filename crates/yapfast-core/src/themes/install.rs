@@ -511,6 +511,117 @@ mod tests {
     }
 
     #[test]
+    fn an_exported_custom_theme_installs_with_its_colours_fonts_and_art() {
+        use crate::themes::Mode;
+        use crate::themes::package::{self, Paint, Role};
+        let colours = [
+            ("chat", 0xff2a_1a3a),
+            ("sidebar", 0xff22_1430),
+            ("rail", 0xff1a_0f26),
+            ("accent", 0xffff_9e64),
+            ("selection", 0x59ff_9e64),
+        ];
+        let font: &[u8] = include_bytes!("../../../../ui/fonts/DisplayName-Journal.ttf");
+        let picture: &[u8] = include_bytes!("../../../../themes/template/preview.png");
+        // The custom theme's own folder, as a theme creator keeps it: an
+        // imported font, a background picture and their licences.
+        let directory = tempfile::tempdir().unwrap();
+        let own = directory.path().join("own");
+        fs::create_dir_all(own.join("fonts")).unwrap();
+        fs::create_dir_all(own.join("art")).unwrap();
+        fs::write(own.join("fonts/Journal.ttf"), font).unwrap();
+        fs::write(own.join("fonts/OFL.txt"), "SIL Open Font License 1.1").unwrap();
+        fs::write(own.join("art/sky.png"), picture).unwrap();
+        fs::write(own.join("notes.txt"), "not part of it").unwrap();
+        let layers = r##"{ "license": "CC0-1.0 AND OFL-1.1",
+            "type": { "body": { "font": "fonts/Journal.ttf", "size": 16 } },
+            "art": { "surfaces": { "window": { "image": "art/sky.png" } } },
+            "variants": { "dark": { "base": "nord", "colours": { "chat": "#000000", "link": "#7fb4ff" } } } }"##;
+        let text =
+            package::export_with("Plum Night", "Ada", "yap", true, &colours, Some(layers)).unwrap();
+        let folder = directory.path().join(package::folder_name("Plum Night"));
+        let written = package::write_export(&folder, &text, Some(&own)).unwrap();
+        for path in [
+            "fonts/Journal.ttf",
+            "art/sky.png",
+            "fonts/OFL.txt",
+            "LICENSE",
+        ] {
+            assert!(
+                written.contains(&PathBuf::from(path)),
+                "{path}: {written:?}"
+            );
+        }
+        assert!(!folder.join("notes.txt").exists(), "only what it names");
+
+        let read = Files::read(&folder).unwrap();
+        assert!(read.licence.is_some(), "a licence file to fill in");
+        let report = check::check(&read, Strictness::Install);
+        assert!(report.passed(), "{}", report.text());
+        let package = report.package.clone().unwrap();
+        assert_eq!(package.authors, ["Ada"]);
+        assert_eq!(package.license.as_deref(), Some("CC0-1.0 AND OFL-1.1"));
+        // As Add from URL would, once the folder is a repository.
+        let fetched = Fetched::new(
+            "https://github.com/ada/plum-night".into(),
+            String::new(),
+            "main".into(),
+            "1-commit".into(),
+            read,
+        )
+        .unwrap();
+        let store = tempfile::tempdir().unwrap();
+        let themes = Themes::open(store.path());
+        themes.install(&fetched).unwrap();
+        let installed = themes.installed();
+        assert_eq!(installed.len(), 1);
+        assert_eq!(installed[0].id, "local.plum-night");
+        let resolved = installed[0].package.resolve(Mode::Dark).unwrap();
+        assert_eq!(resolved.base, "yap", "the custom theme's base");
+        for (token, colour) in colours {
+            assert_eq!(
+                resolved.paint(token),
+                Some(&Paint::Colour(colour)),
+                "{token} comes back as it was exported"
+            );
+        }
+        assert_eq!(
+            resolved.paint("link"),
+            Some(&Paint::Colour(0xff7f_b4ff)),
+            "the folder's own colours under the custom theme's"
+        );
+        let body = resolved.types[&Role::Body].font.clone().unwrap();
+        assert_eq!(fs::read(installed[0].folder.join(&body)).unwrap(), font);
+        assert_eq!(
+            fs::read(installed[0].folder.join("art/sky.png")).unwrap(),
+            picture
+        );
+        assert!(resolved.fonts().contains(&body.as_path()));
+    }
+
+    #[test]
+    fn an_export_refuses_a_file_its_folder_lacks() {
+        use crate::themes::package;
+        let text = package::export_with(
+            "Gone",
+            "",
+            "yap",
+            true,
+            &[],
+            Some(r#"{ "art": { "surfaces": { "window": { "image": "art/gone.png" } } } }"#),
+        )
+        .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let error = package::write_export(
+            &directory.path().join("gone"),
+            &text,
+            Some(directory.path()),
+        )
+        .unwrap_err();
+        assert!(error.contains("art/gone.png"), "{error}");
+    }
+
+    #[test]
     fn a_lock_file_cannot_point_outside_the_store() {
         assert!(!is_address("../../etc"));
         assert!(is_address(&"a".repeat(64)));

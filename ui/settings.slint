@@ -1113,6 +1113,14 @@ export component AppearanceSettings inherits VerticalLayout {
         text: "Showing " + root.installed-name + ", an installed theme. Choose one above, or manage it in Themes.";
     }
     if !root.editor && root.installed-name != "" && ThemeOptions.rows.length > 0: ThemeOptionList { }
+    // For any theme: its art, colours and layout stay, its reading text
+    // doesn't. See docs/themes.md, "Readable text".
+    if !root.editor: SettingsSwitch {
+        text: "Readable text";
+        description: "Messages, names, channels and what you type use Yapfast's own font in every theme, with no ransom letters, scrambling or other text effects. The theme's art, colours and layout stay.";
+        checked <=> Looks.readable-text;
+        toggled => { root.preferences-changed(); }
+    }
     if !root.editor && root.title-bar-choice: SettingsSwitch {
         text: "Use the system title bar";
         description: "Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own.";
