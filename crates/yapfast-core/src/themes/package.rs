@@ -1381,11 +1381,10 @@ impl Package {
     }
 }
 
-/// A theme.json for one of the person's own colour themes, so it can be
-/// shared as a package: every colour it has, over the built-in theme it
-/// began as. `colours` are by their name in `ui/theme.slint`, as ARGB.
-pub fn export(name: &str, base: &str, dark: bool, colours: &[(&str, u32)]) -> String {
-    let slug: String = name
+/// A name as the last part of a theme id and its folder's name: lowercase
+/// letters and digits joined by `-`, `my-theme` when nothing is left.
+pub fn slug(name: &str) -> String {
+    let slug = name
         .to_lowercase()
         .chars()
         .map(|letter| {
@@ -1400,24 +1399,40 @@ pub fn export(name: &str, base: &str, dark: bool, colours: &[(&str, u32)]) -> St
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join("-");
-    let slug = if slug.is_empty() {
+    if slug.is_empty() {
         "my-theme".to_owned()
     } else {
         slug
-    };
+    }
+}
+
+/// The licence file an exported or new theme starts with, until its author
+/// writes their own.
+pub const LICENCE_PLACEHOLDER: &str = "\
+This theme's licence goes here. theme.json names CC0-1.0, which gives the
+theme to the public domain (https://creativecommons.org/publicdomain/zero/1.0/);
+change both if you choose another, and list every font, picture and sound you
+add with its own licence.
+";
+
+/// A theme.json for one of the person's own colour themes, so it can be
+/// shared as a package: every colour it has, over the built-in theme it
+/// began as. `colours` are by their name in `ui/theme.slint`, as ARGB.
+pub fn export(name: &str, author: &str, base: &str, dark: bool, colours: &[(&str, u32)]) -> String {
     let colours: serde_json::Map<String, Value> = colours
         .iter()
         .filter(|(token, _)| !LOCKED_COLOURS.contains(token))
         .map(|(token, colour)| ((*token).to_owned(), Value::String(hex(*colour))))
         .collect();
     let mode = if dark { "dark" } else { "light" };
+    let author = author.trim();
     let value = serde_json::json!({
         "theme_api": THEME_API,
-        "id": format!("local.{slug}"),
+        "id": format!("local.{}", slug(name)),
         "name": name,
         "version": "1.0.0",
-        "description": "",
-        "authors": [],
+        "description": format!("{name}, a colour theme made in Yapfast."),
+        "authors": if author.is_empty() { Vec::new() } else { vec![author] },
         "license": "CC0-1.0",
         "source": "",
         "preview": [],
@@ -1430,13 +1445,166 @@ pub fn export(name: &str, base: &str, dark: bool, colours: &[(&str, u32)]) -> St
 
 /// A folder name for an exported theme.
 pub fn folder_name(name: &str) -> String {
-    let text = export(name, "yap", true, &[]);
-    let value: Value = serde_json::from_str(&text).expect("just written");
-    value["id"]
-        .as_str()
-        .and_then(|id| id.strip_prefix("local."))
-        .unwrap_or("my-theme")
-        .to_owned()
+    slug(name)
+}
+
+/// Fields of an exported theme that are its own, never taken from the
+/// custom theme's folder: [`export_with`].
+const OWN_FIELDS: [&str; 6] = ["theme_api", "id", "name", "version", "authors", "source"];
+
+/// [`export`], with the layers of a custom theme's own `theme.json` beside
+/// its colours: its type, art, sounds and every other layer, its variant's
+/// layers beside the colours (the custom theme's colours win), and its
+/// `license` and `description` when it names them. The files those layers
+/// name come along in [`write_export`].
+pub fn export_with(
+    name: &str,
+    author: &str,
+    base: &str,
+    dark: bool,
+    colours: &[(&str, u32)],
+    layers: Option<&str>,
+) -> Result<String, String> {
+    let text = export(name, author, base, dark, colours);
+    let Some(layers) = layers else {
+        return Ok(text);
+    };
+    let mut value: Value = serde_json::from_str(&text).expect("just written");
+    let layers: Value = serde_json::from_str(layers)
+        .map_err(|error| format!("the theme's {MANIFEST} doesn't read: {error}"))?;
+    let Value::Object(layers) = layers else {
+        return Err(format!("the theme's {MANIFEST} isn't an object"));
+    };
+    let mode = if dark { "dark" } else { "light" };
+    let top = value.as_object_mut().expect("written as an object");
+    for (key, layer) in layers {
+        match key.as_str() {
+            key if OWN_FIELDS.contains(&key) => {}
+            "description" | "license"
+                if layer.as_str().is_none_or(|text| text.trim().is_empty()) => {}
+            "variants" => {
+                let Some(Value::Object(own)) = layer.get(mode).cloned() else {
+                    continue;
+                };
+                let variant = top["variants"][mode]
+                    .as_object_mut()
+                    .expect("written as an object");
+                for (key, layer) in own {
+                    match key.as_str() {
+                        "base" => {}
+                        "colours" => {
+                            let Value::Object(mut merged) = layer else {
+                                continue;
+                            };
+                            if let Some(Value::Object(mine)) = variant.get("colours") {
+                                merged.extend(mine.clone());
+                            }
+                            variant.insert(key, Value::Object(merged));
+                        }
+                        _ => {
+                            variant.insert(key, layer);
+                        }
+                    }
+                }
+            }
+            _ => {
+                top.insert(key, layer);
+            }
+        }
+    }
+    let mut text = serde_json::to_string_pretty(&value).expect("JSON values serialise");
+    text.push('\n');
+    Package::parse(&text).map_err(|error| error.0)?;
+    Ok(text)
+}
+
+/// Whether a file in a theme's folder is a licence or credit for what it
+/// ships, which an export carries wherever it lies, as `fonts/OFL.txt`.
+fn licence_like(path: &Path) -> bool {
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_uppercase())
+        .unwrap_or_default();
+    [
+        "LICENSE", "LICENCE", "OFL", "COPYING", "CREDITS", "AUTHORS", "NOTICE",
+    ]
+    .iter()
+    .any(|word| name.starts_with(word))
+}
+
+/// Writes an exported theme into `folder`, made if it isn't there: its
+/// `theme.json`, every file it names, copied from `source` (the custom
+/// theme's own folder), the licences and credits there, and a licence to
+/// fill in when `source` has none at its top. Returns the files written, by
+/// their path in the folder.
+pub fn write_export(
+    folder: &Path,
+    theme_json: &str,
+    source: Option<&Path>,
+) -> Result<Vec<PathBuf>, String> {
+    let io = |path: &Path, error: std::io::Error| format!("{}: {error}", path.display());
+    let package = Package::parse(theme_json).map_err(|error| error.0)?;
+    let mut copies: Vec<PathBuf> = package.files();
+    if let Some(source) = source {
+        let mut folders = vec![source.to_path_buf()];
+        while let Some(at) = folders.pop() {
+            let Ok(entries) = std::fs::read_dir(&at) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let Ok(kind) = entry.file_type() else {
+                    continue;
+                };
+                if kind.is_dir() {
+                    folders.push(path);
+                } else if kind.is_file() && licence_like(&path) {
+                    let relative = path.strip_prefix(source).expect("walked from it");
+                    if !copies.iter().any(|copy| copy == relative) {
+                        copies.push(relative.to_path_buf());
+                    }
+                }
+            }
+        }
+    }
+    std::fs::create_dir_all(folder).map_err(|error| io(folder, error))?;
+    std::fs::write(folder.join(MANIFEST), theme_json)
+        .map_err(|error| io(&folder.join(MANIFEST), error))?;
+    let mut written = vec![PathBuf::from(MANIFEST)];
+    for relative in copies {
+        // Only files inside the folder, as a theme's paths always are.
+        if relative
+            .components()
+            .any(|part| !matches!(part, Component::Normal(_)))
+        {
+            return Err(format!("{} isn't inside the theme", relative.display()));
+        }
+        let from = source
+            .map(|source| source.join(&relative))
+            .filter(|from| std::fs::symlink_metadata(from).is_ok_and(|meta| meta.is_file()))
+            .ok_or_else(|| {
+                format!(
+                    "the theme names {}, which isn't in its folder",
+                    relative.display()
+                )
+            })?;
+        let to = folder.join(&relative);
+        if let Some(parent) = to.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| io(parent, error))?;
+        }
+        std::fs::copy(&from, &to).map_err(|error| io(&from, error))?;
+        written.push(relative);
+    }
+    if !written.iter().any(|path| {
+        super::check::LICENCE_FILES
+            .iter()
+            .any(|name| path == Path::new(name))
+    }) {
+        std::fs::write(folder.join("LICENSE"), LICENCE_PLACEHOLDER)
+            .map_err(|error| io(&folder.join("LICENSE"), error))?;
+        written.push(PathBuf::from("LICENSE"));
+    }
+    Ok(written)
 }
 
 /// A text field of an object, if it's there.
@@ -2410,6 +2578,7 @@ mod tests {
     fn a_custom_theme_exports_as_a_package_that_reads_back() {
         let text = export(
             "Plum Night!",
+            "Ada",
             "yap",
             true,
             &[("chat", 0xff2a_1a3a), ("danger", 0xff00_ff00)],
@@ -2417,6 +2586,9 @@ mod tests {
         let package = Package::parse(&text).unwrap();
         assert_eq!(package.id, "local.plum-night");
         assert_eq!(package.name, "Plum Night!");
+        assert_eq!(package.authors, ["Ada"]);
+        assert_eq!(package.version, "1.0.0");
+        assert_eq!(package.license.as_deref(), Some("CC0-1.0"));
         let resolved = package.resolve(Mode::Dark).unwrap();
         assert_eq!(resolved.paint("chat"), Some(&Paint::Colour(0xff2a_1a3a)));
         assert!(

@@ -123,7 +123,8 @@ export component Composer inherits Rectangle {
     prompt-measure := Text { visible: false; text: Chrome.prompt; font-size: root.text-size; font-family: root.console-face; accessible-role: none; }
     // A theme's console composer: its face, a placeholder that types itself
     // each time the empty field takes the keys, and a caret in its colour.
-    property <string> console-face: Chrome.console ? Chrome.face(Look.mono) : "";
+    // Readable text draws what's typed in the stock face, as every box's.
+    property <string> console-face: Chrome.console && !Look.readable ? Chrome.face(Look.mono) : "";
     property <bool> typing-now: Chrome.console && Chrome.console-typing > 0ms && input.has-focus && root.text == "" && !root.commanding;
     property <int> typed: 0;
     changed typing-now => { if self.typing-now { root.typed = 0; } }

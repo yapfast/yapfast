@@ -85,13 +85,21 @@ fn main() -> Result<()> {
     }
     let mut arguments: Vec<_> = std::env::args().skip(1).collect();
     // `yapfast theme check <folder>`: the checks a theme's install and the
-    // marketplace run, with no window.
+    // marketplace run; `theme new <name>`: a theme's folder from the
+    // template; `theme export <custom theme> <folder>`: one of the person's
+    // own as a package. All with no window.
     #[cfg(feature = "desktop")]
     if arguments.first().map(String::as_str) == Some("theme") {
-        if arguments.get(1).map(String::as_str) != Some("check") {
-            bail!("usage: yapfast theme check <folder> [--marketplace]");
-        }
-        std::process::exit(ui::theme_look::run_check(&arguments[2..]));
+        std::process::exit(match arguments.get(1).map(String::as_str) {
+            Some("check") => ui::theme_look::run_check(&arguments[2..]),
+            Some("new") => ui::theme_tools::run_new(&arguments[2..]),
+            Some("export") => ui::theme_tools::run_export(&arguments[2..]),
+            _ => bail!(
+                "usage: yapfast theme check <folder> [--marketplace]\n       \
+                 yapfast theme new <name> [--light] [--from <theme>] [--author <name>]\n       \
+                 yapfast theme export <custom theme> <folder>"
+            ),
+        });
     }
     // First, so nothing a desktop handed over with the link is read as an option.
     let handed = handed_link(&mut arguments);

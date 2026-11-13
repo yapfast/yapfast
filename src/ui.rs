@@ -73,6 +73,7 @@ mod theme_cursor;
 pub mod theme_layout;
 pub mod theme_look;
 mod theme_media;
+pub mod theme_tools;
 mod tiles;
 mod title_bar;
 mod yapfast;
@@ -1331,6 +1332,9 @@ struct Layout {
     server_tags: Option<bool>,
     /// Names show plain, not in a theme's ransom letters.
     plain_names: bool,
+    /// Settings → Appearance → Readable text: every theme draws reading
+    /// text in the stock face, without text effects. Off unless turned on.
+    readable_text: bool,
     /// Joining a call turns the microphone on; on unless turned off.
     unmute_on_join: Option<bool>,
     /// Joining a call deafens.
@@ -1582,6 +1586,7 @@ impl Layout {
         window
             .global::<yapfast_ui::Arrange>()
             .set_plain_names(self.plain_names);
+        looks.set_readable_text(self.readable_text);
         pictures::set_moving_collectibles(cosmetics.moving);
     }
 
@@ -1594,6 +1599,8 @@ impl Layout {
         self.name_styles = Some(looks.get_name_styles());
         self.server_tags = Some(looks.get_server_tags());
         self.plain_names = window.global::<yapfast_ui::Arrange>().get_plain_names();
+        self.readable_text = looks.get_readable_text();
+        theme_look::set_readable(window, self.readable_text);
         pictures::set_moving_collectibles(self.cosmetics().moving);
     }
 
@@ -1635,6 +1642,7 @@ impl Layout {
             .get_enabled()
             .then_some("bonfire");
         theme_look::set_motion(window, self.theme_performance, self.reduce_motion);
+        theme_look::set_readable(window, self.readable_text);
         let page = window.global::<yapfast_ui::ThemesPage>();
         page.set_performance(self.theme_performance.index());
         page.set_reduce_motion(self.reduce_motion);
