@@ -198,6 +198,10 @@ pub struct TopBar {
     pub line: Option<u32>,
     /// Plays on the right label when what's playing changes.
     pub effect: BarEffect,
+    /// A first workspace for the direct messages, its words such as `~`
+    /// (at most 3 characters). A theme that hides the rail gets `~` when it
+    /// sets none.
+    pub home: Option<String>,
 }
 
 impl Default for TopBar {
@@ -215,6 +219,7 @@ impl Default for TopBar {
             underline: None,
             line: None,
             effect: BarEffect::None,
+            home: None,
         }
     }
 }
@@ -598,6 +603,7 @@ fn read_topbar(
             "underline" => bar.underline = Some(colour_at(value, &at)?),
             "line" => bar.line = Some(colour_at(value, &at)?),
             "effect" => bar.effect = named(value, &at, BarEffect::ALL, BarEffect::name)?,
+            "home" => bar.home = Some(plain(value, &at, 3)?),
             _ => notes.push(format!(
                 "\"{at}\" isn't something the top bar takes; ignored"
             )),

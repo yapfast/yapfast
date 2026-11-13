@@ -24,7 +24,9 @@ use yapfast_core::themes::lists::{
 };
 use yapfast_core::themes::package::art::Fit;
 use yapfast_core::themes::package::{Resolved, Role};
-use yapfast_ui::{ArtImage, ChannelLists, Chrome, ListGlyph, MemberLists, Rails, TileLayer, YapfastWindow};
+use yapfast_ui::{
+    ArtImage, ChannelLists, Chrome, ListGlyph, MemberLists, Picker, PickerRow, Rails, TileLayer, YapfastWindow,
+};
 
 /// Pictures decoded since the program started: the decode-once test reads it.
 static DECODES: AtomicUsize = AtomicUsize::new(0);
@@ -76,6 +78,21 @@ pub fn init(window: &YapfastWindow) {
         )
         .into()
     });
+    let picker = window.global::<Picker>();
+    picker.set_rows(ModelRc::from(PICKER.with_borrow(|state| state.model.clone())));
+    picker.on_toggle(|folder| {
+        PICKER.with_borrow_mut(|picker| {
+            if !picker.expanded.remove(folder.as_str()) {
+                picker.expanded.insert(folder.to_string());
+            }
+        });
+        show_picker();
+    });
+    picker.on_filter(|folder| {
+        PICKER.with_borrow_mut(|picker| picker.folder = folder.to_string());
+        show_picker();
+    });
+    picker.on_count_of(|folder| picker_count(&folder));
     window
         .global::<MemberLists>()
         .on_numbered(|template, n| {
@@ -111,6 +128,190 @@ pub fn fill(template: &str, values: &[(&str, &str)]) -> String {
     parts.join(" · ")
 }
 
+/// The server picker a hidden rail's top bar opens: every row, which folders
+/// it shows open, which one alone (empty for all), and the model it shows.
+#[derive(Default)]
+struct PickerState {
+    hidden: bool,
+    all: Vec<PickerRow>,
+    expanded: std::collections::BTreeSet<String>,
+    folder: String,
+    model: std::rc::Rc<VecModel<PickerRow>>,
+}
+
+thread_local! {
+    static PICKER: RefCell<PickerState> = RefCell::new(PickerState::default());
+}
+
+/// Whether the shown theme hides the rail, which its top bar stands in for.
+pub fn rail_hidden() -> bool {
+    PICKER.with_borrow(|picker| picker.hidden)
+}
+
+/// Rebuilds the picker's rows from the servers, folders and unread DMs, in
+/// the rail's order, when the rail is hidden; `numbers` is how many
+/// workspaces the bar shows, which number the first top-level rows.
+pub fn picker(state: &yapfast_core::application::AppState, numbers: usize) {
+    if !rail_hidden() {
+        return;
+    }
+    let unread_rooms: HashMap<&str, (bool, u64)> = state
+        .rooms
+        .iter()
+        .map(|room| (room.id.as_str(), (room.mentions > 0 || room.unread > 0, room.mentions)))
+        .collect();
+    let marks = |server: &yapfast_core::chat::ChatServer| {
+        let mut unread = false;
+        let mut mentions = 0;
+        for channel in &server.channels {
+            if let Some((one, more)) = unread_rooms.get(channel.as_str()) {
+                unread |= *one && !server.muted;
+                mentions += more;
+            }
+        }
+        (unread, mentions)
+    };
+    let selected = |server: &yapfast_core::chat::ChatServer| {
+        state.navigation == yapfast_core::application::Navigation::Server(server.id.clone())
+    };
+    let badge = |count: u64| -> SharedString {
+        match count {
+            0 => SharedString::new(),
+            1..=99 => count.to_string().into(),
+            _ => "99+".into(),
+        }
+    };
+    let row = |server: &yapfast_core::chat::ChatServer, number: String, nested: bool| {
+        let (unread, mentions) = marks(server);
+        PickerRow {
+            id: server.id.as_str().into(),
+            name: server.name.as_str().into(),
+            initial: server.name.chars().next().map(|first| first.to_uppercase().to_string()).unwrap_or_default().into(),
+            picture_url: server.icon.as_deref().unwrap_or_default().into(),
+            number: number.into(),
+            selected: selected(server),
+            unread,
+            badge: badge(mentions),
+            nested,
+            ..PickerRow::default()
+        }
+    };
+    let mut rows: Vec<PickerRow> = super::refresh::unread_dm_rows(state)
+        .into_iter()
+        .map(|dm| PickerRow {
+            id: dm.id,
+            name: dm.name,
+            initial: dm.initial,
+            picture_url: dm.picture_url,
+            unread: true,
+            badge: dm.badge,
+            dm: true,
+            ..PickerRow::default()
+        })
+        .collect();
+    let mut place = 0;
+    let mut servers = state.servers.iter().peekable();
+    while let Some(server) = servers.next() {
+        place += 1;
+        let number = if place <= numbers { place.to_string() } else { String::new() };
+        let Some(folder) = &server.folder else {
+            rows.push(row(server, number, false));
+            continue;
+        };
+        let mut inside = vec![server];
+        while let Some(next) = servers.next_if(|next| next.folder.as_ref() == Some(folder)) {
+            inside.push(next);
+        }
+        let (unread, mentions) = inside
+            .iter()
+            .map(|server| marks(server))
+            .fold((false, 0), |(unread, sum), (one, more)| (unread || one, sum + more));
+        rows.push(PickerRow {
+            id: folder.id.as_str().into(),
+            name: folder
+                .name
+                .clone()
+                .unwrap_or_else(|| inside.iter().map(|server| server.name.as_str()).take(3).collect::<Vec<_>>().join(", "))
+                .into(),
+            number: number.into(),
+            selected: inside.iter().any(|server| selected(server)),
+            unread,
+            badge: badge(mentions),
+            folder: true,
+            preview: ModelRc::new(VecModel::from(
+                inside
+                    .iter()
+                    .take(4)
+                    .map(|server| yapfast_ui::FolderServer {
+                        initial: server.name.chars().next().map(|first| first.to_uppercase().to_string()).unwrap_or_default().into(),
+                        picture_url: server.icon.as_deref().unwrap_or_default().into(),
+                    })
+                    .collect::<Vec<_>>(),
+            )),
+            ..PickerRow::default()
+        });
+        for server in inside {
+            rows.push(row(server, String::new(), true));
+        }
+    }
+    rows.push(PickerRow {
+        id: "@join".into(),
+        name: "Join a server".into(),
+        join: true,
+        ..PickerRow::default()
+    });
+    PICKER.with_borrow_mut(|picker| picker.all = rows);
+    show_picker();
+}
+
+/// The rows the picker shows: one folder's servers, or every row with the
+/// open folders' servers under them.
+fn show_picker() {
+    PICKER.with_borrow(|picker| {
+        let mut shown = Vec::new();
+        let mut inside: Option<&str> = None;
+        for row in &picker.all {
+            if row.folder {
+                inside = Some(row.id.as_str());
+            } else if !row.nested {
+                inside = None;
+            }
+            if !picker.folder.is_empty() {
+                if row.nested && inside == Some(picker.folder.as_str()) {
+                    shown.push(PickerRow { nested: false, ..row.clone() });
+                }
+                continue;
+            }
+            if row.nested && !inside.is_some_and(|folder| picker.expanded.contains(folder)) {
+                continue;
+            }
+            let open = row.folder && picker.expanded.contains(row.id.as_str());
+            shown.push(PickerRow { open, ..row.clone() });
+        }
+        picker.model.set_vec(shown);
+    });
+}
+
+/// How many servers the picker counts: all of them, or a folder's.
+fn picker_count(folder: &str) -> i32 {
+    PICKER.with_borrow(|picker| {
+        let mut inside: Option<&str> = None;
+        let mut count = 0;
+        for row in &picker.all {
+            if row.folder {
+                inside = Some(row.id.as_str());
+            } else if !row.nested {
+                inside = None;
+            }
+            let server = !row.folder && !row.join && !row.dm;
+            if server && (folder.is_empty() || inside == Some(folder)) {
+                count += 1;
+            }
+        }
+        count
+    })
+}
+
 /// Every value back to stock.
 pub fn reset(window: &YapfastWindow) {
     let rails = window.global::<Rails>();
@@ -133,6 +334,8 @@ pub fn reset(window: &YapfastWindow) {
     rails.set_right(false);
     rails.set_divider_on(false);
     window.global::<Chrome>().set_rail_tiles_px(0.);
+    window.global::<Picker>().set_on(false);
+    PICKER.with_borrow_mut(|picker| picker.hidden = false);
     let channels = window.global::<ChannelLists>();
     channels.set_on(false);
     channels.set_frames(ModelRc::default());
@@ -358,6 +561,8 @@ pub fn apply(
     let time = |ms: f32| if still { 0 } else { ms.round() as i64 };
     let layout = &resolved.layout;
     let hidden = layout.rail == Some(RailSide::Hidden);
+    PICKER.with_borrow_mut(|picker| picker.hidden = hidden);
+    window.global::<Picker>().set_on(hidden);
     if let Some(tiles) = layout.rail_tiles.as_ref().filter(|_| !hidden) {
         let rails = window.global::<Rails>();
         rails.set_on(true);

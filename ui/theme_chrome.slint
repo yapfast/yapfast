@@ -9,7 +9,14 @@ import { Theme } from "theme.slint";
 
 /// One of the top bar's workspaces: a server (or a folder's), its number
 /// as shown, its name for screen readers, and whether it's open or unread.
-export struct Workspace { id: string, number: string, name: string, current: bool, unread: bool }
+export struct Workspace {
+    id: string, number: string, name: string, current: bool, unread: bool,
+    /// Mentions waiting, as a small number after it; empty for none.
+    badge: string,
+    /// The DMs' workspace, the "+N" that opens every server past the bar's
+    /// last, and a folder's id when it's a folder's.
+    home: bool, more: bool, folder: string,
+}
 
 export global Chrome {
     /// The face the chrome's words take, a type role's family; empty for

@@ -84,6 +84,7 @@ export { Arrange, Dash, Scrap } from "theme_layout.slint";
 export { ThemeContent } from "theme_content.slint";
 export { Chrome, Workspace } from "theme_chrome.slint";
 export { Rails, ChannelLists, MemberLists, TileLayer, ListGlyph, FolderServer } from "theme_lists.slint";
+export { Picker, PickerRow } from "theme_picker.slint";
 import { Chrome } from "theme_chrome.slint";
 import { TopBar } from "theme_topbar.slint";
 import { CursorTrail, CursorTrailLayer } from "theme_cursor.slint";
@@ -2593,6 +2594,11 @@ export component YapfastWindow inherits Window {
         x: 0px; y: root.title-height; width: root.width; height: Chrome.topbar-px;
         account-name: root.account-name; server-name: root.sidebar-title; channel-name: root.room-name;
         chosen(id) => { root.navigate-server(id); }
+        home => { root.navigate-dms(); }
+        open-dm(id) => { root.open-conversation(id); }
+        join-server => { root.open-join-server(); }
+        open-server-menu(id, x, y) => { root.open-context-menu(id, false, x, y); }
+        bounds: root.height; bounds-width: root.width;
     }
     if root.workspace && Arrange.rail == 2: ServerRail {
         x: 0px; y: root.title-height + Chrome.topbar-px; width: root.width; height: root.rail-top - Chrome.topbar-px;

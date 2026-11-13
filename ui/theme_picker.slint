@@ -39,8 +39,10 @@ export global Picker {
     in property <[PickerRow]> rows;
     /// "servers", or the folder's name when filtered to one, and how many
     /// servers it holds.
-    in property <string> title;
-    in property <int> count;
+    in-out property <string> title;
+    in-out property <int> count;
+    /// How many servers it holds: all, or a folder's.
+    pure callback count-of(string) -> int;
     /// A folder to show alone; empty for all.
     in-out property <string> folder;
     /// Opens or closes a folder inline.
@@ -50,7 +52,7 @@ export global Picker {
 }
 
 component PickerItem inherits Rectangle {
-    in property <PickerRow> row;
+    in property <PickerRow> entry;
     in property <bool> current;
     in property <bool> first;
     callback chosen;
@@ -60,11 +62,11 @@ component PickerItem inherits Rectangle {
     border-radius: 2px;
     background: touch.has-hover ? Theme.hover : transparent;
     accessible-role: button;
-    accessible-label: root.row.join ? "Join a server"
-        : root.row.folder ? root.row.name + " folder, " + (root.row.open ? "open" : "closed")
-            + (root.row.badge != "" ? ", " + root.row.badge + " mentions" : root.row.unread ? ", unread" : "")
-        : root.row.name + (root.row.dm ? (root.row.badge != "" ? ", " + root.row.badge + " unread" : ", unread")
-            : (root.row.badge != "" ? ", " + root.row.badge + " mentions" : root.row.unread ? ", unread" : ""));
+    accessible-label: root.entry.join ? "Join a server"
+        : root.entry.folder ? root.entry.name + " folder, " + (root.entry.open ? "open" : "closed")
+            + (root.entry.badge != "" ? ", " + root.entry.badge + " mentions" : root.entry.unread ? ", unread" : "")
+        : root.entry.name + (root.entry.dm ? (root.entry.badge != "" ? ", " + root.entry.badge + " unread" : ", unread")
+            : (root.entry.badge != "" ? ", " + root.entry.badge + " mentions" : root.entry.unread ? ", unread" : ""));
     accessible-action-default => { root.chosen(); }
     // Hairlines between rows, none round the one under the pointer or the
     // keyboard.
@@ -72,65 +74,69 @@ component PickerItem inherits Rectangle {
         x: 10px; y: 0px; width: parent.width - 20px; height: 1px; background: Theme.line;
     }
     HorizontalLayout {
-        padding-left: root.row.nested ? 26px : 10px; padding-right: 10px; spacing: 10px;
-        if root.row.join: Image {
+        padding-left: root.entry.nested ? 26px : 10px; padding-right: 10px; spacing: 10px;
+        if root.entry.join: Image {
             source: IconPack.plus; width: 14px; height: 14px; y: (parent.height - self.height) / 2;
             colorize: IconPack.tint(self.source, Theme.accent-text); accessible-role: none;
         }
-        if root.row.join: Text {
+        if root.entry.join: Text {
             text: "join a server"; font-family: Look.mono; font-size: 12px; color: Theme.muted;
             vertical-alignment: center; accessible-role: none;
         }
-        if root.row.folder: Rectangle {
+        if root.entry.folder: Rectangle {
             width: 20px;
-            for server[index] in root.row.preview: Avatar {
+            for server[index] in root.entry.preview: Rectangle {
                 x: Math.mod(index, 2) * 11px; y: (parent.height - 20px) / 2 + floor(index / 2) * 11px;
-                size: 9px; initial: server.initial; picture-url: server.picture-url; tint: Theme.raised;
+                width: 9px; height: 9px; border-radius: 4.5px; clip: true;
+                Avatar { size: 9px; initial: server.initial; picture-url: server.picture-url; tint: Theme.raised; }
             }
         }
-        if !root.row.folder && !root.row.join: Rectangle {
+        if !root.entry.folder && !root.entry.join: Rectangle {
             width: 20px;
+            Rectangle {
+                y: (parent.height - 20px) / 2; width: 20px; height: 20px; border-radius: 10px; clip: true;
+                Avatar { size: 20px; initial: root.entry.initial; picture-url: root.entry.picture-url; tint: Theme.raised; }
+            }
             Rectangle {
                 y: (parent.height - 20px) / 2; width: 20px; height: 20px; border-radius: 10px;
                 border-width: 1px; border-color: Theme.line;
-                Avatar { size: 20px; initial: root.row.initial; picture-url: root.row.picture-url; tint: Theme.raised; }
             }
         }
-        if !root.row.join: Rectangle {
+        if !root.entry.join: Rectangle {
             horizontal-stretch: 0;
             min-width: 0px; preferred-width: name.preferred-width;
             name := Text {
                 width: min(parent.width, self.preferred-width);
-                text: root.row.name; font-family: Look.name-font(""); font-size: 16px; font-weight: Look.name-weight(700);
+                text: root.entry.name; font-family: Look.name-font(""); font-size: 16px; font-weight: Look.name-weight(700);
                 letter-spacing: Look.spacing-names;
-                color: root.row.selected || root.row.unread || root.row.badge != "" ? Theme.text : touch.has-hover ? Theme.secondary : Theme.muted;
+                color: root.entry.selected || root.entry.unread || root.entry.badge != "" ? Theme.text : touch.has-hover ? Theme.secondary : Theme.muted;
                 vertical-alignment: center; overflow: elide; accessible-role: none;
             }
-            if root.row.selected: Rectangle {
+            if root.entry.selected: Rectangle {
                 x: 0px; y: (parent.height + 19px) / 2 + 1px; width: name.width; height: 2px; background: Theme.accent;
             }
         }
-        if root.row.folder: Image {
-            source: root.row.open ? IconPack.chevron-down : IconPack.chevron-right; width: 12px; height: 12px;
+        if root.entry.folder: Image {
+            source: root.entry.open ? IconPack.chevron-down : IconPack.chevron-right; width: 12px; height: 12px;
             y: (parent.height - self.height) / 2;
             colorize: IconPack.tint(self.source, Theme.faint); accessible-role: none;
         }
         Rectangle { horizontal-stretch: 1; }
-        if root.row.badge != "": Rectangle {
+        if root.entry.badge != "": Rectangle {
             y: (parent.height - self.height) / 2;
             width: max(18px, badge-text.preferred-width + 10px); height: 18px;
             border-radius: ChannelLists.badge-radius >= 0px ? ChannelLists.badge-radius : 9px;
             background: ChannelLists.badge-ground != transparent ? ChannelLists.badge-ground : Theme.danger;
             badge-text := Text {
-                text: root.row.badge; font-size: 11px; font-weight: 700;
+                text: root.entry.badge; font-size: 11px; font-weight: 700;
                 color: ChannelLists.badge-ink != transparent ? ChannelLists.badge-ink : Theme.on-danger; accessible-role: none;
             }
         }
-        if root.row.unread && root.row.badge == "": Rectangle {
+        if root.entry.unread && root.entry.badge == "": Rectangle {
             y: (parent.height - self.height) / 2; width: 6px; height: 6px; border-radius: 3px; background: Theme.accent-text;
         }
-        if !root.row.join: Text {
-            text: root.row.number; font-family: Look.mono; font-size: 11px; color: Theme.faint;
+        if !root.entry.join: Text {
+            text: root.entry.number; font-family: Look.mono; font-size: 11px; color: Theme.faint;
             vertical-alignment: center; horizontal-alignment: right; accessible-role: none;
         }
     }
@@ -141,7 +147,7 @@ component PickerItem inherits Rectangle {
         mouse-cursor: MouseCursor.pointer;
         clicked => { root.chosen(); }
         pointer-event(event) => {
-            if event.button == PointerEventButton.right && event.kind == PointerEventKind.down && !root.row.join {
+            if event.button == PointerEventButton.right && event.kind == PointerEventKind.down && !root.entry.join {
                 root.context-menu(self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
             }
         }
@@ -218,7 +224,7 @@ export component ServerPicker inherits Rectangle {
         }
         Flickable {
             vertical-stretch: 1;
-            viewport-height: root.rows-height + 9px;
+            content-height: root.rows-height + 9px;
             VerticalLayout {
                 spacing: 0px; alignment: start;
                 for row[index] in Picker.rows: VerticalLayout {
@@ -228,7 +234,7 @@ export component ServerPicker inherits Rectangle {
                         Rectangle { x: 10px; y: 4px; width: parent.width - 20px; height: 1px; background: Theme.line; }
                     }
                     PickerItem {
-                        row: row; current: index == root.current; first: index == 0 || row.join;
+                        entry: row; current: index == root.current; first: index == 0 || row.join;
                         chosen => { root.current = index; root.activate(index); }
                         context-menu(x, y) => { root.open-server-menu(row.id, x, y); }
                     }
