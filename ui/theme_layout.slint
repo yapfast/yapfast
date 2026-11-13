@@ -5,7 +5,7 @@
 // here draws.
 
 import { Theme, Look } from "theme.slint";
-import { Art, ArtLayer } from "theme_art.slint";
+import { Art, ArtLayer, ArtImage } from "theme_art.slint";
 
 /// One outline drawn in dashes or dots instead of a line.
 export struct Dash {
@@ -37,6 +37,8 @@ export global Arrange {
     in property <int> rail;
     /// The member list: 0 right (stock), 1 left, 2 hidden.
     in property <int> members;
+    /// How long the collapsed member list (3) takes to open; 0 at once.
+    in property <duration> members-motion;
     in property <bool> composer-top;
     /// Messages: 0 flat (stock), 1 bubbles, 2 irc, 3 cards.
     in property <int> messages;
@@ -53,8 +55,16 @@ export global Arrange {
     in property <color> bubble-other-set: transparent;
     in property <color> bubble-own-text-set: transparent;
     in property <length> bubble-radius: 16px;
-    out property <brush> bubble-own: self.bubble-own-set != transparent ? self.bubble-own-set : Theme.accent-fill;
-    out property <brush> bubble-other: self.bubble-other-set != transparent ? self.bubble-other-set : Theme.raised-fill;
+    /// A gradient ground, drawn whole; `-set` holds its first stop.
+    in property <brush> bubble-own-paint;
+    in property <bool> bubble-own-painted;
+    in property <brush> bubble-other-paint;
+    in property <bool> bubble-other-painted;
+    /// Pictures on each bubble, over its ground, under its text.
+    in property <[ArtImage]> bubble-own-art;
+    in property <[ArtImage]> bubble-other-art;
+    out property <brush> bubble-own: self.bubble-own-painted ? self.bubble-own-paint : self.bubble-own-set != transparent ? self.bubble-own-set : Theme.accent-fill;
+    out property <brush> bubble-other: self.bubble-other-painted ? self.bubble-other-paint : self.bubble-other-set != transparent ? self.bubble-other-set : Theme.raised-fill;
     out property <color> bubble-own-text: self.bubble-own-text-set != transparent ? self.bubble-own-text-set : self.bubble-own-set != transparent ? Theme.text : Theme.on-accent;
     // cards
     in property <float> cards-tilt;
@@ -73,6 +83,10 @@ export global Arrange {
     in property <length> cards-over-top;
     in property <length> cards-over-bottom;
     in property <length> cards-bleed;
+    /// Pixels each card steps aside, left or right by its group.
+    in property <length> cards-stagger;
+    /// A hovered or mentioned card's tint lies over its pictures too.
+    in property <bool> cards-tint-art;
     // Dashed and dotted outlines, by place.
     in property <Dash> dash-composer;
     in property <Dash> dash-card;
@@ -96,6 +110,12 @@ export global Arrange {
     /// A message's lean in `cards`, from its group's seed: within ±tilt.
     public pure function lean(seed: int) -> float {
         self.cards-tilt == 0 ? 0 : self.cards-tilt * (Math.mod(seed, 201) - 100) / 100
+    }
+    /// How far a card steps in from its left, by its group's seed: every
+    /// other group on average, 0 without `stagger`. A higher bit of the
+    /// seed than its lowest, which varies little between groups.
+    public pure function stagger-left(seed: int) -> length {
+        self.cards-stagger > 0px && Math.mod(Math.floor(seed / 4096), 2) == 1 ? self.cards-stagger : 0px
     }
     /// The side padding that centres a column at most `chat-max-width` wide
     /// in `width`, never under `stock`.

@@ -11,10 +11,10 @@
 use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
 
-use slint::{Color, ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{Brush, Color, ComponentHandle, ModelRc, SharedString, VecModel};
 use yapfast_core::themes::Performance;
 use yapfast_core::themes::layout::{BorderPlace, Layout, Stroke};
-use yapfast_ui::{Arrange, Dash, Look, Scrap, YapfastWindow};
+use yapfast_ui::{Arrange, ArtImage, Dash, Look, Scrap, YapfastWindow};
 
 /// What the ransom callback cuts letters from.
 #[derive(Default)]
@@ -58,6 +58,12 @@ pub fn reset(window: &YapfastWindow) {
     arrange.set_bubble_max(0.72);
     arrange.set_bubble_own_set(Color::default());
     arrange.set_bubble_other_set(Color::default());
+    arrange.set_bubble_own_paint(Brush::default());
+    arrange.set_bubble_other_paint(Brush::default());
+    arrange.set_bubble_own_painted(false);
+    arrange.set_bubble_other_painted(false);
+    arrange.set_bubble_own_art(ModelRc::new(VecModel::<ArtImage>::default()));
+    arrange.set_bubble_other_art(ModelRc::new(VecModel::<ArtImage>::default()));
     arrange.set_bubble_own_text_set(Color::default());
     arrange.set_bubble_radius(16.);
     arrange.set_cards_tilt(0.);
@@ -71,6 +77,9 @@ pub fn reset(window: &YapfastWindow) {
     arrange.set_cards_over_top(0.);
     arrange.set_cards_over_bottom(0.);
     arrange.set_cards_bleed(0.);
+    arrange.set_cards_stagger(0.);
+    arrange.set_cards_tint_art(false);
+    arrange.set_members_motion(0);
     for place in BorderPlace::ALL {
         set_dash(&arrange, *place, Dash::default());
     }
@@ -87,6 +96,7 @@ pub fn apply(
     families: &[String],
     names: Option<&str>,
     performance: Performance,
+    reduced: bool,
 ) {
     let arrange = window.global::<Arrange>();
     if let Some(rail) = layout.rail {
@@ -94,6 +104,11 @@ pub fn apply(
     }
     if let Some(members) = layout.members {
         arrange.set_members(members.index());
+    }
+    // The collapsed member list opens as the pointer comes on; reduced
+    // motion and Light open it at once.
+    if !reduced && performance != Performance::Light {
+        arrange.set_members_motion(180);
     }
     if let Some(composer) = layout.composer {
         arrange.set_composer_top(composer.index() == 1);
@@ -117,11 +132,17 @@ pub fn apply(
     if let Some(share) = layout.bubbles.max_width {
         arrange.set_bubble_max(share / 100.);
     }
-    if let Some(colour) = layout.bubbles.own {
-        arrange.set_bubble_own_set(Color::from_argb_encoded(colour));
+    // A gradient ground is drawn as one; its first stop stands in where a
+    // single colour is needed.
+    if let Some(paint) = &layout.bubbles.own {
+        arrange.set_bubble_own_set(Color::from_argb_encoded(paint.solid()));
+        arrange.set_bubble_own_paint(super::theme_look::brush(paint));
+        arrange.set_bubble_own_painted(true);
     }
-    if let Some(colour) = layout.bubbles.other {
-        arrange.set_bubble_other_set(Color::from_argb_encoded(colour));
+    if let Some(paint) = &layout.bubbles.other {
+        arrange.set_bubble_other_set(Color::from_argb_encoded(paint.solid()));
+        arrange.set_bubble_other_paint(super::theme_look::brush(paint));
+        arrange.set_bubble_other_painted(true);
     }
     if let Some(colour) = layout.bubbles.own_text {
         arrange.set_bubble_own_text_set(Color::from_argb_encoded(colour));
@@ -144,6 +165,10 @@ pub fn apply(
     if let Some(colour) = layout.cards.ground {
         arrange.set_cards_ground_set(Color::from_argb_encoded(colour));
     }
+    if let Some(stagger) = layout.cards.stagger {
+        arrange.set_cards_stagger(stagger);
+    }
+    arrange.set_cards_tint_art(layout.cards.tint_art);
     // A card's shadow reaches past its edges by its offset and blur; each
     // row's slice of the card draws that much more, so it shows whole.
     if let Some(shadow) = layout.cards.shadow {

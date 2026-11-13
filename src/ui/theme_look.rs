@@ -471,6 +471,7 @@ fn paint(window: &YapfastWindow) {
             &applied.ransom,
             names_face,
             state.performance,
+            state.reduced,
         );
         let look = window.global::<Look>();
         let tokens = window.global::<yapfast_ui::Theme>();
@@ -616,7 +617,7 @@ fn paint(window: &YapfastWindow) {
     start_clock(window);
 }
 
-fn brush(paint: &Paint) -> Brush {
+pub(super) fn brush(paint: &Paint) -> Brush {
     match paint {
         Paint::Colour(colour) => Brush::SolidColor(Color::from_argb_encoded(*colour)),
         Paint::Linear { angle, stops } => {

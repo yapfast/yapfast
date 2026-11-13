@@ -56,15 +56,20 @@
   "art": {
     "surfaces": {
       "chat": { "texture": "paper", "colour": "#ffffff", "opacity": 0.05, "blend": "screen" },
-      "sidebar": [{ "texture": "noise", "colour": "#000000", "opacity": 0.12, "scale": 2 }],
+      "sidebar": [{ "texture": "noise", "colour": "#000000", "opacity": 0.12, "scale": 2 },
+                  { "texture": "halftone", "colour": "#7aa2ff", "opacity": 0.25, "size": [200, 40],
+                    "position": "bottom", "reserve": { "bottom": 44 } }],
       "account": { "texture": "grain", "colour": "#ffffff", "opacity": 0.04 },
-      "actions": { "texture": "grain", "colour": "#ffffff", "opacity": 0.04 }
+      "actions": { "texture": "grain", "colour": "#ffffff", "opacity": 0.04 },
+      "profile-pane": [{ "texture": "noise", "colour": "#000000", "opacity": 0.04 },
+                       { "texture": "halftone", "colour": "#7aa2ff", "opacity": 0.15,
+                         "size": [96, 96], "position": "bottom right" }]
     },
     "overlays": [
       { "kind": "vignette", "opacity": 0.25 },
       { "kind": "scanlines", "size": 3, "opacity": 0.04, "on": "chat" }
     ],
-    "glass": { "surfaces": ["menu", "dialog"], "blur": 16, "opacity": 0.85, "highlight": "#ffffff26" },
+    "glass": { "surfaces": ["menu", "dialog"], "blur": 16, "opacity": 0.85, "highlight": "#ffffff26", "gap": 0 },
     "text": {
       "headings": { "shadow": { "blur": 0, "x": 0, "y": 1, "colour": "#00000099" } },
       "names": { "glow": { "colour": "#7aa2ff66", "size": 2 } }
@@ -86,16 +91,21 @@
   },
   "layout": {
     "rail": "left",
-    "members": "right",
+    "members": "collapsed",
     "composer": "bottom",
     "messages": "flat",
     "chat_avatars": true,
     "irc": { "time_width": 56, "nick_width": 120, "separator": "│" },
-    "bubbles": { "max_width": 72, "radius": 18 },
-    "cards": { "tilt": 0, "gap": 8, "padding": 12,
+    "bubbles": { "max_width": 72, "radius": 18,
+                 "own": { "ground": "linear(180deg, #3558c9, #23409e)",
+                          "art": [{ "texture": "grain", "colour": "#ffffff", "opacity": 0.08 }] },
+                 "own_text": "#ffffff" },
+    "cards": { "tilt": 0, "gap": 8, "padding": 12, "stagger": 0, "tint_art": true,
                "shadow": { "blur": 0, "x": 4, "y": 4, "colour": "#00000040" },
                "art": [{ "texture": "paper", "colour": "#f5f1e8", "opacity": 0.8, "position": "top",
-                         "size": [72, 18], "rotation": -3 }] }
+                         "size": [72, 18], "rotation": -3 },
+                       { "texture": "kraft", "colour": "#c8a878", "opacity": 0.5, "position": "bottom",
+                         "size": ["full", 6] }] }
   },
 
   "variants": {

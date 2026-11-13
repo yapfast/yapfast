@@ -2,7 +2,7 @@ import { IconPack } from "media.slint";
 import { UiParts } from "yapfast/parts.slint";
 import { ListView } from "scrollview.slint";
 import { Theme, Middle, Look } from "theme.slint";
-import { ActionsFrame } from "theme_layout.slint";
+import { ActionsFrame, Arrange } from "theme_layout.slint";
 import { IconButton, PingToggle, ActionButton, MessagesSkeleton, TextField } from "controls.slint";
 import { FoundRow, FoundCard } from "header.slint";
 import { SettingsSwitch } from "settings.slint";
@@ -243,7 +243,7 @@ export component ThreadPanel inherits Rectangle {
                                 Text { text: message.day; color: Theme.muted; font-size: 13px; font-weight: 700; vertical-alignment: center; }
                                 Rectangle { horizontal-stretch: 1; Rectangle { height: 1px; background: Theme.line; } }
                             }
-                            MessageContent {
+                            thread-content := MessageContent {
                                 message: message; active-item: root.active-item; reactions-enabled: root.reactions-enabled; bot-busy-item: root.bot-busy-item; bot-failed-item: root.bot-failed-item; bot-failed-text: root.bot-failed-text;
                                 emoji-font: root.emoji-font; message-font-size: root.message-font-size;
                                 end-padding: 16px; collapse-long: root.collapse-long;
@@ -287,7 +287,11 @@ export component ThreadPanel inherits Rectangle {
                     // The row's actions float over its top edge, as in the timeline,
                     // with fewer reactions for the narrower panel.
                     if (self.lit || root.react-item == message.item || root.menu-item == message.item || root.confirm-delete == message.item) && !message.deleted && message.delivery == "": message-bar := ActionsFrame {
-                        x: parent.width - self.width - 12px; y: index == 0 ? 4px : -16px;
+                        // In `bubbles`, beside the bubble, as in the timeline.
+                        x: Arrange.messages != 1 || message.notice != "" ? parent.width - self.width - 12px
+                            : message.own ? max(12px, thread-content.bubble-left - self.width - 8px)
+                            : min(parent.width - self.width - 12px, thread-content.bubble-right + 8px);
+                        y: index == 0 ? 4px : -16px;
                         width: actions.preferred-width; height: actions.preferred-height;
                         // Shift's quick actions, as in the timeline.
                         property <bool> quick: root.shift-held && root.react-item != message.item && root.menu-item != message.item;
