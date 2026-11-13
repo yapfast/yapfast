@@ -15,7 +15,7 @@ use livekit::webrtc::{prelude::VideoBuffer, video_frame::I420Buffer};
 
 /// A picture's planes as native code lays them out; see `native/picture.c`.
 #[repr(C)]
-pub(crate) struct RawPicture {
+pub struct RawPicture {
     pub width: c_int,
     pub height: c_int,
     pub y: *const c_uchar,
@@ -84,7 +84,7 @@ impl<'a> I420<'a> {
     /// `raw`'s planes must hold its height in rows of luma and half as many
     /// of each chroma plane, at its strides, for `'a`.
     #[cfg(any(target_os = "linux", windows))]
-    pub(crate) unsafe fn from_raw(raw: &RawPicture) -> Option<Self> {
+    pub unsafe fn from_raw(raw: &RawPicture) -> Option<Self> {
         if raw.width <= 0
             || raw.height <= 0
             || raw.y_stride <= 0
@@ -113,7 +113,7 @@ impl<'a> I420<'a> {
         })
     }
 
-    pub(crate) fn raw(&self) -> RawPicture {
+    pub fn raw(&self) -> RawPicture {
         RawPicture {
             width: self.width as c_int,
             height: self.height as c_int,
@@ -154,7 +154,7 @@ impl<'a> I420<'a> {
     /// Writes the picture scaled to `width` by `height` into `planes`, one
     /// y, u and v, whose rows are `strides` bytes apart: where a shared frame
     /// of another size goes, in the buffer kept for the frames after it.
-    pub(crate) fn scale_into(
+    pub fn scale_into(
         &self,
         (y, u, v): (&mut [u8], &mut [u8], &mut [u8]),
         (y_stride, u_stride, v_stride): (u32, u32, u32),
@@ -289,7 +289,7 @@ fn srgb(value: f64) -> f64 {
 /// Sends `argb` through `tone` into `picture`: a capture's conversion where the
 /// screen it came from shows HDR, in place of libyuv's, which has no way to
 /// tonemap on the way.
-pub(crate) fn toned_into(picture: &mut I420Buffer, argb: &[u8], stride: u32, tone: &[u8; 256]) {
+pub fn toned_into(picture: &mut I420Buffer, argb: &[u8], stride: u32, tone: &[u8; 256]) {
     let (width, height) = (picture.width(), picture.height());
     let (y_stride, u_stride, v_stride) = picture.strides();
     let rows = (height as usize).div_ceil(2);

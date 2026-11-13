@@ -16,7 +16,6 @@ mod audio_io;
 /// Where a watched stream's sound and picture sit on the streamer's own clock,
 /// and the bound on when a decoded picture is shown; see src/av_timing.rs.
 #[cfg(feature = "discord")]
-pub mod av_timing;
 pub use audio_io::set_windows_effects;
 pub mod backend;
 pub mod blocks;
@@ -26,6 +25,8 @@ pub mod camera;
 /// Which way a screen is captured, and the setting that decides it; see
 /// src/capture.rs.
 pub mod capture;
+// The base a stream and a call both sit on, from the media crate.
+pub use yapfast_media::{av_timing, gpu, logging, picture, pressure, volume};
 pub mod chat;
 pub mod cli;
 #[cfg(feature = "discord")]
@@ -65,14 +66,12 @@ pub mod encode;
 #[cfg(feature = "matrix")]
 pub mod experiment;
 pub mod frames;
-pub mod gpu;
 /// A handle borrowed from the owner that gave it out, which is what keeps a
 /// texture the card drew from outliving the capture, scaler or share it came
 /// from; see src/lease.rs.
 pub mod lease;
 pub mod leveling;
 pub mod links;
-pub mod logging;
 #[cfg(feature = "discord")]
 mod lottie;
 #[cfg(feature = "matrix")]
@@ -87,11 +86,9 @@ pub mod mention;
 pub mod meter;
 pub mod network;
 pub mod noise;
-pub mod picture;
 #[cfg(feature = "discord")]
 pub mod playback;
 #[cfg(feature = "discord")]
-pub mod pressure;
 pub mod push_to_talk;
 #[cfg(feature = "discord")]
 pub mod ring;
@@ -116,7 +113,6 @@ pub mod voice_demo;
 #[cfg(feature = "discord")]
 mod voice_message;
 pub mod voice_roster;
-pub mod volume;
 #[cfg(all(feature = "discord", wgc))]
 pub mod wgc;
 

@@ -11982,6 +11982,7 @@ dependencies = [
  "x11rb",
  "x264-src",
  "yapfast-discord",
+ "yapfast-media",
  "zbus",
 ]
 
@@ -12028,7 +12029,11 @@ dependencies = [
 name = "yapfast-media"
 version = "0.1.0"
 dependencies = [
+ "livekit",
  "serde",
+ "tokio",
+ "tracing-subscriber",
+ "windows",
 ]
 
 [[package]]

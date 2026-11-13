@@ -33,6 +33,7 @@ screencast = ["dep:zbus"]
 test-fixtures = []
 
 [dependencies]
+yapfast-media.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 # A Go Live stream's preview goes to Discord as a data URI.

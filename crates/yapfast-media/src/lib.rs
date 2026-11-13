@@ -5,10 +5,16 @@
 //! Nothing here knows Discord, Matrix or any other protocol: a session names
 //! these, and this crate does not.
 
+pub mod av_timing;
 pub mod clock;
 pub mod codec;
+pub mod gpu;
+pub mod logging;
+pub mod picture;
 pub mod pool;
+pub mod pressure;
 pub mod rtcp;
+pub mod volume;
 
 /// `mutex`'s guard, whether or not a thread panicked holding it: a stream's
 /// picture is worth more than the panic that poisoned the lock.

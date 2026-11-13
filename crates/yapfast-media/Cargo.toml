@@ -7,4 +7,18 @@ publish = false
 license = "GPL-3.0-or-later"
 
 [dependencies]
+# A picture in memory, and the tiles a window shows.
+livekit.workspace = true
+# The clock a stream's sound and picture are put on.
+tokio.workspace = true
+# The worker's own log lines.
+tracing-subscriber.workspace = true
+# Which adapter, which screen, and how much the machine is carrying.
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_System_Threading",
+    "Win32_System_SystemInformation",
+] }
 serde.workspace = true
