@@ -197,6 +197,10 @@ pub struct Ready {
     fonts: HashMap<PathBuf, Arc<Vec<u8>>>,
     sounds: HashMap<u64, Arc<[i16]>>,
     art: super::theme_art::Baked,
+    /// Emoji's font recoloured as the theme's pictures are, when the window
+    /// had none that way: made here, off the window's thread, so a new hue
+    /// or preset doesn't stall it.
+    emoji: Option<(yapfast_core::themes::content::Media, Vec<u8>)>,
 }
 
 thread_local! {
@@ -553,6 +557,7 @@ fn make_ready(
         }
     }
     let art = super::theme_art::bake(&resolved, &folder, window);
+    let emoji = crate::emoji_text::prepare(resolved.content.media);
     Ok(Ready {
         package,
         folder,
@@ -562,6 +567,7 @@ fn make_ready(
         fonts,
         sounds,
         art,
+        emoji,
     })
 }
 
@@ -595,6 +601,9 @@ fn apply_package(
         Some(ready) => {
             super::theme_media::seed_sounds(ready.sounds);
             super::theme_art::take_baked(ready.art);
+            if let Some(emoji) = ready.emoji {
+                crate::emoji_text::take_prepared(emoji);
+            }
             (ready.resolved, ready.fonts)
         }
         None => {
