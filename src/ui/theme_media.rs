@@ -73,6 +73,9 @@ struct State {
     /// The icons `IconPack` shows aren't all stock.
     swapped: bool,
     prefs: Prefs,
+    /// The theme's "Theme sounds" option: what its own sounds play at, 0
+    /// (off) to 1; unset, full.
+    scale: Option<f32>,
     context: Context,
     /// Counts the themes loaded with icons, for [`generation`].
     loads: u64,
@@ -529,6 +532,10 @@ pub fn paint(source: &Image, stock: Brush) -> Brush {
 
 /// One of the takes of a slot, at random among several.
 fn take(state: &mut State, slot: SoundSlot) -> Option<(Arc<[i16]>, f32)> {
+    let scale = state.scale.unwrap_or(1.0);
+    if scale <= 0.0 {
+        return None;
+    }
     let takes = state.sounds.get(&slot)?;
     let count = takes.takes.len() as u32;
     // A cheap shuffle, so the same take rarely plays twice running.
@@ -537,7 +544,16 @@ fn take(state: &mut State, slot: SoundSlot) -> Option<(Arc<[i16]>, f32)> {
         .wrapping_mul(1_103_515_245)
         .wrapping_add(12_345);
     let index = (state.picked >> 16) % count.max(1);
-    Some((Arc::clone(&takes.takes[index as usize]), takes.volume))
+    Some((
+        Arc::clone(&takes.takes[index as usize]),
+        takes.volume * scale,
+    ))
+}
+
+/// The theme's "Theme sounds" option, 0 (off) to 1: its own sounds only,
+/// never Yapfast's.
+pub fn set_scale(scale: f32) {
+    STATE.with_borrow_mut(|state| state.scale = Some(scale.clamp(0.0, 1.0)));
 }
 
 /// The theme's sound in place of Yapfast's `sound`, with its own volume,

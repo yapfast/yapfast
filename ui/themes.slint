@@ -7,7 +7,7 @@ import { Theme, Middle, Label, Look } from "theme.slint";
 import { ActionButton, TextField, VolumeSlider } from "controls.slint";
 import { ScrollView } from "scrollview.slint";
 import { Art } from "theme_art.slint";
-import { SettingsTitle, SettingsHeading, SettingsSwitch, Choices } from "settings.slint";
+import { SettingsTitle, SettingsHeading, SettingsSwitch, Choices, ThemeOptionList, ThemeOptions } from "settings.slint";
 
 /// A theme in the gallery, installed or listed.
 export struct ThemeListing {
@@ -374,6 +374,7 @@ export component ThemesSettings inherits Rectangle {
                     for theme in ThemesPage.installed: ThemeRow { theme: theme; }
                 }
                 if ThemesPage.view == 1 && ThemesPage.installed.length > 0: Gallery { rows: ThemesPage.installed-rows; }
+                if ThemeOptions.rows.length > 0: ThemeOptionList { padding-top: 12px; }
                 VerticalLayout {
                     spacing: 8px; padding-top: 12px;
                     SettingsHeading { text: "PERFORMANCE"; }

@@ -221,6 +221,7 @@ move; text effects tick only while one plays.
   "motion": { … }, "animations": [ … ], "effects": { … }, "art": { … },
   "sounds": { … }, "icons": { … }, "layout": { … }, "content": { … },
   "chrome": { … },
+  "options": [ … ], "sets": { … },
   "variants": {
     "dark": { "base": "yap", "colours": { … } },
     "light": { "base": "sakura", "colours": { … } }
@@ -245,8 +246,121 @@ Listing also needs `license`, a licence file (`LICENSE`, `LICENSE.txt`,
 built-in theme of the same darkness whose colours stand in for any the theme
 doesn't set, and may override any layer for itself; the layers at the top
 level apply to both. With both, the variant follows the system's light or dark
-windows, and switches when they do; with one, the theme is that mode only,
+windows, and switches when they do, unless the person pins one in the
+theme's *Light or dark* option (see Options); with one, the theme is that mode only,
 and the marketplace says so.
+
+**Options** (`options`, at most 12): switches, choices and sliders the
+person sets for the theme, under it in Settings → Appearance and Settings
+→ Themes → Installed. Each changes fields of the theme itself, by their
+path, so what an option sets is read and checked exactly as if the theme
+had written it.
+
+```json
+"options": [
+  { "id": "grain", "label": "Film grain", "kind": "toggle", "default": true,
+    "off": { "art.overlays.grain": null } },
+  { "id": "rail", "label": "Rail side", "kind": "choice", "default": "left",
+    "choices": [{ "value": "left", "label": "Left" },
+                { "value": "right", "label": "Right", "set": { "layout.rail": "right" } }] },
+  { "id": "messages", "label": "Messages", "kind": "choice", "default": "bubbles",
+    "choices": [{ "value": "bubbles", "label": "Bubbles", "set": "bubbles" },
+                { "value": "cards", "label": "Cards", "set": "cards" }] },
+  { "id": "blur", "label": "Glass blur", "kind": "slider", "min": 0, "max": 32,
+    "step": 1, "default": 18, "paths": ["art.glass.blur"] }
+],
+"sets": {
+  "bubbles": { "layout.messages": "bubbles", "shape.message.radius": 18 },
+  "cards": { "layout.messages": "cards", "art.overlays.grain": null }
+}
+```
+
+- Every option has an `id` (1 to 32 of `a-z`, `0-9` and `-`, kept forever:
+  the person's choice is saved by it), a `label` (at most 40 characters), an
+  optional `description` (at most 160) and a `kind`.
+- `toggle`: `default` true or false (true when left out), `on` what it
+  changes while on and `off` while off; at least one of them.
+- `choice`: 2 to 8 `choices`, each a `value` (an id as above), a `label` (at
+  most 24 characters) and what it changes in `set`; `default` names a
+  value, the first when left out.
+- `slider`: `min`, `max`, `step` (a hundredth of the range when left out, at
+  most 1000 steps) and `default`; its number is written to every field in
+  `paths` (1 to 8).
+- `hue`: a hue in degrees (0 to 360, `default` 0) that the colours in
+  `colours` are made from. Each is a colour's name (`"accent"`) or a path
+  (`"art.overlays.flare.colour"`), with its OKLCH lightness `l` (0 to 1) and
+  chroma `c` (0 to 0.37), and `alpha` (0 to 1, 1 when left out): the hue
+  turns, the lightness stays, so text that reads at one hue reads at all of
+  them. A colour outside sRGB loses chroma, never lightness, until it fits.
+  While its slider is dragged only the window's plain colours follow; on
+  release the theme is made ready again with it, pictures, art and all.
+- `when`, on any option: `{ "phosphor": "custom" }`, another option listed
+  before it and the value it has to have (a choice's value, or true or false
+  for a switch). Until then the option neither applies nor shows.
+- What an option changes (`on`, `off`, `set`) is an object of paths and
+  values, the name of one of the theme's `sets`, or a list of either. `sets`
+  names changes several options or choices share, as named variants.
+- A path starts at a layer (`colours`, `shape`, `type`, `spacing`, `motion`,
+  `animations`, `effects`, `art`, `sounds`, `icons`, `layout`, `content`,
+  `cursors`, `chrome`) and goes down by keys: `layout.rail`,
+  `shape.button.radius`. A key with a dot in it is found as written
+  (`effects.channel.name`). In a list, a step finds the items by their
+  `id`, `kind`, `preset`, `name`, `slot` or `effect`, or by position:
+  `art.overlays.grain` is the overlay whose `kind` is `grain`,
+  `art.overlays.grain.opacity` its opacity, `animations.0` the first
+  animation.
+- `null` takes the field away, or every item of the list it finds. Any other
+  value replaces the field, or sets it where the theme has its parent.
+- A path changes the field at the top level and in the variant shown,
+  wherever the theme has its parent, and is made at the top level when
+  neither has it. `variants.dark.…` or `variants.light.…` changes only that
+  variant.
+- Options apply in the order they're listed, each over the last.
+
+A preset picker is a `choice` whose choices each name a set, with a `hue`
+for a custom one:
+
+```json
+"sets": {
+  "p1": { "colours.accent": "#33ff66", "colours.text": "#b6ffc8", "art.overlays.glow.colour": "#33ff6655" },
+  "p3": { "colours.accent": "#ffb000", "colours.text": "#ffe2a6", "art.overlays.glow.colour": "#ffb00055" }
+},
+"options": [
+  { "id": "phosphor", "label": "Phosphor", "kind": "choice", "default": "p1",
+    "choices": [{ "value": "p1", "label": "P1 green", "set": "p1" },
+                { "value": "p3", "label": "P3 amber", "set": "p3" },
+                { "value": "custom", "label": "Custom" }] },
+  { "id": "hue", "label": "Hue", "kind": "hue", "default": 145, "when": { "phosphor": "custom" },
+    "colours": { "accent": { "l": 0.86, "c": 0.2 }, "text": { "l": 0.93, "c": 0.08 },
+                 "art.overlays.glow.colour": { "l": 0.8, "c": 0.2, "alpha": 0.33 } } }
+]
+```
+
+Yapfast adds options of its own, which a theme doesn't declare (one it
+declares under the same id stands instead):
+
+- `ransom-names`, *Ransom names*, a switch, on a theme with ransom names.
+- `theme-sounds`, *Theme sounds*, a slider from off to 100% (the default),
+  on a theme that ships sounds: how loud its own sounds play, never
+  Yapfast's.
+- `mode`, *Light or dark*, on a theme that ships both variants: *Auto*
+  follows the system's light or dark windows, *Dark* and *Light* pin one.
+
+The person's choices are kept per theme in `layout.json` as `theme_options`,
+by the theme's id, only where they differ from the default:
+`{ "installed:com.example.tide": { "grain": false } }`. A saved choice the
+theme no longer offers is ignored. Changing an option makes the theme ready
+again off the UI thread, as choosing a theme does: the window keeps showing
+it as it was until then.
+
+`yapfast theme check` reads every option and tries the theme at its
+defaults, then with each option moved on its own: a toggle flipped, every
+other choice, a slider at both ends, a hue every 30 degrees (with its
+`when` met), each in every variant the theme ships. Each of those has to pass what the
+theme does: every path has to name a field this Yapfast reads (`null` has to
+find something to take away), every value has to be in range, and text has
+to stay readable, refused as `with "Pale" on (dark): text on chat …`. A theme
+without `options` is read as it was, and costs nothing more.
 
 **Colours** (`colours`): each `#rgb`, `#rrggbb` or `#rrggbbaa`, by its name in
 `ui/theme.slint`: `rail`, `sidebar`, `panel`, `chat`, `stage`, `raised`,
@@ -407,8 +521,10 @@ colour pairs the scraps cycle through. Only the first 12 letters are cut,
 the rest following as one plain piece; a name with letters outside Latin
 script, such as CJK, Arabic or emoji, shows whole. Letters never squeeze: a
 name wider than its room is cut at the edge under an ellipsis. A person's own name
-style wins, and Settings → Appearance has *Plain names*, which draws every
-name plainly.
+style wins. A theme with ransom names offers the option *Ransom names*
+(id `ransom-names`, see Options), on unless the person turns it off; off,
+names show plainly. Someone who had the old *Plain names* switch on starts
+with it off in every theme until they change it.
 
 ```json
 "type": { "names": { "style": "ransom", "fonts": ["fonts/a.ttf", "fonts/b.otf"],

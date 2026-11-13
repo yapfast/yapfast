@@ -167,6 +167,22 @@
     "folders": { "open": "▾", "closed": "▸", "suffix": "/" }
   },
 
+  "options": [
+    { "id": "vignette", "label": "Vignette", "kind": "toggle", "default": true,
+      "description": "The darkened edges of the window.",
+      "off": { "art.overlays.vignette": null } },
+    { "id": "rail", "label": "Rail side", "kind": "choice", "default": "left",
+      "choices": [{ "value": "left", "label": "Left" },
+                  { "value": "right", "label": "Right", "set": { "layout.rail": "right" } }] },
+    { "id": "messages", "label": "Messages", "kind": "choice", "default": "flat",
+      "choices": [{ "value": "flat", "label": "Flat" },
+                  { "value": "cards", "label": "Cards", "set": "cards" }] },
+    { "id": "blur", "label": "Glass blur", "kind": "slider", "min": 0, "max": 32, "step": 1,
+      "default": 16, "paths": ["art.glass.blur"] }
+  ],
+  "sets": {
+    "cards": { "layout.messages": "cards", "art.overlays.scanlines": null }
+  },
   "variants": {
     "dark": {
       "base": "yap",

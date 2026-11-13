@@ -18,6 +18,7 @@ use slint::{Brush, Color, ComponentHandle, Image, ModelRc, SharedString, VecMode
 use yapfast_core::themes::check::{self, Files, Strictness};
 use yapfast_core::themes::install::{Fetched, Installed, Themes};
 use yapfast_core::themes::motion;
+use yapfast_core::themes::options::{Choices, MODE, RANSOM, SOUNDS, ThemeOption};
 use yapfast_core::themes::package::{
     Close, Hover, Mode, Paint, Press, Property, Resolved, Role, Slot, Surface, TextSlot, Transition,
 };
@@ -122,6 +123,8 @@ struct Applied {
     fonts: Vec<(Role, String)>,
     /// Families registered for ransom names, in the theme's order.
     ransom: Vec<String>,
+    /// What the person can switch in it.
+    options: Vec<ThemeOption>,
 }
 
 /// A theme on trial: what to go back to, and when.
@@ -168,6 +171,10 @@ struct State {
     /// The latest [`prepare`], and what to do once it's ready.
     preparing: u64,
     when_ready: Option<Then>,
+    /// The person's choices for each theme's options, by the theme's id in
+    /// `layout.json` (`installed:<id>`, or `dev`); see [`set_choices`].
+    choices: HashMap<String, Choices>,
+    plain_names: bool,
 }
 
 /// What to do once [`prepare`] has made a theme ready.
@@ -180,6 +187,8 @@ pub struct Ready {
     package: Package,
     folder: PathBuf,
     mode: Mode,
+    /// The option choices it was resolved with.
+    choices: Choices,
     resolved: Resolved,
     /// Font files, checked, by their path in the folder.
     fonts: HashMap<PathBuf, Arc<Vec<u8>>>,
@@ -250,6 +259,16 @@ fn wanted_mode(window: &YapfastWindow) -> Mode {
     if light { Mode::Light } else { Mode::Dark }
 }
 
+/// The variant to show of the theme `id`: the one the person pinned in its
+/// "Light or dark" option, or the system's.
+fn wanted_for(window: &YapfastWindow, id: &str) -> Mode {
+    match choices_of(id).get(MODE).and_then(serde_json::Value::as_str) {
+        Some("dark") => Mode::Dark,
+        Some("light") => Mode::Light,
+        _ => wanted_mode(window),
+    }
+}
+
 /// Shows an installed theme, or `--theme-dev`'s folder, by its id. Returns
 /// the colours to apply, or why it can't be shown; the caller falls back.
 pub fn show(window: &YapfastWindow, id: &str) -> Result<theme::Theme, String> {
@@ -297,6 +316,101 @@ fn refused_reason(id: &str) -> String {
     })
 }
 
+/// The person's choices for a theme's options, as `layout.json` keeps them,
+/// which [`prepare`] and [`show`] resolve it with.
+pub fn set_choices(id: &str, choices: Choices) {
+    STATE.with_borrow_mut(|state| {
+        if choices.is_empty() {
+            state.choices.remove(id);
+        } else {
+            state.choices.insert(id.to_owned(), choices);
+        }
+    });
+}
+
+/// Whether the person had Settings' old "Plain names" on, which every
+/// theme's "Ransom names" option starts off from until they change it.
+pub fn set_plain_names(plain: bool) {
+    STATE.with_borrow_mut(|state| state.plain_names = plain);
+}
+
+fn choices_of(id: &str) -> Choices {
+    STATE.with_borrow(|state| state.choices_of(id))
+}
+
+impl State {
+    fn choices_of(&self, id: &str) -> Choices {
+        let mut choices = self.choices.get(id).cloned().unwrap_or_default();
+        if self.plain_names {
+            choices
+                .entry(RANSOM.to_owned())
+                .or_insert(serde_json::Value::Bool(false));
+        }
+        choices
+    }
+}
+
+/// The applied theme's options, each with what the person has for it, for
+/// Settings; empty for a theme without any.
+pub fn applied_options() -> Vec<(ThemeOption, serde_json::Value)> {
+    STATE.with_borrow(|state| {
+        let Some(applied) = &state.applied else {
+            return Vec::new();
+        };
+        let choices = state.choices_of(&applied.id);
+        applied
+            .options
+            .iter()
+            .filter(|option| option.active(&applied.options, &choices))
+            .map(|option| (option.clone(), option.value(&choices)))
+            .collect()
+    })
+}
+
+/// How loud the applied theme's own sounds play, 0 to 1, from its "Theme
+/// sounds" option: 1 for a theme without it.
+pub fn sounds_scale() -> f32 {
+    applied_options()
+        .iter()
+        .find(|(option, _)| option.id == SOUNDS)
+        .and_then(|(_, value)| value.as_f64())
+        .map_or(1.0, |percent| (percent / 100.0) as f32)
+}
+
+/// The applied theme's colours with a hue option at `hue` degrees, for the
+/// window to show while its slider is dragged: only the colours, the rest
+/// waiting for the release. `None` if it isn't a hue option shown now.
+pub fn hue_preview(option: &str, hue: f64) -> Option<theme::Theme> {
+    STATE.with_borrow(|state| {
+        let applied = state.applied.as_ref()?;
+        let option = applied.options.iter().find(|known| known.id == option)?;
+        if !matches!(option.kind, yapfast_core::themes::options::Kind::Hue { .. }) {
+            return None;
+        }
+        let mut resolved = applied.resolved.clone();
+        for (path, value) in option.overrides(&serde_json::json!(hue)) {
+            let (Some(token), Some(colour)) = (
+                path.strip_prefix("colours."),
+                value
+                    .as_str()
+                    .and_then(yapfast_core::themes::package::parse_colour),
+            ) else {
+                continue;
+            };
+            let Some(token) = yapfast_core::themes::package::COLOURS
+                .iter()
+                .chain(yapfast_core::themes::package::EXTRA_COLOURS.iter())
+                .find(|known| **known == token)
+            else {
+                continue;
+            };
+            resolved.colours.retain(|(name, _)| name != token);
+            resolved.colours.push((*token, Paint::Colour(colour)));
+        }
+        Some(colours_of(&resolved))
+    })
+}
+
 /// Forgets a [`prepare`] still under way, and anything it made ready: the
 /// person chose another theme meanwhile.
 pub fn cancel_prepare() {
@@ -320,7 +434,9 @@ fn take_ready(window: &YapfastWindow, id: &str) -> Option<Result<Ready, String>>
         return None;
     }
     match ready {
-        Ok(ready) if ready.package.mode_for(wanted_mode(window)) != ready.mode => None,
+        Ok(ready) if ready.package.mode_for(wanted_for(window, id)) != ready.mode => None,
+        // The person changed an option since: it's made ready again.
+        Ok(ready) if ready.choices != choices_of(id) => None,
         ready => Some(ready),
     }
 }
@@ -347,7 +463,8 @@ pub fn prepare(window: &YapfastWindow, id: &str, then: impl FnOnce(&YapfastWindo
             })
             .ok_or_else(|| refused_reason(installed_id))
     };
-    let wanted = wanted_mode(window);
+    let wanted = wanted_for(window, id);
+    let choices = choices_of(id);
     let size = window.window().size();
     let generation = STATE.with_borrow_mut(|state| {
         state.preparing += 1;
@@ -358,7 +475,8 @@ pub fn prepare(window: &YapfastWindow, id: &str, then: impl FnOnce(&YapfastWindo
     let id = id.to_owned();
     let work = move || {
         let started = Instant::now();
-        let ready = folder.and_then(|folder| make_ready(folder, wanted, (size.width, size.height)));
+        let ready = folder
+            .and_then(|folder| make_ready(folder, wanted, choices, (size.width, size.height)));
         tracing::info!(
             id,
             ms = started.elapsed().as_millis() as u64,
@@ -388,7 +506,12 @@ pub fn prepare(window: &YapfastWindow, id: &str, then: impl FnOnce(&YapfastWindo
 }
 
 /// [`prepare`]'s work: everything [`show`] would do before setting values.
-fn make_ready(folder: PathBuf, wanted: Mode, window: (u32, u32)) -> Result<Ready, String> {
+fn make_ready(
+    folder: PathBuf,
+    wanted: Mode,
+    choices: Choices,
+    window: (u32, u32),
+) -> Result<Ready, String> {
     // An installed theme was checked when installed; its files are checked
     // again here, since the store is on disk where anything could change it.
     let files = Files::read(&folder)?;
@@ -401,7 +524,9 @@ fn make_ready(folder: PathBuf, wanted: Mode, window: (u32, u32)) -> Result<Ready
     }
     let package = report.package.ok_or("the theme has no package")?;
     let mode = package.mode_for(wanted);
-    let resolved = package.resolve(mode).map_err(|error| error.0)?;
+    let resolved = package
+        .resolve_with(mode, &choices)
+        .map_err(|error| error.0)?;
     let mut fonts = HashMap::new();
     let named = resolved
         .types
@@ -429,6 +554,7 @@ fn make_ready(folder: PathBuf, wanted: Mode, window: (u32, u32)) -> Result<Ready
         package,
         folder,
         mode,
+        choices,
         resolved,
         fonts,
         sounds,
@@ -469,9 +595,11 @@ fn apply_package(
             (ready.resolved, ready.fonts)
         }
         None => {
-            let mode = package.mode_for(wanted_mode(window));
+            let mode = package.mode_for(wanted_for(window, id));
             (
-                package.resolve(mode).map_err(|error| error.0)?,
+                package
+                    .resolve_with(mode, &choices_of(id))
+                    .map_err(|error| error.0)?,
                 HashMap::new(),
             )
         }
@@ -506,6 +634,7 @@ fn apply_package(
             folder: folder.to_owned(),
             fonts,
             ransom,
+            options: package.options.clone(),
         });
         state.failed = None;
     });
@@ -2122,6 +2251,126 @@ mod tests {
         assert!(!tokens.get_accent_text_on());
         assert!(!tokens.get_rail_painted());
         assert_eq!(window.global::<ClientStyle>().get_text_size_theme(), -1.);
+    }
+
+    #[test]
+    fn an_option_changes_the_theme_shown_and_is_kept_per_theme() {
+        const ROOMY: &str = r##"{ "theme_api": 1, "id": "dev.example.roomy", "name": "Roomy", "version": "1.0.0",
+            "spacing": { "avatar_size": 44 },
+            "type": { "names": { "style": "ransom" } },
+            "options": [
+              { "id": "small", "label": "Small avatars", "kind": "toggle", "default": false,
+                "on": { "spacing.avatar_size": 28 } },
+              { "id": "round", "label": "Buttons", "kind": "choice", "default": "pill",
+                "choices": [{ "value": "pill", "label": "Pill", "set": { "shape.button.radius": 999 } },
+                            { "value": "square", "label": "Square", "set": { "shape.button.radius": 0 } }] }
+            ],
+            "variants": { "dark": { "base": "yap" } } }"##;
+        let data = tempfile::tempdir().unwrap();
+        register_bases();
+        let fetched = Fetched::new(
+            "https://github.com/ada/roomy".into(),
+            String::new(),
+            "main".into(),
+            "0123456789abcdef".into(),
+            Files {
+                manifest: ROOMY.into(),
+                ..Files::default()
+            },
+        )
+        .unwrap();
+        Themes::open(data.path()).install(&fetched).unwrap();
+        init(data.path());
+        let window = window();
+        let id = "installed:dev.example.roomy";
+        show(&window, id).unwrap();
+        let look = window.global::<Look>();
+        assert_eq!(look.get_avatar_size(), 44.);
+        assert_eq!(look.get_button().radius, 999.);
+        assert!(window.global::<yapfast_ui::Arrange>().get_ransom());
+        let shown: Vec<(String, serde_json::Value)> = applied_options()
+            .into_iter()
+            .map(|(option, value)| (option.id, value))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("small".to_owned(), serde_json::json!(false)),
+                ("round".to_owned(), serde_json::json!("pill")),
+                (RANSOM.to_owned(), serde_json::json!(true)),
+            ],
+            "the declared options, then the ransom names it offers"
+        );
+
+        let mut choices = Choices::new();
+        choices.insert("small".into(), serde_json::json!(true));
+        choices.insert("round".into(), serde_json::json!("square"));
+        choices.insert(RANSOM.into(), serde_json::json!(false));
+        set_choices(id, choices);
+        show(&window, id).unwrap();
+        assert_eq!(look.get_avatar_size(), 28.);
+        assert_eq!(look.get_button().radius, 0.);
+        assert!(!window.global::<yapfast_ui::Arrange>().get_ransom());
+
+        // Another theme's choices are its own; the old Plain names switch
+        // starts every theme's ransom names off.
+        set_choices(id, Choices::new());
+        set_plain_names(true);
+        show(&window, id).unwrap();
+        assert_eq!(look.get_avatar_size(), 44.);
+        assert!(!window.global::<yapfast_ui::Arrange>().get_ransom());
+        set_plain_names(false);
+        clear(&window);
+    }
+
+    #[test]
+    fn light_or_dark_can_be_pinned_per_theme() {
+        const BOTH: &str = r##"{ "theme_api": 1, "id": "dev.example.both", "name": "Both", "version": "1.0.0",
+            "variants": { "dark": { "base": "yap" }, "light": { "base": "sakura" } } }"##;
+        let data = tempfile::tempdir().unwrap();
+        register_bases();
+        let fetched = Fetched::new(
+            "https://github.com/ada/both".into(),
+            String::new(),
+            "main".into(),
+            "0123456789abcdef".into(),
+            Files {
+                manifest: BOTH.into(),
+                ..Files::default()
+            },
+        )
+        .unwrap();
+        Themes::open(data.path()).install(&fetched).unwrap();
+        init(data.path());
+        let window = window();
+        let id = "installed:dev.example.both";
+        let mut choices = Choices::new();
+        for (pinned, dark) in [("light", false), ("dark", true)] {
+            choices.insert(MODE.into(), serde_json::json!(pinned));
+            set_choices(id, choices.clone());
+            assert_eq!(show(&window, id).unwrap().dark, dark, "{pinned}");
+        }
+        assert!(
+            applied_options()
+                .iter()
+                .any(|(option, _)| option.id == MODE)
+        );
+        set_choices(id, Choices::new());
+        clear(&window);
+    }
+
+    #[test]
+    fn the_template_and_each_of_its_options_pass_the_check() {
+        register_bases();
+        let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("themes/template");
+        let report = check::check(&Files::read(&folder).unwrap(), Strictness::Install);
+        assert!(report.passed(), "{:?}", report.errors);
+        let options = report.package.unwrap().options;
+        let ids: Vec<&str> = options.iter().map(|option| option.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            ["vignette", "rail", "messages", "blur", RANSOM, SOUNDS, MODE]
+        );
     }
 
     #[test]

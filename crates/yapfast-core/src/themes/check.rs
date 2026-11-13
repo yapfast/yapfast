@@ -463,6 +463,7 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
             Err(error) => report.errors.push(error.0),
         }
     }
+    check_options(&package, files, &mut report);
     // Each sound is decoded once, here, and its length kept for the slots
     // that name it.
     let mut sound_seconds: BTreeMap<PathBuf, f32> = BTreeMap::new();
@@ -573,6 +574,54 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
     report.cost = Cost::of(&resolved, files, &sound_seconds);
     report.package = Some(package);
     report
+}
+
+/// A theme's options, each moved one at a time from the defaults, which the
+/// checks above cover: every field an option names has to be one this
+/// Yapfast reads, what it sets has to be in range, and the text has to
+/// stay readable, as for the theme itself.
+fn check_options(package: &Package, files: &Files, report: &mut Report) {
+    let combinations = super::options::combinations(&package.options);
+    if combinations.len() < 2 {
+        return;
+    }
+    for mode in package.modes() {
+        let mut stock_notes = Vec::new();
+        if package
+            .resolve_with_notes(mode, &super::options::Choices::new(), &mut stock_notes)
+            .is_err()
+        {
+            continue;
+        }
+        for (phrase, choices) in combinations.iter().skip(1) {
+            let mut notes = Vec::new();
+            let mut sentences = Vec::new();
+            match package.resolve_with_notes(mode, choices, &mut notes) {
+                Err(error) => sentences.push(error.0),
+                Ok(variant) => {
+                    for note in notes {
+                        if !stock_notes.contains(&note) {
+                            sentences.push(note.replace("; ignored", ""));
+                        }
+                    }
+                    sentences.extend(unreadable(&variant));
+                    sentences.extend(art::readable(&variant, files).0);
+                    sentences.extend(unreadable_content(&variant));
+                    sentences.extend(unreadable_layout(&variant));
+                }
+            }
+            for sentence in sentences {
+                // What the defaults already break is said once, above.
+                if report.errors.contains(&sentence) {
+                    continue;
+                }
+                let sentence = format!("{phrase} ({}): {sentence}", mode.name());
+                if !report.errors.contains(&sentence) {
+                    report.errors.push(sentence);
+                }
+            }
+        }
+    }
 }
 
 /// Whether a repository address is a public GitHub repository's, which is
@@ -1193,6 +1242,108 @@ mod tests {
 
     const PLUM: &str = r##"{ "theme_api": 1, "id": "com.example.plum", "name": "Plum", "version": "1.0.0",
         "variants": { "dark": { "base": "yap", "colours": { "chat": "#2a1a3a" } } } }"##;
+
+    /// PLUM with `options` (and anything else) added at its top level.
+    fn with_options(extra: &str) -> String {
+        PLUM.replace(r#""variants""#, &format!(r#"{extra}, "variants""#))
+    }
+
+    #[test]
+    fn options_that_keep_text_readable_pass_and_name_their_flips() {
+        let manifest = with_options(
+            r##""colours": { "accent": "#ffbf47" },
+            "options": [
+              { "id": "dim", "label": "Dim chat", "kind": "toggle", "default": false,
+                "on": { "variants.dark.colours.chat": "#140c1c" } },
+              { "id": "side", "label": "Rail side", "kind": "choice", "default": "left",
+                "choices": [{ "value": "left", "label": "Left" },
+                            { "value": "right", "label": "Right", "set": { "layout.rail": "right" } }] }
+            ]"##,
+        );
+        let report = check(&files(&manifest), Strictness::Install);
+        assert!(report.passed(), "{:?}", report.errors);
+        assert_eq!(report.package.unwrap().options.len(), 2);
+    }
+
+    #[test]
+    fn an_option_that_makes_text_unreadable_is_refused_naming_it() {
+        let manifest = with_options(
+            r##""options": [{ "id": "pale", "label": "Pale", "kind": "toggle", "default": false,
+                "on": { "variants.dark.colours.chat": "#d8d8d8" } }]"##,
+        );
+        let report = check(&files(&manifest), Strictness::Install);
+        let reason = report.reason().unwrap();
+        assert!(
+            reason.starts_with("with \"Pale\" on (dark): text on chat"),
+            "{reason}"
+        );
+    }
+
+    #[test]
+    fn an_option_naming_a_field_yapfast_doesnt_read_is_refused() {
+        let unknown = with_options(
+            r##""options": [{ "id": "x", "label": "X", "kind": "toggle",
+                "off": { "layout.wobble": true } }]"##,
+        );
+        let report = check(&files(&unknown), Strictness::Install);
+        assert!(
+            report.reason().unwrap().contains("layout.wobble"),
+            "{:?}",
+            report.errors
+        );
+        let missing = with_options(
+            r##""options": [{ "id": "grain", "label": "Grain", "kind": "toggle",
+                "off": { "art.overlays.grain": null } }]"##,
+        );
+        let report = check(&files(&missing), Strictness::Install);
+        assert!(
+            report.reason().unwrap().contains("art.overlays.grain"),
+            "{:?}",
+            report.errors
+        );
+        let out_of_range = with_options(
+            r##""options": [{ "id": "pad", "label": "Padding", "kind": "slider", "min": 0,
+                "max": 200, "default": 16, "paths": ["spacing.chat_padding"] }]"##,
+        );
+        let report = check(&files(&out_of_range), Strictness::Install);
+        assert!(!report.passed());
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("\"Padding\"")),
+            "{:?}",
+            report.errors
+        );
+    }
+
+    #[test]
+    fn a_theme_with_ransom_names_offers_them_as_an_option() {
+        let manifest = with_options(r##""type": { "names": { "style": "ransom" } }"##);
+        let package = Package::parse(&manifest).unwrap();
+        let option = &package.options[0];
+        assert_eq!(option.id, super::super::options::RANSOM);
+        let mut choices = super::super::options::Choices::new();
+        assert!(
+            package
+                .resolve_with(Mode::Dark, &choices)
+                .unwrap()
+                .layout
+                .names
+                .is_some()
+        );
+        choices.insert(option.id.clone(), serde_json::Value::Bool(false));
+        assert!(
+            package
+                .resolve_with(Mode::Dark, &choices)
+                .unwrap()
+                .layout
+                .names
+                .is_none()
+        );
+        let report = check(&files(&manifest), Strictness::Install);
+        assert!(report.passed(), "{:?}", report.errors);
+    }
 
     #[test]
     fn a_readable_theme_passes() {
