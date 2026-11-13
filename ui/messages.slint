@@ -2831,8 +2831,20 @@ export component MessageContent inherits VerticalLayout {
     property <bool> mine-right: root.style == 1 && message.own;
     property <bool> avatars: !Arrange.hide-avatars && root.style != 2 && !root.mine-right;
     property <length> card-pad: root.style == 3 ? Arrange.cards-padding : 0px;
-    property <length> lead: Arrange.centre(root.width, root.start-padding) + root.card-pad;
-    property <length> trail: Arrange.chat-max-width > 0px ? max(root.end-padding, Arrange.centre(root.width, root.start-padding) + root.card-pad + 32px) : root.end-padding + root.card-pad;
+    // A staggered card steps in from one side, by its group.
+    property <length> step-left: root.style == 3 ? Arrange.stagger-left(message.group) : 0px;
+    property <length> step-right: root.style == 3 ? Arrange.cards-stagger - root.step-left : 0px;
+    property <length> lead: Arrange.centre(root.width, root.start-padding) + root.card-pad + root.step-left;
+    property <length> trail: (Arrange.chat-max-width > 0px ? max(root.end-padding, Arrange.centre(root.width, root.start-padding) + root.card-pad + 32px) : root.end-padding + root.card-pad) + root.step-right;
+    /// In `bubbles`, where the bubble starts and ends across the row, which
+    /// the hover bar sits beside.
+    out property <length> bubble-left: bubble.x;
+    out property <length> bubble-right: bubble.x + bubble.width;
+    // The text on your own bubble, and its dimmer kind for a reply's quote.
+    property <brush> own-ink: Arrange.bubble-own-text;
+    // A name's size: the theme's `names` size, scaled as the person's text
+    // size scales the body, else the body's.
+    property <length> name-size: Look.size-names >= 0px ? Look.size-names * root.message-font-size / max(1px, ClientStyle.text-size) : root.message-font-size;
     // Names: the theme's ransom letters, unless the person styles their own.
     property <bool> ransom-name: Arrange.ransom && message.name-style.length == 0;
     property <bool> plain-name: ClientStyle.enabled;
@@ -2948,6 +2960,11 @@ export component MessageContent inherits VerticalLayout {
             max-width: root.style == 1 ? max(120px, (root.width - root.lead - root.trail - (root.avatars ? root.avatar + 16px : 0px)) * Arrange.bubble-max) : 100000px;
             background: root.style != 1 ? transparent : message.own ? Arrange.bubble-own : Arrange.bubble-other;
             border-radius: root.style == 1 ? Arrange.bubble-radius : 0px;
+            // A theme's pictures on the bubble, such as a gel's gloss.
+            if root.style == 1 && (message.own ? Arrange.bubble-own-art.length : Arrange.bubble-other-art.length) > 0: ArtLayer {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; radius: Arrange.bubble-radius;
+                layers: message.own ? Arrange.bubble-own-art : Arrange.bubble-other-art;
+            }
             if root.style == 1: Rectangle {
                 x: 0px; y: 0px; width: parent.width; height: parent.height;
                 border-radius: Arrange.bubble-radius; background: root.band;
@@ -2980,12 +2997,14 @@ export component MessageContent inherits VerticalLayout {
                     if message.reply-author != "": Text {
                         // Discord quotes "@Name" in the author's role colour, regular weight.
                         text: ClientStyle.enabled ? "@" + message.reply-author : message.reply-author;
-                        color: ClientStyle.enabled && message.reply-has-color ? message.reply-color : Theme.secondary;
+                        // On your own bubble, in its text's colour.
+                        color: root.mine-right ? root.own-ink : ClientStyle.enabled && message.reply-has-color ? message.reply-color : Theme.secondary;
                         font-size: 14px; font-weight: ClientStyle.enabled ? 400 : 700; vertical-alignment: center;
                     }
                     Text {
                         text: message.reply-body; font-size: ClientStyle.enabled ? 13px : 14px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1;
-                        color: reply-touch.has-hover ? Theme.text : ClientStyle.enabled ? Theme.secondary : Theme.muted;
+                        color: root.mine-right ? (reply-touch.has-hover ? root.own-ink : Arrange.bubble-own-text.transparentize(0.2))
+                            : reply-touch.has-hover ? Theme.text : ClientStyle.enabled ? Theme.secondary : Theme.muted;
                     }
                 }
                 reply-touch := TouchArea {
@@ -3041,7 +3060,7 @@ export component MessageContent inherits VerticalLayout {
                 Rectangle {
                     // Ransom letters past the room left end in an ellipsis.
                     min-width: root.ransom-name ? min(ransom.preferred-width, 120px) : author-name.min-width;
-                    preferred-width: root.ransom-name ? min(ransom.preferred-width, 16 * root.message-font-size) : root.plain-name || message.name-style.length > 0 ? author-plain.preferred-width : author-name.preferred-width;
+                    preferred-width: root.ransom-name ? min(ransom.preferred-width, 16 * root.name-size) : root.plain-name || message.name-style.length > 0 ? author-plain.preferred-width : author-name.preferred-width;
                     preferred-height: author-name.preferred-height; horizontal-stretch: 0;
                     // Discord's names are medium weight, a step under bold.
                     if Art.names.on && root.plain-name && !root.ransom-name && message.name-style.length == 0: ArtTextBehind {
@@ -3053,7 +3072,7 @@ export component MessageContent inherits VerticalLayout {
                         stroke: Art.outline(Art.names); stroke-width: Art.names.outline; stroke-style: outside;
                         width: parent.width; height: parent.height; visible: root.plain-name && !root.ransom-name && (message.name-style.length == 0);
                         text: message.author; color: message.has-color ? message.color : Theme.text;
-                        font-size: root.message-font-size; vertical-alignment: center; overflow: elide;
+                        font-size: root.name-size; vertical-alignment: center; overflow: elide;
                         // A styled name measures in its own font.
                         font-family: message.name-style[0].family != "" ? message.name-style[0].family : Look.name-font("");
                         font-weight: message.name-style[0].family != "" ? message.name-style[0].weight : Look.name-weight(500);
@@ -3061,20 +3080,20 @@ export component MessageContent inherits VerticalLayout {
                     }
                     author-name := StyledText {
                         width: parent.width; height: parent.height; visible: !root.plain-name && !root.ransom-name && message.name-style.length == 0;
-                        text: message.author-styled; link-color: Theme.link; default-color: message.has-color ? message.color : Theme.text; default-font-size: root.message-font-size; max-lines: 1; vertical-alignment: center;
+                        text: message.author-styled; link-color: Theme.link; default-color: message.has-color ? message.color : Theme.text; default-font-size: root.name-size; max-lines: 1; vertical-alignment: center;
                     }
                     // Empty, and so nothing, unless the theme cuts names into letters.
                     ransom := RansomName {
                         x: 0px; y: 0px; width: parent.width; height: parent.height; visible: root.ransom-name;
-                        text: root.ransom-name ? message.author : ""; font-size: root.message-font-size; font-weight: Look.name-weight(600);
+                        text: root.ransom-name ? message.author : ""; font-size: root.name-size; font-weight: Look.name-weight(600);
                     }
                     if message.name-style.length > 0: StyledName {
                         width: parent.width; height: parent.height;
-                        text: message.author; styles: message.name-style; ink: message.has-color ? message.color : Theme.text; font-size: root.message-font-size; font-weight: 500;
+                        text: message.author; styles: message.name-style; ink: message.has-color ? message.color : Theme.text; font-size: root.name-size; font-weight: 500;
                     }
                     // Underlined while pointed at, as a link is.
                     if author-touch.has-hover: Rectangle {
-                        y: (parent.height + root.message-font-size) / 2 + 1px; height: 1px;
+                        y: (parent.height + root.name-size) / 2 + 1px; height: 1px;
                         background: message.has-color ? message.color : Theme.text;
                     }
                     author-touch := TouchArea {
@@ -3106,8 +3125,8 @@ export component MessageContent inherits VerticalLayout {
             // As Discord's client marks a forward, above what it carries.
             if message.forwarded: HorizontalLayout {
                 spacing: 4px; alignment: start;
-                Image { source: IconPack.forward; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, Theme.muted); }
-                Text { text: "Forwarded"; color: Theme.muted; font-size: 14px; font-italic: true; vertical-alignment: center; }
+                Image { source: IconPack.forward; width: 16px; image-fit: contain; colorize: IconPack.tint(self.source, root.mine-right ? Arrange.bubble-own-text.transparentize(0.2) : Theme.muted); }
+                Text { text: "Forwarded"; color: root.mine-right ? Arrange.bubble-own-text.transparentize(0.2) : Theme.muted; font-size: 14px; font-italic: true; vertical-alignment: center; }
             }
             // The body, cut off at its folded height while it folds, with
             // Show more under it. The view keeps the message's top.

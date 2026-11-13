@@ -191,7 +191,8 @@ export component RailItem inherits Rectangle {
         }
     }
     if !root.text-mode: Rectangle {
-        x: 0px; y: (parent.height - self.height) / 2; width: 4px;
+        // Inside a theme's pane, clear of its rim.
+        x: Art.rail-paned ? Art.rail-rim : 0px; y: (parent.height - self.height) / 2; width: 4px;
         height: root.selected ? 40px : pointer.has-hover ? 20px : root.unread ? 8px : 0px;
         border-top-right-radius: Look.radius(4px); border-bottom-right-radius: Look.radius(4px);
         background: Theme.pill;
@@ -317,7 +318,8 @@ component FolderItem inherits Rectangle {
     accessible-action-expand => { root.clicked(); }
     forward-focus: focus;
     Rectangle {
-        x: 0px; y: (parent.height - self.height) / 2; width: 4px;
+        // Inside a theme's pane, clear of its rim.
+        x: Art.rail-paned ? Art.rail-rim : 0px; y: (parent.height - self.height) / 2; width: 4px;
         height: root.open ? 0px : root.selected ? 40px : pointer.has-hover ? 20px : root.unread ? 8px : 0px;
         border-top-right-radius: Look.radius(4px); border-bottom-right-radius: Look.radius(4px);
         background: Theme.pill;
@@ -1084,17 +1086,23 @@ export component ServerRail inherits Rectangle {
     in property <bool> horizontal;
     /// The open server's name, which a theme's text rail may end with.
     in property <string> selected-name;
-    width: Chrome.rail-px; background: Art.glass-rail ? transparent : Theme.rail-fill;
     /// Draws a theme's rail art itself: on the right or the top, where the
     /// navigation pane that draws it on the left isn't behind it.
     in property <bool> own-art;
+    // On the left, the navigation pane draws the rail's ground and art
+    // beneath it: the rail paints no ground of its own over that art.
+    width: Chrome.rail-px; background: Art.glass-rail || (!root.own-art && Art.rail.length > 0) ? transparent : Theme.rail-fill;
+    // In a theme's floating pane (a gap, rounded corners or a glass rim),
+    // the first server keeps the rail's own spacing, 8px, from the pane's
+    // edge, plus the rim: a lift on hover never meets it. Stock keeps 0.
+    property <length> pane-inset: Art.rail-paned ? 8px + Art.rail-rim : 0px;
     if root.own-art && (Art.rail.length > 0 || Art.glass-rail): ArtLayer {
         x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.rail; glass: Art.glass-rail; ground: Theme.rail-fill;
     }
     if root.horizontal: Flickable {
         content-width: across.preferred-width;
         across := HorizontalLayout {
-            padding-left: 6px; padding-right: 6px; spacing: 0px; alignment: start;
+            padding-left: max(6px, root.pane-inset); padding-right: max(6px, root.pane-inset); spacing: 0px; alignment: start;
             height: parent.height;
             RailItem {
                 width: 60px; y: (parent.height - self.height) / 2;
@@ -1137,7 +1145,7 @@ export component ServerRail inherits Rectangle {
     }
     // A theme's text rail: the servers' names as rows of text.
     if !root.horizontal && Chrome.rail-text: VerticalLayout {
-        padding: 8px; spacing: 0px;
+        padding: 8px; padding-top: max(8px, root.pane-inset); padding-bottom: max(8px, root.pane-inset); spacing: 0px;
         if Chrome.rail-title != "": Text {
             text: Chrome.rail-title; color: Theme.muted; font-size: 14px; wrap: word-wrap; accessible-role: none;
         }
@@ -1201,7 +1209,7 @@ export component ServerRail inherits Rectangle {
         }
     }
     if !root.horizontal && !Chrome.rail-text: VerticalLayout {
-        padding-top: ClientStyle.enabled ? 0px : 12px; padding-bottom: 12px; spacing: 8px;
+        padding-top: max(ClientStyle.enabled ? 0px : 12px, root.pane-inset); padding-bottom: max(12px, root.pane-inset); spacing: 8px;
         RailItem {
             // The app's logo, as Discord puts its own here.
             icon: IconPack.logo; icon-color: Theme.accent-text; icon-size: ClientStyle.enabled ? 24px : 32px; home: true;

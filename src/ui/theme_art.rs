@@ -19,14 +19,16 @@ use image::{Rgba, RgbaImage};
 use slint::{Color, ComponentHandle, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, VecModel};
 use yapfast_core::themes::Performance;
 use yapfast_core::themes::check::art::{
-    CARD_ART, DISPLAY, GLASS_SHRINK, TEXTURE_SIDE, blend_channel, shown,
+    CARD_ART, DISPLAY, GLASS_SHRINK, TEXTURE_SIDE, blend_channel, shown, sized_cap,
 };
 use yapfast_core::themes::package::art::{
     Art, ArtSurface, EventSlot, Fit, FoilSurface, Layer, OverlayKind, Preset, Source, TextLook,
     TextRole, Texture, TransitionKind, Trigger,
 };
 use yapfast_core::themes::package::{Property, Resolved};
-use yapfast_ui::{ArtImage, ArtOverlay, ArtParticle, ArtText, CardArt, SlotMotion, YapfastWindow};
+use yapfast_ui::{
+    ArtImage, ArtOverlay, ArtParticle, ArtText, CardArt, Reserve, SlotMotion, YapfastWindow,
+};
 
 /// The rail's servers run a phase apart in this many groups, which repeat
 /// down the rail.
@@ -108,6 +110,11 @@ pub fn reset(window: &YapfastWindow) {
     art.set_composer(none());
     art.set_menu(none());
     art.set_actions(none());
+    art.set_profile_pane(none());
+    art.set_reserve_sidebar(Reserve::default());
+    art.set_reserve_members(Reserve::default());
+    art.set_reserve_chat(Reserve::default());
+    art.set_reserve_composer(Reserve::default());
     art.set_cards(ModelRc::new(VecModel::<CardArt>::default()));
     art.set_overlays(ModelRc::new(VecModel::<ArtOverlay>::default()));
     art.set_chat_overlays(false);
@@ -123,6 +130,7 @@ pub fn reset(window: &YapfastWindow) {
         yapfast_ui::Art::set_glass_composer,
         yapfast_ui::Art::set_glass_menu,
         yapfast_ui::Art::set_glass_actions,
+        yapfast_ui::Art::set_glass_profile_pane,
     ] {
         set(&art, false);
     }
@@ -190,6 +198,7 @@ pub fn apply(
         state.owed = vec![0.0; art.particles.len()];
     });
     cards(window, resolved, folder);
+    bubbles(window, resolved, folder);
     if art.is_empty() {
         return;
     }
@@ -220,6 +229,26 @@ pub fn apply(
             ArtSurface::Composer => global.set_composer(model),
             ArtSurface::Menu => global.set_menu(model),
             ArtSurface::Actions => global.set_actions(model),
+            ArtSurface::ProfilePane => global.set_profile_pane(model),
+        }
+    }
+    // Content kept clear of a pane's art, at every Performance setting:
+    // it's where the content is, not an effect.
+    for surface in yapfast_core::themes::package::art::RESERVING {
+        let Some(room) = art.reserve(surface) else {
+            continue;
+        };
+        let room = Reserve {
+            top: room.top,
+            bottom: room.bottom,
+            left: room.left,
+            right: room.right,
+        };
+        match surface {
+            ArtSurface::Sidebar => global.set_reserve_sidebar(room),
+            ArtSurface::Members => global.set_reserve_members(room),
+            ArtSurface::Chat => global.set_reserve_chat(room),
+            _ => global.set_reserve_composer(room),
         }
     }
     // Overlays: Light leaves out the heavy ones, Balanced holds them still.
@@ -303,6 +332,7 @@ pub fn apply(
                 ArtSurface::Composer => yapfast_ui::Art::set_glass_composer,
                 ArtSurface::Menu => yapfast_ui::Art::set_glass_menu,
                 ArtSurface::Actions => yapfast_ui::Art::set_glass_actions,
+                ArtSurface::ProfilePane => yapfast_ui::Art::set_glass_profile_pane,
                 ArtSurface::Window => continue,
             };
             set(&global, true);
@@ -409,7 +439,9 @@ pub fn apply(
 
 /// The pictures on each message card: decoded once at no more than twice
 /// the size they show, shared by every card, and how far they reach past
-/// a card's edges, which each row's slice of the card leaves room for.
+/// a card's edges, which each row's slice of the card leaves room for. A
+/// place with several pictures has each decoded once; a card picks one by
+/// its group.
 fn cards(window: &YapfastWindow, resolved: &Resolved, folder: &Path) {
     let layout = &resolved.layout;
     if layout.cards.art.is_empty() {
@@ -427,15 +459,8 @@ fn cards(window: &YapfastWindow, resolved: &Resolved, folder: &Path) {
     );
     let mut placed = Vec::new();
     for card in &layout.cards.art {
-        let key = format!("card:{:?}:{ground:08x}", card.layer);
-        let Some(image) = STATE
-            .with_borrow(|state| state.cache.get(&key).cloned())
-            .or_else(|| {
-                let image = slint_image(baked_at(folder, &card.layer, ground, CARD_ART)?);
-                STATE.with_borrow_mut(|state| state.cache.insert(key.clone(), image.clone()));
-                Some(image)
-            })
-        else {
+        let cap = card.size.map_or(CARD_ART, sized_cap);
+        let Some(image) = still_picture(folder, &card.layer, ground, cap) else {
             continue;
         };
         let natural = image.size();
@@ -443,14 +468,32 @@ fn cards(window: &YapfastWindow, resolved: &Resolved, folder: &Path) {
             (natural.width as f32).min(480.),
             (natural.height as f32).min(240.),
         ));
-        let turn = width / 2. * card.rotation.to_radians().sin().abs();
+        // A picture as wide as the card turns about its middle: its reach
+        // is as a long strip's.
+        let turn = width.min(960.) / 2. * card.rotation.to_radians().sin().abs();
         if card.bottom {
             over_bottom = over_bottom.max(height / 2. + card.offset.1 + turn + 1.);
         } else {
             over_top = over_top.max(height / 2. - card.offset.1 + turn + 1.);
         }
+        let picture = art_image(&card.layer, image, false, 0.0);
+        let mut choices = Vec::new();
+        if !card.choices.is_empty() {
+            choices.push(picture.clone());
+            for path in &card.choices {
+                let layer = Layer {
+                    source: Source::Image(path.clone()),
+                    ..card.layer.clone()
+                };
+                if let Some(image) = still_picture(folder, &layer, ground, cap) {
+                    choices.push(art_image(&layer, image, false, 0.0));
+                }
+            }
+        }
         placed.push(CardArt {
-            picture: art_image(&card.layer, image, false, 0.0),
+            picture,
+            choices: ModelRc::new(VecModel::from(choices)),
+            full: card.full,
             across: card.across,
             bottom: card.bottom,
             width,
@@ -465,6 +508,52 @@ fn cards(window: &YapfastWindow, resolved: &Resolved, folder: &Path) {
     window
         .global::<yapfast_ui::Art>()
         .set_cards(ModelRc::new(VecModel::from(placed)));
+}
+
+/// The pictures on each of your own bubbles and on everyone else's, each
+/// decoded once with its blend against that bubble's ground, and shared by
+/// every bubble.
+fn bubbles(window: &YapfastWindow, resolved: &Resolved, folder: &Path) {
+    let bubbles = &resolved.layout.bubbles;
+    if bubbles.own_art.is_empty() && bubbles.other_art.is_empty() {
+        return;
+    }
+    let ground = |paint: Option<&yapfast_core::themes::package::Paint>, token: &str| {
+        paint
+            .map(yapfast_core::themes::package::Paint::solid)
+            .or_else(|| shown(resolved, token))
+            .unwrap_or(0xff00_0000)
+    };
+    let model = |layers: &[Layer], ground: u32| {
+        let images: Vec<ArtImage> = layers
+            .iter()
+            .filter_map(|layer| {
+                let image = picture(folder, layer, ground)?;
+                Some(art_image(layer, image, false, 0.0))
+            })
+            .collect();
+        ModelRc::new(VecModel::from(images))
+    };
+    let arrange = window.global::<yapfast_ui::Arrange>();
+    arrange.set_bubble_own_art(model(
+        &bubbles.own_art,
+        ground(bubbles.own.as_ref(), "accent"),
+    ));
+    arrange.set_bubble_other_art(model(
+        &bubbles.other_art,
+        ground(bubbles.other.as_ref(), "raised"),
+    ));
+}
+
+/// A still picture decoded no larger than `cap`, once per theme.
+fn still_picture(folder: &Path, layer: &Layer, ground: u32, cap: (u32, u32)) -> Option<Image> {
+    let key = format!("still:{layer:?}:{ground:08x}:{cap:?}");
+    if let Some(image) = STATE.with_borrow(|state| state.cache.get(&key).cloned()) {
+        return Some(image);
+    }
+    let image = slint_image(baked_at(folder, layer, ground, cap)?);
+    STATE.with_borrow_mut(|state| state.cache.insert(key, image.clone()));
+    Some(image)
 }
 
 fn art_image(layer: &Layer, image: Image, moves: bool, jitter: f32) -> ArtImage {
@@ -484,8 +573,13 @@ fn art_image(layer: &Layer, image: Image, moves: bool, jitter: f32) -> ArtImage 
             frames.period,
         )
     });
+    let (w, h) = layer.size.unwrap_or((0.0, 0.0));
     ArtImage {
         image,
+        w,
+        h,
+        px: layer.position.0,
+        py: layer.position.1,
         fit: match layer.fit {
             Fit::Cover => 0,
             Fit::Contain => 1,
@@ -569,6 +663,8 @@ fn slint_image(picture: RgbaImage) -> Image {
 fn baked(folder: &Path, layer: &Layer, ground: u32) -> Option<RgbaImage> {
     let cap = if layer.fit == Fit::Tile {
         (1024, 1024)
+    } else if let Some(size) = layer.size {
+        sized_cap(size)
     } else {
         DISPLAY
     };
@@ -638,6 +734,19 @@ fn blurred(folder: &Path, art: &Art, blur: f32, window: (u32, u32), ground: u32)
                 continue;
             };
             let filter = image::imageops::FilterType::Triangle;
+            // A layer of its own size sits where it does, a quarter as large.
+            if let Some((across, down)) = layer.size {
+                let fitted = image::imageops::resize(
+                    &picture,
+                    ((across / GLASS_SHRINK as f32).round() as u32).max(1),
+                    ((down / GLASS_SHRINK as f32).round() as u32).max(1),
+                    filter,
+                );
+                let x = (width.saturating_sub(fitted.width()) as f32 * layer.position.0) as i64;
+                let y = (height.saturating_sub(fitted.height()) as f32 * layer.position.1) as i64;
+                image::imageops::overlay(&mut canvas, &fitted, x, y);
+                continue;
+            }
             match layer.fit {
                 Fit::Tile => {
                     let tile = image::imageops::resize(
@@ -1216,6 +1325,8 @@ mod tests {
             drift: (0.0, 0.0),
             frames: None,
             heavy: false,
+            size: None,
+            reserve: None,
         };
         let pixels = baked(folder, &layer, 0xff00_0000).unwrap();
         // Multiplied with black, every pixel is black, at half its alpha.

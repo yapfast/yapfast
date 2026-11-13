@@ -269,7 +269,7 @@ another until one does:
 | `pill` | The pill beside a selected or unread server | `text` |
 | `toggle-off`, `knob-off` | A switch's track and knob while it's off | `field`, `secondary` |
 | `code`, `embed` | The grounds of code blocks and of embeds | `panel`, `sidebar` |
-| `members` | The member list's ground | `chat` (`sidebar` without Discord's look) |
+| `members` | The member list's ground; it may be see-through (`#00000000`), showing the conversation's ground and art beneath, and its text is then checked over what shows | `chat` (`sidebar` without Discord's look) |
 | `app-badge` | The APP tag after a bot's name | Discord's blurple |
 | `account` | The account panel's ground at the bottom left (avatar, name, mic, headphones, settings) | `panel` |
 | `actions` | The ground of the bar of actions over a message under the pointer | `raised` |
@@ -378,7 +378,7 @@ own, once per run.
 | --- | --- | --- |
 | `body` | Messages and nearly everything | 12–20 |
 | `headings` | The channel's name in its header, the server's name, settings titles | 12–32 |
-| `names` | Authors of messages, the member list, the profile card | 12–24 |
+| `names` | Authors of messages (ransom names too), the member list, the profile card; a message's author follows `body` when unset, and scales with the person's text size | 12–24 |
 | `code` | Code blocks and inline code | 11–20 |
 | `labels` | Small capital headings, such as THEME | 10–16 |
 
@@ -404,7 +404,8 @@ name plainly.
 
 **Spacing** (`spacing`), in pixels: `message_gap` (0–16), `message_group_gap`
 (0–40), `channel_row_height` (24–48), `member_row_height` (32–56),
-`avatar_size` (24–56), `chat_padding` (4–48), `sidebar_width` (200–420),
+`avatar_size` (24–56), `chat_padding` (4–48; the message box's sides
+follow it too), `sidebar_width` (200–420),
 `members_width` (200–400). `density` (`compact`, `default` or `roomy`) sets
 several at once; values named beside it win. A plugin's size wins over a
 theme's.
@@ -508,9 +509,10 @@ variant's `surfaces` and `text` replace the shared ones surface by surface.
 gap), `rail`, `sidebar`, `chat`, `members`, `account` (the account panel at the
 bottom left, on the `account` colour; `panel`, its first name, is read as it),
 `card` (a profile card the person hasn't themed themselves), `dialog`,
-`composer`, `menu` and `actions` (the bar of actions over a message, on the
-`actions` colour). Each takes a layer or a list of up to 4, bottom first,
-drawn over the surface's ground and under its content:
+`composer`, `menu`, `actions` (the bar of actions over a message, on the
+`actions` colour) and `profile-pane` (the profile docked beside a one-to-one
+DM, on its ground, `panel`). Each takes a layer or a list of up to 4, bottom
+first, drawn over the surface's ground and under its content:
 
 | Field | |
 | --- | --- |
@@ -527,6 +529,8 @@ drawn over the surface's ground and under its content:
 | `drift` | `[x, y]` or `{ "x", "y" }`, logical pixels a second (−200 to 200): the layer slides and loops, a tile seamlessly, any other fit as two copies end to end along x (or y when x is 0) |
 | `frames` | A sprite sheet: `{ "count", "columns", "period" }`, frames left to right then down, `period` milliseconds for all of them (not with `tile`) |
 | `heavy` | Stays still in Balanced (drift and frames run there otherwise) |
+| `reserve` | `{ "top", "bottom", "left", "right" }`, 0–1200 logical pixels: the pane's content keeps that clear of its edges, so a decoration drawn there (keys at the foot of the sidebar, a bezel) isn't covered. The content is laid out inside what's left and scrolls there, scrollbars too; the largest any layer asks wins. `sidebar` (its header and channel list; the account panel below stays), `members`, `chat` (header, messages and composer) and `composer` (inside the message box) take it; another surface's is ignored with a note. `yapfast theme check` lists it, and warns when it leaves a pane little room in a small window |
+| `size` | `[width, height]`, 4–1600 logical pixels: the layer is drawn at that size, where `position` puts it, instead of over the whole surface, and decoded at no more than twice it; for a decoration such as a D-pad on a shell. Its `fit` is within that size |
 
 Pictures are decoded once per theme, no larger than 2560 × 1600 (a tile no
 larger than 1024), with their blend, blur, dim and opacity put into their
@@ -552,11 +556,13 @@ lined up with where the pane sits, lays its own ground over it at `opacity`
 window's art, not other panes or messages. `surfaces` (any but `window`;
 `sidebar` and `chat` when left out), `blur` (0–64), `highlight` (a 1 px light
 on the top and left inner edge), `inset` (a shadow inside the edges, as
-`shape` writes one: `blur` is its depth), `gap` (0–24 px between the window's
+`shape` writes one: `blur` is its depth), `gap` (0–64 px between the window's
 edge and its two panes, the navigation and the conversation, where the
 window's art shows; a glass `account` panel floats the same distance from the
 navigation above it and the window's edge) and `radius` (their corners, and
-a glass account panel's, when there's a gap).
+a glass account panel's, when there's a gap). A rail in such a pane (a gap, round corners or
+a glass edge light or inner shadow) keeps its first server 8 pixels, plus
+2 for the rim, from the pane's edge, and its pills off the rim.
 
 *Text*: `names` (authors, the member list, the profile card), `headings` (the
 conversation's and the server's names, settings titles) and `labels` (small
@@ -743,7 +749,7 @@ or takes away a control.
 | Field | Values | Stock |
 | --- | --- | --- |
 | `rail` | `left`, `right`, `top`: the edge the server rail runs along | `left` |
-| `members` | `right`, `left`, `hidden`: where the member list docks, or that it doesn't | `right` |
+| `members` | `right`, `left`, `hidden`: where the member list docks, or that it doesn't; `collapsed`: on the right as a 56-pixel strip of avatars that opens to the whole list, over the conversation, while the pointer is on it (at once with reduced motion or Light) | `right` |
 | `composer` | `bottom`, `top`: the message box under or over the messages | `bottom` |
 | `messages` | `flat`, `bubbles`, `irc`, `cards` (below) | `flat` |
 | `chat_max_width` | 480–1600 pixels: the messages and the composer grow no wider, centred | none |
@@ -770,22 +776,39 @@ the focus ring and every accessible name stay as stock.
   such as `│` or `>`).
 - `bubbles`: `max_width` (40–95, a percentage of the column), `radius`
   (pixels), and the grounds `own` and `other` with `own_text`, the text on
-  your own. Unset, your own are `accent` with `on-accent` text, and others'
-  `raised` with `text`; either pair has to read at 4.5:1.
+  your own. Unset, your own are `accent` with `on-accent` text (`text` on a
+  ground the theme sets), and others' `raised` with `text`; either pair has
+  to read at 4.5:1, at each stop of a gradient. `own` and `other` each take
+  a colour, a gradient (`linear(…)`, as `colours` writes one), or `{
+  "ground": …, "art": […] }`: up to 4 layers laid on every such bubble over
+  its ground and under its text, as a surface's are (still: no `drift` or
+  `frames`; a `size` places a small one, such as a gel's highlight), each
+  decoded once and shared by every bubble; the text has to read over them
+  as over a surface's art. A reply's quote, "(edited)" and "Forwarded" on
+  your own bubble take its text's colour. The bar of actions over a message
+  sits beside the bubble under the pointer: after someone else's, before
+  your own.
 - `cards`: `tilt` (0–4 degrees; each card leans its own way within it, from
   who wrote it and when), `gap` and `padding` (0–24 pixels), and `ground`
   (`raised` unset), which `text` has to read on. Only the card leans: text
   never rotates. `shadow`, as `shape` writes one (`blur` 0 for a hard
   offset), lies under each card and leans with it. `art` pastes one or two
-  pictures on each card, such as a strip of tape, leaning with it: each a
-  layer (`image` or `texture`, `opacity`, `blend` with the card's ground,
-  `blur`, `dim`, `colour`, `fit` within its size; never `drift` or `frames`)
-  with `position` (`top`, `bottom right`, … or `[x, y]`: across the card,
-  and its top edge, or its bottom with y over 0.5), `size` (`[width,
-  height]`, 4–480 by 4–240 pixels; the picture's own when left out),
-  `offset` (`[x, y]`, −64–64 pixels from its place, centred on the edge)
-  and `rotation` (−45–45 degrees beyond the card's lean). A picture is
-  decoded once, at most 960 × 480, and every card shares it.
+  up to four pictures on each card, such as a strip of tape, leaning with
+  it: each a layer (`image` or `texture`, `opacity`, `blend` with the
+  card's ground, `blur`, `dim`, `colour`, `fit` within its size; never
+  `drift` or `frames`) with `position` (`top`, `bottom right`, … or `[x,
+  y]`: across the card, and its top edge, or its bottom with y over 0.5),
+  `size` (`[width, height]`, 4–1600 by 4–240 pixels, or `"full"` for the
+  card's width; never wider than the card; the picture's own when left
+  out), `offset` (`[x, y]`, −64–64 pixels from its place, centred on the
+  edge) and `rotation` (−45–45 degrees beyond the card's lean). `image` may
+  list up to 6 pictures: each card picks one by who wrote it and when, the
+  same every time it's drawn. A picture is decoded once, at no more than
+  twice its `size` (960 × 480 without one), and every card shares it.
+  `stagger` (0–48 pixels) steps each card that far in from its left or its
+  right, by the same seed as its lean, so cards down the page fall to
+  either side. `tint_art: true` lays a hovered or mentioned card's tint
+  over its pictures too, where they're drawn.
 
 ```json
 "layout": {
@@ -793,6 +816,15 @@ the focus ring and every accessible name stay as stock.
   "cards": { "tilt": 1.2, "shadow": { "blur": 0, "x": 5, "y": 5, "colour": "#14141440" },
              "art": [{ "image": "art/tape.png", "position": "top left", "size": [84, 22],
                        "offset": [18, -2], "rotation": -5 }] }
+}
+```
+
+```json
+"layout": {
+  "messages": "bubbles", "members": "collapsed",
+  "bubbles": { "own": { "ground": "linear(180deg, #7fd4ff, #2a7fff)",
+                        "art": [{ "image": "art/gloss.png", "fit": "stretch", "opacity": 0.7 }] },
+               "other": "linear(180deg, #ffffff, #e8eef8)", "own_text": "#06213f" }
 }
 ```
 

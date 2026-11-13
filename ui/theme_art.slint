@@ -27,6 +27,13 @@ export struct ArtImage {
     jitter: float,
     /// Whether it may move now, as Performance and reduced motion say.
     moves: bool,
+    /// A layer of a fixed size, not over the whole surface: its width and
+    /// height (0 fills the surface), and where it sits, 0 to 1 across and
+    /// down.
+    w: length,
+    h: length,
+    px: float,
+    py: float,
 }
 
 /// One overlay over the whole window. `kind`: 0 a picture, 1 scanlines,
@@ -71,10 +78,23 @@ export struct ArtParticle {
     sprite: int,
 }
 
+/// Room a pane's content keeps clear of its art, at each edge.
+export struct Reserve {
+    top: length,
+    bottom: length,
+    left: length,
+    right: length,
+}
+
 /// A picture pasted on each message card in `cards`, on its top or bottom
 /// edge, leaning with the card.
 export struct CardArt {
     picture: ArtImage,
+    /// Pictures a card picks one of by its group, `picture` among them;
+    /// empty when there's only `picture`.
+    choices: [ArtImage],
+    /// As wide as the card.
+    full: bool,
     /// Across the card, 0 its left and 1 its right.
     across: float,
     bottom: bool,
@@ -98,7 +118,15 @@ export global Art {
     in property <[ArtImage]> composer;
     in property <[ArtImage]> menu;
     in property <[ArtImage]> actions;
-    /// Pictures on each message card, at most two.
+    /// The profile docked beside a one-to-one DM.
+    in property <[ArtImage]> profile-pane;
+    /// Room each pane's content keeps clear of its art: the content is laid
+    /// out, and scrolls, inside the rest. None by default.
+    in property <Reserve> reserve-sidebar;
+    in property <Reserve> reserve-members;
+    in property <Reserve> reserve-chat;
+    in property <Reserve> reserve-composer;
+    /// Pictures on each message card, at most four.
     in property <[CardArt]> cards;
     in property <[ArtOverlay]> overlays;
     /// Whether any overlay lies over the conversation only.
@@ -121,6 +149,7 @@ export global Art {
     in property <bool> glass-composer;
     in property <bool> glass-menu;
     in property <bool> glass-actions;
+    in property <bool> glass-profile-pane;
     in property <image> blurred;
     in property <float> glass-opacity: 1;
     in property <color> highlight;
@@ -129,6 +158,11 @@ export global Art {
     /// Space between the window's edge and its panes, and between them.
     in property <length> gap;
     in property <length> pane-radius;
+    /// The rail's rim on a glass pane (its edge light or inner shadow), and
+    /// whether the rail sits in a pane of a theme's (a gap, round corners or
+    /// a rim): its first server and its pills keep clear of the edges.
+    out property <length> rail-rim: self.glass-rail && (self.highlight != transparent || self.inset-size > 0px) ? 2px : 0px;
+    out property <bool> rail-paned: self.gap > 0px || self.pane-radius > 0px || self.rail-rim > 0px;
 
     // Text light per role.
     in property <ArtText> names;
@@ -268,7 +302,14 @@ export component ArtLayer inherits Rectangle {
         accessible-role: none;
     }
     if root.glass: Rectangle { background: root.ground; opacity: Art.glass-opacity; }
-    for layer in root.layers: ArtPicture { x: 0px; y: 0px; width: root.width; height: root.height; layer: layer; }
+    // A layer with a size of its own sits where its position says.
+    for layer in root.layers: ArtPicture {
+        x: layer.w > 0px ? (root.width - layer.w) * layer.px : 0px;
+        y: layer.h > 0px ? (root.height - layer.h) * layer.py : 0px;
+        width: layer.w > 0px ? layer.w : root.width;
+        height: layer.h > 0px ? layer.h : root.height;
+        layer: layer;
+    }
     if root.glass && Art.inset-size > 0px: Rectangle {
         Rectangle { y: 0px; height: Art.inset-size; background: @linear-gradient(180deg, Art.inset-color 0%, transparent 100%); }
         Rectangle { x: 0px; width: Art.inset-size; background: @linear-gradient(90deg, Art.inset-color 0%, transparent 100%); }

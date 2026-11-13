@@ -476,6 +476,7 @@ fn paint(window: &YapfastWindow) {
             &applied.ransom,
             names_face,
             state.performance,
+            state.reduced,
         );
         super::theme_chrome::apply(window, &resolved.chrome);
         let look = window.global::<Look>();
@@ -622,7 +623,7 @@ fn paint(window: &YapfastWindow) {
     start_clock(window);
 }
 
-fn brush(paint: &Paint) -> Brush {
+pub(super) fn brush(paint: &Paint) -> Brush {
     match paint {
         Paint::Colour(colour) => Brush::SolidColor(Color::from_argb_encoded(*colour)),
         Paint::Linear { angle, stops } => {

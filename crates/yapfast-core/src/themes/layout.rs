@@ -14,11 +14,18 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 
-use super::package::art::{Layer, Source, read_layer};
-use super::package::{Error, Shadow, colour_at, named, number, object, read_shadow, relative};
+use super::package::art::{Layer, MAX_LAYERS, Source, read_layer};
+use super::package::{
+    Error, Paint, Shadow, colour_at, named, number, object, paint_at, read_shadow, relative,
+};
 
 /// The most pictures one card carries.
-pub const MAX_CARD_ART: usize = 2;
+pub const MAX_CARD_ART: usize = 4;
+/// The most pictures one of a card's places picks from, group by group.
+pub const MAX_CARD_CHOICES: usize = 6;
+/// The widest a card's picture is, in logical pixels; it never shows wider
+/// than its card.
+pub const MAX_CARD_ART_WIDTH: f32 = 1600.0;
 
 /// Declares a closed list of names: the enum, its names in `theme.json`, and
 /// its index, which the interface reads as an int.
@@ -61,7 +68,14 @@ closed! {
 
 closed! {
     /// Where the member list docks, or that it doesn't.
-    MembersSide { Right => "right", Left => "left", Hidden => "hidden" }
+    MembersSide {
+        Right => "right",
+        Left => "left",
+        Hidden => "hidden",
+        /// On the right as a narrow strip of avatars that opens to the
+        /// whole list while the pointer is on it.
+        Collapsed => "collapsed",
+    }
 }
 
 closed! {
@@ -141,13 +155,18 @@ pub struct Irc {
 pub struct Bubbles {
     /// The widest a bubble grows, as a percentage of the column (40–95).
     pub max_width: Option<f32>,
-    /// ARGB grounds of your own bubbles and everyone else's, and the text on
-    /// your own; the others' text is `text`.
-    pub own: Option<u32>,
-    pub other: Option<u32>,
+    /// Grounds of your own bubbles and everyone else's, a colour or a
+    /// gradient, and the text on your own (ARGB); the others' text is `text`.
+    pub own: Option<Paint>,
+    pub other: Option<Paint>,
     pub own_text: Option<u32>,
     /// Corner radius in pixels.
     pub radius: Option<f32>,
+    /// Pictures laid on each of your own bubbles and on everyone else's,
+    /// over the ground and under the text, such as a gel's gloss: at most
+    /// four each, still.
+    pub own_art: Vec<Layer>,
+    pub other_art: Vec<Layer>,
 }
 
 /// The `cards` message style.
@@ -168,6 +187,11 @@ pub struct Cards {
     /// Pictures pasted on each card, such as a strip of tape over its top
     /// edge: they lean with it.
     pub art: Vec<CardArt>,
+    /// Pixels each card steps aside, to the left or the right by its
+    /// group, so cards down the page alternate sides (0–48).
+    pub stagger: Option<f32>,
+    /// A hovered or mentioned card's tint lies over its pictures too.
+    pub tint_art: bool,
 }
 
 /// A picture on a card's top or bottom edge, leaning with the card.
@@ -176,6 +200,11 @@ pub struct CardArt {
     /// The picture or texture, with its opacity, blend (with the card's
     /// ground), blur, dim and colour. Fit is within `size`.
     pub layer: Layer,
+    /// Other pictures this place picks from, card by card, with the same
+    /// settings; the layer's own picture is the first choice.
+    pub choices: Vec<PathBuf>,
+    /// As wide as the card (`"size": ["full", 18]`).
+    pub full: bool,
     /// Across the card, 0 its left and 1 its right.
     pub across: f32,
     /// On the card's bottom edge rather than its top.
@@ -236,10 +265,20 @@ impl Layout {
     /// The pictures it names, once each.
     pub fn files(&self) -> Vec<PathBuf> {
         let mut files: Vec<PathBuf> = Vec::new();
-        for art in &self.cards.art {
-            if let Source::Image(path) = &art.layer.source
-                && !files.contains(path)
-            {
+        let layers = self
+            .bubbles
+            .own_art
+            .iter()
+            .chain(&self.bubbles.other_art)
+            .chain(self.cards.art.iter().map(|art| &art.layer));
+        let paths = layers
+            .filter_map(|layer| match &layer.source {
+                Source::Image(path) => Some(path),
+                Source::Texture(_) => None,
+            })
+            .chain(self.cards.art.iter().flat_map(|art| &art.choices));
+        for path in paths {
+            if !files.contains(path) {
                 files.push(path.clone());
             }
         }
@@ -266,11 +305,29 @@ fn read_card_art(
     for (index, item) in items.into_iter().enumerate() {
         let at = format!("{place}[{index}]");
         let fields = object(item, &at)?;
-        let picture: serde_json::Map<String, Value> = fields
+        let mut picture: serde_json::Map<String, Value> = fields
             .iter()
             .filter(|(key, _)| !CARD_ART_KEYS.contains(&key.as_str()))
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect();
+        // `"image": ["a.png", "b.png"]`: each card picks one by its group.
+        let mut choices = Vec::new();
+        if let Some(Value::Array(images)) = fields.get("image") {
+            if images.is_empty() || images.len() > MAX_CARD_CHOICES {
+                return Err(Error(format!(
+                    "\"{at}.image\" lists 1 to {MAX_CARD_CHOICES} pictures to pick from"
+                )));
+            }
+            for (number, image) in images.iter().enumerate() {
+                let here = format!("{at}.image[{number}]");
+                let text = image
+                    .as_str()
+                    .ok_or_else(|| Error(format!("\"{here}\" is a file name")))?;
+                choices.push(relative(text, &here)?);
+            }
+            picture.insert("image".to_owned(), images[0].clone());
+            choices.remove(0);
+        }
         let layer = read_layer(&Value::Object(picture), &at, notes)?;
         if layer.moves() {
             return Err(Error(format!(
@@ -281,6 +338,8 @@ fn read_card_art(
             across: layer.position.0,
             bottom: layer.position.1 > 0.5,
             layer,
+            choices,
+            full: false,
             size: None,
             offset: (0.0, 0.0),
             rotation: 0.0,
@@ -293,8 +352,14 @@ fn read_card_art(
                         .as_array()
                         .filter(|items| items.len() == 2)
                         .ok_or_else(|| Error(format!("\"{here}\" is [width, height]")))?;
+                    art.full = pair[0].as_str() == Some("full");
+                    let width = if art.full {
+                        MAX_CARD_ART_WIDTH
+                    } else {
+                        number(&pair[0], &format!("{here}[0]"), (4.0, MAX_CARD_ART_WIDTH))?
+                    };
                     art.size = Some((
-                        number(&pair[0], &format!("{here}[0]"), (4.0, 480.0))?,
+                        width,
                         number(&pair[1], &format!("{here}[1]"), (4.0, 240.0))?,
                     ));
                 }
@@ -362,8 +427,16 @@ pub(super) fn read_layout(
                         "max_width" => {
                             layout.bubbles.max_width = Some(number(value, &at, (40.0, 95.0))?)
                         }
-                        "own" => layout.bubbles.own = Some(colour_at(value, &at)?),
-                        "other" => layout.bubbles.other = Some(colour_at(value, &at)?),
+                        "own" => {
+                            let (ground, art) = read_bubble(value, &at, notes)?;
+                            layout.bubbles.own = ground.or(layout.bubbles.own.take());
+                            layout.bubbles.own_art = art;
+                        }
+                        "other" => {
+                            let (ground, art) = read_bubble(value, &at, notes)?;
+                            layout.bubbles.other = ground.or(layout.bubbles.other.take());
+                            layout.bubbles.other_art = art;
+                        }
                         "own_text" => layout.bubbles.own_text = Some(colour_at(value, &at)?),
                         "radius" => layout.bubbles.radius = Some(number(value, &at, (0.0, 999.0))?),
                         _ => notes.push(format!("\"{at}\" isn't something bubbles takes; ignored")),
@@ -386,6 +459,8 @@ pub(super) fn read_layout(
                             }
                         }
                         "art" => layout.cards.art = read_card_art(value, &at, notes)?,
+                        "stagger" => layout.cards.stagger = Some(number(value, &at, (0.0, 48.0))?),
+                        "tint_art" => layout.cards.tint_art = boolean(value, &at)?,
                         _ => notes.push(format!("\"{at}\" isn't something cards takes; ignored")),
                     }
                 }
@@ -394,6 +469,51 @@ pub(super) fn read_layout(
         }
     }
     Ok(())
+}
+
+/// A bubble's ground: a colour or gradient, or `{ "ground": …, "art": […] }`
+/// with pictures laid on it.
+fn read_bubble(
+    value: &Value,
+    place: &str,
+    notes: &mut Vec<String>,
+) -> Result<(Option<Paint>, Vec<Layer>), Error> {
+    let Value::Object(fields) = value else {
+        return Ok((Some(paint_at(value, place)?), Vec::new()));
+    };
+    let mut ground = None;
+    let mut art = Vec::new();
+    for (key, value) in fields {
+        let here = format!("{place}.{key}");
+        match key.as_str() {
+            "ground" => ground = Some(paint_at(value, &here)?),
+            "art" => {
+                let items: Vec<&Value> = match value {
+                    Value::Array(items) => items.iter().collect(),
+                    other => vec![other],
+                };
+                if items.len() > MAX_LAYERS {
+                    return Err(Error(format!(
+                        "\"{here}\" stacks at most {MAX_LAYERS} layers"
+                    )));
+                }
+                for (index, item) in items.into_iter().enumerate() {
+                    let at = format!("{here}[{index}]");
+                    let layer = read_layer(item, &at, notes)?;
+                    if layer.moves() {
+                        return Err(Error(format!(
+                            "\"{at}\" stays still on its bubble: no drift or frames"
+                        )));
+                    }
+                    art.push(layer);
+                }
+            }
+            _ => notes.push(format!(
+                "\"{here}\" isn't something a bubble takes; ignored"
+            )),
+        }
+    }
+    Ok((ground, art))
 }
 
 /// The outlines in `shape`: `outline_width`, every hairline's width, and
@@ -596,8 +716,8 @@ mod tests {
         assert_eq!(layout.irc.nick_width, Some(120.0));
         assert_eq!(layout.irc.separator.as_deref(), Some("│"));
         assert_eq!(layout.bubbles.max_width, Some(70.0));
-        assert_eq!(layout.bubbles.own, Some(0xffff_71ce));
-        assert_eq!(layout.bubbles.other, Some(0xff20_2020));
+        assert_eq!(layout.bubbles.own, Some(Paint::Colour(0xffff_71ce)));
+        assert_eq!(layout.bubbles.other, Some(Paint::Colour(0xff20_2020)));
         assert_eq!(layout.bubbles.own_text, Some(0xff00_0000));
         assert_eq!(layout.bubbles.radius, Some(18.0));
         assert_eq!(layout.cards.tilt, Some(1.5));
@@ -696,6 +816,108 @@ mod tests {
     }
 
     #[test]
+    fn reads_gel_bubbles_card_choices_and_the_collapsed_list() {
+        let package = theme(
+            r##""layout": { "messages": "bubbles", "members": "collapsed",
+                "bubbles": {
+                    "own": { "ground": "linear(180deg, #7fd4ff, #2a7fff)",
+                             "art": [{ "image": "art/gloss.png", "fit": "stretch", "opacity": 0.6 },
+                                     { "texture": "grain", "size": [40, 12], "position": "top right" }] },
+                    "other": "linear(#ffffff, #e8eef8 80%)" },
+                "cards": { "stagger": 18, "tint_art": true,
+                           "art": [{ "image": ["art/tape-a.png", "art/tape-b.png", "art/tape-c.png"],
+                                     "position": "top", "size": [72, 20] },
+                                   { "texture": "paper", "position": "bottom", "size": ["full", 10] },
+                                   { "texture": "kraft" }, { "texture": "grain" }] } },
+            "art": { "glass": { "gap": 48 },
+                     "surfaces": { "profile-pane": { "image": "art/pad.png", "size": [96, 96], "position": [0.5, 0.9] } } },"##,
+        )
+        .unwrap();
+        assert!(package.notes.is_empty(), "{:?}", package.notes);
+        let resolved = package.resolve(Mode::Dark).unwrap();
+        let layout = &resolved.layout;
+        assert_eq!(layout.members, Some(MembersSide::Collapsed));
+        assert_eq!(MembersSide::Collapsed.index(), 3);
+        assert!(matches!(layout.bubbles.own, Some(Paint::Linear { .. })));
+        assert_eq!(
+            layout.bubbles.other.as_ref().map(Paint::colours),
+            Some(vec![0xffff_ffff, 0xffe8_eef8])
+        );
+        assert_eq!(layout.bubbles.own_art.len(), 2);
+        assert_eq!(layout.bubbles.own_art[1].size, Some((40.0, 12.0)));
+        assert!(layout.bubbles.other_art.is_empty());
+        let cards = &layout.cards;
+        assert_eq!(cards.stagger, Some(18.0));
+        assert!(cards.tint_art);
+        assert_eq!(cards.art.len(), MAX_CARD_ART);
+        assert_eq!(
+            cards.art[0].choices,
+            vec![
+                PathBuf::from("art/tape-b.png"),
+                PathBuf::from("art/tape-c.png")
+            ]
+        );
+        assert!(cards.art[1].full && cards.art[1].bottom);
+        let files = layout.files();
+        for file in [
+            "art/gloss.png",
+            "art/tape-a.png",
+            "art/tape-b.png",
+            "art/tape-c.png",
+        ] {
+            assert!(files.contains(&PathBuf::from(file)), "{file} in {files:?}");
+            assert!(package.files().contains(&PathBuf::from(file)), "{file}");
+        }
+        use crate::themes::package::art::ArtSurface;
+        assert_eq!(
+            resolved.art.glass.as_ref().map(|glass| glass.gap),
+            Some(48.0)
+        );
+        let pane = &resolved.art.surfaces[&ArtSurface::ProfilePane][0];
+        assert_eq!(pane.size, Some((96.0, 96.0)));
+        assert_eq!(pane.position, (0.5, 0.9));
+    }
+
+    #[test]
+    fn a_pane_keeps_its_content_clear_of_its_art() {
+        use crate::themes::package::art::{ArtSurface, Reserve};
+        let package = theme(
+            r#""art": { "surfaces": {
+                "sidebar": [{ "texture": "paper" },
+                            { "image": "art/keys.png", "size": [200, 280], "position": "bottom", "reserve": { "bottom": 300 } },
+                            { "texture": "grain", "reserve": { "bottom": 120, "left": 8 } }],
+                "rail": { "texture": "paper", "reserve": { "top": 40 } } } },"#,
+        )
+        .unwrap();
+        let resolved = package.resolve(Mode::Dark).unwrap();
+        assert_eq!(
+            resolved.art.reserve(ArtSurface::Sidebar),
+            Some(Reserve {
+                top: 0.0,
+                bottom: 300.0,
+                left: 8.0,
+                right: 0.0
+            })
+        );
+        assert_eq!(resolved.art.reserve(ArtSurface::Chat), None);
+        assert!(
+            package
+                .notes
+                .iter()
+                .any(|note| note.contains("art.surfaces.rail[0].reserve")),
+            "{:?}",
+            package.notes
+        );
+        let error = theme(r#""art": { "surfaces": { "chat": { "texture": "paper", "reserve": { "top": 5000 } } } },"#)
+            .unwrap_err();
+        assert!(
+            error.0.contains("art.surfaces.chat[0].reserve.top"),
+            "{}",
+            error.0
+        );
+    }
+
+    #[test]
     fn refuses_card_art_that_moves_or_crowds() {
         for (layers, place) in [
             (
@@ -703,9 +925,34 @@ mod tests {
                 "layout.cards.art[0]",
             ),
             (
-                r#""layout": { "cards": { "art": [{ "texture": "paper" }, { "texture": "paper" }, { "texture": "paper" }] } },"#,
+                r#""layout": { "cards": { "art": [{ "texture": "paper" }, { "texture": "paper" }, { "texture": "paper" }, { "texture": "paper" }, { "texture": "paper" }] } },"#,
                 "layout.cards.art",
             ),
+            (
+                r#""layout": { "cards": { "art": { "image": ["a.png", "b.png", "c.png", "d.png", "e.png", "f.png", "g.png"] } } },"#,
+                "layout.cards.art[0].image",
+            ),
+            (
+                r#""layout": { "cards": { "art": { "texture": "paper", "size": [2000, 10] } } },"#,
+                "layout.cards.art[0].size[0]",
+            ),
+            (
+                r#""layout": { "cards": { "stagger": 80 } },"#,
+                "layout.cards.stagger",
+            ),
+            (
+                r#""layout": { "bubbles": { "own": { "art": { "texture": "paper", "drift": [3, 0] } } } },"#,
+                "layout.bubbles.own.art[0]",
+            ),
+            (
+                r#""layout": { "bubbles": { "other": "linear(nope)" } },"#,
+                "layout.bubbles.other",
+            ),
+            (
+                r#""art": { "surfaces": { "chat": { "texture": "paper", "size": [2, 40] } } },"#,
+                "art.surfaces.chat[0].size[0]",
+            ),
+            (r#""art": { "glass": { "gap": 80 } },"#, "art.glass.gap"),
             (
                 r#""layout": { "cards": { "art": { "texture": "paper", "size": [2, 10] } } },"#,
                 "layout.cards.art[0].size[0]",

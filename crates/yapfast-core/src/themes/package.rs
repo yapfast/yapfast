@@ -1577,6 +1577,22 @@ pub(super) fn colour_at(value: &Value, place: &str) -> Result<u32, Error> {
         .ok_or_else(|| Error(format!("\"{place}\" has to be a colour such as #1e1f24")))
 }
 
+/// A colour, or a gradient written `linear(135deg, #ff71ce, #01cdfe)`.
+pub(crate) fn paint_at(value: &Value, place: &str) -> Result<Paint, Error> {
+    let text = value
+        .as_str()
+        .ok_or_else(|| Error(format!("\"{place}\" has to be a colour such as #1e1f24")))?;
+    if text.trim_start().starts_with("linear(") {
+        parse_linear(text).ok_or_else(|| {
+            Error(format!(
+                "\"{place}\" isn't a gradient Yapfast reads: write linear(135deg, #ff71ce, #01cdfe)"
+            ))
+        })
+    } else {
+        colour_at(value, place).map(Paint::Colour)
+    }
+}
+
 fn read_colours(
     value: &Value,
     place: &str,

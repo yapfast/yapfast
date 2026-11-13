@@ -122,6 +122,10 @@ export component MemberPanel inherits Rectangle {
     in property <string> note;
     /// The member whose profile card is open.
     in property <string> selected;
+    /// A theme's collapsed list, shut: a narrow strip of avatars, without
+    /// headings or activity.
+    in property <bool> strip;
+    clip: root.strip;
     /// A gem by each server booster's name; on unless turned off.
     in property <bool> boost-gems: true;
     /// A member was clicked: their id, and where their row is in the window.
@@ -151,16 +155,20 @@ export component MemberPanel inherits Rectangle {
         running: root.activity-rows.length > 0;
         triggered => { root.activity-clock(); }
     }
+    // A theme's art may keep the list clear of an edge; it scrolls in
+    // what's left.
     VerticalLayout {
+        padding-top: Art.reserve-members.top; padding-bottom: Art.reserve-members.bottom;
+        padding-left: Art.reserve-members.left; padding-right: Art.reserve-members.right;
         // A theme's line over the list, such as `$ who`.
         if Chrome.members-title != "": HorizontalLayout {
             padding-left: 16px; padding-right: 8px; height: 32px;
             Text {
                 text: Chrome.members-title; color: Theme.muted; font-size: 14px; vertical-alignment: bottom; overflow: elide;
-                accessible-role: none;
+                accessible-role: none; opacity: root.strip ? 0 : 1;
             }
         }
-        if root.activity-rows.length > 0 && !Chrome.hide-activity-cards: VerticalLayout {
+        if root.activity-rows.length > 0 && !Chrome.hide-activity-cards && !root.strip: VerticalLayout {
             padding-left: 8px; padding-right: 8px; padding-top: 8px; padding-bottom: 4px; spacing: 0px;
             activity-header := Rectangle {
                 // Opening it shows the cards again if they were hidden, as
@@ -293,7 +301,7 @@ export component MemberPanel inherits Rectangle {
                     Text {
                         text: Chrome.members-group != "" ? Chrome.fill(Chrome.members-group, "group", member.heading) : member.heading;
                         accessible-label: member.heading;
-                        color: #81828a; font-size: 14px; font-weight: 500; vertical-alignment: center;
+                        color: #81828a; font-size: 14px; font-weight: 500; vertical-alignment: center; opacity: root.strip ? 0 : 1;
                     }
                 }
                 // A heading is a row of its own; see `show_roster`.
@@ -1061,7 +1069,7 @@ export component ProfileCard inherits Rectangle {
     property <color> bubble: !root.themed ? Theme.raised : root.light ? #ffffff : #232427;
     property <color> bubble-edge: !root.themed ? Theme.edge : root.light ? #00000026 : #404044;
     height: min(body.preferred-height + (root.themed ? 0px : 2 * root.edge-inset), root.limit);
-    background: root.themed ? @linear-gradient(180deg, root.data.theme-primary 0%, root.data.theme-secondary 100%) : Art.glass-card && !root.docked ? transparent : root.plain-ground;
+    background: root.themed ? @linear-gradient(180deg, root.data.theme-primary 0%, root.data.theme-secondary 100%) : Art.glass-card && !root.docked ? transparent : Art.glass-profile-pane && root.docked ? transparent : root.plain-ground;
     property <length> corner: root.docked ? Look.radius(ClientStyle.enabled ? 8px : 0px) : Look.r(Look.card, 12px);
     // A theme's border, solid, dashed or dotted, stays around the banner
     // and the card's art: what's inside starts past it, under corners
@@ -1092,6 +1100,11 @@ export component ProfileCard inherits Rectangle {
             // themed themselves.
             if !root.themed && !root.docked && (Art.card.length > 0 || Art.glass-card): ArtLayer {
                 x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.card; glass: Art.glass-card; ground: root.plain-ground;
+            }
+            // A theme's `profile-pane` art and glass, on the profile docked
+            // beside a DM.
+            if !root.themed && root.docked && (Art.profile-pane.length > 0 || Art.glass-profile-pane): ArtLayer {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; layers: Art.profile-pane; glass: Art.glass-profile-pane; ground: root.plain-ground;
             }
             if !root.themed && !root.docked && Art.foil-card: ArtFoil {
                 x: 0px; y: 0px; width: parent.width; height: parent.height;
