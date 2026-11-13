@@ -67,6 +67,7 @@ pub struct Participant {
 #[derive(Clone, Debug)]
 pub struct Sharing {
     pub phase: SharePhase,
+    pub enhanced_preview: bool,
     /// What's being shared, as the UI previews it.
     pub frames: Arc<crate::frames::Frames>,
     /// Who watches it, by user id, as Discord lists them.
@@ -92,9 +93,12 @@ pub struct Watching {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Resolution {
+    P480,
     P720,
     #[default]
     P1080,
+    P1440,
+    P2160,
     /// The screen's own size, up to 4K.
     Source,
 }
