@@ -4,8 +4,6 @@
 // `has_console`.
 #![cfg_attr(all(windows, feature = "desktop"), windows_subsystem = "windows")]
 
-#[cfg(all(feature = "desktop", target_os = "linux"))]
-mod activation;
 #[cfg(feature = "desktop")]
 mod autostart;
 mod build_info;

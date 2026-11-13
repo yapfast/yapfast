@@ -5,16 +5,19 @@
 
 use std::cell::Cell;
 
-/// The xdg-activation token of the last tray click. KDE Plasma sends it just
-/// before the click itself; it lets a Wayland window come to the front.
+/// The xdg-activation token of the tray click or Open Yapfast that is
+/// opening the window, which lets a Wayland window come to the front.
 #[cfg(target_os = "linux")]
-static ACTIVATION_TOKEN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+static TOKEN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
-/// The token the tray click that is opening the window came with, once.
+/// The token of the tray click that asked for the window, once.
 pub fn take_activation_token() -> Option<String> {
     #[cfg(target_os = "linux")]
     {
-        ACTIVATION_TOKEN.lock().ok()?.take()
+        TOKEN
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -203,6 +206,15 @@ mod linux {
     }
 
     fn choose(chosen: fn(Choice), choice: Choice) {
+        // KDE Plasma sends a click on the icon or a menu item its
+        // xdg-activation token just before the click, and ksni hands it to
+        // the click. Most other trays, such as Waybar, send none.
+        if choice == Choice::Open {
+            *super::TOKEN
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                ksni::current_xdg_activation_token();
+        }
         let _ = slint::invoke_from_event_loop(move || chosen(choice));
     }
 
@@ -236,17 +248,6 @@ mod linux {
         }
 
         fn activate(&mut self, _x: i32, _y: i32) {
-            // KDE Plasma may deliver the token a moment after the click.
-            let token = ksni::current_xdg_activation_token().or_else(|| {
-                std::thread::sleep(std::time::Duration::from_millis(1));
-                ksni::current_xdg_activation_token()
-            });
-            if let Some(token) = token
-                && token.len() <= 256
-                && let Ok(mut kept) = super::ACTIVATION_TOKEN.lock()
-            {
-                *kept = Some(token);
-            }
             choose(self.chosen, Choice::Open);
         }
 
