@@ -172,9 +172,33 @@ static int make_surfaces(struct yapfast_ffdec *decoder, AVCodecContext *context)
   return 0;
 }
 
+/* Whether `codec` has a Direct3D 11 hwaccel that decodes into the frames this
+ * file makes: the one whose config takes a device context and names the
+ * AV_PIX_FMT_D3D11 surfaces. FFmpeg offers that format in the list get_format
+ * chooses from whether or not the decoder carries such a hwaccel — H264 offers
+ * both of Direct3D 11's decoders' pictures under the older one's switch — and a
+ * hardware format chosen without one leaves avctx->hwaccel null: FFmpeg then
+ * decodes the macroblocks in the processor's memory, into frames that have
+ * none, and writes each prediction through plane pointers that were never
+ * there. That is an access violation rather than a picture, so the format is
+ * only taken where the decoder says it decodes into it. */
+static int decodes_on_the_card(const AVCodec *codec) {
+  for (int index = 0;; index++) {
+    const AVCodecHWConfig *config = avcodec_get_hw_config(codec, index);
+    if (!config) return 0;
+    if (config->pix_fmt == AV_PIX_FMT_D3D11 &&
+        config->device_type == AV_HWDEVICE_TYPE_D3D11VA &&
+        (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX)) {
+      return 1;
+    }
+  }
+}
+
 /* Picks the card's format out of what a decoder offers, making the surfaces
  * the size the stream has settled on by then. AV_PIX_FMT_NONE says this
- * decoder can't decode on the card, which ends the decode and falls back. */
+ * decoder can't decode on the card, which ends the decode and falls back; the
+ * software format — FFmpeg puts it last — says the same for a decoder whose
+ * list holds no card format at all. */
 static enum AVPixelFormat choose_format(AVCodecContext *context, const enum AVPixelFormat *formats) {
   struct yapfast_ffdec *decoder = context->opaque;
   const AVHWFramesContext *held =
@@ -193,7 +217,9 @@ static enum AVPixelFormat choose_format(AVCodecContext *context, const enum AVPi
     }
     return AV_PIX_FMT_D3D11;
   }
-  return formats[0];
+  const enum AVPixelFormat *software = formats;
+  while (software[1] != AV_PIX_FMT_NONE) ++software;
+  return *software;
 }
 
 /* The device context over the caller's device, so that FFmpeg's decoder makes
@@ -260,6 +286,10 @@ struct yapfast_ffdec *yapfast_ffdec_new(int codec, int hint_width, int hint_heig
   const AVCodec *implementation = avcodec_find_decoder(id);
   if (!implementation) {
     fail_text(decoder, "FFmpeg was built without this decoder");
+    goto failed;
+  }
+  if (!decodes_on_the_card(implementation)) {
+    fail_text(decoder, "this build of FFmpeg has no Direct3D 11 decoder for the codec");
     goto failed;
   }
   if (take_device(decoder, device) < 0) goto failed;

@@ -39,10 +39,18 @@ WINDOWS_ENCODERS=h264_nvenc,hevc_nvenc,av1_nvenc,h264_amf,hevc_amf,av1_amf,h264_
 DECODERS=h264,hevc,av1,vp9
 PARSERS=h264,hevc,av1,vp9
 # The hardware decode hands its surfaces to the device the window and the
-# encoder already hold, through AVD3D11VAFramesContext, whose pool decoder.rs
-# allocates up front. The *_d3d11va2 variants decode into textures the caller
-# owns; these give frames the caller can pre-allocate.
-WINDOWS_HWACCELS=h264_d3d11va,hevc_d3d11va,av1_d3d11va,vp9_d3d11va
+# encoder already hold, through AVD3D11VAFramesContext, whose pool native/hwdec.c
+# allocates up front — and only the *_d3d11va2 hwaccels decode into those:
+# FFmpeg's plain *_d3d11va ones leave their pictures in AV_PIX_FMT_D3D11VA_VLD
+# and decode through the older VLD API, whose context the caller makes. The
+# plain ones are enabled too, because a decoder offers AV_PIX_FMT_D3D11 in the
+# list get_format chooses from under their switch alone, and FFmpeg takes that
+# format without a hwaccel where the *_2 one isn't built — which decodes the
+# macroblocks in the processor's memory into frames that have no planes there.
+# H264, HEVC and AV1 are the three a watched stream is coded with; VP9's own
+# decoder is that stream's software path, since no card decoder of this shim's
+# takes it.
+WINDOWS_HWACCELS=h264_d3d11va,h264_d3d11va2,hevc_d3d11va,hevc_d3d11va2,av1_d3d11va,av1_d3d11va2,vp9_d3d11va
 # The same decode on Linux, through VA-API: FFmpeg leaves each picture in a
 # VA surface, and libdrm is what lets av_hwframe_map hand it over as a
 # DMA-BUF (`AV_PIX_FMT_DRM_PRIME`) instead of copying it back.

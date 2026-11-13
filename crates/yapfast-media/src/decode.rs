@@ -1577,10 +1577,6 @@ mod tests {
     /// which is the path a viewer's frame takes when nothing goes wrong.
     #[cfg(d3d11dec)]
     #[test]
-    // The card's own decoder, which this machine's Direct3D 11 path takes the
-    // test process down with (an access violation before the first frame, with
-    // no output) — so it is asked for by hand until that is understood.
-    #[ignore = "needs a card whose Direct3D 11 decoder opens in the test process"]
     fn a_stream_the_card_can_decode_is_watched_on_the_card() {
         if Hardware::new(Codec::H264).is_err() {
             eprintln!("this machine's card has no H264 decoder");
@@ -1892,10 +1888,6 @@ mod tests {
     /// blue) that a swapped channel order could not pass.
     #[cfg(d3d11dec)]
     #[test]
-    // The card's own decoder takes this test process down here, as its sibling
-    // above does — an access violation with no output — so it is asked for by
-    // hand until that is understood.
-    #[ignore = "needs a card whose Direct3D 11 decoder opens in the test process"]
     fn the_card_shows_a_stream_in_the_same_colours_as_software() {
         let units = [
             (
