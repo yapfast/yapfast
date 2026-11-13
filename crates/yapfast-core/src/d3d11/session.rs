@@ -113,8 +113,20 @@ pub struct Converter {
 
 #[cfg(d3d11conv)]
 impl Converter {
-    /// A converter from `from` to `to`, on the device the capture fills.
-    pub fn new(device: *mut std::ffi::c_void, from: (u32, u32), to: (u32, u32)) -> Result<Self> {
+    /// A converter from `from` to `to`, on the device the capture fills, of
+    /// `light`'s picture: an HDR one makes this blit the tone map as well, told
+    /// what its input and its output really are, so a frame of scRGB's linear
+    /// light leaves as the BT.709 the stream declares.
+    // `device` is an opaque handle in the same sense [`Texture`] is: nothing in
+    // this crate reads through it, and the shim holds it without taking a
+    // reference of its own.
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
+    pub fn new(
+        device: *mut std::ffi::c_void,
+        from: (u32, u32),
+        to: (u32, u32),
+        light: Light,
+    ) -> Result<Self> {
         let mut why = [0u8; 192];
         // SAFETY: the device is the capture's, which outlives this; the buffer is
         // one the shim ends with a zero.
@@ -125,6 +137,7 @@ impl Converter {
                 from.1,
                 to.0,
                 to.1,
+                light.hdr(),
                 why.as_mut_ptr().cast(),
                 why.len(),
             )
@@ -220,6 +233,42 @@ impl Surfaces {
         match self {
             Self::Ring => 4,
             Self::One => 1,
+        }
+    }
+}
+
+/// What a capture's textures hold, which is the one thing a session has to be
+/// told rather than shown: the 8-bit BGRA every screen's capture falls back to,
+/// or the half-float scRGB an HDR screen hands over, which never reaches the
+/// encoder as it is — the card's video processor tone-maps it into the BGRA the
+/// encoder registers, in the same blit that already scales the picture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Light {
+    /// Eight-bit BGRA in sRGB's codes: a screen showing SDR, and the 8-bit
+    /// picture an HDR screen's capture is left with where the driver won't take
+    /// the float one. Nothing is tone-mapped, and none of these frames is
+    /// touched on the way to the encoder.
+    Sdr,
+    /// `R16G16B16A16_FLOAT` scRGB: linear light with BT.709's primaries and 1.0
+    /// at 80 nits, which is what Windows Graphics Capture hands over for a
+    /// display showing HDR.
+    ScRgb,
+}
+
+impl Light {
+    /// The light a capture answered with, from whether its frames are the float
+    /// picture: a share asks its capture rather than the setting that asked for
+    /// one, since a driver that refused the float picture hands over the 8-bit
+    /// one instead.
+    pub fn of(hdr: bool) -> Self {
+        if hdr { Self::ScRgb } else { Self::Sdr }
+    }
+
+    /// The flag the shim opens a session with.
+    pub(crate) fn hdr(self) -> c_int {
+        match self {
+            Self::Sdr => 0,
+            Self::ScRgb => 1,
         }
     }
 }
@@ -332,6 +381,12 @@ impl D3d11Encoder {
     /// the ring the capture fills, and [`Surfaces::One`] for one that reads a
     /// frame in ten to show a preview.
     ///
+    /// `light` is what those surfaces hold, which is [`Light::of`] the capture's
+    /// own answer rather than what the setting asked for: an HDR capture's
+    /// half-floats are tone-mapped on the card by the video processor this
+    /// session already scales with, and a session whose card won't is refused
+    /// here, before a frame is lost to it.
+    ///
     // `device` is an opaque handle in the same sense [`Texture`] is: nothing in
     // this crate reads through it, it is handed to the shim, and the shim holds
     // it for the session's length without ever taking a reference of its own.
@@ -339,6 +394,7 @@ impl D3d11Encoder {
     // a lifetime this signature can't name and a stream keeps by owning the
     // capture beside the encoder.
     #[allow(clippy::not_unsafe_ptr_arg_deref)]
+    #[allow(clippy::too_many_arguments)]
     pub fn open_on(
         device: *mut c_void,
         codec: Codec,
@@ -347,6 +403,7 @@ impl D3d11Encoder {
         fps: u32,
         kbps: u32,
         surfaces: Surfaces,
+        light: Light,
     ) -> Result<Self> {
         let number = codec_number(codec, width, height)?;
         let mut report = [0u8; 192];
@@ -362,6 +419,7 @@ impl D3d11Encoder {
                 fps,
                 kbps,
                 surfaces.held(),
+                light.hdr(),
                 std::ptr::null(),
                 report.as_mut_ptr().cast(),
                 report.len(),
@@ -376,6 +434,7 @@ impl D3d11Encoder {
             engine = encoder.configuration.engine.as_str(),
             ?codec,
             ?surfaces,
+            ?light,
             tuning = encoder.configuration.tuning.as_str(),
             config = config.as_str(),
             codecs = encoder.codecs.as_str(),

@@ -964,6 +964,41 @@ takes the kernels' curve today: it is there for a capture that hands HDR's codes
 over, as the `R16G16B16A16_FLOAT` picture Desktop Duplication hands over, which
 Windows' own card rung is still to ask for. The format it writes is the one the
 encoder reports it took, NV12
+HDR is the one case the card does something about, and it does it with the blit
+that was already there. Whether a display shows HDR is the system's own
+per-monitor answer, `advancedColorEnabled`, the question
+`picture::tone_of_screen` asks, and it is asked once per share: a screen showing
+SDR is captured as the 8-bit BGRA it always was and takes the path below
+unchanged, byte for byte, because a curve over frames that never needed one is a
+share darker than the screen. A screen showing HDR is asked of Windows Graphics
+Capture for the `R16G16B16A16_FLOAT` picture instead of the 8-bit one, which is
+the scRGB the compositor really draws — linear light, BT.709's primaries, 1.0 at
+80 nits — and the session that reads it names its input colour space
+`DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709` and its output
+`DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709` on the video processor that already
+scales every frame. That conversion is the tone map: 80 nits to white and what is
+above it rolled off by the driver, in the same one blit, and the BGRA picture the
+encoder registered before is what comes out of it, so a frame of an HDR screen
+costs what a frame of an SDR one did and nothing downstream changed. It is scRGB
+rather than PQ because that is what Graphics Capture hands over: reading linear
+light through PQ's curve is a picture that comes out nearly black. Desktop
+Duplication never asks for the float picture, because its own shader has already
+tone-mapped the scRGB surface into the BGRA it hands over, and a hint of the SDR
+white level the system reports is what keeps that tone map the screen's.
+
+Two things can refuse the float picture, and each leaves the share with what it
+had before any of this existed. A frame pool that won't hold it is asked for the
+8-bit one instead, inside the shim, and the capture's own line in the log says
+which call refused it ("the screen shows HDR, and the frame pool refused the
+16-bit float picture (CreateFreeThreaded, 0x…)"): that share is Windows' own
+tone map rather than ours. A card whose video processor won't take the float
+picture, the input view, or either colour space fails the session's open — the
+colour spaces are set and read back before the stream starts rather than
+discovered three frames into it — and the rung is named in the line that says
+the share is on the processor, where `picture::Tone::pq()` tone-maps to SDR's
+brightness over a picture in memory, one pass, in the same buffer. That table is
+the fallback it always was; it is no longer the only way an HDR share reaches a
+viewer. The format the encoder writes is the one it reports it took, NV12
 or planar I420, and an open that gets neither fails by name rather than
 scrambling the picture. Its frames carry the caller's 90 kHz time rescaled into
 the encoder's own time base, so every engine, and a fallback between them, runs
@@ -1108,6 +1143,16 @@ described above; what has been run on hardware is this:
   exercised on one from here. A stream the card can't take falls back to the
   processor, and the log says why; whether a given machine's driver takes it
   is that machine's to answer.
+- **Tone-mapping an HDR screen on the card** is code and a build, not a
+  measurement: no HDR share was captured to write it. What the driver makes of
+  `DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709` in and
+  `DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709` out — where its white point sits,
+  how far it rolls off a 1000-nit highlight, and whether a desktop's SDR white
+  arrives at the brightness the screen shows it at — is that driver's answer and
+  not one seen here, and so is whether a frame pool gives the
+  `R16G16B16A16_FLOAT` picture at all. What was checked is that every shim and
+  every caller builds, and that a share of a screen showing SDR takes exactly
+  the calls it took before.
 - **Intel Quick Sync** is in the vendored build (oneVPL 2.14.0,
   `--enable-libvpl`) and in the probe, and no Intel GPU has run it. It is fed
   from the processor, like AMF, and says so.

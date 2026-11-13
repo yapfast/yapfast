@@ -262,6 +262,11 @@ pub(crate) struct Scratch {
 /// that already convert a picture curve its codes where this answers HDR, and a
 /// picture they can't take then goes the processor's way, where this tone's table
 /// is. Nothing there reads a format either.
+/// What the display's setting is good for is the format a capture asks Windows
+/// for: the card's rung asks it exactly that, so a screen showing HDR is captured
+/// as the half-floats and tone-mapped by the encoder's video processor, where this
+/// returns a curve for a picture the processor captured in memory. Two questions
+/// about one answer, and only this one is about pixels.
 pub(crate) fn tone_of(source: &Source) -> Tone {
     match source {
         Source::Display(monitor) => picture::tone_of_screen(*monitor),

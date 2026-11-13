@@ -87,6 +87,22 @@ impl Card {
         }
     }
 
+    /// Whether this capture's textures are the half-float scRGB picture an HDR
+    /// screen hands over, rather than 8-bit BGRA: what the encoder has to be told
+    /// so that its video processor tone-maps them on the card.
+    ///
+    /// A duplication answers no however the screen is set, and that is not a
+    /// fallback: native/dup.cc reads the scRGB surface itself and tone-maps it
+    /// into the BGRA it hands over, so what arrives here is already SDR's codes.
+    pub(crate) fn hdr(&self) -> bool {
+        match self {
+            #[cfg(wgc)]
+            Self::Graphics { capture, .. } => capture.hdr(),
+            #[cfg(dup)]
+            Self::Duplication { .. } => false,
+        }
+    }
+
     /// The borrowed texture the last [`Arrival::Frame`] left here.
     pub(crate) fn texture(&self) -> *mut c_void {
         match self {
@@ -187,17 +203,20 @@ pub(crate) struct Chosen {
     pub(crate) why: String,
 }
 
-/// Opens `rung`'s capture of `source`.
+/// Opens `rung`'s capture of `source`, and on an HDR screen asks for the picture
+/// the screen really shows: the half-float one, where the rung can hand it over
+/// and the encoder can tone-map it.
 #[cfg(any(wgc, dup))]
 pub(crate) fn open_rung(
     rung: capture::Rung,
     source: &Source,
     sink: &Sink,
     bounds: (u32, u32),
+    hdr: bool,
 ) -> Result<Card> {
     match rung {
         #[cfg(wgc)]
-        capture::Rung::Graphics => graphics_capture(source, sink, bounds),
+        capture::Rung::Graphics => graphics_capture(source, sink, bounds, hdr),
         #[cfg(dup)]
         capture::Rung::Duplication => duplication(source, sink, bounds),
         // A rung this build doesn't carry is never in the order; the arm keeps
@@ -359,6 +378,7 @@ pub(crate) fn graphics_capture(
     source: &Source,
     sink: &Sink,
     (max_width, max_height): (u32, u32),
+    hdr: bool,
 ) -> Result<Card> {
     // Which of the two constructors this goes through, and the handle it names:
     // a window as itself, by the item `CreateForWindow` makes, and a display as
@@ -372,7 +392,25 @@ pub(crate) fn graphics_capture(
             wgc::Target::from(wgc::Monitor::new(monitor_of(place)? as usize as *mut c_void))
         }
     };
-    let capture = wgc::Capture::open(target)?;
+    // A screen showing HDR is asked for the picture it really draws, which the
+    // encoder's own video processor turns back into SDR on the card. A capture
+    // that won't open that way is not a share without its screen: it is opened as
+    // the 8-bit picture Windows tone-maps itself, which is what this rung did
+    // before the half-float one existed, and one line says which refused.
+    let capture = if hdr {
+        match wgc::Capture::open_hdr(target) {
+            Ok(capture) => capture,
+            Err(refusal) => {
+                tracing::info!(
+                    why = format!("{refusal:#}"),
+                    "sharing the HDR screen as 8-bit BGRA: the half-float picture wouldn't open"
+                );
+                wgc::Capture::open(target)?
+            }
+        }
+    } else {
+        wgc::Capture::open(target)?
+    };
     let (width, height) = capture.content_size();
     if width == 0 || height == 0 {
         bail!("the screen is {width}x{height}, which is nothing to capture");
@@ -386,6 +424,10 @@ pub(crate) fn graphics_capture(
         sink.fps,
         kbps(sent_width, sent_height, sink.fps),
         d3d11::Surfaces::Ring,
+        // What the capture actually took rather than what was asked for: a
+        // driver that gave the half-float picture is the one whose session has
+        // to tone-map it, and a driver that gave the 8-bit one needs nothing.
+        d3d11::Light::of(capture.hdr()),
     )
     .context("the card won't open an encoder on the device it captures with")?;
     Ok(Card::Graphics { capture, target })
@@ -424,6 +466,7 @@ pub(crate) fn duplication(
         sink.fps,
         kbps(sent_width, sent_height, sink.fps),
         d3d11::Surfaces::Ring,
+        d3d11::Light::Sdr,
     )
     .context(
         "the card won't open an encoder on the device the duplication fills its textures on",
@@ -515,20 +558,23 @@ pub(crate) fn target_of_monitor(monitor: u64) -> Result<dup::Target> {
 /// Capture that opens with its border still on is refused the same way, once it
 /// has been let go in full, which is the case that used to leave a Windows 10
 /// share drawing a yellow outline beside a duplication that would have been
-/// clean. Either rung hands the loop the same borrowed BGRA texture on the
-/// device its capture made, so everything after this decision is the same.
+/// clean. Either rung hands the loop the same borrowed texture on the device its
+/// capture made, so everything after this decision is the same.
+///
+/// A screen showing HDR is not a reason to leave the card any more: the rung is
+/// asked for the picture the screen really draws — the half-float scRGB one,
+/// which Graphics Capture hands over and `native/d3d11enc.c` tone-maps on the
+/// card — and a card that can't is named and left for the processor's capture,
+/// where the curve is a table over a picture in memory.
 #[cfg(any(wgc, dup))]
 pub(crate) fn card_capture(source: &Source, sink: &Sink, bounds: (u32, u32)) -> Result<Chosen> {
     if !sink.hardware {
         bail!("the stream is set to encode on the processor");
     }
-    // A screen showing HDR hands its frames over as HDR's codes, and the card's
-    // path has nothing between them and the encoder: the curve is a table over a
-    // picture in memory, which that path never makes. So an HDR screen is the
-    // processor's to capture, where the curve is.
-    if tone_of(source).is_hdr() {
-        bail!("the screen shows HDR, which the card's capture has no curve for");
-    }
+    // Whether the screen shows HDR is the display configuration's answer, taken
+    // once here for every rung: it is what decides the format a capture asks
+    // Windows for, and nothing further down guesses it from a pixel.
+    let hdr = tone_of(source).is_hdr();
     let preference = capture::preference();
     let platform = capture::platform();
     let available = capture::Available {
@@ -538,7 +584,7 @@ pub(crate) fn card_capture(source: &Source, sink: &Sink, bounds: (u32, u32)) -> 
     let rungs = capture::order(preference, platform, available);
     let mut refused = String::new();
     for (at, &rung) in rungs.iter().enumerate() {
-        match open_rung(rung, source, sink, bounds) {
+        match open_rung(rung, source, sink, bounds, hdr) {
             Ok(card) => {
                 let next = rungs.get(at + 1).copied();
                 if capture::keeps(preference, rung, card.borderless(), next) {
@@ -699,6 +745,7 @@ pub(crate) fn capture_textures(
                     content,
                     sent,
                     capture.device(),
+                    capture.hdr(),
                 );
                 size = Some(sent);
             }
@@ -732,6 +779,7 @@ pub(crate) fn capture_textures(
                         content,
                         sent,
                         capture.device(),
+                        capture.hdr(),
                     );
                     size = Some(sent);
                 }
@@ -849,6 +897,10 @@ pub(crate) fn capture_textures(
                     fps,
                     kbps(preview.0, preview.1, fps),
                     d3d11::Surfaces::One,
+                    // The tile is read from the capture's own texture, so a
+                    // screen showing HDR is tone-mapped through the same blit
+                    // the stream's picture goes through.
+                    d3d11::Light::of(capture.hdr()),
                 ) {
                     Ok(opened) => {
                         // The picture the UI's window shows where it lies is made

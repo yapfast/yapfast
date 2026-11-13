@@ -21,13 +21,16 @@
 struct yapfast_d3d11conv;
 
 /* A converter on `device` (an ID3D11Device), from `from_width` by `from_height`
- * BGRA to `to_width` by `to_height` NV12. The device is borrowed: the caller
- * keeps it alive for at least as long as this, and nothing here AddRefs it. Null
- * with `why` filled when the device has no video processor, or won't take these
- * sizes. */
+ * BGRA — or, with `hdr`, the half-float scRGB an HDR screen hands over — to
+ * `to_width` by `to_height` NV12. The device is borrowed: the caller keeps it
+ * alive for at least as long as this, and nothing here AddRefs it. Null with
+ * `why` filled when the device has no video processor, won't take these sizes, or
+ * — for an HDR picture — won't take the colour spaces that make this blit a tone
+ * map. */
 struct yapfast_d3d11conv *yapfast_d3d11conv_new(void *device, unsigned from_width,
                                                unsigned from_height, unsigned to_width,
-                                               unsigned to_height, char *why, size_t size);
+                                               unsigned to_height, int hdr, char *why,
+                                               size_t size);
 /* Runs the processor over `texture` and gives back the NV12 texture it wrote,
  * which is this converter's and stays valid until the next call, a resize or
  * [`yapfast_d3d11conv_free`]. Null with `why` filled when the picture wasn't

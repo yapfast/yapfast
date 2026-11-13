@@ -675,7 +675,7 @@ fn a_share_from_the_card_encodes_on_the_card() {
     // A machine without NVENC on that device has nothing to check here,
     // and says so the way a stream on it would: this is the error that
     // keeps that machine sharing from the processor.
-    let Ok((offers, encoder)) = sink.offers(320, 180, Some(capture.device())) else {
+    let Ok((offers, encoder)) = sink.offers(320, 180, Some(capture.device()), capture.hdr()) else {
         eprintln!("no NVENC here, so there is no card's encoder to check");
         return;
     };
@@ -930,6 +930,7 @@ fn the_capture_and_the_encoder_are_on_one_device() {
         30,
         kbps(sent_width, sent_height, 30),
         d3d11::Surfaces::Ring,
+        d3d11::Light::of(capture.hdr()),
     ) else {
         eprintln!(
             "and this machine has no H264 NVENC session on the device the capture fills its \

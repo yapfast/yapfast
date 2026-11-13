@@ -7,8 +7,12 @@
 //! upload of every frame. This is the same encoders reading the frame where it
 //! already is, and it needs two things of its caller that hwenc.c doesn't: the
 //! texture has to live on this encoder's device ([`D3d11Encoder::device`]), and
-//! it has to be a concrete format — BGRA, RGBA or NV12 — since the driver reads
-//! the surface's own format and refuses a typeless one.
+//! it has to be a concrete format — BGRA, RGBA or NV12, and the half-float scRGB
+//! an HDR screen hands over where the session was opened for one
+//! ([`Light`]) — since the driver reads the surface's own format and refuses a
+//! typeless one. That last one is never registered: the card's video processor
+//! tone-maps it into BGRA in the blit that already scales the picture, so the
+//! encoder reads what it always read.
 //!
 //! The one copy is the bitstream: the driver's mapped output is moved into the
 //! caller's buffer once per frame, so a packet can outlive the encoder's lock.
@@ -85,6 +89,7 @@ unsafe extern "C" {
         fps: c_uint,
         kbps: c_uint,
         surfaces: c_uint,
+        hdr: c_int,
         tuning: *const c_char,
         report: *mut c_char,
         report_size: usize,
@@ -179,6 +184,7 @@ unsafe extern "C" {
         from_height: c_uint,
         to_width: c_uint,
         to_height: c_uint,
+        hdr: c_int,
         why: *mut c_char,
         size: usize,
     ) -> *mut Raw;
@@ -807,8 +813,17 @@ mod tests {
         // must not move it: what an encoder on a device handed to it must not do is
         // make a second device.
         let devices_before = unsafe { yapfast_d3d11enc_devices_created() };
-        let encoder = D3d11Encoder::open_on(device, codec, width, height, 60, 8000, Surfaces::Ring)
-            .unwrap_or_else(|why| panic!("no encoder on the capture's device: {why:#}"));
+        let encoder = D3d11Encoder::open_on(
+            device,
+            codec,
+            width,
+            height,
+            60,
+            8000,
+            Surfaces::Ring,
+            Light::Sdr,
+        )
+        .unwrap_or_else(|why| panic!("no encoder on the capture's device: {why:#}"));
         assert_eq!(
             unsafe { yapfast_d3d11enc_devices_created() },
             devices_before,
@@ -905,6 +920,7 @@ pub(crate) use device::*;
 #[cfg(d3d11conv)]
 pub use session::Converter;
 pub use session::D3d11Encoder;
+pub use session::Light;
 pub use session::Resize;
 pub use session::Surfaces;
 pub use session::Texture;
